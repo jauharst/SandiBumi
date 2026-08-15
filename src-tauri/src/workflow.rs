@@ -5592,6 +5592,92 @@ mod tests {
         );
     }
 
+    /// CORRECTNESS — SB-ENV-006 / SB-ENV-T11, `docs/PRD_v2/20_envcorr-qc.md` section 6.2.
+    /// The cited expected behavior is a visible refusal or a fully flagged uncorrected result;
+    /// because SB-ENV-005/007 are not available, this increment chooses refusal. The numeric
+    /// values are synthetic non-zero algebra fixtures, not correction defaults or field endpoints.
+    #[test]
+    fn a_gr_correction_with_no_caliper_refuses_and_writes_no_uncorrected_copy() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_uuid = Uuid::new_v4();
+        db::insert_well(&conn, well_uuid, "MISSING-CALIPER", None, None, Some(0.0)).unwrap();
+        let well = well_uuid.to_string();
+        let depths = vec![1000.0f32, 1000.5];
+        db::insert_standard_curves(
+            &conn,
+            well_uuid,
+            depths.clone(),
+            vec![80.0, 90.0],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+        )
+        .unwrap();
+
+        let dbm = Mutex::new(conn);
+        let request = || RunModuleRequest {
+            module: "gr_hole_corr".into(),
+            well_ids: vec![well.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("K_GR".into(), 0.01), ("BS_DEF".into(), 8.5)]),
+            opts: HashMap::new(),
+            output_set: Some("GR-CORRECTION".into()),
+            input_set: None,
+            custody: test_run_custody(),
+        };
+
+        let refused = run_workflow_module(&dbm, &request());
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].outcome, ModuleRunOutcome::Failed);
+        let error = refused[0]
+            .error
+            .as_deref()
+            .expect("the missing caliper must be reported to the caller");
+        assert!(error.contains("gr_hole_corr.caliper_coverage"), "condition id missing: {error}");
+        assert!(error.contains("sample 0"), "affected sample missing: {error}");
+        assert!(error.contains("SB-ENV-006"), "contract source missing: {error}");
+        assert!(refused[0].output_curves.is_empty());
+        assert_eq!(refused[0].rows_written, 0);
+        {
+            let conn = dbm.lock().unwrap();
+            let written: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'GR_EC'",
+                    duckdb::params![well],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(written, 0, "a reported refusal must leave no correction-named curve");
+
+            let caliper_id = db::upsert_curve_meta(
+                &conn,
+                &well,
+                "RAW",
+                "CALI",
+                Some("in"),
+                Some("CALI"),
+                Some("synthetic algebra fixture"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &caliper_id, &depths, &[10.5, 11.5]).unwrap();
+        }
+
+        let complete = run_workflow_module(&dbm, &request());
+        assert!(complete[0].error.is_none(), "complete inputs must still run: {:?}", complete[0].error);
+        assert_eq!(complete[0].rows_written, 2);
+        let conn = dbm.lock().unwrap();
+        let (_, curves) = equations::fetch_curve_frame(&conn, &well, &["GR".into(), "GR_EC".into()]).unwrap();
+        assert_ne!(curves["GR_EC"], curves["GR"], "the valid control must exercise a real correction");
+    }
+
     /// Restoring an earlier log-set version must change what the NEXT module run computes.
     ///
     /// `db::log_set_versioning_never_overwrites` proves the restore itself: the archive keeps

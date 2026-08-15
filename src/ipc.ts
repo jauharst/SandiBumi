@@ -997,6 +997,7 @@ export type ValidityCondition = {
   | { kind: "numeric_range"; min: number | null; max: number | null; unit: string; when?: ValidityBranch | null }
   | { kind: "required_companion"; any_of: string[]; when?: ValidityBranch | null }
   | { kind: "required_value"; when?: ValidityBranch | null }
+  | { kind: "required_where_finite"; input: string }
   | { kind: "less_than"; other: string }
 );
 

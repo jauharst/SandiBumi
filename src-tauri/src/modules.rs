@@ -74,6 +74,12 @@ pub enum ValidityRule {
         #[serde(default)]
         when: Option<ValidityBranch>,
     },
+    /// This LogIn must be finite at every sample where another named LogIn is finite.
+    ///
+    /// Unlike [`ValidityRule::RequiredCompanion`], this is a whole-run refusal rather than an
+    /// "at least one finite sample" availability check. It is used when letting one uncovered
+    /// sample through would manufacture an unmarked correction-named copy.
+    RequiredWhereFinite { input: String },
     /// The argument's numeric value must be strictly below another numeric argument per sample.
     LessThan { other: String },
 }
@@ -1422,6 +1428,37 @@ fn validate_declared_preconditions_ignoring(
                             condition.statement,
                             condition.source
                         ));
+                    }
+                }
+                ValidityRule::RequiredWhereFinite { input } => {
+                    let input_arg = spec.args.iter().find(|candidate| candidate.name == *input);
+                    if input_arg.is_none_or(|candidate| candidate.kind != ArgKind::LogIn)
+                        || arg.kind != ArgKind::LogIn
+                    {
+                        return Err(format!(
+                            "module '{}' has an invalid validity manifest: '{}' requires two declared LogIn arguments but names '{}' and '{}'",
+                            spec.name, condition.id, input, arg.name
+                        ));
+                    }
+                    for index in 0..ctx.n {
+                        let primary = numeric_value_at(spec, ctx, input, index);
+                        if !primary.is_some_and(f64::is_finite) {
+                            continue;
+                        }
+                        let companion = numeric_value_at(spec, ctx, &arg.name, index);
+                        if !companion.is_some_and(f64::is_finite) {
+                            return Err(format!(
+                                "precondition '{}' on '{}' failed before {} ran: '{}' is finite but '{}' is missing at sample {}. {} Source: {}",
+                                condition.id,
+                                arg.name,
+                                spec.name,
+                                input,
+                                arg.name,
+                                index,
+                                condition.statement,
+                                condition.source
+                            ));
+                        }
                     }
                 }
                 ValidityRule::LessThan { other } => {
@@ -3168,8 +3205,9 @@ fn gascorr(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 // linearized, coefficient-driven equivalents of the service-company chartbook
 // corrections — the coefficients are parameters that ship absent until a cited tool/chart
 // value is supplied. Chart-lookup fidelity comes later (ROADMAP).
-// Each writes a corrected copy (<LOG>_EC); inputs are never modified, and a missing
-// QC input (e.g. no caliper) passes the log through uncorrected rather than blanking.
+// Each writes a corrected copy (<LOG>_EC); inputs are never modified. The private arithmetic
+// helpers retain their simple missing-value behavior, while the public dispatcher enforces the
+// source-bearing coverage conditions below before any correction-named output can escape.
 // ---------------------------------------------------------------------------
 
 fn gr_hole_corr_spec() -> ModuleSpec {
@@ -3179,7 +3217,8 @@ fn gr_hole_corr_spec() -> ModuleSpec {
         category: "Prep".into(),
         doc: "GR_EC = GR * (1 + K_GR*(CALI - BS)): linear borehole-enlargement correction — \
               gamma rays attenuated by the extra mud annulus are restored. Bit size from the \
-              BS curve where present, else BS_DEF. No caliper → GR passes through uncorrected."
+              BS curve where present, else BS_DEF. The public runner refuses if CALI is missing \
+              at any finite GR sample; it never writes an unmarked uncorrected GR_EC copy."
             .into(),
         args: vec![
             param_open(
@@ -3199,7 +3238,15 @@ fn gr_hole_corr_spec() -> ModuleSpec {
                 true,
             ),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
-            log_in("CALI", "Caliper log", "in", "CALI", false),
+            with_validity(
+                log_in("CALI", "Caliper log", "in", "CALI", false),
+                vec![validity(
+                    "gr_hole_corr.caliper_coverage",
+                    "Caliper is required at every finite GR sample; without it the correction-named output would be an unmarked input copy.",
+                    "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T11/T12",
+                    ValidityRule::RequiredWhereFinite { input: "GR".into() },
+                )],
+            ),
             log_in("BS", "Bit size log", "in", "BS", false),
             log_out("GR_EC", "Environmentally corrected gamma ray", "gapi"),
         ],
@@ -3281,8 +3328,8 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
         category: "Prep".into(),
         doc: "RHOB_EC = RHOB + K_RHO*(CALI - HD_REF) for CALI beyond HD_REF: in oversize \
               holes the pad reads too much mud, so density is restored upward using supplied, \
-              tool-specific chart values. Within gauge, or with no \
-              caliper, RHOB passes through unchanged. Use with the BADHOLE flag — beyond a \
+              tool-specific chart values. Within gauge RHOB may remain unchanged; the public \
+              runner refuses if CALI is missing at any finite RHOB sample. Use with the BADHOLE flag — beyond a \
               few inches of washout no correction is trustworthy."
             .into(),
         args: vec![
@@ -3303,7 +3350,15 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
                 true,
             ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
-            log_in("CALI", "Caliper log", "in", "CALI", false),
+            with_validity(
+                log_in("CALI", "Caliper log", "in", "CALI", false),
+                vec![validity(
+                    "rhob_hole_corr.caliper_coverage",
+                    "Caliper is required at every finite RHOB sample; without it the correction-named output would be an unmarked input copy.",
+                    "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T12",
+                    ValidityRule::RequiredWhereFinite { input: "RHOB".into() },
+                )],
+            ),
             log_out("RHOB_EC", "Environmentally corrected density", "g/cc"),
         ],
     }
@@ -6696,6 +6751,112 @@ mod tests {
         let np = nphi_env_corr(&ctx);
         // 0.30 - 0.002*(100000/100000) + 0.0001*(104-24) = 0.30 - 0.002 + 0.008 = 0.306
         assert!((np["NPHI_EC"][0] - 0.306).abs() < 1e-4, "got {}", np["NPHI_EC"][0]);
+    }
+
+    /// CORRECTNESS — SB-ENV-006 / SB-ENV-T12, `docs/PRD_v2/20_envcorr-qc.md` section 6.2.
+    /// The numbers below are synthetic non-zero algebra fixtures, never product defaults. The
+    /// sourced expectation is relational: with a correction input missing, every registered
+    /// `*_EC` producer either refuses or returns values that are not an unmarked input copy; with
+    /// the complete fixture it remains runnable, so a blanket retirement cannot satisfy the test.
+    #[test]
+    fn every_ec_module_with_a_missing_correction_input_refuses_or_changes_the_curve_and_complete_inputs_still_run(
+    ) {
+        let ec_modules = list_modules()
+            .into_iter()
+            .filter(|module| {
+                module.args.iter().any(|arg| {
+                    arg.kind == ArgKind::LogOut && arg.name.ends_with("_EC")
+                })
+            })
+            .map(|module| module.name)
+            .collect::<Vec<_>>();
+        assert!(!ec_modules.is_empty(), "the universal guard must exercise a real *_EC producer");
+
+        for module in ec_modules {
+            match module.as_str() {
+                "gr_hole_corr" => {
+                    let missing = ctx_with(
+                        2,
+                        &[("GR", vec![80.0, 90.0])],
+                        &[("K_GR", 0.01), ("BS_DEF", 8.5)],
+                        &[],
+                    );
+                    assert!(
+                        run_module(&module, &missing).is_err(),
+                        "{module} must not return an unmarked GR_EC copy without caliper"
+                    );
+
+                    let complete = ctx_with(
+                        2,
+                        &[("GR", vec![80.0, 90.0]), ("CALI", vec![10.5, 11.5])],
+                        &[("K_GR", 0.01), ("BS_DEF", 8.5)],
+                        &[],
+                    );
+                    let out = run_module(&module, &complete)
+                        .expect("complete GR correction inputs must remain runnable");
+                    assert_ne!(out["GR_EC"], complete.logs["GR"]);
+                }
+                "nphi_env_corr" => {
+                    let salinity_only = ctx_with(
+                        2,
+                        &[("NPHI", vec![0.20, 0.25])],
+                        &[
+                            ("K_TEMP", 0.001),
+                            ("T_REF", 25.0),
+                            ("K_SAL", 0.01),
+                            ("SALW", 100_000.0),
+                        ],
+                        &[],
+                    );
+                    let partial = run_module(&module, &salinity_only)
+                        .expect("a non-zero salinity correction is not an uncorrected copy");
+                    assert_ne!(partial["NPHI_EC"], salinity_only.logs["NPHI"]);
+
+                    let complete = ctx_with(
+                        2,
+                        &[
+                            ("NPHI", vec![0.20, 0.25]),
+                            ("FTEMP", vec![80.0, 90.0]),
+                        ],
+                        &[
+                            ("K_TEMP", 0.001),
+                            ("T_REF", 25.0),
+                            ("K_SAL", 0.01),
+                            ("SALW", 100_000.0),
+                        ],
+                        &[],
+                    );
+                    let out = run_module(&module, &complete)
+                        .expect("complete neutron correction inputs must remain runnable");
+                    assert_ne!(out["NPHI_EC"], complete.logs["NPHI"]);
+                }
+                "rhob_hole_corr" => {
+                    let missing = ctx_with(
+                        2,
+                        &[("RHOB", vec![2.30, 2.35])],
+                        &[("K_RHO", 0.01), ("HD_REF", 8.5)],
+                        &[],
+                    );
+                    assert!(
+                        run_module(&module, &missing).is_err(),
+                        "{module} must not return an unmarked RHOB_EC copy without caliper"
+                    );
+
+                    let complete = ctx_with(
+                        2,
+                        &[("RHOB", vec![2.30, 2.35]), ("CALI", vec![10.5, 11.5])],
+                        &[("K_RHO", 0.01), ("HD_REF", 8.5)],
+                        &[],
+                    );
+                    let out = run_module(&module, &complete)
+                        .expect("complete density correction inputs must remain runnable");
+                    assert_ne!(out["RHOB_EC"], complete.logs["RHOB"]);
+                }
+                unexpected => panic!(
+                    "registered *_EC producer '{unexpected}' has no SB-ENV-T12 missing-input fixture"
+                ),
+            }
+        }
     }
 
     #[test]

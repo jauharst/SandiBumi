@@ -85,14 +85,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T11/T12; sections 4.1, 6.2 and 8.
 - **Atomic obligations:** refuse a correction-named output when required input is absent, or mark every unchanged sample and manifest omission; never silently pass through under `*_EC`.
-- **Current source:** `gr_hole_corr` and `rhob_hole_corr` can copy input values into correction-named outputs when caliper is absent, with no companion state or step manifest. The modules are catalogued and picker-reachable.
-- **Qualifying acceptance tests:** `modules::tests::env_corrections_move_the_right_way` passed and explicitly pins the no-caliper pass-through. Its oracle is current behavior, so this is `CHARACTERIZATION`, not correctness.
-- **Supporting tests:** nominal directional-movement assertions prove arithmetic movement only and cannot justify the missing-input contract.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the divergent helpers are integrated and reachable at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-005 and SB-ENV-007 are absent; no missing-input refusal/flag proof exists.
-- **Next action:** refuse or visibly mark every unchanged correction sample and persist the omitted step, while retaining the current nominal control.
+- **Current source:** `ValidityRule::RequiredWhereFinite` is a source-bearing whole-run precondition evaluated by the shared public dispatcher. `gr_hole_corr.CALI` must now be finite at every finite GR sample and `rhob_hole_corr.CALI` at every finite RHOB sample; either missing interval refuses before the private pass-through helper can return or the workflow can allocate/write `*_EC`. Complete inputs remain runnable. `nphi_env_corr` retains its documented salinity-only path because its non-zero salinity term produces a corrected result rather than an input copy.
+- **Qualifying acceptance tests:** `workflow::tests::a_gr_correction_with_no_caliper_refuses_and_writes_no_uncorrected_copy` is T11 CORRECTNESS at the reporting/write surface: it requires the condition id, affected sample and contract source in the failed item, zero rows and no output identity, then adds CALI and proves the same request writes a changed `GR_EC`. `modules::tests::every_ec_module_with_a_missing_correction_input_refuses_or_changes_the_curve_and_complete_inputs_still_run` is T12 CORRECTNESS: it discovers every registered `*_EC` producer, rejects a fixture-less future producer, exercises GR/density missing-CALI refusal, exercises the changed neutron salinity-only result and requires complete-input controls to remain runnable. Both tests were RED on the former pass-through and GREEN after the public guard.
+- **Supporting tests:** `env_corrections_move_the_right_way` remains explicitly CHARACTERIZATION of the private arithmetic helpers and was not deleted or weakened. The existing computed-only FTEMP regression and SB-ENV-003 partial-precondition regression stay green, proving this correction-specific whole-run guard neither consumes raw degF FTEMP nor converts the general flag policy into blanket refusal.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; processing-history 0/7; all four SB-ENV-006 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-005; the two new tests produced exact RED before the manifest/runner change and targeted GREEN afterward. TypeScript and the neighbouring precondition regressions are green; the fresh full gate is 1045 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `DEGRADED-RESULT` closed by explicit refusal; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for SB-ENV-006's refusal branch. No correction coefficient, chart value, default, flag identity or persistence owner was chosen. SB-ENV-005's manifest and SB-ENV-007's per-sample four-state channel remain separate blocked/next obligations rather than being claimed by this refusal.
+- **Next action:** retain the source-bearing whole-run guard and universal `*_EC` inventory; execute REVIEW.md separately; continue serially to SB-ENV-007 without calling a refusal a correction-state channel.
 
 ## SB-ENV-007 - Per-sample correction flag channel
 

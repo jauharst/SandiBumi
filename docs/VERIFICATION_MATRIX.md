@@ -19,7 +19,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 130 | 2026-08-13 | 53 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 46 | 2026-08-13 | 9 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 50 | 2026-08-13 | 10 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -39,7 +39,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 189 | 2026-07-19 | 32 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 14 | 2026-08-13 | 5 |
-| `workflow` | Multi-well workflow chains | Not exercised | 0 / 37 | — | 7 |
+| `workflow` | Multi-well workflow chains | Not exercised | 0 / 41 | — | 8 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 54 | — | 10 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 135 | 2026-08-13 | 48 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 139 | 2026-08-13 | 49 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 120 | 2026-08-13 | 38 |

@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-006: environmental correction workflow refusal
+
+- [ ] **Automated correctness:** exact T11 drives GR-without-caliper through the real workflow
+      runner, requires the source-bearing failed item and zero `GR_EC` rows, then adds CALI and
+      proves the same request writes a changed curve. Exact T12 discovers every registered `*_EC`
+      producer and proves missing-input refusal or a genuinely changed result plus a complete-input
+      runnable control. Fresh full gate: 1045 passed / 0 failed / 37 ignored with 31 separately
+      owned Rust warnings.
+- [ ] **Visual:** run GR Hole-Size Correction on a well whose GR is populated but CALI is absent.
+      Processing must name `gr_hole_corr.caliper_coverage` and no `GR_EC` may appear in the Curve
+      Catalog; after adding a finite CALI over every finite GR sample, the same pane must run.
+- [ ] **Manual workflow:** repeat the missing-CALI refusal for Density Hole-Size Correction and
+      inspect the Help/field condition text. Confirm Neutron Environmental Correction still permits
+      its documented salinity-only path and that the result is not an unchanged `NPHI` copy.
+- [ ] **Field and harsh critique:** an error from a private helper is not user evidence; confirm the
+      refusal in a real project and in a saved workflow. SB-ENV-006 closes the unmarked-copy defect
+      by refusing, but it does not manufacture SB-ENV-005's manifest or SB-ENV-007's per-sample
+      correction-state channel; those remain separate rows.
+
 ## 2026-08-15 — G2 SB-ENV-005: environmental applied-step storage blocked
 
 - [ ] **Automated audit:** no applied-step schema, writer, reader or qualifying T08-T10 test exists.
