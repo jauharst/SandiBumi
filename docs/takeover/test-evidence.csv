@@ -163,6 +163,7 @@
 "SB-ENV-039","CORRECTNESS","src-tauri/src/condition.rs","clipping_can_blank_or_clamp_and_an_empty_side_is_not_a_bound"
 "SB-ENV-040","CORRECTNESS","src-tauri/src/workflow.rs","an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs"
 "SB-ENV-041","CORRECTNESS","src-tauri/src/workflow.rs","a_smoothed_curve_records_its_kernel_normalisation_end_and_gap_edge_behaviour_after_restart"
+"SB-ENV-042","CORRECTNESS","src-tauri/src/curve_edit.rs","an_interactive_edit_records_its_operation_interval_parameters_and_time_after_restart"
 "SB-ENV-050","CORRECTNESS","src-tauri/src/workflow.rs","a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well"
 "SB-ENV-050","CORRECTNESS","src-tauri/src/workflow.rs","a_per_zone_pressure_gradient_reaches_exactly_its_own_samples"
 "SB-ENV-051","CORRECTNESS","src-tauri/src/condition.rs","a_two_point_map_lands_the_wells_own_percentiles_on_the_reference_pair"

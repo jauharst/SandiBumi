@@ -553,14 +553,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; T45; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** persist operation, interval, parameters and time for every edit, retrievable without the session undo stack.
-- **Current source:** `curve_edit.rs` returns byte-packed prior values for frontend undo, and `processLog` provides a UI history surface, but no durable per-curve edit record with version/content identity is stored. A stale undo can overwrite newer samples or report success without matching them.
-- **Qualifying acceptance tests:** none for persistent edit provenance; T45 is missing. Test class `MISSING`.
-- **Supporting tests:** exact shift/restore and `an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values` both passed; the latter is explicit as-is characterization of undo's staleness, not proof of a durable audit trail.
-- **Manual evidence:** curve-editing 5/5 exercised; processing-history 0/7 not exercised.
-- **Git evidence:** undo and process UI are integrated; persistent edit provenance is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** durable edit identity/history and its observable test are missing.
-- **Next action:** write an immutable per-edit record tied to curve version/content, retrieve it after restart and make stale undo refuse rather than splice.
+- **Current source:** every successful edit now returns a stable edit id plus the SHA-256 of the complete post-edit native frame. Computed edits carry the typed record inside their versioned `CURVE_EDIT` ancestry; standard/raw edits atomically write one uniquely named project document with their in-place rewrite. `list_curve_edit_records` joins both stores, and the History panel renders/exports those records separately from the clearable activity log. Undo requires the original edit id and exact current content identity before writing.
+- **Qualifying acceptance tests:** `curve_edit::tests::an_interactive_edit_records_its_operation_interval_parameters_and_time_after_restart` was witnessed RED on zero durable records, then passed after exercising shift, set, blank, interpolate and scale across standard, raw and computed stores, closing/reopening the project and checking the exact operation, whole/inclusive interval, supplied parameters, backend time, actor and before/after content identities. T45 is the source; test class `CORRECTNESS`.
+- **Supporting tests:** `an_undo_replayed_after_the_curve_was_rewritten_is_refused_without_splicing_stale_values` replaces the former as-is alarm with the intended same-grid and changed-frame refusal, and re-reads both frames to prove neither refusal wrote stale samples. Exact ordinary shift/restore remains green.
+- **Manual evidence:** curve-editing 5/5 exercised; processing-history 0/7; the new visual/persistence/refusal checklist remains unchecked.
+- **Git evidence:** implementation and exact T45 are prepared on current parent `fb6045a500ce63d48f60edbc2265da2d22dc5c0a`; no database schema, `db.rs` or computed-curve write discipline changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for new edits; automated proof passes, while visual/manual/field evidence remains open. Historical edits made before this record existed cannot be reconstructed and are not relabelled.
+- **Next action:** preserve exact T45 and the stale-undo guard, execute visual/manual/field review separately and continue SB-ENV-043.
 
 ## SB-ENV-043 - One formation-temperature definition, one mnemonic
 

@@ -3515,13 +3515,33 @@ fn restore_curve_values(
     well_id: String,
     curve: String,
     point_count: usize,
-    data: Vec<u8>
-,
+    data: Vec<u8>,
+    restores_edit_id: String,
+    expected_curve_sha256: String,
     custody: equations::RunCustody,
 ) -> Result<usize, String> {
     let (depth, values) = curve_edit::unpack_pairs(point_count, &data)?;
     let conn = db.0.lock().unwrap();
-    curve_edit::restore_curve_values(&conn, &well_id, &curve, &depth, &values, Some(&custody))
+    curve_edit::restore_curve_values(
+        &conn,
+        &well_id,
+        &curve,
+        &depth,
+        &values,
+        &restores_edit_id,
+        &expected_curve_sha256,
+        Some(&custody),
+    )
+}
+
+/// Immutable per-curve edit provenance, including computed-curve ancestry and the standard/raw
+/// records that outlive the frontend's session undo stack.
+#[tauri::command]
+fn list_curve_edit_records(
+    db: tauri::State<DbState>,
+) -> Result<Vec<curve_edit::CurveEditRecord>, String> {
+    let conn = db.0.lock().unwrap();
+    curve_edit::list_curve_edit_records(&conn)
 }
 
 /// Creates or updates a formation top.
@@ -4268,6 +4288,7 @@ pub fn run() {
             propose_registration,
             edit_curve,
             restore_curve_values,
+            list_curve_edit_records,
             upsert_top,
             delete_top,
             check_top_order,

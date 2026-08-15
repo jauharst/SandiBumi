@@ -6476,6 +6476,10 @@ textarea {
 .history-row:hover {
   background: var(--bg-hover);
 }
+.history-row-durable {
+  border-left: 3px solid var(--accent2);
+  padding-left: 5px;
+}
 .history-time {
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;

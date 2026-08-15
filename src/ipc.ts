@@ -4562,6 +4562,30 @@ export interface CurveEditResult {
   store: string;
   point_count: number;
   data: Uint8Array | number[];
+  edit_id: string;
+  curve_sha256: string;
+}
+
+export type CurveEditInterval =
+  | { kind: "WHOLE_CURVE" }
+  | { kind: "INCLUSIVE_DEPTH"; top: number; bottom: number };
+
+export interface CurveEditRecord {
+  edit_id: string;
+  well_id: string;
+  well_name: string;
+  requested_curve: string;
+  curve: string;
+  store: string;
+  storage_identity: string;
+  operation: string;
+  interval: CurveEditInterval;
+  parameters: Record<string, unknown>;
+  timestamp_utc_ms: number;
+  actor: string | null;
+  source_note: string | null;
+  before_sha256: string;
+  after_sha256: string;
 }
 
 export function editCurve(req: CurveEditRequest): Promise<CurveEditResult> {
@@ -4573,9 +4597,23 @@ export function restoreCurveValues(
   curve: string,
   pointCount: number,
   data: number[],
+  restoresEditId: string,
+  expectedCurveSha256: string,
   custody: RunCustody,
 ): Promise<number> {
-  return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data, custody });
+  return invoke<number>("restore_curve_values", {
+    wellId,
+    curve,
+    pointCount,
+    data,
+    restoresEditId,
+    expectedCurveSha256,
+    custody,
+  });
+}
+
+export function listCurveEditRecords(): Promise<CurveEditRecord[]> {
+  return invoke<CurveEditRecord[]>("list_curve_edit_records");
 }
 
 /** Engine-copies the project database to `destPath` (live rows only, so the export is

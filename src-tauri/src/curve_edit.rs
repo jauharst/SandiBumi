@@ -15,8 +15,44 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 use crate::equations;
+
+const CURVE_EDIT_DOC_TYPE: &str = "curve_edit_provenance";
+const CURVE_EDIT_RECORD_KEY: &str = "_sandibumi_curve_edit_record_v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CurveEditInterval {
+    WholeCurve,
+    InclusiveDepth { top: f32, bottom: f32 },
+}
+
+/// Immutable, project-persisted provenance for one successful interactive curve edit.
+/// Computed-curve records travel in their log-set ancestry; in-place standard/raw edits use
+/// one uniquely named project document per event so clearing the UI activity log cannot erase
+/// the data-edit history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CurveEditRecord {
+    pub edit_id: String,
+    pub well_id: String,
+    pub well_name: String,
+    pub requested_curve: String,
+    pub curve: String,
+    pub store: String,
+    pub storage_identity: String,
+    pub operation: String,
+    pub interval: CurveEditInterval,
+    pub parameters: serde_json::Value,
+    pub timestamp_utc_ms: u64,
+    pub actor: Option<String>,
+    pub source_note: Option<String>,
+    pub before_sha256: String,
+    pub after_sha256: String,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CurveEditRequest {
@@ -62,6 +98,11 @@ pub struct CurveEditResult {
     pub store: String,
     pub point_count: usize,
     pub data: Vec<u8>,
+    /// Stable identity of the persisted edit record. Undo cites this exact event.
+    pub edit_id: String,
+    /// SHA-256 of the complete post-edit native curve frame. Undo refuses unless the current
+    /// curve still has this identity, so old values cannot be spliced into a later computation.
+    pub curve_sha256: String,
 }
 
 /// Packs (depth, value) into the shared `depth[n] + value[n]` f32-LE byte convention.
@@ -102,6 +143,15 @@ impl CurveStore {
             CurveStore::Standard(_) => "standard",
             CurveStore::Computed(_) => "computed",
             CurveStore::Generic(_) => "raw",
+        }
+    }
+
+
+    fn storage_identity(&self) -> String {
+        match self {
+            CurveStore::Standard(column) => format!("standard:{column}"),
+            CurveStore::Computed(name) => format!("computed:{name}"),
+            CurveStore::Generic(curve_id) => format!("raw:{curve_id}"),
         }
     }
 }
@@ -212,6 +262,246 @@ fn read_curve(conn: &Connection, store: &CurveStore, well_id: &str) -> Result<(V
     Ok((depth, value))
 }
 
+fn curve_sha256(depth: &[f32], values: &[f32]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(pack_pairs(depth, values));
+    format!("{:x}", digest.finalize())
+}
+
+fn timestamp_utc_ms() -> Result<u64, String> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock is before the Unix epoch: {error}"))?;
+    u64::try_from(elapsed.as_millis())
+        .map_err(|_| "system timestamp does not fit the provenance record".to_string())
+}
+
+fn normalized_interval(req: &CurveEditRequest) -> CurveEditInterval {
+    if req.op == "shift" {
+        CurveEditInterval::WholeCurve
+    } else {
+        let (top, bottom) = if req.top <= req.bottom {
+            (req.top, req.bottom)
+        } else {
+            (req.bottom, req.top)
+        };
+        CurveEditInterval::InclusiveDepth { top, bottom }
+    }
+}
+
+fn record_parameters(req: &CurveEditRequest) -> serde_json::Value {
+    match req.op.as_str() {
+        "shift" => serde_json::json!({ "delta": req.delta }),
+        "set" => serde_json::json!({ "value": req.value }),
+        "blank" | "interpolate" => serde_json::json!({}),
+        "scale" => serde_json::json!({ "multiplier": req.mul, "offset": req.add }),
+        _ => serde_json::json!({}),
+    }
+}
+
+fn stored_curve_name(
+    conn: &Connection,
+    store: &CurveStore,
+    requested_curve: &str,
+) -> Result<String, String> {
+    match store {
+        CurveStore::Standard(column) => crate::schema_vocab::STANDARD_COLUMNS
+            .iter()
+            .find(|candidate| candidate.storage_column == *column)
+            .map(|candidate| candidate.mnemonic.to_string())
+            .ok_or_else(|| format!("standard curve column '{column}' has no declared mnemonic")),
+        CurveStore::Computed(name) => Ok(name.clone()),
+        CurveStore::Generic(curve_id) => conn
+            .query_row(
+                "SELECT mnemonic FROM curve_meta WHERE curve_id = ?1",
+                params![curve_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| {
+                format!(
+                    "raw curve '{}' lost its metadata before its edit could be recorded: {error}",
+                    requested_curve.trim()
+                )
+            }),
+    }
+}
+
+fn build_edit_record(
+    conn: &Connection,
+    store: &CurveStore,
+    req: &CurveEditRequest,
+    edit_id: String,
+    before_sha256: String,
+    after_sha256: String,
+) -> Result<CurveEditRecord, String> {
+    let well_name = conn
+        .query_row(
+            "SELECT well_name FROM wells WHERE well_id = ?1",
+            params![req.well_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("edited well has no readable identity: {error}"))?;
+    let actor = req
+        .custody
+        .as_ref()
+        .map(|custody| custody.actor.identity.trim().to_string())
+        .filter(|identity| !identity.is_empty());
+    let source_note = req
+        .custody
+        .as_ref()
+        .map(|custody| custody.source_note.trim().to_string())
+        .filter(|source| !source.is_empty());
+    Ok(CurveEditRecord {
+        edit_id,
+        well_id: req.well_id.clone(),
+        well_name,
+        requested_curve: req.curve.trim().to_string(),
+        curve: stored_curve_name(conn, store, &req.curve)?,
+        store: store.label().to_string(),
+        storage_identity: store.storage_identity(),
+        operation: req.op.clone(),
+        interval: normalized_interval(req),
+        parameters: record_parameters(req),
+        timestamp_utc_ms: timestamp_utc_ms()?,
+        actor,
+        source_note,
+        before_sha256,
+        after_sha256,
+    })
+}
+
+fn validate_edit_record(record: &CurveEditRecord) -> Result<(), String> {
+    for (field, value) in [
+        ("edit identity", record.edit_id.as_str()),
+        ("well identity", record.well_id.as_str()),
+        ("well name", record.well_name.as_str()),
+        ("requested curve", record.requested_curve.as_str()),
+        ("stored curve", record.curve.as_str()),
+        ("store", record.store.as_str()),
+        ("storage identity", record.storage_identity.as_str()),
+        ("operation", record.operation.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("curve-edit provenance is missing {field}"));
+        }
+    }
+    if record.timestamp_utc_ms == 0 {
+        return Err("curve-edit provenance is missing its timestamp".into());
+    }
+    for (field, digest) in [
+        ("before identity", record.before_sha256.as_str()),
+        ("after identity", record.after_sha256.as_str()),
+    ] {
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!("curve-edit provenance has an invalid {field}"));
+        }
+    }
+    if !record.parameters.is_object() {
+        return Err("curve-edit provenance parameters must be a named object".into());
+    }
+    match record.interval {
+        CurveEditInterval::WholeCurve => {}
+        CurveEditInterval::InclusiveDepth { top, bottom }
+            if top.is_finite() && bottom.is_finite() && top <= bottom => {}
+        CurveEditInterval::InclusiveDepth { .. } => {
+            return Err("curve-edit provenance has an invalid depth interval".into());
+        }
+    }
+    Ok(())
+}
+
+fn record_json(record: &CurveEditRecord) -> Result<String, String> {
+    validate_edit_record(record)?;
+    serde_json::to_string(record)
+        .map_err(|error| format!("cannot serialize curve-edit provenance: {error}"))
+}
+
+/// Returns the immutable edit history carried by project documents and computed-curve ancestry.
+/// Legacy computed edits written before SB-ENV-042 have no recoverable event record and are not
+/// relabelled as complete history.
+pub fn list_curve_edit_records(conn: &Connection) -> Result<Vec<CurveEditRecord>, String> {
+    let mut records = Vec::new();
+    for document in crate::db::list_documents(conn, CURVE_EDIT_DOC_TYPE)
+        .map_err(|error| error.to_string())?
+    {
+        let record: CurveEditRecord = serde_json::from_str(&document.json).map_err(|error| {
+            format!(
+                "curve-edit provenance document '{}' is unreadable: {error}",
+                document.name
+            )
+        })?;
+        if record.edit_id != document.name {
+            return Err(format!(
+                "curve-edit provenance key '{}' disagrees with record '{}'",
+                document.name, record.edit_id
+            ));
+        }
+        validate_edit_record(&record)?;
+        records.push(record);
+    }
+
+    let mut statement = conn
+        .prepare(
+            "SELECT params_json FROM log_sets
+             WHERE module = 'CURVE_EDIT' AND params_json IS NOT NULL
+             ORDER BY created_at, set_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let json = row.map_err(|error| error.to_string())?;
+        let payload: serde_json::Value = serde_json::from_str(&json)
+            .map_err(|error| format!("computed curve-edit provenance is unreadable: {error}"))?;
+        let Some(value) = payload.get(CURVE_EDIT_RECORD_KEY) else {
+            continue;
+        };
+        let record: CurveEditRecord = serde_json::from_value(value.clone())
+            .map_err(|error| format!("computed curve-edit provenance is invalid: {error}"))?;
+        validate_edit_record(&record)?;
+        records.push(record);
+    }
+    records.sort_by(|left, right| {
+        left.timestamp_utc_ms
+            .cmp(&right.timestamp_utc_ms)
+            .then_with(|| left.edit_id.cmp(&right.edit_id))
+    });
+    Ok(records)
+}
+
+fn current_computed_edit_id(
+    conn: &Connection,
+    store: &CurveStore,
+    well_id: &str,
+) -> Result<Option<String>, String> {
+    let CurveStore::Computed(curve_name) = store else {
+        return Ok(None);
+    };
+    let params_json: String = conn
+        .query_row(
+            "SELECT log_sets.params_json
+             FROM computed_curves
+             JOIN log_sets ON log_sets.set_id = computed_curves.set_id
+             WHERE computed_curves.well_id = ?1
+               AND upper(computed_curves.curve_name) = upper(?2)
+             ORDER BY computed_curves.depth
+             LIMIT 1",
+            params![well_id, curve_name],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("computed curve has no readable current version: {error}"))?;
+    let payload: serde_json::Value = serde_json::from_str(&params_json)
+        .map_err(|error| format!("computed curve's current version is unreadable: {error}"))?;
+    let Some(value) = payload.get(CURVE_EDIT_RECORD_KEY) else {
+        return Ok(None);
+    };
+    let record: CurveEditRecord = serde_json::from_value(value.clone())
+        .map_err(|error| format!("computed curve's current edit identity is invalid: {error}"))?;
+    validate_edit_record(&record)?;
+    Ok(Some(record.edit_id))
+}
+
 /// Rewrites the curve with `new_values` (same depth order as `read_curve` returned):
 /// delete + re-append inside one transaction, preserving every other column.
 fn write_curve(
@@ -220,14 +510,19 @@ fn write_curve(
     well_id: &str,
     depth: &[f32],
     new_values: &[f32],
+    record: &CurveEditRecord,
 ) -> Result<(), String> {
     if matches!(store, CurveStore::Computed(_)) {
         return Err(
             "computed curve edit refused: a new ancestry-bearing version is required".into(),
         );
     }
+    let json = record_json(record)?;
     conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
-    let result = write_curve_inner(conn, store, well_id, depth, new_values);
+    let result = write_curve_inner(conn, store, well_id, depth, new_values).and_then(|()| {
+        crate::db::save_document(conn, CURVE_EDIT_DOC_TYPE, &record.edit_id, &json)
+            .map_err(|error| error.to_string())
+    });
     match result {
         Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
         Err(e) => {
@@ -365,13 +660,16 @@ fn write_computed_revision(
     )
 }
 
-fn edit_parameters(req: &CurveEditRequest) -> serde_json::Value {
+fn edit_parameters(
+    req: &CurveEditRequest,
+    record: &CurveEditRecord,
+) -> Result<serde_json::Value, String> {
     let (top, bottom) = if req.top <= req.bottom {
         (req.top, req.bottom)
     } else {
         (req.bottom, req.top)
     };
-    match req.op.as_str() {
+    let mut parameters = match req.op.as_str() {
         "shift" => serde_json::json!({ "operation": "shift", "delta": req.delta }),
         "set" => serde_json::json!({
             "operation": "set",
@@ -392,7 +690,16 @@ fn edit_parameters(req: &CurveEditRequest) -> serde_json::Value {
             "offset": req.add,
         }),
         _ => serde_json::json!({ "operation": req.op }),
-    }
+    };
+    parameters
+        .as_object_mut()
+        .expect("every curve-edit parameter payload is an object")
+        .insert(
+            CURVE_EDIT_RECORD_KEY.into(),
+            serde_json::to_value(record)
+                .map_err(|error| format!("cannot serialize curve-edit provenance: {error}"))?,
+        );
+    Ok(parameters)
 }
 
 fn edit_zone_scope(
@@ -535,8 +842,26 @@ pub fn edit_curve(conn: &Connection, req: &CurveEditRequest) -> Result<CurveEdit
         .filter(|&i| old[i].to_bits() != new[i].to_bits() && !(old[i].is_nan() && new[i].is_nan()))
         .collect();
     if changed.is_empty() {
-        return Ok(CurveEditResult { affected: 0, store: store.label().into(), point_count: 0, data: vec![] });
+        return Ok(CurveEditResult {
+            affected: 0,
+            store: store.label().into(),
+            point_count: 0,
+            data: vec![],
+            edit_id: String::new(),
+            curve_sha256: curve_sha256(&depth, &old),
+        });
     }
+
+    let before_sha256 = curve_sha256(&depth, &old);
+    let after_sha256 = curve_sha256(&depth, &new);
+    let record = build_edit_record(
+        conn,
+        &store,
+        req,
+        Uuid::new_v4().to_string(),
+        before_sha256,
+        after_sha256.clone(),
+    )?;
 
     match &store {
         CurveStore::Computed(name) => {
@@ -551,11 +876,11 @@ pub fn edit_curve(conn: &Connection, req: &CurveEditRequest) -> Result<CurveEdit
                 &depth,
                 &new,
                 custody,
-                edit_parameters(req),
+                edit_parameters(req, &record)?,
                 edit_zone_scope(req, custody),
             )?;
         }
-        _ => write_curve(conn, &store, &req.well_id, &depth, &new)?}
+        _ => write_curve(conn, &store, &req.well_id, &depth, &new, &record)?}
     let prev_depth: Vec<f32> = changed.iter().map(|&i| depth[i]).collect();
     let prev_value: Vec<f32> = changed.iter().map(|&i| old[i]).collect();
     Ok(CurveEditResult {
@@ -563,6 +888,8 @@ pub fn edit_curve(conn: &Connection, req: &CurveEditRequest) -> Result<CurveEdit
         store: store.label().into(),
         point_count: changed.len(),
         data: pack_pairs(&prev_depth, &prev_value),
+        edit_id: record.edit_id,
+        curve_sha256: after_sha256,
     })
 }
 
@@ -574,8 +901,9 @@ pub fn restore_curve_values(
     well_id: &str,
     curve: &str,
     depths: &[f32],
-    values: &[f32]
-,
+    values: &[f32],
+    restores_edit_id: &str,
+    expected_curve_sha256: &str,
     custody: Option<&equations::RunCustody>,
 ) -> Result<usize, String> {
     if depths.len() != values.len() {
@@ -583,6 +911,38 @@ pub fn restore_curve_values(
     }
     let store = locate_curve(conn, well_id, curve)?;
     let (depth, mut value) = read_curve(conn, &store, well_id)?;
+    let current_sha256 = curve_sha256(&depth, &value);
+    let original = list_curve_edit_records(conn)?
+        .into_iter()
+        .find(|record| record.edit_id == restores_edit_id)
+        .ok_or_else(|| {
+            format!(
+                "curve undo refused: edit record '{restores_edit_id}' is not in this project"
+            )
+        })?;
+    if original.well_id != well_id
+        || original.storage_identity != store.storage_identity()
+        || !original.curve.eq_ignore_ascii_case(&stored_curve_name(conn, &store, curve)?)
+    {
+        return Err("curve undo refused: the edit record belongs to a different curve".into());
+    }
+    if original.after_sha256 != expected_curve_sha256 {
+        return Err("curve undo refused: the supplied curve identity disagrees with its edit record".into());
+    }
+    if matches!(store, CurveStore::Computed(_))
+        && current_computed_edit_id(conn, &store, well_id)?.as_deref() != Some(restores_edit_id)
+    {
+        return Err(
+            "curve undo refused: the curve changed after this edit; the computed curve has a different version"
+                .into(),
+        );
+    }
+    if current_sha256 != expected_curve_sha256 {
+        return Err(
+            "curve undo refused: the curve changed after this edit; refresh before undoing"
+                .into(),
+        );
+    }
     let restore: std::collections::HashMap<u32, f32> = depths
         .iter()
         .zip(values.iter())
@@ -600,15 +960,55 @@ pub fn restore_curve_values(
         }
     }
     if n == 0 {
-        return Ok(0);
+        return Err("curve undo refused: none of the recorded samples still exists".into());
     }
+    let restored_sha256 = curve_sha256(&depth, &value);
+    let actor = custody
+        .map(|value| value.actor.identity.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let source_note = custody
+        .map(|value| value.source_note.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let undo_record = CurveEditRecord {
+        edit_id: Uuid::new_v4().to_string(),
+        well_id: well_id.to_string(),
+        well_name: original.well_name.clone(),
+        requested_curve: curve.trim().to_string(),
+        curve: original.curve.clone(),
+        store: store.label().to_string(),
+        storage_identity: store.storage_identity(),
+        operation: "undo".into(),
+        interval: original.interval.clone(),
+        parameters: serde_json::json!({
+            "restores_edit_id": restores_edit_id,
+            "restored_samples": n,
+        }),
+        timestamp_utc_ms: timestamp_utc_ms()?,
+        actor,
+        source_note,
+        before_sha256: current_sha256,
+        after_sha256: restored_sha256,
+    };
+    validate_edit_record(&undo_record)?;
+    let mut undo_parameters = serde_json::json!({
+        "operation": "undo",
+        "restored_samples": n,
+        "restored_pairs_f32_le_base64": B64.encode(pack_pairs(&matched_depth, &matched_value)),
+    });
+    undo_parameters
+        .as_object_mut()
+        .expect("the undo parameter payload is an object")
+        .insert(
+            CURVE_EDIT_RECORD_KEY.into(),
+            serde_json::to_value(&undo_record)
+                .map_err(|error| format!("cannot serialize curve-edit undo provenance: {error}"))?,
+        );
     match &store {
         CurveStore::Computed(name) => {
             let custody = custody.ok_or_else(|| {
                 "computed curve undo refused: enter the session operator and source/reference"
                     .to_string()
             })?;
-            let payload = B64.encode(pack_pairs(&matched_depth, &matched_value));
             write_computed_revision(
                 conn,
                 well_id,
@@ -616,15 +1016,11 @@ pub fn restore_curve_values(
                 &depth,
                 &value,
                 custody,
-                serde_json::json!({
-                    "operation": "undo",
-                    "restored_samples": n,
-                    "restored_pairs_f32_le_base64": payload,
-                }),
+                undo_parameters,
                 equations::AncestryZoneScope::WholeWell,
             )?;
         }
-        _ => write_curve(conn, &store, well_id, &depth, &value)?}
+        _ => write_curve(conn, &store, well_id, &depth, &value, &undo_record)?}
     Ok(n)
 }
 
@@ -771,7 +1167,17 @@ mod tests {
 
         // Undo: restore the returned previous samples → exact original ramp.
         let (prev_depth, prev_value) = unpack_pairs(res.point_count, &res.data).unwrap();
-        let n = restore_curve_values(&conn, &w, "GR", &prev_depth, &prev_value, None).unwrap();
+        let n = restore_curve_values(
+            &conn,
+            &w,
+            "GR",
+            &prev_depth,
+            &prev_value,
+            &res.edit_id,
+            &res.curve_sha256,
+            None,
+        )
+        .unwrap();
         assert_eq!(n, res.affected);
         let (depth, gr) = read_gr(&conn, &w);
         for (d, v) in depth.iter().zip(gr.iter()) {
@@ -823,24 +1229,11 @@ mod tests {
         assert_eq!(ok.affected, 21, "1010..1020 inclusive at 0.5 m");
     }
 
-    /// KNOWN GAP, pinned AS-IS and not endorsed. T-PLOT-19 step 3: `restore_curve_values` — the
-    /// undo path — has no staleness check of any kind. It matches depths bit-exactly against
-    /// whatever is in the curve NOW and writes the old values in.
-    ///
-    /// So the sequence the plan describes (edit a VSH interval, re-run the VSH module, press
-    /// Ctrl+Z) splices pre-edit values over the freshly computed curve and reports success. The
-    /// result is a VSH curve that is partly one vintage and partly another, with nothing on the
-    /// log, in the catalog or in the provenance to say where the boundary falls.
-    ///
-    /// Both failure modes are silent and they are opposites, which is why both are pinned here:
-    /// when the depths still match, the undo writes stale values over new ones; when they no
-    /// longer match (the curve was depth-shifted since), it matches nothing and returns Ok(0) —
-    /// an undo that did nothing at all, also reported as success.
-    ///
-    /// A fix would carry the curve's version or a content hash in the undo entry and refuse a
-    /// mismatch. Making that change fails this test, which is the alarm.
+    /// CORRECTNESS — an undo is valid only against the complete curve identity returned by the
+    /// edit it reverses. Both same-grid recomputation and a changed depth frame must refuse before
+    /// any old sample is written; otherwise one curve silently becomes a splice of two vintages.
     #[test]
-    fn an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values() {
+    fn an_undo_replayed_after_the_curve_was_rewritten_is_refused_without_splicing_stale_values() {
         let conn = open_db();
         let w = seed_ramp_well(&conn);
 
@@ -857,52 +1250,88 @@ mod tests {
         };
 
         // Edit: set 1002–1006 to a constant, keeping the undo payload the dialog would keep.
-        let res = edit_curve(
-            &conn,
-            &CurveEditRequest {
-                well_id: w.clone(),
-                curve: "VSH".into(),
-                op: "set".into(),
-                delta: 0.0,
-                top: 1002.0,
-                bottom: 1006.0,
-                value: 0.99,
-                mul: 1.0,
-                add: 0.0
-            ,
-                custody: Some(crate::workflow::test_run_custody()),
-            },
-        )
-        .unwrap();
+        let edit_request = CurveEditRequest {
+            well_id: w.clone(),
+            curve: "VSH".into(),
+            op: "set".into(),
+            delta: 0.0,
+            top: 1002.0,
+            bottom: 1006.0,
+            value: 0.99,
+            mul: 1.0,
+            add: 0.0,
+            custody: Some(crate::workflow::test_run_custody()),
+        };
+        let mut res = edit_curve(&conn, &edit_request).unwrap();
         assert_eq!(res.store, "computed");
-        let (undo_depth, undo_value) = unpack_pairs(res.point_count, &res.data).unwrap();
+        let (mut undo_depth, mut undo_value) = unpack_pairs(res.point_count, &res.data).unwrap();
+        let undo_custody = crate::workflow::test_run_custody();
+
+        // The valid control: before any other version exists, the exact identity succeeds.
+        let restored = restore_curve_values(
+            &conn,
+            &w,
+            "VSH",
+            &undo_depth,
+            &undo_value,
+            &res.edit_id,
+            &res.curve_sha256,
+            Some(&undo_custody),
+        )
+        .expect("the current computed edit must remain undoable");
+        assert_eq!(restored, res.affected);
+        res = edit_curve(&conn, &edit_request).expect("redo fixture");
+        (undo_depth, undo_value) = unpack_pairs(res.point_count, &res.data).unwrap();
+        let (edited_depth, edited_values) = read_vsh(&conn);
+
+        // A new computation may happen to reproduce the exact same f32 samples. Content-only
+        // checking would accept the old undo even though its producer/version changed, so this
+        // control requires the log-set edit identity as well as the SHA-256.
+        write_test_computed(
+            &conn,
+            &w,
+            &edited_depth,
+            "VSH",
+            &edited_values,
+            "same-content rerun",
+        );
+        let err = restore_curve_values(
+            &conn,
+            &w,
+            "VSH",
+            &undo_depth,
+            &undo_value,
+            &res.edit_id,
+            &res.curve_sha256,
+            Some(&undo_custody),
+        )
+        .expect_err("a byte-identical recomputation is still a different curve version");
+        assert!(err.contains("different version"), "the refusal must name the version mismatch: {err}");
+        let (_, same_content_after) = read_vsh(&conn);
+        assert_eq!(
+            same_content_after.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
+            edited_values.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
+            "a same-content version refusal must not change a sample"
+        );
 
         // The module is now RE-RUN: same grid, every sample recomputed to a new answer.
         write_test_computed(&conn, &w, &depth, "VSH", &vec![0.77f32; depth.len()],
             "same-grid rerun",
         );
 
-        // Now the stale undo runs. It reports success and a full match count.
-        let undo_custody = crate::workflow::test_run_custody();
-        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value,
+        // The stale undo must be rejected before the matching depths can make it look valid.
+        let err = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value,
+            &res.edit_id,
+            &res.curve_sha256,
             Some(&undo_custody),
-        ).unwrap();
-        assert_eq!(n, res.affected, "pinned AS-IS, not endorsed: the stale undo matches and writes");
+        ).expect_err("a same-grid recomputation must make the old undo stale");
+        assert!(err.contains("curve changed after this edit"), "the refusal must say why: {err}");
 
-        let (d, v) = read_vsh(&conn);
-        let inside = d.iter().position(|&x| x == 1004.0).unwrap();
-        let outside = d.iter().position(|&x| x == 1009.0).unwrap();
+        let (_, values_after_refusal) = read_vsh(&conn);
         assert!(
-            (v[inside] - (0.10 + 8.0 * 0.01)).abs() < 1e-5,
-            "the edited window came back to its PRE-EDIT value, over the recomputed 0.77: {}",
-            v[inside]
+            values_after_refusal.iter().all(|value| (*value - 0.77).abs() < 1e-6),
+            "a refusal must leave every recomputed sample untouched"
         );
-        assert!(
-            (v[outside] - 0.77).abs() < 1e-5,
-            "while the rest of the curve is the fresh computation: {}",
-            v[outside]
-        );
-        // That is the damage stated plainly: one curve, two vintages, no marker between them.
 
         // The mirror. The module re-runs on an OFFSET grid — a re-import or a depth-shifted
         // run — which a computed curve's DELETE-and-append write really does allow. The samples
@@ -914,11 +1343,19 @@ mod tests {
         write_test_computed(&conn, &w, &offset, "VSH", &vec![0.77f32; offset.len()],
             "offset-grid rerun",
         );
-        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value,
+        let err = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value,
+            &res.edit_id,
+            &res.curve_sha256,
             Some(&undo_custody),
         )
-            .expect("pinned AS-IS: a depth mismatch is not reported as an error either");
-        assert_eq!(n, 0, "nothing matched, and the only sign of it is a zero count");
+            .expect_err("a changed depth frame must make the old undo stale");
+        assert!(err.contains("curve changed after this edit"), "the refusal must say why: {err}");
+        let (offset_after, values_after) = read_vsh(&conn);
+        assert_eq!(offset_after, offset, "a refused undo must not rewrite the depth frame");
+        assert!(
+            values_after.iter().all(|value| (*value - 0.77).abs() < 1e-6),
+            "a refused undo must not rewrite values on the changed frame"
+        );
     }
 
     #[test]
@@ -1038,5 +1475,178 @@ mod tests {
         assert!(edit_curve(&conn, &req).is_err());
         let req = CurveEditRequest { curve: "GR".into(), op: "explode".into(), ..req };
         assert!(edit_curve(&conn, &req).unwrap_err().contains("unknown edit op"));
+    }
+
+    /// CORRECTNESS — SB-ENV-T45 in docs/PRD_v2/20_envcorr-qc.md requires the interactive
+    /// edit's operation, interval, parameters and time to survive a project restart. The
+    /// numeric values below are explicit synthetic inputs, not product defaults or physical
+    /// expected values.
+    #[test]
+    fn an_interactive_edit_records_its_operation_interval_parameters_and_time_after_restart() {
+        struct ProjectFiles(std::path::PathBuf);
+        impl Drop for ProjectFiles {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+                let _ = std::fs::remove_file(self.0.with_extension("duckdb.wal"));
+            }
+        }
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi_curve_edit_provenance_{}.duckdb",
+            Uuid::new_v4()
+        ));
+        let _files = ProjectFiles(path.clone());
+        let conn = db::init_db(path.to_str().unwrap()).unwrap();
+        let well_id = seed_ramp_well(&conn);
+        let custody = Some(crate::workflow::test_run_custody());
+        let started = timestamp_utc_ms().unwrap();
+        let base = CurveEditRequest {
+            well_id: well_id.clone(),
+            curve: "GR".into(),
+            op: "shift".into(),
+            delta: 0.5,
+            top: 0.0,
+            bottom: 0.0,
+            value: 0.0,
+            mul: 1.0,
+            add: 0.0,
+            custody: custody.clone(),
+        };
+        let shift = edit_curve(&conn, &base).unwrap();
+        let set = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                op: "set".into(),
+                top: 1010.0,
+                bottom: 1011.0,
+                value: 7.0,
+                ..base.clone()
+            },
+        )
+        .unwrap();
+        let blank = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                op: "blank".into(),
+                top: 1020.0,
+                bottom: 1021.0,
+                ..base.clone()
+            },
+        )
+        .unwrap();
+        let interpolate = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                op: "interpolate".into(),
+                top: 1019.5,
+                bottom: 1021.5,
+                ..base.clone()
+            },
+        )
+        .unwrap();
+        let scale = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                op: "scale".into(),
+                top: 1030.0,
+                bottom: 1031.0,
+                mul: 2.0,
+                add: 1.0,
+                ..base.clone()
+            },
+        )
+        .unwrap();
+
+        // The other two stores are controls against an implementation that records only the
+        // standard columns exercised above. The values are explicit fixture inputs.
+        let raw_id = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "RAW",
+            "PEFZ",
+            Some("b/e"),
+            Some("PEF"),
+            None,
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &raw_id, &[1000.0, 1001.0], &[3.0, 4.0]).unwrap();
+        let raw = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                curve: "PEF".into(),
+                op: "scale".into(),
+                top: 1000.0,
+                bottom: 1001.0,
+                mul: 2.0,
+                add: 1.0,
+                ..base.clone()
+            },
+        )
+        .unwrap();
+        write_test_computed(
+            &conn,
+            &well_id,
+            &[1000.0, 1001.0],
+            "VSH",
+            &[0.30, 0.40],
+            "provenance fixture",
+        );
+        let computed = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                curve: "VSH".into(),
+                op: "set".into(),
+                top: 1000.0,
+                bottom: 1000.0,
+                value: 0.90,
+                ..base
+            },
+        )
+        .unwrap();
+        let finished = timestamp_utc_ms().unwrap();
+        for result in [&shift, &set, &blank, &interpolate, &scale, &raw, &computed] {
+            assert!(result.affected > 0, "every fixture request must perform a real edit");
+            assert_eq!(result.curve_sha256.len(), 64, "the undo identity is a SHA-256");
+            assert!(!result.edit_id.is_empty(), "every successful edit has a stable record id");
+        }
+        drop(conn);
+
+        let reopened = db::init_db(path.to_str().unwrap()).unwrap();
+        let records = list_curve_edit_records(&reopened).unwrap();
+        assert_eq!(
+            records.len(),
+            7,
+            "all five operations and all three stores must survive the restart without duplicates"
+        );
+        let record = |edit_id: &str| {
+            records
+                .iter()
+                .find(|candidate| candidate.edit_id == edit_id)
+                .unwrap_or_else(|| panic!("edit record '{edit_id}' was lost across restart"))
+        };
+        let expected = [
+            (&shift, "shift", CurveEditInterval::WholeCurve, serde_json::json!({ "delta": 0.5 }), "standard"),
+            (&set, "set", CurveEditInterval::InclusiveDepth { top: 1010.0, bottom: 1011.0 }, serde_json::json!({ "value": 7.0 }), "standard"),
+            (&blank, "blank", CurveEditInterval::InclusiveDepth { top: 1020.0, bottom: 1021.0 }, serde_json::json!({}), "standard"),
+            (&interpolate, "interpolate", CurveEditInterval::InclusiveDepth { top: 1019.5, bottom: 1021.5 }, serde_json::json!({}), "standard"),
+            (&scale, "scale", CurveEditInterval::InclusiveDepth { top: 1030.0, bottom: 1031.0 }, serde_json::json!({ "multiplier": 2.0, "offset": 1.0 }), "standard"),
+            (&raw, "scale", CurveEditInterval::InclusiveDepth { top: 1000.0, bottom: 1001.0 }, serde_json::json!({ "multiplier": 2.0, "offset": 1.0 }), "raw"),
+            (&computed, "set", CurveEditInterval::InclusiveDepth { top: 1000.0, bottom: 1000.0 }, serde_json::json!({ "value": 0.90_f32 }), "computed"),
+        ];
+        for (result, operation, interval, parameters, store) in expected {
+            let persisted = record(&result.edit_id);
+            assert_eq!(persisted.operation, operation);
+            assert_eq!(persisted.interval, interval);
+            assert_eq!(persisted.parameters, parameters);
+            assert_eq!(persisted.store, store);
+            assert_eq!(persisted.after_sha256, result.curve_sha256);
+            assert_ne!(persisted.before_sha256, persisted.after_sha256);
+            assert!(
+                persisted.timestamp_utc_ms >= started && persisted.timestamp_utc_ms <= finished,
+                "the recorded time must be the time of this edit"
+            );
+            assert_eq!(persisted.actor.as_deref(), Some("automated-test-fixture"));
+        }
+        drop(reopened);
     }
 }

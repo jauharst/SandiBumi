@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-042: Durable interactive-edit provenance and stale-undo refusal
+
+- [ ] **Automated correctness:** exact T45 is GREEN after a witnessed RED on the absent restart
+      record. One named test executes all five interactive operations and exercises standard,
+      imported/raw and computed stores, closes/reopens the project, then requires operation,
+      inclusive/whole-curve interval, parameters, backend time, actor and before/after SHA-256
+      identities for every edit. A separate regression refuses both same-grid and changed-frame
+      stale undo without changing a sample.
+- [ ] **Visual:** open Processing History after a curve edit. Confirm the row appears as durable
+      curve-owned provenance with well, curve, operation, interval, parameters, store, actor and
+      source; confirm the count distinguishes durable curve edits from the general activity log.
+- [ ] **Manual persistence and refusal review:** edit, save, close and reopen the project; confirm
+      the durable row remains and appears in an exported history. Clear only the activity log and
+      confirm the durable row remains. Then edit a computed curve, rerun its producer and press
+      Ctrl+Z; confirm undo refuses that the curve changed and the recomputed curve is untouched.
+- [ ] **Field and harsh critique:** a complete audit record and content-identity guard prevent an
+      invisible mixed-vintage curve; they do not make a manual blank, shift, interpolation or
+      scale geologically defensible. Pre-SB-ENV-042 edits have no recoverable record and are not
+      backfilled or relabelled as complete history.
+
 ## 2026-08-16 — G2 SB-ENV-041: Persisted smoothing-policy provenance
 
 - [ ] **Automated correctness:** exact T49 is GREEN after a witnessed RED. One real workflow test

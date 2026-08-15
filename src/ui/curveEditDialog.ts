@@ -1,5 +1,4 @@
 import { editCurve, restoreCurveValues, type CurveEditRequest } from "../ipc";
-import { recordProcess } from "../processLog";
 import { bumpDataVersion, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
@@ -157,18 +156,36 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
           actor: custody.actor,
           source_note: `Undo of prior curve edit; original source/reference: ${custody.source_note}`,
         };
+        let undoVersion = {
+          editId: res.edit_id,
+          curveSha256: res.curve_sha256,
+        };
         pushUndo({
           label,
           undo: async () => {
-            await restoreCurveValues(wellId, curveName, pointCount, prevBytes, undoCustody);
+            await restoreCurveValues(
+              wellId,
+              curveName,
+              pointCount,
+              prevBytes,
+              undoVersion.editId,
+              undoVersion.curveSha256,
+              undoCustody,
+            );
             bumpDataVersion();
           },
           redo: async () => {
-            await editCurve(req);
+            const reapplied = await editCurve(req);
+            if (reapplied.affected === 0 || !reapplied.edit_id) {
+              throw new Error("redo did not recreate the curve edit");
+            }
+            undoVersion = {
+              editId: reapplied.edit_id,
+              curveSha256: reapplied.curve_sha256,
+            };
             bumpDataVersion();
           },
         });
-        recordProcess("Edit", `${label}: ${res.affected} samples (${res.store} store)`, wellName);
         bumpDataVersion();
         setStatus(`${label} — ${res.affected} samples changed (Ctrl+Z undoes)`);
         close();
