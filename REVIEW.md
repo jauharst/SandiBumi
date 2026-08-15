@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-040: Output-name shadowing refusal
+
+- [ ] **Automated correctness:** exact T48 is GREEN on the current head. The existing named test
+      refuses `GR` by name and explains shadowing, checks a second output against `RHOB`, refuses
+      two outputs resolving to `GR_C`, refuses a whitespace-bearing name and accepts `GR_ED`.
+- [ ] **Visual:** open any Condition module and set its output curve to the selected standard input
+      mnemonic. Confirm the dialog/run result names that mnemonic, explains that the raw standard
+      curve would shadow it and offers a distinct-name remedy before any per-well work starts.
+- [ ] **Manual write-safety review:** attempt a multi-well run with output `GR`; confirm one
+      preflight refusal, no new log-set version and no curve write. Rename it to `GR_ED`, rerun and
+      confirm the distinct output is created and readable.
+- [ ] **Field and harsh critique:** refusing shadowed identities prevents a successful-but-invisible
+      computed curve; it does not prove a safe name states the method, convention or provenance.
+      Those scientific identity obligations remain separate requirements and must not be inferred.
+
 ## 2026-08-16 — G2 SB-ENV-039: Clip refuses ambiguous bounds
 
 - [ ] **Automated correctness:** exact T47 is GREEN on the current head. The existing named test

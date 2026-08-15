@@ -531,10 +531,10 @@
 - **Qualifying acceptance tests:** `workflow::tests::an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` passed exactly once and asserts standard-name, second-output, collision and malformed refusals plus an accepted-name control. T48 is the source; test class `CORRECTNESS`.
 - **Supporting tests:** per-module default-name tests support naming shape but are not needed to close refusal timing.
 - **Manual evidence:** conditioning 0/27; workflow 0/23.
-- **Git evidence:** behavior and test are integrated at the accepted anchor.
+- **Git evidence:** behavior and qualifying test are integrated; exact T48 was re-run once on current parent `42323a6cbf27dc28c06356278f9f79ceb71b2c67` without changing production or test code.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; automated proof passes, but workflow/conditioning field evidence is open.
-- **Next action:** preserve the central preflight and field-exercise an attempted standard-name overwrite plus a safe rename.
+- **Next action:** preserve the central preflight, execute visual/manual/field review separately and continue SB-ENV-041.
 
 ## SB-ENV-041 - The filter kernel and its normalisation are declared in the output
 
