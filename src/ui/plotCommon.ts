@@ -524,8 +524,15 @@ export async function loadCurveUnits(): Promise<Map<string, string>> {
 export interface ZoneSelect {
   select: HTMLSelectElement;
   current: () => ZoneChoice;
+  /** Apply the application's selected top interval; governed plot invalidation owns later changes. */
+  applySelectedInterval: (interval: TopInterval | null, fireChange: boolean) => void;
   /** Unsubscribes the top-interval follower — call from the panel's dispose. */
   dispose: () => void;
+}
+
+export interface ZoneSelectOptions {
+  /** Defaults true for legacy/non-governed consumers. Governed plots subscribe through SB-PLT-019. */
+  followSelectedInterval?: boolean;
 }
 
 /** The zone select's option value for the Wells & Tops pane's selected top interval.
@@ -537,7 +544,10 @@ export const TOP_OPTION = "@top";
  *  and targets that zone for parameter writes. When a top is selected in the Wells &
  *  Tops pane, a "Top X (min–max)" option appears, is auto-selected, and fires `change`
  *  so the plot reloads windowed to it. */
-export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
+export async function buildZoneSelect(
+  well: WellSummary,
+  options: ZoneSelectOptions = {},
+): Promise<ZoneSelect> {
   let zones: ZoneEntry[] = [];
   try {
     zones = await listZones(well.well_id);
@@ -586,14 +596,17 @@ export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
   applyInterval(appState.selectedInterval.get(), false);
   // subscribe() fires immediately with the current value, which applyInterval above
   // already handled — skip that first call so building a panel never fires `change`.
-  let first = true;
-  const unsub = appState.selectedInterval.subscribe((iv) => {
-    if (first) {
-      first = false;
-      return;
-    }
-    applyInterval(iv, true);
-  });
+  let unsub = (): void => {};
+  if (options.followSelectedInterval !== false) {
+    let first = true;
+    unsub = appState.selectedInterval.subscribe((iv) => {
+      if (first) {
+        first = false;
+        return;
+      }
+      applyInterval(iv, true);
+    });
+  }
 
   const current = (): ZoneChoice => {
     if (select.value === TOP_OPTION && interval) {
@@ -604,7 +617,7 @@ export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
       ? { zoneName: zone.zone_name, depthMin: zone.top_depth, depthMax: zone.bottom_depth }
       : { zoneName: "*", depthMin: null, depthMax: null };
   };
-  return { select, current, dispose: unsub };
+  return { select, current, applySelectedInterval: applyInterval, dispose: unsub };
 }
 
 // --- Multi-well plot context (shared by crossplot + histogram) ---------------

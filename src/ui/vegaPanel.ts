@@ -52,6 +52,7 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
 import { applyPlotChannelPolicy, type PlotRangeEdge } from "./plotTypes";
 import {
   basicStats,
@@ -62,6 +63,17 @@ import {
 } from "./plotCanvas";
 
 export type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
+
+/** Preserve only interactive X/Y domains across a theme re-embed; colour is not a viewport. */
+export function captureVegaViewportDomains(
+  ranges: PlotAxisRangeExport[],
+): Partial<Record<"x" | "y", [number, number]>> {
+  const domains: Partial<Record<"x" | "y", [number, number]>> = {};
+  for (const range of ranges) {
+    if (range.axis === "x" || range.axis === "y") domains[range.axis] = [range.min, range.max];
+  }
+  return domains;
+}
 
 export interface Row {
   x: number;
@@ -838,7 +850,7 @@ export async function buildVegaContent(
   // rebuild via getState) so a re-selected well keeps its exact settings.
   const saved = await loadPlotProps<Record<string, string>>("vega");
   const seed = { ...saved, ...(initial ?? {}) };
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, seed.zone);
 
   const container = document.createElement("div");
@@ -1260,8 +1272,13 @@ export async function buildVegaContent(
       updateRangeInfo();
     }
   }
+  let axisSyncRaf = 0;
   const syncAxesAfterInteraction = (): void => {
-    requestAnimationFrame(() => syncRuntimeAxisRanges());
+    if (axisSyncRaf) return;
+    axisSyncRaf = requestAnimationFrame(() => {
+      axisSyncRaf = 0;
+      syncRuntimeAxisRanges();
+    });
   };
   chartHost.addEventListener("wheel", syncAxesAfterInteraction, { passive: true });
   chartHost.addEventListener("pointerup", syncAxesAfterInteraction);
@@ -1272,13 +1289,16 @@ export async function buildVegaContent(
     yName: string,
     zName: string | null,
     opts: SpecOpts,
-  ): VisualizationSpec =>
-    specOverride
-      ? ({ ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec)
-      : buildSpec(type, rows, xName, yName, zName, {
-          ...opts,
-          axisDomains: Object.fromEntries(baseAxisRanges.map((range) => [range.axis, [range.min, range.max]])),
-        });
+  ): VisualizationSpec => {
+    if (specOverride) {
+      return { ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec;
+    }
+    return buildSpec(type, rows, xName, yName, zName, {
+      ...opts,
+      axisDomains: opts.axisDomains
+        ?? Object.fromEntries(baseAxisRanges.map((range) => [range.axis, [range.min, range.max]])),
+    });
+  };
 
   // --- Linked brushing -------------------------------------------------------
   // Emit: publish the depths inside the Vega brush rectangle. rAF-coalesced during a drag, with a
@@ -1554,14 +1574,21 @@ export async function buildVegaContent(
     persist();
   }
 
-  /** Re-embed the cached rows with the new theme's colours (a theme switch resets zoom/pan — a rare,
-   *  deliberate trade for repainting without a re-fetch). No-op until the first render has cached. */
+  /** Re-embed cached rows with new theme colours, restoring current runtime X/Y domains. */
   async function repaint(): Promise<void> {
     if (!lastSourceRows) return;
+    syncRuntimeAxisRanges();
+    const axisDomains = captureVegaViewportDomains(axisRanges);
     const myGen = ++gen;
     const screened = screenVegaPopulation(lastSourceRows, lastType, currentValidityPolicy(), null, null);
     const rows = screened.indices.map((index) => lastSourceRows![index]);
-    await embedRows(lastType, rows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod, groupOrder: lastGroupOrder, groupLabel: lastGroupLabel }, myGen);
+    await embedRows(lastType, rows, lastX, lastY, lastZ, {
+      trend: lastTrend,
+      method: lastMethod,
+      groupOrder: lastGroupOrder,
+      groupLabel: lastGroupLabel,
+      axisDomains,
+    }, myGen);
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------
@@ -1773,62 +1800,75 @@ export async function buildVegaContent(
   };
   window.addEventListener("pointerup", onPointerUp);
 
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
-    applyBrush(sel);
-    updateRangeInfo();
-  });
-  const unsubTheme = appState.themeVersion.subscribe(() => {
-    if (embedded && lastRows) void repaint();
-  });
-
-  // Re-fetch and refill the curve dropdowns when computed curves change (a module/equation run,
-  // import, or undo) so the panel never keeps plotting pre-run values while every sibling plot
-  // beside it has already redrawn — and so newly written curves (e.g. MM_PHIE/MM_SW) appear in the
-  // X/Y/Colour/Group lists without reopening the panel. Mirrors the primed dataVersion subscription
-  // every sibling plot carries; the synchronous first fire is swallowed so build doesn't double-load.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void (async () => {
-      try {
-        const names = await loadCurveNames();
-        if (disposed) return;
-        refillCurveSelect(xSel, names);
-        refillCurveSelect(ySel, names);
-        refillCurveSelect(zSel, names, [{ value: "", label: "— None —" }]);
-        refillCurveSelect(groupSel, names, [{ value: GROUP_ZONE, label: "By zone" }]);
-      } catch {
-        // Catalog refill failed; still re-render below so the plot reflects the new data version.
+  const invalidation = registerPlotInvalidationContract(chartHost, {
+    selection: (selection) => {
+      applyBrush(selection);
+      updateRangeInfo();
+    },
+    theme: () => {
+      if (embedded && lastRows) void repaint();
+    },
+    dataRevision: () => {
+      // Refill selectors and re-fetch after module/equation runs, imports and undo, so the
+      // grammar cannot keep stale rows while sibling plots already show the new revision.
+      void (async () => {
+        try {
+          const names = await loadCurveNames();
+          if (disposed) return;
+          refillCurveSelect(xSel, names);
+          refillCurveSelect(ySel, names);
+          refillCurveSelect(zSel, names, [{ value: "", label: "— None —" }]);
+          refillCurveSelect(groupSel, names, [{ value: GROUP_ZONE, label: "By zone" }]);
+        } catch {
+          // Catalog refill failed; still re-render below so the plot reflects the new revision.
+        }
+        if (!disposed && embedded) await render();
+      })();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    size: ({ width, height }) => {
+      if (disposed || width <= 0 || height <= 0) return;
+      if (!embedded) {
+        embedded = true;
+        void render();
+        return;
       }
-      if (!disposed && embedded) await render();
-    })();
+      if (current) {
+        void current.view.resize().runAsync().then(() => {
+          if (!disposed) syncRuntimeAxisRanges();
+        }).catch(() => {});
+      }
+    },
+    cancelPending: () => {
+      disposed = true;
+      gen++;
+      if (emitRaf) {
+        cancelAnimationFrame(emitRaf);
+        emitRaf = 0;
+      }
+      if (applyRaf) {
+        cancelAnimationFrame(applyRaf);
+        applyRaf = 0;
+      }
+      if (axisSyncRaf) {
+        cancelAnimationFrame(axisSyncRaf);
+        axisSyncRaf = 0;
+      }
+    },
   });
 
-  // vega's container sizing needs the host attached with a non-zero size, which only happens once
-  // the dock appends this panel. Embed on the first non-zero measurement; vega tracks resizes after.
-  const ro = new ResizeObserver(() => {
-    if (embedded || disposed) return;
-    if (chartHost.clientWidth > 0 && chartHost.clientHeight > 0) {
-      embedded = true;
-      void render();
-    }
-  });
-  ro.observe(chartHost);
+  // The dock normally attaches after this builder returns, so the shared size source performs
+  // the initial render on the first 0→non-zero change. Handle an already-attached host too.
+  if (chartHost.clientWidth > 0 && chartHost.clientHeight > 0) {
+    embedded = true;
+    void render();
+  }
 
   return {
     el: container,
     dispose: () => {
-      disposed = true;
-      if (emitRaf) cancelAnimationFrame(emitRaf);
-      if (applyRaf) cancelAnimationFrame(applyRaf);
+      invalidation.dispose();
       window.removeEventListener("pointerup", onPointerUp);
-      unsubBrush();
-      unsubTheme();
-      unsubData();
-      ro.disconnect();
       chartHost.removeEventListener("wheel", syncAxesAfterInteraction);
       chartHost.removeEventListener("pointerup", syncAxesAfterInteraction);
       zoneSel.dispose();

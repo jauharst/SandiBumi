@@ -11,7 +11,6 @@ import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachKeyboardPanZoom,
-  attachResizeRedraw,
   attachZoomPan,
   basicStats,
   buildPlotStatisticsRecord,
@@ -66,6 +65,7 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
 
 export type HistogramMode = "bars" | "line";
 
@@ -614,7 +614,7 @@ export async function buildHistogramContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const curveNames = await loadCurveNames();
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, initial?.zone);
   const opts = normalizeHistogramOptions(await loadPlotProps<HistogramOptions>("histogram"));
   const plotId = initial?.plotId ?? crypto.randomUUID();
@@ -1276,21 +1276,6 @@ export async function buildHistogramContent(
   makeCanvasAccessible(canvas, `Histogram of ${curveSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
   const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
-  const detachResize = attachResizeRedraw(canvas, redraw);
-  const unsubTheme = appState.themeVersion.subscribe(() => redraw());
-
-  // Re-fetch when computed curves change (module/equation run, import, undo) so the
-  // histogram never shows stale data; keep the current zoom/pan. The primed flag drops
-  // subscribe's immediate fire so the trailing `await reload()` stays the only build load.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void reload(true);
-    void reloadContext(); // a module run may have rewritten the context wells' curves too
-  });
 
   // Synchronized hover: mark this curve's value at the depth under any log view's cursor.
   let rafId = 0;
@@ -1308,16 +1293,34 @@ export async function buildHistogramContent(
     }
   });
 
-  // Linked brushing: highlight this curve's sub-distribution for the shared brush's samples.
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
-    recomputeBrushValues(sel);
-    refreshStatistics();
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+  const invalidation = registerPlotInvalidationContract(canvas, {
+    theme: () => redraw(),
+    dataRevision: () => {
+      // The active and context populations share one data revision; preserve zoom while both
+      // refetch so neither layer remains stale after a module/equation run, import or undo.
+      void reload(true);
+      void reloadContext();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    selection: (selection) => {
+      recomputeBrushValues(selection);
+      refreshStatistics();
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          redraw();
+        });
+      }
+    },
+    size: () => redraw(),
+    cancelPending: () => {
+      reloadGen++;
+      ctxGen++;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
         rafId = 0;
-        redraw();
-      });
-    }
+      }
+    },
   });
 
   await reload();
@@ -1327,16 +1330,11 @@ export async function buildHistogramContent(
   return {
     el: content,
     dispose: () => {
-      ctxGen++; // cancel any in-flight context fetch
+      invalidation.dispose();
       scope.dispose();
       unsubHover();
-      unsubTheme();
-      unsubData();
-      unsubBrush();
       detachZoomPan();
       detachKeys();
-      detachResize();
-      if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
     getState: selectionState,

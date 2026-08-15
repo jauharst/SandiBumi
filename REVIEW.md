@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-019: one invalidation and disposal contract for every plot
+
+- [ ] **Automated correctness:** the exact SB-PLT-019/T32 test executes one current-value event
+      source for each of theme, data revision, interval, selection and size across Crossplot,
+      Histogram, Pickett, Vega and Correlation; proves construction is not miscounted as a change;
+      proves one theme change reaches each panel exactly once without replacing its data or viewport;
+      exercises every other event; and proves idempotent disposal removes all subscriptions and
+      cancels pending work exactly once. Omitting the interval subscription made the test RED before
+      restoration. Live-source inventory rejects private governed subscription lists. The full gate
+      is green at 1033 passed / 0 failed / 37 ignored with 33 owned Rust warnings.
+- [ ] **Visual:** open Crossplot, Histogram, Pickett, Vega and Correlation together. Switch light/dark
+      theme and confirm all five repaint once without a flash, data reset or viewport jump. Select and
+      clear a top interval, brush exact depths, and resize each dock pane. Confirm the four
+      zone-windowed plots update, Correlation shows and clears its interval band and exact-depth
+      rings, and no label, toolbar or disclosure overlaps at the smallest normal pane size.
+- [ ] **Manual:** zoom/pan all five plots to recognisably different viewports, then change theme and
+      compare the same data and bounds before/after. Trigger a data revision, interval, selection and
+      resize separately; confirm each open panel responds once. Close every panel while a reload,
+      brush frame or delayed menu/timer is pending, then change every event again and confirm no
+      detached panel redraws, writes status, reopens a menu or replaces active content.
+- [ ] **Field and harsh critique:** repeat on representative long, sparse, multi-set and multi-well
+      logs. Five calls to one helper are not proof if one handler is visually inert, if Vega resets its
+      zoom, or if a closed panel still wins an async race. A green synthetic event test does not prove
+      real dock timing, renderer behavior, legibility, memory release or representative-field UX;
+      Visual, Manual and Field remain open until Jauhar records them.
+
 ## 2026-08-15 — G2 SB-PLT-017: identified log-view viewport refetch
 
 - [ ] **Automated correctness:** the exact SB-PLT-017 T27/T28 test starts from a known loaded

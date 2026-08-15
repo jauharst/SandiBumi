@@ -19,7 +19,7 @@ import {
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { appState } from "../state";
+import { appState, type BrushSelection, type TopInterval } from "../state";
 import { openModal } from "./modal";
 import {
   buildPlotStatisticsRecord,
@@ -41,6 +41,7 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
 
 /** Default marker colors per contact type (a stored color overrides these). */
 const CONTACT_COLORS: Record<string, string> = {
@@ -317,6 +318,8 @@ export async function buildCorrelationContent(
   let hoverY: number | null = null;
   /** All fluid contacts in the project; each strip renders the ones that apply to it. */
   let contacts: FluidContact[] = [];
+  let selectedInterval: TopInterval | null = appState.selectedInterval.get();
+  let brushSelection: BrushSelection | null = appState.brushedDepths.get();
 
   // --- Depth-mode helpers: measured depth vs TVDSS -----------------------------------------
   /** MD → TVDSS via the well's declared TVDSS curve. Absence is never a vertical-well claim. */
@@ -577,6 +580,24 @@ export async function buildCorrelationContent(
       ctx.beginPath();
       ctx.rect(left, HEADER_H, stripW, plotH);
       ctx.clip();
+
+      // A selected top interval is an application-level plot invalidation. Correlation keeps its
+      // multi-well viewport and marks that exact well's MD interval instead of silently ignoring it.
+      if (selectedInterval?.wellId === s.well.well_id) {
+        const intervalBottom = selectedInterval.depthMax
+          ?? s.series.depth[s.series.depth.length - 1];
+        const topDisplay = displayOf(s, selectedInterval.depthMin);
+        const bottomDisplay = displayOf(s, intervalBottom);
+        if (topDisplay !== null && bottomDisplay !== null) {
+          const y0 = yOf(topDisplay - s.shift);
+          const y1 = yOf(bottomDisplay - s.shift);
+          ctx.fillStyle = theme.accent;
+          ctx.globalAlpha = 0.09;
+          ctx.fillRect(left, Math.min(y0, y1), stripW, Math.abs(y1 - y0));
+          ctx.globalAlpha = 1;
+        }
+      }
+
       ctx.strokeStyle = theme.accent2;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -599,6 +620,27 @@ export async function buildCorrelationContent(
         pen = true;
       }
       ctx.stroke();
+
+      // Linked selection is exact depth membership on the selected well. Rings make the redraw
+      // observable without changing the curve, source values, viewport or multi-well population.
+      if (brushSelection?.wellId === s.well.well_id && brushSelection.depths.size > 0) {
+        ctx.strokeStyle = theme.accent;
+        ctx.lineWidth = 1.5;
+        for (let k = 0; k < s.series.depth.length; k++) {
+          if (!brushSelection.depths.has(s.series.depth[k]) || !eligible.has(k)) continue;
+          const v = s.series.value[k];
+          const displayDepth = sampleDepths[k];
+          const displayHidden = v < Math.min(vMin, vMax) || v > Math.max(vMin, vMax)
+            || displayDepth < Math.min(depthRange.min, depthRange.max)
+            || displayDepth > Math.max(depthRange.min, depthRange.max);
+          if (displayHidden) continue;
+          const x = left + ((v - vMin) / (vMax - vMin)) * stripW;
+          const y = yOf(displayDepth);
+          ctx.beginPath();
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     });
 
@@ -818,8 +860,25 @@ export async function buildCorrelationContent(
     wellsBtn.textContent = `Wells (${included.size}/${wells.length})…`;
   };
   refreshWellsBtn();
+  let wellsMenu: HTMLElement | null = null;
+  let wellsMenuClose: ((event: MouseEvent) => void) | null = null;
+  let wellsMenuAttachTimer: ReturnType<typeof setTimeout> | null = null;
+  const removeWellsMenu = (): void => {
+    if (wellsMenuAttachTimer !== null) {
+      clearTimeout(wellsMenuAttachTimer);
+      wellsMenuAttachTimer = null;
+    }
+    if (wellsMenuClose) {
+      document.removeEventListener("mousedown", wellsMenuClose);
+      wellsMenuClose = null;
+    }
+    wellsMenu?.remove();
+    wellsMenu = null;
+  };
   wellsBtn.addEventListener("click", () => {
+    removeWellsMenu();
     const menu = document.createElement("div");
+    wellsMenu = menu;
     menu.className = "dock-add-menu";
     const rect = wellsBtn.getBoundingClientRect();
     menu.style.left = `${rect.left}px`;
@@ -843,11 +902,14 @@ export async function buildCorrelationContent(
     document.body.appendChild(menu);
     const close = (e: MouseEvent) => {
       if (!menu.contains(e.target as Node) && e.target !== wellsBtn) {
-        menu.remove();
-        document.removeEventListener("mousedown", close);
+        removeWellsMenu();
       }
     };
-    setTimeout(() => document.addEventListener("mousedown", close), 0);
+    wellsMenuClose = close;
+    wellsMenuAttachTimer = setTimeout(() => {
+      wellsMenuAttachTimer = null;
+      if (wellsMenu === menu) document.addEventListener("mousedown", close);
+    }, 0);
   });
 
   const curveSel = curveSelect(curveNames, opts.curve);
@@ -1452,30 +1514,6 @@ export async function buildCorrelationContent(
     draw();
   });
 
-  const resizeObserver = new ResizeObserver(() => draw());
-  resizeObserver.observe(canvasHost);
-  // The primed flag drops subscribe's immediate fire so the trailing `await reload()`
-  // below stays the only build-time load (no double fetch at construction).
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    // Refresh the well list first (imports/deletions/group change), THEN re-read curves —
-    // reload() alone left a stale Wells menu that never showed a newly imported well.
-    void refreshWells()
-      .then(() => reload())
-      .then(draw)
-      .catch((error) => {
-        strips = [];
-        setStatus(`Correlation refused: ${error}`);
-        draw();
-      });
-  });
-  // Colours come from CSS vars at draw time; a theme switch only needs a repaint.
-  const unsubTheme = appState.themeVersion.subscribe(() => draw());
-
   try {
     await reload();
   } catch (err) {
@@ -1495,19 +1533,50 @@ export async function buildCorrelationContent(
     }
   }, 50);
 
+  const invalidation = registerPlotInvalidationContract(canvasHost, {
+    theme: () => draw(),
+    dataRevision: () => {
+      // Refresh the well inventory before its curves so an import/delete/group change cannot
+      // leave the Wells menu and the rendered strips on different data revisions.
+      void refreshWells()
+        .then(() => reload())
+        .then(draw)
+        .catch((error) => {
+          strips = [];
+          setStatus(`Correlation refused: ${error}`);
+          draw();
+        });
+    },
+    interval: (interval) => {
+      selectedInterval = interval;
+      draw();
+    },
+    selection: (selection) => {
+      brushSelection = selection;
+      draw();
+    },
+    size: () => draw(),
+    cancelPending: () => {
+      reloadGen++;
+      clearTimeout(fitTimer);
+      if (wheelPersistTimer !== null) {
+        clearTimeout(wheelPersistTimer);
+        wheelPersistTimer = null;
+      }
+      removeWellsMenu();
+    },
+  });
+
   return {
     el,
     dispose: () => {
-      resizeObserver.disconnect();
-      unsubData();
-      unsubTheme();
-      window.removeEventListener("pointerup", onWindowPointerUp);
-      clearTimeout(fitTimer);
       if (wheelPersistTimer !== null) {
         clearTimeout(wheelPersistTimer);
         wheelPersistTimer = null;
         persist();
       }
+      invalidation.dispose();
+      window.removeEventListener("pointerup", onWindowPointerUp);
     },
     getState: selectionState,
     getPersistedState: () => persistedState(selectionState()),

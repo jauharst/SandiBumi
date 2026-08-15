@@ -1255,6 +1255,158 @@ test("a_viewport_crossing_its_loaded_high_bound_issues_one_generation_tagged_hal
   assert.match(panelSource, /this\.message\(failure\)/, "the coordinator's failure is visible in the panel");
 });
 
+test("every_plot_uses_one_change_only_invalidation_contract_and_a_theme_change_redraws_each_once_without_replacing_data_or_viewport_while_dispose_cancels_all_work", async () => {
+  // CORRECTNESS — SB-PLT-019 / SB-PLT-T32. docs/PRD_v2/23_plotting-interactivity.md
+  // §4.4 and §6 require the shared theme/data-revision/interval/selection/size contract,
+  // one theme redraw with data and viewport retained, and complete subscription/work cleanup.
+  // The counts below are event arithmetic, not scientific values or product defaults.
+  const {
+    PLOT_INVALIDATION_KINDS,
+    subscribePlotInvalidationContract,
+  } = await load("/src/ui/plotInvalidation.ts");
+
+  const currentSource = (initial) => {
+    let value = initial;
+    const listeners = new Set();
+    return {
+      subscribe(listener) {
+        listeners.add(listener);
+        listener(value);
+        return () => listeners.delete(listener);
+      },
+      set(next) {
+        value = next;
+        for (const listener of listeners) listener(next);
+      },
+      listenerCount: () => listeners.size,
+    };
+  };
+  const sources = {
+    theme: currentSource(0),
+    dataRevision: currentSource(0),
+    interval: currentSource(null),
+    selection: currentSource(null),
+    size: currentSource({ width: 640, height: 480 }),
+  };
+  const panels = ["crossplot", "histogram", "pickett", "vega", "correlation"].map((kind) => {
+    const data = { identity: `${kind}-data` };
+    const viewport = { identity: `${kind}-viewport` };
+    const counts = Object.fromEntries(PLOT_INVALIDATION_KINDS.map((event) => [event, 0]));
+    let cancelled = 0;
+    const subscription = subscribePlotInvalidationContract(sources, {
+      theme: () => counts.theme++,
+      dataRevision: () => counts.dataRevision++,
+      interval: () => counts.interval++,
+      selection: () => counts.selection++,
+      size: () => counts.size++,
+      cancelPending: () => cancelled++,
+    });
+    return { kind, data, viewport, counts, subscription, cancelled: () => cancelled };
+  });
+
+  assert.deepEqual(PLOT_INVALIDATION_KINDS, ["theme", "dataRevision", "interval", "selection", "size"]);
+  for (const panel of panels) {
+    assert.deepEqual(panel.counts, {
+      theme: 0,
+      dataRevision: 0,
+      interval: 0,
+      selection: 0,
+      size: 0,
+    }, `${panel.kind} initializes from the current snapshot without treating it as a change`);
+  }
+
+  const retained = panels.map(({ data, viewport }) => ({ data, viewport }));
+  sources.theme.set(1);
+  for (let index = 0; index < panels.length; index++) {
+    assert.equal(panels[index].counts.theme, 1, `${panels[index].kind} redraws exactly once for one theme change`);
+    assert.strictEqual(panels[index].data, retained[index].data, `${panels[index].kind} retains its data`);
+    assert.strictEqual(panels[index].viewport, retained[index].viewport, `${panels[index].kind} retains its viewport`);
+  }
+
+  sources.dataRevision.set(1);
+  sources.interval.set({ wellId: "well-a", topName: "interval", depthMin: 100, depthMax: 101 });
+  sources.selection.set({ wellId: "well-a", depths: new Set([100]) });
+  sources.size.set({ width: 800, height: 600 });
+  for (const panel of panels) {
+    assert.deepEqual(panel.counts, {
+      theme: 1,
+      dataRevision: 1,
+      interval: 1,
+      selection: 1,
+      size: 1,
+    }, `${panel.kind} receives every governed invalidation once`);
+    panel.subscription.dispose();
+    panel.subscription.dispose();
+    assert.equal(panel.cancelled(), 1, `${panel.kind} cancels pending work exactly once`);
+  }
+  for (const source of Object.values(sources)) assert.equal(source.listenerCount(), 0, "disposal removes every governed subscription");
+
+  sources.theme.set(2);
+  sources.dataRevision.set(2);
+  sources.interval.set(null);
+  sources.selection.set(null);
+  sources.size.set({ width: 900, height: 700 });
+  for (const panel of panels) {
+    assert.deepEqual(panel.counts, {
+      theme: 1,
+      dataRevision: 1,
+      interval: 1,
+      selection: 1,
+      size: 1,
+    }, `${panel.kind} performs no work after disposal`);
+  }
+
+  // The executable contract alone would let a dead helper pass. Inventory the five live
+  // builders and exclude their old independent invalidation lists as the opposite side.
+  const liveRegistrations = new Map();
+  for (const panel of [
+    "crossplotPanel.ts",
+    "histogramPanel.ts",
+    "pickettPanel.ts",
+    "vegaPanel.ts",
+    "correlationPanel.ts",
+  ]) {
+    const source = await readFile(new URL(`../src/ui/${panel}`, import.meta.url), "utf8");
+    assert.equal((source.match(/registerPlotInvalidationContract\(/g) ?? []).length, 1, `${panel} registers the shared contract exactly once`);
+    assert.doesNotMatch(source, /appState\.(?:themeVersion|dataVersion|selectedInterval|brushedDepths)\.subscribe/, `${panel} has no private governed subscription list`);
+    const start = source.indexOf("registerPlotInvalidationContract(");
+    const end = source.indexOf("\n  });", start);
+    assert.ok(end > start, `${panel} has one inspectable complete registration`);
+    const registration = source.slice(start, end + 6);
+    for (const event of ["theme", "dataRevision", "interval", "selection", "size", "cancelPending"]) {
+      assert.match(registration, new RegExp(`\\b${event}\\s*:`), `${panel} declares a live ${event} handler`);
+    }
+    liveRegistrations.set(panel, registration);
+  }
+
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /recomputeBrush\(selection\)/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /coreGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
+    assert.match(liveRegistrations.get("crossplotPanel.ts"), pattern, `crossplot's handler is not a no-op: ${pattern}`);
+  }
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /recomputeBrushValues\(selection\)/, /refreshStatistics\(\)/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
+    assert.match(liveRegistrations.get("histogramPanel.ts"), pattern, `histogram's handler is not a no-op: ${pattern}`);
+  }
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /brushSet\s*=\s*next/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
+    assert.match(liveRegistrations.get("pickettPanel.ts"), pattern, `Pickett's handler is not a no-op: ${pattern}`);
+  }
+  for (const pattern of [/applyBrush\(selection\)/, /repaint\(\)/, /loadCurveNames\(\)/, /render\(\)/, /applySelectedInterval/, /current\.view\.resize\(\)/, /gen\+\+/, /cancelAnimationFrame/]) {
+    assert.match(liveRegistrations.get("vegaPanel.ts"), pattern, `Vega's handler is not a no-op: ${pattern}`);
+  }
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*draw\(\)/, /refreshWells\(\)/, /reload\(\)/, /selectedInterval\s*=\s*interval/, /brushSelection\s*=\s*selection/, /size:\s*\(\)\s*=>\s*draw\(\)/, /reloadGen\+\+/, /clearTimeout\(fitTimer\)/, /removeWellsMenu\(\)/]) {
+    assert.match(liveRegistrations.get("correlationPanel.ts"), pattern, `Correlation's handler is not a no-op: ${pattern}`);
+  }
+
+  const { captureVegaViewportDomains } = await load("/src/ui/vegaPanel.ts");
+  assert.deepEqual(
+    captureVegaViewportDomains([
+      { axis: "x", min: 10, max: 20, tier: "user" },
+      { axis: "y", min: 30, max: 40, tier: "user" },
+      { axis: "colour", min: 0, max: 1, tier: "finite_data" },
+    ]),
+    { x: [10, 20], y: [30, 40] },
+    "a theme re-embed restores the current pan/zoom domains rather than the original data domains",
+  );
+});
+
 test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose", async () => {
   // CORRECTNESS — SB-PLT-030 / SB-PLT-T39 cites plotCanvas.ts:527-618 for the
   // accessible label, keyboard focus, pan/zoom and disposer contract.

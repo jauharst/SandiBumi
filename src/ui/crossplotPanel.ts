@@ -12,7 +12,6 @@ import { formRow, openModal } from "./modal";
 import { requestRunCustody } from "./runCustody";
 import {
   attachKeyboardPanZoom,
-  attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
   buildPlotStatisticsRecord,
@@ -84,6 +83,7 @@ import {
   type AxisRangeResolution,
   type PlotAxisRangeExport,
 } from "./axisRange";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
 import {
   applyPlotRangePolicy,
   formatPlotRangePolicySummary,
@@ -1494,7 +1494,7 @@ export async function buildCrossplotContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const curveNames = await loadCurveNames();
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, initial?.zone);
   const opts = normalizeCrossplotOptions(await loadPlotProps<CrossplotOptions>("crossplot"));
   const plotId = initial?.plotId ?? crypto.randomUUID();
@@ -2911,20 +2911,6 @@ export async function buildCrossplotContent(
     onPanStart: (px, py) => handleAt(px, py) === null, // a handle grab vetoes panning
   });
   const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
-  const detachResize = attachResizeRedraw(canvas, redraw);
-  const unsubTheme = appState.themeVersion.subscribe(() => redraw());
-
-  // Re-fetch when computed curves change (module/equation run, import, undo) so the
-  // crossplot never shows stale data; keep the zoom/pan and the placed parameter handle.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void reload(true);
-    void reloadContext(); // a module run may have rewritten the context wells' curves too
-  });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
   let rafId = 0;
@@ -2977,15 +2963,34 @@ export async function buildCrossplotContent(
   };
   window.addEventListener("mouseup", onBrushEnd);
 
-  // Consume the shared brush (incl. our own publishes) → highlight the covered samples.
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
-    recomputeBrush(sel);
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+  const invalidation = registerPlotInvalidationContract(canvas, {
+    theme: () => redraw(),
+    dataRevision: () => {
+      // Re-fetch after module/equation runs, imports and undo while preserving the viewport
+      // and placed parameter handle. Context wells can have changed in the same revision.
+      void reload(true);
+      void reloadContext();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    selection: (selection) => {
+      recomputeBrush(selection);
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          redraw();
+        });
+      }
+    },
+    size: () => redraw(),
+    cancelPending: () => {
+      reloadGen++;
+      coreGen++;
+      ctxGen++;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
         rafId = 0;
-        redraw();
-      });
-    }
+      }
+    },
   });
 
   // Local hover tooltip: the sample values under the cursor (X/Y/Z + depth), independent of the
@@ -3024,18 +3029,13 @@ export async function buildCrossplotContent(
   return {
     el: content,
     dispose: () => {
-      ctxGen++; // cancel any in-flight context fetch
+      invalidation.dispose();
       scope.dispose();
       unsubHover();
-      unsubTheme();
-      unsubData();
-      unsubBrush();
       detachZoomPan();
       detachKeys();
-      detachResize();
       detachTip();
       window.removeEventListener("mouseup", onBrushEnd);
-      if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
     getState: selectionState,

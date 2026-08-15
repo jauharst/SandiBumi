@@ -3,7 +3,6 @@ import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachKeyboardPanZoom,
-  attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
   buildPlotStatisticsRecord,
@@ -64,6 +63,7 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
 
 /** Persisted Pickett v2 display settings (plotprops doc "pickett"). Complete axis pairs are
  *  user overrides; absent pairs continue to header/family/finite data. */
@@ -553,7 +553,7 @@ export async function buildPickettContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const curveNames = await loadCurveNames();
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, initial?.zone);
   const plotId = initial?.plotId ?? crypto.randomUUID();
   const props: PickettProps = sanitizePickettProps(await loadPlotProps<PickettProps>("pickett"));
@@ -735,7 +735,8 @@ export async function buildPickettContent(
   let statisticsDataVersion = 0;
   // Linked-brush consumer: samples brushed in the crossplot (same well, same backend depth
   // grid) are ringed here so a selection made in one plot is visible in the other.
-  let brushSet: Set<number> | null = null;
+  const initialBrush = appState.brushedDepths.get();
+  let brushSet: Set<number> | null = initialBrush?.wellId === well.well_id ? initialBrush.depths : null;
   const viewRef: ViewportRef = { current: null };
 
   const refreshStatisticsRecords = (): void => {
@@ -1168,28 +1169,6 @@ export async function buildPickettContent(
   makeCanvasAccessible(canvas, `Pickett plot: ${rtSel.value} versus ${phiSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw });
   const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
-  const detachResize = attachResizeRedraw(canvas, redraw);
-  const unsubTheme = appState.themeVersion.subscribe(() => redraw());
-
-  // Linked brushing: mirror the crossplot's selection (this well only) as rings.
-  const unsubBrush = appState.brushedDepths.subscribe((b) => {
-    const next = b && b.wellId === well.well_id ? b.depths : null;
-    if (next === brushSet) return;
-    brushSet = next;
-    redraw();
-  });
-
-  // Re-fetch when computed curves change (module/equation run, import, undo) so the
-  // Pickett plot never shows stale data; keep the zoom/pan and the M/a·Rw line.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void reload(true);
-    void reloadContext(); // a module run may have rewritten the context wells' curves too
-  });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
   let rafId = 0;
@@ -1377,6 +1356,31 @@ export async function buildPickettContent(
     return lines;
   });
 
+  const invalidation = registerPlotInvalidationContract(canvas, {
+    theme: () => redraw(),
+    dataRevision: () => {
+      // Keep the pan/zoom and M/a·Rw line while active and context data refresh together.
+      void reload(true);
+      void reloadContext();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    selection: (selection) => {
+      const next = selection?.wellId === well.well_id ? selection.depths : null;
+      if (next === brushSet) return;
+      brushSet = next;
+      redraw();
+    },
+    size: () => redraw(),
+    cancelPending: () => {
+      reloadGen++;
+      ctxGen++;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+    },
+  });
+
   await reload();
   // Not awaited: a big scope must not block the panel build — the active well's plot
   // appears immediately and the context clouds fade in when ready.
@@ -1384,17 +1388,12 @@ export async function buildPickettContent(
   return {
     el: content,
     dispose: () => {
-      ctxGen++; // cancel any in-flight context fetch
+      invalidation.dispose();
       scope.dispose();
       unsubHover();
-      unsubTheme();
-      unsubData();
-      unsubBrush();
       detachZoomPan();
       detachKeys();
-      detachResize();
       detachTip();
-      if (rafId) cancelAnimationFrame(rafId); // drop any queued hover redraw so it can't fire post-dispose
       zoneSel.dispose();
     },
     getState: selectionState,
