@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-041: Persisted smoothing-policy provenance
+
+- [ ] **Automated correctness:** exact T49 is GREEN after a witnessed RED. One real workflow test
+      runs MEAN, MEDIAN and SAVGOL with the same explicit physical window, closes and reopens the
+      project, then reads distinct kernel/normalisation records plus the end and gap-edge policy
+      from each output curve's ancestry.
+- [ ] **Visual:** run each Smooth method and inspect its Processing History/curve provenance. Confirm
+      the kernel, normalisation, truncated-end behaviour and MISSING-edge behaviour are readable
+      without decoding the implementation or assuming all three methods share one policy.
+- [ ] **Manual persistence review:** save, close and reopen the project after the three runs. Confirm
+      each curve retains its own policy record and that two runs with the same WINDOW remain
+      distinguishable by method and normalisation.
+- [ ] **Field and harsh critique:** the record truthfully declares that a live target may use finite
+      neighbours across an intervening MISSING interval while the MISSING target stays MISSING.
+      Provenance makes that choice auditable; it does not prove the choice is geologically suitable
+      for a pilot curve or authorize calling the smoothed result field-verified.
+
 ## 2026-08-16 — G2 SB-ENV-040: Output-name shadowing refusal
 
 - [ ] **Automated correctness:** exact T48 is GREEN on the current head. The existing named test

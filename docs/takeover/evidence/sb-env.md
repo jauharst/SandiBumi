@@ -540,14 +540,14 @@
 
 - **Chapter evidence:** P2; chapter status `PRESENT-UNVERIFIED`; T49; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** persist kernel, normalization, end behavior and gap-edge behavior with each smoothed output.
-- **Current source:** the selected smoothing method and window reach the run request, but output/log-set provenance stores numeric parameters and input bindings while omitting option/kernel identity and the normalization/end/gap-edge policy. The curve itself carries no such record.
-- **Qualifying acceptance tests:** none; T49 is missing. Test class `MISSING`.
-- **Supporting tests:** smooth-method arithmetic tests prove behavior, not persistent declaration/retrieval.
+- **Current source:** `effective_module_parameters` already persists `OPT_METHOD` and `WINDOW`. `condition::smoothing_policy` now declares the MEAN, MEDIAN and SAVGOL kernel/normalisation branches plus the truncated-end and MISSING-edge behavior, and `complete_module_log_spec` attaches that schema-versioned declaration to every smoothed output as `SMOOTHING_POLICY`.
+- **Qualifying acceptance tests:** `workflow::tests::a_smoothed_curve_records_its_kernel_normalisation_end_and_gap_edge_behaviour_after_restart` was witnessed RED on the absent record, then passed exactly once after running all three shipped methods with one explicit window, closing and reopening the project and reading each distinct policy from curve ancestry. Expected declarations come from T49 and the independently inspected shipped arithmetic; test class `CORRECTNESS`.
+- **Supporting tests:** smooth-method arithmetic tests separately pin the numerical branches; T49 pins the persistent declaration/retrieval seam.
 - **Manual evidence:** processing-history 0/7; conditioning 0/27.
-- **Git evidence:** smoothing and generic provenance are integrated, but the required output declaration is incomplete.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the option/policy record and restart retrieval are missing.
-- **Next action:** persist the complete kernel policy with the output and add a restart test that differentiates two kernels sharing the same window.
+- **Git evidence:** implementation and exact T49 are prepared on current parent `8ad382e8a4c40abf5a449cd4e886cc54eb46a55c`; no database schema or write-discipline change was required.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated provenance; visual/manual/field evidence remains open, and the declared across-gap-neighbour policy is not thereby judged geologically suitable.
+- **Next action:** preserve exact T49, execute visual/manual/field review separately and continue SB-ENV-042.
 
 ## SB-ENV-042 - Interactive edits carry provenance, not only undo
 

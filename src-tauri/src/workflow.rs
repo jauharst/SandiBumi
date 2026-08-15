@@ -403,6 +403,7 @@ pub(crate) const MASK_PROVENANCE_KEY: &str = "MASK";
 pub(crate) const MASK_PROVENANCE_NONE: &str = "NONE";
 pub(crate) const MASK_PROVENANCE_APPLIED: &str = "APPLIED";
 pub(crate) const FLAG_KIND_PROVENANCE_PREFIX: &str = "FLAG_KIND.";
+pub(crate) const SMOOTHING_POLICY_PROVENANCE_KEY: &str = "SMOOTHING_POLICY";
 
 pub(crate) fn mask_provenance(opts: &HashMap<String, String>) -> serde_json::Value {
     match opts
@@ -768,6 +769,30 @@ fn complete_module_log_spec(
         manifest_version: None,
         decision: None,
     });
+    if req.module == "smooth" {
+        if parameters
+            .iter()
+            .any(|parameter| parameter.name == SMOOTHING_POLICY_PROVENANCE_KEY)
+            || legacy.contains_key(SMOOTHING_POLICY_PROVENANCE_KEY)
+        {
+            return Err(format!(
+                "module '{}' declares an argument that collides with reserved smoothing-provenance key '{}'",
+                spec.name, SMOOTHING_POLICY_PROVENANCE_KEY
+            ));
+        }
+        let policy = crate::condition::smoothing_policy(
+            opts.get("OPT_METHOD").map(String::as_str).unwrap_or("MEAN"),
+        );
+        legacy.insert(SMOOTHING_POLICY_PROVENANCE_KEY.into(), policy.clone());
+        parameters.push(equations::AncestryParameter {
+            name: SMOOTHING_POLICY_PROVENANCE_KEY.into(),
+            value: policy,
+            source: "docs/PRD_v2/20_envcorr-qc.md SB-ENV-041 / SB-ENV-T49".into(),
+            resolution: None,
+            manifest_version: None,
+            decision: None,
+        });
+    }
     for (curve, kind) in resolved_flag_output_names(spec, opts)? {
         // Condition flags are optional. Persist a role only for a curve this run actually emitted;
         // otherwise metadata would claim an output exists when OPT_FLAG deliberately suppressed it.
@@ -5703,6 +5728,125 @@ mod tests {
 
         // And the control: an ordinary rename is accepted, so none of the above is a blanket ban.
         assert_eq!(with(&[("OUT_CURVE", "gr_ed")]).unwrap()[0].1, "GR_ED");
+    }
+
+    /// CORRECTNESS — SB-ENV-041 / SB-ENV-T49. The four required declarations come from
+    /// `docs/PRD_v2/20_envcorr-qc.md` sections 4.4 and 6.4. The three literal policy records below
+    /// are independently read from the shipped arithmetic in `condition::smooth`: all use a
+    /// centred physical-depth window and preserve a MISSING target while using finite neighbours
+    /// inside that window; MEAN divides by the finite count, MEDIAN is an order statistic, and
+    /// SAVGOL solves local normal equations with a finite-mean fallback at insufficient support.
+    /// The 2.0 window and curve values are synthetic fixture inputs, not a shipping default or a
+    /// petrophysical expected value.
+    #[test]
+    fn a_smoothed_curve_records_its_kernel_normalisation_end_and_gap_edge_behaviour_after_restart() {
+        struct TempProject(std::path::PathBuf);
+        impl Drop for TempProject {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+                let _ = std::fs::remove_file(format!("{}.wal", self.0.display()));
+            }
+        }
+
+        let temporary = TempProject(std::env::temp_dir().join(format!(
+            "sandibumi-env041-smoothing-policy-{}.duckdb",
+            uuid::Uuid::new_v4()
+        )));
+        let path = temporary.0.to_string_lossy().to_string();
+        let conn = db::init_db(&path).expect("create smoothing-provenance project");
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "SMOOTHING-POLICY", None, None, Some(0.0)).unwrap();
+        let missing = vec![f32::NAN; 5];
+        db::insert_standard_curves(
+            &conn,
+            well,
+            vec![1000.0, 1001.0, 1002.0, 1003.0, 1004.0],
+            vec![10.0, 20.0, f32::NAN, 40.0, 50.0],
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing,
+        )
+        .unwrap();
+        let well_id = well.to_string();
+        let dbm = Mutex::new(conn);
+
+        let run = |method: &str, curve: &str, set_name: &str| {
+            let result = run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "smooth".into(),
+                    well_ids: vec![well_id.clone()],
+                    log_inputs: HashMap::from([("CURVE".into(), "GR".into())]),
+                    params: HashMap::from([("WINDOW".into(), 2.0)]),
+                    opts: HashMap::from([
+                        ("OPT_METHOD".into(), method.into()),
+                        ("OPT_FLAG".into(), "NO".into()),
+                        (format!("{OUT_NAME_PREFIX}OUT_CURVE"), curve.into()),
+                    ]),
+                    output_set: Some(set_name.into()),
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            );
+            assert_eq!(result.len(), 1);
+            assert!(result[0].error.is_none(), "{method} run failed: {:?}", result[0].error);
+            assert!(result[0].output_curves.iter().any(|output| output == curve));
+        };
+        run("MEAN", "GR_MEAN", "SMOOTH_MEAN");
+        run("MEDIAN", "GR_MEDIAN", "SMOOTH_MEDIAN");
+        run("SAVGOL", "GR_SAVGOL", "SMOOTH_SAVGOL");
+        dbm.lock().unwrap().execute_batch("CHECKPOINT").unwrap();
+        drop(dbm);
+
+        let reopened = db::init_db_resilient(&path).expect("reopen smoothing-provenance project");
+        let policy = |curve: &str| {
+            equations::curve_ancestry(&reopened, &well_id, curve)
+                .unwrap()
+                .parameters
+                .into_iter()
+                .find(|parameter| parameter.name == "SMOOTHING_POLICY")
+                .unwrap_or_else(|| panic!("{curve} lost its smoothing policy"))
+                .value
+        };
+        let mean = policy("GR_MEAN");
+        let median = policy("GR_MEDIAN");
+        let savgol = policy("GR_SAVGOL");
+
+        assert_eq!(
+            mean,
+            serde_json::json!({
+                "schema_version": 1,
+                "kernel": "UNIFORM_MEAN",
+                "normalisation": "DIVIDE_BY_FINITE_SAMPLE_COUNT",
+                "end_behaviour": "TRUNCATE_CENTERED_WINDOW_TO_AVAILABLE_DEPTHS",
+                "gap_edge_behaviour": "PRESERVE_MISSING_TARGET_AND_USE_FINITE_NEIGHBOURS_WITHIN_WINDOW"
+            })
+        );
+        assert_eq!(
+            median,
+            serde_json::json!({
+                "schema_version": 1,
+                "kernel": "WINDOW_MEDIAN",
+                "normalisation": "FINITE_ORDER_STATISTIC",
+                "end_behaviour": "TRUNCATE_CENTERED_WINDOW_TO_AVAILABLE_DEPTHS",
+                "gap_edge_behaviour": "PRESERVE_MISSING_TARGET_AND_USE_FINITE_NEIGHBOURS_WITHIN_WINDOW"
+            })
+        );
+        assert_eq!(
+            savgol,
+            serde_json::json!({
+                "schema_version": 1,
+                "kernel": "LOCAL_QUADRATIC_LEAST_SQUARES",
+                "normalisation": "LOCAL_LEAST_SQUARES_NORMAL_EQUATIONS",
+                "end_behaviour": "TRUNCATE_CENTERED_WINDOW_AND_USE_FINITE_MEAN_IF_UNDERDETERMINED",
+                "gap_edge_behaviour": "PRESERVE_MISSING_TARGET_AND_USE_FINITE_NEIGHBOURS_WITHIN_WINDOW"
+            })
+        );
+        assert_ne!(mean, median, "two kernels sharing one window must not collapse to one policy");
+        assert_ne!(mean, savgol, "the least-squares branch must not inherit the mean policy");
     }
 
     /// CORRECTNESS — SB-DBM-029 / SB-DBM-T28. The refusal, named frame, immobility

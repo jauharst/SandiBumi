@@ -614,6 +614,68 @@ pub fn smooth_spec() -> ModuleSpec {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SmoothingKernel {
+    UniformMean,
+    WindowMedian,
+    LocalQuadraticLeastSquares,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SmoothingNormalisation {
+    DivideByFiniteSampleCount,
+    FiniteOrderStatistic,
+    LocalLeastSquaresNormalEquations,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SmoothingEndBehaviour {
+    TruncateCenteredWindowToAvailableDepths,
+    TruncateCenteredWindowAndUseFiniteMeanIfUnderdetermined,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SmoothingGapEdgeBehaviour {
+    PreserveMissingTargetAndUseFiniteNeighboursWithinWindow,
+}
+
+/// The reproducibility declaration attached to every smoothed output by the workflow writer.
+///
+/// This describes the arithmetic below rather than choosing a new filter. In particular, a live
+/// sample's centred window may use finite neighbours on both sides of a MISSING interval, while
+/// the MISSING target itself remains MISSING. Stating that edge behavior explicitly prevents the
+/// less precise phrase "preserve gaps" from being mistaken for window segmentation.
+pub(crate) fn smoothing_policy(method: &str) -> serde_json::Value {
+    let (kernel, normalisation, end_behaviour) = match method {
+        "MEDIAN" => (
+            SmoothingKernel::WindowMedian,
+            SmoothingNormalisation::FiniteOrderStatistic,
+            SmoothingEndBehaviour::TruncateCenteredWindowToAvailableDepths,
+        ),
+        "SAVGOL" => (
+            SmoothingKernel::LocalQuadraticLeastSquares,
+            SmoothingNormalisation::LocalLeastSquaresNormalEquations,
+            SmoothingEndBehaviour::TruncateCenteredWindowAndUseFiniteMeanIfUnderdetermined,
+        ),
+        _ => (
+            SmoothingKernel::UniformMean,
+            SmoothingNormalisation::DivideByFiniteSampleCount,
+            SmoothingEndBehaviour::TruncateCenteredWindowToAvailableDepths,
+        ),
+    };
+    serde_json::json!({
+        "schema_version": 1,
+        "kernel": kernel,
+        "normalisation": normalisation,
+        "end_behaviour": end_behaviour,
+        "gap_edge_behaviour": SmoothingGapEdgeBehaviour::PreserveMissingTargetAndUseFiniteNeighboursWithinWindow,
+    })
+}
+
 /// Local quadratic least-squares fit over `[lo, hi)`, evaluated at `centre` depth.
 ///
 /// Fitted on the actual depths rather than on sample index: the classic Savitzky-Golay
