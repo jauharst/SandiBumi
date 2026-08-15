@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-ENV-004: parameter-source contract blocked
+
+- [ ] **Automated audit:** current source has the universal `default_source`/`ABSENT` field, build
+      gate, dialog text and ancestry persistence established by SB-CORE-004, but that proof cannot
+      be relabelled as this domain's T06/T07. The exact §5 table contains 29 `SHIPPED-UNCITED` rows:
+      10 are authorized to become ABSENT and 19 explicitly require sources the chapter does not
+      supply. T07 separately names 31 ABSENT parameters while §5 calls its 32 count authoritative.
+      No production change or manufactured passing test was made; the unchanged full gate remains
+      1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- [ ] **Visual:** no closure review is executable yet. The existing dialog may correctly display a
+      source or ABSENT for registered parameters and still omit an ENV parameter entirely; a good-
+      looking field cannot prove the domain inventory is complete or that source and validity share
+      the same saved record.
+- [ ] **Manual decision:** provide or approve admissible named sources for the nineteen source-
+      required §5 rows, and adjudicate the exact T07 identity set: either name all 32 authoritative
+      ABSENT parameters or identify with evidence which one is excluded from the stated 31. Do not
+      use a neighbouring vendor value, code comment or current default as its own authority.
+- [ ] **Field and harsh critique:** a universal validator proves only what was registered. A missing
+      parameter never reaches that validator, an uncited number can still look plausible, and two
+      separate persisted records can drift while both remain schema-valid. Until the sources and
+      31/32 inventory are resolved, this row is BLOCKED rather than quietly partial-complete.
+
 ## 2026-08-15 — G2 SB-ENV-003: partial precondition refusal or flagged workflow result
 
 - [ ] **Automated correctness:** the exact T05 test starts from refusal as the default and proves it
