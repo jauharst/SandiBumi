@@ -12,7 +12,10 @@
 //! on a timer while the run occupies its own command worker thread. `cancel_workflow_chain`
 //! flips a shared flag the runner checks between steps.
 
-use crate::workflow::{self, RunModuleRequest};
+use crate::{
+    modules,
+    workflow::{self, RunModuleRequest},
+};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -356,6 +359,21 @@ pub(crate) fn run_chain(
             job.failed(error);
         }
         return;
+    }
+
+    // An option selector is global metadata, so every step can be validated before reading one
+    // sample or allocating the chain's shared output set. Keep the per-module validation too: it
+    // is the algorithm boundary used by direct runs, Monte Carlo and future callers. This whole-
+    // chain pass closes the frame-dependent failure where step one wrote a plausible value and a
+    // typo in step two left that earlier value inside a chain reported as completed-with-errors.
+    for step in steps {
+        if let Err(error) = modules::validate_module_options(&step.module, &step.opts) {
+            set_status(registry, job_id, ChainStatus::Failed { error: error.clone() });
+            if let Some(job) = job {
+                job.failed(error);
+            }
+            return;
+        }
     }
 
     // ONE set event per well for the whole chain run: every step writes into the same
@@ -743,6 +761,66 @@ mod tests {
             .query_row("SELECT count(*) FROM computed_curves", [], |row| row.get(0))
             .unwrap();
         assert_eq!(written, 0, "no route may write a curve after the shared refusal");
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` section 4.1 SB-ENV-009 and section 6.1
+    /// SB-ENV-T15. The valid first step uses the source-owned VSH-GR 20/120 gAPI endpoints from
+    /// `10_clay-volume.md` sections 3.2-3.3; the second step changes only the method id to a value
+    /// outside the declared closed set. The acceptance surface is the saved-chain poll payload and
+    /// the persisted curve/set inventory, not only an internal module `Result`.
+    #[test]
+    fn an_invalid_saved_chain_step_after_a_valid_step_refuses_before_any_previous_value_is_versioned() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let database = Mutex::new(conn);
+        let registry = new_registry();
+        let job_id = U::new_v4();
+        let cancel = register(&registry, job_id);
+
+        let valid_step = ChainStep {
+            module: "vsh_gr".into(),
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+            opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+        };
+        let mut invalid_step = valid_step.clone();
+        invalid_step.opts.insert("OPT_GR".into(), "TYPO".into());
+
+        run_chain(
+            &database,
+            &registry,
+            job_id,
+            cancel.as_ref(),
+            &[valid_step, invalid_step],
+            &[well.clone()],
+            Some("METHOD-VALIDATION"),
+            None,
+            &precondition_custody(),
+            None,
+        );
+
+        let error = match status(&registry, job_id).expect("the saved-chain refusal must be pollable") {
+            ChainStatus::Failed { error } => error,
+            other => panic!("an invalid later selector must fail the whole chain before step one, got {other:?}"),
+        };
+        assert!(error.contains("OPT_GR"), "selector name missing: {error}");
+        assert!(error.contains("TYPO"), "unrecognised value missing: {error}");
+        assert!(error.contains("LINEAR"), "permitted set missing: {error}");
+
+        let conn = database.lock().unwrap();
+        let set_count: i64 = conn
+            .query_row("SELECT count(*) FROM log_sets WHERE well_id = ?1", params![well], |row| row.get(0))
+            .unwrap();
+        let current_count: i64 = conn
+            .query_row("SELECT count(*) FROM computed_curves", [], |row| row.get(0))
+            .unwrap();
+        let archive_count: i64 = conn
+            .query_row("SELECT count(*) FROM computed_curves_archive", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(set_count, 0, "an invalid later selector must allocate no chain version");
+        assert_eq!(current_count, 0, "the valid first step must not survive as the invalid chain's current value");
+        assert_eq!(archive_count, 0, "the valid first step must not survive in the invalid chain's archive");
     }
 
     #[test]

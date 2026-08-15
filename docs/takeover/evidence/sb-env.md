@@ -124,14 +124,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-UNVERIFIED`; T03/T15; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** validate every named selector against its closed set; refuse unknown values by name; never fall through or retain prior-frame values.
-- **Current source:** dialogs constrain choices, but backend `ctx.o()` receives strings without a common enumeration check. Multiple module bodies implement `== known` plus an `else` branch, so an API/saved value outside the manifest can select a fallback rather than refuse.
-- **Qualifying acceptance tests:** none; T03/T15 are missing. Test class `MISSING`.
-- **Supporting tests:** choice-label and manifest-shape tests do not inject an invalid backend selector.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; formation-temperature 0/0 not recorded.
-- **Git evidence:** the divergent string dispatch is integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one backend option validator and stale-output control are missing.
-- **Next action:** validate manifest choices before every dispatch and test unknown strings after a valid frame through direct and saved-chain paths.
+- **Current source:** `modules.rs::validate_option_value` and `validate_module_options` share the closed-set check used at the direct algorithm boundary. `chain.rs::run_chain` preflights every step's closed-set selectors before `complete_chain_sets`, so an invalid later selector cannot leave an earlier step's output inside the refused saved-chain run.
+- **Qualifying acceptance tests:** `modules.rs::an_unknown_method_name_is_refused_with_its_parameter_value_and_permitted_set_before_any_branch_runs` owns T03 across the registered Option inventory; `chain.rs::an_invalid_saved_chain_step_after_a_valid_step_refuses_before_any_previous_value_is_versioned` owns T15 at the saved-chain poll and persisted-output surfaces. Test class `CORRECTNESS`.
+- **Supporting tests:** the existing source-bearing precondition and dialog/chain/batch/zone refusal tests remain focused neighbouring controls.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; four SB-ENV-009 review scenarios remain unchecked; formation-temperature 0/0 not recorded.
+- **Git evidence:** exact T15 was RED as `Completed { steps_run: 2, curves_written: 2, ... }` after the valid first step, then GREEN with a failed poll payload and zero set/current/archive rows. Exact T03 is GREEN from both rejected-unknown and accepted-declared sides; the full repository gate remains a commit precondition.
+- **Verdict:** source-owned chapter status remains `PRESENT-UNVERIFIED`; live as-built is `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed for registered closed-set selectors; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none. No petrophysical parameter, endpoint, fallback method or default was added. This is not a claim that data-dependent saved-chain failures are transactionally atomic.
+- **Next action:** retain whole-chain selector preflight plus the direct algorithm-boundary validation; execute the unchecked saved-workflow review separately; continue with the next approved `QC_CONDITIONING` row, SB-ENV-021. SB-ENV-010 remains deferred and outside Gate 2's exact 222-row scope.
 
 ## SB-ENV-010 - The GR borehole correction models hole size, mud weight, tool position and mud type
 

@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-009: unknown selectors refuse before any chain step
+
+- [ ] **Automated correctness:** exact T03 names the invalid `OPT_GR=TYPO` value and the
+      complete source-owned VSH method set, retains a 0.5 LINEAR positive control, and inventories
+      every registered runnable Option from both accepted-default and rejected-unknown sides.
+      Exact T15 was RED with a completed saved chain and two curves from the valid first step;
+      whole-chain selector preflight is now GREEN with a failed poll payload and zero output sets,
+      current curves or archived curves. The repository-wide gate remains a commit precondition.
+- [ ] **Visual:** open Workflow Builder and Processing with a deliberately invalid saved selector
+      fixture. Confirm the selector name, rejected value and permitted set are visible, the run is
+      not styled as completed, and no output set appears in the Curve Catalog.
+- [ ] **Manual:** place a valid step before the invalid saved step and confirm the whole run stops
+      before versioning the valid step's output. Correct only the invalid selector and confirm the
+      same chain then runs normally.
+- [ ] **Field and harsh critique:** the automated inventory proves closed sets declared as current
+      `Option` arguments; it does not prove a future method field cannot be misdeclared as free
+      text, and it does not make data-dependent chain failures transactional. Exercise the visible
+      refusal on a real saved workflow separately before Gate 4 acceptance.
+
 ## 2026-08-16 — G2 SB-ENV-008: sourced validity visible before launch
 
 - [ ] **Automated correctness:** exact T14 drives one declared CALI/GR condition through the

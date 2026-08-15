@@ -1306,6 +1306,72 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
     validate_declared_preconditions_ignoring(spec, ctx, &HashSet::new())
 }
 
+fn validate_option_value(spec: &ModuleSpec, arg: &ArgSpec, value: &str) -> Result<(), String> {
+    let mut has_sourced_enumeration = false;
+    for condition in arg
+        .validity_conditions
+        .iter()
+        .filter(|condition| matches!(condition.rule, ValidityRule::Enumeration))
+    {
+        has_sourced_enumeration = true;
+        if condition.id.trim().is_empty()
+            || condition.statement.trim().is_empty()
+            || condition.source.trim().is_empty()
+        {
+            return Err(format!(
+                "module '{}' has an invalid validity manifest on '{}': every condition needs a stable id, statement and source",
+                spec.name, arg.name
+            ));
+        }
+        if value.is_empty() || !arg.choices.iter().any(|choice| choice == value) {
+            return Err(format!(
+                "precondition '{}' on '{}' failed before {} ran: value '{}' is not in the permitted set [{}]. {} Source: {}",
+                condition.id,
+                arg.name,
+                spec.name,
+                value,
+                arg.choices.join(", "),
+                condition.statement,
+                condition.source
+            ));
+        }
+    }
+    if !has_sourced_enumeration
+        && (value.is_empty() || !arg.choices.iter().any(|choice| choice == value))
+    {
+        return Err(format!(
+            "precondition '{}' failed before {} ran: option value '{}' is not in the permitted set [{}]. Choose one of the declared method ids.",
+            arg.name,
+            spec.name,
+            value,
+            arg.choices.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Validate every closed-set selector without reading a curve or allocating an output version.
+/// The ordinary module boundary calls the same [`validate_option_value`] helper below. Saved
+/// chains use this metadata-only pass over all steps so a typo in a later step cannot leave the
+/// earlier step's curve inside a chain that ultimately refused.
+pub(crate) fn validate_module_options(
+    name: &str,
+    opts: &HashMap<String, String>,
+) -> Result<(), String> {
+    if let Some(message) = retired_module(name) {
+        return Err(message.to_string());
+    }
+    let spec = module_catalog()
+        .iter()
+        .find(|module| module.name == name)
+        .ok_or_else(|| format!("unknown module '{name}'"))?;
+    for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Option) {
+        let value = opts.get(&arg.name).map(String::as_str).unwrap_or(&arg.default);
+        validate_option_value(spec, arg, value)?;
+    }
+    Ok(())
+}
+
 fn validate_declared_preconditions_ignoring(
     spec: &ModuleSpec,
     ctx: &ModuleContext,
@@ -1330,21 +1396,9 @@ fn validate_declared_preconditions_ignoring(
             }
 
             match &condition.rule {
-                ValidityRule::Enumeration => {
-                    let value = selected_value(spec, ctx, &arg.name);
-                    if value.is_empty() || !arg.choices.iter().any(|choice| choice == &value) {
-                        return Err(format!(
-                            "precondition '{}' on '{}' failed before {} ran: value '{}' is not in the permitted set [{}]. {} Source: {}",
-                            condition.id,
-                            arg.name,
-                            spec.name,
-                            value,
-                            arg.choices.join(", "),
-                            condition.statement,
-                            condition.source
-                        ));
-                    }
-                }
+                // Closed-set values are checked once below for every Option, including options
+                // whose manifest predates source-bearing validity conditions.
+                ValidityRule::Enumeration => {}
                 ValidityRule::NumericRange { min, max, unit, .. } => {
                     for index in 0..ctx.n {
                         if ignored_samples.contains(&index) {
@@ -1502,19 +1556,7 @@ fn validate_declared_preconditions_ignoring(
         match &arg.kind {
             ArgKind::Option => {
                 let value = selected_value(spec, ctx, &arg.name);
-                let has_sourced_enumeration =
-                    arg.validity_conditions.iter().any(|condition| matches!(condition.rule, ValidityRule::Enumeration));
-                if !has_sourced_enumeration
-                    && (value.is_empty() || !arg.choices.iter().any(|choice| choice == &value))
-                {
-                    return Err(format!(
-                        "precondition '{}' failed before {} ran: option value '{}' is not in the permitted set [{}]. Choose one of the declared method ids.",
-                        arg.name,
-                        spec.name,
-                        value,
-                        arg.choices.join(", ")
-                    ));
-                }
+                validate_option_value(spec, arg, &value)?;
             }
             ArgKind::Text => {
                 let value = selected_value(spec, ctx, &arg.name);
@@ -4652,6 +4694,68 @@ mod tests {
         let valid = run_module("vsh_gr", &context(20.0, 120.0, "LINEAR", vec![70.0]))
             .expect("the valid side of the same declared contract must still run");
         assert!((valid["VSH_GR"][0] - 0.5).abs() < 1e-6, "valid LINEAR result changed");
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` section 4.1 SB-ENV-009 and section 6.1
+    /// SB-ENV-T03. The closed method set is the shipping VSH-GR manifest sourced from Geolog
+    /// `vsh_gr.info` / `vsh_gr.lls` and recorded in `10_clay-volume.md` sections 3.2-3.3. The
+    /// 20/120/70 gAPI positive control independently gives IGR = (70 - 20) / (120 - 20) = 0.5;
+    /// no new endpoint or default is introduced by this test.
+    #[test]
+    fn an_unknown_method_name_is_refused_with_its_parameter_value_and_permitted_set_before_any_branch_runs() {
+        let context = |method: &str| {
+            ctx_with(
+                1,
+                &[("GR", vec![70.0])],
+                &[("GR_MA", 20.0), ("GR_SH", 120.0)],
+                &[("OPT_GR", method)],
+            )
+        };
+
+        let error = run_module("vsh_gr", &context("TYPO"))
+            .expect_err("an undeclared method must refuse instead of reaching a fallback arm");
+        assert!(error.contains("OPT_GR"), "selector name missing: {error}");
+        assert!(error.contains("TYPO"), "unrecognised value missing: {error}");
+        assert!(
+            error.contains(
+                "[LINEAR, STIEBER1, STIEBER2, STIEBER3, LARINOV1, LARINOV2, LARINOV3, CLAVIER]"
+            ),
+            "complete permitted set missing or reordered: {error}"
+        );
+
+        let valid = run_module("vsh_gr", &context("LINEAR"))
+            .expect("a declared method must remain runnable");
+        assert_eq!(valid["VSH_GR"], vec![0.5]);
+
+        // Pin the universal side too. A validator limited to the VSH condition above would still
+        // let older Option manifests fall through. Every runnable registered selector must accept
+        // its declared default and refuse one value outside its own closed set by name.
+        const UNKNOWN: &str = "__UNRECOGNISED_SELECTOR__";
+        for spec in module_catalog()
+            .iter()
+            .filter(|spec| retired_module(&spec.name).is_none())
+        {
+            validate_module_options(&spec.name, &HashMap::new())
+                .unwrap_or_else(|error| panic!("{} rejects its declared option defaults: {error}", spec.name));
+            for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Option) {
+                assert!(!arg.choices.iter().any(|choice| choice == UNKNOWN));
+                let error = validate_module_options(
+                    &spec.name,
+                    &HashMap::from([(arg.name.clone(), UNKNOWN.into())]),
+                )
+                .unwrap_err();
+                assert!(error.contains(&arg.name), "{} selector name missing: {error}", spec.name);
+                assert!(error.contains(UNKNOWN), "{} unknown value missing: {error}", spec.name);
+                for choice in &arg.choices {
+                    assert!(
+                        error.contains(choice),
+                        "{} permitted choice '{}' missing: {error}",
+                        spec.name,
+                        choice
+                    );
+                }
+            }
+        }
     }
 
     /// CORRECTNESS — SB-CORE-004 / SB-CORE-T10 and `CONTRACT.md` section 2.
