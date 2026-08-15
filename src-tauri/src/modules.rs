@@ -177,6 +177,41 @@ pub struct ModuleSpec {
     pub args: Vec<ArgSpec>,
 }
 
+/// Stable key for the exact validity manifest stored beside each module run's legacy parameter
+/// payload. The snapshot prevents a later module manifest from silently rewriting which range,
+/// branch, companion, statement or source governed an earlier interpretation.
+pub(crate) const MODULE_VALIDITY_MANIFEST_KEY: &str = "_sandibumi_module_validity_v1";
+pub(crate) const MODULE_VALIDITY_MANIFEST_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SavedValidityArgument {
+    pub argument: String,
+    pub conditions: Vec<ValidityCondition>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ModuleValidityManifest {
+    pub schema_version: u32,
+    pub module: String,
+    pub arguments: Vec<SavedValidityArgument>,
+}
+
+pub(crate) fn module_validity_manifest(spec: &ModuleSpec) -> ModuleValidityManifest {
+    ModuleValidityManifest {
+        schema_version: MODULE_VALIDITY_MANIFEST_SCHEMA_VERSION,
+        module: spec.name.clone(),
+        arguments: spec
+            .args
+            .iter()
+            .filter(|argument| !argument.validity_conditions.is_empty())
+            .map(|argument| SavedValidityArgument {
+                argument: argument.name.clone(),
+                conditions: argument.validity_conditions.clone(),
+            })
+            .collect(),
+    }
+}
+
 pub(crate) fn param(
     name: &str,
     desc: &str,

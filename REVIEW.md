@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-ENV-001: source-bearing validity conditions survive saved runs
+
+- [ ] **Automated correctness:** one versioned validity manifest snapshots every declared condition
+      beside the saved run's effective parameters. Four exact correctness tests persist and reload an
+      enumeration, a per-sample numeric range with unit, two different ranges selected by branch,
+      and a required-companion condition, including each stable id, human statement and source.
+      The 8–13 and 8–18 lb/gal values are used only in the chapter-authorized synthetic
+      NON-ADOPTABLE fixture and are not registered on a shipping module. Temporarily retaining only
+      the first condition made the branch-pair test RED before restoration. The existing public-runner
+      proof still owns pre-dispatch enforcement and the existing module dialog owns condition display;
+      this increment does not claim SB-ENV-002, SB-ENV-004 or SB-ENV-008 closure. TypeScript and
+      `cargo check` are green; the fresh full gate is 1041 passed / 0 failed / 37 ignored with 31
+      separately owned Rust warnings.
+- [ ] **Visual:** open the linear-GR method dialog and inspect arguments carrying declared validity
+      conditions. Confirm the statement and source are readable beside the affected field and that
+      the content does not require an SB id, source code or terminal access to understand. This is a
+      review of the already-shipping dialog surface, not proof that every pilot method has been
+      populated with every source-owned condition.
+- [ ] **Manual:** run one valid linear-GR case and one invalid selector/range case, close and reopen
+      the project, and confirm the valid run remains usable while the invalid case leaves no output.
+      Inspect the saved run through the maintained provenance surface when that surface is available;
+      raw database inspection may verify persistence but cannot count as operator usability.
+- [ ] **Field and harsh critique:** repeat with representative source-controlled curves and compare
+      every displayed condition to its approved source. A serializable schema can faithfully preserve
+      an incomplete or wrongly populated manifest, so this increment proves representation and saved-
+      run survival only. It does not prove exhaustive method coverage, source authority, cross-route
+      enforcement, operator comprehension or field fitness; those remain separate Gate 2/Gate 4 work.
+
 ## 2026-08-15 — G2 SB-PLT-031: registered plot limits report reduction or refuse
 
 - [ ] **Automated correctness:** the exact T40 test inventories the seven current plot limits and

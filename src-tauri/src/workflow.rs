@@ -744,6 +744,18 @@ fn complete_module_log_spec(
         timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
         outputs,
     };
+    let validity_manifest = serde_json::to_value(modules::module_validity_manifest(spec))
+        .map_err(|error| format!("cannot serialize module validity manifest: {error}"))?;
+    if legacy
+        .insert(modules::MODULE_VALIDITY_MANIFEST_KEY.into(), validity_manifest)
+        .is_some()
+    {
+        return Err(format!(
+            "module '{}' declares an argument that collides with reserved saved-run key '{}'",
+            spec.name,
+            modules::MODULE_VALIDITY_MANIFEST_KEY
+        ));
+    }
     let legacy = parameter_serializer(&legacy)
         .map_err(|error| format!("cannot serialize module parameters: {error}"))?;
     equations::CompleteLogSetSpec::try_new_with_legacy(
@@ -2595,6 +2607,233 @@ mod tests {
             .unwrap();
         assert_eq!(module_sets, 0, "a serialization failure must not leave a run record");
         assert_eq!(module_curves, 0, "a serialization failure must not leave computed values");
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct SavedValidityArgument {
+        argument: String,
+        conditions: Vec<modules::ValidityCondition>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct SavedValidityManifest {
+        schema_version: u32,
+        module: String,
+        arguments: Vec<SavedValidityArgument>,
+    }
+
+    /// CORRECTNESS — SB-ENV-001 / SB-ENV-T01 and `20_envcorr-qc.md` sections 4.1, 5.1 and 6.1.
+    /// The 8-13 and 8-18 lb/gal ranges are the chapter's explicit NON-ADOPTABLE verification
+    /// rows from Geolog `unc_tnph.lls:340,346`; this synthetic manifest is never registered as a
+    /// shipping module and introduces no product limit or default.
+    fn saved_sb_env_001_validity_manifest() -> SavedValidityManifest {
+        let enumeration = modules::ValidityCondition {
+            id: "synthetic.mud_type".into(),
+            statement: "The branch selector must name a declared branch.".into(),
+            source: "docs/PRD_v2/20_envcorr-qc.md section 6.1 T01/T03".into(),
+            rule: modules::ValidityRule::Enumeration,
+        };
+        let normal_range = modules::ValidityCondition {
+            id: "synthetic.normal_mud_range".into(),
+            statement: "The normal-mud verification branch uses its own stated range.".into(),
+            source: "Geolog unc_tnph.lls:340 - NON-ADOPTABLE verification fixture".into(),
+            rule: modules::ValidityRule::NumericRange {
+                min: Some(8.0),
+                max: Some(13.0),
+                unit: "lb/gal".into(),
+                when: Some(modules::ValidityBranch {
+                    argument: "MUD_TYPE".into(),
+                    equals: "NORMAL".into(),
+                }),
+            },
+        };
+        let barite_range = modules::ValidityCondition {
+            id: "synthetic.barite_mud_range".into(),
+            statement: "The barite verification branch uses its own stated range.".into(),
+            source: "Geolog unc_tnph.lls:346 - NON-ADOPTABLE verification fixture".into(),
+            rule: modules::ValidityRule::NumericRange {
+                min: Some(8.0),
+                max: Some(18.0),
+                unit: "lb/gal".into(),
+                when: Some(modules::ValidityBranch {
+                    argument: "MUD_TYPE".into(),
+                    equals: "BARITE".into(),
+                }),
+            },
+        };
+        let companion = modules::ValidityCondition {
+            id: "synthetic.caliper_companion".into(),
+            statement: "This synthetic correction cannot be evaluated without a caliper input."
+                .into(),
+            source: "docs/PRD_v2/20_envcorr-qc.md SB-ENV-001(d) and SB-ENV-016".into(),
+            rule: modules::ValidityRule::RequiredCompanion {
+                any_of: vec!["CALIPER".into()],
+                when: None,
+            },
+        };
+
+        let mut selector = modules::opt(
+            "MUD_TYPE",
+            "Synthetic branch selector",
+            "NORMAL",
+            &["NORMAL", "BARITE"],
+        );
+        selector.validity_conditions = vec![enumeration];
+        let mut mud_weight = modules::log_in(
+            "MUD_WEIGHT",
+            "Synthetic per-sample mud weight",
+            "lb/gal",
+            "MUD_WEIGHT",
+            false,
+        );
+        mud_weight.validity_conditions = vec![normal_range, barite_range, companion];
+        let synthetic = modules::ModuleSpec {
+            name: "synthetic_saved_validity".into(),
+            title: "Synthetic saved validity".into(),
+            category: "Test fixture".into(),
+            doc: "Verification-only SB-ENV-001 fixture; no condition is adopted by the product."
+                .into(),
+            args: vec![
+                selector,
+                mud_weight,
+                modules::log_in(
+                    "CALIPER",
+                    "Synthetic required companion",
+                    "in",
+                    "CALIPER",
+                    false,
+                ),
+                modules::log_out("CORRECTED", "Synthetic output", "v/v"),
+            ],
+        };
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_uuid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_uuid, "VALIDITY-CONDITION-FIXTURE", None, None, None).unwrap();
+        let well_id = well_uuid.to_string();
+        let request = RunModuleRequest {
+            module: synthetic.name.clone(),
+            well_ids: vec![well_id.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: Some("VALIDITY_FIXTURE".into()),
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let complete = complete_module_log_spec(
+            &conn,
+            &well_id,
+            &request,
+            &synthetic,
+            &build_opts(&synthetic, &request.opts, &request.log_inputs),
+            &[],
+            &["CORRECTED".into()],
+            &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
+        )
+        .unwrap();
+        let set_id = equations::create_complete_log_set(&conn, &well_id, &complete)
+            .unwrap()
+            .0;
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE set_id = ?1",
+                duckdb::params![set_id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&params_json).unwrap();
+        serde_json::from_value(
+            saved["_sandibumi_module_validity_v1"].clone(),
+        )
+        .expect("the saved run must carry a deserializable validity manifest")
+    }
+
+    #[test]
+    fn an_enumeration_validity_condition_survives_the_saved_run_params_json_round_trip() {
+        let saved = saved_sb_env_001_validity_manifest();
+        assert_eq!(saved.schema_version, 1);
+        assert_eq!(saved.module, "synthetic_saved_validity");
+        assert_eq!(saved.arguments[0].argument, "MUD_TYPE");
+        assert_eq!(
+            saved.arguments[0].conditions,
+            vec![modules::ValidityCondition {
+                id: "synthetic.mud_type".into(),
+                statement: "The branch selector must name a declared branch.".into(),
+                source: "docs/PRD_v2/20_envcorr-qc.md section 6.1 T01/T03".into(),
+                rule: modules::ValidityRule::Enumeration,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_per_sample_numeric_range_survives_the_saved_run_with_its_unit_meaning_and_source() {
+        let saved = saved_sb_env_001_validity_manifest();
+        let range = &saved.arguments[1].conditions[0];
+        assert_eq!(saved.arguments[1].argument, "MUD_WEIGHT");
+        assert_eq!(range.id, "synthetic.normal_mud_range");
+        assert_eq!(
+            range.statement,
+            "The normal-mud verification branch uses its own stated range."
+        );
+        assert_eq!(
+            range.source,
+            "Geolog unc_tnph.lls:340 - NON-ADOPTABLE verification fixture"
+        );
+        assert!(matches!(
+            &range.rule,
+            modules::ValidityRule::NumericRange {
+                min: Some(8.0),
+                max: Some(13.0),
+                unit,
+                ..
+            } if unit == "lb/gal"
+        ));
+    }
+
+    #[test]
+    fn branch_specific_ranges_survive_the_saved_run_without_collapsing_to_one_module_range() {
+        let saved = saved_sb_env_001_validity_manifest();
+        let conditions = &saved.arguments[1].conditions;
+        assert!(matches!(
+            &conditions[0].rule,
+            modules::ValidityRule::NumericRange {
+                min: Some(8.0),
+                max: Some(13.0),
+                when: Some(modules::ValidityBranch { argument, equals }),
+                ..
+            } if argument == "MUD_TYPE" && equals == "NORMAL"
+        ));
+        assert!(matches!(
+            &conditions[1].rule,
+            modules::ValidityRule::NumericRange {
+                min: Some(8.0),
+                max: Some(18.0),
+                when: Some(modules::ValidityBranch { argument, equals }),
+                ..
+            } if argument == "MUD_TYPE" && equals == "BARITE"
+        ));
+    }
+
+    #[test]
+    fn a_required_companion_condition_survives_the_saved_run_with_the_input_it_requires() {
+        let saved = saved_sb_env_001_validity_manifest();
+        let companion = &saved.arguments[1].conditions[2];
+        assert_eq!(companion.id, "synthetic.caliper_companion");
+        assert_eq!(
+            companion.statement,
+            "This synthetic correction cannot be evaluated without a caliper input."
+        );
+        assert_eq!(
+            companion.source,
+            "docs/PRD_v2/20_envcorr-qc.md SB-ENV-001(d) and SB-ENV-016"
+        );
+        assert!(matches!(
+            &companion.rule,
+            modules::ValidityRule::RequiredCompanion { any_of, when: None }
+                if any_of == &["CALIPER"]
+        ));
     }
 
     /// CORRECTNESS — SB-DBM-004 / SB-DBM-T06, sourced to SB-CORE-011 and F-18 / ledger R-10.

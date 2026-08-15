@@ -20,14 +20,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T01/T02/T03/T38; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** serialize enumeration, numeric/input-sample, branch-conditional and required-companion conditions; include units, human meaning and source; preserve them through saved-run data.
-- **Current source:** `modules.rs::ArgSpec` serializes choices, scalar min/max, required inputs, `computed_only` and `well_scope`. It has no general condition object, input-sample predicate, branch-conditional range, condition explanation or condition source, and derives `Serialize` only.
-- **Qualifying acceptance tests:** none. T01/T02/T03/T38 have no executable whole-contract body; test class `MISSING`.
-- **Supporting tests:** `workflow::tests::out_of_range_zone_param_is_rejected_not_clamped` exercises one scalar-range seam, not the condition schema or its round trip.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the partial schema is reachable at the accepted anchor; no complete condition representation was found in current or reachable source. Commit state `INTEGRATED` for the partial mechanism.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the serializable condition model and T01/T02/T03/T38 are missing; sources must come from the chapter, never current defaults.
-- **Next action:** add the condition/source schema atomically, route it through serialization and UI, and implement the four named tests with enumeration, per-sample, branch and companion controls.
+- **Current source:** `modules.rs::ValidityCondition` and `ValidityRule` represent enumeration, numeric/input-sample range with unit, branch-conditional range and required companions with a stable id, human statement and source. `ModuleSpec`/`ArgSpec` deserialize as well as serialize, the public runner evaluates declared conditions before module dispatch, and `moduleDialog.ts` renders their meaning/source. `workflow.rs::complete_module_log_spec` now snapshots the exact source-bearing conditions under the versioned `_sandibumi_module_validity_v1` key beside every saved module run; later registry changes therefore cannot rewrite the manifest that governed an earlier result.
+- **Qualifying acceptance tests:** `workflow::tests::an_enumeration_validity_condition_survives_the_saved_run_params_json_round_trip`; `a_per_sample_numeric_range_survives_the_saved_run_with_its_unit_meaning_and_source`; `branch_specific_ranges_survive_the_saved_run_without_collapsing_to_one_module_range`; `a_required_companion_condition_survives_the_saved_run_with_the_input_it_requires`; CORRECTNESS. They use only the chapter's explicit NON-ADOPTABLE 8–13/8–18 lb/gal verification fixture and assert exact stored ids, units, meanings, sources, branches and companion input. Retaining only the first condition made the branch test RED before restoration.
+- **Supporting tests:** `modules::tests::source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes` continues to own direct spec round-trip, public-runner preflight and the already-populated linear-GR controls. The new four-test focused run passed 4 / 0 / 0.
+- **Manual evidence:** conditioning 1/34; workflow 0/29; processing-history 0/7; all four SB-ENV-001 scenarios remain unchecked.
+- **Git evidence:** current topic-branch worktree; fresh full gate 1041 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the one-requirement commit follows after the final repeated gate.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for SB-ENV-001 representation and persistence. This does not close SB-ENV-002's cross-route evaluator proof, SB-ENV-004's exhaustive source-or-ABSENT registry, or SB-ENV-008's before-run UI state.
+- **Next action:** retain the versioned saved-run manifest and four shape proofs; Jauhar executes the unchecked review separately; continue serially to pilot blocker SB-ENV-002 without treating schema-valid as source-authoritative.
 
 ## SB-ENV-002 - Evaluate preconditions in the runner, before the module body
 

@@ -19,7 +19,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 130 | 2026-08-13 | 53 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 34 | 2026-08-13 | 6 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -64,4 +64,4 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 54 | — | 10 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 127 | 2026-08-13 | 46 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 112 | 2026-08-13 | 36 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 116 | 2026-08-13 | 37 |

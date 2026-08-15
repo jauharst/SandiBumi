@@ -1,4 +1,8 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","an_enumeration_validity_condition_survives_the_saved_run_params_json_round_trip"
+"SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","a_per_sample_numeric_range_survives_the_saved_run_with_its_unit_meaning_and_source"
+"SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","branch_specific_ranges_survive_the_saved_run_without_collapsing_to_one_module_range"
+"SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","a_required_companion_condition_survives_the_saved_run_with_the_input_it_requires"
 "SB-CLY-004","CHARACTERIZATION","src-tauri/src/modules.rs","every_vsh_gr_transform_lands_on_its_published_coefficient"
 "SB-CLY-004","CHARACTERIZATION","src-tauri/src/modules.rs","the_vsh_gr_labels_agree_with_the_coefficients_they_describe"
 "SB-CLY-006","CHARACTERIZATION","src-tauri/src/modules.rs","every_vsh_gr_transform_lands_on_its_published_coefficient"
