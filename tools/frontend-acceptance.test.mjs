@@ -495,7 +495,7 @@ test("context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_e
   assert.match(disclosure, /reduced 11→4; stride 4; final endpoint forced in 1 well/u);
   assert.doesNotMatch(disclosure, /complete/iu);
 
-  const exported = contextReductionExport("crossplot", outcome, 1, 1);
+  const exported = contextReductionExport("crossplot", outcome, 1);
   assert.ok(exported);
   assert.deepEqual(exported.items[0], {
     subject_kind: "points",
@@ -521,6 +521,164 @@ test("context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_e
     assert.match(source, /contextReductionExport\(/u);
     assert.match(source, /\(\) => ctxReductionManifest/u);
   }
+  const exportSource = await readFile(new URL("../src/ui/plotExport.ts", import.meta.url), "utf8");
+  assert.match(exportSource, /savePlotReductionManifest\(dest, JSON\.stringify\(manifest\)\)/u);
+});
+
+test("every_registered_plot_record_limit_reports_original_and_displayed_counts_or_refuses_instead_of_returning_a_prefix", async () => {
+  // CORRECTNESS — SB-PLT-031 / SB-PLT-T40. docs/PRD_v2/23_plotting-interactivity.md
+  // §4.6 requires every load/point/well/facet/legend/visual record limit to report before/after
+  // counts and export its manifest, or refuse a hard maximum. §5 cites the current 60,000-point
+  // budget and 8-load concurrency. Other maxima are retained as-built inputs from 3a4723b6; this
+  // test proves behavior immediately below/above the configured value without claiming that the
+  // retained number is an independently validated product default.
+  const {
+    PLOT_RECORD_LIMITS,
+    applyPlotRecordLimit,
+    plotRecordLimit,
+    reducePlotLabel,
+  } = await load("/src/ui/plotLimits.ts");
+  const { contextReductionExport } = await load("/src/ui/plotCommon.ts");
+
+  assert.deepEqual(PLOT_RECORD_LIMITS.map((limit) => limit.id), [
+    "context_fetch_concurrency",
+    "context_point_budget",
+    "well_scope_name_preview_rows",
+    "context_well_legend_rows",
+    "context_well_name_characters",
+    "fit_scatter_legend_rows",
+    "vega_categorical_groups",
+  ]);
+  assert.deepEqual(
+    [...new Set(PLOT_RECORD_LIMITS.map((limit) => limit.subject_kind))].sort(),
+    ["facets", "legend", "load", "points", "visual", "wells"],
+  );
+  assert.equal(plotRecordLimit("context_point_budget").maximum, 60_000);
+  assert.equal(plotRecordLimit("context_fetch_concurrency").maximum, 8);
+
+  const legendLimit = plotRecordLimit("context_well_legend_rows");
+  const exactLegend = applyPlotRecordLimit(
+    "context_well_legend_rows",
+    Array.from({ length: legendLimit.maximum }, (_value, index) => index),
+    "well_legend",
+  );
+  assert.equal(exactLegend.item, null, "an exact-boundary legend is not falsely reported as reduced");
+  assert.equal(exactLegend.refusal, null);
+  assert.equal(exactLegend.displayed.length, legendLimit.maximum);
+  const reducedLegend = applyPlotRecordLimit(
+    "context_well_legend_rows",
+    Array.from({ length: legendLimit.maximum + 2 }, (_value, index) => index),
+    "well_legend",
+  );
+  assert.equal(reducedLegend.displayed.length, legendLimit.maximum);
+  assert.deepEqual(reducedLegend.item, {
+    subject_kind: "legend",
+    subject_id: "well_legend",
+    original_count: legendLimit.maximum + 2,
+    displayed_count: legendLimit.maximum,
+    algorithm: "first_context_well_rows_with_reported_remainder",
+    stride: null,
+    endpoints_forced: null,
+  });
+  assert.equal(reducedLegend.refusal, null);
+
+  const labelLimit = plotRecordLimit("context_well_name_characters");
+  const exactLabel = "x".repeat(labelLimit.maximum);
+  assert.deepEqual(reducePlotLabel("context_well_name_characters", exactLabel, "well-a"), {
+    displayed: exactLabel,
+    item: null,
+  });
+  const longLabel = "x".repeat(labelLimit.maximum + 3);
+  const reducedLabel = reducePlotLabel("context_well_name_characters", longLabel, "well-a");
+  assert.equal(Array.from(reducedLabel.displayed).length, labelLimit.maximum);
+  assert.ok(reducedLabel.displayed.endsWith("…"));
+  assert.deepEqual(reducedLabel.item, {
+    subject_kind: "visual",
+    subject_id: "context_well_name:well-a",
+    original_count: labelLimit.maximum + 3,
+    displayed_count: labelLimit.maximum,
+    algorithm: "leading_characters_with_ellipsis_and_reported_remainder",
+    stride: null,
+    endpoints_forced: null,
+  });
+
+  const hardMaximum = plotRecordLimit("vega_categorical_groups");
+  const refused = applyPlotRecordLimit(
+    "vega_categorical_groups",
+    Array.from({ length: hardMaximum.maximum + 1 }, (_value, index) => index),
+    "categorical_groups",
+  );
+  assert.deepEqual(refused.displayed, [], "a hard maximum never returns a plausible prefix");
+  assert.equal(refused.item.original_count, hardMaximum.maximum + 1);
+  assert.equal(refused.item.displayed_count, 0);
+  assert.match(refused.refusal, new RegExp(`exceeds hard maximum ${hardMaximum.maximum}`));
+  const accepted = applyPlotRecordLimit(
+    "vega_categorical_groups",
+    Array.from({ length: hardMaximum.maximum }, (_value, index) => index),
+    "categorical_groups",
+  );
+  assert.equal(accepted.refusal, null);
+  assert.equal(accepted.item, null);
+  assert.equal(accepted.displayed.length, hardMaximum.maximum);
+
+  const pointLimit = plotRecordLimit("context_point_budget");
+  const previewLimit = plotRecordLimit("well_scope_name_preview_rows");
+  const layers = Array.from(
+    { length: legendLimit.maximum + 1 },
+    (_value, index) => ({
+      wellId: `well-${index}`,
+      name: index === 0 ? longLabel : `well-${index}`,
+      color: "#000000",
+      depth: Float32Array.from([0]),
+      series: new Map(),
+      reduction: {
+        originalCount: index === 0 ? pointLimit.maximum + 1 : 1,
+        displayedCount: index === 0 ? pointLimit.maximum : 1,
+        algorithm: "stride_from_first_with_forced_final_endpoint",
+        stride: index === 0 ? 2 : 1,
+        endpointsForced: index === 0,
+        sourceIndices: [0],
+      },
+      depthStep: { coarsestStep: 1, decimationFactors: [1], mode: "unchanged", intervalClosure: "[lo,hi)" },
+    }),
+  );
+  const manifest = contextReductionExport(
+    "crossplot",
+    { layers, shown: pointLimit.maximum + legendLimit.maximum, decimated: true, skipped: 0, absent: [], depthReframeHandoffs: [], refusal: null },
+    previewLimit.maximum + 1,
+    { wellId: "active-well", name: longLabel },
+  );
+  assert.ok(manifest);
+  assert.deepEqual(
+    [...new Set(manifest.items.map((item) => item.subject_kind))].sort(),
+    ["legend", "points", "visual", "wells"],
+  );
+  assert.ok(manifest.items.every((item) => item.original_count >= item.displayed_count));
+  assert.ok(manifest.items.some((item) => item.subject_id === "context_well_name:well-0"));
+  assert.ok(manifest.items.some((item) => item.subject_id === "context_well_name:active-well"));
+
+  const consumers = Object.fromEntries(await Promise.all([
+    "plotCommon.ts",
+    "wellScope.ts",
+    "fitScatter.ts",
+    "vegaPanel.ts",
+    "crossplotPanel.ts",
+    "histogramPanel.ts",
+    "pickettPanel.ts",
+  ].map(async (file) => [file, await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8")])));
+  for (const limit of PLOT_RECORD_LIMITS) {
+    for (const file of limit.consumers) {
+      assert.match(consumers[file], new RegExp(`\\"${limit.id}\\"`), `${file} must resolve ${limit.id} through the registry`);
+    }
+  }
+  for (const [file, source] of Object.entries(consumers)) {
+    assert.doesNotMatch(source, /\.slice\(0,/u, `${file} may not hide a prefix outside the plot-limit registry`);
+  }
+  assert.doesNotMatch(consumers["crossplotPanel.ts"], /MAX_CONTEXT_POINTS/u);
+  assert.doesNotMatch(consumers["histogramPanel.ts"], /MAX_CONTEXT_POINTS/u);
+  assert.doesNotMatch(consumers["pickettPanel.ts"], /MAX_CONTEXT_POINTS/u);
+  assert.doesNotMatch(consumers["vegaPanel.ts"], /MAX_GROUPS/u);
+  assert.match(consumers["vegaPanel.ts"], /\(\) => reductionManifest/u);
   const exportSource = await readFile(new URL("../src/ui/plotExport.ts", import.meta.url), "utf8");
   assert.match(exportSource, /savePlotReductionManifest\(dest, JSON\.stringify\(manifest\)\)/u);
 });

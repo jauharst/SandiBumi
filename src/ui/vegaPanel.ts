@@ -42,6 +42,7 @@ import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { buildPersistedPlotState, buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { applyPlotRecordLimit } from "./plotLimits";
 import { messageNode } from "./safeDom";
 import { paperExportRecordFromSvg, paperizeMeasuredSvg, saveSvg } from "./svgExport";
 import {
@@ -53,7 +54,12 @@ import {
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 import { registerPlotInvalidationContract } from "./plotInvalidation";
-import { applyPlotChannelPolicy, type PlotRangeEdge } from "./plotTypes";
+import {
+  applyPlotChannelPolicy,
+  type PlotRangeEdge,
+  type PlotReductionExport,
+  type ReductionExportItem,
+} from "./plotTypes";
 import {
   beginPlotAsyncGeneration,
   isPlotAsyncGenerationCurrent,
@@ -331,8 +337,6 @@ const LANE = 2,
   BOX_LO = -0.3,
   RAIN_HI = -0.38,
   RAIN_LO = -0.95;
-const MAX_GROUPS = 24;
-
 function quantileSorted(s: number[], p: number): number {
   const n = s.length;
   if (n === 0) return NaN;
@@ -468,7 +472,14 @@ function groupByCurve(
   xs: TrackCurveSeries,
   gs: TrackCurveSeries,
   label: string,
-): { rows: Row[]; order: string[]; note: string; excluded: number; error?: string } {
+): {
+  rows: Row[];
+  order: string[];
+  note: string;
+  excluded: number;
+  reductionItem: ReductionExportItem | null;
+  error?: string;
+} {
   const gByD = new Map<number, number>();
   for (let i = 0; i < gs.depth.length; i++) if (Number.isFinite(gs.value[i])) gByD.set(dKey(gs.depth[i]), gs.value[i]);
   const rows: Row[] = [];
@@ -486,10 +497,24 @@ function groupByCurve(
     seen.add(key);
   }
   const order = [...seen].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
-  if (order.length > MAX_GROUPS) {
-    return { rows: [], order: [], note: "", excluded: missing, error: `'${label}' has ${order.length} distinct values — pick a categorical curve (rock-type / facies / RT), not a continuous one.` };
+  const limited = applyPlotRecordLimit("vega_categorical_groups", order, "categorical_groups");
+  if (limited.refusal) {
+    return {
+      rows: [],
+      order: [],
+      note: "",
+      excluded: missing,
+      reductionItem: limited.item,
+      error: `'${label}' has ${order.length} distinct values and exceeds the registered hard maximum — pick a categorical curve (rock-type / facies / RT), not a continuous one. ${limited.refusal}.`,
+    };
   }
-  return { rows, order, note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "", excluded: missing };
+  return {
+    rows,
+    order: limited.displayed,
+    note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "",
+    excluded: missing,
+    reductionItem: null,
+  };
 }
 
 /** A themed Vega-Lite spec for one chart type. Colours are pulled from the active theme's CSS vars
@@ -1124,6 +1149,7 @@ export async function buildVegaContent(
   let lastGroupLabel = "";
   let lastUnpairedOrUnclassifiedExcluded = 0;
   let lastColourPolicy: Pick<VegaColourPolicy, "excluded" | "clamped"> | null = null;
+  let reductionManifest: PlotReductionExport | null = null;
   let statisticsRecords: PlotStatisticsRecord[] = [];
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
@@ -1480,6 +1506,7 @@ export async function buildVegaContent(
   async function render(): Promise<void> {
     accessibility?.refresh();
     const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
+    reductionManifest = null;
     const type = typeSel.value as ChartType;
     const xName = xSel.value;
     const yName = ySel.value;
@@ -1533,6 +1560,14 @@ export async function buildVegaContent(
         const res = groupByCurve(xs, gs, groupBy);
         if (res.error) {
           bindingReadyError(new Error(res.error));
+          clearCurrent();
+          reductionManifest = {
+            schema_version: 1,
+            plot_type: "vega",
+            items: res.reductionItem ? [res.reductionItem] : [],
+            absent: [],
+            refusal: res.error,
+          };
           chartHost.replaceChildren(messageNode("logview-message", res.error));
           setStatus("Vega — too many groups");
           return;
@@ -1733,7 +1768,7 @@ export async function buildVegaContent(
     setStatus,
     undefined,
     undefined,
-    undefined,
+    () => reductionManifest,
     () => {
       const state = persistedState(selectionState());
       return {

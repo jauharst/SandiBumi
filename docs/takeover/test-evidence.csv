@@ -222,6 +222,7 @@
 "SB-PLT-029","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_async_plot_build_and_refetch_is_registered_and_reverse_order_or_data_revision_completion_never_replaces_the_active_panel"
 "SB-PLT-029","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active_panel"
 "SB-PLT-030","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose"
+"SB-PLT-031","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_registered_plot_record_limit_reports_original_and_displayed_counts_or_refuses_instead_of_returning_a_prefix"
 "SB-PLT-010","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_regression_as_coefficients_without_a_versioned_scientific_record"
 "SB-PLT-018","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership"
 "SB-PLT-028","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_crossplot_static_draw_and_z_colours_as_separately_invalidated_subsets"

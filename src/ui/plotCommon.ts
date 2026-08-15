@@ -34,6 +34,12 @@ import {
   type ReductionManifest,
 } from "./plotTypes";
 import type { PlotAxisRangeExport } from "./axisRange";
+import {
+  applyPlotRecordLimit,
+  plotRecordCountReduction,
+  plotRecordLimit,
+  reducePlotLabel,
+} from "./plotLimits";
 
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
@@ -692,9 +698,6 @@ export interface ContextFetchOutcome {
   refusal: string | null;
 }
 
-/** Context-well rows visible in the on-plot legends; every hidden remainder is disclosed. */
-export const CONTEXT_LEGEND_ROWS = 10;
-
 /** Fetches the context wells' curves, concurrency-limited and cancellable: `isStale()`
  *  is checked after every await, and a stale call returns null without touching anything.
  *  Every requested curve must be present in a well or that well is skipped — a layer with
@@ -705,7 +708,6 @@ export async function fetchContextLayers(args: {
   curves: string[];
   windowFor: (wellId: string) => Promise<[number | null, number | null] | null>;
   budget: number;
-  concurrency?: number;
   isStale: () => boolean;
 }): Promise<ContextFetchOutcome | null> {
   const { ids, names, curves, windowFor, budget, isStale } = args;
@@ -772,7 +774,8 @@ export async function fetchContextLayers(args: {
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(args.concurrency ?? 8, ids.length) }, () => worker()));
+  const workerCount = Math.min(plotRecordLimit("context_fetch_concurrency").maximum, ids.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
   if (isStale()) return null;
   const fetched = candidates.filter((candidate): candidate is Candidate => candidate !== null);
   const allocation = allocateFinitePairBudget(
@@ -868,16 +871,33 @@ export function contextReductionExport(
   plotType: string,
   outcome: ContextFetchOutcome | null,
   scopedWellCount: number,
-  visibleScopeWellRows: number,
+  activeWell?: { wellId: string; name: string },
 ): PlotReductionExport | null {
+  const layers = outcome?.layers ?? [];
   const pointReduced = outcome?.layers.some(
     (layer) => layer.reduction.displayedCount < layer.reduction.originalCount,
   ) ?? false;
-  const legendReduced = (outcome?.layers.length ?? 0) > CONTEXT_LEGEND_ROWS;
-  const scopePreviewReduced = scopedWellCount > visibleScopeWellRows;
-  if (!pointReduced && !legendReduced && !scopePreviewReduced && !outcome?.refusal) return null;
+  const legend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+  const scopePreview = plotRecordCountReduction(
+    "well_scope_name_preview_rows",
+    scopedWellCount,
+    "well_scope_name_preview",
+  );
+  const labelItems = legend.displayed.flatMap((layer) => {
+    const item = reducePlotLabel("context_well_name_characters", layer.name, layer.wellId).item;
+    return item ? [item] : [];
+  });
+  if (activeWell && layers.length > 0) {
+    const activeItem = reducePlotLabel(
+      "context_well_name_characters",
+      activeWell.name,
+      activeWell.wellId,
+    ).item;
+    if (activeItem) labelItems.unshift(activeItem);
+  }
+  if (!pointReduced && !legend.item && !scopePreview && labelItems.length === 0 && !outcome?.refusal) return null;
 
-  const items: PlotReductionExport["items"] = (outcome?.layers ?? []).map((layer) => ({
+  const items: PlotReductionExport["items"] = layers.map((layer) => ({
     subject_kind: "points",
     subject_id: layer.wellId,
     original_count: layer.reduction.originalCount,
@@ -886,28 +906,9 @@ export function contextReductionExport(
     stride: layer.reduction.stride,
     endpoints_forced: layer.reduction.endpointsForced,
   }));
-  if (scopePreviewReduced) {
-    items.push({
-      subject_kind: "wells",
-      subject_id: "well_scope_name_preview",
-      original_count: scopedWellCount,
-      displayed_count: visibleScopeWellRows,
-      algorithm: "first_well_names_with_remainder_count",
-      stride: null,
-      endpoints_forced: null,
-    });
-  }
-  if (legendReduced) {
-    items.push({
-      subject_kind: "legend",
-      subject_id: "well_legend",
-      original_count: outcome!.layers.length,
-      displayed_count: CONTEXT_LEGEND_ROWS,
-      algorithm: "first_context_well_rows_with_reported_remainder",
-      stride: null,
-      endpoints_forced: null,
-    });
-  }
+  if (scopePreview) items.push(scopePreview);
+  if (legend.item) items.push(legend.item);
+  items.push(...labelItems);
   return {
     schema_version: 1,
     plot_type: plotType,

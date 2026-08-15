@@ -27,7 +27,6 @@ import {
   buildDepthReframeHandoff,
   buildZoneSelect,
   contextReductionExport,
-  CONTEXT_LEGEND_ROWS,
   contextZoneWindow,
   curveSelect,
   depthReframeHandoff,
@@ -46,7 +45,8 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
+import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
 import {
@@ -470,7 +470,6 @@ export function drawPickett(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);
@@ -498,12 +497,20 @@ export function drawPickett(
       boxY += rowH;
     };
     // The active swatch only means something when the cloud is one color (no Z coloring).
-    row(plotColors ? null : plot.theme.accent, `${trunc(context!.activeName)} (active${plotColors ? ", by Z" : ""})`);
+    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
+    row(plotColors ? null : plot.theme.accent, `${activeName} (active${plotColors ? ", by Z" : ""})`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, trunc(layer.name));
-    if (layers.length > CONTEXT_LEGEND_ROWS) {
+    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+    for (const layer of visibleLegend.displayed) {
+      row(layer.color, reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed);
+    }
+    if (visibleLegend.item) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
+      ctx.fillText(
+        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
+        boxX + 16,
+        boxY + 10,
+      );
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -866,7 +873,6 @@ export async function buildPickettContent(
   };
 
   // --- Context-well data (multi-well overlay) — same budget rule as crossplot/histogram.
-  const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: PickettContextLayer[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxWellIds: string[] = [];
@@ -905,7 +911,6 @@ export async function buildPickettContent(
       "pickett",
       null,
       resolvedIds.length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     setStatus(`Pickett: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
@@ -913,7 +918,7 @@ export async function buildPickettContent(
       names: scope.namesFor(ids),
       curves: [rtSel.value, phiSel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: MAX_CONTEXT_POINTS,
+      budget: plotRecordLimit("context_point_budget").maximum,
       isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
@@ -921,7 +926,7 @@ export async function buildPickettContent(
       "pickett",
       outcome,
       resolvedIds.length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      { wellId: well.well_id, name: well.well_name },
     );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,

@@ -34,7 +34,6 @@ import {
   buildZoneSelect,
   concatValues,
   contextReductionExport,
-  CONTEXT_LEGEND_ROWS,
   contextZoneWindow,
   curveSelect,
   defaultPickParams,
@@ -53,7 +52,8 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
+import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
 import { parsePercentileP, type PlotReductionExport } from "./plotTypes";
@@ -555,7 +555,6 @@ export function drawHistogram(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);
@@ -589,12 +588,24 @@ export function drawHistogram(
       ctx.fillText(label, boxX + 16, boxY + 10);
       boxY += rowH;
     };
-    row(barColor, true, `${trunc(context!.activeName)} (active)`);
+    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
+    row(barColor, true, `${activeName} (active)`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, false, trunc(layer.name));
-    if (layers.length > CONTEXT_LEGEND_ROWS) {
+    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+    for (const layer of visibleLegend.displayed) {
+      row(
+        layer.color,
+        false,
+        reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed,
+      );
+    }
+    if (visibleLegend.item) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
+      ctx.fillText(
+        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
+        boxX + 16,
+        boxY + 10,
+      );
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -914,7 +925,6 @@ export async function buildHistogramContent(
   };
 
   // --- Context-well data (multi-well overlay) — same budget rule as the crossplot.
-  const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: HistogramContextLayer[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxWellIds: string[] = [];
@@ -953,7 +963,6 @@ export async function buildHistogramContent(
       "histogram",
       null,
       resolvedIds.length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     setStatus(`Histogram: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
@@ -961,7 +970,7 @@ export async function buildHistogramContent(
       names: scope.namesFor(ids),
       curves: [curveSel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: MAX_CONTEXT_POINTS,
+      budget: plotRecordLimit("context_point_budget").maximum,
       isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
@@ -969,7 +978,7 @@ export async function buildHistogramContent(
       "histogram",
       outcome,
       resolvedIds.length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      { wellId: well.well_id, name: well.well_name },
     );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,

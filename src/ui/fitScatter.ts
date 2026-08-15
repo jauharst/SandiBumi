@@ -1,9 +1,8 @@
 import { attachResizeRedraw, attachScatterTooltip, canvasFont, faciesColor, fitCanvasBackingStore, readTheme } from "./plotCanvas";
 import { buildImageExportButtons } from "./plotExport";
 import { setStatus } from "../state";
+import { applyPlotRecordLimit } from "./plotLimits";
 import type { PlotReductionExport } from "./plotTypes";
-
-const FIT_SCATTER_LEGEND_ROWS = 12;
 
 /** QC scatter for a calibration fit — shared by the RtC and S-factor dialogs.
  *
@@ -304,41 +303,34 @@ function buildLegend(points: FitScatterPoint[]): HTMLElement {
   const groups = [...new Set(points.map((p) => p.group))];
   // A legend of ninety wells is noise, not information — the colours still separate them on the
   // canvas, so name what fits and report displayed/original group counts.
-  const shown = groups.slice(0, FIT_SCATTER_LEGEND_ROWS);
-  for (let i = 0; i < shown.length; i++) {
+  const limited = applyPlotRecordLimit("fit_scatter_legend_rows", groups, "well_legend");
+  for (let i = 0; i < limited.displayed.length; i++) {
     const item = document.createElement("span");
     item.className = "fit-scatter-legend-item";
     const sw = document.createElement("span");
     sw.className = "fit-scatter-swatch";
     sw.style.background = faciesColor(i);
     item.appendChild(sw);
-    item.appendChild(document.createTextNode(shown[i]));
+    item.appendChild(document.createTextNode(limited.displayed[i]));
     el.appendChild(item);
   }
-  if (groups.length > shown.length) {
+  if (limited.item) {
     const more = document.createElement("span");
     more.className = "fit-scatter-legend-item";
-    more.textContent = `legend: ${shown.length} of ${groups.length} groups`;
+    more.textContent = `legend: ${limited.item.displayed_count} of ${limited.item.original_count} groups`;
     el.appendChild(more);
   }
   return el;
 }
 
 function fitScatterReductionExport(spec: FitScatterSpec): PlotReductionExport | null {
-  const groupCount = new Set(spec.points.map((point) => point.group)).size;
-  if (groupCount <= FIT_SCATTER_LEGEND_ROWS) return null;
+  const groups = [...new Set(spec.points.map((point) => point.group))];
+  const limited = applyPlotRecordLimit("fit_scatter_legend_rows", groups, "well_legend");
+  if (!limited.item) return null;
   return {
     schema_version: 1,
     plot_type: "fit_scatter",
-    items: [{
-      subject_kind: "legend",
-      subject_id: "well_legend",
-      original_count: groupCount,
-      displayed_count: FIT_SCATTER_LEGEND_ROWS,
-      algorithm: "first_group_rows_with_remainder_count",
-      stride: null,
-      endpoints_forced: null,
-    }],
+    items: [limited.item],
     absent: [],
     refusal: null,
   };

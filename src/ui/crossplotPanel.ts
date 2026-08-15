@@ -53,7 +53,6 @@ import {
   contextZoneWindow,
   CORE_OVERLAY_MAP,
   contextReductionExport,
-  CONTEXT_LEGEND_ROWS,
   curveSelect,
   depthReframeHandoff,
   describeContextOutcome,
@@ -72,7 +71,8 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
+import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
 import {
@@ -1309,7 +1309,6 @@ export function drawCrossplot(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);
@@ -1338,12 +1337,20 @@ export function drawCrossplot(
     };
     // The active row's swatch only means something when the cloud is one color; a
     // Z-colored cloud gets a label instead of a misleading single swatch.
-    row(hasZ ? null : opts.color || plot.theme.accent, `${trunc(context!.activeName)} (active${hasZ ? `, by ${zName}` : ""})`);
+    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
+    row(hasZ ? null : opts.color || plot.theme.accent, `${activeName} (active${hasZ ? `, by ${zName}` : ""})`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, trunc(layer.name));
-    if (layers.length > CONTEXT_LEGEND_ROWS) {
+    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+    for (const layer of visibleLegend.displayed) {
+      row(layer.color, reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed);
+    }
+    if (visibleLegend.item) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
+      ctx.fillText(
+        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
+        boxX + 16,
+        boxY + 10,
+      );
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -2394,7 +2401,6 @@ export async function buildCrossplotContent(
   // Total point budget across ALL context wells: 2,000 wells × ~5,000 samples is 10M
   // points — far past what canvas 2D (or the eye) can use. Each well gets an equal
   // share and is stride-decimated down to it; the scope row reports the decimation.
-  const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: ContextWellLayer[] = [];
   let ctxWellIds: string[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
@@ -2433,7 +2439,6 @@ export async function buildCrossplotContent(
       "crossplot",
       null,
       resolvedIds.length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     setStatus(`Crossplot: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
@@ -2441,7 +2446,7 @@ export async function buildCrossplotContent(
       names: scope.namesFor(ids),
       curves: [xSel.value, ySel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: MAX_CONTEXT_POINTS,
+      budget: plotRecordLimit("context_point_budget").maximum,
       isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
@@ -2449,7 +2454,7 @@ export async function buildCrossplotContent(
       "crossplot",
       outcome,
       resolvedIds.length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      { wellId: well.well_id, name: well.well_name },
     );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,

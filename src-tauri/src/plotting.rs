@@ -2711,8 +2711,13 @@ mod tests {
         assert!(common_ui.contains("endpoints_forced: layer.reduction.endpointsForced"));
         let histogram_ui = include_str!("../../src/ui/histogramPanel.ts");
         assert!(!histogram_ui.contains(".sort((a, b) => a - b).slice(0, 8)"));
+        let limits_ui = include_str!("../../src/ui/plotLimits.ts");
+        assert!(limits_ui.contains("id: \"context_point_budget\""));
+        assert!(limits_ui.contains("maximum: 60_000"));
+        assert!(limits_ui.contains("policy: \"refuse_above_hard_maximum\""));
         let vega_ui = include_str!("../../src/ui/vegaPanel.ts");
-        assert!(vega_ui.contains("if (order.length > MAX_GROUPS)"));
+        assert!(vega_ui.contains("applyPlotRecordLimit(\"vega_categorical_groups\""));
+        assert!(vega_ui.contains("() => reductionManifest"));
         assert!(vega_ui.contains("pick a categorical curve"));
     }
 }

@@ -6,6 +6,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState } from "../state";
+import { applyPlotRecordLimit } from "./plotLimits";
 
 /** Shared "which wells does this run cover" selector — the one control every batch dialog uses
  *  instead of hand-rolling a checkbox-per-well list. At field scale (2000+ wells) ticking wells
@@ -21,9 +22,6 @@ import { appState } from "../state";
  *  hitting Run just works. Counts update live while the dialog is open. */
 
 export type ScopeMode = "active" | "group" | "pinned" | "selection" | "all" | "custom";
-
-/** Name rows shown in the compact hover preview; the total and remainder are always reported. */
-export const WELL_SCOPE_NAME_PREVIEW_ROWS = 40;
 
 export interface WellScope {
   /** The self-contained control block — append it straight into the dialog (it is its own row). */
@@ -260,11 +258,11 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
     countEl.textContent = `${ids.length} well${ids.length === 1 ? "" : "s"}`;
     countEl.classList.toggle("well-scope-count-zero", ids.length === 0);
     // The names on hover give quick confidence without a big list.
-    countEl.title = ids
-      .slice(0, WELL_SCOPE_NAME_PREVIEW_ROWS)
+    const preview = applyPlotRecordLimit("well_scope_name_preview_rows", ids, "well_scope_name_preview");
+    countEl.title = preview.displayed
       .map((id) => wellById.get(id)?.well_name ?? id)
-      .join(", ") + (ids.length > WELL_SCOPE_NAME_PREVIEW_ROWS
-        ? ` … (name preview: ${WELL_SCOPE_NAME_PREVIEW_ROWS} of ${ids.length} wells)`
+      .join(", ") + (preview.item
+        ? ` … (name preview: ${preview.item.displayed_count} of ${preview.item.original_count} wells)`
         : "");
   }
 

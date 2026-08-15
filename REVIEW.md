@@ -1,5 +1,41 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-031: registered plot limits report reduction or refuse
+
+- [ ] **Automated correctness:** the exact T40 test inventories the seven current plot limits and
+      their load, point, well, legend, visual and facet subjects. The cited 60,000-point budget and
+      eight-load concurrency remain chapter-owned; the five other existing maxima are explicitly
+      retained as-built rather than promoted into independently validated defaults. Exact-boundary
+      fixtures remain unreduced, prefix policies emit original/displayed counts and their algorithm,
+      Unicode labels retain a whole-code-point ellipsis and manifest item, and the Vega hard maximum
+      returns no plausible prefix plus an exportable refusal. The same test inventories every current
+      consumer and forbids local prefix slicing outside the registry. Temporarily returning a hard-
+      maximum prefix and temporarily omitting visual-label manifest items each made the test RED.
+      TypeScript, the complete 25-test frontend file and the focused Rust canonicalization test are
+      green; the first fresh full gate is 1037 passed / 0 failed / 37 ignored with 31 separately
+      owned Rust warnings.
+- [ ] **Visual:** use more than 40 scoped wells, more than 10 context wells and well names longer
+      than 18 characters in Crossplot, Histogram and Pickett. Confirm the scope preview and legend
+      visibly say displayed of original, shortened names end in an ellipsis, and `Manifest` remains
+      available. Open a fit scatter with more than 12 groups and confirm its legend reports both
+      counts. In Vega raincloud, select a grouping curve with more than 24 categories; confirm the
+      old chart is cleared, the refusal is visible, no first-24 prefix is drawn, and the refusal
+      manifest can still be exported.
+- [ ] **Manual:** exercise exactly-at and one-above boundaries for the scope preview, context
+      legend, visual label, fit-scatter legend and Vega group maximum. Inspect every exported JSON
+      record for `original_count`, `displayed_count`, the named algorithm, null non-applicable
+      stride/endpoint fields and the refusal text. For context point reduction, verify every
+      represented well retains its own count/stride/endpoint record and the on-screen reduction
+      sentence agrees with the exported manifest.
+- [ ] **Field and harsh critique:** repeat with representative multi-well volumes and hostile long
+      names. A seven-row registry and green source inventory prove the current registered consumers,
+      not that a future limit cannot bypass the registry. A visible ellipsis is not by itself a
+      before/after disclosure, so the export record and count-bearing remainder text must remain
+      reachable. The retained 40/10/18/12/24 maxima are not validated usability or performance
+      thresholds; only 60,000 and eight have chapter custody. Automated proof does not establish
+      visual legibility, operator comprehension, suitable limits, release-hardware performance or
+      representative field behavior; those evidence classes remain open for Jauhar.
+
 ## 2026-08-15 — G2 SB-PLT-030: Accessibility for Histogram, Crossplot, Pickett, Correlation and Vega interaction
 
 - [ ] **Automated correctness:** the exact T39 test executes one shared accessibility contract,
