@@ -518,10 +518,10 @@
 - **Qualifying acceptance tests:** `condition::tests::clipping_can_blank_or_clamp_and_an_empty_side_is_not_a_bound` passed exactly once; it asserts no-bound and reversed refusals plus one-sided and valid-pair controls. Expected behavior comes from T47; test class `CORRECTNESS`.
 - **Supporting tests:** none needed beyond the two-sided control already in the test.
 - **Manual evidence:** conditioning 0/27.
-- **Git evidence:** behavior and test are integrated at the accepted anchor.
+- **Git evidence:** behavior and qualifying test are integrated; the exact T47 test was re-run once on current parent `4799eb91e18cd05d4f40b4d6d6d2c8186188990d` without changing production or test code.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; automated proof passes, but conditioning field evidence remains open.
-- **Next action:** preserve T47 and field-exercise blank, clamp and one-sided modes before pilot acceptance.
+- **Next action:** preserve T47, execute visual/manual/field review separately and continue SB-ENV-040.
 
 ## SB-ENV-040 - A conditioning output is never the input's own mnemonic
 

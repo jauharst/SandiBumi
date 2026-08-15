@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-039: Clip refuses ambiguous bounds
+
+- [ ] **Automated correctness:** exact T47 is GREEN on the current head. The existing named test
+      refuses no bounds and `MIN > MAX`, accepts a genuine lower-only bound, exercises a valid
+      pair under both BLANK and CLAMP, preserves in-range values and flags out-of-range samples.
+- [ ] **Visual:** open Condition ▸ Clip and confirm MIN and MAX may each be left empty, BLANK is
+      described as removing an invalid measurement, CLAMP is described as pulling an arithmetic
+      overshoot to a defensible bound, and neither action implies that reversed bounds are repaired.
+- [ ] **Manual refusal review:** run once with neither bound and once with MIN above MAX; confirm
+      both runs stop visibly and write no copied/repaired curve. Then run with only MIN and confirm
+      values above the undeclared side remain untouched.
+- [ ] **Field and harsh critique:** refusing an ambiguous pair prevents the software from guessing
+      user intent; it does not make a supplied bound scientifically valid. Every real-log bound
+      remains interpreter-owned and must carry its own source outside this algorithmic contract.
+
 ## 2026-08-16 — G2 SB-ENV-038: Exact Fill Gaps boundary
 
 - [ ] **Automated correctness:** exact T46 is GREEN. One named test supplies a 1.000 m maximum
