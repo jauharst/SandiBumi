@@ -1,4 +1,5 @@
 import {
+  despikeContaminationPreview,
   listCurveCatalog,
   moduleInputAvailability,
   moduleOutputNames,
@@ -7,6 +8,7 @@ import {
   type ModuleSpec,
   type OutputName,
   type RunModuleRequest,
+  type DespikeContaminationPreview,
   type ValidityCondition,
 } from "../ipc";
 import { appState } from "../state";
@@ -173,6 +175,55 @@ export function renderValidityConditions(host: HTMLElement, views: ValidityCondi
   }
 }
 
+const DESPIKE_MASKING_MEANING =
+  "Above this fraction of contaminated samples in a window, spikes mask each other and are not detected.";
+
+/** Render the data-resolved estimator branches rather than inferring one formula from K. A run
+ * may legitimately contain both branches, so both remain visible with their sample counts. */
+export function renderDespikeContaminationPreview(
+  host: HTMLElement,
+  preview: DespikeContaminationPreview,
+  wellName: (wellId: string) => string,
+): void {
+  host.innerHTML = "";
+  const meaning = document.createElement("div");
+  meaning.className = "module-contamination-meaning";
+  meaning.textContent = DESPIKE_MASKING_MEANING;
+  host.appendChild(meaning);
+
+  for (const branch of preview.branches) {
+    const row = document.createElement("div");
+    row.className = "module-contamination-branch";
+    const name = branch.estimator === "TRUE_MAD"
+      ? "True MAD"
+      : branch.estimator === "MEAN_DEVIATION_FALLBACK"
+        ? "Mean-deviation fallback (zero MAD)"
+        : "Mean ± kσ (population σ)";
+    row.textContent = `${name}: ${branch.ceiling_pct.toFixed(2)}% — ${branch.sample_count} evaluated sample window${branch.sample_count === 1 ? "" : "s"}`;
+    host.appendChild(row);
+  }
+
+  const coverage = document.createElement("div");
+  coverage.className = "module-contamination-coverage";
+  coverage.textContent = preview.evaluated_wells > 0
+    ? `Computed from the selected curve and current window in ${preview.evaluated_wells} well${preview.evaluated_wells === 1 ? "" : "s"}.`
+    : "No selected well currently has an evaluable Hampel window.";
+  host.appendChild(coverage);
+
+  if (preview.unavailable_well_ids.length > 0) {
+    const unavailable = document.createElement("div");
+    unavailable.className = "module-contamination-warning";
+    unavailable.textContent = `Curve unavailable after the current mask: ${preview.unavailable_well_ids.map(wellName).join(", ")}.`;
+    host.appendChild(unavailable);
+  }
+  if (preview.issues.length > 0) {
+    const issues = document.createElement("div");
+    issues.className = "module-contamination-warning";
+    issues.textContent = preview.issues.map((issue) => `${wellName(issue.well_id)} — ${issue.error}`).join("; ");
+    host.appendChild(issues);
+  }
+}
+
 /** Builds the auto-generated parameter form for one module: input-curve selectors,
  *  option dropdowns, and validated numeric parameters — all straight from the manifest
  *  (module-manifest model). Hosted as a dock pane (workspace component "module", panel id
@@ -189,7 +240,13 @@ export async function buildModuleContent(
   let curveNames = catalog.map((c) => c.name);
   let disposed = false;
   let refreshValidityConditions: () => Promise<void> = async () => {};
-  const scope = await buildWellScope({ onChange: () => void refreshValidityConditions() });
+  let refreshDespikeCeiling: () => Promise<void> = async () => {};
+  const scope = await buildWellScope({
+    onChange: () => {
+      void refreshValidityConditions();
+      void refreshDespikeCeiling();
+    },
+  });
   const custodyControls = buildRunCustodyControls();
 
   const content = document.createElement("div");
@@ -427,12 +484,28 @@ export async function buildModuleContent(
   // say LOG SET, and only this UI said constellation, which is why the word did not connect.
   const setPicker = buildLogSetPicker({
     write: "INTERP",
-    onInputChange: () => void refreshValidityConditions(),
+    onInputChange: () => {
+      void refreshValidityConditions();
+      void refreshDespikeCeiling();
+    },
   });
   for (const row of setPicker.rows) argsGrid.appendChild(row);
   for (const row of custodyControls.rows) argsGrid.appendChild(row);
 
   content.appendChild(argsGrid);
+
+  const contaminationCard = document.createElement("section");
+  contaminationCard.className = "module-contamination";
+  contaminationCard.hidden = spec.name !== "despike";
+  const contaminationTitle = document.createElement("div");
+  contaminationTitle.className = "module-contamination-title";
+  contaminationTitle.textContent = "Live contamination ceiling";
+  const contaminationBody = document.createElement("div");
+  contaminationBody.className = "module-contamination-body";
+  contaminationBody.textContent =
+    "Set WINDOW and K to inspect the estimator branch the selected curve will actually use.";
+  contaminationCard.append(contaminationTitle, contaminationBody);
+  content.appendChild(contaminationCard);
 
   // --- Zone-override callout (design 1d): the precedence rule, stated where
   // the whole-well defaults are being typed rather than in a help page.
@@ -546,6 +619,16 @@ export async function buildModuleContent(
     return selected;
   };
 
+  const collectFiniteParams = (): Record<string, number> => {
+    const params: Record<string, number> = {};
+    for (const [name, input] of paramInputs) {
+      if (!input.value.trim()) continue;
+      const value = Number(input.value);
+      if (Number.isFinite(value)) params[name] = value;
+    }
+    return params;
+  };
+
   let validityGen = 0;
   refreshValidityConditions = async () => {
     if (validityHosts.size === 0) return;
@@ -588,6 +671,55 @@ export async function buildModuleContent(
     }
   };
 
+  let ceilingGen = 0;
+  let ceilingBusy = false;
+  let ceilingQueued = false;
+  refreshDespikeCeiling = async () => {
+    if (spec.name !== "despike" || disposed) return;
+    ++ceilingGen;
+    if (ceilingBusy) {
+      ceilingQueued = true;
+      return;
+    }
+    do {
+      ceilingBusy = true;
+      ceilingQueued = false;
+      const gen = ceilingGen;
+      const method = optSelects.get("OPT_METHOD")?.value ?? "HAMPEL";
+      const windowValue = Number(paramInputs.get("WINDOW")?.value ?? "");
+      const kValue = Number(paramInputs.get("K")?.value ?? "");
+      if (method !== "HAMPEL") {
+        contaminationBody.textContent = `${method} does not use K; no K-based contamination ceiling applies.`;
+      } else if (!(windowValue > 0) || !(kValue > 0)) {
+        contaminationBody.textContent =
+          "Set WINDOW and K to inspect the estimator branch the selected curve will actually use.";
+      } else if (scope.getWellIds().length === 0) {
+        contaminationBody.textContent = "No wells are in scope, so the estimator branch cannot be evaluated.";
+      } else {
+        contaminationBody.textContent = "Checking the selected curve, window and mask…";
+        try {
+          const preview = await despikeContaminationPreview(
+            scope.backend(),
+            collectLogInputs(),
+            collectFiniteParams(),
+            collectOpts(),
+            setPicker.inputSet(),
+          );
+          if (!disposed && gen === ceilingGen) {
+            const nameFor = (wellId: string) => scope.namesFor([wellId])[0] ?? wellId;
+            renderDespikeContaminationPreview(contaminationBody, preview, nameFor);
+          }
+        } catch (error) {
+          if (!disposed && gen === ceilingGen) {
+            contaminationBody.textContent =
+              `Cannot evaluate the live ceiling: ${String(error).replace(/^Error:\s*/, "")}`;
+          }
+        }
+      }
+      ceilingBusy = false;
+    } while (ceilingQueued && !disposed);
+  };
+
   // The placeholder in each name box is the name the run would write if the box is left alone —
   // so an untouched form still SHOWS its answer rather than an empty field. Re-asked whenever an
   // input curve or a rename changes, because a pattern is built from those: renaming the despiked
@@ -617,16 +749,29 @@ export async function buildModuleContent(
   for (const [, select] of logSelects) select.addEventListener("change", () => {
     void refreshOutNames();
     void refreshValidityConditions();
+    void refreshDespikeCeiling();
   });
   for (const [, select] of optSelects) select.addEventListener("change", () => {
     void refreshOutNames();
     void refreshValidityConditions();
+    void refreshDespikeCeiling();
   });
   for (const [, input] of textInputs) input.addEventListener("input", () => void refreshValidityConditions());
+  let ceilingTimer: number | undefined;
+  const scheduleCeilingRefresh = () => {
+    if (ceilingTimer !== undefined) window.clearTimeout(ceilingTimer);
+    ceilingTimer = window.setTimeout(() => {
+      ceilingTimer = undefined;
+      void refreshDespikeCeiling();
+    }, 250);
+  };
+  for (const [, input] of paramInputs) input.addEventListener("input", scheduleCeilingRefresh);
+  maskSelect.addEventListener("change", () => void refreshDespikeCeiling());
   preconditionPolicySelect.addEventListener("change", () => void refreshOutNames());
   for (const [, input] of outNameInputs) input.addEventListener("input", () => void refreshOutNames());
   void refreshOutNames();
   void refreshValidityConditions();
+  void refreshDespikeCeiling();
 
   // --- Footer (design 1d): primary pill naming the module, last-run status
   // right-aligned beside it.
@@ -661,6 +806,7 @@ export async function buildModuleContent(
       }
       rebuildMaskOptions(maskSelect.value);
       void refreshValidityConditions();
+      void refreshDespikeCeiling();
     } catch {
       // No backend / transient failure: keep the current form as-is.
     }
@@ -763,6 +909,7 @@ export async function buildModuleContent(
     el: content,
     dispose: () => {
       disposed = true;
+      if (ceilingTimer !== undefined) window.clearTimeout(ceilingTimer);
       unsubData();
       unsubWell();
       scope.dispose();

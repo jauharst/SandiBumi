@@ -44,6 +44,7 @@ use crate::modules::{
     log_in, log_out_as, log_out_flag_as, opt_labelled, param, param_open, param_open_when,
     FlagCurve, FlagKind, FlagValue, ModuleContext, ModuleOutputs, ModuleSpec,
 };
+use serde::Serialize;
 use std::collections::HashMap;
 
 const MISSING: f32 = f32::NAN;
@@ -152,7 +153,52 @@ fn window_median(vals: &[f32], idx: &[usize], lo: usize, hi: usize, buf: &mut Ve
 /// mean deviation is a third of the spike, so a K of 3 lands precisely on the boundary and the
 /// answer is decided by a rounding bit. [`MIN_HAMPEL_SAMPLES`] is the floor, and the run refuses
 /// rather than returning a coin toss.
-fn window_spread(vals: &[f32], idx: &[usize], lo: usize, hi: usize, centre: f32, buf: &mut Vec<f32>) -> f32 {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DespikeEstimator {
+    TrueMad,
+    MeanDeviationFallback,
+    /// Not offered by SandiBumi. Kept as a distinct contract branch so a future method cannot
+    /// inherit one of the Hampel formulae merely because its parameter is also named K.
+    #[allow(dead_code)]
+    MeanSigmaPopulation,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WindowSpread {
+    value: f32,
+    estimator: DespikeEstimator,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DespikeContaminationBranch {
+    pub estimator: DespikeEstimator,
+    pub ceiling_pct: f64,
+    pub sample_count: usize,
+}
+
+/// The contamination ceiling belonging to one explicitly named estimator branch. These are
+/// mathematical properties of the estimators, not field cutoffs or calibration defaults.
+pub fn contamination_ceiling_pct(estimator: DespikeEstimator, k: f64) -> Result<f64, String> {
+    if !k.is_finite() || k <= 0.0 {
+        return Err("K must be a finite number greater than zero before a contamination ceiling can be computed".into());
+    }
+    let fraction = match estimator {
+        DespikeEstimator::TrueMad => 0.5,
+        DespikeEstimator::MeanDeviationFallback => (1.0 / k).min(0.5),
+        DespikeEstimator::MeanSigmaPopulation => 1.0 / (k * k + 1.0),
+    };
+    Ok(fraction * 100.0)
+}
+
+fn window_spread(
+    vals: &[f32],
+    idx: &[usize],
+    lo: usize,
+    hi: usize,
+    centre: f32,
+    buf: &mut Vec<f32>,
+) -> WindowSpread {
     buf.clear();
     for &i in &idx[lo..hi] {
         let v = vals[i];
@@ -161,20 +207,111 @@ fn window_spread(vals: &[f32], idx: &[usize], lo: usize, hi: usize, centre: f32,
         }
     }
     if buf.is_empty() {
-        return MISSING;
+        return WindowSpread { value: MISSING, estimator: DespikeEstimator::MeanDeviationFallback };
     }
     buf.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
     let mad = 1.4826 * crate::distribution::percentile(buf, 50.0);
     if mad > 0.0 {
-        return mad;
+        return WindowSpread { value: mad, estimator: DespikeEstimator::TrueMad };
     }
     let mean_dev = buf.iter().map(|v| *v as f64).sum::<f64>() / buf.len() as f64;
-    mean_dev as f32
+    WindowSpread {
+        value: mean_dev as f32,
+        estimator: DespikeEstimator::MeanDeviationFallback,
+    }
 }
 
 /// Fewest samples a HAMPEL window may cover. Below this the spread estimate is dominated by the
 /// very sample being judged (see [`window_spread`]), so the test is not measuring anything.
 const MIN_HAMPEL_SAMPLES: usize = 5;
+
+fn validate_hampel_window(
+    frame: &Frame,
+    wins: &[(usize, usize)],
+    window: f64,
+) -> Result<(), String> {
+    if frame.idx.is_empty() {
+        return Ok(());
+    }
+    let mut widths: Vec<usize> = wins.iter().map(|(lo, hi)| hi - lo).collect();
+    widths.sort_unstable();
+    let typical = widths[widths.len() / 2];
+    if typical >= MIN_HAMPEL_SAMPLES {
+        return Ok(());
+    }
+    let spacing = if frame.len() > 1 {
+        (frame.dep[frame.len() - 1] - frame.dep[0]) / (frame.len() - 1) as f64
+    } else {
+        0.0
+    };
+    Err(format!(
+        "WINDOW = {window} covers about {typical} samples at this well's {spacing:.3} \
+         sampling, and the HAMPEL test needs at least {MIN_HAMPEL_SAMPLES}: below that \
+         the spread it measures against is set by the very sample being judged. Widen \
+         WINDOW to about {:.3}, or use ABS, which needs no spread estimate.",
+        spacing * MIN_HAMPEL_SAMPLES as f64
+    ))
+}
+
+/// Inspect the same windows and spread branch the Hampel run will use, returning only branch
+/// names, mathematical ceilings and counts. Curve samples stay in Rust when this is used by the
+/// dialog preflight; no curve array is serialized over IPC.
+pub fn despike_contamination_profile(
+    depth: &[f32],
+    values: &[f32],
+    window: f64,
+    k: f64,
+) -> Result<Vec<DespikeContaminationBranch>, String> {
+    if depth.len() != values.len() {
+        return Err("DEPTH and CURVE must have equal lengths for the despike ceiling preview".into());
+    }
+    if !window.is_finite() || window <= 0.0 {
+        return Err("WINDOW must be a finite thickness greater than zero before the despike ceiling can be previewed".into());
+    }
+    let fallback_ceiling =
+        contamination_ceiling_pct(DespikeEstimator::MeanDeviationFallback, k)?;
+    let true_mad_ceiling = contamination_ceiling_pct(DespikeEstimator::TrueMad, k)?;
+    let frame = Frame::new(depth);
+    let wins = frame.windows(window / 2.0);
+    validate_hampel_window(&frame, &wins, window)?;
+
+    let mut true_mad_samples = 0usize;
+    let mut fallback_samples = 0usize;
+    let mut median_buf = Vec::new();
+    let mut spread_buf = Vec::new();
+    for (frame_index, &(lo, hi)) in wins.iter().enumerate() {
+        let sample = frame.idx[frame_index];
+        if !values[sample].is_finite() {
+            continue;
+        }
+        let centre = window_median(values, &frame.idx, lo, hi, &mut median_buf);
+        if !centre.is_finite() {
+            continue;
+        }
+        match window_spread(values, &frame.idx, lo, hi, centre, &mut spread_buf).estimator {
+            DespikeEstimator::TrueMad => true_mad_samples += 1,
+            DespikeEstimator::MeanDeviationFallback => fallback_samples += 1,
+            DespikeEstimator::MeanSigmaPopulation => unreachable!("Hampel never uses mean-sigma"),
+        }
+    }
+
+    let mut branches = Vec::with_capacity(2);
+    if true_mad_samples > 0 {
+        branches.push(DespikeContaminationBranch {
+            estimator: DespikeEstimator::TrueMad,
+            ceiling_pct: true_mad_ceiling,
+            sample_count: true_mad_samples,
+        });
+    }
+    if fallback_samples > 0 {
+        branches.push(DespikeContaminationBranch {
+            estimator: DespikeEstimator::MeanDeviationFallback,
+            ceiling_pct: fallback_ceiling,
+            sample_count: fallback_samples,
+        });
+    }
+    Ok(branches)
+}
 
 /// A run parameter that is CONSTANT for the well — the window of a filter, the limit of a gap.
 ///
@@ -362,24 +499,8 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // typical window rather than the narrowest, so a short window at the very top of the log does
     // not refuse a run that is well posed everywhere else — and refused rather than run, because
     // the answer either side of that boundary is a coin toss and the curve would look fine.
-    if !frame.idx.is_empty() && matches!(method.as_str(), "HAMPEL" | "") {
-        let mut widths: Vec<usize> = wins.iter().map(|(lo, hi)| hi - lo).collect();
-        widths.sort_unstable();
-        let typical = widths[widths.len() / 2];
-        if typical < MIN_HAMPEL_SAMPLES {
-            let spacing = if frame.len() > 1 {
-                (frame.dep[frame.len() - 1] - frame.dep[0]) / (frame.len() - 1) as f64
-            } else {
-                0.0
-            };
-            return Err(format!(
-                "WINDOW = {window} covers about {typical} samples at this well's {spacing:.3} \
-                 sampling, and the HAMPEL test needs at least {MIN_HAMPEL_SAMPLES}: below that \
-                 the spread it measures against is set by the very sample being judged. Widen \
-                 WINDOW to about {:.3}, or use ABS, which needs no spread estimate.",
-                spacing * MIN_HAMPEL_SAMPLES as f64
-            ));
-        }
+    if matches!(method.as_str(), "HAMPEL" | "") {
+        validate_hampel_window(&frame, &wins, window)?;
     }
 
     let mut out = vals.clone();
@@ -420,11 +541,13 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
             // to "reject nothing" — a typo in an option must not turn a conditioning run into a
             // silent copy.
             _ => {
-                let sd = window_spread(&vals, &frame.idx, lo, hi, med, &mut buf);
+                let spread = window_spread(&vals, &frame.idx, lo, hi, med, &mut buf);
                 // A window that is constant INCLUDING this sample has zero spread and nothing to
                 // reject — every sample in it is the median. Guarded rather than left to
                 // `0.0 * K = 0.0`, which would flag every sample differing by a rounding step.
-                sd.is_finite() && sd > 0.0 && ((v - med) as f64).abs() > k * sd as f64
+                spread.value.is_finite()
+                    && spread.value > 0.0
+                    && ((v - med) as f64).abs() > k * spread.value as f64
             }
         };
         if reject {
@@ -1321,6 +1444,64 @@ mod tests {
             "a constant window must reject nothing — otherwise the fall-back has just moved the \
              failure to the other end and would eat every flag curve in the project"
         );
+    }
+
+    #[test]
+    fn the_zero_mad_fallback_ceiling_stops_at_half_and_updates_with_k() {
+        // CORRECTNESS — SB-ENV-T40. docs/PRD_v2/20_envcorr-qc.md §2.5 derives the
+        // mean-deviation fallback ceiling as min(1/k, 1/2); §6 T40 fixes these three
+        // displayed values to 33.33 %, 50.00 % and 50.00 % (±0.01 percentage point).
+        let depth = regular(41, 0.1, 1000.0);
+        let mut curve = vec![50.0f32; depth.len()];
+        curve[20] = 300.0;
+
+        for (k, expected_pct) in [(3.0, 33.333_333), (2.0, 50.0), (1.5, 50.0)] {
+            let branches = despike_contamination_profile(&depth, &curve, 0.5, k)
+                .expect("the same valid window the despiker accepts must be previewable");
+            assert_eq!(branches.len(), 1, "the quiet fixture uses one estimator branch");
+            assert_eq!(branches[0].estimator, DespikeEstimator::MeanDeviationFallback);
+            assert!(
+                (branches[0].ceiling_pct - expected_pct).abs() <= 0.01,
+                "k={k}: expected {expected_pct:.2} %, got {:.5} %",
+                branches[0].ceiling_pct,
+            );
+        }
+    }
+
+    #[test]
+    fn a_positive_mad_window_reports_the_true_mad_ceiling_not_the_fallback_ceiling() {
+        // CORRECTNESS — SB-ENV-T69. docs/PRD_v2/20_envcorr-qc.md §2.5 and §6 T69
+        // specify 50.00 % for the true-MAD branch at k=3, explicitly not the fallback's
+        // 33.33 %. A ramp supplies clean scatter in every evaluated window.
+        let depth = regular(41, 0.1, 1000.0);
+        let curve: Vec<f32> = (0..depth.len()).map(|i| 50.0 + i as f32 * 0.25).collect();
+        let branches = despike_contamination_profile(&depth, &curve, 0.5, 3.0)
+            .expect("positive-MAD windows must be previewable");
+
+        assert_eq!(branches.len(), 1, "the scattered fixture uses one estimator branch");
+        assert_eq!(branches[0].estimator, DespikeEstimator::TrueMad);
+        assert!((branches[0].ceiling_pct - 50.0).abs() <= 0.01);
+        assert!(
+            (branches[0].ceiling_pct - 33.333_333).abs() > 0.01,
+            "the UI must not infer the fallback formula from k alone",
+        );
+    }
+
+    #[test]
+    fn a_future_mean_sigma_estimator_cannot_inherit_a_hampel_ceiling() {
+        // CORRECTNESS — SB-ENV-T70. docs/PRD_v2/20_envcorr-qc.md §2.5 derives the
+        // population-sigma masking ceiling as 1/(k^2+1), hence exactly 20 % at k=2.
+        // The two Hampel branches are asserted beside it so one hard-coded formula cannot pass.
+        let mean_sigma = contamination_ceiling_pct(DespikeEstimator::MeanSigmaPopulation, 2.0)
+            .expect("positive k");
+        let true_mad = contamination_ceiling_pct(DespikeEstimator::TrueMad, 2.0)
+            .expect("positive k");
+        let fallback = contamination_ceiling_pct(DespikeEstimator::MeanDeviationFallback, 2.0)
+            .expect("positive k");
+
+        assert!((mean_sigma - 20.0).abs() <= 0.01);
+        assert!((true_mad - 50.0).abs() <= 0.01);
+        assert!((fallback - 50.0).abs() <= 0.01);
     }
 
     /// A HAMPEL window too narrow to hold a spread estimate is REFUSED, not run. With three

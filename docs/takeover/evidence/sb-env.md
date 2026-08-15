@@ -410,14 +410,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T40/T69/T70; sections 4.4, 6.4, 7.2 ESC-16 and 8.
 - **Atomic obligations:** display the running estimator's contamination ceiling live, show the 50 percent wall, and keep estimator-specific formulas distinct.
-- **Current source:** `condition::despike` has no contamination-ceiling calculation or UI surface. The dialog exposes method/parameters only.
-- **Qualifying acceptance tests:** none; T40/T69/T70 are missing. Test class `MISSING`.
-- **Supporting tests:** current Hampel behavior tests do not compute or render contamination bounds.
+- **Current source:** `condition.rs` names the true-MAD, mean-deviation fallback and prospective population-sigma estimator branches and computes each chapter formula separately. `despike_contamination_profile` inspects the exact Hampel windows and branch shared with the run. `workflow::despike_contamination_preview` resolves the selected native/computed curve, effective zone-aware WINDOW/K arrays and universal mask through the runner's shared helpers, aggregates branch/sample counts and keeps arrays behind IPC. `lib.rs`, `ipc.ts` and `moduleDialog.ts` expose that read-only preview live with coalesced refreshes; a mixed run renders both branch ceilings and the required masking statement.
+- **Qualifying acceptance tests:** `condition::tests::the_zero_mad_fallback_ceiling_stops_at_half_and_updates_with_k` owns T40; `a_positive_mad_window_reports_the_true_mad_ceiling_not_the_fallback_ceiling` owns T69; `a_future_mean_sigma_estimator_cannot_inherit_a_hampel_ceiling` owns T70. All expected values are independently derived by chapter §2.5 and asserted from both estimator sides. Test class `CORRECTNESS`.
+- **Supporting tests:** `workflow::tests::the_live_despike_preview_reads_the_selected_windows_and_returns_only_branch_counts` forces two selected curves through both real branches and checks the IPC payload has metadata only. `tools/frontend-acceptance.test.mjs::the_live_despike_ceiling_names_every_estimator_branch_and_what_the_percentage_means` proves both branch labels, two percentages, scope/mask disclosure and the required meaning survive rendering.
 - **Manual evidence:** conditioning 0/27.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `DEGRADED-RESULT`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** ESC-16 preserves the uncited shipped threshold concern; pilot inclusion of the live ceiling remains undecided.
-- **Next action:** decide pilot inclusion, then derive each estimator's ceiling from the chapter contract and render/test positive-MAD, zero-MAD and mean-sigma branches without adopting a new threshold.
+- **Git evidence:** current topic branch after SB-ENV-030; exact T40/T69/T70, live read-path, complete Condition/workflow and frontend acceptance suites are green. TypeScript and cargo check are green with the same 31 owned Rust warnings; the fresh full gate is 1060 passed / 0 failed / 37 ignored.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`; Visual, Manual and Field evidence remain open.
+- **Blocker or decision:** none for the live ceiling. ESC-16 remains open only for the uncited K value: this increment keeps K `ABSENT`, chooses no replacement and derives no field cutoff.
+- **Next action:** preserve the estimator-specific live preview, execute the four review scenarios separately and continue SB-ENV-032. A displayed theoretical ceiling is not evidence that the interpreter's WINDOW/K are fit for a delivered curve.
 
 ## SB-ENV-032 - The MAD consistency constant is defined once, named, and cited
 

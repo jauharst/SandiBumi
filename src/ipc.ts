@@ -1151,6 +1151,39 @@ export function moduleInputAvailability(
   });
 }
 
+export type DespikeEstimator = "TRUE_MAD" | "MEAN_DEVIATION_FALLBACK" | "MEAN_SIGMA_POPULATION";
+
+export interface DespikeContaminationBranch {
+  estimator: DespikeEstimator;
+  ceiling_pct: number;
+  sample_count: number;
+}
+
+export interface DespikeContaminationPreview {
+  branches: DespikeContaminationBranch[];
+  evaluated_wells: number;
+  unavailable_well_ids: string[];
+  issues: Array<{ well_id: string; error: string }>;
+}
+
+/** Read-only SB-ENV-031 preflight. The selected curve arrays stay in Rust; only estimator names,
+ * mathematical ceilings and counts cross IPC. */
+export function despikeContaminationPreview(
+  scope: BackendWellScope,
+  logInputs: Record<string, string>,
+  params: Record<string, number>,
+  opts: Record<string, string>,
+  inputSet?: string,
+): Promise<DespikeContaminationPreview> {
+  return invoke<DespikeContaminationPreview>("despike_contamination_preview", {
+    scope,
+    logInputs,
+    params,
+    opts,
+    inputSet,
+  });
+}
+
 export type AncestryActorKind = "HUMAN" | "AUTOMATED";
 
 export interface RunCustody {

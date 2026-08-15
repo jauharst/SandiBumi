@@ -7260,6 +7260,41 @@ input[type="number"].num-editing:focus {
   margin-bottom: 10px;
 }
 
+/* SB-ENV-031: the cutoff's hidden robustness cost is a live result, not help prose. The card sits
+   beside the inputs and can show both real Hampel branches when one run contains both. */
+.module-contamination {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--r-lg);
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+.module-contamination-title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 750;
+  margin-bottom: 5px;
+}
+.module-contamination-body {
+  display: grid;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.module-contamination-branch {
+  color: var(--text);
+  font-weight: 700;
+}
+.module-contamination-meaning,
+.module-contamination-coverage {
+  color: var(--text-dim);
+}
+.module-contamination-warning {
+  color: var(--warn);
+  font-weight: 650;
+}
+
 /* Output curves: every name this run will write, editable, before it runs. A card rather than
    another row of the args grid — what a run PRODUCES is a different question from how it is
    parameterised, and the names are what the user goes looking for afterwards. */

@@ -2053,6 +2053,37 @@ test("a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_r
   assert.equal(clean.children.some((child) => child.classList.contains("mc-note-err")), false);
 });
 
+test("the_live_despike_ceiling_names_every_estimator_branch_and_what_the_percentage_means", async () => {
+  // CORRECTNESS — SB-ENV-031 presentation half. docs/PRD_v2/20_envcorr-qc.md §4.4 and
+  // §6 T40/T69 require 33.33 % for the zero-MAD fallback at k=3, 50.00 % for true MAD,
+  // and the explicit masking meaning. The percentages arrive from the Rust estimator preview;
+  // this test pins that the dialog does not collapse two actual branches into one number.
+  const { renderDespikeContaminationPreview } = await load("/src/ui/moduleDialog.ts");
+  const host = document.createElement("div");
+  renderDespikeContaminationPreview(
+    host,
+    {
+      branches: [
+        { estimator: "TRUE_MAD", ceiling_pct: 50, sample_count: 11 },
+        { estimator: "MEAN_DEVIATION_FALLBACK", ceiling_pct: 100 / 3, sample_count: 7 },
+      ],
+      evaluated_wells: 2,
+      unavailable_well_ids: ["missing"],
+      issues: [],
+    },
+    (wellId) => (wellId === "missing" ? "Unavailable curve" : wellId),
+  );
+
+  assert.match(host.textContent, /True MAD: 50\.00%/);
+  assert.match(host.textContent, /Mean-deviation fallback \(zero MAD\): 33\.33%/);
+  assert.match(
+    host.textContent,
+    /Above this fraction of contaminated samples in a window, spikes mask each other and are not detected\./,
+  );
+  assert.match(host.textContent, /Computed from the selected curve and current window in 2 wells\./);
+  assert.match(host.textContent, /Curve unavailable after the current mask: Unavailable curve\./);
+});
+
 test("a_missing_required_well_input_is_marked_beside_its_sourced_condition_before_the_run", async () => {
   // CORRECTNESS — SB-ENV-008 / SB-ENV-T14. docs/PRD_v2/20_envcorr-qc.md section 4.1
   // and section 6.1 T14 require the dialog to show the declared condition and source beside

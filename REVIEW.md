@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-031: Live despike contamination ceiling
+
+- [ ] **Automated correctness:** exact T40/T69/T70 are GREEN from independent chapter arithmetic:
+      the zero-MAD fallback shows 33.33% at K=3 and stops at 50.00% for K=2 and K=1.5; a positive-
+      MAD window shows 50.00%, not 33.33%; and the unoffered population-σ contract remains distinct
+      at 20.00% for K=2. The read-path test resolves two selected curves through effective parameters
+      and mask handling and sends only branch counts over IPC; the frontend test keeps both branches
+      and the masking meaning visible.
+- [ ] **Visual:** open Condition > Despike, choose a finite curve, enter WINDOW and K, and confirm the
+      Live contamination ceiling card updates after each change. Switch between a scattered curve
+      and a locally flat/quantized curve; confirm True MAD and Mean-deviation fallback are named
+      separately, and a mixed run shows both rather than one blended percentage. Switch to ABS,
+      MEDIAN and RATE and confirm the card says K does not apply.
+- [ ] **Manual scope and mask:** repeat with one well, a multi-well scope, and an exclusion mask.
+      Confirm the evaluated-well/sample counts change, unavailable wells are named, and a window too
+      narrow for Hampel shows the same actionable refusal the run would produce. K must still open
+      empty and require an interpreter value; no new cutoff default was authorized.
+- [ ] **Field and harsh critique:** the displayed percentage is an estimator breakdown ceiling, not
+      evidence that WINDOW or K is physically right for the tool, sampling, or rock. A 50% card can
+      coexist with false positives, thin-bed destruction, a bad mask, or a wrong curve selection.
+      Compare the proposed despike against raw curve character and known beds before accepting it;
+      automated arithmetic and a polished card are not field validation.
+
 ## 2026-08-16 — G2 SB-ENV-030: Typed flag polarity and semantic kind
 
 - [ ] **Automated correctness:** exact T38 and T39 were RED before the type/metadata path existed

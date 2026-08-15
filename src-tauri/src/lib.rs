@@ -2017,6 +2017,37 @@ async fn module_input_availability(
     .map_err(|error| error.to_string())?
 }
 
+/// Computes the despike estimator branches and their mathematical contamination ceilings for the
+/// currently selected wells. Curve arrays remain in Rust; the dialog receives only branch names,
+/// percentages and counts, and the work runs off the IPC thread like the other data preflight.
+#[tauri::command]
+async fn despike_contamination_preview(
+    db: tauri::State<'_, DbState>,
+    scope: well_scope::WellScopeSelection,
+    log_inputs: std::collections::HashMap<String, String>,
+    params: std::collections::HashMap<String, f64>,
+    opts: std::collections::HashMap<String, String>,
+    input_set: Option<String>,
+) -> Result<workflow::DespikeContaminationPreview, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "despike contamination preview")?
+    };
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        workflow::despike_contamination_preview(
+            &conn,
+            &well_ids,
+            &log_inputs,
+            &params,
+            &opts,
+            input_set.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Runs one deterministic module across the given wells (rayon-parallel), resolving interval
 /// parameters per zone and writing outputs to computed_curves. Async + off-thread via the job
 /// registry, so it reports live per-well progress and a Cancel in the Processing panel and never
@@ -4162,6 +4193,7 @@ pub fn run() {
             run_workflow_module,
             module_output_names,
             module_input_availability,
+            despike_contamination_preview,
             run_reframe,
             reframe_source_curves,
             save_curve_selection,

@@ -48,6 +48,20 @@ pub struct ModuleInputAvailability {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DespikeContaminationIssue {
+    pub well_id: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DespikeContaminationPreview {
+    pub branches: Vec<crate::condition::DespikeContaminationBranch>,
+    pub evaluated_wells: usize,
+    pub unavailable_well_ids: Vec<String>,
+    pub issues: Vec<DespikeContaminationIssue>,
+}
+
 #[cfg(test)]
 pub(crate) fn test_run_custody() -> equations::RunCustody {
     equations::RunCustody {
@@ -1286,6 +1300,44 @@ fn fetch_module_input_logs(
     Ok((depth, logs, units))
 }
 
+fn fetch_mask_aligned(
+    conn: &Connection,
+    well_id: &str,
+    mask_name: &str,
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> Result<Option<Vec<f32>>, String> {
+    if mask_name.is_empty() {
+        return Ok(None);
+    }
+    let (_, columns) = equations::fetch_curve_frame_from_set(
+        conn,
+        well_id,
+        &[mask_name.to_string()],
+        input_set,
+        own_set_id,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(columns.get(&mask_name.to_uppercase()).cloned())
+}
+
+fn apply_mask_to_logs(
+    logs: &mut HashMap<String, Vec<f32>>,
+    log_args: &[(String, String)],
+    mask: Option<&[f32]>,
+) {
+    let Some(mask) = mask else { return };
+    for (argument, _) in log_args {
+        if let Some(values) = logs.get_mut(argument) {
+            for (value, flag) in values.iter_mut().zip(mask.iter()) {
+                if modules::sample_is_flagged(*flag) {
+                    *value = f32::NAN;
+                }
+            }
+        }
+    }
+}
+
 /// Read-only preflight for the module dialog. Only argument names and availability booleans leave
 /// Rust; curve arrays remain behind IPC. A condition with no finite source sample is therefore
 /// visible before launch without duplicating the runner's curve-resolution rules in TypeScript.
@@ -1335,6 +1387,115 @@ pub fn module_input_availability(
         }
     }
     Ok(rows)
+}
+
+/// Read-only live preview for SB-ENV-031. It resolves the selected curve, zone-aware parameter
+/// arrays and universal mask through the same helpers as the public runner. Only estimator names,
+/// mathematical ceilings and counts leave Rust; the well-log arrays remain behind IPC.
+pub fn despike_contamination_preview(
+    db: &Mutex<Connection>,
+    well_ids: &[String],
+    log_inputs: &HashMap<String, String>,
+    req_params: &HashMap<String, f64>,
+    opts: &HashMap<String, String>,
+    input_set: Option<&str>,
+) -> Result<DespikeContaminationPreview, String> {
+    let method = opts.get("OPT_METHOD").map(String::as_str).unwrap_or("HAMPEL");
+    if method != "HAMPEL" {
+        return Err(format!(
+            "despike contamination ceiling applies to HAMPEL, not {method}; that method does not consume K"
+        ));
+    }
+    let spec = modules::list_modules()
+        .into_iter()
+        .find(|candidate| candidate.name == "despike")
+        .ok_or_else(|| "despike module is not registered".to_string())?;
+    let log_args = resolved_log_args(&spec, log_inputs);
+    let mask_name = opts.get("MASK").map(|value| value.trim()).unwrap_or("");
+    let mut true_mad_samples = 0usize;
+    let mut fallback_samples = 0usize;
+    let mut true_mad_ceiling = None;
+    let mut fallback_ceiling = None;
+    let mut evaluated_wells = 0usize;
+    let mut unavailable_well_ids = Vec::new();
+    let mut issues = Vec::new();
+
+    for well_id in well_ids {
+        let resolved = db.lock().map_err(|_| "database busy".to_string()).and_then(|conn| {
+            let (depth, mut logs, _) =
+                fetch_module_input_logs(&conn, well_id, &spec, &log_args, input_set, None)?;
+            let (parameters, _) =
+                resolve_param_arrays_with_default_usage(&conn, well_id, &spec, req_params, &depth)?;
+            let mask = fetch_mask_aligned(&conn, well_id, mask_name, input_set, None)?;
+            apply_mask_to_logs(&mut logs, &log_args, mask.as_deref());
+            Ok((depth, logs, parameters))
+        });
+
+        let (depth, logs, parameters) = match resolved {
+            Ok(values) => values,
+            Err(error) => {
+                issues.push(DespikeContaminationIssue { well_id: well_id.clone(), error });
+                continue;
+            }
+        };
+        let values = logs.get("CURVE").map(Vec::as_slice).unwrap_or(&[]);
+        if !values.iter().any(|value| value.is_finite()) {
+            unavailable_well_ids.push(well_id.clone());
+            continue;
+        }
+        let first_finite = |name: &str| {
+            parameters
+                .get(name)
+                .and_then(|values| values.iter().copied().find(|value| value.is_finite()))
+                .unwrap_or(f64::NAN)
+        };
+        let window = first_finite("WINDOW");
+        let k = first_finite("K");
+        match crate::condition::despike_contamination_profile(&depth, values, window, k) {
+            Ok(branches) if !branches.is_empty() => {
+                evaluated_wells += 1;
+                for branch in branches {
+                    match branch.estimator {
+                        crate::condition::DespikeEstimator::TrueMad => {
+                            true_mad_samples += branch.sample_count;
+                            true_mad_ceiling = Some(branch.ceiling_pct);
+                        }
+                        crate::condition::DespikeEstimator::MeanDeviationFallback => {
+                            fallback_samples += branch.sample_count;
+                            fallback_ceiling = Some(branch.ceiling_pct);
+                        }
+                        crate::condition::DespikeEstimator::MeanSigmaPopulation => {
+                            unreachable!("the shipped Hampel preview never runs a mean-sigma estimator")
+                        }
+                    }
+                }
+            }
+            Ok(_) => unavailable_well_ids.push(well_id.clone()),
+            Err(error) => issues.push(DespikeContaminationIssue { well_id: well_id.clone(), error }),
+        }
+    }
+
+    let mut branches = Vec::with_capacity(2);
+    if let Some(ceiling_pct) = true_mad_ceiling {
+        branches.push(crate::condition::DespikeContaminationBranch {
+            estimator: crate::condition::DespikeEstimator::TrueMad,
+            ceiling_pct,
+            sample_count: true_mad_samples,
+        });
+    }
+    if let Some(ceiling_pct) = fallback_ceiling {
+        branches.push(crate::condition::DespikeContaminationBranch {
+            estimator: crate::condition::DespikeEstimator::MeanDeviationFallback,
+            ceiling_pct,
+            sample_count: fallback_samples,
+        });
+    }
+    Ok(DespikeContaminationPreview {
+        branches,
+        evaluated_wells,
+        unavailable_well_ids,
+        issues,
+    })
 }
 
 /// Like [`run_workflow_module`], but chains pass `preset_sets` (well_id → set_id) so every
@@ -1554,35 +1715,20 @@ fn run_workflow_module_into_with_parameter_serializer(
                 // sample, flagged or not. The mask is resolved like any other input
                 // (generic-store aware).
                 let mask_name = req.opts.get("MASK").map(|s| s.trim()).unwrap_or("");
-                let mask: Option<Vec<f32>> = if mask_name.is_empty() {
-                    None
-                } else {
+                let mask = {
                     let conn = db.lock().unwrap();
-                    let (_, mcols) = equations::fetch_curve_frame_from_set(
+                    fetch_mask_aligned(
                         &conn,
                         well_id,
-                        &[mask_name.to_string()],
+                        mask_name,
                         req.input_set.as_deref(),
                         own_set,
-                    )
-                    .map_err(|e| e.to_string())?;
-                    drop(conn);
-                    mcols.get(&mask_name.to_uppercase()).cloned()
+                    )?
                 };
 
                 // Blank flagged samples in the module INPUTS (never DEPTH) before the run, so
                 // per-run statistics only see unmasked data.
-                if let Some(mask) = &mask {
-                    for (arg_name, _) in &log_args {
-                        if let Some(values) = logs.get_mut(arg_name) {
-                            for (v, m) in values.iter_mut().zip(mask.iter()) {
-                                if modules::sample_is_flagged(*m) {
-                                    *v = f32::NAN;
-                                }
-                            }
-                        }
-                    }
-                }
+                apply_mask_to_logs(&mut logs, &log_args, mask.as_deref());
 
                 // Per-well opts: everything the run decided, plus THIS well's declared class
                 // curves. Set only where the well has any, so a project that has never run a
@@ -2801,6 +2947,84 @@ mod tests {
     use crate::ingest;
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+
+    #[test]
+    fn the_live_despike_preview_reads_the_selected_windows_and_returns_only_branch_counts() {
+        // CORRECTNESS — SB-ENV-031 / T40/T69 presentation path. The branch identities and
+        // 33.33/50.00 % expectations come from docs/PRD_v2/20_envcorr-qc.md §2.5 and §6.
+        // The unequal fixtures force the preview through both sides of the actual spread branch.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depth: Vec<f32> = (0..41).map(|index| 1000.0 + index as f32 * 0.1).collect();
+        let add_gr = |name: &str, gr: Vec<f32>| {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, Some(0.0)).unwrap();
+            let missing = vec![f32::NAN; depth.len()];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth.clone(),
+                gr,
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing,
+            )
+            .unwrap();
+            id.to_string()
+        };
+        let mut quiet = vec![50.0f32; depth.len()];
+        quiet[20] = 300.0;
+        let quiet_id = add_gr("ZERO-MAD-WINDOW", quiet);
+        let scattered = (0..depth.len()).map(|index| 50.0 + index as f32 * 0.25).collect();
+        let scattered_id = add_gr("POSITIVE-MAD-WINDOW", scattered);
+        let db = Mutex::new(conn);
+
+        let preview = despike_contamination_preview(
+            &db,
+            &[quiet_id, scattered_id],
+            &HashMap::from([("CURVE".to_string(), "GR".to_string())]),
+            &HashMap::from([("WINDOW".to_string(), 0.5), ("K".to_string(), 3.0)]),
+            &HashMap::new(),
+            None,
+        )
+        .expect("the selected curves use the same read path as the run");
+
+        assert_eq!(preview.evaluated_wells, 2);
+        assert!(preview.unavailable_well_ids.is_empty());
+        assert!(preview.issues.is_empty());
+        let true_mad = preview
+            .branches
+            .iter()
+            .find(|branch| branch.estimator == crate::condition::DespikeEstimator::TrueMad)
+            .expect("positive scatter must select true MAD");
+        let fallback = preview
+            .branches
+            .iter()
+            .find(|branch| branch.estimator == crate::condition::DespikeEstimator::MeanDeviationFallback)
+            .expect("zero MAD must select the fallback");
+        assert!((true_mad.ceiling_pct - 50.0).abs() <= 0.01);
+        assert!((fallback.ceiling_pct - 33.333_333).abs() <= 0.01);
+
+        let wire = serde_json::to_value(&preview).unwrap();
+        let keys: std::collections::BTreeSet<_> = wire
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            std::collections::BTreeSet::from([
+                "branches",
+                "evaluated_wells",
+                "issues",
+                "unavailable_well_ids",
+            ]),
+            "well-log arrays must remain behind IPC",
+        );
+    }
 
     /// CORRECTNESS - SB-ENV-026 / SB-ENV-T35. The declaration requirement, both mismatch
     /// directions and 0.1 g/cc = 100 kg/m3 come from `docs/PRD_v2/20_envcorr-qc.md`
