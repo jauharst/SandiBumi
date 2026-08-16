@@ -403,15 +403,15 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-025 - Salinity interpolation for neutron response
 
 - **Specified contract:** use the cited fresh/salt endpoints with continuous fluid-density/salinity interpolation and retain the resolved condition in provenance.
-- **Current implementation:** `nphimat` offers binary fresh/salt choices and matrix conversions. `phi_dn` neither consumes the choice nor interpolates by fluid density, and the run record does not retain a resolved salinity response.
+- **Current implementation:** `nphimat` offers binary fresh/salt choices and matrix conversions, but it is a `Prep`-category converter, not a POR endpoint source. `phi_dn` neither consumes the choice nor interpolates by fluid density, and the run record does not retain a resolved salinity response.
 - **Qualifying acceptance tests:** none for interpolation and POR custody. Test class `MISSING`.
 - **Supporting tests:** `nphimat_thermal_dolomite_bow_and_salinity_scope` passed exactly once for the current binary scope.
-- **Manual evidence:** porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** only cited endpoints may be used; no intermediate relation is invented beyond the chapter's specified interpolation.
+- **Manual evidence:** porosity 0/48; workflow 0/23.
+- **Source/parameter boundary:** the interpolation the requirement asks for needs salinity-dependent endpoint VALUES at both ends, and SandiBumi holds no admissible source for them. `F13` cross-references `SB-POR-021`, `SB-POR-022` and `SB-POR-027` as the rows that supply them; no fresh or salt endpoint value is cited for POR independently of those rows. Interpolating today would mean inventing both ends of the lever, so no test was written and no endpoint was invented.
 - **History/reachability:** binary conversion support is integrated; no POR salinity interpolation was found.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** decide pilot inclusion and define typed fluid-condition input without creating a default.
-- **Next action:** if included, add the chapter-specified interpolation and prove both endpoints plus one independent interior arithmetic case and provenance round-trip.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY`. Both routes to an admissible endpoint pair are unavailable. `SB-POR-022`, the gated chart digitisation, is `release_disposition` `DEFERRED` and outside the approved 242-row manifest, so it is not Gate 2 work. `SB-POR-021`, the analytic route, now holds its 1977 primary source — banked this session — but its evaluator is unwritten, so it can supply nothing yet. This is a dependency block, not an undecided one: the row is inside the 222-row program, and the earlier `UNDECIDED` reading of it was stale.
+- **Next action:** implement `SB-POR-021`'s Bateman-Konen evaluator, now that the primary source is held, so the salinity-dependent endpoints have an admissible origin; or promote `SB-POR-022`'s gated digitisation into the manifest. Then add a typed fluid-condition input with no default, interpolate on fluid density per the two-call structure, and persist the resolved salinity response in the run record - proving both endpoints, one independent interior arithmetic case, and the provenance round-trip.
 
 ## SB-POR-026 - Crossover conditioning is consumed by POR
 
