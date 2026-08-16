@@ -371,3 +371,4 @@
 "SB-CUT-010","CORRECTNESS","src-tauri/src/workflow.rs","hydrocarbon_pore_volume_summed_directly_equals_the_volume_rebuilt_from_the_reported_averages_in_both_engines"
 "SB-CUT-011","CORRECTNESS","src-tauri/src/workflow.rs","a_sample_outside_every_declared_zone_contributes_to_no_summary_statistic_however_well_it_passes_the_cutoffs"
 "SB-CUT-012","CORRECTNESS","src-tauri/src/workflow.rs","a_summation_declares_the_depth_frame_its_weights_came_from_and_refuses_one_it_cannot_weight"
+"SB-CUT-016","CORRECTNESS","src-tauri/src/workflow.rs","no_cutoff_ships_a_value_an_unapplied_one_is_reported_unfiltered_and_an_enabled_blank_one_refuses"

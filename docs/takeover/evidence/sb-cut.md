@@ -280,14 +280,20 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-016
 
 - **Specified contract:** a fresh project ships with no cutoff values.
-- **Current implementation / as-built:** DEFAULT_CUTOFFS supplies VSH 0.5, PHIE 0.1, SWE 0.6 and PERM off; dashboardPanel independently seeds the first three literals. PRESENT-DIVERGENT.
+- **Current implementation / as-built:** cut-offs are absent-capable end to end. PRESENT-OK.
+  `PaySummaryRequest.vsh_max/phie_min/swe_max` are `Option<f64>` (`None` = UNFILTERED) with a new `enabled_unset` list; `PaySummaryRow` gains `unfiltered`; `classify_sample` treats an absent cut-off as not filtering; `run_pay_summary` refuses before any work when `enabled_unset` is non-empty. The same widening reaches `CutoffSweepRequest`, `compute_sweep`'s two held cut-offs, `MonteCarloRequest`, `montecarlo::Cutoffs`, `zone_metrics`, `ReportSpec` and both office specs, **so no surface can disagree with another about whether a property was filtered** - which is the failure `cutoffs.ts`'s own comment records from before centralisation, when MC used 0.08/0.5 against the summary's 0.1/0.6.
+- **Where the violation actually lived:** the backend always REQUIRED values and so shipped no default. The three shipped numbers were in the UI - `DEFAULT_CUTOFFS` and `dashboardPanel`'s three seeded literals - and `cutoffDialog` fell back to them whenever a box was blank. `DEFAULT_CUTOFFS` is now all-null and `mergeCutoffs` keeps a SAVED project value or leaves it absent: a user's own default is theirs, and only ours is forbidden.
+- **What this row deliberately did NOT change:** the NaN cascade. A sample with no VSH is unjudgeable whether or not VSH is being used as a cut-off. Making an unfiltered cut-off also stop requiring its curve would let a well with no VSH book pay it never booked, and the requirement says nothing about NaN handling - so the rule stands untouched. Recorded here so it is a stated choice rather than an oversight.
 - **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
-- **Automated evidence:** MISSING; T36 is absent and current UI behavior contradicts it.
-- **Manual evidence:** NONE; cutoffs/pay is 0/23.
-- **Source/parameter boundary:** all four cutoff values are ABSENT by design; R-1 forbids adopting current literals.
-- **UI/IPC/provenance surface:** cutoff editor, summary, MC, report, Results QC, workbook and deck use loadCutoffDefaults; dashboard bypasses it.
-- **History/reachability:** centralization commit is reachable but is not source authority.
-- **Blocking decision / next action:** remove value-bearing fresh-project fallbacks, represent enabled-but-unset explicitly, and prove intentional unfiltered runs separately.
+- **Automated evidence:** `no_cutoff_ships_a_value_an_unapplied_one_is_reported_unfiltered_and_an_enabled_blank_one_refuses` (`src-tauri/src/workflow.rs`). CORRECTNESS. Five arms: a source scan proving neither UI file seeds any of the forbidden vendor numbers; a fully specified run where the cut-off bites; an unfiltered run where it does not AND the row reports it; **rock that fails every vendor default counting in full when nothing is set**; and an enabled-but-blank cut-off refusing by name.
+- **Mutation evidence:** four probes, one per clause, each read for WHICH assertion fired. Re-seeding a UI box turned the source scan red. Emitting an empty `unfiltered` list turned the reporting arm red. Ignoring `enabled_unset` turned the refusal arm red. **The fourth probe initially PASSED and that was a real hole**: substituting `0.5` for an absent VSH went undetected because the first fixture's Vsh 0.40 clears it anyway. The fourth arm exists because of that miss - Vsh 0.80, φ 0.02, Sw 0.95 fail every vendor default, so a fallback drops net from 10 to 0.
+- **Regression evidence:** the full backend suite passes with every existing number unchanged. Before the frontend half was removed the suite stood at 1031 passed / 1 failed, the single failure being this test's own source-scan arm - which is what says the semantic refactor moved nothing.
+- **Manual evidence:** cutoffs-pay 0/23; field-dashboard 0/10. Automated only.
+- **Source/parameter boundary:** NO value adopted; R-1 honoured. The fixture values are chosen to fail every published vendor default precisely so a silent fallback cannot hide behind them.
+- **UI/IPC/provenance surface:** `ipc.ts` carries `number | null` on every cut-off and the new `unfiltered` / `enabled_unset`; the PDF, workbook and deck render the word *unfiltered* through one shared `cutoff_label`, and the workbook writes the WORD rather than a blank cell, because a blank reads as no-data.
+- **Named limit:** no pane currently SENDS `enabled_unset` - there is no explicit enable toggle in the UI, so a blank box means unfiltered everywhere today. The backend refusal exists and is proven, so a pane that grows a toggle is already guarded. Whether that toggle should exist is a product question; REVIEW.md asks it.
+- **History/reachability:** the centralisation commit that created `DEFAULT_CUTOFFS` was reachable but was never source authority, as the register said.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-017
 

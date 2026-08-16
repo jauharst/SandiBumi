@@ -14412,3 +14412,27 @@ back the MD numbers with a different label on them.
       so out loud instead of pretending. Building it means weighting each sample by Δz·cos θ off the
       deviation survey, and keeping MD and TVD as separate records — not one converted into the
       other. Tell me if the pilot needs it and I will scope it.
+
+## The cutoff boxes are empty now, and a blank one means "not filtered"
+
+This is the big one, and it changes what you see the moment you open a cutoff pane.
+
+SandiBumi used to pre-fill VSH ≤ 0.5, PHIE ≥ 0.1, SWE ≤ 0.6. Those came from no defensible source:
+IP ships 0.1/0.5/0.5, Techlog 0.15/0.85/0.5, Geolog ships **two different sets of its own**, and
+your own delivered work runs Vsh 0.20 to 0.85 — one job spans 0.55 to 0.85 across intervals of a
+single area. There is no number to ship, so SandiBumi ships none.
+
+Every cutoff box now opens **empty**. A box you leave blank means that property is **not filtered**,
+and the summary says so — the PDF, the workbook and the deck all print the word "unfiltered" where a
+number used to be. Your own saved project defaults still load exactly as before; only *our* numbers
+are gone.
+
+- [ ] **Open the Field Dashboard and the Cutoffs pane.** Every cutoff box should be empty.
+- [ ] **Load a project where you saved defaults.** They should come back unchanged. If they do not,
+      stop and tell me — that is your data, not ours.
+- [ ] **Run a summary with SWE left blank.** Net should go UP (nothing is excluded on Sw) and the
+      result should say SWE was unfiltered. Check the PDF says it too.
+- [ ] **Re-run an interpretation you have run before, with the same numbers typed in.** Every figure
+      should match your old run exactly. If any moved, that is a bug and I want to hear immediately.
+- [ ] **Results QC's cutoff-sensitivity row** now reads "no PHIE cutoff set" until you set one,
+      instead of quietly sweeping around a number nobody chose.

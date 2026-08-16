@@ -11,7 +11,7 @@ import {
 } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, bumpDataVersion } from "../state";
-import { DEFAULT_CUTOFFS, loadCutoffDefaults } from "./cutoffs";
+import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
@@ -126,6 +126,12 @@ export async function buildCutoffContent(
   const numOf = (i: HTMLInputElement, fallback: number): number => {
     const v = parseFloat(i.value);
     return Number.isFinite(v) ? v : fallback;
+  };
+  /** SB-CUT-016: a cut-off has no fallback. A blank box is ABSENT — the property is not filtered
+   *  — and the summation reports it as unfiltered rather than quoting a number nobody chose. */
+  const cutOf = (i: HTMLInputElement): number | null => {
+    const v = parseFloat(i.value);
+    return Number.isFinite(v) ? v : null;
   };
 
   // --- Mode toggle ----------------------------------------------------------
@@ -529,9 +535,9 @@ export async function buildCutoffContent(
           input_set: setPicker.inputSet(),
           well_ids: wellIds,
           property,
-          vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),
-          phie_min: numOf(phieIn, DEFAULT_CUTOFFS.phie_min),
-          swe_max: numOf(sweIn, DEFAULT_CUTOFFS.swe_max),
+          vsh_max: cutOf(vshIn),
+          phie_min: cutOf(phieIn),
+          swe_max: cutOf(sweIn),
           perm_min: Number.isFinite(permRaw) ? permRaw : null,
           sweep_min: sweepMin,
           sweep_max: sweepMax,
@@ -639,8 +645,10 @@ export async function buildCutoffContent(
       }
       xsets = built;
       // Seed the crosshair from the current cutoff fields (Y=PHIE, X=VSH/SWE by family).
-      yCut = numOf(phieIn, DEFAULT_CUTOFFS.phie_min);
-      xCut = /sw/i.test(xCurve) ? numOf(sweIn, DEFAULT_CUTOFFS.swe_max) : numOf(vshIn, DEFAULT_CUTOFFS.vsh_max);
+      // An absent cut-off has no line to draw, so the crosshair simply stays where it was rather
+      // than jumping to a number nobody set.
+      yCut = cutOf(phieIn) ?? yCut;
+      xCut = (/sw/i.test(xCurve) ? cutOf(sweIn) : cutOf(vshIn)) ?? xCut;
       const totalDst = built.reduce((a, s) => a + s.dst.reduce((p, q) => p + (q ? 1 : 0), 0), 0);
       setStatus(`DST crossplot: ${built.length} well(s), ${xCurve} vs ${yCurve}, ${totalDst} DST-tested points`);
       redraw();
@@ -758,9 +766,9 @@ export async function buildCutoffContent(
   saveDefaultBtn.addEventListener("click", async () => {
     const permRaw = parseFloat(permIn.value);
     const payload = {
-      vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),
-      phie_min: numOf(phieIn, DEFAULT_CUTOFFS.phie_min),
-      swe_max: numOf(sweIn, DEFAULT_CUTOFFS.swe_max),
+      vsh_max: cutOf(vshIn),
+      phie_min: cutOf(phieIn),
+      swe_max: cutOf(sweIn),
       perm_min: Number.isFinite(permRaw) ? permRaw : null,
     };
     try {

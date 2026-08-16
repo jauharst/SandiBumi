@@ -41,9 +41,12 @@ pub struct ReportSpec {
     #[serde(default)]
     pub methodology: Vec<MethodRow>,
     /// Pay-summary cutoffs (pay-summary convention).
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
+    /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
+    /// rather than printing a number that was never applied. No default: four shipped
+    /// vendor sets disagree, two of them from one vendor.
+    pub vsh_max: Option<f64>,
+    pub phie_min: Option<f64>,
+    pub swe_max: Option<f64>,
     #[serde(default)]
     pub perm_min: Option<f64>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
@@ -80,10 +83,10 @@ pub(crate) fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
             "Cutoffs",
             "VSH / PHIE / SWE flags → SAND, RESERVOIR, PAY",
             &format!(
-                "VSH ≤ {:.2}, PHIE ≥ {:.2}, SWE ≤ {:.2}{}",
-                spec.vsh_max,
-                spec.phie_min,
-                spec.swe_max,
+                "VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}{}",
+                crate::workflow::cutoff_label(spec.vsh_max, 2),
+                crate::workflow::cutoff_label(spec.phie_min, 2),
+                crate::workflow::cutoff_label(spec.swe_max, 2),
                 spec.perm_min.map(|p| format!(", PERM ≥ {p:.1} mD")).unwrap_or_default()
             ),
         ),
@@ -391,6 +394,7 @@ fn report_pages_with_degradations(
             vsh_max: spec.vsh_max,
             phie_min: spec.phie_min,
             swe_max: spec.swe_max,
+            enabled_unset: Vec::new(),
             perm_min: spec.perm_min,
             input_set: spec.input_set.clone(),
             skip_version: false,
@@ -562,8 +566,10 @@ fn report_pages_with_degradations(
         // (unwrap_or_default previously collapsed both Err and empty into "no section at all") is
         // exactly the cardinal-rule failure the report path must not allow.
         let pay_section = format!(
-            "Pay Summary  (VSH ≤ {:.2}, PHIE ≥ {:.2}, SWE ≤ {:.2})",
-            spec.vsh_max, spec.phie_min, spec.swe_max
+            "Pay Summary  (VSH ≤ {}, PHIE ≥ {}, SWE ≤ {})",
+            crate::workflow::cutoff_label(spec.vsh_max, 2),
+            crate::workflow::cutoff_label(spec.phie_min, 2),
+            crate::workflow::cutoff_label(spec.swe_max, 2)
         );
         match pay_result {
             Ok(pay_rows) if !pay_rows.is_empty() => {
@@ -884,9 +890,9 @@ mod tests {
             title: "Petrophysical Evaluation".into(),
             author: "Tester".into(),
             methodology: vec![],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.6),
             perm_min: None,
             tables_only: true,
         }
@@ -1373,6 +1379,7 @@ mod tests {
                 vsh_max: spec.vsh_max,
                 phie_min: spec.phie_min,
                 swe_max: spec.swe_max,
+                enabled_unset: Vec::new(),
                 perm_min: spec.perm_min,
                 input_set: spec.input_set.clone(),
                 skip_version: true,
@@ -1522,9 +1529,10 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![w],
-                    vsh_max: 0.5,
-                    phie_min: 0.1,
-                    swe_max: 0.6,
+                    vsh_max: Some(0.5),
+                    phie_min: Some(0.1),
+                    swe_max: Some(0.6),
+                    enabled_unset: Vec::new(),
                     perm_min: None,
                     skip_version: true,
                     stats_only: true
@@ -1639,9 +1647,9 @@ mod tests {
             title: "Petrophysical Evaluation — Sandi Field".into(),
             author: "Jauhar".into(),
             methodology: vec![],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.6),
             perm_min: None,
             tables_only: true,
         };

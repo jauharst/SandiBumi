@@ -186,9 +186,12 @@ pub struct McRequest {
     #[serde(default)]
     pub custody: Option<equations::RunCustody>,
     // Pay/HPV cutoffs (same semantics as the pay summary).
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
+    /// SB-CUT-016. `None` = UNFILTERED on this property. Absent-capable for the same reason the
+    /// deterministic summation is: an MC run silently using a shipped 0.5 while the pay summary
+    /// reports the property unfiltered is a disagreement nobody could reconcile.
+    pub vsh_max: Option<f64>,
+    pub phie_min: Option<f64>,
+    pub swe_max: Option<f64>,
     #[serde(default)]
     pub perm_min: Option<f64>,
     /// HPV histogram bin count.
@@ -714,9 +717,9 @@ struct StepPlan {
 /// Cutoffs bundled for the per-zone pay/HPV accumulation.
 #[derive(Clone, Copy)]
 pub(crate) struct Cutoffs {
-    pub(crate) vsh_max: f64,
-    pub(crate) phie_min: f64,
-    pub(crate) swe_max: f64,
+    pub(crate) vsh_max: Option<f64>,
+    pub(crate) phie_min: Option<f64>,
+    pub(crate) swe_max: Option<f64>,
     pub(crate) perm_min: Option<f64>,
 }
 
@@ -796,7 +799,10 @@ pub(crate) fn zone_metrics(
         if v.is_nan() || p.is_nan() || s.is_nan() {
             continue;
         }
-        let mut pay = v <= cut.vsh_max && p >= cut.phie_min && s <= cut.swe_max;
+        // SB-CUT-016: an absent cut-off does not filter. The NaN guard above is untouched.
+        let mut pay = cut.vsh_max.map_or(true, |m| v <= m)
+            && cut.phie_min.map_or(true, |m| p >= m)
+            && cut.swe_max.map_or(true, |m| s <= m);
         if has_perm_cut {
             // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
             // PERM must fail, not silently pass (matches run_pay_summary's classify_sample, so
@@ -2077,9 +2083,9 @@ mod tests {
             iterations,
             seed,
             custody: Some(crate::workflow::test_run_custody()),
-            vsh_max: 0.5,
-            phie_min: 0.08,
-            swe_max: 0.6,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.08),
+            swe_max: Some(0.6),
             perm_min: None,
             bins: 10,
             low_pctl: 0.10,
@@ -2234,10 +2240,11 @@ mod tests {
             &crate::workflow::PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: 0.5,
-                phie_min: 0.08,
-                swe_max: 0.6,
+                vsh_max: Some(0.5),
+                phie_min: Some(0.08),
+                swe_max: Some(0.6),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 skip_version: false,
                 stats_only: true
             ,

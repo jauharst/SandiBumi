@@ -1533,13 +1533,15 @@ function distSparkPath(
   return { d, label: `triangular(min=${num(lo)}, mode=${num(mode)}, max=${num(hi)})` };
 }
 
-function numField(label: string, def: number, min: number, max: number): { el: HTMLElement; value: () => number } {
+// SB-CUT-016: `def` is absent-capable, because a cut-off has no shipped value. A null opens the
+// field BLANK rather than pre-filling somebody's number.
+function numField(label: string, def: number | null, min: number, max: number): { el: HTMLElement; value: () => number } {
   const inp = document.createElement("input");
   inp.type = "number";
   inp.step = "any";
   if (Number.isFinite(min)) inp.min = String(min);
   if (Number.isFinite(max)) inp.max = String(max);
-  inp.value = Number.isFinite(def) ? String(def) : "";
+  inp.value = typeof def === "number" && Number.isFinite(def) ? String(def) : "";
   const el = wrap(label, inp);
   return { el, value: () => parseFloat(inp.value) };
 }

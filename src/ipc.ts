@@ -590,9 +590,12 @@ export interface ReportSpec {
   author: string;
   /** Empty = the built-in default methodology template. */
   methodology: MethodRow[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: number | null;
+  phie_min: number | null;
+  swe_max: number | null;
   perm_min?: number | null;
   tables_only?: boolean;
 }
@@ -635,9 +638,12 @@ export interface DeckSpec {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: number | null;
+  phie_min: number | null;
+  swe_max: number | null;
   perm_min?: number | null;
   title?: string;
   author?: string;
@@ -663,9 +669,12 @@ export interface WorkbookSpec {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: number | null;
+  phie_min: number | null;
+  swe_max: number | null;
   perm_min?: number | null;
   title?: string;
   include_pay?: boolean;
@@ -1576,9 +1585,12 @@ export interface McRequest {
   mc_params: McParam[];
   iterations: number;
   seed: number;
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: number | null;
+  phie_min: number | null;
+  swe_max: number | null;
   perm_min: number | null;
   bins: number;
   /** Low / high output percentiles (fractions in (0,1); default 0.10 / 0.90). One control drives
@@ -2981,9 +2993,12 @@ export interface PaySummaryRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: number | null;
+  phie_min: number | null;
+  swe_max: number | null;
   perm_min: number | null;
   /** SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — `"VSH"`,
    *  `"PHIE"` or `"SWE"` — which is the ROLE that curve plays in the summation, never the
@@ -2994,6 +3009,10 @@ export interface PaySummaryRequest {
   /** SB-CUT-012. Depth frame to summate in; defaults to MD. Anything else is REFUSED with a
    *  message naming the frame and what is missing — never served as MD numbers relabelled. */
   frame?: "MD" | "TVD" | "TVDSS" | "TST";
+  /** SB-CUT-016. Cut-offs the user switched ON and left blank. Any name here REFUSES the run —
+   *  "I am not filtering on Sw" and "I meant to and have not said what" are different statements,
+   *  and only one may produce a number. */
+  enabled_unset?: string[];
   /** Write FLAG_* in place without creating a versioned log set, instead of versioning the pay
    *  flags (with the cutoffs in provenance) per well. Set by the report/composite render pass,
    *  whose flags are a render side-effect that should not churn the archive with a version per
@@ -3049,6 +3068,10 @@ export interface PaySummaryRow {
   /** SB-CUT-012. What the per-sample weights were differenced from. Naming the frame alone does
    *  not say which depths produced the increments. */
   weights_source: string;
+  /** SB-CUT-016. Cut-offs NOT applied to this summation, in VSH/PHIE/SWE/PERM order. An
+   *  unfiltered summation is reported AS unfiltered — a net that quietly stopped being filtered,
+   *  with nothing on the result to say so, is the failure this prevents. */
+  unfiltered: string[];
   ntg: number;
   // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
   // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.
@@ -3086,9 +3109,12 @@ export interface CutoffSweepRequest {
   input_set?: string;
   well_ids: string[];
   property: "VSH" | "PHIE" | "SWE";
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: number | null;
+  phie_min: number | null;
+  swe_max: number | null;
   perm_min: number | null;
   sweep_min: number;
   sweep_max: number;

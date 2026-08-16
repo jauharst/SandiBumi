@@ -2600,14 +2600,26 @@ fn run_workflow_module_into_with_parameter_serializer(
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaySummaryRequest {
     pub well_ids: Vec<String>,
-    /// VSH <= vsh_max counts as sand.
-    pub vsh_max: f64,
-    /// PHIE >= phie_min counts as reservoir (with sand).
-    pub phie_min: f64,
-    /// SWE <= swe_max counts as pay (with reservoir).
-    pub swe_max: f64,
-    /// Optional PERM >= perm_min added to the pay flag when PERM exists.
+    /// SB-CUT-016. VSH <= vsh_max counts as sand. **`None` means UNFILTERED** — the property is
+    /// not used to exclude anything, and the result says so. There is deliberately no default:
+    /// four shipped vendor sets disagree, two of them from one vendor, and Jauhar's own delivered
+    /// work spans Vsh 0.20-0.85 across intervals of a single area.
+    pub vsh_max: Option<f64>,
+    /// SB-CUT-016. PHIE >= phie_min counts as reservoir (with sand). `None` = unfiltered.
+    pub phie_min: Option<f64>,
+    /// SB-CUT-016. SWE <= swe_max counts as pay (with reservoir). `None` = unfiltered.
+    pub swe_max: Option<f64>,
+    /// PERM >= perm_min added to the pay flag when PERM exists. `None` = unfiltered.
     pub perm_min: Option<f64>,
+    /// SB-CUT-016. Cut-offs the caller switched ON and left without a value. A summation **MUST
+    /// NOT** run against one, so any name here refuses the whole request.
+    ///
+    /// Separate from a `None` value on purpose: *"I am not filtering on Sw"* and *"I meant to
+    /// filter on Sw and have not said what"* are different statements, and only one of them may
+    /// produce a number. `#[serde(default)]`, so every record written before this existed still
+    /// deserializes and still means what it meant.
+    #[serde(default)]
+    pub enabled_unset: Vec<String>,
     /// Read the curves this run consumes from THIS log set's stored values (latest version per
     /// well) rather than from whatever the current values are. Curves the set never wrote fall
     /// back to normal resolution; an empty name means "current values", which is what every
@@ -2699,6 +2711,10 @@ pub struct PaySummaryRow {
     /// SB-CUT-012. What the per-sample weights were differenced from. Naming the frame alone does
     /// not say WHICH depths produced the increments.
     pub weights_source: String,
+    /// SB-CUT-016. Cut-offs NOT applied to this summation, in VSH/PHIE/SWE/PERM order. An
+    /// unfiltered summation must be reported AS unfiltered - a net that quietly stopped being
+    /// filtered, with nothing on the result to say so, is the whole failure this prevents.
+    pub unfiltered: Vec<String>,
     pub ntg: f32,
     pub avg_vsh: f32,
     pub avg_phie: f32,
@@ -2738,6 +2754,19 @@ pub struct PaySummaryRow {
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
+
+/// SB-CUT-016. Render a cut-off for a deliverable: its value, or the word that says it was never
+/// applied.
+///
+/// One helper rather than a spelling per surface. The two failures it exists to prevent are
+/// printing nothing - a reader then assumes the cut-off was used - and printing a number that was
+/// never applied, which is worse because it is checkable and wrong.
+pub fn cutoff_label(value: Option<f64>, decimals: usize) -> String {
+    match value {
+        Some(v) => format!("{v:.decimals$}"),
+        None => "unfiltered".to_string(),
+    }
+}
 
 /// SB-CUT-012. The depth frame a summation's per-sample weights were measured in.
 ///
@@ -2974,6 +3003,24 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     // The per-sample weight is dz in MD and dz*cos(theta) in TVD, so a TVD summation is not a
     // rescaling of an MD one - it is a different set of weights - and serving MD numbers under a
     // TVD label is exactly what the requirement forbids.
+    // SB-CUT-016: a cut-off switched on and left blank stops the run, before any work and
+    // whatever else is set. Naming them all at once beats refusing one at a time.
+    if !req.enabled_unset.is_empty() {
+        return Err(format!(
+            "cannot summate: {} enabled with no value. A cut-off has no default - four shipped              vendor sets disagree and delivered work spans a wide range even within one field -              so set a value, or turn the cut-off off and the summation will report it unfiltered.",
+            req.enabled_unset.join(", ")
+        ));
+    }
+    let unfiltered: Vec<String> = [
+        ("VSH", req.vsh_max.is_none()),
+        ("PHIE", req.phie_min.is_none()),
+        ("SWE", req.swe_max.is_none()),
+        ("PERM", req.perm_min.is_none()),
+    ]
+    .iter()
+    .filter(|(_, absent)| *absent)
+    .map(|(name, _)| (*name).to_string())
+    .collect();
     if req.frame != SummationFrame::Md {
         return Err(format!(
             "cannot summate in {}: the per-sample weights would be dz*cos(theta) from the well's              deviation survey, and SandiBumi computes only MD (dz) weights today. Run in MD, or              ask for a {} summation to be built as its own record.",
@@ -3273,6 +3320,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     residual_absorbed: recon.absorbed,
                     frame: req.frame,
                     weights_source: MD_WEIGHTS_SOURCE.to_string(),
+                    unfiltered: unfiltered.clone(),
                     // SB-CUT-004: the same net over the footage that was actually judged. MISSING
                     // rather than 0.0 when nothing was — there is no denominator, and a printed
                     // zero would be a claim about rock nobody looked at.
@@ -3318,26 +3366,31 @@ fn classify_sample(
     phie: f32,
     swe: f32,
     perm: f32,
-    vsh_max: f64,
-    phie_min: f64,
-    swe_max: f64,
+    vsh_max: Option<f64>,
+    phie_min: Option<f64>,
+    swe_max: Option<f64>,
     perm_min: Option<f64>,
     has_perm_cut: bool,
 ) -> (f32, f32, f32) {
+    // SB-CUT-016: an ABSENT cut-off does not filter. The NaN cascade below is deliberately
+    // untouched by that - a sample with no VSH is unjudgeable whether or not VSH is being used as
+    // a cut-off, and making an unfiltered cut-off also stop requiring its curve would let a well
+    // with no VSH book pay it never booked. The requirement says nothing about NaN handling, so
+    // the rule stands.
     if vsh.is_nan() {
         return (f32::NAN, f32::NAN, f32::NAN);
     }
-    let sand = (vsh as f64) <= vsh_max;
+    let sand = vsh_max.map_or(true, |m| (vsh as f64) <= m);
     let fs = sand as u8 as f32;
     if phie.is_nan() {
         return (fs, f32::NAN, f32::NAN);
     }
-    let res = sand && (phie as f64) >= phie_min;
+    let res = sand && phie_min.map_or(true, |m| (phie as f64) >= m);
     let fr = res as u8 as f32;
     if swe.is_nan() {
         return (fs, fr, f32::NAN);
     }
-    let mut pay = res && (swe as f64) <= swe_max;
+    let mut pay = res && swe_max.map_or(true, |m| (swe as f64) <= m);
     if has_perm_cut {
         // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
         // PERM must fail, not silently pass (same rule as run_pay_summary).
@@ -3374,9 +3427,9 @@ fn compute_sweep(
     perm: &[f32],
     incl_h: &[f64],
     prop: SweepProp,
-    fixed_vsh: f64,
-    fixed_phie: f64,
-    fixed_swe: f64,
+    fixed_vsh: Option<f64>,
+    fixed_phie: Option<f64>,
+    fixed_swe: Option<f64>,
     perm_min: Option<f64>,
     sweep_min: f64,
     sweep_max: f64,
@@ -3402,9 +3455,9 @@ fn compute_sweep(
         let cut = sweep_min + (sweep_max - sweep_min) * t;
         let (mut vsh_max, mut phie_min, mut swe_max) = (fixed_vsh, fixed_phie, fixed_swe);
         match prop {
-            SweepProp::Vsh => vsh_max = cut,
-            SweepProp::Phie => phie_min = cut,
-            SweepProp::Swe => swe_max = cut,
+            SweepProp::Vsh => vsh_max = Some(cut),
+            SweepProp::Phie => phie_min = Some(cut),
+            SweepProp::Swe => swe_max = Some(cut),
         }
 
         let mut net = 0.0f64;
@@ -3458,9 +3511,10 @@ pub struct CutoffSweepRequest {
     /// Which cutoff to sweep: "VSH" | "PHIE" | "SWE".
     pub property: String,
     /// Fixed values for the two cutoffs NOT being swept (the swept one's field is ignored).
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
+    /// SB-CUT-016: `None` = that property is not filtered while this sweep runs. No default.
+    pub vsh_max: Option<f64>,
+    pub phie_min: Option<f64>,
+    pub swe_max: Option<f64>,
     pub perm_min: Option<f64>,
     pub sweep_min: f64,
     pub sweep_max: f64,
@@ -4108,10 +4162,11 @@ mod tests {
             &dbm,
             &PaySummaryRequest {
                 well_ids: vec![skip_candidate.clone()],
-                vsh_max: 0.5,
-                phie_min: 0.1,
-                swe_max: 0.5,
+                vsh_max: Some(0.5),
+                phie_min: Some(0.1),
+                swe_max: Some(0.5),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 input_set: None,
                 skip_version: true,
                 stats_only: false,
@@ -5163,29 +5218,29 @@ mod tests {
     fn classify_sample_nan_propagation() {
         // Clean pay (no perm cut).
         assert_eq!(
-            classify_sample(0.2, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false),
+            classify_sample(0.2, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false),
             (1.0, 1.0, 1.0)
         );
         // Missing VSH → all excluded.
-        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false);
+        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false);
         assert!(s.is_nan() && r.is_nan() && p.is_nan());
         // Missing PHIE → SAND set, RES/PAY excluded.
-        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false);
+        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false);
         assert_eq!(s, 1.0);
         assert!(r.is_nan() && p.is_nan());
         // Missing SWE → SAND+RES set, PAY excluded.
-        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, 0.5, 0.1, 0.6, None, false);
+        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false);
         assert_eq!((s, r), (1.0, 1.0));
         assert!(p.is_nan());
         // Fails the sand cutoff → SAND 0 cascades to RES/PAY 0.
         assert_eq!(
-            classify_sample(0.9, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false),
+            classify_sample(0.9, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false),
             (0.0, 0.0, 0.0)
         );
         // Active PERM cutoff: missing PERM fails; sufficient PERM passes.
-        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, Some(1.0), true);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), Some(1.0), true);
         assert_eq!(p, 0.0);
-        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, 0.5, 0.1, 0.6, Some(1.0), true);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, Some(0.5), Some(0.1), Some(0.6), Some(1.0), true);
         assert_eq!(p, 1.0);
     }
 
@@ -5216,10 +5271,11 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![well.clone()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.6),
             perm_min: None,
+            enabled_unset: Vec::new(),
             skip_version: false,
             // Stats only: the point of the test is the returned rows, and this keeps it from
             // writing FLAG_* curves as a side effect.
@@ -5316,10 +5372,11 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone()],
-                vsh_max: 0.5,
-                phie_min: 0.1,
-                swe_max: 0.6,
+                vsh_max: Some(0.5),
+                phie_min: Some(0.1),
+                swe_max: Some(0.6),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -5431,10 +5488,11 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone(), blank.clone()],
-                vsh_max: 0.5,
-                phie_min: 0.1,
-                swe_max: 0.6,
+                vsh_max: Some(0.5),
+                phie_min: Some(0.1),
+                swe_max: Some(0.6),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -5558,10 +5616,11 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well],
-                vsh_max: 0.5,
-                phie_min: 0.1,
-                swe_max: 0.6,
+                vsh_max: Some(0.5),
+                phie_min: Some(0.1),
+                swe_max: Some(0.6),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -5652,10 +5711,11 @@ mod tests {
                     well_ids: wells,
                     // Permissive on purpose: every sample must pass, so the only thing that can
                     // move an average is the weighting under test.
-                    vsh_max: 0.9,
-                    phie_min: 0.05,
-                    swe_max: 0.9,
+                    vsh_max: Some(0.9),
+                    phie_min: Some(0.05),
+                    swe_max: Some(0.9),
                     perm_min: None,
+                    enabled_unset: Vec::new(),
                     skip_version: false,
                     stats_only: true,
                     custody: None,
@@ -5776,10 +5836,11 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![well.clone()],
-                    vsh_max: 0.9,
-                    phie_min: 0.05,
-                    swe_max: 0.9,
+                    vsh_max: Some(0.9),
+                    phie_min: Some(0.05),
+                    swe_max: Some(0.9),
                     perm_min: None,
+                    enabled_unset: Vec::new(),
                     skip_version: false,
                     stats_only: true,
                     custody: None,
@@ -5861,9 +5922,9 @@ mod tests {
                 depth_datum: crate::schema_vocab::DepthDatum::Md,
             },
             &crate::montecarlo::Cutoffs {
-                vsh_max: 0.9,
-                phie_min: 0.05,
-                swe_max: 0.9,
+                vsh_max: Some(0.9),
+                phie_min: Some(0.05),
+                swe_max: Some(0.9),
                 perm_min: None,
             },
             false,
@@ -5899,7 +5960,7 @@ mod tests {
     ) {
         // First, the guard that makes the rest meaningful: these values clear every cut-off.
         assert_eq!(
-            classify_sample(0.80, 0.50, 0.85, f32::NAN, 0.9, 0.05, 0.9, None, false),
+            classify_sample(0.80, 0.50, 0.85, f32::NAN, Some(0.9), Some(0.05), Some(0.9), None, false),
             (1.0, 1.0, 1.0),
             "the out-of-zone samples must pass SAND, RESERVOIR and PAY on their own merits - \
              otherwise their absence below proves a cut-off worked, not the zone rule"
@@ -5943,10 +6004,11 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: 0.9,
-                phie_min: 0.05,
-                swe_max: 0.9,
+                vsh_max: Some(0.9),
+                phie_min: Some(0.05),
+                swe_max: Some(0.9),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -6005,9 +6067,9 @@ mod tests {
                 input_set: None,
                 well_ids: vec![well.clone()],
                 property: "VSH".into(),
-                vsh_max: 0.9,
-                phie_min: 0.05,
-                swe_max: 0.9,
+                vsh_max: Some(0.9),
+                phie_min: Some(0.05),
+                swe_max: Some(0.9),
                 perm_min: None,
                 // Every sample's VSH is at most 0.80, so it clears every step of this range and
                 // net is decided by zone membership alone across the whole sweep.
@@ -6048,9 +6110,9 @@ mod tests {
                 depth_datum: crate::schema_vocab::DepthDatum::Md,
             },
             &crate::montecarlo::Cutoffs {
-                vsh_max: 0.9,
-                phie_min: 0.05,
-                swe_max: 0.9,
+                vsh_max: Some(0.9),
+                phie_min: Some(0.05),
+                swe_max: Some(0.9),
                 perm_min: None,
             },
             false,
@@ -6099,10 +6161,11 @@ mod tests {
         let req = |frame: SummationFrame| PaySummaryRequest {
             input_set: None,
             well_ids: vec![well.clone()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.6),
             perm_min: None,
+            enabled_unset: Vec::new(),
             skip_version: false,
             stats_only: true,
             custody: None,
@@ -6143,6 +6206,141 @@ mod tests {
         assert!(
             run_pay_summary(&dbm, &req(SummationFrame::Tvd)).is_err(),
             "a TVD result must never be an MD result relabelled"
+        );
+    }
+
+    /// SB-CUT-016 (P0, SILENT-WRONGNESS). `14_cutoffs-summation-mc.md:1138-1160` — SandiBumi
+    /// **MUST NOT** ship a numeric default for any cut-off; every cut-off field **MUST** ship in
+    /// the first-class state *no default — user must set*; an unfiltered summation **MUST** be
+    /// reported as unfiltered on the result and in the report; and a summation **MUST NOT** run
+    /// against an unset cut-off that has been enabled.
+    ///
+    /// Four shipped vendor sets, no two identical, **two of them from one vendor**: IP φ 0.1 /
+    /// Sw 0.5 / Vsh 0.5; Techlog 0.15 / 0.85 / 0.5; Geolog `default_*.paysum` 0.08 / 0.5 / 0.3;
+    /// Geolog `determin_mc.info` 0.08 / 0.5 / **0.5**. Jauhar's own delivered work spans Vsh
+    /// 0.20–0.85 and one record spans Vsh 0.55–0.85 *across intervals of a single area* — the
+    /// quantity is not constant even within one field, so there is no number to pick.
+    ///
+    /// **What this row deliberately does NOT change:** the NaN cascade. A sample with no VSH is
+    /// still unjudgeable whether or not VSH is being used as a cut-off. Making an unfiltered
+    /// cut-off also stop requiring its curve would let a well with no VSH book pay it never
+    /// booked, and the requirement says nothing about it — so the rule stands untouched.
+    #[test]
+    fn no_cutoff_ships_a_value_an_unapplied_one_is_reported_unfiltered_and_an_enabled_blank_one_refuses(
+    ) {
+        // A — the UI ships no numeric cut-off default. This is where the violation lived: the
+        // backend always required values, while two frontend surfaces pre-filled them.
+        for (path, src) in [
+            ("src/ui/cutoffs.ts", include_str!("../../src/ui/cutoffs.ts")),
+            ("src/ui/dashboardPanel.ts", include_str!("../../src/ui/dashboardPanel.ts")),
+        ] {
+            for banned in ["0.5", "0.15", "0.85", "0.08", "0.3", "0.1", "0.6"] {
+                let seeded = format!("\"{banned}\"");
+                assert!(
+                    !src.contains(&seeded),
+                    "{path} seeds a cut-off field with {seeded} - no vendor's number is \
+                     defensible here, and a pre-filled box is a shipped default"
+                );
+            }
+        }
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // Every sample passes on VSH and PHIE; SWE 0.20 and 0.60 straddle a 0.4 cut-off.
+        let well = seed_weighting_well(&conn, "CUTOFF-1", "PHIE");
+        let dbm = Mutex::new(conn);
+        let req = |vsh: Option<f64>, phie: Option<f64>, swe: Option<f64>, blank: Vec<String>| {
+            PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![well.clone()],
+                vsh_max: vsh,
+                phie_min: phie,
+                swe_max: swe,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                weighting: Default::default(),
+                frame: Default::default(),
+                enabled_unset: blank,
+            }
+        };
+        let pay = |rows: &[PaySummaryRow]| -> PaySummaryRow {
+            rows.iter().find(|r| r.flag == "PAY").expect("a PAY row").clone()
+        };
+
+        // B — an SWE cut-off of 0.4 excludes the five deep samples, so PAY net is 5 of 10.
+        let filtered = run_pay_summary(&dbm, &req(Some(0.9), Some(0.05), Some(0.4), vec![]))
+            .expect("a fully specified summation runs");
+        assert!((pay(&filtered).net - 5.0).abs() < 1e-6, "the SWE cut-off must bite");
+        assert_eq!(
+            pay(&filtered).unfiltered,
+            vec!["PERM".to_string()],
+            "only PERM is unfiltered here - not asking for a permeability cut-off is itself an              unfiltered summation on that property, and the result says so rather than staying              silent about it"
+        );
+
+        // C — omitting it makes the summation UNFILTERED on SWE: all ten units count, AND the row
+        // says so. Both halves matter - a number that quietly stopped being filtered, with nothing
+        // on the result to say so, is the whole failure this clause exists to prevent.
+        let unfiltered = run_pay_summary(&dbm, &req(Some(0.9), Some(0.05), None, vec![]))
+            .expect("an unfiltered summation is legitimate and runs");
+        assert!(
+            (pay(&unfiltered).net - 10.0).abs() < 1e-6,
+            "an absent cut-off must not filter, got net {}",
+            pay(&unfiltered).net
+        );
+        assert_eq!(
+            pay(&unfiltered).unfiltered,
+            vec!["SWE".to_string(), "PERM".to_string()],
+            "the result must REPORT every cut-off that was not applied, in VSH/PHIE/SWE/PERM order"
+        );
+
+        // D — ABSENT MEANS ABSENT, not a fallback. Rock that fails EVERY vendor default - Vsh 0.80
+        // against their 0.5, φ 0.02 against 0.08/0.1/0.15, Sw 0.95 against 0.5/0.6/0.85 - must
+        // count in full when no cut-off is set. Arm C alone could not catch a silent fallback,
+        // because its φ 0.30 and Vsh 0.40 clear those numbers anyway; this is the arm that bites.
+        let shale_id = uuid::Uuid::new_v4();
+        {
+            let conn = dbm.lock().unwrap();
+            db::insert_well(&conn, shale_id, "CUTOFF-SHALE", Some("Synthetic"), None, None).unwrap();
+            let sid = shale_id.to_string();
+            let n = 11usize;
+            let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, shale_id, depth.clone(), vec![120.0; n], vec![40.0; n], vec![0.02; n],
+                vec![2.6; n], nan.clone(), nan,
+            )
+            .unwrap();
+            for (curve, v) in [("VSH", 0.80f32), ("PHIE", 0.02), ("SWE", 0.95)] {
+                equations::write_computed_curve(&conn, &sid, &depth, curve, &vec![v; n]).unwrap();
+            }
+        }
+        let shale = shale_id.to_string();
+        let mut all_absent = req(None, None, None, vec![]);
+        all_absent.well_ids = vec![shale.clone()];
+        let rows = run_pay_summary(&dbm, &all_absent).expect("an entirely unfiltered run is legitimate");
+        let r = rows.iter().find(|r| r.flag == "PAY").expect("a PAY row");
+        assert!(
+            (r.net - 10.0).abs() < 1e-6,
+            "with no cut-off set, rock that fails every vendor default still counts in full - a \
+             net below 10 here means an absent cut-off quietly became somebody's number, got {}",
+            r.net
+        );
+        assert_eq!(
+            r.unfiltered,
+            vec!["VSH".to_string(), "PHIE".to_string(), "SWE".to_string(), "PERM".to_string()],
+            "and all four are reported unfiltered"
+        );
+
+        // E — a cut-off the user switched on and left blank REFUSES. Distinct from C on purpose:
+        // "I am not filtering on Sw" and "I meant to filter on Sw and have not said what" are
+        // different statements, and only one of them may produce a number.
+        let err = run_pay_summary(&dbm, &req(Some(0.9), Some(0.05), None, vec!["SWE".into()]))
+            .expect_err("an enabled but unset cut-off must refuse");
+        assert!(
+            err.contains("SWE"),
+            "the refusal must name the cut-off that was left blank: {err}"
         );
     }
 
@@ -6206,9 +6404,10 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![no_perm.clone(), low_perm.clone()],
-                    vsh_max: 0.5,
-                    phie_min: 0.1,
-                    swe_max: 0.6,
+                    vsh_max: Some(0.5),
+                    phie_min: Some(0.1),
+                    swe_max: Some(0.6),
+                    enabled_unset: Vec::new(),
                     perm_min,
                     skip_version: false,
                     stats_only: true
@@ -6472,10 +6671,11 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![bare.clone(), good.clone()],
-                vsh_max: 0.5,
-                phie_min: 0.1,
-                swe_max: 0.6,
+                vsh_max: Some(0.5),
+                phie_min: Some(0.1),
+                swe_max: Some(0.6),
                 perm_min: None,
+                enabled_unset: Vec::new(),
                 skip_version: false,
                 stats_only: true
             ,
@@ -6658,7 +6858,7 @@ mod tests {
         // Each sample contributes a full 1 m of clamped thickness.
         let incl_h = [1.0f64; 5];
         let (cuts, vals, peak) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Vsh, 0.5, 0.1, 0.6, None, 0.0, 1.0,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Vsh, Some(0.5), Some(0.1), Some(0.6), None, 0.0, 1.0,
             11, Metric::Net, 5.0,
         );
         assert_eq!(cuts.len(), 11);
@@ -6681,14 +6881,14 @@ mod tests {
         // SWE cutoff → NTG 1.0.
         let all = [1.0f64; 4];
         let (_, vals, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &all, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0, 3,
+            &vsh, &phie, &swe, &perm, &all, SweepProp::Swe, Some(0.5), Some(0.1), Some(0.6), None, 0.0, 1.0, 3,
             Metric::Ntg, 4.0,
         );
         assert!((vals[2] - 1.0).abs() < 1e-9);
         // DST clips two samples to zero thickness → NET tops out at 2 m.
         let half = [1.0f64, 1.0, 0.0, 0.0];
         let (_, vals2, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &half, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0,
+            &vsh, &phie, &swe, &perm, &half, SweepProp::Swe, Some(0.5), Some(0.1), Some(0.6), None, 0.0, 1.0,
             3, Metric::Net, 2.0,
         );
         assert!((vals2[2] - 2.0).abs() < 1e-9);
@@ -6737,12 +6937,12 @@ mod tests {
         // Permissive cutoffs: every in-zone sample pays → net = 1.5 (the clamped overlap), NOT
         // 2.0 (two full steps), so peak net is 1.5 and NTG never exceeds 1.
         let (_, _, peak) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, 0.9, 0.0, 1.0, None, 0.0, 1.0, 2,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, Some(0.9), Some(0.0), Some(1.0), None, 0.0, 1.0, 2,
             Metric::Net, 1.5,
         );
         assert!((peak - 1.5).abs() < 1e-9, "net must be the clamped 1.5 m, not 2.0; got {peak}");
         let (_, ntg, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, 0.9, 0.0, 1.0, None, 0.0, 1.0, 2,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, Some(0.9), Some(0.0), Some(1.0), None, 0.0, 1.0, 2,
             Metric::Ntg, 1.5,
         );
         assert!(ntg[1] <= 1.0 + 1e-9, "NTG must not exceed 1; got {}", ntg[1]);
@@ -7040,10 +7240,11 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.5,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.5),
             perm_min: None,
+            enabled_unset: Vec::new(),
             skip_version: false
         ,
             stats_only: true,
@@ -7110,10 +7311,11 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.5,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.5),
             perm_min: None,
+            enabled_unset: Vec::new(),
             skip_version: false,
             stats_only: false
         ,
@@ -7142,10 +7344,11 @@ mod tests {
         let req_skip = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.5,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.5),
             perm_min: None,
+            enabled_unset: Vec::new(),
             skip_version: true,
             stats_only: false
         ,
@@ -7220,10 +7423,11 @@ mod tests {
         let base = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.5,
+            vsh_max: Some(0.5),
+            phie_min: Some(0.1),
+            swe_max: Some(0.5),
             perm_min: None,
+            enabled_unset: Vec::new(),
             skip_version: false,
             stats_only: true
         ,
@@ -9733,7 +9937,8 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(0.5), phie_min: Some(0.1), swe_max: Some(0.6), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+            enabled_unset: Vec::new(),
                 custody: Some(test_run_custody()),
                 frame: Default::default(),
                 weighting: Default::default(),

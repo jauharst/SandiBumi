@@ -67,10 +67,17 @@ export async function buildDashboardContent(
     i.className = "dash-num";
     return i;
   };
-  const vshIn = num("0.5");
-  const phieIn = num("0.1");
-  const sweIn = num("0.6");
+  // SB-CUT-016: no cut-off ships a value. A blank box means the summation is UNFILTERED on that
+  // property, which the result then reports; it does not mean "use ours".
+  const vshIn = num("", "(unfiltered)");
+  const phieIn = num("", "(unfiltered)");
+  const sweIn = num("", "(unfiltered)");
   const permIn = num("", "(off)");
+  /** SB-CUT-016: a blank cut-off box is ABSENT, never a shipped number. */
+  const cutoffOf = (i: HTMLInputElement): number | null => {
+    const v = parseFloat(i.value);
+    return Number.isFinite(v) ? v : null;
+  };
 
   // Flag / Metric are Organic segmented pills (design 1b) — same semantics the
   // old <select>s had, one value each, change re-renders from the held rows.
@@ -393,9 +400,9 @@ export async function buildDashboardContent(
       allRows = await runPaySummary(
         {
           well_ids: wellIds,
-          vsh_max: parseFloat(vshIn.value),
-          phie_min: parseFloat(phieIn.value),
-          swe_max: parseFloat(sweIn.value),
+          vsh_max: cutoffOf(vshIn),
+          phie_min: cutoffOf(phieIn),
+          swe_max: cutoffOf(sweIn),
           perm_min: Number.isNaN(permRaw) ? null : permRaw,
           // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
           // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.

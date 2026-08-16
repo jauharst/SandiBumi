@@ -42,7 +42,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
-| `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
+| `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 28 | — | 10 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
 | `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
