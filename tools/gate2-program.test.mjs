@@ -144,10 +144,10 @@ test('the_live_gate_two_progress_receipt_accounts_for_every_handled_row_once', (
   const program = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'takeover', 'gate2-program.json'), 'utf8'));
   const handled = new Set([...program.completed_requirements, ...program.blocked_requirements]);
 
-  assert.equal(program.completed_requirements.length, 156);
+  assert.equal(program.completed_requirements.length, 157);
   assert.equal(program.blocked_requirements.length, 62);
-  assert.equal(handled.size, 218, 'completed and blocked receipts must not overlap');
-  assert.equal(program.gate2_requirement_count - handled.size, 4);
+  assert.equal(handled.size, 219, 'completed and blocked receipts must not overlap');
+  assert.equal(program.gate2_requirement_count - handled.size, 3);
   assert.ok(program.completed_requirements.includes('SB-CLY-050'));
   assert.ok(program.completed_requirements.includes('SB-CLY-051'));
   assert.ok(program.completed_requirements.includes('SB-CLY-054'));

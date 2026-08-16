@@ -797,14 +797,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-055
 
 - **Specified contract:** an uninterpreted well renders absent while a genuinely classified zero remains numeric zero.
-- **Current implementation / as-built:** n_classified distinguishes the states and summaryDialog renders an em dash only for uninterpreted rows. PRESENT-OK.
+- **Current implementation / as-built:** unchanged and correct. `n_classified` carries the count of samples actually classified, and the consumers render a dash rather than `0.00` when it is zero - `report.rs` for the PDF and `summaryDialog.ts` for the screen. PRESENT-OK; **regression lock**.
+- **The failure it prevents, in the chapter's own terms:** two wells of identical rock reporting `Net 0.0 / N:G 0.00 / HCPV 0.00` and full net pay respectively is a deliverable-grade error, and **its symptom is a clean table**. A well that was never interpreted must not be presented with the same shape of number as a well that was interpreted and found barren.
+- **Verified, not assumed.** The registered test renders BOTH rows through the real renderer - an uninterpreted interval and a classified zero-net zone - so substituting either rendering for both cannot pass. That two-sided shape is what makes it a proof rather than a demonstration.
 - **Release disposition and risk:** PILOT-BLOCKER; DEGRADED-RESULT.
-- **Automated evidence:** CORRECTNESS; frontend test an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero pins both sides on rendered rows.
-- **Manual evidence:** NONE; cutoffs/pay and Results QC scenarios remain unchecked.
-- **Source/parameter boundary:** no sentinel value is introduced; zero and absence retain distinct typed evidence.
-- **UI/IPC/provenance surface:** Rust sibling field crosses IPC and controls client-visible rendering.
-- **History/reachability:** regression lock d25c274 and implementation are reachable.
-- **Blocking decision / next action:** preserve the lock and field-exercise summary, dashboard and exported representations.
+- **Automated evidence:** `an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero` (`tools/frontend-acceptance.test.mjs`). CORRECTNESS.
+- **Mutation evidence:** one probe. Replacing the renderer's `n_classified === 0` test with a constant `false` - so an uninterpreted row renders its zeros as numbers - turned the test red. That is the exact defect: the row still prints, the table still looks clean, and the number is a claim nobody made.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only.
+- **Source/parameter boundary:** no numeric parameter; the contract is a rendering rule.
+- **UI/IPC/provenance surface:** the count crosses the wire on every pay-summary row; the PDF and the summary pane both honour it.
+- **History/reachability:** the count and both renderings are integrated.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-056
 
