@@ -8685,6 +8685,67 @@ mod tests {
         }
     }
 
+    /// SB-SAT-031 (P0). `12_saturation.md:1442-1456` — `Rw` **MUST** ship as `NoDefault` in every
+    /// saturation module and in the solver. SandiBumi **MUST NOT** inherit IP's `0.1` or Techlog's
+    /// `0.03`, and **MUST NOT** substitute a value derived from a formation-water environment band.
+    ///
+    /// IP's 0.1 and Techlog's 0.03 differ by **1.83× on Sw** at m = n = 2. The dossier explicitly
+    /// **withdrew** a project-kb `Rw ≈ 0.21` as unsound corroboration, so no default rests on it
+    /// either.
+    ///
+    /// The as-built said `modules.rs` ships 0.1 and `lrlc.rs` ships 0.3, leaving the two engines
+    /// `√3 = 1.73×` apart before the user touches anything. Both are stale — every site now uses
+    /// the `param_open` family. The row was a PROVE, and what it pins is that no future edit can
+    /// quietly reintroduce a number here.
+    #[test]
+    fn no_saturation_engine_ships_a_formation_water_resistivity_the_user_did_not_supply() {
+        let modules = module_catalog();
+
+        // The values this domain must never inherit: IP's, Techlog's, the LRLC figure the as-built
+        // reported, and the withdrawn project-kb corroboration.
+        let rejected = ["0.1", "0.10", "0.03", "0.3", "0.30", "0.21"];
+
+        let mut checked = 0;
+        for spec in modules.iter().filter(|s| s.category == "Saturation") {
+            for arg in spec.args.iter().filter(|a| a.name == "RW" || a.name == "RWS") {
+                checked += 1;
+                assert_eq!(
+                    arg.default, "",
+                    "{}.{} ships a formation-water resistivity default of {:?} — every Rw must be \
+                     supplied by the user",
+                    spec.name, arg.name, arg.default
+                );
+                assert_eq!(
+                    arg.default_source, ABSENT_DEFAULT_SOURCE,
+                    "{}.{} must declare its default ABSENT, not merely leave it blank",
+                    spec.name, arg.name
+                );
+                assert!(
+                    !rejected.contains(&arg.default.as_str()),
+                    "{}.{} carries a rejected vendor value",
+                    spec.name, arg.name
+                );
+            }
+        }
+        assert!(
+            checked >= 3,
+            "expected the saturation family to expose Rw on several modules, found {checked} — a \
+             pass here would otherwise be vacuous"
+        );
+
+        // The solver has no default either, and it proves it by REFUSING to deserialize without
+        // one. That is a stronger guarantee than a blank field: a caller cannot forget to set it.
+        let missing_rw = serde_json::from_str::<crate::multimin2::FluidProps>("{}");
+        assert!(
+            missing_rw.is_err(),
+            "the solver accepted a fluid model with no Rw — it must refuse rather than default"
+        );
+        assert!(
+            format!("{:?}", missing_rw.unwrap_err()).contains("rw"),
+            "the solver's refusal must name Rw so the user knows what to supply"
+        );
+    }
+
     /// SB-SAT-030. `12_saturation.md:1427-1440` — when `Vsh → 1` in `simandoux_modified_slb`
     /// (whose `1/(1−Vsh)` term is singular) or in `indonesia` (where water and effective porosity
     /// both go to zero), the run **MUST** raise a flagged condition. It **MAY** additionally

@@ -415,20 +415,21 @@
 - **Blocker or decision:** none.
 - **Next action:** Jauhar field-verifies that a pure-shale interval reports the clamped condition in the run record rather than passing as an ordinary all-water result.
 
-## SB-SAT-031
+## SB-SAT-031 - Rw ships with no default
 
-- **Specified contract:** `Rw` ships with no default. Owned test intention(s): `SB-SAT-T31`, `SB-SAT-T45`.
-- **Current implementation:** standalone saturation ships Rw=0.1 while LRLC and solver surfaces ship other concrete defaults; none represents absence.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T31`, `SB-SAT-T45` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** zone-override and fluid tests passed using explicit/current defaults, not no-default refusal.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** multiple uncited defaults can silently choose different saturation answers.
-- **Next action:** remove every Rw default, require measured/correlation/user custody, and preserve the selected route and temperature reference.
+- **Specified contract:** `Rw` **MUST** ship as `NoDefault` in every saturation module and in the solver. SandiBumi **MUST NOT** inherit IP's `0.1` or Techlog's `0.03`, and **MUST NOT** substitute a value derived from a formation-water environment band (`12_saturation.md:1442-1456`).
+- **Why P0:** IP's 0.1 and Techlog's 0.03 differ by **1.83x on Sw** at m = n = 2. IP at least warns that it *must be adjusted to the correct value*; Techlog does not. The dossier explicitly **withdrew** a project-kb `Rw ~ 0.21` as unsound corroboration - cross-basin, ambiguous header, and three salinity methods disagreeing at 24/12/25 kppm in the same record - so no default rests on it either.
+- **Current implementation - the as-built is stale on BOTH counts, verified in code.** It said `modules.rs` ships 0.1 and `lrlc.rs` ships 0.3, leaving SandiBumi's two engines `sqrt(3) = 1.73x` apart on Sw before the user touches anything. Neither holds: `modules.rs:4769` uses `param_open_when` and `lrlc.rs:94` and `:220` both use `param_open` - the defaultless family throughout. The row was a **PROVE**.
+- **Qualifying acceptance tests:** `no_saturation_engine_ships_a_formation_water_resistivity_the_user_did_not_supply` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** no value was adopted, and the test names the four numbers that must never appear as a default - IP's 0.1, Techlog's 0.03, the 0.3 the as-built reported, and the withdrawn 0.21.
+- **Three-armed pin.** (A) every `RW`/`RWS` argument on every Saturation-category module has an EMPTY default and declares `ABSENT_DEFAULT_SOURCE` - blank alone is not enough, the absence must be declared. (B) a count guard requires at least three such arguments, so the loop cannot pass vacuously if the category is ever renamed or the arguments are moved. (C) the SOLVER proves it differently and more strongly: `FluidProps` **refuses to deserialize** without `rw`, and the refusal must name `rw` - a caller cannot forget to set it, which is a better guarantee than a blank field.
+- **Verified by mutation:** giving the saturation modules IP's rejected `0.1` fails the test.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a saturation run with no Rw supplied refuses or reports the parameter as absent, rather than quietly producing a curve.
 
-### SB-SAT-032
+## SB-SAT-032
 
 - **Specified contract:** `Rw` correlations with the temperature conversion bound to the branch. Owned test intention(s): `SB-SAT-T45`, `SB-SAT-T46`, `SB-SAT-T48`.
 - **Current implementation:** measured, Kennedy and Bateman-Konen branches use their branch-specific temperature conversions and switch at the specified salinity.

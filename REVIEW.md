@@ -14233,3 +14233,16 @@ numbers are unchanged.
 - [ ] **Run a clean sand.** No such flag should appear - if it fires everywhere it tells you nothing.
 - [ ] **Tell me if this is too noisy in a batch** over very shaly wells. It is one condition per run, not
       per sample, but you are the one who will see it.
+
+## Saturation: Rw is never guessed for you
+
+IP ships a default Rw of 0.1 and Techlog 0.03. Those differ by about 1.83x on Sw at m = n = 2, so whichever
+you inherit silently decides your saturations. SandiBumi ships none - every Rw comes from you - and this
+now has a test so no future edit can slip one back in.
+
+- [ ] **Open any saturation module** and confirm Rw is empty, not prefilled.
+- [ ] **Try running one without setting Rw.** It should refuse or report the parameter as absent, never
+      quietly produce a curve.
+- [ ] **Same check in SandiMin.** The solver refuses a fluid model with no Rw at all.
+- [ ] **If any screen shows 0.1, 0.03, 0.3 or 0.21 as a starting Rw**, tell me - those are the four values
+      the test forbids.
