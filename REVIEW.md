@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-050: disputed endpoints remain unset beside their evidence
+
+- [ ] **Automated correctness:** the exact Rust contract was witnessed RED first on the selected
+      `vsh_dn.RHO_MA`, then on a combined/wrong-tier source row, and is GREEN at 1 / 0 / 0. All
+      eight disputed live GR/density/neutron endpoint fields are empty, required and linked to
+      exact product/path/tier evidence; missing `RHO_MA` refuses as `ABSENT` before arithmetic;
+      and the two cited T18 sets remain distinct at 0.4239 and 0.6000 rather than being averaged.
+      The frontend contract was witnessed RED with no source rows and is GREEN at 1 / 0 / 0: the
+      input remains empty, every row expands beside it, and source-loading failure remains visible.
+      The shared persistence contract, prior guidance test, both `vsh_dn` guards and all 29
+      frontend tests are green. TypeScript and cargo check are green; the fresh full gate passed
+      1034 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray and VSH from Density-Neutron in both Module and Workflow
+      editors. Confirm every disputed endpoint starts blank with “set a value”, the collapsed
+      source count is visible beside the same field, and expansion shows each product, value or
+      explicit absence, note, tier and artefact locator without visually promoting one row.
+      Disconnect or otherwise make the source query fail in a controlled development run and
+      confirm the visible unavailable warning does not make the blank parameter appear settled.
+- [ ] **Manual:** attempt `vsh_dn` with one disputed endpoint unset and confirm the run refuses
+      before producing curves or a success record and names the missing parameter. Then run the
+      two cited T18 endpoint sets explicitly and inspect `VSH_DN`, the limited `VSH`, parameter
+      decisions and History: expect 0.4239 and 0.6000 at the synthetic sample, with each explicit
+      interpreter choice preserved. Confirm `RHO_FL = 1`, `NPHI_FL = 1` and `FLAG_TOL = 0.25`
+      remain available as their separately cited positive controls.
+- [ ] **Field and harsh critique:** a source browser is evidence disclosure, not scientific
+      adjudication. It can still mislead if two products are merged under one tier, if a stale
+      registry omits a witness, or if users mistake a vendor starting range for a project
+      endpoint. This increment pins separate product/path/tier rows and never fills the input, but
+      it has no field evidence that interpreters read or compare the panel correctly. T19/T20's
+      resistivity methods remain absent/deferred and were not pulled into this requirement merely
+      to make a test pass. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-046: four source-held VSH/VCL curve families
 
 - [ ] **Automated correctness:** exact SB-CLY-T43 was witnessed RED on the live `VSH_GR`

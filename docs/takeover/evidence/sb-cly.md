@@ -667,14 +667,14 @@
 
 - **Chapter evidence:** P0; historical status `PRESENT-DIVERGENT`; T18-T20; sections 4.5, 5, 6 and 8.
 - **Atomic obligations:** no default for disputed values; refuse until set; show every competing value and artefact at entry; never interpolate or select silently.
-- **Current source:** `vsh_gr` and `vsh_dn` ship multiple numeric endpoint defaults, including values the chapter marks uncited or disputed. `ArgSpec::sources_topic` and a generic source panel exist, but every current CLY argument leaves the topic empty, so the dialog displays neither conflict nor source and runs without explicit entry.
-- **Qualifying acceptance tests:** none; the no-default refusal and competing-source UI inventory are missing. Test class `MISSING`.
-- **Supporting tests:** N-D and GR arithmetic tests use supplied/current values but do not establish source admissibility; the generic source-panel mechanism is unused by CLY.
+- **Current source:** every disputed endpoint on selected `vsh_gr` and `vsh_dn` opens empty, required and source-bearing. The shared registry distinguishes product, exact artefact path, value or explicit absence, and tier; Module and Workflow entry render it beside the empty field. Missing values refuse in declared-precondition validation before dispatch. Agreed `RHO_FL`/`NPHI_FL` and the cited `FLAG_TOL` diagnostic remain numeric.
+- **Qualifying acceptance tests:** exact `when_vendors_disagree_the_parameter_opens_empty_shows_all_sources_and_refuses_before_arithmetic` was witnessed RED on the live selected `RHO_MA`, then on a combined/wrong-tier source row, and passes 1/0/0. It inventories all eight disputed live fields, exact product/path/tier positions, missing-value refusal, the agreed positive controls, and the independently specified T18 outputs 0.4239 and 0.6000 without averaging. Exact frontend `a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_loading_stays_visible` was witnessed RED when the component could not render injected evidence and passes 1/0/0. Test class `CORRECTNESS`.
+- **Supporting tests:** prior picking-guidance separation, both `vsh_dn` guards, the shared source/persistence inventory and all 29 frontend acceptance tests remain green. T19/T20 retain the no-selection/refusal boundary for resistivity indicators that are absent and deferred; this increment did not invent those methods.
 - **Manual evidence:** shale-volume 0/17; workflow 0/23.
-- **Git evidence:** uncited defaults are integrated; the generic disagreement infrastructure commit is reachable but not wired to this domain.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** all fifteen chapter-ABSENT rows stay absent and the NON-ADOPTABLE value remains verification-only; no current default becomes a source.
-- **Next action:** withdraw every disputed/uncited default, wire each open parameter to its artefact records and make unsourced evaluation fail before module arithmetic.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries manifest defaults/topics, source records, visible failure honesty, exact tests and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-050 on the selected GR and density-neutron surfaces. All other chapter-ABSENT rows remain absent and the NON-ADOPTABLE value remains verification-only.
+- **Next action:** preserve empty-by-default endpoint entry, exact product/path/tier custody and pre-dispatch refusal; perform Visual/Manual/Field review separately, then continue SB-CLY-051 without treating a product name alone as a source.
 
 ## SB-CLY-051 - The vendor artefact path is the primary source string
 

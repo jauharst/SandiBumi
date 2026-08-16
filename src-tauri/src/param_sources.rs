@@ -74,6 +74,7 @@ pub const GR_SHALE_ENDPOINT: &str = "gr_shale_endpoint";
 pub const MATRIX_DENSITY: &str = "matrix_density";
 pub const SHALE_DENSITY: &str = "shale_density";
 pub const DRY_SHALE_DENSITY: &str = "dry_shale_density";
+pub const MATRIX_NEUTRON_ENDPOINT: &str = "matrix_neutron_endpoint";
 pub const SHALE_NEUTRON_ENDPOINT: &str = "shale_neutron_endpoint";
 pub const ARCHIE_A: &str = "archie_a";
 pub const ARCHIE_M: &str = "archie_m";
@@ -192,9 +193,16 @@ const GR_SHALE_ENDPOINT_SOURCES: &[ParamSource] = &[
 
 const MATRIX_DENSITY_SOURCES: &[ParamSource] = &[
     claim!(
-        "Interactive Petrophysics / Techlog / SandiMin",
+        "Techlog documentation",
         "2.65",
-        "sandstone or quartz endpoint; the three endpoint libraries agree",
+        "documented VSH density-neutron matrix endpoint",
+        "Techlog petrophysics-vsh-from-neutrondensity.html 2.65 g/cm3",
+        "T1′"
+    ),
+    claim!(
+        "Interactive Petrophysics / SandiMin",
+        "2.65",
+        "sandstone or quartz endpoint corroborating the Techlog position",
         "ip_ingest/E_threeway_endpoint_compare.json",
         "T3"
     ),
@@ -202,7 +210,7 @@ const MATRIX_DENSITY_SOURCES: &[ParamSource] = &[
         "Geolog",
         "2.645",
         "shipped sandstone matrix-density default",
-        "Geolog phi_den.info RHO_MA DEFAULT 2645 k/m3",
+        "Geolog vsh_dn.info and phi_den.info RHO_MA DEFAULT 2645 k/m3",
         "T1"
     ),
 ];
@@ -219,14 +227,21 @@ const SHALE_DENSITY_SOURCES: &[ParamSource] = &[
         "Geolog",
         "none stated",
         "references the RHO_SH well constant without a number",
-        "Geolog phi_den.info",
+        "Geolog vsh_dn.info and phi_den.info",
         "T1"
     ),
     claim!(
         "Techlog documentation",
         "2.4",
         "documented shale density",
-        "Techlog effective-porosity-from-density.html",
+        "Techlog petrophysics-vsh-from-neutrondensity.html; effective-porosity-from-density.html",
+        "T1′"
+    ),
+    claim!(
+        "Techlog template",
+        "2.45",
+        "shipped VSH density-neutron shale endpoint",
+        "Techlog C2_method_defaults.json RHOB_shale = 2.45 g/cm3 and all four Q*_PR.xml",
         "T3"
     ),
     claim!(
@@ -262,12 +277,43 @@ const DRY_SHALE_DENSITY_SOURCES: &[ParamSource] = &[
     ),
 ];
 
+const MATRIX_NEUTRON_ENDPOINT_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Techlog documentation",
+        "-0.1",
+        "documented matrix neutron endpoint",
+        "Techlog petrophysics-vsh-from-neutrondensity.html and petrophysics-vsh-from-thermal-neutron.html",
+        "T1′"
+    ),
+    claim!(
+        "Techlog template",
+        "0",
+        "shipped template matrix neutron endpoint",
+        "Techlog C2_method_defaults.json NPHI_matrix = 0 and all four Q*_PR.xml",
+        "T3"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "well constant with validation but no numeric default",
+        "Geolog vsh_dn.info NPHI_MA validation -0.2:0.5",
+        "T1"
+    ),
+];
+
 const SHALE_NEUTRON_ENDPOINT_SOURCES: &[ParamSource] = &[
     claim!(
         "Techlog documentation",
         "0.40",
         "documented shale neutron endpoint",
-        "Techlog effective-porosity-from-neutrondensity.html",
+        "Techlog petrophysics-vsh-from-neutrondensity.html",
+        "T1′"
+    ),
+    claim!(
+        "Techlog template",
+        "0.4",
+        "shipped template shale neutron endpoint; agrees with the documentation",
+        "Techlog C2_method_defaults.json NPHI_shale = 0.4",
         "T3"
     ),
     claim!(
@@ -281,7 +327,7 @@ const SHALE_NEUTRON_ENDPOINT_SOURCES: &[ParamSource] = &[
         "Geolog",
         "none stated",
         "no numeric default",
-        "Geolog phi_dn.info",
+        "Geolog vsh_dn.info and phi_dn.info",
         "T1"
     ),
 ];
@@ -399,6 +445,7 @@ pub fn sources_for(topic: &str) -> &'static [ParamSource] {
         MATRIX_DENSITY => MATRIX_DENSITY_SOURCES,
         SHALE_DENSITY => SHALE_DENSITY_SOURCES,
         DRY_SHALE_DENSITY => DRY_SHALE_DENSITY_SOURCES,
+        MATRIX_NEUTRON_ENDPOINT => MATRIX_NEUTRON_ENDPOINT_SOURCES,
         SHALE_NEUTRON_ENDPOINT => SHALE_NEUTRON_ENDPOINT_SOURCES,
         ARCHIE_A => ARCHIE_A_SOURCES,
         ARCHIE_M => ARCHIE_M_SOURCES,
@@ -420,6 +467,7 @@ pub fn parameter_label(topic: &str) -> Option<&'static str> {
         MATRIX_DENSITY => "matrix density",
         SHALE_DENSITY => "shale density",
         DRY_SHALE_DENSITY => "dry shale or dry clay density",
+        MATRIX_NEUTRON_ENDPOINT => "matrix neutron endpoint",
         SHALE_NEUTRON_ENDPOINT => "shale neutron endpoint",
         ARCHIE_A => "Archie a",
         ARCHIE_M => "Archie m",
@@ -443,6 +491,7 @@ pub fn topics() -> &'static [&'static str] {
         MATRIX_DENSITY,
         SHALE_DENSITY,
         DRY_SHALE_DENSITY,
+        MATRIX_NEUTRON_ENDPOINT,
         SHALE_NEUTRON_ENDPOINT,
         ARCHIE_A,
         ARCHIE_M,
@@ -550,6 +599,7 @@ mod tests {
             MATRIX_DENSITY,
             SHALE_DENSITY,
             DRY_SHALE_DENSITY,
+            MATRIX_NEUTRON_ENDPOINT,
             SHALE_NEUTRON_ENDPOINT,
             ARCHIE_A,
             ARCHIE_M,
@@ -594,6 +644,12 @@ mod tests {
         let expected_fields = [
             ("vsh_gr", "GR_MA", GR_CLEAN_ENDPOINT),
             ("vsh_gr", "GR_SH", GR_SHALE_ENDPOINT),
+            ("vsh_dn", "RHO_MA", MATRIX_DENSITY),
+            ("vsh_dn", "RHO_SH", SHALE_DENSITY),
+            ("vsh_dn", "NPHI_MA", MATRIX_NEUTRON_ENDPOINT),
+            ("vsh_dn", "NPHI_SH", SHALE_NEUTRON_ENDPOINT),
+            ("vsh_dn", "GR_MA", GR_CLEAN_ENDPOINT),
+            ("vsh_dn", "GR_SH", GR_SHALE_ENDPOINT),
             ("phi_den", "RHO_MA", MATRIX_DENSITY),
             ("phi_den", "RHO_SH", SHALE_DENSITY),
             ("phi_den", "RHO_DSH", DRY_SHALE_DENSITY),

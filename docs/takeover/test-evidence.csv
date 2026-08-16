@@ -1,4 +1,6 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-CLY-050","CORRECTNESS","src-tauri/src/modules.rs","when_vendors_disagree_the_parameter_opens_empty_shows_all_sources_and_refuses_before_arithmetic"
+"SB-CLY-050","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_loading_stays_visible"
 "SB-CLY-046","CORRECTNESS","src-tauri/src/curves.rs","every_emitted_and_vendor_clay_shale_mnemonic_resolves_to_one_of_four_distinct_families"
 "SB-CLY-043","CORRECTNESS","src-tauri/src/workflow.rs","a_required_shale_volume_accepts_renamed_shale_metadata_and_refuses_clay_metadata_even_under_a_vsh_name"
 "SB-CLY-043","CORRECTNESS","src-tauri/src/workflow.rs","a_clay_volume_consumer_accepts_clay_refuses_shale_and_records_which_quantity_it_received"

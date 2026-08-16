@@ -2311,14 +2311,17 @@ fn vsh_dn_spec() -> ModuleSpec {
             .into(),
         args: vec![
             with_guidance(
-                param(
-                    "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
-                    "Geolog V14 vsh_dn.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/10_clay-volume.md §5",
+                with_sources(
+                    param_open("RHO_MA", "Matrix density", "g/cc", 2.0, 3.2, true),
+                    crate::param_sources::MATRIX_DENSITY,
                 ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+                with_sources(
+                    param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+                    crate::param_sources::SHALE_DENSITY,
+                ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
@@ -2329,11 +2332,17 @@ fn vsh_dn_spec() -> ModuleSpec {
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param_open("NPHI_MA", "Matrix neutron porosity", "v/v", -0.15, 0.5, true),
+                with_sources(
+                    param_open("NPHI_MA", "Matrix neutron porosity", "v/v", -0.15, 0.5, true),
+                    crate::param_sources::MATRIX_NEUTRON_ENDPOINT,
+                ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
+                with_sources(
+                    param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
+                    crate::param_sources::SHALE_NEUTRON_ENDPOINT,
+                ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
@@ -2344,11 +2353,17 @@ fn vsh_dn_spec() -> ModuleSpec {
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param_open("GR_MA", "Clean GR (clay-type cross-check)", "API", 0.0, 150.0, true),
+                with_sources(
+                    param_open("GR_MA", "Clean GR (clay-type cross-check)", "API", 0.0, 150.0, true),
+                    crate::param_sources::GR_CLEAN_ENDPOINT,
+                ),
                 &[GR_ENDPOINT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param_open("GR_SH", "Shale GR (clay-type cross-check)", "API", 40.0, 400.0, true),
+                with_sources(
+                    param_open("GR_SH", "Shale GR (clay-type cross-check)", "API", 40.0, 400.0, true),
+                    crate::param_sources::GR_SHALE_ENDPOINT,
+                ),
                 &[GR_ENDPOINT_PICKING_GUIDANCE],
             ),
             param(
@@ -8289,8 +8304,8 @@ mod tests {
     /// CORRECTNESS — SB-CLY-042 and `10_clay-volume.md` sections 3.5 F15/F17, 4.3,
     /// 5 and 5.1. IP's percentile pipeline, Techlog's quantile habit and the two
     /// documented N-D clean-line constructions are advice for choosing endpoints, not endpoint
-    /// values. The chapter separately keeps the cited RHO_MA/RHO_FL/NPHI_FL defaults and the
-    /// named P3/P97 normalization preset, so those are the positive control against a lazy
+    /// values. SB-CLY-050 separately withdraws the disputed RHO_MA value while keeping the agreed
+    /// RHO_FL/NPHI_FL defaults and the named P3/P97 normalization preset as positive controls, so a lazy
     /// implementation that simply erases every number.
     #[test]
     fn documented_picking_conventions_are_sourced_help_and_never_numeric_defaults() {
@@ -8309,6 +8324,7 @@ mod tests {
         for (module_name, argument_name) in [
             ("vsh_gr", "GR_MA"),
             ("vsh_gr", "GR_SH"),
+            ("vsh_dn", "RHO_MA"),
             ("vsh_dn", "RHO_SH"),
             ("vsh_dn", "NPHI_MA"),
             ("vsh_dn", "NPHI_SH"),
@@ -8341,7 +8357,7 @@ mod tests {
             );
         }
 
-        for argument_name in ["RHO_MA", "RHO_FL", "NPHI_FL"] {
+        for argument_name in ["RHO_FL", "NPHI_FL"] {
             let arg = argument("vsh_dn", argument_name);
             assert!(
                 arg.default.parse::<f64>().is_ok(),
@@ -8366,6 +8382,138 @@ mod tests {
                 "the preset must be described as a named convention rather than an endpoint"
             );
         }
+    }
+
+    /// CORRECTNESS — SB-CLY-050 / SB-CLY-T18. The empty/default disposition and the
+    /// two endpoint sets are copied from `10_clay-volume.md` sections 4.5, 5 and 6.
+    /// The expected VSH values are the chapter's independently evaluated Geolog
+    /// `vsh_dn.lls` equation, not values derived through this implementation.
+    #[test]
+    fn when_vendors_disagree_the_parameter_opens_empty_shows_all_sources_and_refuses_before_arithmetic() {
+        let catalog = module_catalog();
+        let argument = |module_name: &str, argument_name: &str| {
+            catalog
+                .iter()
+                .find(|module| module.name == module_name)
+                .unwrap_or_else(|| panic!("missing module {module_name}"))
+                .args
+                .iter()
+                .find(|arg| arg.name == argument_name)
+                .unwrap_or_else(|| panic!("missing argument {module_name}.{argument_name}"))
+        };
+
+        let disputed = [
+            ("vsh_gr", "GR_MA", crate::param_sources::GR_CLEAN_ENDPOINT),
+            ("vsh_gr", "GR_SH", crate::param_sources::GR_SHALE_ENDPOINT),
+            ("vsh_dn", "RHO_MA", crate::param_sources::MATRIX_DENSITY),
+            ("vsh_dn", "RHO_SH", crate::param_sources::SHALE_DENSITY),
+            ("vsh_dn", "NPHI_MA", "matrix_neutron_endpoint"),
+            ("vsh_dn", "NPHI_SH", crate::param_sources::SHALE_NEUTRON_ENDPOINT),
+            ("vsh_dn", "GR_MA", crate::param_sources::GR_CLEAN_ENDPOINT),
+            ("vsh_dn", "GR_SH", crate::param_sources::GR_SHALE_ENDPOINT),
+        ];
+        for (module_name, argument_name, topic) in disputed {
+            let arg = argument(module_name, argument_name);
+            assert!(
+                arg.default.is_empty(),
+                "{module_name}.{argument_name} must not silently select a vendor position"
+            );
+            assert_eq!(arg.default_source, ABSENT_DEFAULT_SOURCE);
+            assert!(arg.required, "{module_name}.{argument_name} must be set before evaluation");
+            assert_eq!(
+                arg.sources_topic, topic,
+                "{module_name}.{argument_name} must show its competing evidence beside the field"
+            );
+            assert!(
+                crate::param_sources::sources_for(topic).len() >= 2,
+                "{module_name}.{argument_name} must expose every held vendor position"
+            );
+        }
+
+        for (topic, product, value, source_fragment, tier) in [
+            (crate::param_sources::GR_CLEAN_ENDPOINT, "Techlog", "10", "gamma-ray.html", "T1′"),
+            (crate::param_sources::GR_SHALE_ENDPOINT, "Techlog", "100", "gamma-ray.html", "T1′"),
+            (crate::param_sources::MATRIX_DENSITY, "Geolog", "2.645", "vsh_dn.info", "T1"),
+            (crate::param_sources::MATRIX_DENSITY, "Techlog documentation", "2.65", "neutrondensity.html", "T1′"),
+            (crate::param_sources::SHALE_DENSITY, "Techlog documentation", "2.4", "neutrondensity.html", "T1′"),
+            (crate::param_sources::SHALE_DENSITY, "Techlog template", "2.45", "C2_method_defaults.json", "T3"),
+            ("matrix_neutron_endpoint", "Techlog documentation", "-0.1", "neutrondensity.html", "T1′"),
+            ("matrix_neutron_endpoint", "Techlog template", "0", "C2_method_defaults.json", "T3"),
+            (crate::param_sources::SHALE_NEUTRON_ENDPOINT, "Techlog documentation", "0.40", "neutrondensity.html", "T1′"),
+        ] {
+            assert!(
+                crate::param_sources::sources_for(topic)
+                    .iter()
+                    .any(|row| {
+                        row.product == product
+                            && row.value == value
+                            && row.source.contains(source_fragment)
+                            && row.tier == tier
+                    }),
+                "{topic} must expose {product} position {value} from {source_fragment} at {tier}"
+            );
+        }
+
+        // Positive controls: these three values are agreed/cited in the same chapter and are not
+        // to be erased by an implementation that treats every clay number as disputed.
+        for (name, expected) in [("RHO_FL", 1.0), ("NPHI_FL", 1.0), ("FLAG_TOL", 0.25)] {
+            let arg = argument("vsh_dn", name);
+            assert!((arg.default.parse::<f64>().unwrap() - expected).abs() < f64::EPSILON);
+            assert_ne!(arg.default_source, ABSENT_DEFAULT_SOURCE);
+        }
+
+        let incomplete = ctx_with(
+            1,
+            &[("RHOB", vec![2.35]), ("NPHI", vec![0.30])],
+            &[
+                ("RHO_SH", 2.45),
+                ("RHO_FL", 1.0),
+                ("NPHI_MA", 0.0),
+                ("NPHI_SH", 0.4),
+                ("NPHI_FL", 1.0),
+                ("GR_MA", 10.0),
+                ("GR_SH", 100.0),
+                ("FLAG_TOL", 0.25),
+            ],
+            &[],
+        );
+        let error = run_module("vsh_dn", &incomplete).unwrap_err();
+        assert!(error.contains("RHO_MA"), "the refusal must name the unset parameter: {error}");
+        assert!(
+            error.contains("ABSENT"),
+            "the refusal must happen at source/default validation before arithmetic: {error}"
+        );
+
+        let run = |rho_sh: f64, nphi_ma: f64| {
+            run_module(
+                "vsh_dn",
+                &ctx_with(
+                    1,
+                    &[("RHOB", vec![2.35]), ("NPHI", vec![0.30])],
+                    &[
+                        ("RHO_MA", 2.65),
+                        ("RHO_SH", rho_sh),
+                        ("RHO_FL", 1.0),
+                        ("NPHI_MA", nphi_ma),
+                        ("NPHI_SH", 0.4),
+                        ("NPHI_FL", 1.0),
+                        ("GR_MA", 10.0),
+                        ("GR_SH", 100.0),
+                        ("FLAG_TOL", 0.25),
+                    ],
+                    &[],
+                ),
+            )
+            .unwrap()["VSH_DN"][0]
+        };
+        let template = run(2.45, 0.0);
+        let documentation = run(2.40, -0.1);
+        assert!((template - 0.4239).abs() <= 1e-4, "Techlog template set: {template}");
+        assert!((documentation - 0.6000).abs() <= 1e-4, "Techlog documentation set: {documentation}");
+        assert!(
+            (template - documentation).abs() > 0.17,
+            "the two source positions must remain distinct rather than silently averaged"
+        );
     }
 
     #[test]

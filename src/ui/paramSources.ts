@@ -1,5 +1,7 @@
 import { paramSources, type ParamSource } from "../ipc";
 
+type ParamSourceLoader = (topic: string) => Promise<ParamSource[]>;
+
 /** Topic identities shared by non-module editors. Module editors receive the same keys from the
  * Rust manifest, so no scientific value is duplicated in TypeScript. */
 export const PARAM_SOURCE_TOPICS = {
@@ -14,10 +16,14 @@ export const PARAM_SOURCE_TOPICS = {
 } as const;
 
 /** Put the evidence disclosure beside the actual editable control. */
-export function withParamSources(control: HTMLElement, topic: string): HTMLElement {
+export function withParamSources(
+  control: HTMLElement,
+  topic: string,
+  loadSources: ParamSourceLoader = paramSources,
+): HTMLElement {
   const stack = document.createElement("div");
   stack.className = "param-source-control";
-  stack.append(control, buildParamSources(topic));
+  stack.append(control, buildParamSources(topic, loadSources));
   return stack;
 }
 
@@ -34,13 +40,16 @@ export function withParamSources(control: HTMLElement, topic: string): HTMLEleme
  *
  *  Renders NOTHING when the topic has no entries, so a field can carry a topic key harmlessly and an
  *  empty panel never reads as "nobody disagrees". */
-export function buildParamSources(topic: string): HTMLElement {
+export function buildParamSources(
+  topic: string,
+  loadSources: ParamSourceLoader = paramSources,
+): HTMLElement {
   const host = document.createElement("div");
   host.className = "param-sources";
   host.hidden = true;
   if (!topic) return host;
 
-  void paramSources(topic)
+  void loadSources(topic)
     .then((rows) => {
       if (rows.length === 0) return;
       host.hidden = false;

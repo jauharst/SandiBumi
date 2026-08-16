@@ -2189,3 +2189,51 @@ test("source_bearing_picking_guidance_is_rendered_beside_the_parameter_without_b
   assert.doesNotMatch(withoutGuidance, /Pool comparable rock/);
   assert.match(withoutGuidance, /Default: ABSENT/, "absence stays explicit even with no advice");
 });
+
+test("a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_loading_stays_visible", async () => {
+  // CORRECTNESS — SB-CLY-050 requires every held position and source at the point of entry,
+  // with no selected value. These unequal source rows are copied from SB-CLY-T18 in
+  // docs/PRD_v2/10_clay-volume.md; the failure branch is the requirement's no-silent-selection
+  // rule applied when the evidence cannot be loaded.
+  const { withParamSources, buildParamSources } = await load("/src/ui/paramSources.ts");
+  const input = document.createElement("input");
+  input.value = "";
+  const rows = [
+    {
+      product: "Techlog documentation",
+      value: "2.40",
+      note: "documented shale density",
+      source: "Techlog petrophysics-vsh-from-neutrondensity.html",
+      tier: "T1-prime",
+    },
+    {
+      product: "Techlog template",
+      value: "2.45",
+      note: "shipped template shale density",
+      source: "Techlog C2_method_defaults.json RHOB_shale",
+      tier: "T3",
+    },
+  ];
+
+  const stack = withParamSources(input, "shale_density", async () => rows);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(input.value, "", "rendering evidence must not choose or average a value");
+  const panel = stack.children[1];
+  assert.equal(panel.hidden, false);
+  assert.match(panel.children[0].textContent, /Shipped values elsewhere \(2\)/);
+  assert.equal(panel.children[1].hidden, true, "the evidence starts collapsed beside the input");
+  panel.children[0].click();
+  assert.equal(panel.children[1].hidden, false);
+  assert.match(panel.children[1].textContent, /2\.40Techlog documentation/);
+  assert.match(panel.children[1].textContent, /T1-prime · Techlog petrophysics-vsh-from-neutrondensity\.html/);
+  assert.match(panel.children[1].textContent, /2\.45Techlog template/);
+  assert.match(panel.children[1].textContent, /T3 · Techlog C2_method_defaults\.json RHOB_shale/);
+
+  const unavailable = buildParamSources("shale_density", async () => {
+    throw new Error("synthetic source registry outage");
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(unavailable.hidden, false);
+  assert.match(unavailable.textContent, /Source comparison unavailable/);
+  assert.match(unavailable.textContent, /not thereby adjudicated/);
+});
