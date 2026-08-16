@@ -441,16 +441,16 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 ## SB-POR-028 - Hard bounds are cited parameters and binding is flagged
 
-- **Specified contract:** every shale-reduction/crossplot clamp endpoint is a cited, visible parameter and a binding clamp raises the POR flag/log; T12 covers both bound and unbound samples.
-- **Current implementation:** `phi_dn` hard-clamps RHOB and NPHI to four literals before arithmetic. The values are not visible/source-bound parameters and no POR clamp flag or run message is emitted.
-- **Qualifying acceptance tests:** none for the specified parameter/flag contract. Test class `CHARACTERIZATION`: `phi_dn_crossplot_shale_reduction_and_branches` exercises the current bounded implementation without proving cited custody or observable binding.
-- **Supporting tests:** the characterization passed exactly once.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** current literals are not promoted as citations; only chapter-sourced endpoints may become parameters.
-- **History/reachability:** hard-coded bounds are integrated; no source topic or POR flag was found.
+- **Specified contract:** the shale-reduction clamps hard-coded in `phi_dn` (`[1.95, 3.0]` g/cc and `[-0.015, 0.40]` v/v) **MUST** become cited parameters, and hitting them **MUST** raise SB-POR-003's flag.
+- **Current implementation:** `phi_dn` hard-clamps RHOB and NPHI to four literals before arithmetic. The values are not visible or source-bound parameters and no POR clamp flag or run message is emitted.
+- **Qualifying acceptance tests:** none for the specified parameter-and-flag contract. Test class `CHARACTERIZATION`.
+- **Supporting tests:** `phi_dn_crossplot_shale_reduction_and_branches` exercises the current bounded implementation and passed exactly once; it proves neither cited custody nor observable binding.
+- **Manual evidence:** porosity 0/48.
+- **Source/parameter boundary:** the values **are** cited, contrary to this row's earlier reading. `11_porosity.md` §5 lines 1231-1232 carry both clamps at tier **T1**: neutron shale-reduced clamp `[-0.015, 0.40]` chart mode and `[-0.015, 1.0]` Bateman-Konen mode; density shale-reduced clamp `[1.950, 3.000]` chart mode and **none** in Bateman-Konen mode; both attributed to Geolog `phi_dn.lls` and `phi_dnbk.lls`. The parameter half is therefore source-ready and nothing needs inventing. Note the clamps are **mode-dependent**, so the promotion must be mode-aware rather than four flat constants - which ties this row to SB-POR-021, whose 1977 primary source was banked this session.
+- **History/reachability:** the clamps are live and fire silently today; §8 lists them among the clamps that currently bind with no flag.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-003 and SB-POR-007.
-- **Next action:** expose only the cited endpoints with source/tier, emit binding state, and test just-inside versus just-outside samples from both input axes.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY`, narrowed. The register previously read *depends on SB-POR-003 and SB-POR-007*; SB-POR-007 is now `DONE` and the values are cited, so only the second clause is still blocked. Hitting a clamp must raise SB-POR-003's flag, and SB-POR-003 is itself `BLOCKED-DECISION` on DEC-039, which has not selected the singular POR branch-and-limit representation, its vocabulary, its combination rule or its unknown-code behaviour. There is no stream to raise a flag on. Implementing only the parameter half and reporting `DONE` would be evidence inflation, since the chapter states one MUST with two clauses.
+- **Next action:** settle DEC-039 so the branch-and-limit stream exists; then promote the four literals to cited, mode-aware parameters through the SB-POR-007 source-and-tier machinery, emit binding state on that stream, and test just-inside versus just-outside samples on both input axes.
 
 ## SB-POR-029 - Apparent hydrocarbon electron density
 
