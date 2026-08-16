@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `161 / 222 handled — 119 DONE, 42 BLOCKED, 61 remaining`
+- Gate 2 requirement progress: `162 / 222 handled — 120 DONE, 42 BLOCKED, 60 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: G2-T08 / SB-POR-003 - `BLOCKED-DECISION/BOUNDARY`; the chapter requires one per-sample branch-and-limit stream but does not define its complete stable vocabulary, simultaneous-limit encoding or unknown-code behavior. Existing runtime choices are binary flags or categorical `f32` classes, and SSC/SSPW branch sites remain inside protected `ssc.rs`.
+- Active increment: G2-T08 / SB-POR-004 - `DONE`; the generated registry now carries a canonical POR family, D-N comparison defaults no longer collide with density defaults, and every resolved POR output persists its full method/convention contract while explicit same-name replacement remains append-only and restorable.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: no SB-POR-003 test was added because neither the binary flag path nor the saturation class-code path defines the required POR branch-plus-limit semantics. Existing flag polarity, method-code and POR-envelope tests remain unchanged. DEC-039 records the missing wire/schema decision and its dependency on DEC-038 plus the protected-file boundary. TypeScript and cargo check are green; the fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: `porosity_methods_keep_distinct_default_names_and_each_curve_carries_family_method_and_convention_while_explicit_replacement_stays_versioned_and_restorable` was witnessed RED on the missing family, then GREEN. It pins distinct density/D-N defaults, imported-versus-computed identity, resolved per-output custody, explicit replacement, version append and restore. TypeScript and cargo check are green; the fresh full gate is `1039 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `42 requirements are explicitly BLOCKED and 61 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T08 with SB-POR-004: implement typed POR quantity/method/convention custody and collision-safe user-resolved names without editing db.rs or weakening versioned replacement/undo.`
+- Open blockers: `42 requirements are explicitly BLOCKED and 60 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T08 with SB-POR-006, the first unhandled row of the immutable 222-row Gate 2 program. SB-POR-005 is release_disposition DEFERRED, as-built ABSENT and outside the approved manifest, so it is not Gate 2 work and naming it here would have widened the program.`
 
 ## Gate dashboard
 

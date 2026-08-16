@@ -1347,9 +1347,14 @@ mod tests {
         }
 
         let conn = db.lock().unwrap();
-        // vsh_gr → VSH, phi_dn → PHIE, sw_indo → SWE all present and finite.
+        // vsh_gr → VSH, phi_dn → collision-safe PHIE_DN_LIM, sw_indo → SWE all present and finite.
         assert!(finite(&conn, &well, "VSH") > 0);
-        assert!(finite(&conn, &well, "PHIE") > 0);
+        assert!(finite(&conn, &well, "PHIE_DN_LIM") > 0);
+        assert_eq!(
+            finite(&conn, &well, "PHIE"),
+            0,
+            "a D-N-only chain must not recreate the shared PHIE collision"
+        );
         assert!(finite(&conn, &well, "SWE") > 0);
         // SB-CLY-043: the chain's pre-created SELF set is the producer record seen by later
         // steps, so it must carry the VSH identity plus each typed consumer's received quantity.

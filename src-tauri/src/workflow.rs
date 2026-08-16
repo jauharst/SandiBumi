@@ -405,6 +405,7 @@ pub(crate) const MASK_PROVENANCE_APPLIED: &str = "APPLIED";
 pub(crate) const FLAG_KIND_PROVENANCE_PREFIX: &str = "FLAG_KIND.";
 pub(crate) const OUTPUT_QUANTITY_PROVENANCE_PREFIX: &str = "OUTPUT_QUANTITY.";
 pub(crate) const INPUT_QUANTITY_PROVENANCE_PREFIX: &str = "INPUT_QUANTITY.";
+pub(crate) const POROSITY_OUTPUT_PROVENANCE_PREFIX: &str = "POROSITY_OUTPUT.";
 pub(crate) const SMOOTHING_POLICY_PROVENANCE_KEY: &str = "SMOOTHING_POLICY";
 
 pub(crate) fn mask_provenance(opts: &HashMap<String, String>) -> serde_json::Value {
@@ -558,6 +559,32 @@ pub(crate) fn resolved_shale_clay_output_names(
                 .find(|arg| arg.name == declared)
                 .and_then(|arg| arg.output_shale_clay_quantity)?;
             Some((format!("{prefix}{name}"), quantity))
+        })
+        .collect())
+}
+
+/// Resolve producer-declared POR family, method and volume convention through the same output
+/// rename and prefix transforms as the write. A mutable mnemonic is not scientific provenance:
+/// the persisted curve-specific record is what distinguishes equal-looking PHIT/PHIE quantities.
+pub(crate) fn resolved_porosity_output_names(
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+) -> Result<Vec<(String, modules::PorosityOutputContract)>, String> {
+    let prefix = opts
+        .get(OUT_PREFIX_OPT)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_uppercase)
+        .unwrap_or_default();
+    Ok(resolve_output_names(spec, opts)?
+        .into_iter()
+        .filter_map(|(declared, name)| {
+            let contract = spec
+                .args
+                .iter()
+                .find(|arg| arg.name == declared)
+                .and_then(|arg| arg.porosity_output.clone())?;
+            Some((format!("{prefix}{name}"), contract))
         })
         .collect())
 }
@@ -881,6 +908,28 @@ fn complete_module_log_spec(
             value: serde_json::to_value(quantity)
                 .map_err(|error| format!("cannot serialize output quantity for {curve}: {error}"))?,
             source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+            resolution: None,
+            manifest_version: None,
+            decision: None,
+        });
+    }
+    for (curve, contract) in resolved_porosity_output_names(spec, opts)? {
+        if !output_names.iter().any(|output| output == &curve) {
+            continue;
+        }
+        let name = format!("{POROSITY_OUTPUT_PROVENANCE_PREFIX}{curve}");
+        if parameters.iter().any(|parameter| parameter.name == name) {
+            return Err(format!(
+                "module '{}' declares an argument that collides with reserved porosity-output provenance key '{}'",
+                spec.name, name
+            ));
+        }
+        parameters.push(equations::AncestryParameter {
+            name,
+            value: serde_json::to_value(contract).map_err(|error| {
+                format!("cannot serialize porosity output custody for {curve}: {error}")
+            })?,
+            source: "docs/PRD_v2/11_porosity.md SB-POR-004 and F16; DEC-013".into(),
             resolution: None,
             manifest_version: None,
             decision: None,
@@ -1238,6 +1287,48 @@ fn resolved_log_args(spec: &modules::ModuleSpec, log_inputs: &HashMap<String, St
         .collect()
 }
 
+fn automatic_input_aliases(argument: &modules::ArgSpec) -> Vec<String> {
+    if !argument.preferred_aliases.is_empty() {
+        return argument.preferred_aliases.clone();
+    }
+    let mut aliases = vec![argument.default.clone()];
+    match argument.default.trim().to_uppercase().as_str() {
+        "PHIE" => aliases.push(modules::PHIE_DN_LIMITED_DEFAULT.into()),
+        "PHIT" => aliases.push(modules::PHIT_DN_LIMITED_DEFAULT.into()),
+        _ => {}
+    }
+    aliases
+}
+
+fn first_available_input_alias(
+    conn: &Connection,
+    well_id: &str,
+    argument: &str,
+    aliases: &[String],
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+    available_in_run: &HashSet<String>,
+) -> Result<Option<String>, String> {
+    for alias in aliases {
+        if available_in_run.contains(alias) {
+            return Ok(Some(alias.clone()));
+        }
+        if equations::try_resolve_ancestry_input(
+            conn,
+            well_id,
+            argument,
+            alias,
+            input_set,
+            own_set_id,
+        )?
+        .is_some()
+        {
+            return Ok(Some(alias.clone()));
+        }
+    }
+    Ok(None)
+}
+
 /// Resolve automatic input aliases against one well while preserving every explicit interpreter
 /// selection. The ordered aliases are a manifest contract; availability is checked through the
 /// same ancestry resolver that records the winning curve, so selection and provenance cannot
@@ -1258,27 +1349,22 @@ pub(crate) fn resolved_log_args_for_well(
             continue;
         }
 
-        let mut selected = None;
-        for alias in &argument.preferred_aliases {
-            if available_in_run.contains(alias) {
-                selected = Some(alias.clone());
-                break;
-            }
-            match equations::try_resolve_ancestry_input(
-                conn,
-                well_id,
-                &argument.name,
-                alias,
-                input_set,
-                own_set_id,
-            )? {
-                Some(_) => {
-                    selected = Some(alias.clone());
-                    break;
-                }
-                None => {}
-            }
-        }
+        // SB-POR-004 / DEC-013: PHIE and PHIT remain the established density-facing canonical
+        // identities, while the D-N comparison producer now has collision-safe physical defaults.
+        // Downstream logical roles may follow that exact method-specific curve only when the
+        // canonical name is absent. This is deliberately a closed two-name list rather than a
+        // family scan: silently electing among several porosity methods would undo the provenance
+        // contract this alias protects. Explicit interpreter selections still win above.
+        let automatic_aliases = automatic_input_aliases(argument);
+        let selected = first_available_input_alias(
+            conn,
+            well_id,
+            &argument.name,
+            &automatic_aliases,
+            input_set,
+            own_set_id,
+            available_in_run,
+        )?;
         resolved.push((
             argument.name.clone(),
             selected.unwrap_or_else(|| {
@@ -2624,7 +2710,6 @@ fn floored_phie(raw: &[f32]) -> Vec<f32> {
 /// Computes the pay summary per well per zone and writes FLAG_SAND / FLAG_RESERVOIR /
 /// FLAG_PAY curves. Wells without zones get a single whole-well "ALL" zone.
 pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Result<Vec<PaySummaryRow>, String> {
-    let curve_names: Vec<String> = vec!["VSH".into(), "PHIE".into(), "SWE".into(), "PERM".into()];
     let mut all_rows = Vec::new();
 
     for well_id in &req.well_ids {
@@ -2636,6 +2721,25 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| well_id.clone());
+        let phie_candidates = vec![
+            "PHIE".to_string(),
+            modules::PHIE_DN_LIMITED_DEFAULT.to_string(),
+        ];
+        let phie_curve = match first_available_input_alias(
+            &conn,
+            well_id,
+            "PHIE",
+            &phie_candidates,
+            req.input_set.as_deref(),
+            None,
+            &HashSet::new(),
+        ) {
+            Ok(Some(curve)) => curve,
+            Ok(None) => "PHIE".into(),
+            Err(_) => continue,
+        };
+        let curve_names: Vec<String> =
+            vec!["VSH".into(), phie_curve.clone(), "SWE".into(), "PERM".into()];
 
         // Per-well isolation: a well with no curves — or a transient fetch/zone read error — is
         // skipped, keeping every other well's rows, rather than `?`-aborting the whole batch (a
@@ -2666,7 +2770,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
 
         let n = depth.len();
         let vsh = &columns["VSH"];
-        let phie_col = floored_phie(&columns["PHIE"]);
+        let phie_col = floored_phie(&columns[&phie_curve]);
         let phie = &phie_col;
         let swe = &columns["SWE"];
         let perm = &columns["PERM"];
@@ -2731,7 +2835,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     "pay-summary write refused: explicit run custody is required".to_string()
                 })?;
                 let mut ancestry_curves =
-                    vec!["VSH".to_string(), "PHIE".to_string(), "SWE".to_string()];
+                    vec!["VSH".to_string(), phie_curve.clone(), "SWE".to_string()];
                 if req.perm_min.is_some() && perm.iter().any(|value| value.is_finite()) {
                     ancestry_curves.push("PERM".into());
                 }
@@ -6307,6 +6411,351 @@ mod tests {
 
         // And the control: an ordinary rename is accepted, so none of the above is a blanket ban.
         assert_eq!(with(&[("OUT_CURVE", "gr_ed")]).unwrap()[0].1, "GR_ED");
+    }
+
+    /// CORRECTNESS - SB-POR-004 / SB-POR-T31 and SB-POR-T32. The required distinct
+    /// method results, POR family and imported-versus-computed provenance distinction come from
+    /// `docs/PRD_v2/11_porosity.md` sections 3.4, 4 and 6.2; intentional replacement plus
+    /// append-only restore is DEC-013. The input sample and every explicit endpoint are cited in
+    /// that chapter: RHOB 2.30, NPHI 0.25 and VSH 0.20 are its existing density/D-N witness;
+    /// RHO_MA 2.65, RHO_FL/RHO_W 1.0 and PHIE_MAX 0.30 are section 5 defaults; RHO_SH 2.50,
+    /// RHO_DSH 2.78 and NPHI_SH 0.40 are explicitly attested fixture choices, not defaults.
+    #[test]
+    fn porosity_methods_keep_distinct_default_names_and_each_curve_carries_family_method_and_convention_while_explicit_replacement_stays_versioned_and_restorable(
+    ) {
+        fn current_values(conn: &Connection, well_id: &str, curve: &str) -> Vec<f32> {
+            let mut statement = conn
+                .prepare(
+                    "SELECT value FROM computed_curves
+                     WHERE well_id = ?1 AND upper(curve_name) = upper(?2)
+                     ORDER BY depth",
+                )
+                .unwrap();
+            statement
+                .query_map(duckdb::params![well_id, curve], |row| row.get(0))
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap()
+        }
+
+        fn porosity_contract(
+            conn: &Connection,
+            well_id: &str,
+            curve: &str,
+        ) -> modules::PorosityOutputContract {
+            let ancestry = equations::curve_ancestry(conn, well_id, curve)
+                .unwrap_or_else(|error| panic!("{curve} has no complete ancestry: {error}"));
+            let parameter = ancestry
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == format!("POROSITY_OUTPUT.{curve}"))
+                .unwrap_or_else(|| panic!("{curve} has no per-output POR custody: {ancestry:?}"));
+            serde_json::from_value(parameter.value.clone())
+                .unwrap_or_else(|error| panic!("{curve} POR custody is invalid: {error}"))
+        }
+
+        let families = ["PHIE", "PHIT", "PHIA", "DPHI"]
+            .map(|mnemonic| {
+                (
+                    mnemonic,
+                    crate::curves::family_for(mnemonic).map(|family| family.family),
+                )
+            });
+        assert!(
+            families
+                .iter()
+                .all(|(_, family)| *family == Some(modules::POROSITY_FAMILY_ID)),
+            "the chapter's four required mnemonic witnesses must all resolve to POR: {families:?}"
+        );
+
+        let density_spec = modules::list_modules()
+            .into_iter()
+            .find(|module| module.name == "phi_den")
+            .unwrap();
+        let density_defaults = resolve_output_names(&density_spec, &HashMap::new()).unwrap();
+        assert_eq!(
+            density_defaults,
+            vec![
+                ("PHIE_DEN".into(), "PHIE_DEN".into()),
+                ("PHIT_DEN".into(), "PHIT_DEN".into()),
+                ("PHIE".into(), "PHIE".into()),
+                ("PHIT".into(), "PHIT".into()),
+            ],
+            "density retains the established canonical current outputs"
+        );
+        let density_neutron_spec = modules::list_modules()
+            .into_iter()
+            .find(|module| module.name == "phi_dn")
+            .unwrap();
+        let density_neutron_defaults =
+            resolve_output_names(&density_neutron_spec, &HashMap::new()).unwrap();
+        assert_eq!(
+            density_neutron_defaults,
+            vec![
+                ("PHIE_DN".into(), "PHIE_DN".into()),
+                ("PHIT_DN".into(), "PHIT_DN".into()),
+                ("PHIE".into(), "PHIE_DN_LIM".into()),
+                ("PHIT".into(), "PHIT_DN_LIM".into()),
+            ],
+            "density-neutron limited outputs need different method-specific defaults"
+        );
+        let resolved_with_user_controls = resolved_porosity_output_names(
+            &density_neutron_spec,
+            &HashMap::from([
+                (format!("{OUT_NAME_PREFIX}PHIE"), "CURRENT_EFFECTIVE".into()),
+                (OUT_PREFIX_OPT.into(), "reviewed_".into()),
+            ]),
+        )
+        .unwrap();
+        assert!(
+            resolved_with_user_controls.iter().any(|(curve, contract)| {
+                curve == "REVIEWED_CURRENT_EFFECTIVE"
+                    && contract.family == modules::POROSITY_FAMILY_ID
+                    && contract.method == "DENSITY_NEUTRON_COMPARISON"
+            }),
+            "a user rename and universal prefix must transform the custody key exactly as they transform the write"
+        );
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let sw_indo_spec = modules::list_modules()
+            .into_iter()
+            .find(|module| module.name == "sw_indo")
+            .unwrap();
+        let only_dn_effective = HashSet::from(["PHIE_DN_LIM".to_string()]);
+        let effective_from_dn = resolved_log_args_for_well(
+            &conn,
+            "POR-ROLE-RESOLUTION",
+            &sw_indo_spec,
+            &HashMap::new(),
+            None,
+            None,
+            &only_dn_effective,
+        )
+        .unwrap();
+        assert_eq!(
+            effective_from_dn
+                .iter()
+                .find(|(argument, _)| argument == "PHIE")
+                .map(|(_, curve)| curve.as_str()),
+            Some("PHIE_DN_LIM"),
+            "a downstream logical PHIE role must follow the sole D-N limited output"
+        );
+        let canonical_and_dn_effective =
+            HashSet::from(["PHIE".to_string(), "PHIE_DN_LIM".to_string()]);
+        let effective_from_canonical = resolved_log_args_for_well(
+            &conn,
+            "POR-ROLE-RESOLUTION",
+            &sw_indo_spec,
+            &HashMap::new(),
+            None,
+            None,
+            &canonical_and_dn_effective,
+        )
+        .unwrap();
+        assert_eq!(
+            effective_from_canonical
+                .iter()
+                .find(|(argument, _)| argument == "PHIE")
+                .map(|(_, curve)| curve.as_str()),
+            Some("PHIE"),
+            "the established canonical density result must win when both limited methods exist"
+        );
+        let sw_arch_spec = modules::list_modules()
+            .into_iter()
+            .find(|module| module.name == "sw_arch")
+            .unwrap();
+        let only_dn_total = HashSet::from(["PHIT_DN_LIM".to_string()]);
+        let total_from_dn = resolved_log_args_for_well(
+            &conn,
+            "POR-ROLE-RESOLUTION",
+            &sw_arch_spec,
+            &HashMap::new(),
+            None,
+            None,
+            &only_dn_total,
+        )
+        .unwrap();
+        assert_eq!(
+            total_from_dn
+                .iter()
+                .find(|(argument, _)| argument == "PHIT")
+                .map(|(_, curve)| curve.as_str()),
+            Some("PHIT_DN_LIM"),
+            "the same deterministic role resolution must cover total porosity"
+        );
+        let well_uuid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_uuid, "POROSITY-CUSTODY", None, None, None).unwrap();
+        let well_id = well_uuid.to_string();
+        let depth = vec![1000.0_f32, 1000.5];
+        let missing = vec![f32::NAN; depth.len()];
+        db::insert_standard_curves(
+            &conn,
+            well_uuid,
+            depth.clone(),
+            missing.clone(),
+            missing.clone(),
+            vec![0.25, 0.25],
+            vec![2.30, 2.30],
+            missing.clone(),
+            missing,
+        )
+        .unwrap();
+        let vsh = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "RAW",
+            "VSH",
+            Some("v/v"),
+            Some("VSH"),
+            Some("SB-POR-004 typed input fixture"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &vsh, &depth, &[0.20, 0.20]).unwrap();
+        let imported_phie = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "DELIVERED",
+            "PHIE",
+            Some("v/v"),
+            Some(modules::POROSITY_FAMILY_ID),
+            Some("imported porosity fixture"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &imported_phie, &depth, &[0.18, 0.19]).unwrap();
+
+        let params = HashMap::from([
+            ("RHO_MA".into(), 2.65),
+            ("RHO_SH".into(), 2.50),
+            ("RHO_FL".into(), 1.0),
+            ("RHO_DSH".into(), 2.78),
+            ("RHO_W".into(), 1.0),
+            ("NPHI_SH".into(), 0.40),
+            ("PHIE_MAX".into(), 0.30),
+        ]);
+        let dbm = Mutex::new(conn);
+        let run = |module: &str, output_set: &str, explicit_current: bool| {
+            let mut opts = HashMap::new();
+            if explicit_current {
+                opts.insert(format!("{OUT_NAME_PREFIX}PHIE"), "PHIE".into());
+                opts.insert(format!("{OUT_NAME_PREFIX}PHIT"), "PHIT".into());
+            }
+            let result = run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: module.into(),
+                    well_ids: vec![well_id.clone()],
+                    log_inputs: HashMap::new(),
+                    params: params.clone(),
+                    opts,
+                    output_set: Some(output_set.into()),
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            );
+            assert!(result[0].error.is_none(), "{module} failed: {:?}", result[0].error);
+            result[0].output_curves.clone()
+        };
+
+        let density_names = run("phi_den", "POR_DENSITY", false);
+        let density_neutron_names = run("phi_dn", "POR_DENSITY_NEUTRON", false);
+        assert!(density_names.contains(&"PHIE".into()));
+        assert!(density_neutron_names.contains(&"PHIE_DN_LIM".into()));
+        let conn = dbm.lock().unwrap();
+        assert_eq!(current_values(&conn, &well_id, "PHIE").len(), depth.len());
+        assert_eq!(current_values(&conn, &well_id, "PHIE_DN_LIM").len(), depth.len());
+        let density_contract = porosity_contract(&conn, &well_id, "PHIE");
+        let density_neutron_contract =
+            porosity_contract(&conn, &well_id, "PHIE_DN_LIM");
+        assert_eq!(density_contract.family, modules::POROSITY_FAMILY_ID);
+        assert_eq!(density_contract.method, "DENSITY");
+        assert_eq!(
+            density_contract.convention,
+            "DENSITY_SHALE_SUBTRACTIVE_WITH_TOTAL_REBUILD"
+        );
+        assert_eq!(density_neutron_contract.family, modules::POROSITY_FAMILY_ID);
+        assert_eq!(density_neutron_contract.method, "DENSITY_NEUTRON_COMPARISON");
+        assert_eq!(
+            density_neutron_contract.convention,
+            "SHALE_REDUCED_COMPARISON_WITH_TOTAL_REBUILD"
+        );
+        let imported_identity: (String, String) = conn
+            .query_row(
+                "SELECT family, source FROM curve_meta WHERE curve_id = ?1",
+                duckdb::params![imported_phie],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(imported_identity.0, modules::POROSITY_FAMILY_ID);
+        assert_eq!(imported_identity.1, "imported porosity fixture");
+        assert!(
+            equations::curve_ancestry(&conn, &well_id, "PHIE").is_ok(),
+            "the computed curve must carry complete run ancestry independently of imported metadata"
+        );
+        drop(conn);
+
+        run("phi_den", "POR_CURRENT", true);
+        let (density_set_id, density_current) = {
+            let conn = dbm.lock().unwrap();
+            let set_id: String = conn
+                .query_row(
+                    "SELECT CAST(set_id AS VARCHAR) FROM log_sets
+                     WHERE well_id = ?1 AND set_name = 'POR_CURRENT' AND version = 1",
+                    duckdb::params![well_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(porosity_contract(&conn, &well_id, "PHIE").method, "DENSITY");
+            (set_id, current_values(&conn, &well_id, "PHIE"))
+        };
+
+        run("phi_dn", "POR_CURRENT", true);
+        let density_neutron_current = {
+            let conn = dbm.lock().unwrap();
+            assert_eq!(
+                porosity_contract(&conn, &well_id, "PHIE").method,
+                "DENSITY_NEUTRON_COMPARISON"
+            );
+            let versions: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM log_sets
+                     WHERE well_id = ?1 AND set_name = 'POR_CURRENT'",
+                    duckdb::params![well_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(versions, 2, "explicit replacement must append a second version");
+            current_values(&conn, &well_id, "PHIE")
+        };
+        assert_ne!(
+            density_current, density_neutron_current,
+            "the replacement control must exercise two observably different results"
+        );
+
+        {
+            let conn = dbm.lock().unwrap();
+            let restored = equations::restore_log_set(&conn, &density_set_id).unwrap();
+            assert_eq!(restored.new_version, 3);
+            assert_eq!(current_values(&conn, &well_id, "PHIE"), density_current);
+            assert_eq!(porosity_contract(&conn, &well_id, "PHIE").method, "DENSITY");
+            let archived_versions: i64 = conn
+                .query_row(
+                    "SELECT count(DISTINCT a.set_id)
+                     FROM computed_curves_archive a
+                     JOIN log_sets s ON s.set_id = a.set_id
+                     WHERE a.well_id = ?1 AND upper(a.curve_name) = 'PHIE'
+                       AND s.set_name = 'POR_CURRENT'",
+                    duckdb::params![well_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                archived_versions, 3,
+                "replacement and restore must retain all three append-only PHIE versions"
+            );
+        }
     }
 
     /// CORRECTNESS — SB-ENV-041 / SB-ENV-T49. The four required declarations come from

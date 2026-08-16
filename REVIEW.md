@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-004: typed POR custody and collision-safe replacement
+
+- [ ] **Automated correctness:** the SB-POR-004/T31/T32 proof was witnessed RED when `PHIE`,
+      `PHIT`, `PHIA` and `DPHI` had no quantity family, then GREEN after the generated unit registry
+      gained one canonical `POR` family. Density keeps the pilot-facing `PHIE`/`PHIT` defaults while
+      D-N comparison now defaults to `PHIE_DN_LIM`/`PHIT_DN_LIM`; sequential runs preserve both
+      pairs. A downstream logical PHIE/PHIT input and pay summary prefer the canonical curve when
+      present, otherwise follow the exact D-N limited name; explicit selections still win and no
+      generic family scan elects a method. Every emitted POR curve persists its resolved curve name, family, method, convention,
+      output role and limiting/naming contract. The same test proves an imported `PHIE` retains
+      source identity, an explicit D-N rename to `PHIE`/`PHIT` creates version 2 rather than a silent
+      overwrite, and restore appends version 3 with the density contract and values recovered. The
+      initial full gate exposed four old-`PHIE` couplings; the shared resolver/pay seam was repaired,
+      three stale physical-name assertions were updated without loosening their determinism/chain
+      subjects, and the fresh full gate is `1039 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Visual:** open Density Porosity and Density-Neutron Porosity together. Confirm the output
+      previews show `PHIE`/`PHIT` for density and `PHIE_DN_LIM`/`PHIT_DN_LIM` for D-N, then inspect
+      the resulting catalog/history metadata. The four curves must remain separately selectable and
+      their method/convention labels must not collapse into one generic “porosity” identity.
+- [ ] **Manual:** run both modules with their defaults on one sanitized project and verify all four
+      limited outputs survive. Then explicitly rename D-N outputs to `PHIE`/`PHIT`, confirm the UI
+      presents replacement rather than a parallel default, inspect both archived versions, restore
+      the density version and confirm the restored values and per-curve contract are visible.
+- [ ] **Field and harsh critique:** a `POR` family alone would still let two physically different
+      `PHIT` definitions masquerade as one curve, while provenance alone would still permit silent
+      current-name replacement. Both typed per-curve custody and collision-safe defaults are
+      required. This increment changes no porosity arithmetic and invents no parameter. No Visual,
+      Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-003: POR branch/limit stream blocked on typed encoding
 
 - [ ] **Decision dependency:** answer DEC-039 and DEC-038. Choose the exact singular per-sample

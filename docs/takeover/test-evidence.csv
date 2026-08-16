@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-POR-004","CORRECTNESS","src-tauri/src/workflow.rs","porosity_methods_keep_distinct_default_names_and_each_curve_carries_family_method_and_convention_while_explicit_replacement_stays_versioned_and_restorable"
 "SB-POR-001","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy"
 "SB-CLY-054","CORRECTNESS","src-tauri/src/modules.rs","every_clay_quantity_is_unit_typed_and_named_conversions_preserve_bilinear_results_and_run_custody"
 "SB-CLY-054","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_converted_clay_default_shows_its_artefact_unit_named_conversion_and_canonical_value"

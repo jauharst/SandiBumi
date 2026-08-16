@@ -338,7 +338,7 @@ fn run_dbm016_child() {
         !result.curve_blobs.is_empty(),
         "the process proof cannot compare an empty output"
     );
-    for required in ["VSH", "PHIE", "SWE"] {
+    for required in ["VSH", "PHIE_DN_LIM", "SWE"] {
         assert!(
             result
                 .curve_blobs
@@ -444,7 +444,7 @@ fn a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blob
         !first.curve_blobs.is_empty(),
         "an empty output cannot prove determinism"
     );
-    for required in ["VSH", "PHIE", "SWE"] {
+    for required in ["VSH", "PHIE_DN_LIM", "SWE"] {
         assert!(
             first.curve_blobs.keys().any(|(_, curve)| curve == required),
             "the representative chain must actually write {required}"

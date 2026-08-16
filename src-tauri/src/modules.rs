@@ -233,6 +233,8 @@ pub enum ShaleClayQuantity {
 /// keeps those method-specific and source-bound so a density rule cannot silently become a sonic
 /// rule merely because both outputs carry porosity.
 pub const POROSITY_FAMILY_ID: &str = "POR";
+pub(crate) const PHIE_DN_LIMITED_DEFAULT: &str = "PHIE_DN_LIM";
+pub(crate) const PHIT_DN_LIMITED_DEFAULT: &str = "PHIT_DN_LIM";
 pub const POROSITY_LIMITING_CONTRACT: &str = "porosity_method_limit_policy_v1";
 pub const POROSITY_FLAG_CONTRACT: &str = "porosity_branch_limit_reason_v1";
 pub const POROSITY_OUTPUT_NAMING_CONTRACT: &str = "workflow_resolved_output_name_v1";
@@ -3177,8 +3179,18 @@ fn phi_dn_spec() -> ModuleSpec {
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIE_DN", "PHIE from density-neutron (unlimited)", "v/v"),
             log_out("PHIT_DN", "PHIT from density-neutron (unlimited)", "v/v"),
-            log_out("PHIE", "Limited effective porosity", "v/v"),
-            log_out("PHIT", "Limited total porosity", "v/v"),
+            log_out_as(
+                "PHIE",
+                PHIE_DN_LIMITED_DEFAULT,
+                "Limited effective porosity",
+                "v/v",
+            ),
+            log_out_as(
+                "PHIT",
+                PHIT_DN_LIMITED_DEFAULT,
+                "Limited total porosity",
+                "v/v",
+            ),
         ],
     }
 }
