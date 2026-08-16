@@ -2294,6 +2294,7 @@ mod tests {
                 swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
                 stats_only: true
             ,

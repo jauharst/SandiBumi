@@ -297,6 +297,7 @@ fn pipeline_field_full_run() {
         swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
         perm_min: None,
         enabled_unset: Vec::new(),
+        cutoff_use: Default::default(),
         skip_version: false,
         stats_only: false
     ,
@@ -527,6 +528,7 @@ fn pipeline_field_100well_stress() {
         &db,
         &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
         enabled_unset: Vec::new(),
+        cutoff_use: Default::default(),
             custody: Some(crate::workflow::test_run_custody()),
             frame: Default::default(),
             weighting: Default::default(),

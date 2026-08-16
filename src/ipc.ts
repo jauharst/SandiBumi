@@ -3021,6 +3021,21 @@ export interface CutoffSpecBound extends CutoffEntry {
  *  admit no value is refused by the backend rather than quietly booking zero net. */
 export type CutoffSpec = CutoffEntry | { min?: CutoffSpecBound; max?: CutoffSpecBound };
 
+/** SB-CUT-022. Which report tiers a cut-off is USED at.
+ *
+ *  An explicit flag per tier, never an inference. Geolog changed this trigger between two modules
+ *  of one product - one fires on the presence of the CURVE, the other on the presence of the
+ *  VALUE - and an inferred rule cannot be audited from a result, because the result does not
+ *  record what was inferred.
+ *
+ *  Omitting a slot takes the shipped ladder: VSH at all three tiers, PHIE at reservoir and pay,
+ *  SWE and PERM at pay only. Reservoir and pay share ONE value with independent flags. */
+export interface CutoffUse {
+  sand: boolean;
+  reservoir: boolean;
+  pay: boolean;
+}
+
 export interface PaySummaryRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
@@ -3056,6 +3071,9 @@ export interface PaySummaryRequest {
   stats_only?: boolean;
   /** Required for the explicit flag-writing run; read-only summaries omit it. */
   custody?: RunCustody | null;
+  /** SB-CUT-022. Which report tiers each cutoff is used at, keyed by SLOT (`VSH`, `PHIE`, `SWE`,
+   *  `PERM`). Omit a slot for the shipped ladder; omit the whole map and nothing changes. */
+  cutoff_use?: Record<string, CutoffUse>;
 }
 
 export interface PaySummaryRow {

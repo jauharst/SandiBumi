@@ -2780,6 +2780,13 @@ pub struct PaySummaryRequest {
     /// argument that evaporates after the run.
     #[serde(default)]
     pub weighting: BTreeMap<String, AverageWeighting>,
+    /// SB-CUT-022. Which report tiers each cut-off is USED at, keyed by SLOT. An absent slot takes
+    /// [`default_cutoff_use`], which is the ladder that shipped before this existed — so a caller
+    /// who declares nothing sees no number move. Persisted with the rest of the run's
+    /// configuration, which is what makes the activation auditable FROM A RESULT rather than
+    /// re-derivable only by knowing which rule the engine happened to apply.
+    #[serde(default)]
+    pub cutoff_use: BTreeMap<String, CutoffUse>,
     /// SB-CUT-012. The depth frame to summate in. Defaults to MD, which is the only frame
     /// SandiBumi can currently weight; any other is REFUSED rather than served MD numbers under
     /// a different label.
@@ -3387,6 +3394,91 @@ pub enum AverageWeighting {
 /// which input of the summation a curve fills — not the mnemonic it happens to be stored under.
 pub const AVERAGED_SLOTS: [&str; 3] = ["VSH", "PHIE", "SWE"];
 
+/// SB-CUT-022. Which report tiers a cut-off is USED at.
+///
+/// An explicit flag per tier, never an inference. F-17 is the reason: Geolog changed the activation
+/// trigger between two modules of ONE product — `Determin` fires on the presence of the *curve*,
+/// `determin_mc` on the presence of the *value*. Either rule is defensible; what is not defensible
+/// is that a result cannot say which one applied, because an inference leaves no record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CutoffUse {
+    pub sand: bool,
+    pub reservoir: bool,
+    pub pay: bool,
+}
+
+impl CutoffUse {
+    /// Whether this cut-off's value is applied at one tier.
+    fn at(&self, tier: &str) -> bool {
+        match tier {
+            "SAND" => self.sand,
+            "RESERVOIR" => self.reservoir,
+            _ => self.pay,
+        }
+    }
+}
+
+/// SB-CUT-022. The tiers a cut-off is used at when the caller declares nothing.
+///
+/// Cited, not chosen, and chosen to move no number: this is the ladder the engine already applied,
+/// stated as flags instead of as nesting. Net sand is clay-driven, net reservoir adds porosity and
+/// net pay adds saturation — T4 Bentley & Ringrose, `docs/PRD_v2/14_cutoffs-summation-mc.md:1296-1297`.
+/// **`SWE` is off at the reservoir tier**, which is F-25 `:494-495`: IP's `Sw Net Use` and
+/// `Sw Pay Use` are separate ordinals and Net Reservoir is described as porosity- and clay-driven.
+pub fn default_cutoff_use(slot: &str) -> CutoffUse {
+    match slot {
+        "VSH" => CutoffUse { sand: true, reservoir: true, pay: true },
+        "PHIE" => CutoffUse { sand: false, reservoir: true, pay: true },
+        // SWE and PERM: pay only.
+        _ => CutoffUse { sand: false, reservoir: false, pay: true },
+    }
+}
+
+/// SB-CUT-022. Resolve the tiers one cut-off is used at.
+///
+/// Takes a SLOT and the run's declaration — nothing else. It cannot see whether a curve exists or
+/// whether a value was supplied, which is what makes *never inferred from the presence of a curve
+/// or of a value* a property of the signature rather than of today's body.
+pub fn cutoff_use_for(declared: &BTreeMap<String, CutoffUse>, slot: &str) -> CutoffUse {
+    declared.get(slot).copied().unwrap_or_else(|| default_cutoff_use(slot))
+}
+
+/// SB-CUT-022. The four cut-offs and the tiers each is used at, resolved once per run.
+///
+/// **One value per property, read by every tier that uses it.** That is F-25's shape exactly: IP
+/// ships `Phi Cutoff` as a single ordinal *"for Pay and Reservoir report"* with `Phi Net Use` and
+/// `Phi Pay Use` as two independent ordinals beside it. Two values would be a different product
+/// and a different requirement — SB-CUT-024's, which owns arbitrary named tiers and their own
+/// cut-off sets, and which is outside this gate.
+/// Deliberately NOT `Default`: an all-false [`CutoffUse`] is a cut-off switched off everywhere,
+/// which is a real and occasionally wanted state but a catastrophic thing to arrive at by
+/// forgetting a field. Every construction names its four use declarations.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TierCutoffs {
+    pub(crate) vsh: Option<CutoffRange>,
+    pub(crate) phie: Option<CutoffRange>,
+    pub(crate) swe: Option<CutoffRange>,
+    pub(crate) perm: Option<CutoffRange>,
+    pub(crate) vsh_use: CutoffUse,
+    pub(crate) phie_use: CutoffUse,
+    pub(crate) swe_use: CutoffUse,
+    pub(crate) perm_use: CutoffUse,
+}
+
+impl TierCutoffs {
+    /// The cut-off applied to one property at one tier: its value where the tier uses it, and
+    /// `None` — which filters nothing — where the tier does not.
+    fn applied(&self, tier: &str, slot: &str) -> Option<CutoffRange> {
+        let (value, used) = match slot {
+            "VSH" => (self.vsh, self.vsh_use),
+            "PHIE" => (self.phie, self.phie_use),
+            "SWE" => (self.swe, self.swe_use),
+            _ => (self.perm, self.perm_use),
+        };
+        used.at(tier).then_some(value).flatten()
+    }
+}
+
 /// SB-CUT-009. The weighting applied when the caller declares nothing.
 ///
 /// Cited, not chosen. The φ-weighted saturation `Σ(Sw·φ·h)/Σ(φ·h)` is agreed by all three vendors
@@ -3587,6 +3679,18 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     let phie_min = cut(&req.phie_min, CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "the PHIE cut-off")?;
     let swe_max = cut(&req.swe_max, CutoffQuantity::VolumeFraction, CutoffSense::Maximum, "the SWE cut-off")?;
     let perm_min = cut(&req.perm_min, CutoffQuantity::Permeability, CutoffSense::Minimum, "the PERM cut-off")?;
+    // SB-CUT-022: resolve which tiers each cut-off is used at, once per run and from the SLOT plus
+    // the caller's declaration only.
+    let tier_cuts = TierCutoffs {
+        vsh: vsh_max,
+        phie: phie_min,
+        swe: swe_max,
+        perm: perm_min,
+        vsh_use: cutoff_use_for(&req.cutoff_use, "VSH"),
+        phie_use: cutoff_use_for(&req.cutoff_use, "PHIE"),
+        swe_use: cutoff_use_for(&req.cutoff_use, "SWE"),
+        perm_use: cutoff_use_for(&req.cutoff_use, "PERM"),
+    };
     let unfiltered: Vec<String> = [
         ("VSH", vsh_max.is_none()),
         ("PHIE", phie_min.is_none()),
@@ -3693,8 +3797,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         let mut flag_pay = vec![f32::NAN; n];
         for i in 0..n {
             let (fs, fr, fp) = classify_sample(
-                vsh[i], phie[i], swe[i], perm[i],
-                vsh_max, phie_min, swe_max, perm_min, has_perm_cut,
+                vsh[i], phie[i], swe[i], perm[i], &tier_cuts, has_perm_cut,
             );
             flag_sand[i] = fs;
             flag_res[i] = fr;
@@ -3942,10 +4045,7 @@ fn classify_sample(
     phie: f32,
     swe: f32,
     perm: f32,
-    vsh_max: Option<CutoffRange>,
-    phie_min: Option<CutoffRange>,
-    swe_max: Option<CutoffRange>,
-    perm_min: Option<CutoffRange>,
+    cuts: &TierCutoffs,
     has_perm_cut: bool,
 ) -> (f32, f32, f32) {
     // SB-CUT-016: an ABSENT cut-off does not filter. The NaN cascade below is deliberately
@@ -3953,26 +4053,39 @@ fn classify_sample(
     // a cut-off, and making an unfiltered cut-off also stop requiring its curve would let a well
     // with no VSH book pay it never booked. The requirement says nothing about NaN handling, so
     // the rule stands.
+    //
+    // SB-CUT-022 leaves it alone for the same reason. The use flags govern whether a cut-off's
+    // VALUE is applied at a tier; they say nothing about whether the tier needs that curve to be
+    // judgeable at all. Those are two different questions and only one of them is a cut-off.
     if vsh.is_nan() {
         return (f32::NAN, f32::NAN, f32::NAN);
     }
-    let sand = vsh_max.map_or(true, |r| r.contains(vsh));
-    let fs = sand as u8 as f32;
+    // SB-CUT-022: each tier applies exactly the cut-offs DECLARED for it. The ladder that used to
+    // be expressed by nesting — reservoir built on sand, pay built on reservoir — is now expressed
+    // by the default flags, which say the same thing wherever nobody declares otherwise.
+    let judge = |tier: &str| {
+        let passes = |slot: &str, sample: f32| {
+            cuts.applied(tier, slot).map_or(true, |range| range.contains(sample))
+        };
+        passes("VSH", vsh)
+            && passes("PHIE", phie)
+            && passes("SWE", swe)
+            // A sample with no PERM value cannot demonstrate it passes the cutoff — missing PERM
+            // must FAIL rather than silently pass, at whichever tier the cut-off is applied.
+            && (!has_perm_cut
+                || cuts
+                    .applied(tier, "PERM")
+                    .map_or(true, |range| !perm.is_nan() && range.contains(perm)))
+    };
+    let fs = judge("SAND") as u8 as f32;
     if phie.is_nan() {
         return (fs, f32::NAN, f32::NAN);
     }
-    let res = sand && phie_min.map_or(true, |r| r.contains(phie));
-    let fr = res as u8 as f32;
+    let fr = judge("RESERVOIR") as u8 as f32;
     if swe.is_nan() {
         return (fs, fr, f32::NAN);
     }
-    let mut pay = res && swe_max.map_or(true, |r| r.contains(swe));
-    if has_perm_cut {
-        // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
-        // PERM must fail, not silently pass (same rule as run_pay_summary).
-        pay = pay && !perm.is_nan() && perm_min.unwrap().contains(perm);
-    }
-    (fs, fr, pay as u8 as f32)
+    (fs, fr, judge("PAY") as u8 as f32)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -4047,6 +4160,19 @@ fn compute_sweep(
             SweepProp::Phie => phie_min = Some(swept(true)),
             SweepProp::Swe => swe_max = Some(swept(false)),
         }
+        // SB-CUT-022: the sweep is a plot of one cut-off VALUE against a metric, so it carries the
+        // shipped tier declaration. A caller who wants a different one runs the summary, which is
+        // where a declaration belongs.
+        let swept_cuts = TierCutoffs {
+            vsh: vsh_max,
+            phie: phie_min,
+            swe: swe_max,
+            perm: perm_min,
+            vsh_use: default_cutoff_use("VSH"),
+            phie_use: default_cutoff_use("PHIE"),
+            swe_use: default_cutoff_use("SWE"),
+            perm_use: default_cutoff_use("PERM"),
+        };
 
         let mut net = 0.0f64;
         let mut hpv = 0.0f64;
@@ -4056,7 +4182,7 @@ fn compute_sweep(
                 continue;
             }
             let (_s, _r, pay) = classify_sample(
-                vsh[i], phie[i], swe[i], perm[i], vsh_max, phie_min, swe_max, perm_min, has_perm_cut,
+                vsh[i], phie[i], swe[i], perm[i], &swept_cuts, has_perm_cut,
             );
             if pay == 1.0 {
                 net += h;
@@ -4769,6 +4895,7 @@ mod tests {
                 swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 input_set: None,
                 skip_version: true,
                 stats_only: false,
@@ -5819,6 +5946,28 @@ mod tests {
     /// SB-CUT-020. The degenerate single-sided cut-offs these classification tests were written
     /// against, named rather than positional: `at_most` is a high bound, `at_least` a low one, both
     /// INCLUSIVE, which is exactly what a bare `>=` / `<=` cut-off has always meant.
+    /// SB-CUT-022. The shipped tier ladder over four cut-off values — what a run that declares
+    /// nothing applies. These classification tests predate the flags and must keep asserting the
+    /// same behaviour through them, which is the point: the ladder moved from nesting to
+    /// declaration without moving a number.
+    fn ladder(
+        vsh: Option<CutoffRange>,
+        phie: Option<CutoffRange>,
+        swe: Option<CutoffRange>,
+        perm: Option<CutoffRange>,
+    ) -> TierCutoffs {
+        TierCutoffs {
+            vsh,
+            phie,
+            swe,
+            perm,
+            vsh_use: default_cutoff_use("VSH"),
+            phie_use: default_cutoff_use("PHIE"),
+            swe_use: default_cutoff_use("SWE"),
+            perm_use: default_cutoff_use("PERM"),
+        }
+    }
+
     fn at_most(value: f64) -> Option<CutoffRange> {
         Some(CutoffRange {
             low: None,
@@ -5837,29 +5986,29 @@ mod tests {
     fn classify_sample_nan_propagation() {
         // Clean pay (no perm cut).
         assert_eq!(
-            classify_sample(0.2, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false),
+            classify_sample(0.2, 0.2, 0.3, f32::NAN, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), None), false),
             (1.0, 1.0, 1.0)
         );
         // Missing VSH → all excluded.
-        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false);
+        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), None), false);
         assert!(s.is_nan() && r.is_nan() && p.is_nan());
         // Missing PHIE → SAND set, RES/PAY excluded.
-        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false);
+        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), None), false);
         assert_eq!(s, 1.0);
         assert!(r.is_nan() && p.is_nan());
         // Missing SWE → SAND+RES set, PAY excluded.
-        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false);
+        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), None), false);
         assert_eq!((s, r), (1.0, 1.0));
         assert!(p.is_nan());
         // Fails the sand cutoff → SAND 0 cascades to RES/PAY 0.
         assert_eq!(
-            classify_sample(0.9, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false),
+            classify_sample(0.9, 0.2, 0.3, f32::NAN, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), None), false),
             (0.0, 0.0, 0.0)
         );
         // Active PERM cutoff: missing PERM fails; sufficient PERM passes.
-        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), at_least(1.0), true);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), at_least(1.0)), true);
         assert_eq!(p, 0.0);
-        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, at_most(0.5), at_least(0.1), at_most(0.6), at_least(1.0), true);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, &ladder(at_most(0.5), at_least(0.1), at_most(0.6), at_least(1.0)), true);
         assert_eq!(p, 1.0);
     }
 
@@ -5895,6 +6044,7 @@ mod tests {
             swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             skip_version: false,
             // Stats only: the point of the test is the returned rows, and this keeps it from
             // writing FLAG_* curves as a side effect.
@@ -5996,6 +6146,7 @@ mod tests {
                 swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -6112,6 +6263,7 @@ mod tests {
                 swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -6240,6 +6392,7 @@ mod tests {
                 swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -6335,6 +6488,7 @@ mod tests {
                     swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                     perm_min: None,
                     enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
                     skip_version: false,
                     stats_only: true,
                     custody: None,
@@ -6460,6 +6614,7 @@ mod tests {
                     swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                     perm_min: None,
                     enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
                     skip_version: false,
                     stats_only: true,
                     custody: None,
@@ -6579,7 +6734,7 @@ mod tests {
     ) {
         // First, the guard that makes the rest meaningful: these values clear every cut-off.
         assert_eq!(
-            classify_sample(0.80, 0.50, 0.85, f32::NAN, at_most(0.9), at_least(0.05), at_most(0.9), None, false),
+            classify_sample(0.80, 0.50, 0.85, f32::NAN, &ladder(at_most(0.9), at_least(0.05), at_most(0.9), None), false),
             (1.0, 1.0, 1.0),
             "the out-of-zone samples must pass SAND, RESERVOIR and PAY on their own merits - \
              otherwise their absence below proves a cut-off worked, not the zone rule"
@@ -6628,6 +6783,7 @@ mod tests {
                 swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
                 stats_only: true,
                 custody: None,
@@ -6785,6 +6941,7 @@ mod tests {
             swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             skip_version: false,
             stats_only: true,
             custody: None,
@@ -6883,6 +7040,7 @@ mod tests {
                 weighting: Default::default(),
                 frame: Default::default(),
                 enabled_unset: blank,
+                cutoff_use: Default::default(),
             }
         };
         let pay = |rows: &[PaySummaryRow]| -> PaySummaryRow {
@@ -7049,10 +7207,177 @@ mod tests {
                 weighting: Default::default(),
                 frame: Default::default(),
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
             },
         )
         .expect_err("a bare cut-off must stop the run");
         assert!(err.contains("no unit"), "{err}");
+    }
+
+    /// SB-CUT-022 (P1). `14_cutoffs-summation-mc.md:1254-1272` and F-25 at `:489-501` — each
+    /// cut-off **MUST** carry an explicit enable flag per report tier; activation **MUST NOT** be
+    /// inferred from the presence of a curve or of a value; and the reservoir and pay tiers
+    /// **MUST** share **one value** with **two independent use flags**.
+    ///
+    /// IP ships exactly that shape: `Phi Net Use`, `Phi Pay Use` and `Phi Cutoff`, the last
+    /// described as *"Porosity cutoff value for Pay and Reservoir report"* — one value, two flags.
+    /// The reason it must be a flag and not an inference is F-17: Geolog changed the activation
+    /// trigger between two modules of ONE product, `Determin` firing on the presence of the curve
+    /// and `determin_mc` on the presence of the value. An inferred rule cannot be audited from a
+    /// result, because the result does not record what was inferred.
+    #[test]
+    fn each_cutoff_declares_the_tiers_it_is_used_at_and_reservoir_and_pay_share_one_value_with_independent_flags(
+    ) {
+        // A — the shipped defaults ARE the ladder, declared rather than nested. Net sand is clay
+        // driven, net reservoir adds porosity, net pay adds saturation (T4 Bentley & Ringrose,
+        // `:1296-1297`), and Sw is OFF at the reservoir tier — F-25 `:494-495`, which is also
+        // SB-CUT-026's whole subject.
+        assert_eq!(
+            default_cutoff_use("VSH"),
+            CutoffUse { sand: true, reservoir: true, pay: true }
+        );
+        assert_eq!(
+            default_cutoff_use("PHIE"),
+            CutoffUse { sand: false, reservoir: true, pay: true }
+        );
+        assert_eq!(
+            default_cutoff_use("SWE"),
+            CutoffUse { sand: false, reservoir: false, pay: true },
+            "IP describes Net Reservoir as porosity- and clay-driven; Sw is off there by default"
+        );
+        assert_eq!(
+            default_cutoff_use("PERM"),
+            CutoffUse { sand: false, reservoir: false, pay: true }
+        );
+
+        // B — ONE VALUE, TWO FLAGS. The reservoir and pay tiers read the same `phie_min`; turning
+        // it off for one tier must not change the other, and must not change the value.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_weighting_well(&conn, "SANDI-TIER-1", "PHIE");
+        let dbm = Mutex::new(conn);
+        let run = |use_at: Vec<(&str, CutoffUse)>| {
+            let rows = run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: None,
+                    phie_min: Some(
+                        CutoffEntry { value: 0.20, unit: "v/v".into() }.into(),
+                    ),
+                    swe_max: None,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting: Default::default(),
+                    frame: Default::default(),
+                    enabled_unset: Vec::new(),
+                    cutoff_use: use_at
+                        .into_iter()
+                        .map(|(slot, use_at)| (slot.to_string(), use_at))
+                        .collect(),
+                },
+            )
+            .expect("the run itself is valid");
+            let net = |flag: &str| {
+                rows.iter()
+                    .filter(|row| row.flag == flag)
+                    .map(|row| row.net as f64)
+                    .sum::<f64>()
+            };
+            (net("RESERVOIR"), net("PAY"))
+        };
+
+        // The fixture's PHIE is 0.30 over its shallow half and 0.10 over its deep half, so a 0.20
+        // cut-off is a real filter: with it on, half the footage books.
+        let (res_both, pay_both) = run(vec![]);
+        assert!(res_both > 0.0 && pay_both > 0.0, "the default run books something");
+
+        // Off at RESERVOIR only. Pay must not move — that is what INDEPENDENT means.
+        let (res_off, pay_off) = run(vec![(
+            "PHIE",
+            CutoffUse { sand: false, reservoir: false, pay: true },
+        )]);
+        assert!(
+            res_off > res_both,
+            "with the porosity cut-off disabled at the reservoir tier that tier must book MORE \
+             footage: {res_off} against {res_both}"
+        );
+        assert_eq!(
+            pay_off, pay_both,
+            "and the pay tier must not move — one value, two independent flags"
+        );
+
+        // Off at PAY only. Now the mirror: reservoir must not move.
+        let (res_pay_off, pay_pay_off) = run(vec![(
+            "PHIE",
+            CutoffUse { sand: false, reservoir: true, pay: false },
+        )]);
+        assert_eq!(res_pay_off, res_both, "the reservoir tier must not move");
+        assert!(
+            pay_pay_off > pay_both,
+            "and the pay tier must book more: {pay_pay_off} against {pay_both}"
+        );
+
+        // C — ACTIVATION IS NEVER INFERRED. `use_at` is resolved from the SLOT and the run's own
+        // declaration and nothing else, so neither the presence of a curve nor the presence of a
+        // value can turn a cut-off on. That is a property of the signature, not of today's body:
+        // the resolver has no access to either.
+        let declared = BTreeMap::from([(
+            "PHIE".to_string(),
+            CutoffUse { sand: true, reservoir: false, pay: false },
+        )]);
+        assert_eq!(
+            cutoff_use_for(&declared, "PHIE"),
+            CutoffUse { sand: true, reservoir: false, pay: false },
+            "a declaration is honoured verbatim"
+        );
+        assert_eq!(
+            cutoff_use_for(&declared, "SWE"),
+            default_cutoff_use("SWE"),
+            "and an undeclared slot takes its documented default, not its neighbour's declaration"
+        );
+
+        // D — a cut-off disabled at EVERY tier books exactly what no cut-off at all books. The two
+        // are different statements about intent and must be the same statement about rock.
+        let all_off = run(vec![(
+            "PHIE",
+            CutoffUse { sand: false, reservoir: false, pay: false },
+        )]);
+        let unfiltered = {
+            let rows = run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: None,
+                    phie_min: None,
+                    swe_max: None,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting: Default::default(),
+                    frame: Default::default(),
+                    enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
+                },
+            )
+            .expect("an unfiltered run is valid");
+            let net = |flag: &str| {
+                rows.iter()
+                    .filter(|row| row.flag == flag)
+                    .map(|row| row.net as f64)
+                    .sum::<f64>()
+            };
+            (net("RESERVOIR"), net("PAY"))
+        };
+        assert_eq!(
+            all_off, unfiltered,
+            "a cut-off switched off at every tier filters nothing, exactly as an absent one does"
+        );
     }
 
     /// SB-CUT-020 (P2). `14_cutoffs-summation-mc.md:1223-1240` and SB-CUT-T24 at `:2085` — a
@@ -7204,6 +7529,7 @@ mod tests {
                     weighting: Default::default(),
                     frame: Default::default(),
                     enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
                 },
             )
             .expect("the run itself is valid under both operators")
@@ -7576,6 +7902,7 @@ mod tests {
                     phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
                     swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                     enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
                     perm_min: perm_min.map(|p| CutoffEntry { value: p, unit: "mD".into() }.into()),
                     skip_version: false,
                     stats_only: true
@@ -7844,6 +8171,7 @@ mod tests {
                 swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
                 stats_only: true
             ,
@@ -8413,6 +8741,7 @@ mod tests {
             swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             skip_version: false
         ,
             stats_only: true,
@@ -8484,6 +8813,7 @@ mod tests {
             swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             skip_version: false,
             stats_only: false
         ,
@@ -8528,6 +8858,7 @@ mod tests {
             swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             skip_version: true,
             stats_only: false
         ,
@@ -8607,6 +8938,7 @@ mod tests {
             swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             skip_version: false,
             stats_only: true
         ,
@@ -11118,6 +11450,7 @@ mod tests {
             &db,
             &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
                 custody: Some(test_run_custody()),
                 frame: Default::default(),
                 weighting: Default::default(),

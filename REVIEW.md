@@ -14567,3 +14567,38 @@ precision the log data actually has, so "exactly on the cut-off" means what you 
 - [ ] **Tell me whether you want the cut-off boxes to offer a window and an in/out toggle.** Today
       you can only enter the one-sided form by clicking; the rest is reachable from a saved run. I
       have not added the control because how it should look is your call.
+
+## Each cut-off now says which report levels it applies to
+
+A cut-off used to be tied to its level by the shape of the code: VSH decided sand, porosity decided
+reservoir, water saturation decided pay, and each level was built on the one above it. That works,
+but it is invisible — you cannot look at a result and tell what was applied where.
+
+Each cut-off now carries its own answer for each level, and the answers ship exactly as before:
+
+- **VSH** applies at sand, reservoir and pay.
+- **Porosity** applies at reservoir and pay — **one value, read by both**.
+- **Water saturation** and **permeability** apply at pay only.
+
+Water saturation being OFF at the reservoir level is deliberate and matches IP, which describes its
+net reservoir as porosity- and clay-driven and keeps separate switches for Sw at each level.
+
+**One value, two switches** is the part worth understanding. Your porosity cut-off is a single
+number. You can now turn it off for the reservoir level without touching pay, or off for pay without
+touching reservoir, and the number itself never moves. Previously there was no way to say that at
+all.
+
+**Nothing you have changes.** Every existing run gets the ladder above, which is what it already
+did — all 1,038 backend tests passed without a single change, which is the evidence. The reason for
+doing it: the tool this comes from changed its own activation rule between two of its own modules,
+one firing on the presence of a curve and the other on the presence of a value, and neither result
+could tell you which. Now ours can.
+
+**What did not change, on purpose:** a missing curve still makes a level unjudgeable. A sample with
+no VSH is not sand, reservoir or pay regardless of any switch — the switches say whether a cut-off
+VALUE is applied, not whether the level can do without the curve.
+
+- [ ] **Re-run a pay summary you have run before and compare net at all three levels.** It should be
+      identical.
+- [ ] **Tell me whether you want these switches in the Cutoffs pane.** They are not on screen yet;
+      today every run gets the standard ladder, and how the control should look is your call.

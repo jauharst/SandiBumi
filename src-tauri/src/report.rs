@@ -404,6 +404,7 @@ fn report_pages_with_degradations(
             phie_min: spec.phie_min.clone(),
             swe_max: spec.swe_max.clone(),
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: false,
@@ -1396,6 +1397,7 @@ mod tests {
                 phie_min: spec.phie_min.clone(),
                 swe_max: spec.swe_max.clone(),
                 enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
@@ -1552,6 +1554,7 @@ mod tests {
                     phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
                     swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                     enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
                     perm_min: None,
                     skip_version: true,
                     stats_only: true

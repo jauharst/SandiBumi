@@ -306,6 +306,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
             swe_max: Some(crate::workflow::CutoffEntry { value: 0.65, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
             input_set: None,
             skip_version: false,
             stats_only: true,
