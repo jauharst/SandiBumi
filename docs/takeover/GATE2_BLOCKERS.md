@@ -12,6 +12,70 @@ This is the human-readable companion to the machine-owned blocker set in
 - Done: `127`
 - Blocked: `49`
 - Remaining unhandled: `46`
+
+---
+
+## What I actually need from you (plain language)
+
+There are 49 blocked rows, but they are not 49 separate problems. They collapse into four kinds of
+thing, and only two of them need you.
+
+### 1. Decisions only you can make — about 22 rows
+
+These are stopped because answering them is a petrophysical or product call, not an engineering one.
+I will not guess these: every one of them is *silently* wrong if guessed, meaning the wrong answer
+still computes, still plots, and still ships into a client report with nothing to catch it.
+
+The big ones, each blocking several rows at once:
+
+- **DEC-039 — how a porosity run records what it did.** Right now, when a clamp bites or the
+  high-shale branch fires, the number changes and nothing tells you. The flags we write today are
+  yes/no curves, and that is not enough here, because several things can be true at the same depth:
+  the shale branch fired *and* the density clamp bit *and* the PHIE ceiling bound. You need to pick
+  one way of recording "which method, which branch, which limits bound" per sample. **Blocks
+  SB-POR-003, 028, 047, 048.** This is the single highest-value decision on the list.
+- **DEC-025 — where a neutron curve's matrix basis is stored.** A limestone-unit neutron read
+  against a sandstone matrix is about 0.04 v/v low in clean water sand. We can convert between
+  bases, but nothing records which basis a delivered curve is on, so nothing can refuse a wrong one.
+  The owner of that metadata sits outside the approved scope, so you either authorize a narrow seam
+  or widen the manifest. **Blocks SB-POR-024, SB-DBM-017.**
+- **DEC-018 follow-ups — three rows still point at it.** Two of these look stale to me; see §3.
+- **DEC-021/023/024** — you said hold, so SB-POR-010 stays parked. No action unless you want it moved.
+
+### 2. Documents I need you to find — about 7 rows
+
+These are not decisions. They are stopped because the source that fixes the number is not in the
+repo and I will not invent it. Each names exactly what would unblock it. This is the same shape as
+SB-POR-021 earlier this session: you sent the 1977 Bateman & Konen paper and the block dissolved in
+one message. Mostly `SB-DIO-*` and `SB-ENV-004`.
+
+### 3. Rows where the tracking file is simply wrong
+
+Worth knowing before you spend time on any of these. **Four Group F rows in a row** carried blockers
+that the chapter itself does not support — SB-POR-026, 028, 043 and 044 — and one of them
+(**SB-POR-043**) turned out to be fully implementable once I read `11_porosity.md` instead of the
+summary. It shipped this session. So if a row here says "needs a decision", it is worth one minute
+checking the chapter before you spend an hour deciding.
+
+### 4. Rows waiting on other rows — no action from you
+
+These unblock themselves as their prerequisite lands. Example: **SB-POR-025** needs somewhere to get
+salinity-dependent endpoints from, and both of its sources are shut — one is deferred outside the
+manifest, the other is SB-POR-021, whose paper you already sent but whose evaluator I have not
+written yet. Build that, and 025 opens on its own.
+
+### One legal item
+
+**SB-PLT-024** is `BLOCKED-LEGAL`. That is a lawyer question, not a petrophysics one.
+
+### Honest caveat
+
+I read the POR rows closely this session. The SAT and CUT rows still carry the original audit's
+wording, and given what I found in Group F, some of those blockers are probably stale too. Do not
+treat a blocker here as proven until it has been re-read against its chapter.
+
+---
+
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.
@@ -73,7 +137,7 @@ requirement appears exactly once.
 | `SB-POR-021` | Implementation pending; ESC-POR-8 CLOSED | **Source resolved 2026-08-16.** Jauhar supplied Bateman & Konen, SPWLA Eighteenth Annual Logging Symposium, June 5-8 1977. Appendix B pp.19-21 carries the full derivation and all nine section 5.6 constants verbatim, so they are primary-sourced T1p rather than Geolog's rendering. The analytic evaluator itself is still unwritten. | Implement B-5/B-6/B-7 and the B-9..B-12 pseudo-mineral branches as a **typed deterministic method distinct from the D-N comparison producer** - not another `OPT_XPLOT` mode, or SB-POR-023's quick-look boundary collapses. Pin with the hand-derived witness `phi_x = 0.245219` at rho_b 2.30 / rho_mf 1.00 / phi_N 0.25. |
 | `SB-POR-024` | DEC-025 | The N-D crossplot must refuse an NPHI curve whose matrix units are not declared and must state the declared basis in provenance. `nphimat` already performs the conversion, but nothing stores the delivered basis: the live choices are explicit module parameters, not curve metadata, so the refusal has nothing to read. A limestone-unit neutron against a sandstone matrix reads about 0.04 v/v low in clean water sand. | Settle DEC-025 - authorize the narrow SB-ENV-012 typed neutron-scale metadata/persistence seam, or revise the manifest to include it. Then require the declaration at the `phi_dn` boundary, refuse an undeclared or wrong basis by name, and emit the basis in per-output provenance. Do not infer a basis from the mnemonic or supply a default. |
 | `SB-POR-025` | Dependency on SB-POR-021 / SB-POR-022 | The fresh-and-salt lever rule has no admissible values to interpolate between. Its endpoint sources are SB-POR-022, the gated chart digitisation, which is DEFERRED and outside the manifest; and SB-POR-021, whose 1977 primary source is now held but whose evaluator is unwritten. `nphimat` is a Prep converter, not a POR endpoint source. | Implement SB-POR-021's evaluator now the source is held, or promote SB-POR-022 into the manifest; then add a typed fluid-condition input with no default and persist the resolved salinity response. |
-| `SB-POR-026` | Output-surface ruling | The wiring is fully scoped - three specs (`phi_den`, `phi_dn`, `phi_son`) and `gascorr`'s shipped `log_in(GAS_FLAG, .., XOVER_FLAG, false)` idiom at `modules.rs:4404` - but its target is undecided. `11_porosity.md:951-952` reads as a new output CURVE; this register's own `next_action` reads as a PROVENANCE record. They ship different things and no cited text settles it. | Owner rules curve versus provenance. Then consume `condflag`'s flag rather than recomputing it, so the coal and washout exclusions survive, and pin both sides including the absent path staying MISSING, never 0. |
+| `SB-POR-026` | RULED 2026-08-16 - implementation pending | The wiring is fully scoped - three specs (`phi_den`, `phi_dn`, `phi_son`) and `gascorr`'s shipped `log_in(GAS_FLAG, .., XOVER_FLAG, false)` idiom at `modules.rs:4404` - but its target is undecided. `11_porosity.md:951-952` reads as a new output CURVE; this register's own `next_action` reads as a PROVENANCE record. **Jauhar ruled PROVENANCE RECORD**, so the contract is settled and only the wiring remains - the same state as SB-POR-021. | Declare an optional crossover input on the three `phi_*` specs per `gascorr`'s idiom, CONSUME `condflag`'s flag rather than recomputing it so the coal and washout exclusions survive, and write the result as a **direct comment on the curve's own description** (Jauhar, 2026-08-16: no flag curve, no flag-shaped key - the text an analyst reads in the catalogue and the LAS header), pinning both sides: absent must say nobody looked, never a 0 and never silence. |
 | `SB-POR-028` | Dependency on SB-POR-003 / DEC-039 | Narrowed this session. The clamp VALUES are cited after all - `11_porosity.md` SS5:1231-1232, tier T1, Geolog `phi_dn.lls` / `phi_dnbk.lls` - and SB-POR-007 closed, so the parameter half is source-ready. The second clause still fails: hitting a clamp must raise SB-POR-003's flag, and that stream does not exist pending DEC-039. | Settle DEC-039, then promote the four literals mode-aware (chart vs Bateman-Konen clamps differ, linking this to SB-POR-021) and prove just-inside versus just-outside on both axes. |
 | `SB-POR-044` | PhiMax identity in the smooth form | The DEC-018 reading was stale - the row is in the approved 242. The real block: `11_porosity.md:1048-1050` says the smooth form's **three** parameters ship with no defaults, but its `PhiMax` collides with SandiBumi's `PHIE_MAX`, which already carries a Geolog-sourced 0.3. Reusing it hands the mode a default the chapter forbids; adding a second invents a parameter and leaves two ceilings that can disagree. | Owner rules which `PhiMax` is meant. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode with `param_open` parameters that refuse unsupplied, and pin step, smooth and refusal. |
 
