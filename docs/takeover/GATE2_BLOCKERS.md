@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `182 / 222`
-- Done: `128`
+- Handled: `183 / 222`
+- Done: `129`
 - Blocked: `54`
-- Remaining unhandled: `40`
+- Remaining unhandled: `39`
 
 ---
 

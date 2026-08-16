@@ -8098,6 +8098,84 @@ mod tests {
         );
     }
 
+    /// SB-POR-056. `11_porosity.md:1118-1121` — porosity is carried internally in `v/v`, transit
+    /// time in `µs/ft` and density in `g/cc`, with display units a presentation concern. Geolog
+    /// ships `K/M3` and `US/M` internally (F22) and Techlog ships filtrate salinity in four
+    /// unit/value combinations (F23); the canonical-unit rule is what keeps an import from either
+    /// arriving **1000× out**.
+    ///
+    /// The row was recorded as depending on SB-POR-004's family typing. That closed, so what was
+    /// left is the proof. The load-bearing link is arm B: a porosity OUTPUT is typed `POR` by
+    /// `POROSITY_FAMILY_ID`, and `POR` resolves to `v/v` in the unit registry — without that bridge
+    /// a computed `PHIE` has no canonical unit for the catalogue or LAS export to resolve, which is
+    /// exactly what this row's as-built said was missing.
+    #[test]
+    fn porosity_transit_time_and_density_each_have_one_canonical_unit_and_a_thousandfold_delivery_is_converted_not_accepted(
+    ) {
+        use crate::curves::{canonical_unit, convert_to_canonical};
+
+        // A — the three units the chapter names, stated where the product actually reads them.
+        assert_eq!(canonical_unit("POR"), Some("v/v"), "porosity is a fraction");
+        assert_eq!(canonical_unit("DT"), Some("us/ft"), "transit time");
+        assert_eq!(canonical_unit("RHOB"), Some("g/cc"), "bulk density");
+        assert_eq!(canonical_unit("NPHI"), Some("v/v"), "neutron is a fraction");
+
+        // B — the bridge SB-POR-004 built: a computed porosity output is typed POR, and POR has a
+        // canonical unit. Either half alone leaves an exported PHIE unresolvable.
+        assert_eq!(
+            canonical_unit(POROSITY_FAMILY_ID),
+            Some("v/v"),
+            "a computed porosity output must resolve to a canonical unit through its own family"
+        );
+
+        // C — the 1000× delivery Geolog ships is CONVERTED, not accepted verbatim. 2300 kg/m3 is
+        // 2.3 g/cc; accepted as-is it would be a density no rock has.
+        let mut rhob = [2300.0_f32];
+        assert!(
+            convert_to_canonical("RHOZ", "RHOB", Some("K/M3"), &mut rhob).is_some(),
+            "a kg/m3 density must be converted, not passed through"
+        );
+        assert!((rhob[0] - 2.3).abs() < 1e-4, "kg/m3 -> g/cc, got {}", rhob[0]);
+
+        // 328.084 µs/m × 0.3048 m/ft = 100 µs/ft.
+        let mut dt = [328.084_f32];
+        assert!(convert_to_canonical("DTCO", "DT", Some("US/M"), &mut dt).is_some());
+        assert!((dt[0] - 100.0).abs() < 0.05, "us/m -> us/ft, got {}", dt[0]);
+
+        // D — and the converted value reaches COMPUTE identically to a natively-canonical one.
+        // This is the clause that makes the rule worth having: same rock, two deliveries, one
+        // answer. Without it the conversion could be correct and still never be applied.
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+        ];
+        let logs_native = [("RHOB", vec![2.3f32]), ("VSH", vec![0.2f32])];
+        let logs_converted = [("RHOB", vec![rhob[0]]), ("VSH", vec![0.2f32])];
+        let native = phi_den(&ctx_with(1, &logs_native, &params, &[]));
+        let converted = phi_den(&ctx_with(1, &logs_converted, &params, &[]));
+        // Not bit-identical, and asserting that would be a false contract: 2300.0_f32 / 1000.0 is
+        // not exactly 2.3_f32, so the two answers differ in the last ULP (measured 0.19209729 vs
+        // 0.19209714). What the rule actually protects against is a unit-SCALE error, so the
+        // tolerance is set well below any decimal shift and the ratio is pinned separately.
+        let (a, b) = (native["PHIE_DEN"][0] as f64, converted["PHIE_DEN"][0] as f64);
+        assert!(
+            (a - b).abs() < 1e-6,
+            "a g/cc delivery and a converted kg/m3 delivery of the same rock disagree by more than \
+             float rounding: {a} vs {b}"
+        );
+        assert!(
+            (a / b - 1.0).abs() < 1e-5,
+            "the two deliveries differ by a SCALE factor, which is the 1000x/100x failure this rule \
+             exists to catch: {a} vs {b}"
+        );
+        // And the answer is a fraction, not a percentage — the other 100× trap in the same family.
+        assert!(
+            native["PHIE_DEN"][0] > 0.0 && native["PHIE_DEN"][0] < 1.0,
+            "porosity left compute outside v/v: {}",
+            native["PHIE_DEN"][0]
+        );
+    }
+
     /// SB-POR-049. `11_porosity.md:1071-1073` forbids shipping a hard-coded lithology kill.
     /// Techlog's `φ_n > φ_d ∧ 2.91 ≤ ρ_b ≤ 3.5 ∧ φ_n ≤ 0.04 ⇒ φ = 0` is the only numeric kill any
     /// vendor publishes, and it zeroes real porosity in a tight carbonate with no flag and no

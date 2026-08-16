@@ -806,18 +806,20 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-DECISION` on `RHO_DSH`, narrowed twice - ESC-POR-8 closed when the 1977 Bateman-Konen primary source was banked this session, and PHIE-floor precedence was ruled by DEC-043 and DEC-047. Under the chapter's own rule `RHO_DSH` must ship ABSENT, which means **every porosity run stops until the user supplies it**. That is a large, deliberate behaviour change to a P0 default that currently computes silently, and a factor 1.73 on clay-bound-water porosity moves PHIE and therefore pay. Reserved for Jauhar.
 - **Next action:** rule `RHO_DSH` - ABSENT per the standing decision, or adjudicate a cited value as DEC-041 did. Then build the universal inventory gate over the live catalogue, which needs no decision and is the half that makes coverage provable rather than remembered.
 
-## SB-POR-056 - Canonical porosity and input units
+## SB-POR-056 - Canonical internal units
 
-- **Specified contract:** canonical POR fraction, density and slowness units flow through import, storage, evaluation, output metadata, display and export; equivalent units yield invariant T09 results.
-- **Current implementation:** import and curve infrastructure canonicalize relevant NPHI, RHOB and DT units. Computed PHIE/PHIT outputs have no POR family metadata, so canonical POR units cannot be resolved reliably by catalog/export.
-- **Qualifying acceptance tests:** none for end-to-end POR unit invariance and export metadata. Test class `MISSING`.
-- **Supporting tests:** `recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind` and `families_resolve_common_mnemonics` passed exactly once; neither covers POR outputs.
-- **Manual evidence:** generic-curve-store 0/18; las-export 0/2; porosity 0/33.
-- **Source/parameter boundary:** unit conversions are type-defined; no petrophysical value is introduced.
-- **History/reachability:** input bridges are integrated; POR family/output metadata is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-004 family typing.
-- **Next action:** define canonical POR fraction metadata and test equivalent NPHI/RHOB/DT inputs through compute, reload and LAS export.
+- **Specified contract:** porosity **MUST** be carried internally in `v/v`, transit time in `us/ft` and density in `g/cc`, with display units a presentation concern (`11_porosity.md:1118-1121`). Geolog ships `K/M3` and `US/M` internally (F22) and Techlog ships filtrate salinity in **four** unit/value combinations (F23); the canonical-unit rule is what keeps an import from either arriving **1000x out**.
+- **Current implementation:** the registry already declares all three - `POR` -> `v/v`, `DT` -> `us/ft`, `RHOB` -> `g/cc` - and `convert_to_canonical` applies them on import. This row's as-built claim that computed PHIE/PHIT outputs have no POR family metadata was **stale**: SB-POR-004 closed this session and registered `POROSITY_FAMILY_ID = "POR"`, so a computed porosity resolves to a canonical unit through its own family. The row was therefore a **PROVE**, not a fix.
+- **Qualifying acceptance tests:** `porosity_transit_time_and_density_each_have_one_canonical_unit_and_a_thousandfold_delivery_is_converted_not_accepted` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** `unit_conversions_only_when_needed` in `curves.rs` pins the conversions themselves; it does not establish that a computed porosity output has a resolvable canonical unit.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** no parameter is involved. The three canonical units are quoted from the chapter. Conversion witnesses are arithmetic: 2300 kg/m3 = 2.3 g/cc, and 328.084 us/m x 0.3048 m/ft = 100 us/ft.
+- **The load-bearing arm** is the bridge: `canonical_unit(POROSITY_FAMILY_ID) == Some("v/v")`. Either half alone leaves an exported `PHIE` unresolvable by the catalogue or LAS export - a family with no canonical unit, or a canonical unit no output claims.
+- **A false contract was found and corrected while writing it:** the first draft asserted a converted `kg/m3` delivery and a native `g/cc` delivery agree **exactly**. They do not - `2300.0_f32 / 1000.0` is not exactly `2.3_f32`, and the answers differ in the last ULP (0.19209729 vs 0.19209714). Asserting bit equality would have been a contract the product cannot keep. What the rule actually protects against is a unit **SCALE** error, so the test pins the difference below 1e-6 and pins the RATIO separately - the ratio arm is what catches a 1000x or 100x mistake.
+- **Verified by mutation:** changing `POR`'s canonical unit to `pu` in the generated registry fails the test. Worth recording: mutating `registry/unit-registry.json` alone did **not** fail it, because the JSON is a source generated into `src-tauri/src/generated/unit_registry.rs` and nothing recompiles from the JSON at test time. The generated table is what the test actually defends.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a `K/M3` density and a `US/M` sonic import give the same answers as natively-canonical deliveries of the same wells.
 
 ## SB-POR-057 - Comparison curves cannot become pay curves
 

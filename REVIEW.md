@@ -14158,3 +14158,18 @@ did not have was anything stopping someone adding it later. Now it does.
 - [ ] **Same check on Density-Neutron Porosity.**
 - [ ] **If you ever WANT a lithology cut-off**, tell me - it has to arrive as a declared parameter you can
       see and move, not a hidden rule. That is the whole point of this one.
+
+## Units: a Geolog import can't arrive 1000x out
+
+Geolog stores density in kg/m3 and sonic in us/m internally. If either arrived without conversion, a bulk
+density of 2300 would be read as 2300 g/cc and porosity would be nonsense - or worse, quietly plausible.
+SandiBumi converts on import; this pins that it stays that way, and that a computed porosity curve knows
+its own unit is a fraction so the catalogue and LAS export can say so.
+
+- [ ] **Import a Geolog-sourced LAS with density in K/M3.** Check RHOB reads ~2.3-2.7, not ~2300.
+- [ ] **Import one with sonic in US/M.** Check DT reads ~50-150, not ~300-500.
+- [ ] **Run porosity on both and on a normal g/cc well.** Same rock should give the same answer whichever
+      way it was delivered.
+- [ ] **Export a PHIE to LAS** and check the unit says v/v, not blank and not pu.
+- [ ] **If you see a curve come in at percent when it should be a fraction** (or vice versa), tell me the
+      mnemonic and the unit string - that is a registry entry, not a code change.
