@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-011: two matrix densities in one chained workflow
+
+- [ ] **Decision required — this one needs your number.** `phi_den`, `phi_dn` and `condflag` ship
+      `RHO_MA` **2.645**. `gascorr` ships **2.65**, and `gascorr`'s own documentation tells you to
+      chain it with the porosity modules. Chapter §5.1 cites *both* and adjudicates neither: 2.65 is
+      the three-way endpoint agreement across IP MINDEF, Techlog `QM_MineralTable` and SandiMin
+      (T3); 2.645 is `Geolog phi_den.info RHO_MA DEFAULT = 2645 k/m3`, explicitly recorded as a
+      shipped module default that *differs from the endpoint libraries* (T1). One shared parameter
+      carries one default, so pick: **2.65**, **2.645**, or **ABSENT** so a run refuses until you
+      enter a value. I will not choose between two cited values for you.
+- [ ] **What already improved:** SB-POR-007 put all four consumers on the same `MATRIX_DENSITY`
+      source topic, so both positions and their tiers are now visible beside the field wherever you
+      enter it. That is disclosure, not unification — the defaults still disagree.
+- [ ] **Field and harsh critique:** the practical size of this is 0.005 g/cc on the matrix, which
+      moves density porosity by roughly 0.3 p.u. — small, but it moves in one direction and it
+      differs between two modules the docs tell you to run together. Worth deciding once rather than
+      per study. Gate unchanged at `1043 passed / 0 failed / 37 ignored`. No box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-010: porosity audit trail blocked on the re-run manifest
 
 - [ ] **Decision dependency:** SB-POR-010 wants every porosity curve re-derivable from its audit

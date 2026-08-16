@@ -8,15 +8,15 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `167 / 222 handled — 124 DONE, 43 BLOCKED, 55 remaining`
+- Gate 2 requirement progress: `168 / 222 handled — 124 DONE, 44 BLOCKED, 54 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: G2-T08 / SB-POR-010 - `BLOCKED-DEPENDENCY`; method identity, parameter values with source and tier, per-output convention and resolved input-curve identities are all already persisted by SB-DBM-003, SB-DBM-006, SB-POR-004 and SB-POR-007. What is absent is the re-derivability clause, which is SB-DBM-015's re-run manifest and is itself blocked on DEC-021, DEC-023 and DEC-024. No test was written.
+- Active increment: G2-T08 / SB-POR-011 - `BLOCKED-DECISION`; `phi_den`, `phi_dn` and `condflag` ship `RHO_MA` 2.645 while `gascorr`, which their own docs instruct chaining, ships 2.65. Section 5.1 cites both and adjudicates neither, so one shared parameter cannot be created without choosing a cited value. No value was registered and no test was written.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: no SB-POR-010 test was added. A proof built from the fields that happen to be stored would assert re-derivability without a manifest resolver existing, which is the exact clause the row is for. The full gate is unchanged from the SB-POR-009 receipt at `1043 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: no SB-POR-011 test was added. Every consumer now shares the `MATRIX_DENSITY` source topic from SB-POR-007, so the competing positions are disclosed at the point of entry, but the shipped defaults still disagree and unifying them is a product choice. The full gate is unchanged from the SB-POR-009 receipt at `1043 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `43 requirements are explicitly BLOCKED and 55 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Open blockers: `44 requirements are explicitly BLOCKED and 54 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
 - Named residuals carried forward, not claimed as covered: `ssc`/`sspw` parameters remain unsourced for SB-POR-007 beyond the `RHO_W` added here. The same primary tier is spelled `T1p` in the porosity chapter, `T1′` in registry rows pinned by earlier CLY/CORE increments and `T1-prime` in a frontend fixture; Jauhar approved unifying it as its own increment, queued behind the remaining rows. `montecarlo.rs:1287` remains the SB-POR-006 residual. A `DEC` row recording the 2026-08-16 `ssc.rs` authorization still needs adding to `DECISIONS.md`, which is outside this program's allowed paths.
-- Next increment: `Continue G2-T08 with SB-POR-011, the first unhandled row of the immutable 222-row Gate 2 program. SB-POR-005 is release_disposition DEFERRED, as-built ABSENT and outside the approved manifest, so it is not Gate 2 work and naming it here would have widened the program.`
+- Next increment: `Continue G2-T08 with SB-POR-021, the first unhandled row of the immutable 222-row Gate 2 program. SB-POR-005 is release_disposition DEFERRED, as-built ABSENT and outside the approved manifest, so it is not Gate 2 work and naming it here would have widened the program.`
 
 ## Gate dashboard
 

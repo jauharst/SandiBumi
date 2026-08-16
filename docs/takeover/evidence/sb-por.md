@@ -216,18 +216,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-DEPENDENCY`. The re-derivability clause is `SB-DBM-015`'s complete re-run manifest, which is itself blocked on `DEC-021` build-derived module identity, `DEC-023` zone-set identity and `DEC-024` manifest identity seams. Method, parameter, source/tier, convention and input-identity custody are already in place and are not what is missing.
 - **Next action:** settle DEC-021, DEC-023 and DEC-024, close SB-DBM-015, then prove a POR curve replays from its stored manifest alone without querying any mutable default.
 
-## SB-POR-011 - One shared matrix-density decision
+## SB-POR-011 - One shared matrix density across chained modules
 
-- **Specified contract:** one matrix-density selection propagates unchanged through every documented POR, gas-correction and conditioning module in a chain; T35 tests one override end to end.
-- **Current implementation:** multiple manifests expose independent density-like defaults and parameters. No shared typed matrix-density object or chain-level override custody connects POR, `gascorr`, `condflag` and saved workflows.
-- **Qualifying acceptance tests:** none; T35 is not executable. Test class `MISSING`.
-- **Supporting tests:** local module tests exercise their own defaults; equal-looking values are not shared custody.
-- **Manual evidence:** porosity 0/33; conditioning 0/27; workflow 0/23.
-- **Source/parameter boundary:** matrix density is petrophysical and must come from a cited/user decision; this pass adopts none.
-- **History/reachability:** current and reachable-history searches found no chain-level matrix-density decision.
+- **Specified contract:** matrix density must be a single shared parameter across modules that a documented workflow chains.
+- **Current implementation:** the divergence the requirement names is still live and reachable. `phi_den` (`modules.rs:3056`), `phi_dn` (`:3186`) and `condflag` (`:3951`) each ship `RHO_MA` 2.645; `gascorr` (`:4372`) ships 2.65, and `gascorr`'s own doc instructs chaining it with the porosity modules. A further POR manifest declares `RHO_MA` deliberately ABSENT (`param_open` at `:2879`). SB-POR-007 put every one of them on the shared `MATRIX_DENSITY` source topic, so the competing positions are now disclosed at the point of entry - but disclosure is not unification, and the shipped defaults still disagree.
+- **Qualifying acceptance tests:** none. Test class `MISSING`. A test could prove propagation of a user-set override, but it could not establish the shared DEFAULT the requirement asks for without first choosing a value.
+- **Supporting tests:** the SB-POR-007 registry proof pins that all four consumers expose the same cited `MATRIX_DENSITY` positions with their tiers.
+- **Manual evidence:** porosity 0/33; workflow 0/23.
+- **Source/parameter boundary:** section 5.1 cites BOTH values and adjudicates neither - 2.65 as the three-way endpoint agreement across IP MINDEF, Techlog `QM_MineralTable` and SandiMin (tier T3), and 2.645 as `Geolog phi_den.info RHO_MA DEFAULT = 2645 k/m3`, explicitly recorded as a shipped module default that **differs from the endpoint libraries** (tier T1). Neither is marked ABSENT or NON-ADOPTABLE. One shared parameter carries one default, so the value is a product decision and registering either as authority would override the other's citation.
+- **History/reachability:** all four literals are live in shipped manifests.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the typed shared parameter and precedence rules are absent.
-- **Next action:** introduce one cited/user-owned matrix-density reference and prove a non-default override reaches every documented consumer unchanged.
+- **Blocker or decision:** `BLOCKED-DECISION`. Jauhar chooses which cited value the shared matrix density carries, or elects ABSENT so a run refuses without a user value.
+- **Next action:** record the choice and its source label, then introduce one typed shared reference and prove a non-default override reaches `phi_den`, `phi_dn`, `condflag` and `gascorr` unchanged.
 
 ## SB-POR-012 - CSR bridge with no default
 
