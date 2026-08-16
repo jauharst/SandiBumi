@@ -128,14 +128,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-005
 
 - **Specified contract:** reconcile the four-way footage partition with a named relative tolerance, record absorbed residuals, and refuse excess residual.
-- **Current implementation / as-built:** no tolerance, residual, absorption record or structured refusal exists. ABSENT.
+- **Current implementation / as-built:** `PARTITION_TOLERANCE = 1e-7` and `reconcile_partition` in `workflow.rs`, with two structured types - `ReconciledPartition {net, not_net, unknown, absorbed}` and `PartitionResidual {gross, net, not_net, unknown, residual, relative, tolerance}` whose `Display` names every one of them. `run_pay_summary` calls it on every zone-by-flag row and propagates the refusal prefixed with the well, zone and flag. `PaySummaryRow` gains `residual_absorbed`. PRESENT-OK.
+- **Why it checks the REPORTED values:** the three f64 sums are each rounded once on the way into the row, so the closure a reader receives is not automatically the closure the arithmetic had. The check is evaluated in f64 on those f32 values, so it adds no rounding of its own. Absorption targets the LARGEST component because a relative correction placed on a small component could move it by a large fraction of itself.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T22 is absent.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** the chapter supplies 1e-7 and R-12 forbids a non-reconciling fixture from being normalized into success.
-- **UI/IPC/provenance surface:** no field exists in request, result, Results QC, report, office or batch record.
-- **History/reachability:** negative source and history inventory found no implementation.
-- **Blocking decision / next action:** implement named reconciliation with recorded residual and two-sided acceptance/refusal proof.
+- **Automated evidence:** `a_footage_partition_is_absorbed_into_its_largest_component_and_the_amount_recorded_or_else_refused` (`src-tauri/src/workflow.rs`). CORRECTNESS. Five arms: a within-tolerance residual absorbed into Net when Net is largest; the SAME residual absorbed into Unknown when Unknown is largest, so first-in-order cannot pass for largest; a beyond-tolerance residual REFUSED with a message naming gross, the residual and the tolerance (R-12: the non-reconciling fixture must fail, never be normalized into success); an exactly-zero residual still reconciling and recording zero rather than short-circuiting; and a real `run_pay_summary` row proving the guard is wired into the live path rather than sitting in a test.
+- **Mutation evidence:** three probes, one per clause of the MUST, each read for WHICH assertion fired. Absorbing into the first component rather than the largest turned the second arm red at 200000.06. Absorbing but reporting 0.0 - which is exactly Techlog's `print`, behaviourally - turned the first arm red on *the absorbed amount is RECORDED, not printed and lost*. Widening the tolerance so nothing is ever refused turned the third arm red on its `expect_err`.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** `1e-7` is cited to `14_cutoffs-summation-mc.md:2083`, adopted from Techlog's `adjustFinal` with the print-to-result-field refinement. The footages in the test are NUMERICAL fixtures chosen so a residual at the tolerance boundary is exactly representable in f32 - at a realistic gross of tens of metres, 1e-7 relative is far below one ulp and no absorption could be observed at all - and they are not petrophysical quantities.
+- **UI/IPC/provenance surface:** `PaySummaryRow.residual_absorbed` and its `ipc.ts` twin; `core_determinism_tests.rs` `packed_pay_summary` covers it.
+- **Named limit:** the absorbed amount has NO UI column. It is zero on every row of every ordinary run, and a column of zeros in a dense grid is noise; it is on the record and in the IPC type, which is what the requirement asks (*appear in the result record*, as against Techlog's console). REVIEW.md asks Jauhar whether he wants it surfaced.
+- **History/reachability:** nothing prior existed; the negative inventory was correct.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-006
 

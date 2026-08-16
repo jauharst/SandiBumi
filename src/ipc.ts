@@ -3026,6 +3026,12 @@ export interface PaySummaryRow {
    *  `null` where nothing was judged — there is no denominator, and a printed 0.00 would be a
    *  claim about rock nobody looked at. (Backend f32::NAN crosses as JSON null.) */
   ntg_known: number | null;
+  /** SB-CUT-005. Footage moved into the largest component so that
+   *  `gross === net + not_net + unknown` closes — reported rather than printed, which is the
+   *  point: a reconciliation whose correction is not recorded is indistinguishable from no
+   *  reconciliation. Zero on any run whose partition already closed, which is every ordinary run.
+   *  A residual beyond 1e-7 relative fails the summation instead of arriving here. */
+  residual_absorbed: number;
   ntg: number;
   // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
   // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.

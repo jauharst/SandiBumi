@@ -1911,6 +1911,7 @@ mod tests {
             unknown: 0.0,
             // Nothing unknown, so both ratios coincide.
             ntg_known: net / 100.0,
+            residual_absorbed: 0.0,
             ntg: net / 100.0,
             avg_vsh: 0.3,
             avg_phie: phie,

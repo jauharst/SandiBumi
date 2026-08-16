@@ -2675,6 +2675,11 @@ pub struct PaySummaryRow {
     /// denominator, and a printed 0.00 would be a claim about rock nobody looked at — the same
     /// reasoning as [`Self::n_classified`]. Crosses IPC as JSON `null`, like the `avg_*` fields.
     pub ntg_known: f32,
+    /// SB-CUT-005. Footage moved into the largest component so the partition closes — reported
+    /// rather than printed, which is the whole point of the requirement. Zero on any run whose
+    /// partition already closed, which is every ordinary run; a non-zero value here is the record
+    /// that a correction happened and how big it was.
+    pub residual_absorbed: f32,
     pub ntg: f32,
     pub avg_vsh: f32,
     pub avg_phie: f32,
@@ -2714,6 +2719,93 @@ pub struct PaySummaryRow {
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
+
+/// SB-CUT-005. Relative tolerance on `gross - (net + not_net + unknown)`.
+///
+/// `1e-7`, cited: `docs/PRD_v2/14_cutoffs-summation-mc.md:2083` (SB-CUT-T22), which adopts
+/// Techlog's `adjustFinal` reconciliation shape with the `print` → result-field refinement. It is
+/// a NUMERICAL tolerance on closure arithmetic, not a petrophysical cutoff.
+pub const PARTITION_TOLERANCE: f64 = 1e-7;
+
+/// SB-CUT-005. A footage partition that has been reconciled, and by how much.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReconciledPartition {
+    pub net: f32,
+    pub not_net: f32,
+    pub unknown: f32,
+    /// Footage moved into the largest component to make the partition close. **Reported, not
+    /// printed** — that distinction IS the requirement. Techlog computes the same correction and
+    /// sends it to a console, where it is lost, and a reconciliation whose correction is not
+    /// recorded is indistinguishable from no reconciliation.
+    pub absorbed: f32,
+}
+
+/// SB-CUT-005. A partition that does not close within [`PARTITION_TOLERANCE`], with every number a
+/// reader needs to act on it. Structured rather than a bare message, for the same reason the
+/// absorbed amount is a field: a diagnostic that only exists as prose cannot be checked.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PartitionResidual {
+    pub gross: f32,
+    pub net: f32,
+    pub not_net: f32,
+    pub unknown: f32,
+    pub residual: f64,
+    pub relative: f64,
+    pub tolerance: f64,
+}
+
+impl std::fmt::Display for PartitionResidual {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "footage partition does not close: gross {} against net {} + not-net {} + unknown {} \
+             leaves a residual of {:e} ({:e} relative), outside the {:e} tolerance",
+            self.gross, self.net, self.not_net, self.unknown, self.residual, self.relative,
+            self.tolerance
+        )
+    }
+}
+
+/// SB-CUT-005. Check `gross - (net + not_net + unknown)` against [`PARTITION_TOLERANCE`], absorb a
+/// residual within it into the LARGEST component, and report what was absorbed.
+///
+/// Evaluated in `f64` on the values as they will be REPORTED, so it checks the partition a reader
+/// actually receives rather than an intermediate nobody sees. Absorption targets the largest
+/// component because that is where a relative correction is least distorting — moving an ulp of
+/// gross onto a small component could shift it by a large fraction of itself.
+pub fn reconcile_partition(
+    gross: f32,
+    net: f32,
+    not_net: f32,
+    unknown: f32,
+) -> Result<ReconciledPartition, PartitionResidual> {
+    let residual = gross as f64 - (net as f64 + not_net as f64 + unknown as f64);
+    // A zero-thickness zone has nothing to be relative TO; its components are zero as well, so the
+    // residual is zero and the absolute value is the honest comparison.
+    let scale = if gross.abs() > 0.0 { gross.abs() as f64 } else { 1.0 };
+    let relative = residual.abs() / scale;
+    if relative > PARTITION_TOLERANCE {
+        return Err(PartitionResidual {
+            gross,
+            net,
+            not_net,
+            unknown,
+            residual,
+            relative,
+            tolerance: PARTITION_TOLERANCE,
+        });
+    }
+    let mut out =
+        ReconciledPartition { net, not_net, unknown, absorbed: residual as f32 };
+    if net >= not_net && net >= unknown {
+        out.net = (net as f64 + residual) as f32;
+    } else if not_net >= unknown {
+        out.not_net = (not_net as f64 + residual) as f32;
+    } else {
+        out.unknown = (unknown as f64 + residual) as f32;
+    }
+    Ok(out)
+}
 
 /// PHIE as a pay calculation is allowed to read it: never negative, MISSING preserved.
 ///
@@ -3006,6 +3098,18 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 // and footage no sample covers at all. Computed in f64 against the same f64 sums
                 // the other two came from, then rounded once.
                 let unknown = gross as f64 - net - not_net;
+                // SB-CUT-005: check the partition AS REPORTED — the three f64 sums are each
+                // rounded once on the way into the row, so the closure a reader receives is not
+                // automatically the closure the arithmetic had. Within tolerance the drift is
+                // absorbed into the largest component and recorded; outside it the summation
+                // refuses rather than shipping a partition that does not add up.
+                let recon = reconcile_partition(gross, net as f32, not_net as f32, unknown as f32)
+                    .map_err(|residual| {
+                        format!(
+                            "{well_name} zone {} flag {flag_name}: {residual}",
+                            zone.zone_name
+                        )
+                    })?;
                 all_rows.push(PaySummaryRow {
                     well_id: well_id.clone(),
                     well_name: well_name.clone(),
@@ -3014,9 +3118,10 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     top: zone.top_depth,
                     bottom: zone.bottom_depth,
                     gross,
-                    net: net as f32,
-                    not_net: not_net as f32,
-                    unknown: unknown as f32,
+                    net: recon.net,
+                    not_net: recon.not_net,
+                    unknown: recon.unknown,
+                    residual_absorbed: recon.absorbed,
                     // SB-CUT-004: the same net over the footage that was actually judged. MISSING
                     // rather than 0.0 when nothing was — there is no denominator, and a printed
                     // zero would be a claim about rock nobody looked at.
@@ -5215,6 +5320,108 @@ mod tests {
                 "{} N:(G-Unknown) has no denominator here and must be MISSING, got {}",
                 r.flag,
                 r.ntg_known
+            );
+        }
+    }
+
+    /// SB-CUT-005 (P2). `14_cutoffs-summation-mc.md:972-985` — SandiBumi **MUST** check
+    /// `Gross − (Net + NotNet + Unknown)` against a NAMED relative tolerance. Within tolerance the
+    /// residual **MUST** be absorbed into the largest component **and the absorbed amount MUST
+    /// appear in the result record**; outside it the summation **MUST** fail with a structured
+    /// error.
+    ///
+    /// Tolerance `1e-7` relative, cited: `14_cutoffs-summation-mc.md:2083` (SB-CUT-T22), which is
+    /// Techlog's `adjustFinal` shape with the `print` → result-field refinement. Nothing here is a
+    /// petrophysical value; the footages below are NUMERICAL fixtures chosen so that a residual at
+    /// the tolerance boundary is exactly representable in `f32` — at a realistic gross of tens of
+    /// metres, `1e-7` relative is far below one ulp and no absorption could be observed at all.
+    ///
+    /// **The recorded amount is the whole requirement.** Techlog computes the same correction and
+    /// prints it, which loses it: a reconciliation whose correction is not recorded is
+    /// indistinguishable from no reconciliation.
+    #[test]
+    fn a_footage_partition_is_absorbed_into_its_largest_component_and_the_amount_recorded_or_else_refused(
+    ) {
+        // Gross 1e6 with ulp 0.0625, so a residual of exactly one ulp is 6.25e-8 relative — inside
+        // the tolerance and still large enough to move an f32.
+        let g = 1_000_000.0f32;
+        let ulp = 0.0625f32;
+
+        // A — within tolerance, and NET is the largest, so net is what moves.
+        let r = reconcile_partition(g, 400_000.0, 300_000.0, 300_000.0 - ulp)
+            .expect("one ulp of gross is inside 1e-7 relative");
+        assert_eq!(r.net, 400_000.0 + ulp, "the residual lands on the largest component");
+        assert_eq!(r.not_net, 300_000.0, "the other components are untouched");
+        assert_eq!(r.unknown, 300_000.0 - ulp);
+        assert_eq!(r.absorbed, ulp, "the absorbed amount is RECORDED, not printed and lost");
+        assert_eq!(r.net + r.not_net + r.unknown, g, "and the partition now closes");
+
+        // B — LARGEST, not first. Same residual, but Unknown now carries the most footage.
+        let r = reconcile_partition(g, 200_000.0, 100_000.0, 700_000.0 - ulp)
+            .expect("inside tolerance");
+        assert_eq!(r.net, 200_000.0, "net must NOT absorb it merely for being first");
+        assert_eq!(r.not_net, 100_000.0);
+        assert_eq!(r.unknown, 700_000.0, "the largest component absorbs the residual");
+        assert_eq!(r.absorbed, ulp);
+
+        // C — outside tolerance the summation REFUSES, and the refusal carries the numbers. Four
+        // ulps is 2.5e-7 relative, past 1e-7.
+        let err = reconcile_partition(g, 400_000.0, 300_000.0, 300_000.0 - 4.0 * ulp)
+            .expect_err("2.5e-7 relative is outside the 1e-7 tolerance and must refuse");
+        assert_eq!(err.tolerance, PARTITION_TOLERANCE);
+        assert!(
+            (err.relative - 2.5e-7).abs() < 1e-12,
+            "the refusal states the relative residual it measured, got {}",
+            err.relative
+        );
+        let text = err.to_string();
+        for needle in ["1000000", "residual", "1e-7"] {
+            assert!(
+                text.contains(needle),
+                "a structured refusal names {needle} so a reader can act on it: {text}"
+            );
+        }
+
+        // D — a residual of exactly zero is still a successful reconciliation recording zero, not a
+        // special case that skips the check.
+        let r = reconcile_partition(g, 400_000.0, 300_000.0, 300_000.0).expect("closes exactly");
+        assert_eq!(r.absorbed, 0.0);
+        assert_eq!(r.net, 400_000.0);
+
+        // E — WIRED IN. An ordinary summary run carries the field and its partition closes, so the
+        // guard above is protecting the real path rather than sitting in a test.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_partition_well(&conn, "RECON-1");
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![well],
+                vsh_max: 0.5,
+                phie_min: 0.1,
+                swe_max: 0.6,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+            },
+        )
+        .expect("an ordinary summary reconciles rather than refusing");
+        assert!(!rows.is_empty());
+        for r in &rows {
+            assert_eq!(
+                r.net + r.not_net + r.unknown,
+                r.gross,
+                "{} the reported partition closes after reconciliation",
+                r.flag
+            );
+            assert!(
+                r.residual_absorbed.abs() as f64 <= PARTITION_TOLERANCE * r.gross as f64,
+                "{} a real run absorbs at most the tolerance, got {}",
+                r.flag,
+                r.residual_absorbed
             );
         }
     }

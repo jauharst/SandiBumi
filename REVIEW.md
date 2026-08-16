@@ -14324,3 +14324,22 @@ be a statement about rock nobody looked at.
       now only the dashboard and its CSV show both; the PDF, workbook and deck still quote the
       original N/G alone. That is a deliberate stop, not an oversight — which number belongs in a
       client deliverable is your call, not mine.
+
+## The footage split now has to add up, and says so if it had to be nudged
+
+Gross, Net, Not net and Unknown are stored as single-precision numbers, so the three parts can miss
+adding back to the whole by a hair — not an error, just rounding. The summation now checks that
+gap. If it is smaller than a ten-millionth of the zone, it puts the difference on whichever part is
+largest and **records how much it moved**. If it is bigger than that, the summation refuses and
+tells you the well, the zone, the flag and every number involved, rather than handing you a
+partition that does not add up.
+
+The recorded amount matters more than it sounds. Techlog does this same correction and prints it to
+a console, where it vanishes — and a correction nobody can see is the same as no correction.
+
+- [ ] **Run a normal summary.** It should behave exactly as before; the correction should be zero.
+- [ ] **Tell me if any well ever refuses.** With the way Unknown is computed this should be
+      impossible, so if it happens, something upstream is wrong and I want the message.
+- [ ] **Do you want the correction shown anywhere?** Right now it is stored and sent to the
+      frontend but has no column, because it would be a column of zeros. Say the word if you would
+      rather see it.

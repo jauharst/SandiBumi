@@ -367,3 +367,4 @@
 "SB-SAT-028","CORRECTNESS","src-tauri/src/lrlc.rs","a_non_converged_imts_sample_is_missing_rather_than_its_last_iterate"
 "SB-CUT-003","CORRECTNESS","src-tauri/src/workflow.rs","a_summation_partitions_gross_four_ways_and_books_unjudgeable_footage_as_unknown_not_as_notnet"
 "SB-CUT-004","CORRECTNESS","src-tauri/src/workflow.rs","a_summation_reports_net_to_gross_over_all_footage_and_over_only_the_footage_it_could_judge"
+"SB-CUT-005","CORRECTNESS","src-tauri/src/workflow.rs","a_footage_partition_is_absorbed_into_its_largest_component_and_the_amount_recorded_or_else_refused"
