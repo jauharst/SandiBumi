@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-034: Undeclared sentinel handling blocked on scoped import policy
+
+- [ ] **Decision dependency:** answer DEC-037. Exact T44 says a bare undeclared `-999` becomes
+      absent, while the adopted SB-DIO contract says an explicit `NoNull` channel preserves a
+      genuine sentinel-shaped amplitude. The precedence and identification scope must be explicit.
+- [ ] **Automated boundary:** no SB-CLY-T35/T44 acceptance test was added. Current controls prove
+      declared-null export/import and `NoNull` preservation, but the provenance-export arm depends
+      on DEC-036 and the undeclared-`-999` warning path has no authorized family/vendor scope.
+- [ ] **Import UX:** decide whether a recognized vendor/curve signature blocks for confirmation or
+      auto-screens with an auditable warning. The warning must name `-999` and every affected curve;
+      a global replacement is forbidden because it would erase legitimate amplitudes.
+- [ ] **Field and harsh critique:** “known vendor sentinel” is not a safe implementation rule until
+      the product can prove what vendor/curve contract it recognized. Guessing from the number alone
+      would convert an anti-sentinel requirement into another magic-sentinel bug.
+
 ## 2026-08-16 — G2 SB-CLY-001: Endpoint reporting blocked on provenance custody
 
 - [ ] **Decision dependency:** answer DEC-036. Exact T01 requires the categorical
