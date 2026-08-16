@@ -1,5 +1,39 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-006: a porosity method refuses an untyped shale or clay volume
+
+- [ ] **Automated correctness:** `every_porosity_method_that_consumes_a_shale_or_clay_volume_declares_the_quantity_it_accepts_and_refuses_an_untyped_or_wrong_family_curve`
+      pins SB-POR-006 from three sides. It inventories every module that registers POR output
+      custody and requires `phi_den`, `phi_dn`, `phi_son` and `sspw` to declare the quantity their
+      VSH input accepts; separately it asks the generated curve registry which declared porosity
+      inputs are shale/clay volumes at all, so a future consumer that forgets its typing is caught
+      even though it would never appear in the first list. Then it runs `phi_den` over three wells
+      whose VSH curves are identical in mnemonic, unit and samples and differ only in declared
+      quantity: the typed shale volume runs clean, the untyped one is refused, and a clay volume
+      wearing a `VSH` mnemonic is refused — each refusal naming the method and both quantities,
+      writing no samples and versioning no interpretation. Three mutations were witnessed RED and
+      restored. **No porosity arithmetic changed and no parameter was invented**; the refusal seam
+      arrived with SB-CLY-043 and the POR family with SB-POR-004, and this increment supplies the
+      porosity-specific proof. Fresh full gate `1040 passed / 0 failed / 37 ignored`, 31 owned
+      warnings.
+- [ ] **Visual:** open Porosity from Density and point its VSH input at a curve whose family was
+      never assigned (an older project, or an import whose mnemonic matched no family). Confirm the
+      run refuses with a message naming `phi_den`, `VSH` and `VCL` and telling you to assign the
+      family — not a silent result, and not a bare "no data".
+- [ ] **Manual:** on one sanitized project, run density porosity three ways against the same well —
+      a VSH-family curve, the same curve with its family cleared, and a VCL-family curve renamed to
+      `VSH`. Only the first should produce PHIE/PHIT. Then confirm the two refused runs left no new
+      log-set version and no computed samples behind.
+- [ ] **Field and harsh critique:** `v/v` is the same unit for both volumes, so nothing downstream
+      can tell a shale volume from a clay volume by looking at it — F15 is that IP subtracts a
+      wet-clay endpoint where Geolog and Techlog subtract a shale endpoint, and the `CSR` parameter
+      that bridges them has no default anywhere. This increment refuses; it does **not** convert,
+      because the bridge is SB-POR-012 and outside the approved program. **Named residual:**
+      `montecarlo.rs` calls the module runner directly and never reaches this refusal, so an
+      in-memory Monte Carlo realization would still consume an untyped volume. That file is
+      protected and Monte Carlo is an explicit first-pilot exclusion, so no coverage is claimed for
+      it. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-004: typed POR custody and collision-safe replacement
 
 - [ ] **Automated correctness:** the SB-POR-004/T31/T32 proof was witnessed RED when `PHIE`,

@@ -6758,6 +6758,239 @@ mod tests {
         }
     }
 
+    /// CORRECTNESS - SB-POR-006. The contract is `docs/PRD_v2/11_porosity.md` section 6.1
+    /// SB-POR-006 and finding F15: a shale-endpoint `VSH` and a wet-clay-endpoint `VCL` are
+    /// different quantities sharing one `v/v` unit, the endpoint subtracted must match the volume
+    /// supplied, and the refusal is the requirement. The `CSR` bridge that would convert between
+    /// them is SB-POR-012, which is outside the approved Gate 2 program, so nothing here converts.
+    /// The oracle is acceptance versus refusal, never a number: the density parameters below only
+    /// make the shipped public workflow finite and reuse the SB-POR-004 fixture already cited to
+    /// that chapter's section 5 defaults and its explicitly attested shale choices.
+    #[test]
+    fn every_porosity_method_that_consumes_a_shale_or_clay_volume_declares_the_quantity_it_accepts_and_refuses_an_untyped_or_wrong_family_curve(
+    ) {
+        // Side A - declaration. A porosity module is identified by its own registered POR output
+        // custody, never by name, so a new method joins this inventory automatically.
+        let porosity_modules = modules::list_modules()
+            .into_iter()
+            .filter(|spec| {
+                spec.args
+                    .iter()
+                    .any(|arg| arg.porosity_output.is_some())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !porosity_modules.is_empty(),
+            "the POR registry must supply the inventory this requirement ranges over"
+        );
+        let typed_shale_clay_inputs = porosity_modules
+            .iter()
+            .flat_map(|spec| {
+                spec.args
+                    .iter()
+                    .filter(|arg| {
+                        arg.kind == ArgKind::LogIn
+                            && !arg.accepted_shale_clay_quantities.is_empty()
+                    })
+                    .map(|arg| (spec.name.clone(), arg.name.clone()))
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            typed_shale_clay_inputs,
+            std::collections::BTreeSet::from([
+                ("phi_den".to_string(), "VSH".to_string()),
+                ("phi_dn".to_string(), "VSH".to_string()),
+                ("phi_son".to_string(), "VSH".to_string()),
+                ("sspw".to_string(), "VSH".to_string()),
+            ]),
+            "every porosity method that consumes a shale/clay volume must declare which quantity it accepts"
+        );
+
+        // Side B - no untyped shale/clay input may hide behind side A. This asks the independent
+        // generated curve registry which declared inputs are shale/clay volumes at all, so an
+        // added POR consumer that forgets its typing fails here even though it never appears in
+        // the set above. Side A alone would pass such an omission; side B alone would pass a
+        // module whose declared default mnemonic is unregistered.
+        let untyped_shale_clay_inputs = porosity_modules
+            .iter()
+            .flat_map(|spec| {
+                spec.args
+                    .iter()
+                    .filter(|arg| arg.kind == ArgKind::LogIn)
+                    .filter(|arg| {
+                        arg.accepted_shale_clay_quantities.is_empty()
+                            && crate::curves::family_for(&arg.default)
+                                .map(|family| {
+                                    shale_clay_quantity_from_family(Some(family.family)).is_some()
+                                })
+                                .unwrap_or(false)
+                    })
+                    .map(|arg| format!("{}.{}", spec.name, arg.name))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            untyped_shale_clay_inputs.is_empty(),
+            "a porosity input whose registry family is a shale/clay volume must be typed: {untyped_shale_clay_inputs:?}"
+        );
+
+        // Side C - behavior. One shipped porosity method, three curves that are identical in
+        // mnemonic, unit and samples and differ only in the declared quantity.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depth = vec![1000.0f32, 1000.5];
+        let add_well = |label: &str, family: Option<&str>| {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, label, None, None, Some(0.0)).unwrap();
+            let missing = vec![f32::NAN; depth.len()];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                vec![2.30, 2.30],
+                missing.clone(),
+                missing,
+            )
+            .unwrap();
+            let well = id.to_string();
+            let curve = db::upsert_curve_meta(
+                &conn,
+                &well,
+                "RAW",
+                "VSH",
+                Some("v/v"),
+                family,
+                Some("SB-POR-006 volume-quantity control"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, &[0.20, 0.20]).unwrap();
+            well
+        };
+        let typed_shale = add_well("SHALE-VOLUME", Some("VSH"));
+        let untyped = add_well("UNTYPED-VOLUME", None);
+        let clay_under_shale_name = add_well("CLAY-VOLUME-UNDER-VSH-NAME", Some("VCL"));
+
+        let dbm = Mutex::new(conn);
+        let results = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "phi_den".into(),
+                well_ids: vec![
+                    typed_shale.clone(),
+                    untyped.clone(),
+                    clay_under_shale_name.clone(),
+                ],
+                log_inputs: HashMap::from([("VSH".into(), "VSH".into())]),
+                params: HashMap::from([
+                    ("RHO_MA".into(), 2.65),
+                    ("RHO_SH".into(), 2.50),
+                    ("RHO_FL".into(), 1.0),
+                    ("RHO_DSH".into(), 2.78),
+                    ("RHO_W".into(), 1.0),
+                    ("PHIE_MAX".into(), 0.30),
+                ]),
+                // Stated explicitly so the accepted control is Clean rather than Degraded by the
+                // manifest's own honest "used its default" disclosure. This is the shipped
+                // `phi_den` choice, declared rather than introduced.
+                opts: HashMap::from([("OPT_PHIEMAX".into(), "SHALE_REDUCED".into())]),
+                output_set: Some("POR-QUANTITY-CONTRACT".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        let result_for = |well: &str| {
+            results
+                .iter()
+                .find(|result| result.well_id == well)
+                .unwrap_or_else(|| panic!("{well} produced no run result"))
+        };
+
+        let accepted = result_for(&typed_shale);
+        assert_eq!(
+            accepted.outcome,
+            ModuleRunOutcome::Clean,
+            "a declared shale volume is exactly what a density porosity subtracts: {:?} / {:?}",
+            accepted.error, accepted.degradations
+        );
+        assert!(accepted.rows_written > 0);
+
+        let untyped_result = result_for(&untyped);
+        assert_eq!(
+            untyped_result.outcome,
+            ModuleRunOutcome::Failed,
+            "an untyped volume must be refused, not assumed to be shale"
+        );
+        assert_eq!(untyped_result.rows_written, 0);
+        let untyped_refusal = untyped_result
+            .error
+            .as_deref()
+            .expect("an untyped volume must explain its refusal");
+        assert!(
+            untyped_refusal.contains("VSH")
+                && untyped_refusal.contains("VCL")
+                && untyped_refusal.contains("phi_den"),
+            "the refusal must name the method and both candidate quantities: {untyped_refusal}"
+        );
+
+        let wrong_family = result_for(&clay_under_shale_name);
+        assert_eq!(
+            wrong_family.outcome,
+            ModuleRunOutcome::Failed,
+            "a clay volume carrying a VSH mnemonic must not reach a shale-endpoint subtraction"
+        );
+        assert_eq!(wrong_family.rows_written, 0);
+        let wrong_family_refusal = wrong_family
+            .error
+            .as_deref()
+            .expect("a wrong-family volume must explain its refusal");
+        assert!(
+            wrong_family_refusal.contains("VSH") && wrong_family_refusal.contains("VCL"),
+            "the refusal must name both quantities: {wrong_family_refusal}"
+        );
+        assert_ne!(
+            untyped_refusal, wrong_family_refusal,
+            "absent typing and wrong typing are different findings and must not share one message"
+        );
+
+        let conn = dbm.lock().unwrap();
+        for refused in [&untyped, &clay_under_shale_name] {
+            let versions: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM log_sets
+                     WHERE well_id = ?1 AND set_name = 'POR-QUANTITY-CONTRACT'",
+                    duckdb::params![refused],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                versions, 0,
+                "a volume-quantity refusal must not version a porosity interpretation"
+            );
+            let curves: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1",
+                    duckdb::params![refused],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(curves, 0, "a refused porosity run must write no samples");
+        }
+        let accepted_curves: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT curve_name) FROM computed_curves WHERE well_id = ?1",
+                duckdb::params![typed_shale],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            accepted_curves > 0,
+            "the accepted control must actually produce porosity, or the refusals prove nothing"
+        );
+    }
+
     /// CORRECTNESS — SB-ENV-041 / SB-ENV-T49. The four required declarations come from
     /// `docs/PRD_v2/20_envcorr-qc.md` sections 4.4 and 6.4. The three literal policy records below
     /// are independently read from the shipped arithmetic in `condition::smooth`: all use a

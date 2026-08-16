@@ -27,8 +27,8 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `core-depth-registration` | Core-depth registration | Not exercised | 0 / 39 | — | 6 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
-| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 25 | — | 5 |
-| `porosity` | Porosity interpretation | Not exercised | 0 / 36 | — | 11 |
+| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 29 | — | 6 |
+| `porosity` | Porosity interpretation | Not exercised | 0 / 40 | — | 12 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 103 | 2026-08-13 | 27 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 155 | 2026-08-13 | 53 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 159 | 2026-08-13 | 54 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 164 | 2026-08-13 | 49 |
