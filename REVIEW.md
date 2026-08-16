@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-003: POR branch/limit stream blocked on typed encoding
+
+- [ ] **Decision dependency:** answer DEC-039 and DEC-038. Choose the exact singular per-sample
+      representation, stable vocabulary, combination rule and unknown-code behavior; also settle
+      whether SSC/SSPW are governed methods and authorize their protected implementation boundary.
+- [ ] **Automated boundary:** no SB-POR-003 acceptance test was added. Existing binary flag tests
+      prove only `NaN/0/1` polarity, while saturation method codes prove only that a separately
+      registered class curve can survive. Neither defines POR branch-plus-limit combinations or
+      observes them through persistence/export.
+- [ ] **Recommended schema:** use one versioned categorical registry whose every stable class maps
+      to `{method, branch, binding_limits}`; declare the emitted curve categorical; reject unknown,
+      fractional and unregistered combinations; keep missing output as `f32::NAN`. Do not reuse a
+      binary diagnostic flag or expose a number without its token metadata.
+- [ ] **Field and harsh critique:** a single “clamped” bit is not enough—the analyst must know which
+      equation branch ran and which of several limits bound it. Conversely, an arbitrary integer
+      without a closed registry is just undocumented magic. No Visual, Manual or Field box is
+      pre-checked, and no production or protected file was changed.
+
 ## 2026-08-16 — G2 SB-POR-002: unlimited/limited POR pairs blocked at workflow semantics
 
 - [ ] **Decision dependency:** answer DEC-038, then complete SB-POR-004's collision-safe curve

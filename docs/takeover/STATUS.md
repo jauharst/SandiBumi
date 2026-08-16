@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `160 / 222 handled — 119 DONE, 41 BLOCKED, 62 remaining`
+- Gate 2 requirement progress: `161 / 222 handled — 119 DONE, 42 BLOCKED, 61 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: G2-T08 / SB-POR-002 - `BLOCKED-DECISION/BOUNDARY`; sonic still clamps in place, while SSC/SSPW discard pre-limit values inside protected `ssc.rs` and the chapter does not define whether their “unlimited” lineage bypasses only the final clamp or every upstream component limit. End-to-end custody also depends on SB-POR-004.
+- Active increment: G2-T08 / SB-POR-003 - `BLOCKED-DECISION/BOUNDARY`; the chapter requires one per-sample branch-and-limit stream but does not define its complete stable vocabulary, simultaneous-limit encoding or unknown-code behavior. Existing runtime choices are binary flags or categorical `f32` classes, and SSC/SSPW branch sites remain inside protected `ssc.rs`.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: no SB-POR-002 test was added because a passing test over current SSC/SSPW outputs would mislabel already-limited values as unlimited. Existing density/D-N twin and manifest-parity controls remain unchanged. DEC-038 records the missing workflow classification and unlimited-boundary contract; `ssc.rs` remains untouched. TypeScript and cargo check are green; the fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: no SB-POR-003 test was added because neither the binary flag path nor the saturation class-code path defines the required POR branch-plus-limit semantics. Existing flag polarity, method-code and POR-envelope tests remain unchanged. DEC-039 records the missing wire/schema decision and its dependency on DEC-038 plus the protected-file boundary. TypeScript and cargo check are green; the fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `41 requirements are explicitly BLOCKED and 62 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T08 with SB-POR-003: determine whether the singular per-sample POR branch/limit stream has a complete typed wire vocabulary or needs a product decision before any numeric code is emitted.`
+- Open blockers: `42 requirements are explicitly BLOCKED and 61 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T08 with SB-POR-004: implement typed POR quantity/method/convention custody and collision-safe user-resolved names without editing db.rs or weakening versioned replacement/undo.`
 
 ## Gate dashboard
 

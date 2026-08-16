@@ -113,15 +113,15 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-003 - Per-sample branch and limit flag
 
 - **Specified contract:** one POR flag must identify every material branch and every binding floor/ceiling per sample; T12, T38, T39 and T41 require positive and negative controls.
-- **Current implementation:** POR methods clamp numeric outputs or leave `NaN` without a POR flag. `BADHOLE` and conditioning flags exist as separate detector outputs, and workflow masking is generic, but none is the required branch-and-limit stream.
-- **Qualifying acceptance tests:** none; executable tests do not observe a POR flag through persistence/export. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho`, three `condflag` tests, and `the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works` passed exactly once; they prove detector and generic-mask behavior only.
+- **Current implementation:** POR methods clamp numeric outputs or leave `NaN` without a POR flag. `BADHOLE` and conditioning flags are separate binary detector outputs, workflow masking is generic, and `SW_METHOD` demonstrates a categorical `f32` class curve only for a different domain. None carries POR method branch plus every simultaneously binding limit. SSC/SSPW branch and clamp sites remain inside protected `ssc.rs`.
+- **Qualifying acceptance tests:** none. A binary flag would lose branch/limit identity; choosing arbitrary class codes would invent a wire contract; and no exact whole-family test can populate protected SSC/SSPW paths. Test class `MISSING`.
+- **Supporting tests:** binary flag polarity and saturation method-code tests prove the two existing storage shapes separately. `badhole`/`condflag` tests prove detectors only; none proves the singular POR semantics, combinations, class metadata, persistence or export.
 - **Manual evidence:** porosity 0/33; conditioning 0/27; processing-history 0/7.
-- **Source/parameter boundary:** flag vocabulary is specified behavior, not a numeric parameter.
-- **History/reachability:** no POR `PHIFLAG` or equivalent was found in current source, tests or reachable history.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on the common POR result and declared consumption of conditioning flags.
-- **Next action:** define one machine-readable POR reason/branch schema, populate it at each branch and clamp, and prove an unbound sample remains distinguishable.
+- **Source/parameter boundary:** IP codes 6/7/9/16 and Geolog's `MTH_PHI = SHALE` are evidence, not a complete SandiBumi combination vocabulary. Numeric schema identifiers are not petrophysical parameters, but their stable meaning is still a product contract and cannot be inferred from current code.
+- **History/reachability:** current source was reverified at parent `f8d1d0eb`; this blocker increment changes no production behavior, no flag value and no protected file.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION/BOUNDARY` on DEC-039, DEC-038, the protected-file rule and later conditioning behavior; no false closure.
+- **Blocker or decision:** DEC-039 must choose the singular representation, complete initial vocabulary, simultaneous-limit rule, categorical metadata and unknown/fractional-code behavior. DEC-038 decides SSC/SSPW scope; implementation across every registered method then needs explicit protected-file authority. T41's conditioning branches remain owned by SB-POR-047/048.
+- **Next action:** approve DEC-039/038, then populate one registered POR reason state at every method branch and clamp; prove normal, missing, each single limit, simultaneous limits, unknown-code refusal, categorical reframe, write/reload and export from both sides.
 
 ## SB-POR-004 - Typed POR family, provenance and collision-free names
 
