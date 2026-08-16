@@ -2238,6 +2238,7 @@ mod tests {
                 stats_only: true
             ,
                 custody: None,
+                weighting: Default::default(),
             },
         )
         .expect("pay summary runs");

@@ -179,14 +179,19 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-009
 
 - **Specified contract:** porosity weighting is an explicit property of each averaged curve, never a mnemonic inference.
-- **Current implementation / as-built:** PHIE-weighted SWE and HPV arithmetic exists, but the weighting is hard-coded by result role and no per-curve flag is carried. PARTIAL.
+- **Current implementation / as-built:** `AverageWeighting {Thickness, Porosity}`, `AVERAGED_SLOTS`, `default_weighting`, `weighting_for` and a `WeightedMean` accumulator in `workflow.rs`; `PaySummaryRequest.weighting` is a `BTreeMap` keyed by SLOT, persisted with the rest of the run configuration in `log_sets.params_json`. `run_pay_summary` keeps one accumulator per averaged slot carrying whichever weighting the run declared, replacing the four hand-rolled sums that hard-wired the φ-weighted form to the saturation slot. PRESENT-OK.
+- **Both as-built gaps closed:** the φ-weighted form can now be REQUESTED for another curve, and can be SWITCHED OFF.
+- **Where the flag lives, and why not on the curve:** the register asked for *typed curve weighting metadata*. The chapter specifies a flag *stored with the curve's averaging configuration*, and the harm it cites is Techlog's summation rule (*"the SW curve is weighted by POR but the SWE is not weighted"*), which is a property of the summation setup rather than of the curve. SB-CUT-006/007/008, which would introduce a richer per-curve averaging configuration, are **not in the pilot scope**, so the run configuration is the configuration the approved scope has - and it is persisted, not an argument that evaporates.
 - **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
-- **Automated evidence:** MISSING; T06/T07 do not exist as explicit-flag tests.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** the weighting equations are chapter-cited; the missing issue is typed custody.
-- **UI/IPC/provenance surface:** request, curve metadata, result and exports omit the weighting flag.
-- **History/reachability:** integrated arithmetic is reachable; no generic flag was found.
-- **Blocking decision / next action:** add immutable weighting metadata and prove renamed curves preserve the same method while unflagged curves do not acquire it.
+- **Automated evidence:** `zone_averaging_weighting_is_declared_per_curve_and_never_inferred_from_the_curve_name` (`src-tauri/src/workflow.rs`). CORRECTNESS. Four arms on a fixture where φ is deliberately ANTI-correlated with the other curves, so the two weightings give visibly different answers: declaring nothing keeps the vendor-agreed behaviour (Sw 0.30 φ-weighted, Vsh 0.25 and φ 0.20 by thickness); declaring thickness for the saturation slot moves Sw to 0.40, which is the number Techlog silently produces for a curve spelled the wrong way; declaring porosity for the Vsh slot moves it to 0.175 without disturbing the others; and the same rock with its porosity curve stored under a different mnemonic averages identically. A structural arm additionally proves the one resolved MNEMONIC the summation holds (`phie_curve`) never reaches the resolver - the difference between *does not infer from the name* and *happens not to today*.
+- **Mutation evidence:** three probes, one per clause, each read for WHICH assertion fired. Ignoring the caller's declaration turned the switch-off arm red at 0.3. Defaulting saturation to thickness turned the default arm red at 0.4. Weighting by `h` instead of `φ·h` turned the default arm red at 0.4 as well - the φ-weighted form collapsing to the thickness-weighted one, which is exactly the silent wrongness.
+- **Regression evidence:** the full 1028-test backend suite passes unchanged, which is what says the accumulator restructure moved no existing number.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** the default is cited to `:1041-1042` (three-vendor agreement on `Σ(Sw·φ·h)/Σ(φ·h)`), and it is also what the engine already did, so nothing moves for a caller who declares nothing.
+- **UI/IPC/provenance surface:** `ipc.ts` `PaySummaryRequest.weighting?: Record<string, "thickness" | "porosity">`; persisted per run in `log_sets.params_json`.
+- **Named limit:** no pane exposes the declaration yet - it is reachable over IPC and recorded in provenance, but the Cutoffs and Summary pane offers no control. Whether an interpreter should be able to change it per run is a product question; REVIEW.md asks it.
+- **History/reachability:** the φ-weighted arithmetic was correct and is unchanged; only its custody moved from hard-wired to declared.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-010
 

@@ -2985,6 +2985,12 @@ export interface PaySummaryRequest {
   phie_min: number;
   swe_max: number;
   perm_min: number | null;
+  /** SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — `"VSH"`,
+   *  `"PHIE"` or `"SWE"` — which is the ROLE that curve plays in the summation, never the
+   *  mnemonic it happens to be stored under. Omit a slot to take the cited default: saturation
+   *  is porosity-weighted `Σ(Sw·φ·h)/Σ(φ·h)`, which all three vendors agree on, and the rest is
+   *  thickness-weighted. Omit the whole object for exactly the behaviour that shipped before. */
+  weighting?: Record<string, "thickness" | "porosity">;
   /** Write FLAG_* in place without creating a versioned log set, instead of versioning the pay
    *  flags (with the cutoffs in provenance) per well. Set by the report/composite render pass,
    *  whose flags are a render side-effect that should not churn the archive with a version per

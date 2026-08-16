@@ -307,6 +307,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
             skip_version: false,
             stats_only: true,
             custody: None,
+            weighting: Default::default(),
         },
     )
     .expect("recorded pay summary");

@@ -733,6 +733,7 @@ pub fn export_workbook(
                 stats_only: true
             ,
                 custody: None,
+                weighting: Default::default(),
             },
         )?
     } else {
@@ -1076,6 +1077,7 @@ pub fn build_report_blocks(
             stats_only: true
         ,
             custody: None,
+            weighting: Default::default(),
         },
     )
     .unwrap_or_default();
@@ -1839,6 +1841,7 @@ pub fn export_deck(
             stats_only: true
         ,
             custody: None,
+            weighting: Default::default(),
         },
     )?;
 

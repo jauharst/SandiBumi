@@ -14343,3 +14343,22 @@ a console, where it vanishes — and a correction nobody can see is the same as 
 - [ ] **Do you want the correction shown anywhere?** Right now it is stored and sent to the
       frontend but has no column, because it would be a column of zeros. Say the word if you would
       rather see it.
+
+## Which average is porosity-weighted is now something you say, not something the code assumes
+
+Average water saturation over a zone should be weighted by porosity — Σ(Sw·φ·h)/Σ(φ·h) — because a
+thick tight streak should not count as much as a thin good one. SandiBumi already did that, but it
+was welded to the saturation slot: you could not ask for it on another curve and you could not turn
+it off. Now it is a declaration on the run, and nothing about it depends on what the curve is
+called. (Techlog's documented behaviour is that a curve named SW gets porosity weighting and one
+named SWE does not — the same rock, ten saturation units apart, with nothing on the page to say so.)
+
+Nothing changes unless you ask it to: leave it alone and every number is exactly what it was.
+
+- [ ] **Re-run a summary you have run before.** Every average should be identical to the last run.
+      If any moved, stop and tell me — that is a regression, not a feature.
+- [ ] **Sanity-check one zone by hand** where porosity varies a lot: average Sw should sit closer to
+      the Sw of the good porosity than a straight thickness average would.
+- [ ] **Do you want this exposed in the Cutoffs & Summary pane?** Right now it is settable through
+      the backend and recorded in provenance, but there is no control on screen. Also tell me if the
+      default is wrong for how you work.

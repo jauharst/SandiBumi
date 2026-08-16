@@ -8,7 +8,7 @@ use crate::modules::{self, ArgKind, ModuleContext};
 use duckdb::{Connection, OptionalExt};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2619,6 +2619,14 @@ pub struct PaySummaryRequest {
     /// not churn the archive with a version per render. The explicit Cutoffs & Summary run
     /// leaves this false, so its pay flags are versioned with the cutoffs recorded in provenance
     /// (log_sets.params_json).
+    /// SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — one of
+    /// [`AVERAGED_SLOTS`], a role rather than a mnemonic. Absent slots take [`default_weighting`],
+    /// so a caller who declares nothing gets exactly the behaviour that shipped before this
+    /// existed. Persisted with the rest of the run's configuration in `log_sets.params_json`,
+    /// which is what makes it *stored with the curve's averaging configuration* rather than an
+    /// argument that evaporates after the run.
+    #[serde(default)]
+    pub weighting: BTreeMap<String, AverageWeighting>,
     #[serde(default)]
     pub skip_version: bool,
     /// When true, compute and return the per-zone statistics WITHOUT persisting any FLAG_*
@@ -2719,6 +2727,82 @@ pub struct PaySummaryRow {
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
+
+/// SB-CUT-009. How an averaged curve is weighted across a zone.
+///
+/// Declared per curve, never inferred from the curve's name or family. Techlog's own behaviour is
+/// the harm the chapter names: *"the SW curve is weighted by POR but the SWE is not weighted"* —
+/// a curve loses its φ-weighting because of how it happens to be spelled, and nothing on the page
+/// says which form produced the number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AverageWeighting {
+    /// `Σ(C·h) / Σh`
+    Thickness,
+    /// `Σ(C·φ·h) / Σ(φ·h)`
+    Porosity,
+}
+
+/// SB-CUT-009. The curve slots the summation averages. A SLOT is a role fixed at compile time —
+/// which input of the summation a curve fills — not the mnemonic it happens to be stored under.
+pub const AVERAGED_SLOTS: [&str; 3] = ["VSH", "PHIE", "SWE"];
+
+/// SB-CUT-009. The weighting applied when the caller declares nothing.
+///
+/// Cited, not chosen. The φ-weighted saturation `Σ(Sw·φ·h)/Σ(φ·h)` is agreed by all three vendors
+/// and is required for SB-CUT-010's volumetric identity to hold at all
+/// (`docs/PRD_v2/14_cutoffs-summation-mc.md:1041-1042`); thickness weighting for the rest is what
+/// the engine already did, so a caller who declares nothing sees no number move.
+pub fn default_weighting(slot: &str) -> AverageWeighting {
+    if slot == "SWE" {
+        AverageWeighting::Porosity
+    } else {
+        AverageWeighting::Thickness
+    }
+}
+
+/// SB-CUT-009. Resolve the weighting for one averaged slot.
+///
+/// Takes a SLOT and the run's declaration — nothing else. It has no access to which curve filled
+/// that slot, which is what makes "never inferred from the name" a property of the signature
+/// rather than of the current implementation.
+pub fn weighting_for(
+    declared: &BTreeMap<String, AverageWeighting>,
+    slot: &str,
+) -> AverageWeighting {
+    declared.get(slot).copied().unwrap_or_else(|| default_weighting(slot))
+}
+
+/// SB-CUT-009. One weighted average, accumulated sample by sample.
+///
+/// A sample joins the numerator AND the denominator together or not at all, so an average is
+/// always normalised over exactly the footage its own curve was valid on — a SAND-row sample with
+/// a good Vsh but a missing φ must not drag the porosity average toward zero.
+#[derive(Debug, Default, Clone, Copy)]
+struct WeightedMean {
+    sum_wc: f64,
+    sum_w: f64,
+}
+
+impl WeightedMean {
+    /// `weight` is NaN where the weighting basis itself is missing — a φ-weighted average cannot
+    /// use a sample with no porosity, however good its own value is.
+    fn add(&mut self, value: f32, weight: f64) {
+        if value.is_nan() || !weight.is_finite() {
+            return;
+        }
+        self.sum_wc += value as f64 * weight;
+        self.sum_w += weight;
+    }
+
+    fn value(&self) -> f32 {
+        if self.sum_w > 0.0 {
+            (self.sum_wc / self.sum_w) as f32
+        } else {
+            f32::NAN
+        }
+    }
+}
 
 /// SB-CUT-005. Relative tolerance on `gross - (net + not_net + unknown)`.
 ///
@@ -3035,12 +3119,12 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 // SB-CUT-003: footage the classifier saw and REJECTED. Only samples it could
                 // actually evaluate land here; see the `unknown` derivation below.
                 let mut not_net = 0.0f64;
-                let mut net_vsh = 0.0f64;
-                let mut net_phie = 0.0f64;
-                let mut sum_vsh = 0.0f64;
-                let mut sum_phie = 0.0f64;
-                let mut sum_phie_swe = 0.0f64;
-                let mut sum_phie_w = 0.0f64;
+                // SB-CUT-009: one accumulator per averaged slot, each carrying whichever weighting
+                // the run DECLARED for that slot. The φ-weighted form used to be hard-wired to the
+                // saturation slot, so it could be neither requested elsewhere nor switched off.
+                let mut avg = [WeightedMean::default(); AVERAGED_SLOTS.len()];
+                let mode: Vec<AverageWeighting> =
+                    AVERAGED_SLOTS.iter().map(|s| weighting_for(&req.weighting, s)).collect();
                 let mut hpv = 0.0f64;
                 // Samples in this zone that the classifier could actually judge. A well whose
                 // VSH/PHIE/SWE were never computed classifies to NaN everywhere, which leaves
@@ -3077,18 +3161,20 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                         continue;
                     }
                     net += h;
-                    if !vsh[i].is_nan() {
-                        sum_vsh += vsh[i] as f64 * h;
-                        net_vsh += h;
-                    }
-                    if !phie[i].is_nan() {
-                        sum_phie += phie[i] as f64 * h;
-                        net_phie += h;
-                        if !swe[i].is_nan() {
-                            sum_phie_swe += phie[i] as f64 * swe[i] as f64 * h;
-                            sum_phie_w += phie[i] as f64 * h;
-                            hpv += phie[i] as f64 * (1.0 - swe[i] as f64) * h;
+                    // SB-CUT-009: the two weight bases. The φ basis is MISSING where porosity is,
+                    // so a φ-weighted average silently skips a sample it cannot weight rather than
+                    // treating it as weightless — the same rule the hard-wired version followed.
+                    let w = |m: AverageWeighting| match m {
+                        AverageWeighting::Thickness => h,
+                        AverageWeighting::Porosity => {
+                            if phie[i].is_nan() { f64::NAN } else { phie[i] as f64 * h }
                         }
+                    };
+                    for (slot, value) in [vsh[i], phie[i], swe[i]].into_iter().enumerate() {
+                        avg[slot].add(value, w(mode[slot]));
+                    }
+                    if !phie[i].is_nan() && !swe[i].is_nan() {
+                        hpv += phie[i] as f64 * (1.0 - swe[i] as f64) * h;
                     }
                 }
 
@@ -3130,12 +3216,12 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                         if judged > 0.0 { (net / judged) as f32 } else { f32::NAN }
                     },
                     ntg: if gross > 0.0 { (net / gross as f64) as f32 } else { 0.0 },
-                    // Averages are normalised by the net thickness over which THAT curve is
-                    // valid — not total net — so a SAND-row sample with valid VSH but missing
-                    // PHIE no longer drags avg_phie toward zero.
-                    avg_vsh: if net_vsh > 0.0 { (sum_vsh / net_vsh) as f32 } else { f32::NAN },
-                    avg_phie: if net_phie > 0.0 { (sum_phie / net_phie) as f32 } else { f32::NAN },
-                    avg_swe: if sum_phie_w > 0.0 { (sum_phie_swe / sum_phie_w) as f32 } else { f32::NAN },
+                    // Averages are normalised over the footage THAT curve was valid on — not total
+                    // net — so a SAND-row sample with valid VSH but missing PHIE does not drag
+                    // avg_phie toward zero. Each carries the weighting its slot declared.
+                    avg_vsh: avg[0].value(),
+                    avg_phie: avg[1].value(),
+                    avg_swe: avg[2].value(),
                     hpv: hpv as f32,
                     n_classified,
                     perm_cutoff_no_data,
@@ -3965,6 +4051,7 @@ mod tests {
                 skip_version: true,
                 stats_only: false,
                 custody: Some(test_run_custody()),
+                weighting: Default::default(),
             },
         )
         .expect_err("skip_version must be an explicit refusal rather than a provenance switch");
@@ -5073,6 +5160,7 @@ mod tests {
             stats_only: true
         ,
             custody: None,
+            weighting: Default::default(),
         };
         let rows = run_pay_summary(&dbm, &req).expect("summary runs on an uninterpreted well");
         assert!(!rows.is_empty(), "rows are still emitted — the well and its zone exist");
@@ -5168,6 +5256,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                weighting: Default::default(),
             },
         )
         .expect("summary runs");
@@ -5281,6 +5370,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                weighting: Default::default(),
             },
         )
         .expect("summary runs");
@@ -5406,6 +5496,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                weighting: Default::default(),
             },
         )
         .expect("an ordinary summary reconciles rather than refusing");
@@ -5422,6 +5513,159 @@ mod tests {
                 "{} a real run absorbs at most the tolerance, got {}",
                 r.flag,
                 r.residual_absorbed
+            );
+        }
+    }
+
+    /// Eleven samples one unit apart from 1000, every one of which passes every cutoff, with φ,
+    /// Sw and Vsh each stepping halfway down. The whole point is that φ and the other curves are
+    /// ANTI-correlated, so a thickness-weighted average and a φ-weighted one give visibly
+    /// different answers — over the ten in-zone units:
+    ///
+    /// * `Σφh = 5(0.30) + 5(0.10) = 2.0`
+    /// * Sw thickness-weighted `= 0.40`, φ-weighted `= 0.30`
+    /// * Vsh thickness-weighted `= 0.25`, φ-weighted `= 0.175`
+    ///
+    /// `porosity_name` fills the porosity slot under a chosen mnemonic, which is what arm D needs.
+    fn seed_weighting_well(conn: &duckdb::Connection, name: &str, porosity_name: &str) -> String {
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 11usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let half = |lo: f32, hi: f32| -> Vec<f32> {
+            (0..n).map(|i| if i < 5 { lo } else { hi }).collect()
+        };
+        equations::write_computed_curve(conn, &well, &depth, "VSH", &half(0.10, 0.40)).unwrap();
+        equations::write_computed_curve(conn, &well, &depth, porosity_name, &half(0.30, 0.10))
+            .unwrap();
+        equations::write_computed_curve(conn, &well, &depth, "SWE", &half(0.20, 0.60)).unwrap();
+        well
+    }
+
+    /// SB-CUT-009 (P1, SILENT-WRONGNESS). `14_cutoffs-summation-mc.md:1033-1048` — porosity
+    /// weighting of an averaged curve **MUST** be controlled by an explicit per-curve flag stored
+    /// with the curve's averaging configuration, and SandiBumi **MUST NOT** infer it from the
+    /// curve's name or family.
+    ///
+    /// The harm is Techlog's, quoted in the chapter: *"the SW curve is weighted by POR but the SWE
+    /// is not weighted"* — a curve loses its φ-weighting because of how it happens to be spelled,
+    /// and on this fixture that is 0.40 against 0.30, ten saturation units, with nothing on the
+    /// page to say which was used.
+    ///
+    /// The as-built named two gaps and both are closed here: the φ-weighted form could not be
+    /// REQUESTED for another curve, and could not be SWITCHED OFF.
+    ///
+    /// Defaults are cited, not chosen: the φ-weighted saturation `Σ(Sw·φ·h)/Σ(φ·h)` is agreed by
+    /// all three vendors (`:1041-1042`) and is what the engine already did, so nothing moves for a
+    /// caller who declares nothing.
+    #[test]
+    fn zone_averaging_weighting_is_declared_per_curve_and_never_inferred_from_the_curve_name() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let plain = seed_weighting_well(&conn, "WGT-PLAIN", "PHIE");
+        let aliased = seed_weighting_well(&conn, "WGT-ALIAS", modules::PHIE_DN_LIMITED_DEFAULT);
+        let dbm = Mutex::new(conn);
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+
+        let run = |wells: Vec<String>, weighting: BTreeMap<String, AverageWeighting>| {
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: wells,
+                    // Permissive on purpose: every sample must pass, so the only thing that can
+                    // move an average is the weighting under test.
+                    vsh_max: 0.9,
+                    phie_min: 0.05,
+                    swe_max: 0.9,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting,
+                },
+            )
+            .expect("summary runs")
+        };
+        let pay = |rows: &[PaySummaryRow], well: &str| -> PaySummaryRow {
+            rows.iter().find(|r| r.well_id == well && r.flag == "PAY").expect("a PAY row").clone()
+        };
+
+        // A — DECLARING NOTHING keeps the vendor-agreed behaviour: saturation φ-weighted, the
+        // others by thickness. A caller who never heard of this flag sees no change.
+        let base = run(vec![plain.clone()], BTreeMap::new());
+        let r = pay(&base, &plain);
+        assert!(near(r.avg_swe, 0.30), "default SWE is phi-weighted 0.30, got {}", r.avg_swe);
+        assert!(near(r.avg_vsh, 0.25), "default VSH is thickness-weighted 0.25, got {}", r.avg_vsh);
+        assert!(near(r.avg_phie, 0.20), "default PHIE is thickness-weighted 0.20, got {}", r.avg_phie);
+
+        // B — it can be SWITCHED OFF. Declaring thickness weighting for the saturation slot moves
+        // the answer to 0.40, which is the number Techlog silently produces for a curve spelled
+        // the wrong way. Here it is a declaration, not an accident.
+        let off = run(
+            vec![plain.clone()],
+            BTreeMap::from([("SWE".to_string(), AverageWeighting::Thickness)]),
+        );
+        assert!(
+            near(pay(&off, &plain).avg_swe, 0.40),
+            "declared thickness weighting must actually change the average, got {}",
+            pay(&off, &plain).avg_swe
+        );
+
+        // C — it can be REQUESTED FOR ANOTHER CURVE, which the hard-wired version could not do at
+        // all. Vsh φ-weighted is 0.175 against its thickness-weighted 0.25.
+        let on = run(
+            vec![plain.clone()],
+            BTreeMap::from([("VSH".to_string(), AverageWeighting::Porosity)]),
+        );
+        assert!(
+            near(pay(&on, &plain).avg_vsh, 0.175),
+            "phi weighting must be available to any averaged curve, got {}",
+            pay(&on, &plain).avg_vsh
+        );
+        assert!(
+            near(pay(&on, &plain).avg_swe, 0.30),
+            "and declaring one curve must not disturb another"
+        );
+
+        // D — THE NAME HAS NO INFLUENCE. The same rock with its porosity curve stored under a
+        // different mnemonic averages identically, under the default and under an override.
+        let both = run(vec![plain.clone(), aliased.clone()], BTreeMap::new());
+        let (p, a) = (pay(&both, &plain), pay(&both, &aliased));
+        assert!(near(p.avg_swe, a.avg_swe) && near(p.avg_vsh, a.avg_vsh) && near(p.avg_phie, a.avg_phie),
+            "renaming the porosity curve changed an average: {:?} vs {:?}",
+            (p.avg_swe, p.avg_vsh, p.avg_phie), (a.avg_swe, a.avg_vsh, a.avg_phie));
+
+        // ...and structurally, so a future edit cannot quietly reintroduce the inference. The
+        // resolver is keyed on the SLOT a curve fills — a role, fixed at compile time — and the
+        // one place the summation holds a resolved MNEMONIC is `phie_curve`. Proving that name
+        // never reaches the resolver is the difference between "does not infer from the name" and
+        // "happens not to today". A slot key spelled like a mnemonic is not an inference: it is
+        // the position, and arm D above is what proves it behaviourally.
+        // Truncated at the test module, or the scan matches the very strings it is asserting
+        // about and passes for free — this file is its own subject. Cut on `mod tests {` rather
+        // than on `#[cfg(test)]`, which also marks three production-side test helpers far above
+        // here and would silently truncate away the code actually under scan.
+        let whole = include_str!("workflow.rs");
+        let source = &whole[..whole.find("\nmod tests {").expect("the test module is below")];
+        assert!(
+            !source.contains("weighting_for(req, &phie_curve")
+                && !source.contains("weighting_for(&req, &phie_curve"),
+            "the resolved porosity mnemonic must never be passed to the weighting resolver"
+        );
+        let start = source.find("pub fn weighting_for").expect("the resolver exists");
+        let body = &source[start..start + 700];
+        for banned in ["phie_curve", "family", "curve_meta", "mnemonic"] {
+            assert!(
+                !body.contains(banned),
+                "the weighting resolver must not consult {banned}; it sees a slot and a declaration"
             );
         }
     }
@@ -5494,6 +5738,7 @@ mod tests {
                     stats_only: true
                 ,
                     custody: None,
+                    weighting: Default::default(),
                 },
             )
             .expect("summary runs")
@@ -5758,6 +6003,7 @@ mod tests {
                 stats_only: true
             ,
                 custody: None,
+                weighting: Default::default(),
             },
         )
         .expect("a bare well must not fail the batch");
@@ -6324,6 +6570,7 @@ mod tests {
         ,
             stats_only: true,
             custody: None,
+            weighting: Default::default(),
         };
         let rows = run_pay_summary(&dbm, &req).unwrap();
         let sand = rows.iter().find(|r| r.zone == "Z1" && r.flag == "SAND").expect("SAND row");
@@ -6392,6 +6639,7 @@ mod tests {
             stats_only: false
         ,
             custody: Some(test_run_custody()),
+            weighting: Default::default(),
         };
         run_pay_summary(&dbm, &req).unwrap();
         {
@@ -6422,6 +6670,7 @@ mod tests {
             stats_only: false
         ,
             custody: Some(test_run_custody()),
+            weighting: Default::default(),
         };
         let refusal =
             run_pay_summary(&dbm, &req_skip).expect_err("skip_version must not bypass ancestry");
@@ -6498,6 +6747,7 @@ mod tests {
             stats_only: true
         ,
             custody: None,
+            weighting: Default::default(),
         };
         let rows_stats = run_pay_summary(&dbm, &base).unwrap();
         assert!(!rows_stats.is_empty(), "stats_only must still return the summary rows");
@@ -9003,6 +9253,7 @@ mod tests {
             &db,
             &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: false, stats_only: false ,
                 custody: Some(test_run_custody()),
+                weighting: Default::default(),
             },
         )
         .expect("pay summary failed");
