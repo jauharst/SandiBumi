@@ -1,32 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
-## 2026-08-16 — G2 SB-POR-008: one formation-water clay-bound-water porosity, blocked on a protected file
+## 2026-08-16 — G2 SB-POR-008: one formation-water clay-bound-water porosity, now shared
 
-- [ ] **Decision dependency:** SB-POR-008 requires clay-bound-water porosity to be defined **once**,
-      as `(RHO_DSH − RHO_SH)/(RHO_DSH − RHO_W)` with `RHO_W` the **formation water** density.
-      `phi_den` and `phi_dn` already share that helper correctly, and `phi_son` has no such term at
-      all. But `ssc.rs:259` and `ssc.rs:464` each define their own `phit_sh` using **`RHOB_FL`**,
-      the *fluid* density — a different quantity under the same name, which is the F16 conflation
-      this requirement exists to stop. `ssc.rs` is prohibited for editing and declares no `RHO_W`
-      parameter at all, so fixing it needs both a new parameter and a formula change in a file this
-      program may not touch. Choose one: authorize a narrow `ssc.rs` edit that adds the
-      formation-water parameter and routes SSC and SSPW through the shared helper while preserving
-      their existing limited arithmetic; or explicitly re-adjudicate SB-POR-008 to the `modules.rs`
-      paths while SSC/SSPW remain first-pilot exclusions. The export arm additionally needs
-      SB-CLY-044's `clsr_porosity_corrected` admitted to the manifest or the arm re-scoped.
-- [ ] **Why this is worth your attention even though SSC/SSPW are pilot-excluded:** the two forms
-      give **identical numbers at the shipped defaults**, because fluid density and formation-water
-      density both default to 1.00. They separate only when an interpreter selects salt water
-      (§5.1 attests 1.10). So an SSC/SSPW run on a saline formation quietly returns a different
-      clay-bound-water porosity from the density and D-N modules, with no flag and no error.
-- [ ] **Automated correctness:** none, deliberately. A test covering only the `modules.rs` paths
-      would assert the quantity is "defined once" while two parallel definitions of that exact name
-      survive — converting a boundary into a false green. The full gate is unchanged from the
-      SB-POR-007 receipt at `1041 passed / 0 failed / 37 ignored` with 31 owned warnings.
-- [ ] **Field and harsh critique:** no code changed, no value was invented, and no arm of the
-      contract was dropped to make the row closable. If you would rather see the `modules.rs` half
-      proven now and the `ssc.rs` half deferred, say so and it becomes a re-adjudication rather than
-      a boundary. No Visual, Manual or Field box is pre-checked.
+- [ ] **Automated correctness:** `one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities`
+      pins the quantity to exactly one definition, `modules::shale_total_porosity`, anchored on
+      **formation water** (`RHO_W`) rather than fluid density. It evaluates the chapter's own form
+      independently rather than calling the code twice, proves the two anchors are separable at the
+      cited salt-water density, requires the whole production tree to hold **one** definition — so a
+      module re-deriving it locally fails even though every other assertion would still pass — and
+      pins F16's naming rule from both sides. Two mutations produced RED at two different
+      assertions. All six existing SSC/SSPW behaviour tests pass with **unchanged expected values**,
+      which is the control proving the change is behaviour-neutral wherever `RHO_W` equals `RHOB_FL`.
+- [ ] **What your authorization actually bought, and where I narrowed it:** you approved option (a),
+      routing SSC and SSPW through the shared helper. SSPW was routed and is fixed. **SSC was not**,
+      and that is deliberate: its `(rhob_dsi − rhob_wsi)/(rhob_dsi − rhob_fl)` is the wet-silt point's
+      fractional distance along the fluid-anchored projection line `m3` that defines `rhob_dsi`.
+      Changing its denominator would stop it being a fraction along its own line — introducing a new
+      silent error while fixing another. Its arithmetic is untouched; only the colliding local name
+      was retired to `silt_water_fraction`, which is what F16 asks for. **Please sanity-check that
+      reading** — it is the one judgement call in this increment.
+- [ ] **Manual:** open Porosity from SSPW. Confirm a new **Formation water density** field appears,
+      defaulting to 1.0 with its Geolog source panel. Set it to 1.10 while leaving the invaded-zone
+      fluid density at 1.0 and confirm PHIE/bound-water change; set them equal again and confirm the
+      previous answer returns. Density and D-N porosity must be unaffected throughout.
+- [ ] **Field and harsh critique:** SSPW's clay-bound-water porosity was previously computed against
+      the invaded-zone fluid. Identical at defaults, so no past deliverable on fresh water is wrong;
+      any SSPW run using a saline formation-water density was overstating shale porosity. Judge
+      whether that matches anything you have shipped. A `DEC` row for this authorization still needs
+      adding to `DECISIONS.md` — outside my allowed paths. No Visual, Manual or Field box is
+      pre-checked.
 
 ## 2026-08-16 — G2 SB-POR-007: every cited porosity parameter shows its source and tier
 

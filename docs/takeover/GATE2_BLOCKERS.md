@@ -9,8 +9,8 @@ This is the human-readable companion to the machine-owned blocker set in
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
 - Handled: `165 / 222`
-- Done: `122`
-- Blocked: `43`
+- Done: `123`
+- Blocked: `42`
 - Remaining unhandled: `57`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
@@ -69,7 +69,6 @@ requirement appears exactly once.
 | `SB-CLY-055` | DEC-036 and DEC-037 | Exact T35 requires the deferred CLY provenance output and an authorized LAS token representation; exact T44 needs a source-scoped undeclared-`-999` policy compatible with per-channel `NoNull`. | Authorize the complete versioned categorical provenance schema as pilot infrastructure or add SB-CLY-031/032 to the manifest, then define the exact CLY source/mnemonic signatures and `NoNull`-first sentinel policy before writing the all-output round trip. |
 | `SB-POR-002` | DEC-038 and protected-file boundary | Sonic has no unlimited twin. SSC/SSPW discard pre-limit values inside protected `ssc.rs`, and “unlimited” is ambiguous because upstream component and geometry clamps may already have bound the final value. Independent storage/export proof also depends on SB-POR-004's collision-safe custody. | Decide whether SSC/SSPW are methods under SB-POR-002 or separately typed workflows. If included, define the exact unlimited boundary, finish SB-POR-004, and authorize one narrow `ssc.rs` edit that preserves all existing limited arithmetic while exposing the approved pre-limit lineage. |
 | `SB-POR-003` | DEC-039, DEC-038 and protected-file boundary | The singular branch/limit stream has no complete stable vocabulary, simultaneous-limit encoding, class metadata or unknown-code rule. Binary flags cannot carry branch identity, while unregistered categorical numbers are magic. SSC/SSPW branches and clamps also live in protected `ssc.rs`; T41 depends on later conditioning behavior. | Approve one exact versioned representation and every initial token/code or group member, including combinations and missing/unknown handling; settle DEC-038; then authorize the required narrow protected edits and prove the categorical output through write, reload, reframe and export. |
-| `SB-POR-008` | Protected-file boundary and deferred consumer | `phi_den` and `phi_dn` already share the formation-water helper and `phi_son` has no equivalent term, but `ssc.rs:259` and `ssc.rs:464` each define a local `phit_sh` from FLUID density where the requirement requires FORMATION WATER density. That file is prohibited and exposes no `RHO_W` at all. The CLY export target `clsr_porosity_corrected` (SB-CLY-044) is outside the approved manifest. The two forms agree at the shipped defaults and separate only once salt water is selected, which is why it is silent. | Authorize a narrow `ssc.rs` edit adding a formation-water parameter and routing SSC/SSPW through the shared helper while preserving their existing limited arithmetic, or explicitly re-adjudicate SB-POR-008 to the `modules.rs` paths while SSC/SSPW remain first-pilot exclusions; the CLY export arm additionally needs SB-CLY-044 admitted or re-scoped. |
 
 ## Product-owner decision packet
 

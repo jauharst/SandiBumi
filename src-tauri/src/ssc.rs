@@ -256,8 +256,13 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         let vsh = vwcl + vsilt;
         let phie = limit(phit - vwcl * phit_cl, 0.0, phit);
         let cbw = phit - phie;
-        let phit_sh = (rhob_dsi - rhob_wsi) / (rhob_dsi - rhob_fl);
-        let vwsh = limit(vsh / (1.0 - phit_sh), 0.0, 1.0);
+        // SB-POR-008 / F16: this is NOT the clay-bound-water PHIT_SH and must not carry that name.
+        // `rhob_dsi` is the intersection of the fluid-anchored line m3 with the dry-clay line m4,
+        // so this is the wet-silt point's fractional distance along m3 from dry silt toward the
+        // fluid point. Its denominator must stay `rhob_fl`: change it and the expression stops
+        // being a fraction along the very line that defined its numerator. Arithmetic unchanged.
+        let silt_water_fraction = (rhob_dsi - rhob_wsi) / (rhob_dsi - rhob_fl);
+        let vwsh = limit(vsh / (1.0 - silt_water_fraction), 0.0, 1.0);
         let mut cwsh = vwsh - vdcl - cbw - vsilt;
         let mut bw = cbw + cwsh;
 
@@ -387,6 +392,16 @@ pub fn sspw_spec() -> ModuleSpec {
             param_open("RHOB_DSH", "Dry shale grain density (0 p.u. shale)", "g/cc", 2.0, 3.0, true),
             param_open("VOL_CBW_SH", "Clay-bound water volume in wet shale", "v/v", 0.0, 1.0, true),
             param_open("SWIRR_MIN", "Minimum irreducible water saturation", "v/v", 0.0, 1.0, true),
+            // SB-POR-008: the water filling shale porosity is FORMATION water, so PHIT_SH is
+            // anchored on RHO_W and not on the invaded-zone RHOB_FL below. Both ship at 1.00, so
+            // this separates only once salt water is selected.
+            crate::modules::with_sources(
+                param(
+                    "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                    "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FORMATION_WATER_DENSITY,
+            ),
             param(
                 "RHOB_FL", "Density of invaded-zone fluid", "g/cc", 1.0, 0.5, 1.5,
                 "Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4",
@@ -430,6 +445,7 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
         let vol_cbw_sh = ctx.p("VOL_CBW_SH", i);
         let swirr_min = ctx.p("SWIRR_MIN", i);
         let rhob_fl = ctx.p("RHOB_FL", i);
+        let rho_w = ctx.p("RHO_W", i);
         // Shale/CBW params joined the guard: with any of them NaN, `(phit_sh -
         // vol_cbw_sh).max(0.0)` silently swallowed the NaN into 0.0 and a NaN `cbw`
         // then reached `limit` as a NaN clamp bound. Outputs are NaN-initialised, so
@@ -460,8 +476,15 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
         let rhoma = (1.0 - vsh) * rhob_mat + vsh * rhob_dsh;
         let phit = limit((rhoma - rhob_cor) / (rhoma - rhob_fl), 0.0, 0.75);
 
-        // Wet-shale total porosity and the bound-water split.
-        let phit_sh = limit((rhob_dsh - rhob_sh) / (rhob_dsh - rhob_fl), 0.0, 1.0);
+        // Wet-shale total porosity and the bound-water split. SB-POR-008: this is the product's
+        // one clay-bound-water porosity, so it comes from the shared definition and is anchored on
+        // FORMATION water, not on the invaded-zone `rhob_fl` the density porosity above uses. The
+        // existing [0,1] clamp is retained exactly as it was.
+        let phit_sh = limit(
+            crate::modules::shale_total_porosity(rhob_dsh, rhob_sh, rho_w),
+            0.0,
+            1.0,
+        );
         let cbw = limit(vsh * vol_cbw_sh, 0.0, phit);
         let capbw_raw = vsh * (phit_sh - vol_cbw_sh).max(0.0);
         let capbw = limit(capbw_raw, 0.0, phit - cbw);
@@ -528,6 +551,10 @@ mod tests {
             ("sspw", "VOL_CBW_SH") => 0.1,
             ("sspw", "SWIRR_MIN") => 0.0,
             ("sspw", "RHOB_FL") | ("sspw", "NPHI_FL") => 1.0,
+            // SB-POR-008: fresh formation water, equal to this fixture's fluid density on purpose.
+            // Holding them equal is what makes these existing assertions a control proving the
+            // shared-helper change is behaviour-neutral wherever the two anchors agree.
+            ("sspw", "RHO_W") => 1.0,
             _ => panic!("no explicit SSC test fixture for {}.{name}", spec.name),
         };
         for a in &spec.args {

@@ -758,7 +758,7 @@ pub(crate) fn param_sourced(
 /// Add a competing-value topic without changing whether the underlying parameter has a default.
 /// Disclosure must never turn an `ABSENT` parameter into a plausible number merely because another
 /// product ships one.
-fn with_sources(mut arg: ArgSpec, topic: &str) -> ArgSpec {
+pub(crate) fn with_sources(mut arg: ArgSpec, topic: &str) -> ArgSpec {
     debug_assert!(!crate::param_sources::sources_for(topic).is_empty());
     arg.sources_topic = topic.into();
     arg
@@ -3094,12 +3094,29 @@ fn phi_den_spec() -> ModuleSpec {
     }
 }
 
+/// The one clay-bound-water porosity in the product (SB-POR-008):
+/// `PHIT_SH = (RHO_DSH - RHO_SH) / (RHO_DSH - RHO_W)`.
+///
+/// `rho_w` is the FORMATION WATER density and is deliberately not the fluid density: the water
+/// filling shale porosity is formation water, while `RHO_FL` describes the fluid the density
+/// porosity is computed against. The two ship at the same 1.00 default
+/// (`docs/PRD_v2/11_porosity.md` section 5.1), so substituting one for the other is invisible until
+/// an interpreter selects salt water at 1.10 — which is exactly why this must exist once rather
+/// than be rewritten per module.
+///
+/// The **shale-subtraction** term `(RHO_MA - RHO_SH)/(RHO_MA - RHO_FL)` is a different quantity and
+/// must never share this name (F16).
+pub(crate) fn shale_total_porosity(rho_dsh: f64, rho_sh: f64, rho_w: f64) -> f64 {
+    (rho_dsh - rho_sh) / (rho_dsh - rho_w)
+}
+
 /// Shared PHIT_SH derivation from phi_den/phi_dn: shale total porosity from densities.
 fn phit_sh_at(ctx: &ModuleContext, i: usize) -> f64 {
-    let rho_dsh = ctx.p("RHO_DSH", i);
-    let rho_sh = ctx.p("RHO_SH", i);
-    let rho_w = ctx.p("RHO_W", i);
-    (rho_dsh - rho_sh) / (rho_dsh - rho_w)
+    shale_total_porosity(
+        ctx.p("RHO_DSH", i),
+        ctx.p("RHO_SH", i),
+        ctx.p("RHO_W", i),
+    )
 }
 
 fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
@@ -5758,6 +5775,108 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-008 and F16. The required form
+    /// `PHIT_SH = (RHO_DSH - RHO_SH)/(RHO_DSH - RHO_W)` with `RHO_W` the FORMATION WATER density is
+    /// the requirement's own words; the divergence magnitude comes from section 5.1, where fluid
+    /// density ships fresh `1.00` and salt `1.10` while formation-water density ships `1.00`. That
+    /// is why the wrong anchor is invisible at defaults and only appears on saline formation water.
+    ///
+    /// The witness values below are chosen to separate the two anchors, not read back from the
+    /// code: with `RHO_DSH = 2.78` (section 5.1 IP `Rho Dry Clay`), `RHO_SH = 2.50` (section 5.1
+    /// Techlog script `DEN_shale`) and `RHO_W = 1.10`, the required form gives `0.28/1.68`, while
+    /// the retired fluid-anchored form at `RHO_FL = 1.00` gives `0.28/1.78`. They differ by about
+    /// 3.7 percent of the answer, in the direction that overstates shale porosity.
+    ///
+    /// Owner authorization, 2026-08-16: Jauhar authorized the narrow `ssc.rs` edit this pins.
+    /// Investigation then narrowed it further — `ssc`'s own `(rhob_dsi - rhob_wsi)/(rhob_dsi -
+    /// rhob_fl)` is a fractional distance along the fluid-anchored projection line `m3` that
+    /// defines `rhob_dsi`, so it is a silt geometry term rather than this quantity. Its arithmetic
+    /// is deliberately unchanged and only its colliding local name was retired, which is what F16
+    /// actually requires.
+    #[test]
+    fn one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities(
+    ) {
+        // A — the single definition, evaluated from the chapter's own form rather than by calling
+        // the code twice. RHO_W is the anchor; RHO_FL does not appear.
+        let (rho_dsh, rho_sh, rho_w, rho_fl) = (2.78_f64, 2.50_f64, 1.10_f64, 1.00_f64);
+        let required = (rho_dsh - rho_sh) / (rho_dsh - rho_w);
+        assert!(
+            (shale_total_porosity(rho_dsh, rho_sh, rho_w) - required).abs() < 1e-12,
+            "the shared helper must be the chapter's form exactly"
+        );
+
+        // B — the two anchors must be distinguishable, or this contract is untestable and the
+        // defect it targets would be invisible. This is the whole reason the row existed.
+        let fluid_anchored = (rho_dsh - rho_sh) / (rho_dsh - rho_fl);
+        assert!(
+            (required - fluid_anchored).abs() > 0.005,
+            "the witness must actually separate formation water from fluid density"
+        );
+        assert!(
+            fluid_anchored < required,
+            "the retired fluid anchor understates the denominator and so overstates shale porosity"
+        );
+
+        // C — every porosity method that carries this quantity declares the formation-water
+        // parameter it is anchored on. `sspw` is included because SB-POR-008 is what put it there.
+        let modules = module_catalog();
+        for module in ["phi_den", "phi_dn", "sspw"] {
+            let spec = modules
+                .iter()
+                .find(|spec| spec.name == module)
+                .unwrap_or_else(|| panic!("{module} is not in the shipping catalog"));
+            assert!(
+                spec.args.iter().any(|arg| arg.name == "RHO_W"),
+                "'{module}' carries clay-bound-water porosity and must declare RHO_W"
+            );
+        }
+
+        // D — the other side, and the one a lazy implementation would trip. The quantity must be
+        // defined exactly once in the whole tree. A module that re-derives the expression locally
+        // would satisfy every assertion above and still be the defect SB-POR-008 exists to close.
+        let sources = [
+            ("modules.rs", include_str!("modules.rs")),
+            ("ssc.rs", include_str!("ssc.rs")),
+        ];
+        let mut definitions = Vec::new();
+        for (file, whole) in sources {
+            // Production code only. A test may legitimately write the form out to compare against;
+            // the contract is that no shipping module re-derives it.
+            let text = whole.split("#[cfg(test)]").next().unwrap_or(whole);
+            for (number, line) in text.lines().enumerate() {
+                let code = line.split("//").next().unwrap_or("");
+                // The shale form divided by a dry-shale-minus-something denominator.
+                let re_derived = (code.contains("rho_dsh -") || code.contains("rhob_dsh -"))
+                    && code.contains('/')
+                    && (code.contains("rho_sh") || code.contains("rhob_sh"));
+                if re_derived {
+                    definitions.push(format!("{file}:{}", number + 1));
+                }
+            }
+        }
+        assert_eq!(
+            definitions.len(),
+            1,
+            "clay-bound-water porosity must be written exactly once; found {definitions:?}"
+        );
+        assert!(
+            definitions[0].starts_with("modules.rs"),
+            "the one definition must be the shared helper, not a module-local copy: {definitions:?}"
+        );
+
+        // E — F16's naming rule, from both sides. The shale-SUBTRACTION term is a different
+        // quantity and the SSC silt fraction is a third; neither may wear this name.
+        let ssc = include_str!("ssc.rs");
+        assert!(
+            ssc.contains("let silt_water_fraction ="),
+            "the SSC silt geometry term must carry its own identity"
+        );
+        assert!(
+            ssc.contains("(rhob_dsi - rhob_wsi) / (rhob_dsi - rhob_fl)"),
+            "the SSC silt term's fluid-anchored arithmetic must remain untouched"
+        );
+    }
 
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-007. Every expected topic, value, source
     /// and tier below is transcribed from that chapter's section 5 parameter tables (5.1 densities,
