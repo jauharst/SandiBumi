@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-010: porosity audit trail blocked on the re-run manifest
+
+- [ ] **Decision dependency:** SB-POR-010 wants every porosity curve re-derivable from its audit
+      trail alone. Most of that record now exists — method identity, every parameter with its source
+      and evidence tier, the per-output volume convention, and the resolved input-curve identities.
+      What is missing is replay itself: no stored manifest resolves module identity, options and
+      defaults into one record you could re-run from. That is SB-DBM-015's contract, and it is
+      blocked on **DEC-021** (build-derived module identity), **DEC-023** (zone-set identity) and
+      **DEC-024** (manifest identity seams). Answering those three unblocks this row too.
+- [ ] **Automated correctness:** none, deliberately. Building a proof from the fields that happen to
+      be stored would assert re-derivability while nothing can actually replay — asserting the very
+      clause the row exists for. Gate unchanged at `1043 passed / 0 failed / 37 ignored`.
+- [ ] **Field and harsh critique:** the practical question is whether you would ever need to
+      reproduce a porosity curve months later without the project open — for an audit or a partner
+      challenge. If yes, DEC-021/023/024 are worth answering. If the current per-curve record is
+      enough for how you actually work, say so and this row should be re-adjudicated rather than
+      left waiting on a manifest nobody needs. No box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-009: sonic porosity could report more effective than total
 
 - [ ] **Automated correctness:** `every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample`

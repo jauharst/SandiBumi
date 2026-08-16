@@ -203,18 +203,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** none. `ssc`/`sspw` are proved structurally rather than executed because `ssc.rs` is protected and the 2026-08-16 authorization covered SB-POR-008 only; the invariant holds there by construction, so no edit is required.
 - **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-010.
 
-## SB-POR-010 - Re-derivable audit trail for every POR curve
+## SB-POR-010 - Re-derivable porosity audit trail
 
-- **Specified contract:** every computed POR curve records method, complete resolved parameters including defaults and zones, exact input set/mnemonic identities, and convention so the run is re-derivable.
-- **Current implementation:** `LogSetSpec` stores module, explicit `req.params`, and input set/mnemonic identities. It omits defaults, fully resolved zone parameters, options/method selectors held outside that map, source/tier and per-output convention.
-- **Qualifying acceptance tests:** none; no POR run round-trip proves complete reconstruction. Test class `MISSING`.
-- **Supporting tests:** `a_restored_log_set_version_feeds_the_next_module_run` passed exactly once and proves version reuse, not full POR provenance.
-- **Manual evidence:** workflow 0/23; processing-history 0/7; generic-curve-store 0/18.
-- **Source/parameter boundary:** provenance must retain cited/absent status rather than manufacture defaults.
-- **History/reachability:** partial generic run metadata is integrated; no complete POR audit record was found.
+- **Specified contract:** every porosity curve should carry, in the project audit trail, the method name, the full parameter set and the input curve identities that produced it, sufficient to re-derive it without the session.
+- **Current implementation:** most of the record now exists and the row's old description understates it. `SB-DBM-003` persists each parameter value with its source state; `SB-POR-007` adds the evidence tier for every section 5 parameter; `SB-POR-004` persists a per-output `POROSITY_OUTPUT.<name>` contract carrying family, method, volume convention, output role and naming contract; `SB-DBM-006` records the resolved input-curve identities. What remains absent is the **re-derivability** clause: no stored manifest resolves module identity, options and defaults into one replayable record, so a curve still cannot be re-derived without its authoring session.
+- **Qualifying acceptance tests:** none, and deliberately so. Test class `MISSING`. A proof assembled from the fields that happen to be stored would assert re-derivability while no manifest resolver exists - asserting exactly the clause this row is about.
+- **Supporting tests:** the SB-DBM-003, SB-DBM-006, SB-POR-004 and SB-POR-007 proofs each pin their own arm of the record and all pass; none of them, alone or together, establishes replay.
+- **Manual evidence:** porosity 0/33; processing-history 0/7.
+- **Source/parameter boundary:** not numeric. No value was requested or invented.
+- **History/reachability:** the custody arms are integrated and reachable; the manifest resolver is absent.
 - **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires a resolved-run schema spanning values, options, sources, zones, identities and outputs.
-- **Next action:** persist a canonical resolved POR invocation and prove save/reload reproduces every field without querying mutable defaults.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY`. The re-derivability clause is `SB-DBM-015`'s complete re-run manifest, which is itself blocked on `DEC-021` build-derived module identity, `DEC-023` zone-set identity and `DEC-024` manifest identity seams. Method, parameter, source/tier, convention and input-identity custody are already in place and are not what is missing.
+- **Next action:** settle DEC-021, DEC-023 and DEC-024, close SB-DBM-015, then prove a POR curve replays from its stored manifest alone without querying any mutable default.
 
 ## SB-POR-011 - One shared matrix-density decision
 
