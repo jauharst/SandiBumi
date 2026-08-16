@@ -8666,6 +8666,87 @@ mod tests {
         }
     }
 
+    /// SB-SAT-029. `12_saturation.md:1412-1425` — the documented guard rails, **including the
+    /// volume detail**: `φe < 0.005 ⇒ all saturations 1` **and `VOL_UWAT = φe, not 0`**;
+    /// `φe = φt = 0 ⇒ all saturations 1, all volumes 0`; `Rt` missing or ≤ 0 ⇒ every saturation
+    /// output null.
+    ///
+    /// The volume detail is the one the chapter says bites (dossier MN-4): zeroing volumes there
+    /// would silently zero bulk-volume water over tight streaks that still carry porosity. The
+    /// interval is declared **wet**, not declared **empty** — and those are different answers that
+    /// look identical in a summation.
+    ///
+    /// Rule 4 (variable-`m` guard) is vacuous by construction — no variable-`m` route exists — so
+    /// it is deliberately not asserted rather than faked with a placeholder.
+    #[test]
+    fn every_standalone_saturation_guard_declares_a_tight_streak_wet_rather_than_empty() {
+        let base = [
+            ("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.05),
+            ("RT_SH", 4.0), ("SWT_IRR", 0.0), ("SWE_IRR", 0.0),
+        ];
+        let opts = [("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL"), ("OPT_SIM", "simandoux_bardon_pied")];
+
+        // A — the volume detail, across every standalone saturation module. A tight streak with a
+        // little porosity is ALL WATER, and its water volume is that porosity, never zero.
+        let tight = 0.002_f32; // below the documented 0.005 rule
+        for (name, run) in [
+            ("sw_arch", sw_arch as fn(&ModuleContext) -> ModuleOutputs),
+            ("sw_indo", sw_indo as fn(&ModuleContext) -> ModuleOutputs),
+            ("sw_sim", sw_sim as fn(&ModuleContext) -> ModuleOutputs),
+        ] {
+            let out = run(&ctx_with(
+                1,
+                &[
+                    ("RT", vec![8.0]),
+                    ("PHIT", vec![0.05]),
+                    ("PHIE", vec![tight]),
+                    ("VSH", vec![0.3]),
+                ],
+                &base,
+                &opts,
+            ));
+            assert_eq!(out["SWE"][0], 1.0, "{name}: a tight streak is all water");
+            assert!(
+                (out["VOL_UWAT"][0] - tight).abs() < 1e-6,
+                "{name}: VOL_UWAT must be PHIE ({tight}), not 0 — zeroing it declares the streak \
+                 EMPTY when it is merely WET, and the two are indistinguishable in a summation. \
+                 Got {}",
+                out["VOL_UWAT"][0]
+            );
+        }
+
+        // B — the neighbouring rule must NOT be satisfied by the same shortcut: at zero porosity
+        // there is genuinely nothing there, so the volume IS zero. If a module returned `phie`
+        // unconditionally it would pass arm A and fail here.
+        let out = sw_arch(&ctx_with(
+            1,
+            &[("RT", vec![8.0]), ("PHIT", vec![0.0]), ("PHIE", vec![0.0])],
+            &base,
+            &opts,
+        ));
+        assert_eq!(out["SWT"][0], 1.0, "zero porosity is all water");
+        assert_eq!(out["SWE"][0], 1.0);
+        assert_eq!(out["VOL_UWAT"][0], 0.0, "at zero porosity the water volume really is zero");
+
+        // C — a non-physical resistivity nulls the saturation outputs rather than emitting an
+        // infinity. RT <= 0 is typically a null coded as 0.
+        for rt in [0.0_f32, -1.0, f32::NAN] {
+            let out = sw_arch(&ctx_with(
+                1,
+                &[("RT", vec![rt]), ("PHIT", vec![0.20]), ("PHIE", vec![0.18])],
+                &base,
+                &opts,
+            ));
+            for curve in ["SWT", "SWE", "SWT_ARCH", "VOL_UWAT"] {
+                assert!(
+                    out[curve][0].is_nan(),
+                    "sw_arch at RT={rt}: {curve} must be MISSING, was {}",
+                    out[curve][0]
+                );
+            }
+        }
+    }
+
     /// SB-SAT-006. `12_saturation.md:908-920` — Indonesia is `v = Vsh^(2 − k·Vsh)` with
     /// `SWE = (1/(Rt·(1/(ff·Rw) + 2√(v/(Rw·ff·Rsh)) + v/Rsh)))^(1/n)`, `ff = a/φe^m`, exposing `k`
     /// with presets `FULL (k=1)`, `SIMPLE (k=0)` and `TAR_SAND/Woodhouse (k=2)`. **Both the

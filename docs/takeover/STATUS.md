@@ -8,15 +8,15 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `192 / 222 handled — 131 DONE, 61 BLOCKED, 30 remaining`
+- Gate 2 requirement progress: `193 / 222 handled — 132 DONE, 61 BLOCKED, 29 remaining`
 - Baseline foundation: `COMPLETE`
 - Active increment: G2-T08 / SB-POR-011 - `DONE`; `phi_den`, `phi_dn`, `condflag` and `gascorr` - the chain `gascorr`'s own doc instructs - now read one shared matrix density. Jauhar selected **2.65** on 2026-08-16, the section 5.1 three-way agreement, over Geolog's shipped 2.645; the unchosen position stays visible as evidence rather than being deleted. Density porosity moves by roughly 0.3 p.u. on defaults.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
 - Automated gate: `every_chained_module_reads_one_shared_matrix_density_and_still_discloses_the_position_it_did_not_take` pins one default, one range and one evidence set across all four chained consumers, and refuses any porosity module that reintroduces a second value. Two mutations produced RED at two different assertions: reverting `phi_den` to 2.645, and deleting the Geolog position from the disclosed evidence. All 1011 pre-existing Rust tests passed unchanged, so nothing had encoded the old default. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `61 requirements are explicitly BLOCKED and 30 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Open blockers: `61 requirements are explicitly BLOCKED and 29 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
 - Named residuals carried forward, not claimed as covered: `ssc`/`sspw` parameters remain unsourced for SB-POR-007 beyond the `RHO_W` added here. The same primary tier is spelled `T1p` in the porosity chapter, `T1′` in registry rows pinned by earlier CLY/CORE increments and `T1-prime` in a frontend fixture; Jauhar approved unifying it as its own increment, queued behind the remaining rows. `montecarlo.rs:1287` remains the SB-POR-006 residual. A `DEC` row recording the 2026-08-16 `ssc.rs` authorization still needs adding to `DECISIONS.md`, which is outside this program's allowed paths.
-- Next increment: `Continue G2-T08 with SB-SAT-029, the first unhandled row of the immutable 222-row Gate 2 program. SIX SAT rows (002, 023, 025, 026, 027, 028) now wait on one scoped authorization over multimin2.rs, lrlc.rs, multimin.rs and satheight.rs. SB-SAT-028 is a P0 silent failure and is the strongest argument for granting it.`
+- Next increment: `Continue G2-T08 with SB-SAT-030, the first unhandled row of the immutable 222-row Gate 2 program. Six SAT rows (002, 023, 025, 026, 027, 028) wait on one scoped authorization over multimin2.rs, lrlc.rs, multimin.rs and satheight.rs; SB-SAT-028 is a live P0 and the strongest case for granting it.`
 
 ## Gate dashboard
 

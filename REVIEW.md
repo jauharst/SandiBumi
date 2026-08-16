@@ -14202,3 +14202,19 @@ SandiMin solver runs the same equation - and that each named preset really is it
 - [ ] **Check TAR_SAND against your Woodhouse expectations** if you have a tar-sand well. That preset is
       the one IP ships under a separate name.
 - [ ] **Leave the variant unset** on a fresh run - it should default to FULL.
+
+## Saturation: a tight streak is wet, not empty
+
+Where effective porosity is very low (below 0.005) every saturation method calls the interval all water.
+The detail that matters is the water VOLUME: it must equal that small porosity, not zero. Zeroing it would
+quietly remove bulk-volume water from tight streaks that do carry some porosity - the interval would read
+as empty rather than wet, and in a summation those look identical.
+
+- [ ] **Find a tight streak** with PHIE around 0.002-0.004 and run Archie, Indonesia and Simandoux.
+      SWE should be 1 in all three, and VOL_UWAT should equal PHIE - not 0.
+- [ ] **Check a genuinely zero-porosity bed** (PHIE = PHIT = 0). There SWE is still 1, but VOL_UWAT
+      should be 0. That is the difference between wet and empty.
+- [ ] **Check a bed where RT is zero or blank.** Every saturation curve should be blank there, not 1 and
+      not a huge number.
+- [ ] **Sanity-check your net-pay totals** on a well with thin tight streaks - if bulk-volume water moved,
+      tell me.

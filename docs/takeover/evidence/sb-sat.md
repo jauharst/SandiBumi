@@ -386,20 +386,21 @@
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
 - **Next action:** Jauhar authorizes the narrow `lrlc.rs` edit. Then make `sw_imts` leave a non-converged sample MISSING, and pin from both sides: a sample that converges keeps its value, and a sample driven past the budget comes back `NaN` rather than a plausible last iterate. One arm alone would pass a module that nulls everything.
 
-## SB-SAT-029
+## SB-SAT-029 - Inherit the documented guard rails, including the volume detail
 
-- **Specified contract:** Inherit the documented guard rails, including the volume detail. Owned test intention(s): `SB-SAT-T42`, `SB-SAT-T43`.
-- **Current implementation:** zero porosity and non-positive resistivity guards exist in several paths; standalone modules size unflushed-water volumes, while solver/LRLC paths omit the complete volume contract and variable-m guards.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T42`, `SB-SAT-T43` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** `sw_arch_zero_porosity_missing_phie_is_all_water_not_inf` and three nonpositive-resistivity tests passed; they cover only part of the compound contract.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the complete guard-and-volume matrix is not proven across models.
-- **Next action:** centralize the guard result shape and test low porosity, total zero, missing/nonpositive Rt and missing variable-m inputs with all outputs.
+- **Specified contract:** `phie < 0.005` => all saturations 1 **and `VOL_UWAT = VOL_XWAT = phie`, not 0**; `phie = phit = 0` => all saturations 1, all volumes 0; `Rt` missing or <= 0 => every saturation output null; a missing variable-`m` input curve => every output null with a message (`12_saturation.md:1412-1425`).
+- **Why the volume detail matters:** setting volumes to 0 there would silently zero bulk-volume water over tight streaks that still carry porosity. The interval is declared **wet**, not declared **empty** - two different answers that look identical in a summation (dossier MN-4).
+- **Current implementation:** `PRESENT-OK`. The guards are in place across the standalone modules, including `VOL_UWAT = phie` at the low-porosity rule. Rule 4 is **vacuous by construction** - no variable-`m` route exists - so it is deliberately not asserted rather than faked with a placeholder. The row was a **PROVE**.
+- **Qualifying acceptance tests:** `every_standalone_saturation_guard_declares_a_tight_streak_wet_rather_than_empty` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** all four rules are Geolog's documented behaviours, the low-porosity rule appearing in **all nine** `sw_*` modules. The 0.005 threshold is quoted from the chapter, not chosen.
+- **Three-armed pin, and arm B is what makes arm A honest.** (A) across **every** standalone saturation module - `sw_arch`, `sw_indo`, `sw_sim` - a tight streak at `phie = 0.002` is all water AND its `VOL_UWAT` equals that porosity, never 0. (B) at `phie = phit = 0` the volume genuinely IS 0 - so a module that returned `phie` unconditionally would pass arm A and fail here, which is the lazier implementation arm A alone would admit. (C) `RT` at 0, negative, or missing nulls every saturation output rather than emitting an infinity.
+- **Verified by mutation:** flipping the tight-streak rule so `VOL_UWAT` comes back 0 fails the test - that mutation is precisely MN-4, and it produces a plausible zero rather than an error.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a tight streak with a little porosity reports bulk-volume water equal to that porosity rather than zero.
 
-### SB-SAT-030
+## SB-SAT-030
 
 - **Specified contract:** `Vsh → 1` MUST flag before the singularity, not silently return water. Owned test intention(s): SB-SAT-T44.
 - **Current implementation:** the standalone modified-Schlumberger branch returns all water at pure shale to avoid division by zero; it emits no pre-singularity flag.

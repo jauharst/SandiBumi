@@ -135,8 +135,8 @@ test('the_live_gate_two_program_routes_the_approved_242_rows_into_222_gate_two_a
   assert.deepEqual(result.action_mode_counts, {
     'IMPLEMENT-OR-REFUSE': 25,
     REMEDIATE: 57,
-    PROVE: 11,
-    RETAIN: 129,
+    PROVE: 10,
+    RETAIN: 130,
   });
 });
 
@@ -144,10 +144,10 @@ test('the_live_gate_two_progress_receipt_accounts_for_every_handled_row_once', (
   const program = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'takeover', 'gate2-program.json'), 'utf8'));
   const handled = new Set([...program.completed_requirements, ...program.blocked_requirements]);
 
-  assert.equal(program.completed_requirements.length, 131);
+  assert.equal(program.completed_requirements.length, 132);
   assert.equal(program.blocked_requirements.length, 61);
-  assert.equal(handled.size, 192, 'completed and blocked receipts must not overlap');
-  assert.equal(program.gate2_requirement_count - handled.size, 30);
+  assert.equal(handled.size, 193, 'completed and blocked receipts must not overlap');
+  assert.equal(program.gate2_requirement_count - handled.size, 29);
   assert.ok(program.completed_requirements.includes('SB-CLY-050'));
   assert.ok(program.completed_requirements.includes('SB-CLY-051'));
   assert.ok(program.completed_requirements.includes('SB-CLY-054'));
@@ -186,6 +186,7 @@ test('the_live_gate_two_progress_receipt_accounts_for_every_handled_row_once', (
   assert.ok(program.blocked_requirements.includes('SB-SAT-026'));
   assert.ok(program.blocked_requirements.includes('SB-SAT-027'));
   assert.ok(program.blocked_requirements.includes('SB-SAT-028'));
+  assert.ok(program.completed_requirements.includes('SB-SAT-029'));
 });
 
 test('the_integrated_gate_two_blocker_packet_accounts_for_each_live_blocked_requirement_once_and_is_linked_from_the_dashboard', () => {
