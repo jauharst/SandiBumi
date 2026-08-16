@@ -357,3 +357,4 @@
 "SB-TOC-031","CHARACTERIZATION","src-tauri/src/unconventional.rs","elastic_requires_valid_shear"
 "SB-TOC-032","CHARACTERIZATION","src-tauri/src/unconventional.rs","wanggale_moves_dolomite_to_brittle"
 "SB-POR-043","CORRECTNESS","src-tauri/src/modules.rs","the_high_shale_kill_threshold_is_a_cited_parameter_the_analyst_can_move_and_never_a_literal"
+"SB-POR-049","CORRECTNESS","src-tauri/src/modules.rs","no_porosity_method_zeroes_a_tight_carbonate_on_a_hard_coded_lithology_rule"

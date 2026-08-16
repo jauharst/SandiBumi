@@ -8098,6 +8098,78 @@ mod tests {
         );
     }
 
+    /// SB-POR-049. `11_porosity.md:1071-1073` forbids shipping a hard-coded lithology kill.
+    /// Techlog's `φ_n > φ_d ∧ 2.91 ≤ ρ_b ≤ 3.5 ∧ φ_n ≤ 0.04 ⇒ φ = 0` is the only numeric kill any
+    /// vendor publishes, and it zeroes real porosity in a tight carbonate with no flag and no
+    /// parameter (F24).
+    ///
+    /// The row is a PROVE, not a fix: the inventory already found no such branch. What was missing
+    /// was anything that keeps it that way, so this pins the absence from both directions — the
+    /// behaviour today, and the literals that would reintroduce it.
+    ///
+    /// The distinction being defended is between *the arithmetic went negative* and *a rule zeroed
+    /// it*. A tight carbonate genuinely has negative apparent density porosity, and that number is
+    /// interpretable — an exact `0.0` is not, because it cannot be told apart from a kill. This is
+    /// the same reasoning that keeps `PHIE_FLOOR` off zero.
+    #[test]
+    fn no_porosity_method_zeroes_a_tight_carbonate_on_a_hard_coded_lithology_rule() {
+        // A — a sample squarely inside Techlog's published kill window. RHOB 2.95 is within
+        // [2.91, 3.5]; NPHI 0.03 is below 0.04 and above the (negative) density porosity, so all
+        // three of Techlog's conjuncts hold. SandiBumi must still compute.
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("NPHI_SH", 0.35),
+            ("VSH_SHALE", 0.95),
+        ];
+        let logs = [
+            ("RHOB", vec![2.95f32]),
+            ("NPHI", vec![0.03f32]),
+            ("VSH", vec![0.05f32]),
+        ];
+
+        // phi_den: (2.645−2.95)/1.645 − 0.05·(2.645−2.5)/1.645 = −0.1898176.
+        let den = phi_den(&ctx_with(1, &logs, &params, &[]));
+        assert!(
+            (den["PHIE_DEN"][0] as f64 + 0.1898176).abs() < 1e-5,
+            "density porosity must be the computed negative value, not a kill: {}",
+            den["PHIE_DEN"][0]
+        );
+        assert_ne!(
+            den["PHIE_DEN"][0], 0.0,
+            "an exact zero here cannot be told apart from Techlog's lithology kill"
+        );
+
+        // phi_dn: the same window through the crossplot path.
+        let dn = phi_dn(&ctx_with(1, &logs, &params, &[]));
+        assert_ne!(
+            dn["PHIE_DN"][0], 0.0,
+            "an exact zero here cannot be told apart from Techlog's lithology kill"
+        );
+        assert!(
+            (dn["PHIE_DN"][0] as f64) < 0.04,
+            "a tight carbonate must not read as porous: {}",
+            dn["PHIE_DN"][0]
+        );
+
+        // B — the registry half, so a FUTURE module cannot quietly reintroduce it. Production
+        // source only: the scan is truncated at the test module, or this test's own statement of
+        // Techlog's window would match itself.
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/modules.rs"))
+            .expect("modules.rs is readable");
+        let production = source
+            .split_once("#[cfg(test)]")
+            .map(|(before, _)| before)
+            .unwrap_or(&source);
+        assert!(
+            !production.contains("2.91"),
+            "the lower bound of Techlog's lithology-kill band appeared in production porosity source"
+        );
+        assert!(
+            !production.contains("0.04 =>") && !production.contains("<= 0.04"),
+            "a hard-coded neutron kill threshold appeared in production porosity source"
+        );
+    }
+
     /// A dense stringer must not hand a NEGATIVE porosity to anything downstream — and must still
     /// be visible as one to anybody asking whether the matrix density is right.
     ///

@@ -717,16 +717,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 ## SB-POR-049 - No hard-coded lithology kill
 
-- **Specified contract:** POR must not contain an implicit lithology kill; any exclusion is explicit, source/user-owned, visible and recorded.
-- **Current implementation:** targeted POR source inventory found no hard-coded lithology-kill branch, but there is no executable universal registry test or manual evidence proving every reachable method and future registration remains free of one.
-- **Qualifying acceptance tests:** none; absence is not covered by an executable method-inventory assertion. Test class `MISSING`.
-- **Supporting tests:** current POR branch tests did not encounter a lithology kill, which is weaker than a universal negative contract.
-- **Manual evidence:** porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** no lithology threshold or exclusion is introduced.
-- **History/reachability:** current and reachable searches found no such branch.
-- **Verdict:** `PRESENT-UNVERIFIED`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** needs an inventory-based regression test and observable explicit-exclusion policy if exclusions are later added.
-- **Next action:** add a registry-level assertion that every POR lithology exclusion is declared configuration with provenance and that no hidden kill branch exists.
+- **Specified contract:** SandiBumi **MUST NOT** ship hard-coded lithology-kill literals (`11_porosity.md:1071-1073`). Techlog's `φ_n > φ_d ∧ 2.91 ≤ ρ_b ≤ 3.5 ∧ φ_n ≤ 0.04 ⇒ φ = 0` is the only numeric kill any vendor publishes, and it zeroes real porosity in a tight carbonate with no flag and no parameter (F24).
+- **Current implementation:** no such branch exists, and none was added. This row was a **PROVE**: the behaviour was already right and had nothing keeping it right.
+- **Qualifying acceptance tests:** `no_porosity_method_zeroes_a_tight_carbonate_on_a_hard_coded_lithology_rule` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** the existing POR branch tests never encounter a lithology kill, which is weaker than a universal negative and is why they did not qualify.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** Techlog's window is quoted from the chapter, not invented, and no threshold was adopted from it. `phi_den`'s expected **−0.1898176** is derived from the module's own published equation, not read off what the code returned.
+- **Both-sides pin:** arm A is behavioural - at a sample inside Techlog's exact window the unlimited curve must carry the computed **negative** value, never an exact `0.0`. The distinction defended is between *the arithmetic went negative*, which a petrophysicist can interpret, and *a rule zeroed it*, which is indistinguishable from a kill - the same reasoning that keeps `PHIE_FLOOR` off zero. Arm B is the registry half that catches a FUTURE module: production source, truncated at `#[cfg(test)]` so the test's own quotation of the window cannot match itself, must contain no `2.91` and no hard-coded neutron kill threshold.
+- **Verified by mutation:** pasting Techlog's published kill into `phi_den` fails by name - *density porosity must be the computed negative value, not a kill: 0*. Both arms fire; the behavioural one first.
+- **History/reachability:** `grep` confirms `2.91` appears nowhere in production source.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a tight carbonate reads negative apparent porosity rather than a flat zero.
 
 ## SB-POR-050 - Iterative solver discipline
 

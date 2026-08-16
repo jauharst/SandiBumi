@@ -14143,3 +14143,18 @@ did not gain one.
       to stop - but tell me if it is too noisy in a batch.
 - [ ] **Sanity-check your existing wells.** At 0.95 nothing should have changed. If a well moved, that is a
       bug and I want to know.
+
+## Porosity: a tight carbonate must not read as a flat zero
+
+Techlog ships a rule that sets porosity to exactly zero in a narrow density/neutron window. It is the only
+numeric lithology kill any vendor publishes, and it fires with no flag and no parameter - so a real tight
+carbonate comes back as 0 and nothing tells you a rule did it. SandiBumi has never had that rule. What it
+did not have was anything stopping someone adding it later. Now it does.
+
+- [ ] **Find a tight carbonate interval** - high density, very low neutron - and run Density Porosity.
+      The unlimited curve should read NEGATIVE, not zero. Negative is the honest answer there: it tells you
+      the rock is denser than the matrix you assumed.
+- [ ] **Check the limited curve** still floors as before. Only the unlimited twin should go negative.
+- [ ] **Same check on Density-Neutron Porosity.**
+- [ ] **If you ever WANT a lithology cut-off**, tell me - it has to arrive as a declared parameter you can
+      see and move, not a hidden rule. That is the whole point of this one.
