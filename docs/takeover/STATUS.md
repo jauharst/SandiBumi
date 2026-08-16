@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `158 / 222 handled — 118 DONE, 40 BLOCKED, 64 remaining`
+- Gate 2 requirement progress: `159 / 222 handled — 119 DONE, 40 BLOCKED, 63 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: G2-T07 / SB-CLY-055 - `BLOCKED-DECISION/DEPENDENCY`; exact T35 lacks the deferred SB-CLY-031/032 provenance output and LAS token schema, while exact T44 lacks a source-scoped undeclared-`-999` policy compatible with per-channel `NoNull`.
+- Active increment: G2-T08 / SB-POR-001 - `DONE`; every live POR module and porosity output is registered under one typed family/limit-interface/reason-schema/naming envelope, while density, D-N comparison, sonic, SSC and SSPW retain distinct source-linked numerical-policy identities and `phimax` is explicitly a limit producer.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: No exact SB-CLY-T35/T44 test was added: a generic numeric round trip cannot prove an absent categorical provenance output, and a global bare-`-999` screen would violate the green per-channel `NoNull` contract. The safe declared-sentinel export/import and parser-null controls remain unchanged. TypeScript and cargo check are green; the fresh full gate is `1037 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: `every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy` was witnessed RED before the envelope existed and again on an incorrect rename-case expectation, then GREEN. It independently inventories all six live POR modules and 21 porosity outputs, rejects omitted outputs and borrowed policies, preserves user-configurable output naming, and truthfully marks per-sample reason emission pending SB-POR-003. TypeScript and cargo check are green; the fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `40 requirements are explicitly BLOCKED and 64 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T08 with SB-POR-001: define the common POR result envelope and separately cited per-method limit/correction policies without merging unlike method contracts or inventing a shared numeric bound.`
+- Open blockers: `40 requirements are explicitly BLOCKED and 63 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T08 with SB-POR-002: reverify the all-method unlimited/limited-pair contract and its SB-POR-004 collision-free custody dependency before changing any method output.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 25 implement-or-refuse / 69 remediate / 12 prove / 116 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 25 implement-or-refuse / 68 remediate / 12 prove / 117 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |

@@ -969,6 +969,37 @@ export async function getTrackData(
 export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
 export type FlagKind = "EXCLUSION_MASK" | "DIAGNOSTIC_INDICATOR";
 
+export type PorosityModuleRole = "DETERMINISTIC_METHOD" | "COMPARISON_PRODUCER" | "LIMIT_PRODUCER";
+export type PorosityOutputRole =
+  | "UNLIMITED_EFFECTIVE"
+  | "UNLIMITED_TOTAL"
+  | "LIMITED_EFFECTIVE"
+  | "LIMITED_TOTAL"
+  | "COMPARISON_UNLIMITED_EFFECTIVE"
+  | "COMPARISON_UNLIMITED_TOTAL"
+  | "COMPARISON_LIMITED_EFFECTIVE"
+  | "COMPARISON_LIMITED_TOTAL"
+  | "EFFECTIVE"
+  | "TOTAL"
+  | "FREE_FLUID"
+  | "CAPPED"
+  | "CEILING";
+export type PorosityFlagEmission = "PENDING_SB_POR_003";
+
+export interface PorosityOutputContract {
+  family: string;
+  module_role: PorosityModuleRole;
+  method: string;
+  convention: string;
+  output_role: PorosityOutputRole;
+  limiting_contract: string;
+  limiting_policy: string;
+  limiting_policy_source: string;
+  flag_contract: string;
+  flag_emission: PorosityFlagEmission;
+  output_naming_contract: string;
+}
+
 export interface ValidityBranch {
   argument: string;
   equals: string;
@@ -1017,6 +1048,8 @@ export interface ArgSpec {
   accepted_shale_clay_quantities?: Array<"VSH" | "VCL">;
   /** Producer-owned physical identity recorded for this output after output renaming. */
   output_shale_clay_quantity?: "VSH" | "VCL" | null;
+  /** SB-POR-001 common family envelope plus the producing method's own limit/convention policy. */
+  porosity_output?: PorosityOutputContract | null;
   default: string;
   /** Ordered automatic LogIn aliases; absent means the single manifest default is used. */
   preferred_aliases?: string[];

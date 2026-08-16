@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-001: one POR envelope with method-specific policies
+
+- [ ] **Automated correctness:** the SB-POR-001/T39 contract was witnessed RED before the typed
+      envelope and registry existed and again when the proof assumed lowercase output names, then
+      GREEN. The Rust test independently inventories all six live POR modules and 21 porosity
+      outputs, verifies one family/limit-interface/reason-schema/naming envelope, rejects an
+      omitted sonic output and a borrowed density policy, and proves user renames still pass
+      through the backend's uppercase canonicalizer. TypeScript and cargo check are green; the
+      fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Visual:** open Density Porosity, Density-Neutron Porosity, Sonic Porosity, φmax, SSC and
+      SSPW. Confirm every actual porosity output visibly says `POR`, its semantic role and method;
+      D-N says comparison, φmax is not presented as a porosity method, and sonic's tooltip says its
+      convention remains mixed pending SB-POR-013. Confirm support volumes and saturations do not
+      receive POR labels.
+- [ ] **Manual:** rename one porosity output in each module and apply a bulk prefix. Confirm the
+      preview and written mnemonic use the same uppercase resolved name. Inspect each output's
+      tooltip: family, convention, method-specific limit policy/source, pending SB-POR-003 reason
+      emission and shared naming contract must remain distinguishable without reading source code.
+- [ ] **Field and harsh critique:** a common envelope is not common physics. Forcing density,
+      D-N, sonic, SSC and SSPW through one numerical clamp would make the code cleaner and the
+      interpretation wrong. This increment changes no arithmetic and invents no bound. It also
+      does not claim sonic has unlimited twins, POR reason samples are emitted, or method/family
+      provenance is persisted after reload; SB-POR-002/003/004 still own those gaps. No Visual,
+      Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-055: complete CLY LAS round trip blocked on provenance and sentinel policy
 
 - [ ] **Decision dependency:** answer DEC-036 and DEC-037. Exact T35 requires the still-absent

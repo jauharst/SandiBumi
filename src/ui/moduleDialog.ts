@@ -579,7 +579,19 @@ export async function buildModuleContent(
     if (arg.unit) label.textContent += ` (${arg.unit})`;
     if (arg.flag_kind === "EXCLUSION_MASK") label.textContent += " — exclusion mask";
     if (arg.flag_kind === "DIAGNOSTIC_INDICATOR") label.textContent += " — diagnostic indicator";
-    label.title = `Declared as ${arg.name}`;
+    if (arg.porosity_output) {
+      const role = arg.porosity_output.output_role.toLowerCase().replace(/_/g, " ");
+      const method = arg.porosity_output.method.replace(/_/g, " ");
+      label.textContent += ` — POR ${role} · ${method}`;
+      label.title =
+        `Declared as ${arg.name}; family ${arg.porosity_output.family}; ` +
+        `convention ${arg.porosity_output.convention}; limit policy ` +
+        `${arg.porosity_output.limiting_policy} (${arg.porosity_output.limiting_policy_source}); ` +
+        `reason contract ${arg.porosity_output.flag_contract} is ${arg.porosity_output.flag_emission}; ` +
+        `output naming ${arg.porosity_output.output_naming_contract}.`;
+    } else {
+      label.title = `Declared as ${arg.name}`;
+    }
     const input = document.createElement("input");
     input.className = "form-control module-output-name";
     input.type = "text";

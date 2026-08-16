@@ -229,6 +229,67 @@ pub enum ShaleClayQuantity {
     ClayVolume,
 }
 
+/// The stable deterministic-porosity family identity. Numerical limits do not live here: DEC-015
+/// keeps those method-specific and source-bound so a density rule cannot silently become a sonic
+/// rule merely because both outputs carry porosity.
+pub const POROSITY_FAMILY_ID: &str = "POR";
+pub const POROSITY_LIMITING_CONTRACT: &str = "porosity_method_limit_policy_v1";
+pub const POROSITY_FLAG_CONTRACT: &str = "porosity_branch_limit_reason_v1";
+pub const POROSITY_OUTPUT_NAMING_CONTRACT: &str = "workflow_resolved_output_name_v1";
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PorosityModuleRole {
+    DeterministicMethod,
+    ComparisonProducer,
+    LimitProducer,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PorosityOutputRole {
+    UnlimitedEffective,
+    UnlimitedTotal,
+    LimitedEffective,
+    LimitedTotal,
+    ComparisonUnlimitedEffective,
+    ComparisonUnlimitedTotal,
+    ComparisonLimitedEffective,
+    ComparisonLimitedTotal,
+    Effective,
+    Total,
+    FreeFluid,
+    Capped,
+    Ceiling,
+}
+
+/// SB-POR-001 defines the one reason-channel shape. Actual per-sample emission is owned by
+/// SB-POR-003, so the manifest must say that it is pending instead of advertising flags that the
+/// current evaluators do not yet write.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PorosityFlagEmission {
+    PendingSbPor003,
+}
+
+/// POR-family custody attached to a declared output. The common envelope contains identities and
+/// observability contracts only; it deliberately has no numeric floor, ceiling or correction
+/// coefficient field. Those values remain in each method's separately sourced arguments/policy.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PorosityOutputContract {
+    pub family: String,
+    pub module_role: PorosityModuleRole,
+    pub method: String,
+    pub convention: String,
+    pub output_role: PorosityOutputRole,
+    pub limiting_contract: String,
+    pub limiting_policy: String,
+    pub limiting_policy_source: String,
+    pub flag_contract: String,
+    pub flag_emission: PorosityFlagEmission,
+    pub output_naming_contract: String,
+}
+
 /// Source-unit custody for one numeric parameter value. The artefact spelling is preserved while
 /// the conversion itself uses the normalized, generated registry identity.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -284,6 +345,9 @@ pub struct ArgSpec {
     /// LogOut only: producer-owned physical identity persisted beside the resolved output name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_shale_clay_quantity: Option<ShaleClayQuantity>,
+    /// LogOut only: the common POR-family envelope plus this method's own policy identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub porosity_output: Option<PorosityOutputContract>,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
     /// LogIn only: ordered curve mnemonics tried when the interpreter has not selected one
@@ -430,6 +494,7 @@ pub(crate) fn param(
         flag_kind: None,
         accepted_shale_clay_quantities: vec![],
         output_shale_clay_quantity: None,
+        porosity_output: None,
         default: default.to_string(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -486,6 +551,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         flag_kind: None,
         accepted_shale_clay_quantities: vec![],
         output_shale_clay_quantity: None,
+        porosity_output: None,
         default: default.into(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -618,6 +684,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         flag_kind: None,
         accepted_shale_clay_quantities: vec![],
         output_shale_clay_quantity: None,
+        porosity_output: None,
         default: default.into(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -645,6 +712,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         flag_kind: None,
         accepted_shale_clay_quantities: vec![],
         output_shale_clay_quantity: None,
+        porosity_output: None,
         default: default_curve.into(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -756,6 +824,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         flag_kind: None,
         accepted_shale_clay_quantities: vec![],
         output_shale_clay_quantity: None,
+        porosity_output: None,
         default: String::new(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -1436,6 +1505,338 @@ fn apply_shale_clay_quantity_contracts(modules: &mut [ModuleSpec]) -> Result<(),
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct PorosityOutputRegistration {
+    argument: &'static str,
+    role: PorosityOutputRole,
+    convention: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct PorosityModuleRegistration {
+    module: &'static str,
+    role: PorosityModuleRole,
+    method: &'static str,
+    limiting_policy: &'static str,
+    limiting_policy_source: &'static str,
+    outputs: &'static [PorosityOutputRegistration],
+}
+
+const fn porosity_output(
+    argument: &'static str,
+    role: PorosityOutputRole,
+    convention: &'static str,
+) -> PorosityOutputRegistration {
+    PorosityOutputRegistration {
+        argument,
+        role,
+        convention,
+    }
+}
+
+const PHI_DEN_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output(
+        "PHIE_DEN",
+        PorosityOutputRole::UnlimitedEffective,
+        "DENSITY_SHALE_SUBTRACTIVE_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIT_DEN",
+        PorosityOutputRole::UnlimitedTotal,
+        "DENSITY_SHALE_SUBTRACTIVE_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIE",
+        PorosityOutputRole::LimitedEffective,
+        "DENSITY_SHALE_SUBTRACTIVE_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIT",
+        PorosityOutputRole::LimitedTotal,
+        "DENSITY_SHALE_SUBTRACTIVE_WITH_TOTAL_REBUILD",
+    ),
+];
+
+const PHI_DN_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output(
+        "PHIE_DN",
+        PorosityOutputRole::ComparisonUnlimitedEffective,
+        "SHALE_REDUCED_COMPARISON_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIT_DN",
+        PorosityOutputRole::ComparisonUnlimitedTotal,
+        "SHALE_REDUCED_COMPARISON_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIE",
+        PorosityOutputRole::ComparisonLimitedEffective,
+        "SHALE_REDUCED_COMPARISON_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIT",
+        PorosityOutputRole::ComparisonLimitedTotal,
+        "SHALE_REDUCED_COMPARISON_WITH_TOTAL_REBUILD",
+    ),
+];
+
+const PHI_SON_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output(
+        "PHIT_SON",
+        PorosityOutputRole::LimitedTotal,
+        "CURRENT_MIXED_SONIC_PENDING_SB_POR_013",
+    ),
+    porosity_output(
+        "PHIE_SON",
+        PorosityOutputRole::LimitedEffective,
+        "CURRENT_MIXED_SONIC_PENDING_SB_POR_013",
+    ),
+];
+
+const PHIMAX_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output("PHI_CAP", PorosityOutputRole::Capped, "COMPACTION_CEILING"),
+    porosity_output("PHI_MAX", PorosityOutputRole::Ceiling, "COMPACTION_CEILING"),
+];
+
+const SSC_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output("PHIT_SSC", PorosityOutputRole::Total, "SSC_BOUND_WATER_SPLIT"),
+    porosity_output("PHIE_SSC", PorosityOutputRole::Effective, "SSC_BOUND_WATER_SPLIT"),
+    porosity_output("PHIFF_SSC", PorosityOutputRole::FreeFluid, "SSC_BOUND_WATER_SPLIT"),
+    porosity_output("PHIFF_GR", PorosityOutputRole::FreeFluid, "SSC_GR_EQUIVALENT"),
+    porosity_output("PHIE_GR", PorosityOutputRole::Effective, "SSC_GR_EQUIVALENT"),
+    porosity_output("PHIT_GR", PorosityOutputRole::Total, "SSC_GR_EQUIVALENT"),
+];
+
+const SSPW_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output("PHIT_SSPW", PorosityOutputRole::Total, "SSPW_BOUND_WATER_SPLIT"),
+    porosity_output("PHIE_SSPW", PorosityOutputRole::Effective, "SSPW_BOUND_WATER_SPLIT"),
+    porosity_output("PHIFF_SSPW", PorosityOutputRole::FreeFluid, "SSPW_BOUND_WATER_SPLIT"),
+];
+
+const POROSITY_MODULE_REGISTRATIONS: &[PorosityModuleRegistration] = &[
+    PorosityModuleRegistration {
+        module: "phi_den",
+        role: PorosityModuleRole::DeterministicMethod,
+        method: "DENSITY",
+        limiting_policy: "phi_den_effective_floor_and_selected_ceiling",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §5 porosity limits and DEC-015",
+        outputs: PHI_DEN_POROSITY_OUTPUTS,
+    },
+    PorosityModuleRegistration {
+        module: "phi_dn",
+        role: PorosityModuleRole::ComparisonProducer,
+        method: "DENSITY_NEUTRON_COMPARISON",
+        limiting_policy: "phi_dn_effective_floor_and_selected_ceiling",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §5 porosity limits and DEC-015",
+        outputs: PHI_DN_POROSITY_OUTPUTS,
+    },
+    PorosityModuleRegistration {
+        module: "phi_son",
+        role: PorosityModuleRole::DeterministicMethod,
+        method: "SONIC_CURRENT_WYLLIE_OR_LEGACY_RHG_TOKEN",
+        limiting_policy: "phi_son_unit_interval",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §§3.3, 5.2 and DEC-015",
+        outputs: PHI_SON_POROSITY_OUTPUTS,
+    },
+    PorosityModuleRegistration {
+        module: "phimax",
+        role: PorosityModuleRole::LimitProducer,
+        method: "POROSITY_COMPACTION_CEILING",
+        limiting_policy: "phimax_compaction_ceiling",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters and DEC-015",
+        outputs: PHIMAX_POROSITY_OUTPUTS,
+    },
+    PorosityModuleRegistration {
+        module: "ssc",
+        role: PorosityModuleRole::DeterministicMethod,
+        method: "SAND_SILT_CLAY",
+        limiting_policy: "ssc_component_and_total_bounds",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §3.8 and DEC-015",
+        outputs: SSC_POROSITY_OUTPUTS,
+    },
+    PorosityModuleRegistration {
+        module: "sspw",
+        role: PorosityModuleRole::DeterministicMethod,
+        method: "SANDSTONE_WORKFLOW_RECONSTRUCTION",
+        limiting_policy: "sspw_component_and_total_bounds",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §3.8 and DEC-015",
+        outputs: SSPW_POROSITY_OUTPUTS,
+    },
+];
+
+fn porosity_contract(
+    registration: PorosityModuleRegistration,
+    output: PorosityOutputRegistration,
+) -> PorosityOutputContract {
+    PorosityOutputContract {
+        family: POROSITY_FAMILY_ID.into(),
+        module_role: registration.role,
+        method: registration.method.into(),
+        convention: output.convention.into(),
+        output_role: output.role,
+        limiting_contract: POROSITY_LIMITING_CONTRACT.into(),
+        limiting_policy: registration.limiting_policy.into(),
+        limiting_policy_source: registration.limiting_policy_source.into(),
+        flag_contract: POROSITY_FLAG_CONTRACT.into(),
+        flag_emission: PorosityFlagEmission::PendingSbPor003,
+        output_naming_contract: POROSITY_OUTPUT_NAMING_CONTRACT.into(),
+    }
+}
+
+fn apply_porosity_contracts(modules: &mut [ModuleSpec]) -> Result<(), String> {
+    for registration in POROSITY_MODULE_REGISTRATIONS.iter().copied() {
+        let module = modules
+            .iter_mut()
+            .find(|module| module.name == registration.module)
+            .ok_or_else(|| {
+                format!(
+                    "SB-POR-001 registry names missing module '{}'",
+                    registration.module
+                )
+            })?;
+        for output in registration.outputs.iter().copied() {
+            let argument = module
+                .args
+                .iter_mut()
+                .find(|argument| argument.name == output.argument)
+                .ok_or_else(|| {
+                    format!(
+                        "SB-POR-001 registry names missing output '{}.{}'",
+                        registration.module, output.argument
+                    )
+                })?;
+            if argument.kind != ArgKind::LogOut {
+                return Err(format!(
+                    "SB-POR-001 contract '{}.{}' is not a LogOut",
+                    registration.module, output.argument
+                ));
+            }
+            if argument.porosity_output.is_some() {
+                return Err(format!(
+                    "SB-POR-001 contract '{}.{}' is registered more than once",
+                    registration.module, output.argument
+                ));
+            }
+            argument.porosity_output = Some(porosity_contract(registration, output));
+        }
+    }
+    validate_porosity_contracts(modules)
+}
+
+fn validate_porosity_contracts(modules: &[ModuleSpec]) -> Result<(), String> {
+    let expected_modules = POROSITY_MODULE_REGISTRATIONS
+        .iter()
+        .map(|registration| registration.module)
+        .collect::<HashSet<_>>();
+    let actual_modules = modules
+        .iter()
+        .filter(|module| module.category == "Porosity")
+        .map(|module| module.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut failures = Vec::new();
+    if actual_modules != expected_modules {
+        failures.push(format!(
+            "live Porosity modules {:?} do not match registered family {:?}",
+            actual_modules, expected_modules
+        ));
+    }
+
+    let mut actual_method_policies = HashSet::new();
+    for module in modules {
+        let registration = POROSITY_MODULE_REGISTRATIONS
+            .iter()
+            .copied()
+            .find(|registration| registration.module == module.name);
+        if registration.is_none() {
+            for argument in module
+                .args
+                .iter()
+                .filter(|argument| argument.porosity_output.is_some())
+            {
+                failures.push(format!(
+                    "{}.{} carries POR metadata outside the Porosity family",
+                    module.name, argument.name
+                ));
+            }
+            continue;
+        }
+        let registration = registration.unwrap();
+        if module.category != "Porosity" {
+            failures.push(format!(
+                "registered POR module '{}' has category '{}'",
+                module.name, module.category
+            ));
+        }
+
+        let expected_outputs = registration
+            .outputs
+            .iter()
+            .map(|output| output.argument)
+            .collect::<HashSet<_>>();
+        for argument in module.args.iter().filter(|argument| {
+            argument.porosity_output.is_some() || expected_outputs.contains(argument.name.as_str())
+        }) {
+            let Some(output) = registration
+                .outputs
+                .iter()
+                .copied()
+                .find(|output| output.argument == argument.name)
+            else {
+                failures.push(format!(
+                    "{}.{} carries POR metadata but is absent from its module policy",
+                    module.name, argument.name
+                ));
+                continue;
+            };
+            let identity = format!("{}.{}", module.name, argument.name);
+            let Some(contract) = argument.porosity_output.as_ref() else {
+                failures.push(format!("{identity} is missing its POR output contract"));
+                continue;
+            };
+            if argument.kind != ArgKind::LogOut || argument.unit != "v/v" {
+                failures.push(format!(
+                    "{identity} must be a v/v LogOut to carry POR output custody"
+                ));
+            }
+            let expected = porosity_contract(registration, output);
+            if contract.limiting_policy != expected.limiting_policy {
+                failures.push(format!(
+                    "{identity} borrows or misstates limit policy '{}' instead of its registered '{}'",
+                    contract.limiting_policy, expected.limiting_policy
+                ));
+            }
+            if contract != &expected {
+                failures.push(format!(
+                    "{identity} does not match the common POR envelope and registered method policy"
+                ));
+            }
+            if registration.role != PorosityModuleRole::LimitProducer {
+                actual_method_policies.insert(contract.limiting_policy.as_str());
+            }
+        }
+    }
+
+    let result_producer_count = POROSITY_MODULE_REGISTRATIONS
+        .iter()
+        .filter(|registration| registration.role != PorosityModuleRole::LimitProducer)
+        .count();
+    if actual_method_policies.len() != result_producer_count {
+        failures.push(format!(
+            "one porosity result producer borrows another producer's limit policy: {} distinct policies for {result_producer_count} producers",
+            actual_method_policies.len()
+        ));
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-POR-001 common-envelope registry gate failed: {}",
+            failures.join("; ")
+        ))
+    }
+}
+
 /// Immutable registry of every deterministic module manifest, in workflow order. Monte Carlo and
 /// batch chains call `run_module` thousands of times, so rebuilding every manifest at each public
 /// dispatch would turn central validation into an avoidable per-realization cost.
@@ -1496,6 +1897,7 @@ fn module_catalog() -> &'static [ModuleSpec] {
             crate::unconventional::brittleness_spec(),
         ];
         apply_shale_clay_quantity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
+        apply_porosity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_clay_unit_contract(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
@@ -5308,6 +5710,230 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-001 and SB-POR-T39, adjudicated by
+    /// `docs/takeover/DECISIONS.md` DEC-015. The common contract owns family, custody shape,
+    /// observable reason schema and output naming; each method retains its own source-bound
+    /// numerical policy. `phimax` is deliberately a limit producer rather than a deterministic
+    /// interpretation method. The expected inventory is read independently from the shipping
+    /// module catalog, so a registry that merely describes itself cannot satisfy this test.
+    #[test]
+    fn every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy() {
+        let modules = module_catalog();
+        let live_porosity_modules = modules
+            .iter()
+            .filter(|module| module.category == "Porosity")
+            .map(|module| module.name.as_str())
+            .collect::<HashSet<_>>();
+        let expected_modules = HashSet::from([
+            "phi_den", "phi_dn", "phi_son", "phimax", "ssc", "sspw",
+        ]);
+        assert_eq!(
+            live_porosity_modules, expected_modules,
+            "every live Porosity module must be inside the one registered family"
+        );
+
+        let expected_outputs = BTreeMap::from([
+            (
+                "phi_den",
+                BTreeMap::from([
+                    ("PHIE_DEN", PorosityOutputRole::UnlimitedEffective),
+                    ("PHIT_DEN", PorosityOutputRole::UnlimitedTotal),
+                    ("PHIE", PorosityOutputRole::LimitedEffective),
+                    ("PHIT", PorosityOutputRole::LimitedTotal),
+                ]),
+            ),
+            (
+                "phi_dn",
+                BTreeMap::from([
+                    ("PHIE_DN", PorosityOutputRole::ComparisonUnlimitedEffective),
+                    ("PHIT_DN", PorosityOutputRole::ComparisonUnlimitedTotal),
+                    ("PHIE", PorosityOutputRole::ComparisonLimitedEffective),
+                    ("PHIT", PorosityOutputRole::ComparisonLimitedTotal),
+                ]),
+            ),
+            (
+                "phi_son",
+                BTreeMap::from([
+                    ("PHIE_SON", PorosityOutputRole::LimitedEffective),
+                    ("PHIT_SON", PorosityOutputRole::LimitedTotal),
+                ]),
+            ),
+            (
+                "phimax",
+                BTreeMap::from([
+                    ("PHI_CAP", PorosityOutputRole::Capped),
+                    ("PHI_MAX", PorosityOutputRole::Ceiling),
+                ]),
+            ),
+            (
+                "ssc",
+                BTreeMap::from([
+                    ("PHIE_GR", PorosityOutputRole::Effective),
+                    ("PHIE_SSC", PorosityOutputRole::Effective),
+                    ("PHIFF_GR", PorosityOutputRole::FreeFluid),
+                    ("PHIFF_SSC", PorosityOutputRole::FreeFluid),
+                    ("PHIT_GR", PorosityOutputRole::Total),
+                    ("PHIT_SSC", PorosityOutputRole::Total),
+                ]),
+            ),
+            (
+                "sspw",
+                BTreeMap::from([
+                    ("PHIE_SSPW", PorosityOutputRole::Effective),
+                    ("PHIFF_SSPW", PorosityOutputRole::FreeFluid),
+                    ("PHIT_SSPW", PorosityOutputRole::Total),
+                ]),
+            ),
+        ]);
+
+        let mut method_policies = HashSet::new();
+        for module in modules.iter().filter(|module| module.category == "Porosity") {
+            let classified = module
+                .args
+                .iter()
+                .filter_map(|argument| {
+                    argument.porosity_output.as_ref().map(|contract| {
+                        assert_eq!(argument.kind, ArgKind::LogOut);
+                        assert_eq!(argument.unit, "v/v");
+                        assert_eq!(contract.family, POROSITY_FAMILY_ID);
+                        assert_eq!(contract.limiting_contract, POROSITY_LIMITING_CONTRACT);
+                        assert_eq!(contract.flag_contract, POROSITY_FLAG_CONTRACT);
+                        assert_eq!(
+                            contract.flag_emission,
+                            PorosityFlagEmission::PendingSbPor003,
+                            "SB-POR-001 defines the reason shape; it must not claim SB-POR-003 already emits it"
+                        );
+                        assert_eq!(
+                            contract.output_naming_contract,
+                            POROSITY_OUTPUT_NAMING_CONTRACT
+                        );
+                        assert!(!contract.method.is_empty());
+                        assert!(!contract.convention.is_empty());
+                        assert!(
+                            contract
+                                .limiting_policy_source
+                                .contains("docs/PRD_v2/11_porosity.md"),
+                            "{}.{} limit policy has no chapter source",
+                            module.name,
+                            argument.name
+                        );
+                        if contract.module_role != PorosityModuleRole::LimitProducer {
+                            method_policies.insert(contract.limiting_policy.as_str());
+                        }
+                        (argument.name.as_str(), contract.output_role)
+                    })
+                })
+                .collect::<BTreeMap<_, _>>();
+            assert_eq!(
+                classified,
+                expected_outputs[module.name.as_str()],
+                "{} must classify exactly its live porosity outputs",
+                module.name
+            );
+
+            let expected_role = match module.name.as_str() {
+                "phimax" => PorosityModuleRole::LimitProducer,
+                "phi_dn" => PorosityModuleRole::ComparisonProducer,
+                _ => PorosityModuleRole::DeterministicMethod,
+            };
+            assert!(
+                module
+                    .args
+                    .iter()
+                    .filter_map(|argument| argument.porosity_output.as_ref())
+                    .all(|contract| contract.module_role == expected_role),
+                "{} has the wrong POR module role",
+                module.name
+            );
+        }
+        assert_eq!(
+            method_policies.len(),
+            5,
+            "density, D-N comparison, sonic, SSC and SSPW must not borrow one another's numerical limit policy"
+        );
+
+        assert!(
+            modules
+                .iter()
+                .filter(|module| module.category != "Porosity")
+                .flat_map(|module| &module.args)
+                .all(|argument| argument.porosity_output.is_none()),
+            "POR metadata must not leak onto another module family"
+        );
+
+        let mut missing_output = modules.to_vec();
+        missing_output
+            .iter_mut()
+            .find(|module| module.name == "phi_son")
+            .unwrap()
+            .args
+            .iter_mut()
+            .find(|argument| argument.name == "PHIE_SON")
+            .unwrap()
+            .porosity_output = None;
+        assert!(
+            validate_porosity_contracts(&missing_output)
+                .unwrap_err()
+                .contains("phi_son.PHIE_SON"),
+            "a lazy partial registration must fail the immutable catalog gate"
+        );
+
+        let mut borrowed_policy = modules.to_vec();
+        let density_policy = borrowed_policy
+            .iter()
+            .find(|module| module.name == "phi_den")
+            .unwrap()
+            .args
+            .iter()
+            .find_map(|argument| argument.porosity_output.as_ref())
+            .unwrap()
+            .limiting_policy
+            .clone();
+        for argument in borrowed_policy
+            .iter_mut()
+            .find(|module| module.name == "phi_son")
+            .unwrap()
+            .args
+            .iter_mut()
+            .filter(|argument| argument.porosity_output.is_some())
+        {
+            argument.porosity_output.as_mut().unwrap().limiting_policy = density_policy.clone();
+        }
+        assert!(
+            validate_porosity_contracts(&borrowed_policy)
+                .unwrap_err()
+                .contains("borrows"),
+            "one universal clamp is not the common contract DEC-015 authorized"
+        );
+
+        for module in modules.iter().filter(|module| module.category == "Porosity") {
+            let rename_opts = module
+                .args
+                .iter()
+                .filter(|argument| argument.porosity_output.is_some())
+                .map(|argument| {
+                    (
+                        format!("__OUT_{}", argument.name),
+                        format!("CHECK_{}_{}", module.name, argument.name),
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            let resolved = crate::workflow::resolve_output_names(module, &rename_opts).unwrap();
+            for argument in module.args.iter().filter(|argument| argument.porosity_output.is_some()) {
+                let resolved_name = resolved
+                    .iter()
+                    .find(|(declared, _)| declared == &argument.name)
+                    .map(|(_, name)| name)
+                    .unwrap();
+                assert_eq!(
+                    resolved_name,
+                    &format!("CHECK_{}_{}", module.name, argument.name).to_uppercase(),
+                    "the common output-naming contract must remain user-configurable"
+                );
+            }
+        }
+    }
 
     /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-030, section 5.2 and
     /// SB-ENV-T38. The source-owned polarity is `1 = true`; the expected inventory names every

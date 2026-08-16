@@ -52,7 +52,7 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 - **Sonic:** the chapter's truthful naming and per-method shale conventions remain the adopted target. `Cp < 1` is a hard refusal. `DEC-017` closes SP-013's product choice on the genuine original three-segment RHG80 route, not rename-only; exact equation typography still requires verification against the original scan, and SB-POR-020's separate vendor-rendering choice remains open.
 - **N-D and gas:** Arithmetic and RMS remain available only in their explicitly named roles. Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts. SB-POR-059's RMS parity fix remains narrow and does not implement either rigorous contract.
 - **Missing capability:** analytic N-D, HC response, excavation and neutron-sonic are required product capabilities under `DEC-016`; no missing source or parameter is supplied by that inclusion decision.
-- **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. Automated evidence remains 0 qualifying POR correctness tests, and Jauhar retains ownership of all 33 manual POR checks.
+- **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. SB-POR-001 now has one qualifying architecture correctness test; the other 61 POR rows retain their recorded evidence classes, and Jauhar retains ownership of all 33 manual POR checks.
 
 ### DEC-015 operational boundary
 
@@ -87,15 +87,15 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-001 - One deterministic POR family and contract
 
 - **Specified contract:** every deterministic porosity method belongs to one POR family and uses one limiting, flag and output-naming contract; T39 is the primary discriminator, with T11 and T31 as cross-support.
-- **Current implementation:** `phi_den` and `phi_dn` emit method-specific unlimited pairs plus shared limited `PHIE`/`PHIT`; `phi_son` emits only `PHIT_SON`/`PHIE_SON` and applies its own `[0,1]` clamps. `ssc` and `sspw` add still different porosity paths. A shared catalog category and runner exist, but no POR-wide limiter, flag stream or naming policy does.
-- **Qualifying acceptance tests:** none; no executable `SB-POR-T39` or whole-family inventory proves every method. Test class `MISSING`.
+- **Current implementation:** every live `Porosity` module and each of its 21 porosity outputs is registered under one serialized `POR` envelope carrying module role, method, convention, semantic output role, common limiting-interface identity, method-specific source-linked limit policy, common reason-schema identity and the existing workflow output-naming contract. `phi_dn` is explicitly a comparison producer rather than an authoritative analytic method; `phimax` is a limit producer rather than a porosity interpretation method; sonic discloses its current mixed convention pending SB-POR-013. The dialog shows POR role and method beside each output and exposes the remaining policy detail in its tooltip. No numeric bound was moved into the common envelope.
+- **Qualifying acceptance tests:** `every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy` was witnessed RED before the contract fields/registry existed and again on an incorrect lowercase rename expectation, then passed. It independently inventories all six live POR modules and 21 porosity outputs, proves the common identities, distinct policies, D-N comparison role, `phimax` limit-producer role, user-configurable uppercase naming and explicit `PENDING_SB_POR_003` emission state. Removing `phi_son.PHIE_SON` and borrowing density's policy both fail the immutable registry gate. Test class `CORRECTNESS`; sources are SB-POR-001/T39 and DEC-015.
 - **Supporting tests:** `every_module_returns_the_output_keys_its_manifest_declares`, the density and D-N branch tests, and the sonic option test each passed exactly once; they prove local manifest/arithmetic behavior only.
 - **Manual evidence:** porosity 0/33; workflow 0/23; generic-curve-store 0/18.
 - **Source/parameter boundary:** no new value is needed; this is an architecture contract.
-- **History/reachability:** all current paths are integrated at the accepted anchor; current and reachable-history searches found no unified POR contract.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-015` is decided: one common typed custody/observability envelope, with each POR method owning its source-bound correction limits and validity rules.
-- **Next action:** define the common POR result envelope, define each method's separately cited limit/correction policy, and inventory every registered method against both before migrating an individual method.
+- **History/reachability:** the common envelope, central fail-closed registry and owned test are introduced by the current Gate 2 increment; the existing method arithmetic remains unchanged.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for SB-POR-001 after DEC-015. SB-POR-002 still owns missing unlimited/limited pairs, SB-POR-003 owns actual per-sample reason emission, and SB-POR-004 owns persisted POR-family/method/convention curve custody and collision discipline.
+- **Next action:** preserve the common envelope and distinct policy identities; continue SB-POR-002 without claiming the pending reason stream or persisted curve provenance is already implemented.
 
 ## SB-POR-002 - Unlimited and limited pairs for every method
 
