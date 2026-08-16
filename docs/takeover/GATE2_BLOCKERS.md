@@ -36,10 +36,11 @@ The big ones, each blocking several rows at once:
   nothing to enumerate, no combination rule when several limits bind at once — the text just says so
   — no unknown-code refusal to design, and no categorical-export contract. **One narrow thing left:**
   `log_sets`, which is the per-version record, has no free-text comment column, and adding one means
-  editing `db.rs`, which is on the prohibited list. Authorize that one edit the way you authorized
-  the narrow `ssc.rs` edit, and SB-POR-003, 028, 047 and 048 all open up. `params_json` must not be
-  reused for it — that column is the run's *parameters*, and mixing a narrative into it would make
-  the two indistinguishable to every reader.
+  editing `db.rs`. **That edit was explicitly authorized on 2026-08-16 (DEC-045)**, so SB-POR-003,
+  026, 028, 047 and 048 are now implementation-pending rather than decision-blocked — five rows on
+  one authorization. Two constraints survive it: `params_json` must not be reused (that column is the
+  run's *parameters*, and mixing a narrative into it would make the two indistinguishable to every
+  reader), and `computed_curves` stays deliberately primary-key-less.
   *(DEC-039's own row in `DECISIONS.md` still reads OPEN — that file is outside my allowed paths, so
   you need to close it there.)*
 - **DEC-025 — where a neutron curve's matrix basis is stored.** A limestone-unit neutron read
