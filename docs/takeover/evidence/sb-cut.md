@@ -812,14 +812,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-056
 
 - **Specified contract:** a failed pay computation leaves a named section in every emitted PDF and a named degradation in the batch result.
-- **Current implementation / as-built:** report generation emits a Pay Summary note page and records per-well degradation instead of omitting the section. PRESENT-OK.
+- **Current implementation / as-built:** unchanged and correct. `report.rs` emits the pay-summary section header unconditionally and renders an explicit note on the page for both failure shapes - ran-clean-but-empty, and errored - and the batch record carries the degradation rather than counting the well as an unqualified success. PRESENT-OK; **regression lock**.
+- **The failure it prevents is the worst one this product can produce.** A 540-well batch producing 540 PDFs all missing their pay tables, with no error raised, is *undetectable by the person running it and obvious to the client receiving it*. The previous `unwrap_or_default()` collapsed both `Err` and empty into no section at all, and that collapse is named in the code comment at the site.
+- **Verified, not assumed.** The registered test forces a real storage-side failure - it renames `computed_curves` behind a view so the FLAG write fails while the numbers compute - and then asserts the section is named in the PDF **and** in the batch run record. Both halves matter: a note in the document with a clean batch record still lets a 540-well run report zero errors.
 - **Release disposition and risk:** PILOT-BLOCKER; DEGRADED-RESULT.
-- **Automated evidence:** CORRECTNESS; report::tests::a_failed_pay_summary_is_named_in_the_pdf_and_in_the_batch_run_record inspects emitted PDF bytes and the batch record.
-- **Manual evidence:** NONE specific to this failure; report is 6/53 overall.
-- **Source/parameter boundary:** no numeric parameter.
-- **UI/IPC/provenance surface:** PDF and batch/job outputs both preserve the failed section identity.
-- **History/reachability:** regression lock d25c274 and report change are reachable.
-- **Blocking decision / next action:** preserve the lock and field-exercise one batch with a real pay-data failure.
+- **Automated evidence:** `a_failed_pay_summary_is_named_in_the_pdf_and_in_the_batch_run_record` (`src-tauri/src/report.rs`). CORRECTNESS.
+- **Mutation evidence:** one probe. Dropping the `note_page` from the `Err` arm - keeping the degradation in the batch record but removing it from the document - turned the test red. That is the precise shape of the original defect: the run still reports the problem somewhere, and the client's PDF is silently short a table.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only.
+- **Source/parameter boundary:** no numeric parameter; the contract is a document-structure rule.
+- **UI/IPC/provenance surface:** the report path and the batch export.
+- **History/reachability:** the unconditional header and both note paths are integrated.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-057
 

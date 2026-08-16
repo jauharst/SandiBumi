@@ -257,7 +257,8 @@
     "SB-CUT-027",
     "SB-CUT-028",
     "SB-CUT-057",
-    "SB-CUT-055"
+    "SB-CUT-055",
+    "SB-CUT-056"
   ],
   "blocked_requirements": [
     "SB-CORE-003",
