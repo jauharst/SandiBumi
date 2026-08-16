@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `189 / 222`
+- Handled: `190 / 222`
 - Done: `131`
-- Blocked: `58`
-- Remaining unhandled: `33`
+- Blocked: `59`
+- Remaining unhandled: `32`
 
 ---
 
@@ -158,6 +158,7 @@ requirement appears exactly once.
 | `SB-SAT-002` | Narrow `multimin2.rs` authorization | **P0.** No effective-porosity Archie exists; the chapter puts the two forms **25.0 saturation units and HCPV 3.15x apart** and calls it the largest cross-tool trap in the domain. **The physics needs nothing** - SB-SAT-023 already supplies the inverse `SwT = Sw(1-Swb) + Swb`, `Swb = 1 - phie/phit`. What blocks it is that `SW_METHOD` codes come from `SwModel::flag_code()` and `SwModel` (prohibited `multimin2.rs`) has no `ArchieEffective` variant. Minting a code in `modules.rs` would break SB-SAT-001 arm D. | Authorize the narrow `multimin2.rs` variant (DEC-040 pattern). Then add the option with `archie_total` as default, lift `SWT` via SB-SAT-023's inverse, and pin that the branches disagree on the reference case and the round-trip is the identity. |
 | `SB-SAT-023` | Narrow `multimin2.rs` + `lrlc.rs` authorization | The Juhasz rule exists (`multimin2.rs:456` computes the right `Qvn`) but a blanket post-solve back-out overrides it, and the **inverse pair does not exist at all**. On the dossier fixture `Qvn` 0.42 vs `1-phie/phit` 0.20 makes `SWE` differ by **tens of saturation units while `SWT` matches exactly**. Every part of the fix is in a prohibited file. **Third row on this same authorization** - and SB-SAT-002 needs this row's inverse pair. | Authorize (DEC-040 pattern). Then per-model `Swb`, ship the inverse, record which rule applied, and pin `Swb=1 -> SWE=1`, the round-trip identity, and Juhasz-vs-Archie disagreement on the fixture. |
 | `SB-SAT-025` | Narrow `lrlc.rs` authorization | Half is **ready**: `sw_arch` has `SWT_ARCH` but no `SWE_ARCH`, and that fix is in allowed `modules.rs`. The other half - LRLC emitting clamped values only (`lrlc.rs:183`, `:365`) - is prohibited. Held atomic because the MUST covers *every* method. A clipped-only curve cannot distinguish *the rock is wet* from *the model went out of range*. | Authorize `lrlc.rs` alongside the `multimin2.rs` request. Then add `SWE_ARCH` and the LRLC twins, and pin that an out-of-range sample shows the clipped curve at its bound AND the diagnostic beyond it. |
+| `SB-SAT-026` | Narrow `lrlc.rs` + `multimin.rs` + `satheight.rs` | As-built said *no method-flag curve exists*; one does - `SW_METHOD`, on 3 of 7 saturation modules. The gap is **coverage**: `sw_rtc`, `sw_imts`, `multimin` and `sw_height` lack it, and all four are in prohibited files. The naming clause (no bare `SW`/`SXO`) is already true and only needs its enforcement test, which needs no authorization. | Authorize the three files so the remaining four modules emit `SW_METHOD`. Then pin both clauses universally, so a future saturation module cannot ship without a method flag. |
 
 ## Product-owner decision packet
 

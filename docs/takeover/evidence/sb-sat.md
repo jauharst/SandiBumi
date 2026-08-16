@@ -348,20 +348,19 @@
 - **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
 - **Next action:** Jauhar authorizes the narrow `lrlc.rs` edit alongside the `multimin2.rs` one already requested by SB-SAT-002 and SB-SAT-023. Then add `SWE_ARCH` to `sw_arch` and unclipped twins to the LRLC outputs, and pin from both sides: a sample the model drives out of range must show the clipped curve at its bound AND the unclipped diagnostic beyond it - one arm alone would pass a module that simply copies the clipped value into the diagnostic.
 
-## SB-SAT-026
+## SB-SAT-026 - Never emit a bare SW; always emit a method-flag curve
 
-- **Specified contract:** Never emit a bare `SW`; always emit a method-flag curve. Owned test intention(s): `SB-SAT-T39`, `SB-SAT-T40`.
-- **Current implementation:** current standalone and solver names avoid exact bare `SW`, but shared generic `SWE`/`SWT` identities are reused and no saturation method-flag curve is emitted.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T39`, `SB-SAT-T40` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** local output-key tests do not prove canonical identity or a flag through persistence/export.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** method-specific identity and flag transport are incomplete.
-- **Next action:** define canonical suffixed outputs and one method-flag schema, then prove no bare/generic collision survives.
+- **Specified contract:** no emitted mnemonic may equal bare `SW` or `SXO`; every saturation curve **MUST** carry an `E` or `T` designator. Every saturation run **MUST** additionally emit a **method-flag curve** recording which model produced each sample, and **MUST** emit `VOL_UWAT`/`VOL_XWAT` (or `BVWE`/`BVWT`) alongside (`12_saturation.md:1368-1381`).
+- **Current implementation - the as-built is PART stale, and the correction narrows the row.** It says *no method-flag curve exists*. One does: `SW_METHOD` is a declared output of `sw_arch`, `sw_indo` and `sw_sim`, and `sw_arch` already emits `SwModel::ArchieTotal.flag_code()` per sample. The real gap is COVERAGE, not absence - **3 of the 7 saturation modules emit it**. The naming clause is separately satisfied: `grep` finds no `log_out("SW")` or `log_out("SXO")` anywhere, so no bare mnemonic ships. `VOL_UWAT` is emitted by the same 3.
+- **The 4 modules without a method flag are ALL in prohibited files:** `sw_rtc` and `sw_imts` (`lrlc.rs`), `multimin` (`multimin.rs`) and `sw_height` (`satheight.rs`).
+- **Qualifying acceptance tests:** none. Test class `MISSING`. Note the as-built's own words - the naming rule is *unenforced by any test* - which is the half that needs no authorization.
+- **Manual evidence:** saturation 0/31.
+- **Source/parameter boundary:** no parameter is involved. Ledger D-15 and Geolog's `OPT_SW` scheme are cited by the chapter; nothing was inferred.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`. The method-flag clause needs edits to **three** prohibited files - `lrlc.rs`, `multimin.rs` and `satheight.rs`. The naming clause is already true and its enforcement test needs no authorization, since a test only READS module specs. It is held with the row rather than landed alone, for the same reason SB-SAT-025 was held atomic: one MUST, and a half-delivery reads as progress without meeting the contract. **`multimin.rs` and `satheight.rs` now join `multimin2.rs` and `lrlc.rs`** in the set of prohibited files gating this group.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Next action:** Jauhar authorizes narrow edits to `lrlc.rs`, `multimin.rs` and `satheight.rs` to emit `SW_METHOD` (and `VOL_UWAT`/`VOL_XWAT` where missing) from the remaining four modules. Then pin both clauses universally over the shipping catalogue: no declared output anywhere equals bare `SW` or `SXO`, every saturation curve carries an `E`/`T` designator, and **every** module in the Saturation category declares a method-flag output - the universal form so a future saturation module cannot ship without one.
 
-### SB-SAT-027
+## SB-SAT-027
 
 - **Specified contract:** One shared root-finder with Geolog's guards. Owned test intention(s): `SB-SAT-T12`, `SB-SAT-T41`.
 - **Current implementation:** Juhasz, Waxman-Smits and nonlinear dual water share one guarded root helper with a closed form and bisection branch; standalone and LRLC iterative paths remain separate.
