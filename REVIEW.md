@@ -14286,3 +14286,22 @@ for the common case is the hardest kind to notice. It now refuses and names the 
 - [ ] **Put a value back in and re-run.** Nothing else should have changed.
 - [ ] **Check a saved SandiMin run from before this change still loads.** If one errors on open,
       tell me — an old saved run may not carry `a`, and I would rather hear it from you than guess.
+
+## Net-to-gross now says how much of the zone nobody could judge
+
+A zone that comes back 40% net-to-gross because 60% of it is shale, and a zone that comes back 40%
+because 55% of it was never logged, printed the same number. Nothing on the row told you which.
+
+The pay summary now splits gross footage four ways instead of two — Gross, Net, Not net, Unknown —
+and they add up exactly. "Unknown" is footage nothing could judge: either a sample with no VSH,
+PHIE or SWE at it, or footage with no sample at all, which is what you get when a zone is bottomed
+on a marker deeper than the logging run reached. The Field Dashboard grid and its CSV export both
+carry the two new columns beside Gross and Net.
+
+- [ ] **Open the Field Dashboard on a field you know** and check Gross = Net + Not net + Unknown on
+      every row. If any row does not add up, tell me — that is the whole point of the change.
+- [ ] **Find a zone bottomed below where the logs stop.** The unlogged footage should show under
+      Unknown. If it shows under Not net instead, that is the bug this was meant to remove.
+- [ ] **Check nothing else moved.** Net, N/G and HPV should be exactly what they were before.
+- [ ] **Tell me if the grid is now too wide.** Two extra columns is two extra columns; I can move
+      them behind a toggle if they get in the way of the numbers you actually read.

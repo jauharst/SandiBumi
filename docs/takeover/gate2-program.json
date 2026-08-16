@@ -8,9 +8,9 @@
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 24,
-    "REMEDIATE": 52,
+    "REMEDIATE": 51,
     "PROVE": 10,
-    "RETAIN": 136
+    "RETAIN": 137
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -238,7 +238,8 @@
     "SB-SAT-038",
     "SB-SAT-047",
     "SB-SAT-028",
-    "SB-SAT-034"
+    "SB-SAT-034",
+    "SB-CUT-003"
   ],
   "blocked_requirements": [
     "SB-CORE-003",

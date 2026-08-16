@@ -1904,6 +1904,11 @@ mod tests {
             bottom: 1100.0,
             gross: 100.0,
             net,
+            // SB-CUT-003: the fixture assumes every sample was judged, so nothing is unknown and
+            // the rest is not-net. It keeps the partition closing, which is what a reader of this
+            // helper would otherwise have to check for themselves.
+            not_net: 100.0 - net,
+            unknown: 0.0,
             ntg: net / 100.0,
             avg_vsh: 0.3,
             avg_phie: phie,

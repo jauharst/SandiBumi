@@ -365,3 +365,4 @@
 "SB-SAT-038","CORRECTNESS","src-tauri/src/modules.rs","a_saturation_default_without_a_checkable_source_fails_the_build"
 "SB-SAT-047","CORRECTNESS","src-tauri/src/modules.rs","a_named_saturation_model_returns_one_number_from_either_engine"
 "SB-SAT-028","CORRECTNESS","src-tauri/src/lrlc.rs","a_non_converged_imts_sample_is_missing_rather_than_its_last_iterate"
+"SB-CUT-003","CORRECTNESS","src-tauri/src/workflow.rs","a_summation_partitions_gross_four_ways_and_books_unjudgeable_footage_as_unknown_not_as_notnet"

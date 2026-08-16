@@ -28,6 +28,13 @@ const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean }[
   { key: "bottom", label: "Bottom", digits: 1, num: true },
   { key: "gross", label: "Gross", digits: 1, num: true },
   { key: "net", label: "Net", digits: 1, num: true },
+  // SB-CUT-003: the four-way partition, reported side by side because that is the only way to
+  // read it. Gross = Net + Not net + Unknown exactly, and "Unknown" is footage nothing could
+  // judge — no VSH/PHIE/SWE at the sample, or no sample at all. A zone that is 40 % net because
+  // the rest is shale and one that is 40 % net because the rest was never logged print the same
+  // N/G, and only these two columns separate them.
+  { key: "not_net", label: "Not net", digits: 1, num: true },
+  { key: "unknown", label: "Unknown", digits: 1, num: true },
   { key: "ntg", label: "N/G", digits: 2, num: true },
   { key: "avg_vsh", label: "Avg VSH", digits: 2, num: true },
   { key: "avg_phie", label: "Avg PHIE", digits: 3, num: true },

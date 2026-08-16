@@ -2643,6 +2643,27 @@ pub struct PaySummaryRow {
     pub bottom: f32,
     pub gross: f32,
     pub net: f32,
+    /// SB-CUT-003. Footage the classifier EVALUATED and rejected — it saw the sample and the
+    /// sample failed a cutoff.
+    ///
+    /// Kept strictly apart from [`Self::unknown`] because the two are the same number on a page
+    /// and completely different rock. A zone reading 40 % net-to-gross because 60 % is shale and a
+    /// zone reading 40 % because 55 % was never logged both print 0.40, and only the split says
+    /// which. Techlog books a non-positive clipped interval as UNKNOWN distinct from NOT-NET; IP
+    /// marks nulls in-band inside the numeric column and never separates them at all.
+    #[serde(default)]
+    pub not_net: f32,
+    /// SB-CUT-003. Footage whose flag could not be EVALUATED, so that
+    /// `gross = net + not_net + unknown` holds exactly.
+    ///
+    /// **Derived rather than accumulated, and that is the substance of the requirement.** Two
+    /// separate things make footage unjudgeable and only one of them is a sample: an in-zone
+    /// sample whose VSH/PHIE/SWE are missing, and footage carrying no sample at all — a logging
+    /// gap, or the ordinary case of a zone bottomed on a marker below the TD of the run that
+    /// logged it. Summing the first alone would leave the identity broken over exactly the
+    /// intervals where a reader most needs it to close.
+    #[serde(default)]
+    pub unknown: f32,
     pub ntg: f32,
     pub avg_vsh: f32,
     pub avg_phie: f32,
@@ -2908,6 +2929,9 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     _ => &flag_pay,
                 };
                 let mut net = 0.0f64;
+                // SB-CUT-003: footage the classifier saw and REJECTED. Only samples it could
+                // actually evaluate land here; see the `unknown` derivation below.
+                let mut not_net = 0.0f64;
                 let mut net_vsh = 0.0f64;
                 let mut net_phie = 0.0f64;
                 let mut sum_vsh = 0.0f64;
@@ -2940,6 +2964,13 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                         n_classified += 1;
                     }
                     if flags[i] != 1.0 {
+                        // SB-CUT-003: only an EVALUATED rejection is NotNet. A NaN flag means the
+                        // classifier had nothing to judge, so its footage must fall through to
+                        // `unknown` — folding it in here still closes the identity, which is
+                        // precisely why the requirement names it.
+                        if !flags[i].is_nan() {
+                            not_net += h;
+                        }
                         continue;
                     }
                     net += h;
@@ -2959,6 +2990,11 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 }
 
                 let gross = zone.bottom_depth - zone.top_depth;
+                // SB-CUT-003: the remainder, so the partition closes exactly. It absorbs both
+                // kinds of unevaluable footage — an in-zone sample the classifier could not judge,
+                // and footage no sample covers at all. Computed in f64 against the same f64 sums
+                // the other two came from, then rounded once.
+                let unknown = gross as f64 - net - not_net;
                 all_rows.push(PaySummaryRow {
                     well_id: well_id.clone(),
                     well_name: well_name.clone(),
@@ -2968,6 +3004,8 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     bottom: zone.bottom_depth,
                     gross,
                     net: net as f32,
+                    not_net: not_net as f32,
+                    unknown: unknown as f32,
                     ntg: if gross > 0.0 { (net / gross as f64) as f32 } else { 0.0 },
                     // Averages are normalised by the net thickness over which THAT curve is
                     // valid — not total net — so a SAND-row sample with valid VSH but missing
@@ -4924,6 +4962,141 @@ mod tests {
             // The zeros are unchanged; the counter is what tells the consumer not to print them.
             assert_eq!(r.net, 0.0);
             assert_eq!(r.hpv, 0.0);
+        }
+    }
+
+    /// 21 samples one unit apart from 1000, split so that all three kinds of footage are present
+    /// and none of them is zero. VSH alone decides the split, because it is the one curve whose
+    /// ABSENCE makes a sample unjudgeable rather than merely failing:
+    ///
+    /// * `1000..1010` — VSH 0.2, passes the 0.5 cutoff  → **10 units NET**
+    /// * `1010..1015` — VSH 0.8, fails the 0.5 cutoff   → **5 units NOT-NET**
+    /// * `1015..`     — VSH MISSING, cannot be judged   → **UNKNOWN**
+    fn seed_partition_well(conn: &duckdb::Connection, name: &str) -> String {
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 21usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let mut vsh = vec![0.2f32; n];
+        vsh[10..15].fill(0.8);
+        vsh[15..].fill(f32::NAN);
+        equations::write_computed_curve(conn, &well, &depth, "VSH", &vsh).unwrap();
+        for (curve, v) in [("PHIE", 0.20f32), ("SWE", 0.30)] {
+            equations::write_computed_curve(conn, &well, &depth, curve, &vec![v; n]).unwrap();
+        }
+        well
+    }
+
+    /// SB-CUT-003 (P1). `14_cutoffs-summation-mc.md:944-955` — a summation **MUST** report
+    /// `Gross`, `Net`, `NotNet` and `Unknown` as four separate quantities satisfying
+    /// `Gross = Net + NotNet + Unknown` exactly, and `Unknown` — the footage whose flag could not
+    /// be EVALUATED — **MUST NOT** be folded into `NotNet`.
+    ///
+    /// Techlog books a non-positive clipped interval as UNKNOWN, distinct from NOT-NET; IP marks
+    /// nulls in-band with a `$$` pair inside a numeric column. Only the four-way partition is
+    /// auditable: a zone reading 40 % net-to-gross because 60 % is shale and a zone reading 40 %
+    /// because 55 % was never logged are the same two numbers and completely different rock.
+    ///
+    /// Pinned from both sides, because the invariant alone is satisfiable by the exact error the
+    /// requirement names — fold every unjudgeable sample into `NotNet` and `Gross` still closes:
+    ///
+    /// * **A** — every component is its own expected footage on a zone the samples tile exactly,
+    ///   so `NotNet` cannot silently absorb the missing-VSH interval.
+    /// * **B** — footage carrying NO SAMPLE AT ALL lands in `Unknown`. This is what makes
+    ///   deriving `Unknown` from the other three correct rather than convenient: accumulating it
+    ///   from missing-flag samples alone would leave the identity broken wherever a zone extends
+    ///   past the log, which is every zone bottomed on a marker the logging run did not reach.
+    #[test]
+    fn a_summation_partitions_gross_four_ways_and_books_unjudgeable_footage_as_unknown_not_as_notnet(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let tiled = seed_partition_well(&conn, "CUT-TILED");
+        let overhang = seed_partition_well(&conn, "CUT-OVERHANG");
+        // Declared 10 units deeper than the log reaches — the ordinary case of a zone bottomed on
+        // a marker below TD of the run that logged it.
+        db::upsert_zone_with_datum(
+            &conn,
+            &overhang,
+            "OVERHANG",
+            1000.0,
+            1030.0,
+            crate::schema_vocab::DepthDatum::Md,
+        )
+        .unwrap();
+
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![tiled.clone(), overhang.clone()],
+                vsh_max: 0.5,
+                phie_min: 0.1,
+                swe_max: 0.6,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+            },
+        )
+        .expect("summary runs");
+
+        // A — the undeclared "ALL" zone runs 1000..1020, which the samples tile exactly. PHIE and
+        // SWE pass everywhere, so SAND, RESERVOIR and PAY partition identically and all three are
+        // checked rather than one standing in for the others.
+        let tiled_rows: Vec<_> = rows.iter().filter(|r| r.well_id == tiled).collect();
+        assert_eq!(tiled_rows.len(), 3, "one row per summary flag");
+        for r in &tiled_rows {
+            assert_eq!(r.gross, 20.0, "{} gross", r.flag);
+            assert_eq!(r.net, 10.0, "{} net — the ten samples that passed", r.flag);
+            assert_eq!(
+                r.not_net, 5.0,
+                "{} not-net — the five samples that FAILED the cutoff, and ONLY those. 10.0 here \
+                 means the missing-VSH interval was folded in, which is the error this pins.",
+                r.flag
+            );
+            assert_eq!(
+                r.unknown, 5.0,
+                "{} unknown — the five samples with no VSH to judge",
+                r.flag
+            );
+            assert_eq!(
+                r.net + r.not_net + r.unknown,
+                r.gross,
+                "{} partition must close exactly",
+                r.flag
+            );
+        }
+
+        // B — the declared zone runs 1000..1030 while the log stops at 1020. Six sampled units are
+        // unjudgeable (1015..1021, the last sample's forward interval now falling inside the zone)
+        // and nine units carry no sample at all; both are footage whose flag could not be
+        // evaluated, so both are Unknown.
+        let over: Vec<_> = rows.iter().filter(|r| r.well_id == overhang).collect();
+        assert_eq!(over.len(), 3, "one row per summary flag");
+        for r in &over {
+            assert_eq!(r.gross, 30.0, "{} gross is the declared zone, not the logged span", r.flag);
+            assert_eq!(r.net, 10.0, "{} net", r.flag);
+            assert_eq!(r.not_net, 5.0, "{} not-net", r.flag);
+            assert_eq!(
+                r.unknown, 15.0,
+                "{} unknown — 6 unjudgeable sampled units plus 9 units nothing logged at all",
+                r.flag
+            );
+            assert_eq!(
+                r.net + r.not_net + r.unknown,
+                r.gross,
+                "{} partition must close exactly even where the samples do not reach the base",
+                r.flag
+            );
         }
     }
 

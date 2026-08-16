@@ -72,6 +72,8 @@ fn packed_pay_summary(rows: &[workflow::PaySummaryRow]) -> Vec<u8> {
             row.bottom,
             row.gross,
             row.net,
+            row.not_net,
+            row.unknown,
             row.ntg,
             row.avg_vsh,
             row.avg_phie,

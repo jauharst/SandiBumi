@@ -99,14 +99,16 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ## SB-CUT-003
 
 - **Specified contract:** Gross equals Net plus NotNet plus Unknown exactly, with each component reported.
-- **Current implementation / as-built:** PaySummaryRow returns gross, net and n_classified only; NaN samples are excluded from classification without separate Unknown/NotNet footage. PARTIAL.
+- **Current implementation / as-built:** `PaySummaryRow` now carries `not_net` and `unknown` beside `gross` and `net`. `not_net` accumulates in the same loop pass as `net` and takes footage only where the flag was actually EVALUATED and rejected, so a NaN flag cannot land there. `unknown` is DERIVED as `gross - net - not_net`. PRESENT-OK.
+- **Why the derivation is the requirement rather than a shortcut:** two different things make footage unjudgeable and only one of them is a sample - an in-zone sample with no VSH/PHIE/SWE to judge, and footage carrying no sample at all, which is a logging gap or the ordinary case of a zone bottomed on a marker below the TD of the run that logged it. Accumulating only the first leaves the identity broken over exactly the intervals where a reader most needs it to close.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T11 and T22 have no executable four-way partition oracle. Existing uninterpreted tests prove only a zero-versus-absent discriminator.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** expected partition arithmetic is independently derived from the chapter fixture.
-- **UI/IPC/provenance surface:** summary, dashboard, report and office tables expose no four-way partition.
-- **History/reachability:** n_classified and perm_cutoff_no_data are integrated but do not represent footage categories.
-- **Blocking decision / next action:** return and render all four footage fields and prove exact closure on the cited null fixture.
+- **Automated evidence:** `a_summation_partitions_gross_four_ways_and_books_unjudgeable_footage_as_unknown_not_as_notnet` (`src-tauri/src/workflow.rs`). CORRECTNESS. Pinned from both sides because the invariant ALONE is satisfied by the exact error the requirement names - fold every unjudgeable sample into NotNet and Gross still closes. Arm A: on a zone the samples tile exactly, each component is its own expected footage (10 net / 5 not-net / 5 unknown of 20), so NotNet cannot silently absorb the missing-VSH interval. Arm B: on a zone declared ten units below the logged interval, Unknown is 15 - six unjudgeable sampled units plus nine units nothing logged at all - and the partition still closes. All three summary flags are checked rather than one standing in for the others.
+- **Mutation evidence:** two probes, each read for WHICH assertion fired. Removing the evaluated-flag guard so NaN samples fold into NotNet turned arm A red with `not_net` 10.0 against 5.0. Replacing the derivation with a NaN-flag accumulator turned arm B red with `unknown` 6.0 against 15.0 - the nine unlogged units silently gone.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no value was adopted. Expected footages are the fixture's own geometry.
+- **UI/IPC/provenance surface:** `ipc.ts` `PaySummaryRow` mirrors both fields; `dashboardPanel.ts` `GRID_COLS` adds **Not net** and **Unknown** beside Gross and Net, which drives both the on-screen grid and the CSV export; `core_determinism_tests.rs` `packed_pay_summary` covers them so the re-run determinism hash cannot go blind to a new field.
+- **History/reachability:** `n_classified` and `perm_cutoff_no_data` remain what they were - discriminators, not footage categories - and are unchanged.
+- **Blocking decision / next action:** cleared. Jauhar field-verifies on a well whose zone bottoms below the logged interval.
 
 ### SB-CUT-004
 

@@ -3007,6 +3007,16 @@ export interface PaySummaryRow {
   bottom: number;
   gross: number;
   net: number;
+  /** SB-CUT-003. Footage the classifier EVALUATED and rejected — it saw the sample and the sample
+   *  failed a cutoff. Deliberately separate from `unknown`: a zone reading 40 % net-to-gross
+   *  because 60 % is shale and one reading 40 % because 55 % was never logged print the same
+   *  number and are completely different rock. */
+  not_net: number;
+  /** SB-CUT-003. Footage whose flag could not be EVALUATED, so that
+   *  `gross === net + not_net + unknown` holds exactly. Covers both an in-zone sample with no
+   *  VSH/PHIE/SWE to judge AND footage carrying no sample at all — a logging gap, or a zone
+   *  bottomed on a marker below the TD of the run that logged it. */
+  unknown: number;
   ntg: number;
   // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
   // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.
