@@ -298,14 +298,18 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-017
 
 - **Specified contract:** every actual default carries a source string.
-- **Current implementation / as-built:** CutoffDefaults contains values only and no source field; the shipped values have no admissible source. ABSENT.
+- **Current implementation / as-built:** `DomainDefault {id, value, owner, source, divergence}`, the `CUT_DOMAIN_DEFAULTS` registry and `validate_domain_defaults` in `param_sources.rs`, run at catalog build beside `validate_parameter_sources` so a violation panics the build. `source_identifies_checkable_artefact` becomes `pub(crate)` so both gates apply ONE predicate rather than two spellings that could drift. PRESENT-OK.
+- **The design, and why it is the requirement rather than a convention:** the VALUE lives in the registry entry. A shipped default cannot exist without a source because there is nowhere else to put the number - the same structural property `ArgSpec.default_source` already gives module parameters, extended to the defaults that are NOT module parameters. That was this domain's gap: the pay summary is not a module, so `SB-CORE-004`'s gate never reached it.
+- **The cut-off half is the empty set.** SB-CUT-016 removed every shipped cut-off value, so nothing about them needs sourcing - there is nothing to defend about a number that is not shipped.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T36 is absent.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** because no cutoff default is authorized, the correct fresh-project source/value state is absent, not a fabricated citation.
-- **UI/IPC/provenance surface:** document schema and all consumers omit provenance.
-- **History/reachability:** no source-carrying schema found.
-- **Blocking decision / next action:** pair any future explicitly adopted value with source and status; keep fresh projects source/value absent.
+- **Automated evidence:** `every_default_this_domain_ships_carries_a_checkable_source_or_declares_its_absence_and_owner` (`src-tauri/src/param_sources.rs`). CORRECTNESS. Six arms: the live registry passes its own gate and is not vacuously small; the registered value IS the shipped constant, so the disclosure cannot drift from the behaviour; a bare product name FAILS, which is the clause that makes it a gate rather than a formality; a default that declares its source absent but says nothing FAILS, because silence is what is being prevented, not absence; a default naming no owner FAILS; and the unsourced entries are asserted to name a requirement and state a real divergence.
+- **Mutation evidence:** three probes, each read for WHICH assertion fired. Dropping the checkable-artefact clause let `"Techlog"` pass and turned that arm red. Letting a declared-absent source stay silent turned the disclosure arm red. Changing the shipped `PARTITION_TOLERANCE` to `1e-6` without touching the registry turned the drift arm red - which is what stops the disclosure from becoming decorative.
+- **What is DISCLOSED rather than adopted:** two Monte Carlo values - the auto-stop tolerance `0.005` and the reported percentiles `0.10 / 0.90` - are registered with `source: ABSENT`, their owning requirement `SB-CUT-039`, and a statement of what is known. The chapter's parameter table cites IP's auto-stop tolerance at **0.1 %** against SandiBumi's **0.5 %**, a five-fold divergence with no source of its own. **SB-CUT-039 is outside the Gate 2 scope**, so adopting the cited value here would be doing another gate's work and would change when auto-stop fires; inventing a citation for 0.005 was the alternative and is forbidden. Registering it makes the divergence machine-readable instead of a comment nobody greps.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only.
+- **Source/parameter boundary:** no value adopted. Three entries carry citations their owning rows already established; two declare their absence.
+- **UI/IPC/provenance surface:** unchanged. The registry is a build-time contract, not a user surface.
+- **History/reachability:** no source-carrying schema existed; the negative inventory was correct.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-018
 

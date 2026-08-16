@@ -2891,6 +2891,9 @@ impl WeightedMean {
 /// Techlog's `adjustFinal` reconciliation shape with the `print` → result-field refinement. It is
 /// a NUMERICAL tolerance on closure arithmetic, not a petrophysical cutoff.
 pub const PARTITION_TOLERANCE: f64 = 1e-7;
+// SB-CUT-017: the registry entry `cut.partition_tolerance` carries this same number beside
+// the citation that authorises it, and the named test asserts the two agree - so the
+// disclosure cannot drift away from the behaviour.
 
 /// SB-CUT-005. A footage partition that has been reconciled, and by how much.
 #[derive(Debug, Clone, Copy, PartialEq)]

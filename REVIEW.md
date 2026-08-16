@@ -14436,3 +14436,17 @@ are gone.
       should match your old run exactly. If any moved, that is a bug and I want to hear immediately.
 - [ ] **Results QC's cutoff-sensitivity row** now reads "no PHIE cutoff set" until you set one,
       instead of quietly sweeping around a number nobody chose.
+
+## Any number SandiBumi still chooses for you now has to say where it came from
+
+Nothing changes on screen. This is a build-time rule: a shipped default in the cutoffs/summation/
+Monte Carlo area now has to carry a citation, and the build **fails** if one does not. A number
+whose provenance is not stored is a number nobody can defend in a client review.
+
+It also surfaced something worth your attention. The Monte Carlo **auto-stop tolerance** ships at
+0.5%, while the reference documentation for it says 0.1% — five times stricter. That value belongs
+to a requirement outside this gate, so I have not changed it; I have recorded it, with the
+divergence written down where a machine can find it instead of buried in a code comment.
+
+- [ ] **Nothing to click.** But when you next look at Monte Carlo convergence, know that auto-stop
+      stops five times sooner than the reference behaviour, and tell me whether you want it moved.

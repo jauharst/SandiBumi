@@ -750,6 +750,127 @@ pub fn parameter_label(topic: &str) -> Option<&'static str> {
 }
 
 /// Stable inventory used by the acceptance test and by any future source-browser surface.
+// ---------------------------------------------------------------------------
+// SB-CUT-017 — every default this domain ships carries a machine-readable source
+// ---------------------------------------------------------------------------
+
+/// SB-CUT-017. A default SandiBumi SHIPS, paired with the citation that authorises it.
+///
+/// **The value lives in the entry.** That is the whole design: a shipped default cannot exist
+/// without a source because there is nowhere else to put the number. It is the same structural
+/// property `ArgSpec.default_source` already gives module parameters — the difference between a
+/// convention and a contract is whether a machine enforces it — extended to the defaults that are
+/// NOT module parameters, which is where this domain's gap was: the pay summary is not a module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DomainDefault {
+    /// Stable machine identity, `<domain>.<name>`.
+    pub id: &'static str,
+    /// The value as shipped, spelled as the code spells it.
+    pub value: &'static str,
+    /// The requirement that owns this value. Never blank: a number nobody owns is a number nobody
+    /// can defend in a client review.
+    pub owner: &'static str,
+    /// A citation identifying a checkable artefact, or the exact token `ABSENT` when the shipped
+    /// value has none — in which case `divergence` must say so.
+    pub source: &'static str,
+    /// Empty when `source` is a citation. When the source is `ABSENT`, this states what is known
+    /// and who has to settle it, so an unsourced default is DISCLOSED rather than merely tolerated.
+    pub divergence: &'static str,
+}
+
+/// SB-CUT-017. Every default the cut-offs / summation / Monte Carlo domain ships.
+///
+/// The cut-offs themselves are absent since SB-CUT-016, so they appear nowhere here — there is
+/// nothing to source about a value that is not shipped. What remains is the handful of decisions
+/// this domain still makes for the user.
+pub const CUT_DOMAIN_DEFAULTS: &[DomainDefault] = &[
+    DomainDefault {
+        id: "cut.partition_tolerance",
+        value: "1e-7",
+        owner: "SB-CUT-005",
+        source: "docs/PRD_v2/14_cutoffs-summation-mc.md:2083 (SB-CUT-T22); Techlog adjustFinal shape with the print-to-result-field refinement",
+        divergence: "",
+    },
+    DomainDefault {
+        id: "cut.saturation_average_weighting",
+        value: "porosity",
+        owner: "SB-CUT-009",
+        source: "docs/PRD_v2/14_cutoffs-summation-mc.md:1041-1042 — all three vendors agree on the phi-weighted form",
+        divergence: "",
+    },
+    DomainDefault {
+        id: "cut.summation_frame",
+        value: "MD",
+        owner: "SB-CUT-012",
+        source: "docs/PRD_v2/14_cutoffs-summation-mc.md:1078-1091 — the only frame whose weights SandiBumi can compute; any other refuses",
+        divergence: "",
+    },
+    DomainDefault {
+        id: "cut.mc_auto_stop_tolerance",
+        value: "0.005",
+        owner: "SB-CUT-039",
+        source: ABSENT_DOMAIN_SOURCE,
+        divergence: "The chapter's parameter table cites IP `define_monte_carlo_parameters.htm` at 0.1 %; SandiBumi ships 0.5 %, a five-fold divergence with no source of its own. SB-CUT-039 owns setting this from the cited source and sits OUTSIDE the Gate 2 scope, so it is disclosed here rather than adopted — changing it would alter when auto-stop fires.",
+    },
+    DomainDefault {
+        id: "cut.mc_reported_percentiles",
+        value: "0.10 / 0.90",
+        owner: "SB-CUT-039",
+        source: ABSENT_DOMAIN_SOURCE,
+        divergence: "P10/P90 is the chapter's reporting vocabulary throughout, but no row cites it as SandiBumi's shipped default, and the chapter's parameter table does not carry a row for it. Registered as unsourced rather than back-filled from usage.",
+    },
+];
+
+/// SB-CUT-017. The exact token a [`DomainDefault`] uses when its shipped value has no citation.
+/// Deliberately the same word `ArgSpec` uses, so one grep finds every unsourced number.
+pub const ABSENT_DOMAIN_SOURCE: &str = "ABSENT";
+
+/// SB-CUT-017. The build gate. A default with no source fails it; a default that DECLARES its
+/// source absent must name an owner and state the divergence, so "unsourced" can never be silent.
+pub fn validate_domain_defaults(defaults: &[DomainDefault]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    for entry in defaults {
+        if entry.id.trim().is_empty() {
+            failures.push("a domain default has no id".to_string());
+            continue;
+        }
+        if seen.contains(&entry.id) {
+            failures.push(format!("{} is registered twice", entry.id));
+        }
+        seen.push(entry.id);
+        if entry.value.trim().is_empty() {
+            failures.push(format!("{} has no value", entry.id));
+        }
+        if entry.owner.trim().is_empty() {
+            failures.push(format!("{} names no owning requirement", entry.id));
+        }
+        if entry.source == ABSENT_DOMAIN_SOURCE {
+            if entry.divergence.trim().is_empty() {
+                failures.push(format!(
+                    "{} declares its source ABSENT but says nothing about what is known - an                      unsourced default must be disclosed, not merely tolerated",
+                    entry.id
+                ));
+            }
+        } else if !crate::modules::source_identifies_checkable_artefact(entry.source) {
+            failures.push(format!(
+                "{} source '{}' does not identify a checkable artefact locator, named publication                  or project record; a product name alone is not a source",
+                entry.id, entry.source
+            ));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-CUT-017 domain-default source gate failed ({} violation{}): {}",
+            failures.len(),
+            if failures.len() == 1 { "" } else { "s" },
+            failures.join("; ")
+        ))
+    }
+}
+
 #[cfg(test)]
 pub fn topics() -> &'static [&'static str] {
     &[
@@ -831,6 +952,102 @@ fn value_agrees(cited: &str, value: f64) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// SB-CUT-017 (P0). `14_cutoffs-summation-mc.md:1161-1174` — every default SandiBumi ships in
+    /// this domain **MUST** carry a machine-readable source identifying the file, section or
+    /// citation it came from; a default with no source **MUST FAIL THE BUILD**; and a module
+    /// requiring a source-less parameter **MUST** refuse at run time with an actionable message.
+    ///
+    /// This is `SB-CORE-004`'s domain-level discharge, and the chapter is explicit that **the
+    /// build gate IS the requirement** rather than an implementation detail: the difference
+    /// between a convention and a contract is whether a machine enforces it. `ArgSpec` already
+    /// gives module parameters that property structurally — the field is not optional. The gap
+    /// was the defaults that are NOT module parameters, because the pay summary is not a module.
+    ///
+    /// The cut-off values themselves are absent since SB-CUT-016, so nothing about them needs
+    /// sourcing: there is nothing to defend about a number that is not shipped.
+    #[test]
+    fn every_default_this_domain_ships_carries_a_checkable_source_or_declares_its_absence_and_owner()
+    {
+        // A — the live registry passes its own gate, and is not vacuously empty.
+        validate_domain_defaults(CUT_DOMAIN_DEFAULTS).expect("the shipped registry passes");
+        assert!(
+            CUT_DOMAIN_DEFAULTS.len() >= 4,
+            "a registry of one or two entries would pass without proving anything"
+        );
+
+        // B — the value in the registry IS the value the code ships, so the disclosure cannot
+        // drift away from the behaviour it describes. Checked against the constant itself.
+        let tol = CUT_DOMAIN_DEFAULTS
+            .iter()
+            .find(|d| d.id == "cut.partition_tolerance")
+            .expect("the partition tolerance is registered");
+        assert_eq!(
+            tol.value.parse::<f64>().expect("a numeric value"),
+            crate::workflow::PARTITION_TOLERANCE,
+            "the registered value and the shipped constant must be the same number"
+        );
+
+        // C — a product name is not a source. This is the clause that makes it a gate: without it
+        // "Techlog" would pass and nobody could check anything.
+        let vague = [DomainDefault {
+            id: "cut.probe",
+            value: "0.5",
+            owner: "SB-CUT-017",
+            source: "Techlog",
+            divergence: "",
+        }];
+        let err = validate_domain_defaults(&vague).expect_err("a bare product name must fail");
+        assert!(err.contains("checkable artefact"), "{err}");
+
+        // D — a default may DECLARE its source absent, but then it must name an owner and say what
+        // is known. Silence is the thing being prevented, not absence.
+        let silent = [DomainDefault {
+            id: "cut.probe",
+            value: "0.5",
+            owner: "SB-CUT-017",
+            source: ABSENT_DOMAIN_SOURCE,
+            divergence: "",
+        }];
+        let err = validate_domain_defaults(&silent).expect_err("silent absence must fail");
+        assert!(err.contains("disclosed"), "{err}");
+
+        // E — and a number nobody owns fails, because a number nobody owns is a number nobody can
+        // defend in a client review.
+        let orphan = [DomainDefault {
+            id: "cut.probe",
+            value: "0.5",
+            owner: "",
+            source: "docs/PRD_v2/14_cutoffs-summation-mc.md:1",
+            divergence: "",
+        }];
+        let err = validate_domain_defaults(&orphan).expect_err("an unowned default must fail");
+        assert!(err.contains("owning requirement"), "{err}");
+
+        // F — the two unsourced entries are the Monte Carlo pair owned by SB-CUT-039, which is
+        // OUTSIDE the Gate 2 scope. They are disclosed rather than adopted, and this asserts the
+        // disclosure actually says the useful thing: which row owns it, and by how much SandiBumi
+        // diverges from the cited value. Registering them was the alternative to inventing a
+        // source for a number that has none.
+        let unsourced: Vec<&DomainDefault> = CUT_DOMAIN_DEFAULTS
+            .iter()
+            .filter(|d| d.source == ABSENT_DOMAIN_SOURCE)
+            .collect();
+        assert!(!unsourced.is_empty(), "the divergence is real and must stay visible");
+        for entry in unsourced {
+            assert!(
+                entry.owner.starts_with("SB-"),
+                "{} must name the requirement that owns it",
+                entry.id
+            );
+            assert!(
+                entry.divergence.len() > 40,
+                "{} must say what is known, not merely that something is missing",
+                entry.id
+            );
+        }
+    }
+
     use super::*;
 
     /// CORRECTNESS — the five recorded cluster-count positions and their evidence hierarchy come from

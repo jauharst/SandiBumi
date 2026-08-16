@@ -1901,6 +1901,11 @@ fn module_catalog() -> &'static [ModuleSpec] {
         apply_shale_clay_quantity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         apply_porosity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
+        // SB-CUT-017: the same gate for defaults that are NOT module parameters.
+        crate::param_sources::validate_domain_defaults(
+            crate::param_sources::CUT_DOMAIN_DEFAULTS,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
         validate_clay_unit_contract(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
@@ -1933,7 +1938,7 @@ pub(crate) fn retired_module(name: &str) -> Option<&'static str> {
 /// machine-readable source is present; a deliberately absent default uses the exact `ABSENT`
 /// token and must not carry a concealed number. SB-CLY-051 additionally requires each shipping
 /// CLY default to name a checkable artefact rather than a product label.
-fn source_identifies_checkable_artefact(source: &str) -> bool {
+pub(crate) fn source_identifies_checkable_artefact(source: &str) -> bool {
     let lower = source.to_ascii_lowercase();
     let file_or_record = [
         ".info", ".lls", ".html", ".htm", ".json", ".xml", ".md", ".pdf", "doi:",
