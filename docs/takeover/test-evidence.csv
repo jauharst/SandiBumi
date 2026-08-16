@@ -292,8 +292,6 @@
 "SB-SAT-004","CHARACTERIZATION","src-tauri/src/modules.rs","sw_sim_matches_quadratic_solution"
 "SB-SAT-004","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_equations_match_hand_computed_points"
 "SB-SAT-004","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_simandoux_round_trips"
-"SB-SAT-006","CHARACTERIZATION","src-tauri/src/modules.rs","sw_indo_full_vs_simple"
-"SB-SAT-006","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_indonesia_round_trips"
 "SB-SAT-009","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_juhasz_hand_computed"
 "SB-SAT-011","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_waxman_smits_hand_computed"
 "SB-SAT-012","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_waxman_smits_hand_computed"
@@ -360,3 +358,4 @@
 "SB-POR-049","CORRECTNESS","src-tauri/src/modules.rs","no_porosity_method_zeroes_a_tight_carbonate_on_a_hard_coded_lithology_rule"
 "SB-POR-056","CORRECTNESS","src-tauri/src/modules.rs","porosity_transit_time_and_density_each_have_one_canonical_unit_and_a_thousandfold_delivery_is_converted_not_accepted"
 "SB-SAT-001","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_model_is_named_by_its_equation_and_no_selector_offers_a_bare_vendor_adjective"
+"SB-SAT-006","CORRECTNESS","src-tauri/src/modules.rs","the_three_indonesia_presets_are_the_chapter_k_values_and_the_solver_shares_the_same_form"

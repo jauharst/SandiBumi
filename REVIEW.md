@@ -14188,3 +14188,17 @@ names each model by its equation, and your old saved runs still work.
 - [ ] **Check the result matches what you expect from Geolog's MODIFIED**, not Schlumberger's. This is the
       one that costs 7.3 saturation units if it is round the wrong way.
 - [ ] **Check the mineral solver's model list** uses the same names as the module selector.
+
+## Saturation: the three Indonesia variants, and the solver agrees with the module
+
+Indonesia has one equation with a knob: the shale exponent k in Vsh^(2-k*Vsh). FULL is k=1, SIMPLE is
+k=0, and TAR_SAND (Woodhouse) is k=2. The module always had all three. What was never proven is that the
+SandiMin solver runs the same equation - and that each named preset really is its published k.
+
+- [ ] **Run Indonesia on a shaly interval three times**, once per variant. SWE should visibly differ
+      between them. If two look identical, the option is not reaching the maths - tell me.
+- [ ] **Run the same interval through SandiMin with Indonesia** and compare against the module's FULL.
+      They should agree; they are now pinned to the same form.
+- [ ] **Check TAR_SAND against your Woodhouse expectations** if you have a tar-sand well. That preset is
+      the one IP ships under a separate name.
+- [ ] **Leave the variant unset** on a fresh run - it should default to FULL.

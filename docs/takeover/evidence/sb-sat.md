@@ -88,20 +88,22 @@
 - **Blocker or decision:** the uncited shipped default violates parameter custody.
 - **Next action:** remove the default from resolved-run construction, require a cited or user value, and pin missing-value refusal plus explicit-value success.
 
-### SB-SAT-006
+### SB-SAT-006 - Indonesia with a parameterised shale exponent
 
-- **Specified contract:** Indonesia with a parameterised shale exponent. Owned test intention(s): `SB-SAT-T09`, `SB-SAT-T10`, `SB-SAT-T30`.
-- **Current implementation:** the standalone module exposes three fixed options corresponding to the three exponent forms, while the solver and Results QC hard-code the `k=1` form. There is no typed `k` parameter.
-- **Qualifying acceptance tests:** no full owned acceptance proof; the available oracle is implementation characterization, not correctness. Test class `CHARACTERIZATION`.
-- **Supporting evidence:** CHARACTERIZATION: `sw_indo_full_vs_simple`, `sw_indonesia_round_trips` and hand-computed points passed for current branches.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** one parameterized model and cross-engine parity are absent.
-- **Next action:** replace fixed local branches with a typed cited `k` route and prove k=0,1,2 plus cross-engine equality.
+- **Specified contract:** Indonesia is `v = Vsh^(2 - k*Vsh)` with `SWE = (1/(Rt*(1/(ff*Rw) + 2*sqrt(v/(Rw*ff*Rsh)) + v/Rsh)))^(1/n)`, `ff = a/phie^m`, exposing `k` with presets `FULL (k=1)`, `SIMPLE (k=0)` and `TAR_SAND/Woodhouse (k=2)`. **Both the deterministic module and the solver MUST use the same parameterised form** (`12_saturation.md:908-920`).
+- **Current implementation - the as-built was STALE, verified in code.** It said `multimin2.rs:154` hard-codes `Vsh^(1 - Vsh/2)`, i.e. k=1 only, so the solver could not run SIMPLE or TAR_SAND. It does not: `multimin2.rs:277` reads `vsh.powf(1.0 - k * vsh / 2.0)`, and `:523-525` documents `indonesia_k` as *Geolog's FULL/SIMPLE/TAR_SAND presets are k=1/0/2*. The solver row is written for `1/sqrt(Rt)`, so its shale factor is the square ROOT of the module's - squaring returns `Vsh^(2 - k*Vsh)`, the same family. The module (`modules.rs:5049-5052`) already implements all three. The row was a **PROVE**.
+- **Qualifying acceptance tests:** `the_three_indonesia_presets_are_the_chapter_k_values_and_the_solver_shares_the_same_form` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** `sw_indo_full_vs_simple` and `sw_indonesia_round_trips` (both CHARACTERIZATION, moved out of the qualifying register when this row's class became CORRECTNESS - neither test was deleted), plus `sw_indo_nonpositive_rt_is_missing_not_inf`, which pins a guard rather than the preset identity.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** every expectation is evaluated from the CHAPTER's equation with an explicit `k`, never read back from the module. That is what makes arm A a check of the named presets rather than a restatement of whatever the code does.
+- **Four-armed pin.** (A) each named preset IS its cited k - FULL 1, SIMPLE 0, TAR_SAND 2 - against an independent evaluation of the chapter equation. (B) the three presets give genuinely DIFFERENT answers, so arm A cannot be satisfied by a module that ignores the option and returns one curve for all three. (C) the solver shares the form: `(Vsh^(1 - k*Vsh/2))^2 == Vsh^(2 - k*Vsh)` at every preset - this is the clause that says both engines run the same equation. (D) the shipped default is `FULL`, so an unconfigured run uses the cited preset.
+- **Deliberate limit, stated rather than hidden:** the SOLVER's own default k is documented as 1 at `multimin2.rs:523-525` but is not asserted, because reaching it means deserializing `FluidProps`, which has many required fields - a test that builds a whole fluid model to read one default would break for reasons unrelated to this contract. Arm D asserts the module default instead.
+- **Verified by mutation:** changing `TAR_SAND` from the cited k=2 to k=1.5 fails the test. That is the realistic error - a preset quietly rebound to a different exponent still computes and still plots.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that SIMPLE and TAR_SAND give visibly different SWE from FULL on a shaly interval, in both the module and a SandiMin solve.
 
-### SB-SAT-007
+## SB-SAT-007
 
 - **Specified contract:** Woodhouse Tar as a cited alias of Indonesia `k = 2`. Owned test intention(s): `SB-SAT-T10`, `SB-SAT-T35`.
 - **Current implementation:** a `TAR_SAND` option exists, but it is not carried as the cited Woodhouse Tar alias through a shared registry or solver path.

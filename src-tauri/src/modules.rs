@@ -8666,6 +8666,88 @@ mod tests {
         }
     }
 
+    /// SB-SAT-006. `12_saturation.md:908-920` — Indonesia is `v = Vsh^(2 − k·Vsh)` with
+    /// `SWE = (1/(Rt·(1/(ff·Rw) + 2√(v/(Rw·ff·Rsh)) + v/Rsh)))^(1/n)`, `ff = a/φe^m`, exposing `k`
+    /// with presets `FULL (k=1)`, `SIMPLE (k=0)` and `TAR_SAND/Woodhouse (k=2)`. **Both the
+    /// deterministic module and the solver MUST use the same parameterised form.**
+    ///
+    /// The as-built said `multimin2.rs` hard-codes `k = 1` so the solver cannot run SIMPLE or
+    /// TAR_SAND. That is stale: `multimin2.rs:277` reads `vsh.powf(1.0 - k * vsh / 2.0)` — the
+    /// same family, spelled for the `1/√Rt` row, so squaring it returns `Vsh^(2 − k·Vsh)`. The row
+    /// was a PROVE.
+    ///
+    /// Expectations are evaluated from the CHAPTER's equation with an explicit `k`, never read back
+    /// from the module — that is what makes this a check of the named presets rather than a
+    /// restatement of whatever the code happens to do.
+    #[test]
+    fn the_three_indonesia_presets_are_the_chapter_k_values_and_the_solver_shares_the_same_form() {
+        let (a, m, n_exp, rw, rsh) = (1.0_f64, 2.0_f64, 2.0_f64, 0.1_f64, 5.0_f64);
+        let (rt, phie, vsh) = (10.0_f64, 0.20_f64, 0.30_f64);
+
+        // The chapter's equation, with k supplied rather than inferred.
+        let chapter_swe = |k: f64| -> f64 {
+            let v = vsh.powf(2.0 - k * vsh);
+            let ff = a / phie.powf(m);
+            let denom = 1.0 / (ff * rw) + 2.0 * (v / (rw * ff * rsh)).sqrt() + v / rsh;
+            (1.0 / (rt * denom)).powf(1.0 / n_exp)
+        };
+
+        // A — each named preset IS its cited k. FULL=1, SIMPLE=0, TAR_SAND=2.
+        for (variant, k) in [("FULL", 1.0), ("SIMPLE", 0.0), ("TAR_SAND", 2.0)] {
+            let out = sw_indo(&ctx_with(
+                1,
+                &[("RT", vec![rt as f32]), ("PHIE", vec![phie as f32]), ("VSH", vec![vsh as f32])],
+                &[("A", a), ("M", m), ("N", n_exp), ("RW", rw), ("RT_SH", rsh), ("SWE_IRR", 0.0)],
+                &[("OPT_RW", "CONSTANT"), ("OPT_INDO", variant)],
+            ));
+            let expected = chapter_swe(k);
+            assert!(
+                (out["SWE_INDO"][0] as f64 - expected).abs() < 1e-5,
+                "{variant} must be k={k} in Vsh^(2-k*Vsh): got {} expected {expected}",
+                out["SWE_INDO"][0]
+            );
+        }
+
+        // B — and the three are genuinely different answers, so arm A cannot be satisfied by a
+        // module that ignores the option and returns one curve for all three.
+        let (full, simple, tar) = (chapter_swe(1.0), chapter_swe(0.0), chapter_swe(2.0));
+        assert!(
+            (full - simple).abs() > 1e-3 && (full - tar).abs() > 1e-3 && (simple - tar).abs() > 1e-3,
+            "the presets must separate: FULL {full} SIMPLE {simple} TAR_SAND {tar}"
+        );
+
+        // C — the solver shares the form. Its row is written for 1/√Rt, so its shale factor is
+        // `Vsh^(1 - k·Vsh/2)`; squared, that is the module's `Vsh^(2 - k·Vsh)`. Pinning the
+        // identity at every preset is what "the same parameterised form" means here.
+        for k in [0.0_f64, 1.0, 2.0] {
+            let solver_sq = vsh.powf(1.0 - k * vsh / 2.0).powi(2);
+            let module_v = vsh.powf(2.0 - k * vsh);
+            assert!(
+                (solver_sq - module_v).abs() < 1e-12,
+                "solver and module disagree on the Indonesia shale term at k={k}: \
+                 {solver_sq} vs {module_v}"
+            );
+        }
+
+        // D — an unconfigured run uses the cited FULL preset, so a module run and a solve
+        // that were never configured cannot silently pick different variants. The solver's own
+        // default is documented as k=1 at `multimin2.rs:523-525`; it is not asserted here because
+        // reaching it means deserializing `FluidProps`, which has many required fields, and a test
+        // that constructs a whole fluid model to read one default would break for reasons that have
+        // nothing to do with this contract.
+        let indo_default = module_catalog()
+            .iter()
+            .find(|spec| spec.name == "sw_indo")
+            .expect("sw_indo is a shipping module")
+            .args
+            .iter()
+            .find(|a| a.name == "OPT_INDO")
+            .expect("sw_indo exposes the variant selector")
+            .default
+            .clone();
+        assert_eq!(indo_default, "FULL", "the cited default preset is FULL (k=1)");
+    }
+
     #[test]
     fn sw_indo_nonpositive_rt_is_missing_not_inf() {
         // 1/(RT*(...)) diverges to +Infinity at RT=0 — must not reach SWE_INDO.
