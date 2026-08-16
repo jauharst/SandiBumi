@@ -8098,6 +8098,102 @@ mod tests {
         );
     }
 
+    /// SB-SAT-001 (P0). `12_saturation.md:867-890` — every saturation model is identified by a
+    /// stable identifier naming its EQUATION, never a vendor's adjective for it, and no selector
+    /// may offer a bare `Modified` / `Simandoux` / `Modified Simandoux`.
+    ///
+    /// The cost of getting this wrong is quantified in the chapter, which is why it is P0:
+    /// "Modified" means Geolog's `Vsh·Sw` shale term in one product and IP's/Techlog's `(1−Vcl)`
+    /// divisor in another, and selecting by adjective costs **7.3 saturation units and +19 % HCPV**.
+    ///
+    /// The row's as-built said `multimin2.rs:115,164` mislabel the Schlumberger form as
+    /// Bardon-Pied; that is stale — both engines now carry equation ids. What was missing is
+    /// anything keeping it that way, so this pins the contract rather than changing behaviour.
+    #[test]
+    fn every_saturation_model_is_named_by_its_equation_and_no_selector_offers_a_bare_vendor_adjective(
+    ) {
+        let modules = module_catalog();
+
+        // A — the two Simandoux forms the chapter singles out are offered under equation ids, and
+        // each label LEADS with its own id, so a vendor adjective can only ever trail it.
+        let opt_sim = modules
+            .iter()
+            .find(|spec| spec.name == "sw_sim")
+            .expect("sw_sim is a shipping module")
+            .args
+            .iter()
+            .find(|a| a.name == "OPT_SIM")
+            .expect("sw_sim exposes an equation selector")
+            .clone();
+        assert!(
+            opt_sim.choices.iter().any(|value| value == "simandoux_bardon_pied"),
+            "the Bardon-Pied equation must be offered by its equation id"
+        );
+        assert!(
+            opt_sim.choices.iter().any(|value| value == "simandoux_modified_slb"),
+            "the Schlumberger equation must be offered by its equation id"
+        );
+        for (value, label) in opt_sim.choices.iter().zip(opt_sim.choice_labels.iter()) {
+            assert!(
+                label.starts_with(value.as_str()),
+                "a saturation label must lead with its equation id so a result and the selector \
+                 match without translating an adjective: {value} -> {label}"
+            );
+        }
+
+        // B — legacy vendor tokens still resolve, so saved chains keep running, and they resolve
+        // the RIGHT way round. This mapping is the whole finding: MODIFIED is GEOLOG's name for
+        // Bardon-Pied, not for the Schlumberger form. Swapping these two is the 7.3-saturation-unit
+        // error, and it computes and plots either way.
+        assert_eq!(
+            canonical_option_value("sw_sim", "OPT_SIM", "MODIFIED"),
+            "simandoux_bardon_pied",
+            "Geolog's MODIFIED is Bardon-Pied — mapping it to the Schlumberger form is the defect"
+        );
+        assert_eq!(
+            canonical_option_value("sw_sim", "OPT_SIM", "SCHLUMBERGER"),
+            "simandoux_modified_slb"
+        );
+        // An already-canonical id passes through untouched, so re-running a new chain is stable.
+        assert_eq!(
+            canonical_option_value("sw_sim", "OPT_SIM", "simandoux_bardon_pied"),
+            "simandoux_bardon_pied"
+        );
+
+        // C — universal, so a FUTURE module cannot reintroduce the ambiguity: no shipped option
+        // anywhere offers a bare vendor adjective as its stored value.
+        let banned = ["MODIFIED", "SIMANDOUX", "MODIFIED SIMANDOUX", "MODIFIED_SIMANDOUX"];
+        for spec in modules {
+            for arg in spec.args.iter().filter(|a| a.kind == ArgKind::Option) {
+                for value in &arg.choices {
+                    assert!(
+                        !banned.contains(&value.to_ascii_uppercase().as_str()),
+                        "{}.{} offers '{value}', a vendor adjective whose meaning changes between \
+                         products — name the equation instead",
+                        spec.name,
+                        arg.name
+                    );
+                }
+            }
+        }
+
+        // D — the solver engine agrees with the UI: every catalogue entry is an equation id and
+        // its label leads with it, exactly as the selector does. Two engines, one vocabulary.
+        for choice in crate::multimin2::sw_model_catalog() {
+            assert!(
+                choice.label.starts_with(choice.id),
+                "solver model '{}' has a label that does not lead with its id: {}",
+                choice.id,
+                choice.label
+            );
+            assert!(
+                !banned.contains(&choice.id.to_ascii_uppercase().as_str()),
+                "solver model id '{}' is a vendor adjective",
+                choice.id
+            );
+        }
+    }
+
     /// SB-POR-056. `11_porosity.md:1118-1121` — porosity is carried internally in `v/v`, transit
     /// time in `µs/ft` and density in `g/cc`, with display units a presentation concern. Geolog
     /// ships `K/M3` and `US/M` internally (F22) and Techlog ships filtrate salinity in four

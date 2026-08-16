@@ -14173,3 +14173,18 @@ its own unit is a fraction so the catalogue and LAS export can say so.
 - [ ] **Export a PHIE to LAS** and check the unit says v/v, not blank and not pu.
 - [ ] **If you see a curve come in at percent when it should be a fraction** (or vice versa), tell me the
       mnemonic and the unit string - that is a registry entry, not a code change.
+
+## Saturation: models are named by their equation, not a vendor's word
+
+"Modified Simandoux" means two different equations in two different products. Geolog's Modified is the
+Vsh.Sw shale term; IP's and Techlog's is the (1-Vcl) divisor. Picking by that adjective is worth about
+7.3 saturation units and +19% HCPV - a real reserves difference from a naming accident. SandiBumi now
+names each model by its equation, and your old saved runs still work.
+
+- [ ] **Open the Simandoux module.** The selector should read `simandoux_bardon_pied` and
+      `simandoux_modified_slb`, each with the vendor word only in brackets afterwards.
+- [ ] **Open a saved chain that used the old MODIFIED setting.** It should still run, and now report
+      `simandoux_bardon_pied`. Tell me if any saved run refuses.
+- [ ] **Check the result matches what you expect from Geolog's MODIFIED**, not Schlumberger's. This is the
+      one that costs 7.3 saturation units if it is round the wrong way.
+- [ ] **Check the mineral solver's model list** uses the same names as the module selector.

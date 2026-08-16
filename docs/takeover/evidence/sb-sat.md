@@ -23,20 +23,22 @@
 
 ## Requirement receipts
 
-### SB-SAT-001
+### SB-SAT-001 - Name every saturation model by its equation
 
-- **Specified contract:** Name every saturation model by its equation, never by a vendor adjective. Owned test intention(s): `SB-SAT-T01`, `SB-SAT-T02`, `SB-SAT-T30`.
-- **Current implementation:** standalone modules use equation-family labels, but the solver, Results QC and dialog do not share one canonical model registry; the solver's Simandoux label and equation are not the same variant.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T01`, `SB-SAT-T02`, `SB-SAT-T30` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** no exact universal identity or cross-engine naming test exists.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one canonical saturation-model registry spanning engine dispatch, UI labels, run identity and export is absent.
-- **Next action:** define stable equation IDs, map every current engine to them, and refuse ambiguous external names before changing arithmetic.
+- **Specified contract:** every saturation model **MUST** be identified by a stable identifier naming its EQUATION, never a vendor's adjective, and no selector may offer a bare `Modified` / `Simandoux` / `Modified Simandoux` (`12_saturation.md:867-890`). Every internal function, doc comment and enum variant **MUST** use the same identifier as the user-facing name.
+- **Why it is P0:** *Modified* means Geolog's `Vsh.Sw` shale term in one product and IP's/Techlog's `(1-Vcl)` divisor in another. Selecting by adjective costs **7.3 saturation units and +19 % HCPV**.
+- **Current implementation - the as-built was STALE and this was verified in code, not assumed.** The row said `multimin2.rs:115,164` mislabel the Schlumberger form as Bardon-Pied. They do not: `:115` reads *Simandoux / Bardon-Pied form without a `(1-Vsh)` divisor* and the Schlumberger variant is described with the divisor, which is correct. `sw_sim`'s `OPT_SIM` already offers `simandoux_bardon_pied` and `simandoux_modified_slb`, each label leading with its own id and the vendor adjective only trailing it in parentheses. `canonical_option_value` (`modules.rs:2078`) accepts legacy vendor tokens at the input boundary so saved chains keep running, and returns only equation ids. The row was a **PROVE**.
+- **Qualifying acceptance tests:** `every_saturation_model_is_named_by_its_equation_and_no_selector_offers_a_bare_vendor_adjective` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** the `sw_sim` arithmetic tests exercise both branches; none of them could fail on a NAME, which is why the naming contract had no proof.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** no parameter value is involved. The fourteen canonical ids are quoted from the chapter, not invented.
+- **Four-armed pin.** (A) both Simandoux forms are offered under equation ids and every label LEADS with its own id, so an adjective can only trail it. (B) legacy tokens still resolve and resolve the RIGHT way round - `MODIFIED` is **Geolog's** name for Bardon-Pied, not the Schlumberger form - and an already-canonical id passes through unchanged so re-running a new chain is stable. (C) universal: NO shipped option on ANY module offers a bare vendor adjective as its stored value, so a future module cannot reintroduce the ambiguity. (D) the solver engine agrees with the UI - every `sw_model_catalog` entry is an equation id whose label leads with it. Two engines, one vocabulary.
+- **Verified by mutation:** swapping arm B's mapping so Geolog's `MODIFIED` selects the Schlumberger form fails the test. That swap is exactly the 7.3-saturation-unit error, and it computes and plots either way.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a saved chain storing `MODIFIED` still runs and now reports `simandoux_bardon_pied`.
 
-### SB-SAT-002
+## SB-SAT-002
 
 - **Specified contract:** Ship effective and total Archie as separate named methods. Owned test intention(s): `SB-SAT-T03`, `SB-SAT-T04`.
 - **Current implementation:** the standalone Archie path computes total saturation and then applies a generic effective back-out; the solver helper is total-porosity Archie only. Separate effective and total methods do not exist.
