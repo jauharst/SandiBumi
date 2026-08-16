@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `195 / 222`
+- Handled: `196 / 222`
 - Done: `134`
-- Blocked: `61`
-- Remaining unhandled: `27`
+- Blocked: `62`
+- Remaining unhandled: `26`
 
 ---
 
@@ -161,6 +161,7 @@ requirement appears exactly once.
 | `SB-SAT-026` | Narrow `lrlc.rs` + `multimin.rs` + `satheight.rs` | As-built said *no method-flag curve exists*; one does - `SW_METHOD`, on 3 of 7 saturation modules. The gap is **coverage**: `sw_rtc`, `sw_imts`, `multimin` and `sw_height` lack it, and all four are in prohibited files. The naming clause (no bare `SW`/`SXO`) is already true and only needs its enforcement test, which needs no authorization. | Authorize the three files so the remaining four modules emit `SW_METHOD`. Then pin both clauses universally, so a future saturation module cannot ship without a method flag. |
 | `SB-SAT-027` | Same `lrlc.rs` / `multimin2.rs` authorization | Behaviour is `PRESENT-OK` - the guards are transcribed - but *every* polynomial-form model must run through **one** solver, and the standalone and LRLC iterative paths are separate. `multimin2.rs:391` `sw_cond_root` is a second solver that is **not cross-asserted** against the first. The existing quadratic test compares the module to a closed form, not engine to engine. | Authorize, route every equation through the shared solver, and pin the guard suite plus `n = 2` closed-form equality **engine against engine**. |
 | `SB-SAT-028` | Narrow `lrlc.rs` authorization | **P0, verified in code.** `sw_imts` iterates 100 times then writes the last iterate **unconditionally** - no convergence flag. A partial iterate is a plausible number in range, indistinguishable from a converged answer on the log, so no existing test could catch it. `gascorr` in this same repo already does it correctly and says why in a comment. **SandiBumi's own method has the defect its vendor-derived module avoids.** | Authorize `lrlc.rs`. Then leave a non-converged sample MISSING, and pin both sides - converging keeps its value, exhausted budget returns NaN. |
+| `SB-SAT-034` | Narrow `multimin2.rs` - one field | **P0**, and nearly closed. The as-built's four claimed defaults are **all stale** - every `a`/`m`/`n`/`m*`/`n*` in `modules.rs` and `lrlc.rs` now uses `param_open`, and the `1.9` still visible is a test fixture. The **only** survivor is the solver's `archie_a = 1.0` (`multimin2.rs:549`), which serves Indonesia and Simandoux where `a` is a free parameter. *A shipped exponent is the highest-consequence silent default in petrophysics.* | Authorize one field: make `archie_a` required, as `FluidProps.rw` already is. Then pin that no exponent on any engine carries a default. |
 
 ## Product-owner decision packet
 

@@ -455,20 +455,20 @@
 - **Blocker or decision:** the correct literal is integrated but has no owned regression proof.
 - **Next action:** add the source-cited floor test and a factor-ten negative control.
 
-### SB-SAT-034
+### SB-SAT-034 - a, m, n, m*, n* ship with no default
 
-- **Specified contract:** `a`, `m`, `n`, `m*`, `n*` ship with no default. Owned test intention(s): `SB-SAT-T31`, `SB-SAT-T49`.
-- **Current implementation:** a, m, n, m-star and n-star all ship concrete defaults across the engines.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T31`, `SB-SAT-T49` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** hand-computed equation tests pass with explicit values; no missing-parameter refusal test exists.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
+- **Specified contract:** `a`, `m`, `n` and the Waxman-Smits/dual-water `m*`, `n*` **MUST** ship as `NoDefault` - a first-class state distinct from any numeric value. A run requesting a saturation model without them **MUST** fail with a message naming the missing parameter (`12_saturation.md:1470-1487`).
+- **Why P0:** IP's own manual states **no default for a/m/n at all** - the 1.0/2.0/2.0 commonly quoted are Basic Log Analysis values only. A cementation exponent is a rock property measured on core, and Jauhar's own delivered studies use SCAL-derived values per field. The chapter's phrase: **a shipped exponent is the highest-consequence silent default in petrophysics.**
+- **Current implementation - the as-built is stale for every module, verified in code.** It reports `modules.rs:1991-1993` shipping `A 1.0 / M 2.0 / N 2.0`, `lrlc.rs:94-95` shipping `M 2.0 / N 2.0` and `lrlc.rs:203-204` shipping `MSTAR 1.9 / NSTAR 1.9`. None holds. Every one of those declarations now uses `param_open` - the defaultless family - at `modules.rs:4409-4411`, `:4855-4857`, `:4980-4982`, `:5109-5111` and `lrlc.rs:102-103`, `:229-245`. The `1.9` still visible at `lrlc.rs:1283` is a **test fixture**, not a shipped default.
+- **What DOES remain:** the solver defaults `archie_a = 1.0` (`multimin2.rs:549-551`, wired by `#[serde(default = "default_archie_a")]`). Its doc note says the dual-water models use `a = 1`, which is a physical constant for those forms - but the same field serves Indonesia and Simandoux in the solver, where `a` is a free parameter, so the default is live for models the chapter forbids it on.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Manual evidence:** saturation 0/31.
+- **Source/parameter boundary:** no value was adopted. The four numbers this row must never ship - `1.0`, `2.0`, `1.9` and the solver's `archie_a` 1.0 - are recorded as forbidden, not as candidates.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`, and narrowly. The module half is **fully compliant** and its enforcement test needs no authorization; the single surviving default is in `multimin2.rs`, a prohibited file. Held atomic rather than half-landed, for the same reason as SB-SAT-025 and SB-SAT-026: one MUST covering every engine, and a half-delivery reads as progress without meeting it. **Seventh row on the same narrow authorization.**
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** uncited defaults remain active calculation inputs.
-- **Next action:** make all five parameters absent by default, resolve only cited/user values, and test each missing refusal separately.
+- **Next action:** Jauhar authorizes the narrow `multimin2.rs` edit to make `archie_a` required rather than defaulted - the `FluidProps` `rw` field already demonstrates the pattern, refusing to deserialize without it. Then pin universally: no `a`, `m`, `n`, `m*` or `n*` on any saturation engine carries a numeric default, each declares its absence, and a run without one fails naming the parameter.
 
-### SB-SAT-035
+## SB-SAT-035
 
 - **Specified contract:** `Rsh` and `φt_sh` ship with no default, and the current values are withdrawn. Owned test intention(s): `SB-SAT-T31`, `SB-SAT-T50`.
 - **Current implementation:** Rsh and shale porosity ship concrete withdrawn defaults and Results QC consumes them automatically.
