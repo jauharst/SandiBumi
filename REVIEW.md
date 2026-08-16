@@ -14121,3 +14121,25 @@ from the Model tab to sit beside the output set: where it lands and what it is c
 - [ ] **Check the Model tab** no longer has Output curve, and does not look gappy without it.
 - [ ] **Confirm the reading order** matches the list above on a narrow pane and on a wide one (the
       Input tab goes two-column past ~1060px).
+
+## Porosity: the high-shale cut-off is now yours to move
+
+The `VSH >= 0.95` step that killed effective porosity was a literal buried in the code - the chapter's own
+phrase for it was a discontinuity *"at a value the analyst cannot move"*. It is now a normal parameter,
+**High-shale kill threshold**, on both Density Porosity and Density-Neutron Porosity. It still defaults to
+0.95, which is the Geolog value and is cited as such. Sonic porosity has no such branch and deliberately
+did not gain one.
+
+- [ ] **Open Density Porosity and find the new field.** It should read 0.95 and sit near Maximum allowed
+      PHIE. Hover it - the tooltip should name Geolog as the source.
+- [ ] **Run a shaly well at 0.95, then again at 0.99.** Intervals between those two VSH values should stop
+      reading as pure shale and carry a real PHIE on the second run. That is the whole point of the change.
+- [ ] **Do the same on Density-Neutron Porosity.** Both methods had the number hard-coded; both had to be
+      freed, so check the second one really moved too.
+- [ ] **Check Sonic Porosity did NOT gain the field.** It has no high-shale branch, and showing a control
+      that does nothing would be worse than not showing it.
+- [ ] **Leave the value alone on one run and look at the run record.** It should say the parameter used its
+      manifest default. That is deliberate - a default you were never told about is the thing we are trying
+      to stop - but tell me if it is too noisy in a batch.
+- [ ] **Sanity-check your existing wells.** At 0.95 nothing should have changed. If a well moved, that is a
+      bug and I want to know.

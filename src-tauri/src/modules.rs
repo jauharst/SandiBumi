@@ -3084,6 +3084,16 @@ fn phi_den_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
+            param_sourced(
+                "VSH_SHALE",
+                "High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)",
+                "v/v",
+                0.95,
+                0.0,
+                1.0,
+                crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
+                "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIE_DEN", "PHIE from density (unlimited)", "v/v"),
@@ -3139,7 +3149,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
-        if v >= 0.95 {
+        if v >= ctx.p("VSH_SHALE", i) {
             phie_den[i] = 0.0;
             phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_den[i] = phit_sh as f32;
@@ -3218,6 +3228,16 @@ fn phi_dn_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
+            param_sourced(
+                "VSH_SHALE",
+                "High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)",
+                "v/v",
+                0.95,
+                0.0,
+                1.0,
+                crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
+                "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3262,7 +3282,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
-        if v >= 0.95 {
+        if v >= ctx.p("VSH_SHALE", i) {
             phie_dn[i] = 0.0;
             phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_dn[i] = phit_sh as f32;
@@ -6004,6 +6024,7 @@ mod tests {
             ("RHO_W", 1.00),
             ("NPHI_SH", 0.40),
             ("PHIE_MAX", 0.30),
+            ("VSH_SHALE", 0.95),
             ("DT_FL", 189.0),
             ("DT_MA", 70.0),
             ("DT_SH", 60.0),
@@ -7923,7 +7944,7 @@ mod tests {
     fn phi_den_shale_branch_limits_and_missing() {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
         ];
         let phit_sh = 0.15 / 1.65; // (RHO_DSH-RHO_SH)/(RHO_DSH-RHO_W) = (2.65-2.5)/(2.65-1.0)
 
@@ -7958,6 +7979,125 @@ mod tests {
         assert!(out["PHIE"][0].is_nan() && out["PHIT_DEN"][0].is_nan());
     }
 
+    /// SB-POR-043. `11_porosity.md:1044-1046` states exactly one MUST — the high-shale kill
+    /// threshold is a CITED PARAMETER, not a literal — and §5:1229 mandates both the parameter and
+    /// its value: *"a parameter in SandiBumi, defaulting to 0.95 with this source"*, tier T1,
+    /// Geolog `phi_*.lls`. The step it produces is a discontinuity in PHIE "at a value the analyst
+    /// cannot move", so the whole point of the row is that the analyst CAN now move it.
+    ///
+    /// Pinned from both sides deliberately. Arm A alone would pass an implementation that declares
+    /// the argument and then goes on reading the literal — the arg would be inert, the dialog would
+    /// show a number that changes nothing, and the discontinuity would still be unmovable. Arm C is
+    /// what makes the parameter load-bearing.
+    #[test]
+    fn the_high_shale_kill_threshold_is_a_cited_parameter_the_analyst_can_move_and_never_a_literal() {
+        let modules = module_catalog();
+        let arg = |module: &str, argument: &str| -> Option<ArgSpec> {
+            modules
+                .iter()
+                .find(|spec| spec.name == module)
+                .unwrap_or_else(|| panic!("module '{module}' is not in the shipping catalog"))
+                .args
+                .iter()
+                .find(|a| a.name == argument)
+                .cloned()
+        };
+
+        // A — the threshold is a governed argument on both branch-carrying methods, defaulting to
+        // the cited 0.95 and pointing at the competing-value topic.
+        for module in ["phi_den", "phi_dn"] {
+            let a = arg(module, "VSH_SHALE")
+                .unwrap_or_else(|| panic!("{module} still hides the high-shale threshold"));
+            assert_eq!(a.default, "0.95", "{module}.VSH_SHALE default");
+            assert_eq!(
+                a.sources_topic,
+                crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
+                "{module}.VSH_SHALE must disclose the three-way vendor disagreement"
+            );
+            assert!(
+                a.default_source.contains("Geolog"),
+                "{module}.VSH_SHALE default_source must name its source, got {:?}",
+                a.default_source
+            );
+        }
+
+        // B — `phi_son` has no high-shale branch at all (§3.5 / :682) and must not grow one just
+        // because the parameter now exists.
+        assert!(
+            arg("phi_son", "VSH_SHALE").is_none(),
+            "phi_son has no high-shale branch; adding the parameter would imply one"
+        );
+
+        // C — F21 (:488-494) is a genuine three-way disagreement, and all three positions ship.
+        let claims = crate::param_sources::sources_for(
+            crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
+        );
+        assert_eq!(claims.len(), 3, "F21 records Geolog, IP and Techlog");
+        for (product, tier) in [("Geolog", "T1"), ("IP", "T2"), ("Techlog", "T3")] {
+            let c = claims
+                .iter()
+                .find(|c| c.product == product)
+                .unwrap_or_else(|| panic!("F21's {product} position is not disclosed"));
+            assert_eq!(c.tier, tier, "{product} tier");
+        }
+        assert_eq!(
+            claims.iter().find(|c| c.product == "Geolog").unwrap().value,
+            "0.95"
+        );
+        assert!(
+            claims.iter().any(|c| c.product == "IP" && c.value == "ABSENT"),
+            "IP publishes NO numeric default for Vcl Limit — disclosing one would invent it"
+        );
+
+        // D — the literal is really gone: the same sample is killed at the default and computes a
+        // real porosity once the analyst moves the threshold above it.
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("NPHI_SH", 0.35),
+        ];
+        let phit_sh = 0.15 / 1.65; // (RHO_DSH-RHO_SH)/(RHO_DSH-RHO_W)
+        // `ctx_with` is a bare harness and does NOT materialise manifest defaults, so both arms
+        // state the threshold explicitly. The 0.95 default itself is pinned by arm A, and the run
+        // path applies it at `workflow.rs:280` / `:700` (user or zone value, else `arg.default`).
+        let at_default: Vec<(&str, f64)> = params
+            .iter()
+            .copied()
+            .chain([("VSH_SHALE", 0.95)])
+            .collect();
+        let moved: Vec<(&str, f64)> = params
+            .iter()
+            .copied()
+            .chain([("VSH_SHALE", 0.99)])
+            .collect();
+
+        // phi_den: RHOB 2.4 at VSH 0.96. Killed at 0.95; at 0.99 the unlimited curve carries
+        // 0.245/1.645 − 0.96·0.145/1.645 = 0.0643161.
+        let logs = [("RHOB", vec![2.4f32]), ("VSH", vec![0.96f32])];
+        let killed = phi_den(&ctx_with(1, &logs, &at_default, &[]));
+        assert_eq!(killed["PHIE_DEN"][0], 0.0, "default 0.95 still kills VSH 0.96");
+        let alive = phi_den(&ctx_with(1, &logs, &moved, &[]));
+        assert!(
+            (alive["PHIE_DEN"][0] as f64 - 0.0643161).abs() < 1e-5,
+            "threshold moved to 0.99 -> the sample is a rock again, got {}",
+            alive["PHIE_DEN"][0]
+        );
+
+        // phi_dn: the same move must reach the second branch site, not just the first.
+        let logs = [
+            ("RHOB", vec![2.4f32]),
+            ("NPHI", vec![0.30f32]),
+            ("VSH", vec![0.96f32]),
+        ];
+        let killed = phi_dn(&ctx_with(1, &logs, &at_default, &[]));
+        assert_eq!(killed["PHIE_DN"][0], 0.0, "default 0.95 still kills VSH 0.96");
+        assert!((killed["PHIT_DN"][0] as f64 - phit_sh).abs() < 1e-6, "shale sentinel");
+        let alive = phi_dn(&ctx_with(1, &logs, &moved, &[]));
+        assert!(
+            (alive["PHIT_DN"][0] as f64 - phit_sh).abs() > 1e-6,
+            "phi_dn still on the shale branch at VSH_SHALE 0.99 — its literal survived"
+        );
+    }
+
     /// A dense stringer must not hand a NEGATIVE porosity to anything downstream — and must still
     /// be visible as one to anybody asking whether the matrix density is right.
     ///
@@ -7976,7 +8116,7 @@ mod tests {
     fn a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin() {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
         ];
         // RHOB 2.75 on a 2.645 matrix, clean: pe = (2.645−2.75)/1.645 ≈ −0.0638.
         let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.75]), ("VSH", vec![0.0])], &params, &[]));
@@ -7987,7 +8127,7 @@ mod tests {
         // Same rock through the density-neutron route, which is the commoner one.
         let dn_params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
         ];
         let dn = phi_dn(&ctx_with(
             1,
@@ -8007,7 +8147,7 @@ mod tests {
     fn phi_dn_crossplot_shale_reduction_and_branches() {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
         ];
         let phit_sh = 0.15 / 1.65;
 

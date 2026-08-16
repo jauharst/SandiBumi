@@ -277,7 +277,6 @@
 "SB-POR-014","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
 "SB-POR-017","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
 "SB-POR-028","CHARACTERIZATION","src-tauri/src/modules.rs","phi_dn_crossplot_shale_reduction_and_branches"
-"SB-POR-043","CHARACTERIZATION","src-tauri/src/modules.rs","phi_den_shale_branch_limits_and_missing"
 "SB-POR-045","CHARACTERIZATION","src-tauri/src/modules.rs","a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin"
 "SB-RPH-042","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/coreimage.rs","a_picked_grey_a_crop_and_a_way_back"
 "SB-RPH-043","CHARACTERIZATION","src-tauri/src/coreimage.rs","the_light_warning_and_the_detail_warning_watch_different_settings"
@@ -357,3 +356,4 @@
 "SB-TOC-030","CHARACTERIZATION","src-tauri/src/unconventional.rs","elastic_bi_from_known_slowness"
 "SB-TOC-031","CHARACTERIZATION","src-tauri/src/unconventional.rs","elastic_requires_valid_shear"
 "SB-TOC-032","CHARACTERIZATION","src-tauri/src/unconventional.rs","wanggale_moves_dolomite_to_brittle"
+"SB-POR-043","CORRECTNESS","src-tauri/src/modules.rs","the_high_shale_kill_threshold_is_a_cited_parameter_the_analyst_can_move_and_never_a_literal"

@@ -636,16 +636,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 ## SB-POR-043 - High-shale threshold is a governed parameter
 
-- **Specified contract:** the high-shale branch threshold is cited, visible, configurable and recorded, with branch state observable.
-- **Current implementation:** density and D-N use a hard-coded `VSH >= 0.95` branch. It is not an argument, has no source topic/run field, and raises no POR branch flag.
-- **Qualifying acceptance tests:** none for the specified parameter/provenance contract. Test class `CHARACTERIZATION`: `phi_den_shale_branch_limits_and_missing` and the density/D-N branch checks pin current threshold behavior.
-- **Supporting tests:** those characterizations passed exactly once and prove only today's literal branch.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** the current literal is not promoted as its own citation; any shipped threshold must follow the chapter source.
-- **History/reachability:** the hard-coded branch is integrated; no governed argument or flag was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on parameter-source custody and the common POR flag.
-- **Next action:** expose the cited threshold, record it, and test below/at/above samples plus branch provenance.
+- **Specified contract:** `11_porosity.md:1044-1046` states exactly one MUST - the high-shale kill threshold **MUST** be a cited parameter, not a literal. It carries **no flag clause**; this file's earlier *with branch state observable* reading over-scoped the row into SB-POR-003 territory, the same drift found in SB-POR-026 and SB-POR-028.
+- **Current implementation:** `VSH_SHALE` is a governed parameter on `phi_den` and `phi_dn`, declared via `param_sourced` against topic `HIGH_SHALE_BRANCH_THRESHOLD`, and both live branch sites read `ctx.p("VSH_SHALE", i)`. `phi_son` is deliberately excluded - it has no high-shale branch (§3.5 / `:682`) and declaring the argument would imply one.
+- **Qualifying acceptance tests:** `the_high_shale_kill_threshold_is_a_cited_parameter_the_analyst_can_move_and_never_a_literal` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** `phi_den_shale_branch_limits_and_missing` and `phi_dn_crossplot_shale_reduction_and_branches` keep every assertion they had; their fixtures now state the threshold explicitly, because the bare `ctx_with` harness does not materialise manifest defaults. The run path does, at `workflow.rs:280` / `:700`.
+- **Manual evidence:** none yet - Jauhar owns the field check. Not claimed as automated evidence.
+- **Source/parameter boundary:** §5:1229 mandates the parameter **and** its default verbatim - *"a parameter in SandiBumi, defaulting to 0.95 with this source"*, tier **T1**, Geolog `phi_*.lls`. F21 (`:488-494`) supplies the three-way disagreement: Geolog `0.95` **T1**; IP a user parameter *Vcl Limit* with **no numeric default**, recorded as `ABSENT` because publishing a number IP does not publish would invent one, **T2**; Techlog *LimitPhi* defaulting to *Do Not Constrain Porosity*, i.e. **OFF**, **T3**.
+- **Both-sides pin:** arm A alone would pass an implementation that declares the argument and keeps reading the literal - the dialog would show a number that changes nothing and the discontinuity would still be unmovable. Arm D moves the threshold to 0.99 and requires the same VSH 0.96 sample to become rock again in **both** modules. Verified by mutation: reverting only `phi_dn`'s site to the literal fails by name with *phi_dn still on the shale branch at VSH_SHALE 0.99 - its literal survived*.
+- **Behavioural note:** because the parameter is *sourced*, a run that leaves it at 0.95 now reports the framework's existing `Defaulted` degradation - *"parameter 'VSH_SHALE' used its sourced module-manifest default"*. That rule is pre-existing and uniform, and `workflow.rs`'s own fixture comment already records it for the other sourced porosity parameters. No assertion was weakened to accommodate it; the affected fixtures declare the parameter, exactly as they already declare `RHO_MA` and `PHIE_MAX`.
+- **History/reachability:** the literal is gone from both sites; `grep` confirms two `ctx.p("VSH_SHALE", i)` branches and no surviving `v >= 0.95`.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that the step is movable and that leaving it at 0.95 reports the honest disclosure rather than a silent default.
 
 ## SB-POR-044 - Optional smooth roll-off with no defaults
 

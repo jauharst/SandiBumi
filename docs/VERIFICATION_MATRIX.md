@@ -27,8 +27,8 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `core-depth-registration` | Core-depth registration | Not exercised | 0 / 39 | — | 6 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
-| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 29 | — | 6 |
-| `porosity` | Porosity interpretation | Not exercised | 0 / 58 | — | 17 |
+| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 35 | — | 7 |
+| `porosity` | Porosity interpretation | Not exercised | 0 / 64 | — | 18 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 108 | 2026-08-13 | 28 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |

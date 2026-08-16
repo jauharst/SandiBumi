@@ -83,6 +83,7 @@ pub const FLUID_DENSITY: &str = "fluid_density";
 pub const FORMATION_WATER_DENSITY: &str = "formation_water_density";
 pub const MAX_EFFECTIVE_POROSITY: &str = "max_effective_porosity";
 pub const POROSITY_LIMIT_MODE: &str = "porosity_limit_mode";
+pub const HIGH_SHALE_BRANCH_THRESHOLD: &str = "high_shale_branch_threshold";
 pub const MATRIX_TRANSIT_TIME: &str = "matrix_transit_time";
 pub const FLUID_TRANSIT_TIME: &str = "fluid_transit_time";
 pub const SHALE_TRANSIT_TIME: &str = "shale_transit_time";
@@ -517,6 +518,33 @@ const MAX_EFFECTIVE_POROSITY_SOURCES: &[ParamSource] = &[
     ),
 ];
 
+/// SB-POR-043 / F21 (`11_porosity.md:488-494`). Three products, three different behaviours and
+/// no shared convention: a hard literal, a defaultless user parameter, and off. The tiers differ
+/// too, which is the point of disclosing them - only the Geolog position is executable source.
+const HIGH_SHALE_BRANCH_THRESHOLD_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "0.95",
+        "hard-coded VSH >= 0.95 in all six phi_* modules => PHIE = 0, PHIT = PHIT_SH, MTH_PHI = SHALE",
+        "Geolog V14 phi_*.lls; docs/PRD_v2/11_porosity.md F21 and section 5 line 1229",
+        "T1"
+    ),
+    claim!(
+        "IP",
+        "ABSENT",
+        "a user parameter Vcl Limit => Phie = 0.0001, all Sw = 1.0, PHIFLAG 9; IP publishes NO numeric default",
+        "IP2018 A_porosity_sw.md Vcl Limit; docs/PRD_v2/11_porosity.md F21",
+        "T2"
+    ),
+    claim!(
+        "Techlog",
+        "OFF",
+        "LimitPhi defaults to Do Not Constrain Porosity, so no high-shale branch runs at all",
+        "Techlog 2018 LimitPhi default; docs/PRD_v2/11_porosity.md F21",
+        "T3"
+    ),
+];
+
 const POROSITY_LIMIT_MODE_SOURCES: &[ParamSource] = &[
     claim!(
         "Geolog",
@@ -673,6 +701,7 @@ pub fn sources_for(topic: &str) -> &'static [ParamSource] {
         FORMATION_WATER_DENSITY => FORMATION_WATER_DENSITY_SOURCES,
         MAX_EFFECTIVE_POROSITY => MAX_EFFECTIVE_POROSITY_SOURCES,
         POROSITY_LIMIT_MODE => POROSITY_LIMIT_MODE_SOURCES,
+        HIGH_SHALE_BRANCH_THRESHOLD => HIGH_SHALE_BRANCH_THRESHOLD_SOURCES,
         MATRIX_TRANSIT_TIME => MATRIX_TRANSIT_TIME_SOURCES,
         FLUID_TRANSIT_TIME => FLUID_TRANSIT_TIME_SOURCES,
         SHALE_TRANSIT_TIME => SHALE_TRANSIT_TIME_SOURCES,
@@ -703,6 +732,7 @@ pub fn parameter_label(topic: &str) -> Option<&'static str> {
         FORMATION_WATER_DENSITY => "formation-water density",
         MAX_EFFECTIVE_POROSITY => "maximum effective porosity",
         POROSITY_LIMIT_MODE => "porosity limiting mode",
+        HIGH_SHALE_BRANCH_THRESHOLD => "high-shale branch threshold",
         MATRIX_TRANSIT_TIME => "matrix transit time",
         FLUID_TRANSIT_TIME => "fluid transit time",
         SHALE_TRANSIT_TIME => "shale transit time",
@@ -735,6 +765,7 @@ pub fn topics() -> &'static [&'static str] {
         FORMATION_WATER_DENSITY,
         MAX_EFFECTIVE_POROSITY,
         POROSITY_LIMIT_MODE,
+        HIGH_SHALE_BRANCH_THRESHOLD,
         MATRIX_TRANSIT_TIME,
         FLUID_TRANSIT_TIME,
         SHALE_TRANSIT_TIME,
@@ -854,6 +885,7 @@ mod tests {
             FORMATION_WATER_DENSITY,
             MAX_EFFECTIVE_POROSITY,
             POROSITY_LIMIT_MODE,
+            HIGH_SHALE_BRANCH_THRESHOLD,
             MATRIX_TRANSIT_TIME,
             FLUID_TRANSIT_TIME,
             SHALE_TRANSIT_TIME,
