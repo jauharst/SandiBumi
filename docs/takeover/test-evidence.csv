@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-POR-011","CORRECTNESS","src-tauri/src/modules.rs","every_chained_module_reads_one_shared_matrix_density_and_still_discloses_the_position_it_did_not_take"
 "SB-POR-023","CORRECTNESS","src-tauri/src/modules.rs","the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method"
 "SB-POR-009","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample"
 "SB-POR-008","CORRECTNESS","src-tauri/src/modules.rs","one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities"

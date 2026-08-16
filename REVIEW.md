@@ -67,23 +67,27 @@
 - [ ] **Field and harsh critique:** this is the 1.64–1.79 p.u. gap. Closing it is now engineering
       rather than intake. No box is pre-checked.
 
-## 2026-08-16 — G2 SB-POR-011: two matrix densities in one chained workflow
+## 2026-08-16 — G2 SB-POR-011: one matrix density, and you picked 2.65
 
-- [ ] **Decision required — this one needs your number.** `phi_den`, `phi_dn` and `condflag` ship
-      `RHO_MA` **2.645**. `gascorr` ships **2.65**, and `gascorr`'s own documentation tells you to
-      chain it with the porosity modules. Chapter §5.1 cites *both* and adjudicates neither: 2.65 is
-      the three-way endpoint agreement across IP MINDEF, Techlog `QM_MineralTable` and SandiMin
-      (T3); 2.645 is `Geolog phi_den.info RHO_MA DEFAULT = 2645 k/m3`, explicitly recorded as a
-      shipped module default that *differs from the endpoint libraries* (T1). One shared parameter
-      carries one default, so pick: **2.65**, **2.645**, or **ABSENT** so a run refuses until you
-      enter a value. I will not choose between two cited values for you.
-- [ ] **What already improved:** SB-POR-007 put all four consumers on the same `MATRIX_DENSITY`
-      source topic, so both positions and their tiers are now visible beside the field wherever you
-      enter it. That is disclosure, not unification — the defaults still disagree.
-- [ ] **Field and harsh critique:** the practical size of this is 0.005 g/cc on the matrix, which
-      moves density porosity by roughly 0.3 p.u. — small, but it moves in one direction and it
-      differs between two modules the docs tell you to run together. Worth deciding once rather than
-      per study. Gate unchanged at `1043 passed / 0 failed / 37 ignored`. No box is pre-checked.
+- [ ] **Automated correctness:** `phi_den`, `phi_dn` and `condflag` shipped `RHO_MA` **2.645** while
+      `gascorr` — which their own documentation tells you to chain with them — shipped **2.65**. All
+      four now read one shared value: **2.65**, your choice of 2026-08-16, the §5.1 three-way
+      agreement across IP MINDEF, Techlog `QM_MineralTable` and SandiMin. The test pins one default,
+      one range and one evidence set across all four, and refuses any porosity module that
+      reintroduces a second value. Two mutations produced RED at two different assertions.
+- [ ] **What was deliberately kept:** Geolog's 2.645 is **not deleted**. It stays as a visible cited
+      position beside the field, so you can still see it exists and who ships it. Choosing a value
+      must not erase the one it was chosen over — the test enforces that from the other side.
+- [ ] **Manual — please check this one, it moves numbers.** Density porosity shifts by roughly
+      **0.3 p.u.** on defaults. Open Density Porosity and confirm `RHO_MA` now reads 2.65 with both
+      positions listed beneath it; do the same in Density-Neutron, Conditioning Flags and Gas
+      Correction. Then re-run one well you know well and confirm the shift is the ~0.3 p.u. you
+      expect and nothing larger.
+- [ ] **Field and harsh critique:** any saved workflow that relied on the old 2.645 default will now
+      give a slightly different answer. That is the point of the row — but it means past results and
+      new results are not directly comparable unless the parameter was set explicitly. Worth a
+      deliberate re-run rather than an assumption. `condflag` and `gascorr` also gained the source
+      panel they never had. No box is pre-checked.
 
 ## 2026-08-16 — G2 SB-POR-010: porosity audit trail blocked on the re-run manifest
 

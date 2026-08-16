@@ -3053,9 +3053,9 @@ fn phi_den_spec() -> ModuleSpec {
             .into(),
         args: vec![
             param_sourced(
-                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                "RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2,
                 crate::param_sources::MATRIX_DENSITY,
-                "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                "IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog phi_den.info's shipped 2645 k/m3.",
             ),
             with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
             with_sources(
@@ -3186,9 +3186,9 @@ fn phi_dn_spec() -> ModuleSpec {
         args: vec![
             opt("OPT_XPLOT", "Crossplot combination method", "AVERAGE", &["AVERAGE", "GAS_RMS"]),
             param_sourced(
-                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                "RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2,
                 crate::param_sources::MATRIX_DENSITY,
-                "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                "IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog phi_den.info's shipped 2645 k/m3.",
             ),
             with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
             with_sources(
@@ -3950,9 +3950,12 @@ fn condflag_spec() -> ModuleSpec {
               available here."
             .into(),
         args: vec![
-            param(
-                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
-                "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            with_sources(
+                param(
+                    "RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2,
+                    "IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog phi_den.info's shipped 2645 k/m3.",
+                ),
+                crate::param_sources::MATRIX_DENSITY,
             ),
             param(
                 "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
@@ -4371,9 +4374,12 @@ fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
 
 fn gascorr_spec() -> ModuleSpec {
     let mut args = vec![
-        param(
-            "RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2,
-            "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+        with_sources(
+            param(
+                "RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2,
+                "IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16.",
+            ),
+            crate::param_sources::MATRIX_DENSITY,
         ),
         param(
             "RHO_FL", "Liquid (filtrate) density the correction restores", "g/cc", 1.0, 0.8, 1.3,
@@ -5787,6 +5793,96 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-011. Matrix density must be a single shared
+    /// parameter across modules that a documented workflow chains. `gascorr`'s own doc instructs
+    /// chaining it with the porosity modules, so the four consumers below are one chain.
+    ///
+    /// The value is Jauhar's, recorded 2026-08-16: **2.65**, the section 5.1 three-way agreement
+    /// across IP MINDEF, Techlog `QM_MineralTable` and SandiMin (tier T3). Section 5.1 also cites
+    /// Geolog `phi_den.info`'s shipped 2645 k/m3 (tier T1) and adjudicates neither, so one shared
+    /// parameter could not exist until an owner chose. Geolog's position stays visible as evidence
+    /// through the shared source topic rather than being deleted.
+    #[test]
+    fn every_chained_module_reads_one_shared_matrix_density_and_still_discloses_the_position_it_did_not_take(
+    ) {
+        const CHAINED: &[&str] = &["phi_den", "phi_dn", "condflag", "gascorr"];
+        const OWNER_SELECTED: f64 = 2.65;
+        const GEOLOG_SHIPPED: f64 = 2.645;
+
+        let modules = module_catalog();
+        let mut seen = Vec::new();
+        for name in CHAINED {
+            let spec = modules
+                .iter()
+                .find(|spec| spec.name == *name)
+                .unwrap_or_else(|| panic!("{name} is not in the shipping catalog"));
+            let arg = spec
+                .args
+                .iter()
+                .find(|arg| arg.name == "RHO_MA")
+                .unwrap_or_else(|| panic!("{name} declares no RHO_MA"));
+            let value: f64 = arg
+                .default
+                .parse()
+                .unwrap_or_else(|_| panic!("{name}.RHO_MA default '{}' is not numeric", arg.default));
+            seen.push((*name, value, arg.min, arg.max, arg.sources_topic.clone()));
+        }
+
+        // A — one shared parameter means one default. Before this row, `gascorr` shipped 2.65 while
+        // the three porosity modules shipped 2.645, and the docs told the user to chain them.
+        for (name, value, ..) in &seen {
+            assert_eq!(
+                *value, OWNER_SELECTED,
+                "'{name}' must read the one shared matrix density; a chained module on its own value is the defect"
+            );
+            assert_ne!(
+                *value, GEOLOG_SHIPPED,
+                "'{name}' still carries the unchosen Geolog default"
+            );
+        }
+        let ranges: Vec<_> = seen.iter().map(|(_, _, lo, hi, _)| (*lo, *hi)).collect();
+        assert!(
+            ranges.windows(2).all(|w| w[0] == w[1]),
+            "a shared parameter cannot have different validity ranges per module: {ranges:?}"
+        );
+
+        // B — the other side, and the one that keeps this honest. Choosing a value must not erase
+        // the cited position it was chosen over: every consumer still discloses both, so the
+        // interpreter can see that 2.645 exists and who ships it.
+        for (name, _, _, _, topic) in &seen {
+            let positions = crate::param_sources::sources_for(topic);
+            assert!(
+                !positions.is_empty(),
+                "'{name}' must still disclose the competing matrix-density positions"
+            );
+            assert!(
+                positions
+                    .iter()
+                    .any(|p| p.value.parse::<f64>() == Ok(GEOLOG_SHIPPED)),
+                "the unchosen Geolog 2.645 must remain visible as evidence beside the field, not be deleted"
+            );
+            assert!(
+                positions
+                    .iter()
+                    .any(|p| p.value.parse::<f64>() == Ok(OWNER_SELECTED)),
+                "the selected value must itself be a cited position, not an interpreter invention"
+            );
+        }
+
+        // C — no other porosity module may quietly reintroduce a second matrix density.
+        for spec in modules.iter().filter(|spec| spec.category == "Porosity") {
+            if let Some(arg) = spec.args.iter().find(|arg| arg.name == "RHO_MA") {
+                if let Ok(value) = arg.default.parse::<f64>() {
+                    assert_eq!(
+                        value, OWNER_SELECTED,
+                        "porosity module '{}' introduces a second matrix density",
+                        spec.name
+                    );
+                }
+            }
+        }
+    }
 
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-023 and F14. The requirement is explicit
     /// that the arithmetic average and the RMS **MUST NOT** be presented as crossplot porosity
