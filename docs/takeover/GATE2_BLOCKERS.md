@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `177 / 222`
+- Handled: `178 / 222`
 - Done: `127`
-- Blocked: `50`
-- Remaining unhandled: `45`
+- Blocked: `51`
+- Remaining unhandled: `44`
 
 ---
 
@@ -141,6 +141,7 @@ requirement appears exactly once.
 | `SB-POR-028` | Dependency on SB-POR-003 / DEC-039 | Narrowed this session. The clamp VALUES are cited after all - `11_porosity.md` SS5:1231-1232, tier T1, Geolog `phi_dn.lls` / `phi_dnbk.lls` - and SB-POR-007 closed, so the parameter half is source-ready. The second clause still fails: hitting a clamp must raise SB-POR-003's flag, and that stream does not exist pending DEC-039. | Settle DEC-039, then promote the four literals mode-aware (chart vs Bateman-Konen clamps differ, linking this to SB-POR-021) and prove just-inside versus just-outside on both axes. |
 | `SB-POR-044` | PhiMax identity in the smooth form | The DEC-018 reading was stale - the row is in the approved 242. The real block: `11_porosity.md:1048-1050` says the smooth form's **three** parameters ship with no defaults, but its `PhiMax` collides with SandiBumi's `PHIE_MAX`, which already carries a Geolog-sourced 0.3. Reusing it hands the mode a default the chapter forbids; adding a second invents a parameter and leaves two ceilings that can disagree. | Owner rules which `PhiMax` is meant. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode with `param_open` parameters that refuse unsupplied, and pin step, smooth and refusal. |
 | `SB-POR-045` | Adjudication between two of your own records | The chapter (`:1052-1056`) says the floor value **MUST** ship with no default and be a documented user decision, because IP's manual gives **0.001 and 0.0001 for the same quantity in three places** and the chapter calls it unresolvable. A later product record picked 0.001; SandiBumi hard-codes 0.001. Does the later record supersede the chapter? Only you can say. It bites in tight and zero-porosity intervals - exactly where a pay cutoff sits. | Adjudicate and record it. Then move the choice into source-labelled run configuration and prove two values give distinct LIMITED outputs while the UNLIMITED twin is untouched. |
+| `SB-POR-047` | Dependency on SB-POR-003 / DEC-039 | The chapter (`:1061-1063`) requires porosity to accept `BADHOLE` as a declared input **and** record its effect **through SB-POR-003**. The declaration is ordinary wiring; the recording names a stream that does not exist pending DEC-039. The row's whole point is *not* depending on the analyst remembering a generic Mask, so the existing mask route does not satisfy it. | Settle DEC-039, then declare and consume `BADHOLE` per `gascorr`'s idiom and prove clean, flagged and flag-absent - absent recording that nobody looked, not a zero. |
 
 ## Product-owner decision packet
 

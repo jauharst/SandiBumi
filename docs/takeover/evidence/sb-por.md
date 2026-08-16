@@ -689,18 +689,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** requires a typed warning/provenance surface shared by output catalog, dialog and export.
 - **Next action:** attach the specified warning and non-authoritative classification, then prove it survives save/reload and remains ineligible as an authoritative POR curve.
 
-## SB-POR-047 - BADHOLE is declared, consumed and recorded
+## SB-POR-047 - Bad-hole flag is a declared porosity input
 
-- **Specified contract:** every applicable POR method declares the bad-hole flag input, consumes it according to policy and records the branch; T41 checks detector-through-POR custody.
-- **Current implementation:** `badhole` emits `BADHOLE`, but POR manifests neither declare nor consume it. Generic masking can use an arbitrary flag but does not record a POR bad-hole decision.
-- **Qualifying acceptance tests:** none; T41 is not executable end to end. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho` and the generic empty-flag refusal passed exactly once.
-- **Manual evidence:** conditioning 0/27; porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** detector thresholds are not changed or reinterpreted.
-- **History/reachability:** BADHOLE generation is integrated; no POR consumption path was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires a declared POR flag policy and provenance schema.
-- **Next action:** wire the typed flag into each applicable method and prove clean, flagged and missing-flag behavior with recorded reasons.
+- **Specified contract:** porosity methods **MUST** accept the existing `BADHOLE` flag as a declared input and **MUST** record its effect **through SB-POR-003**, rather than depending on the analyst remembering to set a generic Mask (`11_porosity.md:1061-1063`, §3.7).
+- **Current implementation:** `badhole` emits `BADHOLE`, but no POR manifest declares or consumes it. Generic masking can point at an arbitrary flag but records no POR bad-hole decision.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Supporting tests:** the `badhole` module's own tests pin its detection; none establishes that a porosity run declares or records it.
+- **Manual evidence:** porosity 0/64.
+- **Source/parameter boundary:** no threshold is adopted and none was invented - the flag already exists and this row is custody, not detection.
+- **History/reachability:** the gap is live; any porosity run today ignores bad hole unless the analyst remembers the Mask.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY` on SB-POR-003 / DEC-039, and the chapter says so in its own words - *record its effect through SB-POR-003*. The declaration half is ordinary wiring and could be built today on `gascorr`'s optional-flag idiom (`modules.rs:4404`); the recording half names a stream that does not exist. Building only the first and reporting `DONE` would be evidence inflation - one MUST, two clauses, the same shape as SB-POR-028.
+- **Next action:** settle DEC-039; then declare `BADHOLE` as a typed optional input on each applicable method, consume it rather than leaving it to a generic Mask, record its effect on that stream, and prove clean, flagged and flag-absent - absent recording that nobody looked, never a silent zero.
 
 ## SB-POR-048 - Conditioning flags are declared, consumed and recorded
 
