@@ -49,6 +49,12 @@ export function argumentHint(arg: ModuleSpec["args"][number]): string {
     : arg.default_source === "ABSENT"
       ? "Default: ABSENT — no numeric value ships; supply an interpreter value when the selected method requires it."
       : `Default source: ${arg.default_source}.`;
+  const unitCustody = arg.kind === "param" && arg.default_unit_custody
+    ? `Artefact value: ${arg.default_unit_custody.artefact_value} ${arg.default_unit_custody.artefact_unit}. `
+      + `Canonical value: ${arg.default_unit_custody.canonical_value} ${arg.default_unit_custody.canonical_unit}. `
+      + `Named conversion: ${arg.default_unit_custody.conversion.identity}. `
+      + `Derivation: ${arg.default_unit_custody.conversion.derivation}.`
+    : "";
   const conditions = (arg.validity_conditions ?? []).map((condition) => {
     const branch = "when" in condition && condition.when
       ? ` When ${condition.when.argument} = ${condition.when.equals}.`
@@ -61,7 +67,7 @@ export function argumentHint(arg: ModuleSpec["args"][number]): string {
   const guidance = (arg.guidance ?? []).map(
     (item) => `Guidance: ${item.text} Source: ${item.source}.`,
   );
-  return [arg.desc, aliasPreference, ...guidance, defaultSource, ...conditions].filter(Boolean).join(" ");
+  return [arg.desc, aliasPreference, ...guidance, unitCustody, defaultSource, ...conditions].filter(Boolean).join(" ");
 }
 
 export interface ValidityConditionView {

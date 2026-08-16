@@ -29,8 +29,8 @@ pub struct UnitRule {
     pub families: &'static [&'static str],
     pub from_unit: &'static str,
     pub to_unit: &'static str,
-    pub factor: f32,
-    pub offset: f32,
+    pub factor: f64,
+    pub offset: f64,
     pub derivation: &'static str,
     /// False where the arithmetic is known but the incoming label is not trustworthy
     /// enough to apply without a per-file user confirmation.
@@ -198,6 +198,7 @@ pub enum UnitRegistryError {
         to_unit: String,
         to_kind: QuantityKind,
     },
+    MissingNumericConversion { from_unit: String, to_unit: String },
 }
 
 impl std::fmt::Display for UnitRegistryError {
@@ -219,6 +220,10 @@ impl std::fmt::Display for UnitRegistryError {
             } => write!(
                 formatter,
                 "quantity-kind mismatch: {from_unit} is {from_kind:?}, but {to_unit} is {to_kind:?}"
+            ),
+            Self::MissingNumericConversion { from_unit, to_unit } => write!(
+                formatter,
+                "no reviewed automatic numeric conversion from {from_unit} to {to_unit}"
             ),
         }
     }
@@ -392,6 +397,69 @@ pub fn family_for(mnemonic: &str) -> Option<&'static FamilySpec> {
         resolved = Some(family);
     }
     resolved
+}
+
+/// One named scalar conversion derived from the generated unit registry. Parameter manifests use
+/// this f64 path because their cited values and acceptance tolerances are f64; imported curve
+/// arrays remain f32 and deliberately cast only at their storage boundary.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
+pub struct NamedUnitConversion {
+    pub identity: String,
+    pub from_unit: String,
+    pub to_unit: String,
+    pub factor: f64,
+    pub offset: f64,
+    pub derivation: String,
+}
+
+impl NamedUnitConversion {
+    pub fn apply(&self, source_value: f64) -> f64 {
+        (source_value + self.offset) * self.factor
+    }
+}
+
+/// Resolve a same-quantity scalar conversion by its generated registry identity. Same-unit values
+/// still receive an explicit identity record so a canonical input cannot be confused with a
+/// silently converted artefact value later.
+pub fn named_unit_conversion(
+    from_unit: &str,
+    to_unit: &str,
+) -> Result<NamedUnitConversion, UnitRegistryError> {
+    let bridge = validate_unit_bridge(from_unit, to_unit)?;
+    let identity = format!(
+        "{}:{}->{}",
+        UNIT_REGISTRY_VERSION, bridge.from_unit, bridge.to_unit
+    );
+    if bridge.from_unit == bridge.to_unit {
+        return Ok(NamedUnitConversion {
+            identity,
+            from_unit: bridge.from_unit.into(),
+            to_unit: bridge.to_unit.into(),
+            factor: 1.0,
+            offset: 0.0,
+            derivation: format!("identity: {} = {}", bridge.from_unit, bridge.to_unit),
+        });
+    }
+    let rule = UNIT_RULES
+        .iter()
+        .find(|rule| {
+            rule.automatic
+                && validate_unit_bridge(rule.from_unit, rule.to_unit).is_ok_and(|candidate| {
+                    candidate.from_unit == bridge.from_unit && candidate.to_unit == bridge.to_unit
+                })
+        })
+        .ok_or_else(|| UnitRegistryError::MissingNumericConversion {
+            from_unit: bridge.from_unit.into(),
+            to_unit: bridge.to_unit.into(),
+        })?;
+    Ok(NamedUnitConversion {
+        identity,
+        from_unit: bridge.from_unit.into(),
+        to_unit: bridge.to_unit.into(),
+        factor: rule.factor,
+        offset: rule.offset,
+        derivation: rule.derivation.into(),
+    })
 }
 
 fn alias_pattern_matches(pattern: &str, value: &str) -> bool {
@@ -585,7 +653,7 @@ pub fn convert_to_canonical(
             && validate_unit_bridge(rule.from_unit, rule.to_unit)
                 .is_ok_and(|rule_bridge| rule_bridge.quantity_kind == typed_bridge.quantity_kind)
     })?;
-    let (factor, offset) = (rule.factor, rule.offset);
+    let (factor, offset) = (rule.factor as f32, rule.offset as f32);
     for v in values.iter_mut() {
         if v.is_finite() {
             *v = (*v + offset) * factor;
@@ -761,8 +829,8 @@ mod tests {
             families: &'static [&'static str],
             from_unit: &'static str,
             to_unit: &'static str,
-            factor: f32,
-            offset: f32,
+            factor: f64,
+            offset: f64,
             derivation_terms: &'static [&'static str],
             automatic: bool,
         }
@@ -880,7 +948,7 @@ mod tests {
                 });
             assert_eq!(rule.families, expected_rule.families);
             assert!(
-                (rule.factor - expected_rule.factor).abs() <= f32::EPSILON,
+                (rule.factor - expected_rule.factor).abs() <= f64::EPSILON,
                 "wrong factor for {} -> {}: expected {}, got {}",
                 rule.from_unit,
                 rule.to_unit,

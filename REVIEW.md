@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-054: named CLY unit conversion and run custody
+
+- [ ] **Automated correctness:** the exact SB-CLY-T21 and physical-unit T42 limbs were witnessed
+      RED first on `gapi`/`API` spelling drift and missing UI custody, then GREEN. The Rust proof
+      inventories all 20 live CLY parameters/inputs/outputs, rejects a density-to-fraction bridge,
+      proves `2645 k/m3 -> 2.645 g/cc` within `1e-9`, compares the live f64 N-D rearrangement with
+      the independent bilinear form over 10,000 deterministic g/cc and k/m3 cases at `1e-12`, and
+      proves all three defaults plus explicit and ABSENT run-custody sides. The frontend renders
+      artefact/canonical values, units, identity and derivation without changing the value. Wrong
+      factor, one-default-only persistence and wrong algebra sign each produced RED before
+      restoration. TypeScript and cargo check are green; the fresh full gate is
+      `1037 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Visual:** open VSH from Density-Neutron and inspect `RHO_FL`, `NPHI_FL` and `FLAG_TOL`.
+      Confirm each cited default shows its artefact value/unit, canonical value/unit, named
+      conversion and derivation legibly beside the input. Confirm the disputed `RHO_MA`, `RHO_SH`,
+      `NPHI_MA`, `NPHI_SH`, `GR_MA` and `GR_SH` fields remain empty rather than acquiring a value
+      through this unit work.
+- [ ] **Manual:** run `vsh_dn` once with the three cited defaults and explicitly supply the required
+      endpoints. Inspect History/run parameters: confirm exactly the three defaults and every
+      explicit numeric endpoint have separate `@unit_custody` objects, the source spelling
+      `k/m3` remains visible for `RHO_FL`, and an unsupplied/ABSENT parameter has no invented
+      custody record. Change only an explicit canonical value and confirm its identity remains
+      `g/cc->g/cc` while its source note changes to the interpreter's run note.
+- [ ] **Field and harsh critique:** unit labels are not semantic Vsh/Vcl typing, and a perfectly
+      recorded conversion cannot prove a protected vendor artefact was transcribed honestly. The
+      T42 `2645 k/m3` witness validates the central density identity but deliberately does not
+      restore the disputed matrix-density default removed by SB-CLY-050. SB-CLY-045's Vsh/Vcl
+      bridge and SB-CLY-031's categorical provenance curve remain absent; this increment does not
+      disguise either gap. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-051: checkable source locators survive into run provenance
 
 - [ ] **Automated correctness:** the exact SB-CLY-T33 source-string limb was witnessed RED on

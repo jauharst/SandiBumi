@@ -689,8 +689,8 @@ pub fn bind_overlay_axis(
         source_unit: bridge.from_unit.into(),
         display_unit: bridge.to_unit.into(),
         orientation: contract.orientation.clone(),
-        factor: rule.factor,
-        offset: rule.offset,
+        factor: rule.factor as f32,
+        offset: rule.offset as f32,
         transform: format!(
             "(source + {}) * {}; {}",
             rule.offset, rule.factor, rule.derivation

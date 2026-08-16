@@ -719,14 +719,14 @@
 
 - **Chapter evidence:** P0; historical status `PARTIAL`; T21/T42; sections 4.5, 5, 6 and 8.
 - **Atomic obligations:** every quantity has a manifest unit; named tested conversions; persist source unit and conversion; no unexplained scale factor.
-- **Current source:** current CLY args/outputs carry unit strings and the shared curve layer has named density/neutron/sonic conversions. However CLY parameter values do not carry source units or conversion records; a current density default appears only in house units after an unstated scale conversion.
-- **Qualifying acceptance tests:** none; complete CLY quantity inventory and source-unit run record are missing. Test class `MISSING`.
-- **Supporting tests:** `unit_conversions_only_when_needed` passed exactly once, including the independently known density-unit conversion, but no CLY parameter invokes or records it.
+- **Current source:** all 20 live CLY numeric parameters, inputs and outputs now use recognized registry tokens, including canonical `gAPI`. `ParameterUnitCustody` preserves the cited artefact value/unit, generated-registry identity, f64 affine terms/derivation and canonical value; `param_from_artefact` derives each shipping default through that record rather than repeating a canonical magic literal. `effective_module_parameters` persists a separate `@unit_custody` object for every defaulted or explicit CLY numeric value and none for ABSENT values. The dialog renders both values, both units, identity and derivation. `vsh_dn_rearrangement` is now the same f64 arithmetic path used by the module and the equivalence proof.
+- **Qualifying acceptance tests:** `every_clay_quantity_is_unit_typed_and_named_conversions_preserve_bilinear_results_and_run_custody` and `a_converted_clay_default_shows_its_artefact_unit_named_conversion_and_canonical_value` were witnessed RED and pass. They inventory all 20 quantities; reject a density/fraction bridge; prove `2645 k/m3 -> 2.645 g/cc` within `1e-9`; compare the live N-D rearrangement against the independently specified bilinear form across 10,000 deterministic samples in both unit systems at `1e-12`; prove all three defaults, an explicit canonical input and an ABSENT input from both sides; and render the complete conversion without mutating the value. Wrong-factor, one-default-only persistence and wrong-sign mutations each produced RED before restoration. Expected units, values, equations and tolerances come from sections 4.5, 5 and 6 T21/T42. Test class `CORRECTNESS`.
+- **Supporting tests:** `every_conversion_factor_carries_an_independent_arithmetic_derivation`, `unit_conversions_only_when_needed` and the startup typed-registry test remain supporting generic controls. They do not replace the exact CLY inventory, production arithmetic and run-custody proof.
 - **Manual evidence:** shale-volume 0/17; generic-curve-store 0/18; workflow 0/23.
-- **Git evidence:** manifest units and generic conversion identities are integrated; CLY source-unit custody is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no scale constant is open; the known unit identity may be used only through the named conversion with source-unit evidence.
-- **Next action:** type every CLY parameter/output, retain artefact units on entry, and persist the named conversion alongside the canonical value.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries registry precision, CLY unit normalization, manifest/run custody, UI disclosure, acceptance tests and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-054. The known density conversion is registry-derived and source-bearing. The T42 `2645 k/m3` witness does not restore disputed `RHO_MA` as a default; SB-CLY-050 keeps it ABSENT. The separate Vsh/Vcl semantic bridge remains absent under SB-CLY-045.
+- **Next action:** retain typed units, registry-derived arithmetic and `@unit_custody`; complete Visual/Manual/Field review separately, then continue SB-CLY-055 without claiming a provenance curve that does not exist.
 
 ## SB-CLY-055 - LAS null discipline on every domain curve
 

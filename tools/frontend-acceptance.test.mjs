@@ -2190,6 +2190,47 @@ test("source_bearing_picking_guidance_is_rendered_beside_the_parameter_without_b
   assert.match(withoutGuidance, /Default: ABSENT/, "absence stays explicit even with no advice");
 });
 
+test("a_converted_clay_default_shows_its_artefact_unit_named_conversion_and_canonical_value", async () => {
+  // CORRECTNESS — SB-CLY-054 / SB-CLY-T42. Chapter 10 section 6 gives the exact
+  // 1000 k/m3 -> 1 g/cc instance through the cited Geolog RHO_FL default and requires the
+  // artefact unit plus named conversion to remain visible; the fixture is not current UI text.
+  const { argumentHint } = await load("/src/ui/moduleDialog.ts");
+  const arg = {
+    name: "RHO_FL",
+    desc: "Fluid density",
+    unit: "g/cc",
+    kind: "param",
+    default: "1",
+    default_source: "Geolog vsh_dn.info RHO_FL DEFAULT 1000 k/m3",
+    default_unit_custody: {
+      artefact_value: 1000,
+      artefact_unit: "k/m3",
+      canonical_value: 1,
+      canonical_unit: "g/cc",
+      conversion: {
+        identity: "curve-units-v2:kg/m3->g/cc",
+        from_unit: "kg/m3",
+        to_unit: "g/cc",
+        factor: 0.001,
+        offset: 0,
+        derivation: "1 g/cc = 1000 kg/m3; kg/m3 -> g/cc divides by 1000",
+      },
+    },
+    choices: [],
+    min: 0.5,
+    max: 1.5,
+    required: true,
+  };
+
+  const hint = argumentHint(arg);
+  assert.match(hint, /Artefact value: 1000 k\/m3/);
+  assert.match(hint, /Canonical value: 1 g\/cc/);
+  assert.match(hint, /Named conversion: curve-units-v2:kg\/m3->g\/cc/);
+  assert.match(hint, /1 g\/cc = 1000 kg\/m3/);
+  assert.match(hint, /Default source: Geolog vsh_dn\.info RHO_FL DEFAULT 1000 k\/m3/);
+  assert.equal(arg.default, "1", "rendering custody must never rewrite the effective value");
+});
+
 test("a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_loading_stays_visible", async () => {
   // CORRECTNESS — SB-CLY-050 requires every held position and source at the point of entry,
   // with no selected value. These unequal source rows are copied from SB-CLY-T18 in

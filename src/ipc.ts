@@ -1024,6 +1024,22 @@ export interface ArgSpec {
   guidance?: Array<{ text: string; source: string }>;
   /** Named source for a numeric default, or exact `ABSENT` when no numeric default ships. */
   default_source: string;
+  /** Source-unit value and the named generated-registry conversion that produced a numeric
+   * default. Absent parameters have no custody object; explicit values receive run custody. */
+  default_unit_custody?: {
+    artefact_value: number;
+    artefact_unit: string;
+    canonical_value: number;
+    canonical_unit: string;
+    conversion: {
+      identity: string;
+      from_unit: string;
+      to_unit: string;
+      factor: number;
+      offset: number;
+      derivation: string;
+    };
+  } | null;
   /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything
    *  else as the value.** */
   choices: string[];

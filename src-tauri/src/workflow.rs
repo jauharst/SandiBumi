@@ -658,13 +658,17 @@ pub(crate) fn effective_module_parameters(
     let mut legacy = serde_json::Map::new();
 
     for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
-        let (value, source, resolution, value_manifest_version) =
+        let (value, source, resolution, value_manifest_version, unit_custody) =
             if let Some(value) = explicit_params.get(&arg.name) {
+                let custody = (spec.category == "VSH")
+                    .then(|| modules::ParameterUnitCustody::new(*value, &arg.unit, &arg.unit))
+                    .transpose()?;
                 (
                     serde_json::json!(value),
                     source_note.to_string(),
                     Some(equations::ParameterResolution::Explicit),
                     None,
+                    custody,
                 )
             } else if let Ok(value) = arg.default.parse::<f64>() {
                 (
@@ -672,6 +676,7 @@ pub(crate) fn effective_module_parameters(
                     arg.default_source.clone(),
                     Some(equations::ParameterResolution::Defaulted),
                     Some(manifest_version.clone()),
+                    arg.default_unit_custody.clone(),
                 )
             } else {
                 (
@@ -679,18 +684,31 @@ pub(crate) fn effective_module_parameters(
                     modules::ABSENT_DEFAULT_SOURCE.to_string(),
                     None,
                     None,
+                    None,
                 )
             };
         legacy.insert(arg.name.clone(), value.clone());
         let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
+        let custody_manifest_version = value_manifest_version.clone();
         parameters.push(equations::AncestryParameter {
             name: format!("{name_prefix}{}", arg.name),
             value,
-            source,
+            source: source.clone(),
             resolution,
             manifest_version: value_manifest_version,
             decision,
         });
+        if let Some(custody) = unit_custody {
+            parameters.push(equations::AncestryParameter {
+                name: format!("{name_prefix}{}@unit_custody", arg.name),
+                value: serde_json::to_value(custody)
+                    .map_err(|error| format!("cannot serialize {} unit custody: {error}", arg.name))?,
+                source,
+                resolution,
+                manifest_version: custody_manifest_version,
+                decision: None,
+            });
+        }
     }
 
     for arg in spec

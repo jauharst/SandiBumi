@@ -229,6 +229,35 @@ pub enum ShaleClayQuantity {
     ClayVolume,
 }
 
+/// Source-unit custody for one numeric parameter value. The artefact spelling is preserved while
+/// the conversion itself uses the normalized, generated registry identity.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ParameterUnitCustody {
+    pub artefact_value: f64,
+    pub artefact_unit: String,
+    pub canonical_value: f64,
+    pub canonical_unit: String,
+    pub conversion: crate::curves::NamedUnitConversion,
+}
+
+impl ParameterUnitCustody {
+    pub(crate) fn new(
+        artefact_value: f64,
+        artefact_unit: &str,
+        canonical_unit: &str,
+    ) -> Result<Self, String> {
+        let conversion = crate::curves::named_unit_conversion(artefact_unit, canonical_unit)
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            artefact_value,
+            artefact_unit: artefact_unit.into(),
+            canonical_value: conversion.apply(artefact_value),
+            canonical_unit: canonical_unit.into(),
+            conversion,
+        })
+    }
+}
+
 impl ShaleClayQuantity {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
@@ -270,6 +299,10 @@ pub struct ArgSpec {
     /// parameter deliberately ships without one. Empty is invalid for every registered Param.
     #[serde(default)]
     pub default_source: String,
+    /// Numeric-default custody in the source artefact's unit. `None` for arguments with no numeric
+    /// default; explicit run values receive their own canonical-unit identity record at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_unit_custody: Option<ParameterUnitCustody>,
     /// Valid choices for Option args. **These are stored in `params_json` on every saved run, so
     /// they must never be renamed** — that is what `choice_labels` is for.
     pub choices: Vec<String>,
@@ -401,6 +434,7 @@ pub(crate) fn param(
         preferred_aliases: vec![],
         guidance: vec![],
         default_source: default_source.into(),
+        default_unit_custody: None,
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -411,6 +445,35 @@ pub(crate) fn param(
         computed_only: false,
         well_scope: false,
         sources_topic: String::new(),
+    }
+}
+
+/// A cited numeric default transcribed in the artefact's own unit and converted through the
+/// generated registry. The effective canonical default is derived here; callers never repeat it
+/// as a second magic literal that could drift away from its custody record.
+fn param_from_artefact(
+    name: &str,
+    desc: &str,
+    canonical_unit: &str,
+    artefact_value: f64,
+    artefact_unit: &str,
+    min: f64,
+    max: f64,
+    default_source: &str,
+) -> ArgSpec {
+    let custody = ParameterUnitCustody::new(artefact_value, artefact_unit, canonical_unit)
+        .unwrap_or_else(|error| panic!("invalid unit custody for {name}: {error}"));
+    ArgSpec {
+        default_unit_custody: Some(custody.clone()),
+        ..param(
+            name,
+            desc,
+            canonical_unit,
+            custody.canonical_value,
+            min,
+            max,
+            default_source,
+        )
     }
 }
 
@@ -427,6 +490,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         preferred_aliases: vec![],
         guidance: vec![],
         default_source: String::new(),
+        default_unit_custody: None,
         choices: choices.iter().map(|s| s.to_string()).collect(),
         choice_labels: Vec::new(),
         validity_conditions: vec![],
@@ -558,6 +622,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         preferred_aliases: vec![],
         guidance: vec![],
         default_source: String::new(),
+        default_unit_custody: None,
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -584,6 +649,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         preferred_aliases: vec![],
         guidance: vec![],
         default_source: String::new(),
+        default_unit_custody: None,
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -694,6 +760,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         preferred_aliases: vec![],
         guidance: vec![],
         default_source: String::new(),
+        default_unit_custody: None,
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -1430,6 +1497,7 @@ fn module_catalog() -> &'static [ModuleSpec] {
         ];
         apply_shale_clay_quantity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
+        validate_clay_unit_contract(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
         modules
@@ -1526,6 +1594,74 @@ pub(crate) fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), S
             if failures.len() == 1 { "" } else { "s" },
             failures.join("; ")
         ))
+    }
+}
+
+/// Fail the immutable registry build if a CLY quantity has no typed unit, or if a numeric default
+/// can diverge from its source-unit conversion. This is intentionally scoped to CLY: SB-CLY-054
+/// does not authorize retrofitting unrelated domain manifests in the same increment.
+fn validate_clay_unit_contract(modules: &[ModuleSpec]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for module in modules.iter().filter(|module| module.category == "VSH") {
+        for argument in module.args.iter().filter(|argument| {
+            matches!(argument.kind, ArgKind::Param | ArgKind::LogIn | ArgKind::LogOut)
+        }) {
+            let identity = format!("{}.{}", module.name, argument.name);
+            if crate::curves::resolve_unit_token(&argument.unit).is_none() {
+                failures.push(format!(
+                    "{identity} has unregistered unit token '{}'",
+                    argument.unit
+                ));
+                continue;
+            }
+            if argument.kind != ArgKind::Param {
+                continue;
+            }
+            let Ok(default) = argument.default.parse::<f64>() else {
+                if argument.default_unit_custody.is_some() {
+                    failures.push(format!(
+                        "{identity} has no numeric default but still carries default unit custody"
+                    ));
+                }
+                continue;
+            };
+            let Some(custody) = argument.default_unit_custody.as_ref() else {
+                failures.push(format!(
+                    "{identity} ships numeric default {default} {} without artefact-unit custody",
+                    argument.unit
+                ));
+                continue;
+            };
+            let expected = match ParameterUnitCustody::new(
+                custody.artefact_value,
+                &custody.artefact_unit,
+                &argument.unit,
+            ) {
+                Ok(expected) => expected,
+                Err(error) => {
+                    failures.push(format!("{identity} has invalid unit custody: {error}"));
+                    continue;
+                }
+            };
+            if custody != &expected {
+                failures.push(format!(
+                    "{identity} unit custody does not match the named registry conversion"
+                ));
+            }
+            if custody.canonical_unit != argument.unit
+                || (custody.canonical_value - default).abs() > 1e-12
+            {
+                failures.push(format!(
+                    "{identity} default {default} {} differs from converted custody value {} {}",
+                    argument.unit, custody.canonical_value, custody.canonical_unit
+                ));
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("invalid CLY unit contract: {}", failures.join("; ")))
     }
 }
 
@@ -2225,7 +2361,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                 )],
             ),
             with_guidance(with_sources(with_validity(
-                param_open("GR_MA", "Gamma ray matrix (clean)", "gapi", 0.0, 200.0, true),
+                param_open("GR_MA", "Gamma ray matrix (clean)", "gAPI", 0.0, 200.0, true),
                 vec![
                     validity(
                         "vsh_gr.gr_ma_range",
@@ -2247,7 +2383,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                 ],
             ), crate::param_sources::GR_CLEAN_ENDPOINT), &[GR_ENDPOINT_PICKING_GUIDANCE]),
             with_guidance(with_sources(with_validity(
-                param_open("GR_SH", "Gamma ray shale", "gapi", 0.0, 1000.0, true),
+                param_open("GR_SH", "Gamma ray shale", "gAPI", 0.0, 1000.0, true),
                 vec![validity(
                     "vsh_gr.gr_sh_range",
                     "The shale gamma-ray endpoint must remain inside the source manifest range.",
@@ -2263,7 +2399,7 @@ fn vsh_gr_spec() -> ModuleSpec {
             log_in_preferred(
                 "GR",
                 "Gamma ray log",
-                "gapi",
+                "gAPI",
                 &["GR_COR", "GR_EC", "GR"],
                 true,
             ),
@@ -2349,8 +2485,8 @@ fn vsh_dn_spec() -> ModuleSpec {
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param(
-                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                param_from_artefact(
+                    "RHO_FL", "Fluid density", "g/cc", 1000.0, "k/m3", 0.5, 1.5,
                     "Geolog vsh_dn.info RHO_FL DEFAULT 1000 k/m3; Techlog petrophysics-vsh-from-neutrondensity.html RHO fluid 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5",
                 ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
@@ -2370,28 +2506,28 @@ fn vsh_dn_spec() -> ModuleSpec {
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
-                param(
-                    "NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2,
+                param_from_artefact(
+                    "NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, "v/v", 0.5, 1.2,
                     "Geolog vsh_dn.info NPHI_FL 1 v/v; Techlog petrophysics-vsh-from-neutrondensity.html NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
                 ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
             with_guidance(
                 with_sources(
-                    param_open("GR_MA", "Clean GR (clay-type cross-check)", "API", 0.0, 150.0, true),
+                    param_open("GR_MA", "Clean GR (clay-type cross-check)", "gAPI", 0.0, 150.0, true),
                     crate::param_sources::GR_CLEAN_ENDPOINT,
                 ),
                 &[GR_ENDPOINT_PICKING_GUIDANCE],
             ),
             with_guidance(
                 with_sources(
-                    param_open("GR_SH", "Shale GR (clay-type cross-check)", "API", 40.0, 400.0, true),
+                    param_open("GR_SH", "Shale GR (clay-type cross-check)", "gAPI", 40.0, 400.0, true),
                     crate::param_sources::GR_SHALE_ENDPOINT,
                 ),
                 &[GR_ENDPOINT_PICKING_GUIDANCE],
             ),
-            param(
-                "FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, 0.05, 1.0,
+            param_from_artefact(
+                "FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, "v/v", 0.05, 1.0,
                 "docs/PRD_v2/10_clay-volume.md §5.1 — SandiBumi diagnostic threshold",
             ),
             log_in_preferred(
@@ -2411,7 +2547,7 @@ fn vsh_dn_spec() -> ModuleSpec {
             log_in_preferred(
                 "GR",
                 "Gamma ray (optional clay-type cross-check)",
-                "API",
+                "gAPI",
                 &["GR_COR", "GR_EC", "GR"],
                 false,
             ),
@@ -2420,6 +2556,27 @@ fn vsh_dn_spec() -> ModuleSpec {
             log_out("VSH_DN_FLAG", "1 where N-D VSH is unreliable (off-model, or diverges from GR VSH)", "flag"),
         ],
     }
+}
+
+fn vsh_dn_rearrangement(
+    rho_b: f64,
+    nphi: f64,
+    rho_ma: f64,
+    rho_sh: f64,
+    rho_fl: f64,
+    nphi_ma: f64,
+    nphi_sh: f64,
+    nphi_fl: f64,
+) -> Option<f64> {
+    let a = (rho_ma - rho_fl) * (nphi_fl - nphi);
+    let b = (rho_b - rho_fl) * (nphi_fl - nphi_ma);
+    let c = (rho_ma - rho_fl) * (nphi_fl - nphi_sh);
+    let d = (rho_sh - rho_fl) * (nphi_fl - nphi_ma);
+    // A degenerate matrix/shale/fluid triangle (near-collinear endpoints — an in-range but
+    // physically bad parameter choice) drives (c - d) to ~0, sending the UNLIMITED VSH_DN to
+    // +/-Infinity on every sample. Preserve the existing refusal boundary as part of the f64
+    // evaluator so the tested algebra and the shipping module cannot drift apart.
+    ((c - d).abs() >= 1e-6).then(|| (a - b) / (c - d))
 }
 
 fn vsh_dn(ctx: &ModuleContext) -> ModuleOutputs {
@@ -2441,19 +2598,11 @@ fn vsh_dn(ctx: &ModuleContext) -> ModuleOutputs {
         if is_missing(r) || is_missing(np) {
             continue;
         }
-        let a = (rho_ma - rho_fl) * (nphi_fl - np);
-        let b = (r - rho_fl) * (nphi_fl - nphi_ma);
-        let c = (rho_ma - rho_fl) * (nphi_fl - nphi_sh);
-        let d = (rho_sh - rho_fl) * (nphi_fl - nphi_ma);
-        // A degenerate matrix/shale/fluid triangle (near-collinear endpoints — an in-range but
-        // physically bad parameter choice) drives (c - d) to ~0, sending the UNLIMITED VSH_DN to
-        // +/-Infinity on every sample (is_missing screens only NaN), which poisons catalog min/max
-        // and plot autoscale. Skip such samples, mirroring the GR-branch (gr_sh-gr_ma) guard below
-        // and vsh_gr's gr_ma>=gr_sh guard.
-        if (c - d).abs() < 1e-6 {
+        let Some(v) = vsh_dn_rearrangement(
+            r, np, rho_ma, rho_sh, rho_fl, nphi_ma, nphi_sh, nphi_fl,
+        ) else {
             continue;
-        }
-        let v = (a - b) / (c - d);
+        };
         vsh_dn_out[i] = v as f32;
         let v_lim = limit(v, 0.0, 1.0);
         vsh_out[i] = v_lim as f32;
@@ -8505,6 +8654,7 @@ mod tests {
             .iter()
             .filter(|parameter| {
                 parameter.resolution == Some(crate::equations::ParameterResolution::Defaulted)
+                    && !parameter.name.ends_with("@unit_custody")
             })
             .map(|parameter| (parameter.name.as_str(), parameter.source.as_str()))
             .collect::<BTreeMap<_, _>>();
@@ -8517,6 +8667,260 @@ mod tests {
             ]),
             "every shipping clay default must retain its primary source in the run record"
         );
+    }
+
+    /// CORRECTNESS — SB-CLY-054, SB-CLY-T21 and the physical-unit limb of SB-CLY-T42.
+    /// The exact CLY argument inventory and units come from `10_clay-volume.md` sections 4.5/5;
+    /// `2645 k/m3 -> 2.645 g/cc` and the `1e-9` tolerance come from T42. The two bilinear
+    /// expressions and the 10,000-case/two-unit-system oracle come independently from T21 and
+    /// dossier section 2.7, not from the implementation under test. SB-CLY-045's separate
+    /// Vsh/Vcl semantic bridge is deliberately not claimed here.
+    #[test]
+    fn every_clay_quantity_is_unit_typed_and_named_conversions_preserve_bilinear_results_and_run_custody() {
+        let clay_quantities = module_catalog()
+            .iter()
+            .filter(|module| module.category == "VSH")
+            .flat_map(|module| {
+                module.args.iter().filter_map(move |argument| {
+                    matches!(argument.kind, ArgKind::Param | ArgKind::LogIn | ArgKind::LogOut)
+                        .then(|| {
+                            (
+                                format!("{}.{}", module.name, argument.name),
+                                argument.unit.clone(),
+                            )
+                        })
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            clay_quantities,
+            BTreeMap::from([
+                ("vsh_dn.FLAG_TOL".into(), "v/v".into()),
+                ("vsh_dn.GR".into(), "gAPI".into()),
+                ("vsh_dn.GR_MA".into(), "gAPI".into()),
+                ("vsh_dn.GR_SH".into(), "gAPI".into()),
+                ("vsh_dn.NPHI".into(), "v/v".into()),
+                ("vsh_dn.NPHI_FL".into(), "v/v".into()),
+                ("vsh_dn.NPHI_MA".into(), "v/v".into()),
+                ("vsh_dn.NPHI_SH".into(), "v/v".into()),
+                ("vsh_dn.RHOB".into(), "g/cc".into()),
+                ("vsh_dn.RHO_FL".into(), "g/cc".into()),
+                ("vsh_dn.RHO_MA".into(), "g/cc".into()),
+                ("vsh_dn.RHO_SH".into(), "g/cc".into()),
+                ("vsh_dn.VSH".into(), "v/v".into()),
+                ("vsh_dn.VSH_DN".into(), "v/v".into()),
+                ("vsh_dn.VSH_DN_FLAG".into(), "flag".into()),
+                ("vsh_gr.GR".into(), "gAPI".into()),
+                ("vsh_gr.GR_MA".into(), "gAPI".into()),
+                ("vsh_gr.GR_SH".into(), "gAPI".into()),
+                ("vsh_gr.VSH".into(), "v/v".into()),
+                ("vsh_gr.VSH_GR".into(), "v/v".into()),
+            ]),
+            "every shipping CLY quantity must declare the chapter unit with no spelling drift"
+        );
+        for (identity, unit) in &clay_quantities {
+            assert!(
+                crate::curves::resolve_unit_token(unit).is_some(),
+                "{identity} uses unregistered unit token '{unit}'"
+            );
+        }
+
+        let density_rule = crate::curves::UNIT_RULES
+            .iter()
+            .find(|rule| rule.from_unit == "kg/m3" && rule.to_unit == "g/cc")
+            .expect("the cited density conversion is registered");
+        let converted_matrix_density = 2645.0_f64 * density_rule.factor as f64;
+        assert!(
+            (converted_matrix_density - 2.645).abs() <= 1e-9,
+            "T42 requires 2645 k/m3 -> 2.645 g/cc within 1e-9, got {converted_matrix_density}"
+        );
+        assert!(
+            crate::curves::validate_unit_bridge("kg/m3", "v/v")
+                .unwrap_err()
+                .to_string()
+                .contains("quantity-kind mismatch"),
+            "a density source unit must be refused for a fraction quantity"
+        );
+
+        let vsh_dn = module_catalog()
+            .iter()
+            .find(|module| module.name == "vsh_dn")
+            .expect("vsh_dn is registered");
+        let default_custody = vsh_dn
+            .args
+            .iter()
+            .filter(|argument| {
+                argument.kind == ArgKind::Param && argument.default.parse::<f64>().is_ok()
+            })
+            .map(|argument| {
+                let encoded = serde_json::to_value(argument).expect("ArgSpec serializes over IPC");
+                let custody = encoded
+                    .get("default_unit_custody")
+                    .unwrap_or_else(|| panic!("{}.{} lacks unit custody", vsh_dn.name, argument.name));
+                (argument.name.as_str(), custody.clone())
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            default_custody.keys().copied().collect::<Vec<_>>(),
+            vec!["FLAG_TOL", "NPHI_FL", "RHO_FL"],
+            "every and only cited shipping defaults carry artefact-unit custody"
+        );
+        let rho_fl_custody = &default_custody["RHO_FL"];
+        assert_eq!(rho_fl_custody["artefact_value"].as_f64(), Some(1000.0));
+        assert_eq!(rho_fl_custody["artefact_unit"], "k/m3");
+        assert_eq!(rho_fl_custody["canonical_value"].as_f64(), Some(1.0));
+        assert_eq!(rho_fl_custody["canonical_unit"], "g/cc");
+        assert_eq!(
+            rho_fl_custody["conversion"]["identity"],
+            "curve-units-v2:kg/m3->g/cc"
+        );
+        assert_eq!(
+            rho_fl_custody["conversion"]["factor"].as_f64(),
+            Some(0.001)
+        );
+        assert!(rho_fl_custody["conversion"]["derivation"]
+            .as_str()
+            .is_some_and(|text| text.contains("1000 kg/m3")));
+
+        let (recorded, _) = crate::workflow::effective_module_parameters(
+            vsh_dn,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            "explicit values sourced by this test",
+            "",
+        )
+        .expect("the unit-typed CLY manifest constructs a run record");
+        let recorded_rho_fl = recorded
+            .iter()
+            .find(|parameter| parameter.name == "RHO_FL@unit_custody")
+            .expect("RHO_FL artefact unit and conversion must survive into run custody");
+        assert_eq!(recorded_rho_fl.value, rho_fl_custody.clone());
+        assert_eq!(
+            recorded_rho_fl.source,
+            vsh_dn
+                .args
+                .iter()
+                .find(|argument| argument.name == "RHO_FL")
+                .unwrap()
+                .default_source
+        );
+        assert_eq!(
+            recorded
+                .iter()
+                .filter(|parameter| parameter.name.ends_with("@unit_custody"))
+                .map(|parameter| parameter.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "RHO_FL@unit_custody",
+                "NPHI_FL@unit_custody",
+                "FLAG_TOL@unit_custody",
+            ],
+            "every and only effective defaulted CLY parameter must carry run unit custody"
+        );
+
+        let explicit_source = "interpreter supplied canonical values for this test";
+        let (explicit_recorded, _) = crate::workflow::effective_module_parameters(
+            vsh_dn,
+            &std::collections::HashMap::from([("RHO_MA".to_string(), 2.645)]),
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            explicit_source,
+            "",
+        )
+        .expect("an explicit canonical CLY value constructs identity unit custody");
+        let explicit_custody = explicit_recorded
+            .iter()
+            .find(|parameter| parameter.name == "RHO_MA@unit_custody")
+            .expect("an explicit numeric CLY parameter must record canonical-unit custody");
+        assert_eq!(explicit_custody.value["artefact_value"].as_f64(), Some(2.645));
+        assert_eq!(explicit_custody.value["artefact_unit"], "g/cc");
+        assert_eq!(explicit_custody.value["canonical_value"].as_f64(), Some(2.645));
+        assert_eq!(explicit_custody.value["canonical_unit"], "g/cc");
+        assert_eq!(
+            explicit_custody.value["conversion"]["identity"],
+            "curve-units-v2:g/cc->g/cc"
+        );
+        assert_eq!(explicit_custody.source, explicit_source);
+        assert!(
+            explicit_recorded
+                .iter()
+                .all(|parameter| parameter.name != "RHO_SH@unit_custody"),
+            "an ABSENT parameter has no value and must not receive invented unit custody"
+        );
+
+        let mut state = 0x5A17_C1A7_054_u64;
+        let mut next_fraction = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((state >> 11) as f64) / ((1_u64 << 53) as f64)
+        };
+        let ranged = |fraction: f64, low: f64, high: f64| low + fraction * (high - low);
+        let bilinear = |rho_b: f64,
+                        nphi: f64,
+                        rho_ma: f64,
+                        rho_sh: f64,
+                        rho_fl: f64,
+                        nphi_ma: f64,
+                        nphi_sh: f64,
+                        nphi_fl: f64| {
+            ((rho_fl - rho_ma) * (nphi - nphi_ma)
+                - (nphi_fl - nphi_ma) * (rho_b - rho_ma))
+                / ((rho_fl - rho_ma) * (nphi_sh - nphi_ma)
+                    - (nphi_fl - nphi_ma) * (rho_sh - rho_ma))
+        };
+        let mut checked = 0_usize;
+        while checked < 10_000 {
+            let rho_ma = ranged(next_fraction(), 2.55, 2.85);
+            let rho_sh = ranged(next_fraction(), 2.15, 2.55);
+            let rho_fl = ranged(next_fraction(), 0.85, 1.15);
+            let nphi_ma = ranged(next_fraction(), -0.10, 0.05);
+            let nphi_sh = ranged(next_fraction(), 0.20, 0.55);
+            let nphi_fl = ranged(next_fraction(), 0.85, 1.15);
+            let rho_b = ranged(next_fraction(), 1.80, 2.95);
+            let nphi = ranged(next_fraction(), -0.15, 0.70);
+            let denominator = (rho_fl - rho_ma) * (nphi_sh - nphi_ma)
+                - (nphi_fl - nphi_ma) * (rho_sh - rho_ma);
+            if denominator.abs() < 0.02 {
+                continue;
+            }
+            let canonical = bilinear(
+                rho_b, nphi, rho_ma, rho_sh, rho_fl, nphi_ma, nphi_sh, nphi_fl,
+            );
+            let shipped = vsh_dn_rearrangement(
+                rho_b, nphi, rho_ma, rho_sh, rho_fl, nphi_ma, nphi_sh, nphi_fl,
+            )
+            .expect("the swept fixture excludes degenerate endpoint geometry");
+            assert!((canonical - shipped).abs() <= 1e-12, "g/cc case {checked}");
+
+            let source_scale = 1.0 / density_rule.factor as f64;
+            let converted = |density: f64| density * source_scale * density_rule.factor as f64;
+            let converted_canonical = bilinear(
+                converted(rho_b),
+                nphi,
+                converted(rho_ma),
+                converted(rho_sh),
+                converted(rho_fl),
+                nphi_ma,
+                nphi_sh,
+                nphi_fl,
+            );
+            let converted_shipped = vsh_dn_rearrangement(
+                converted(rho_b),
+                nphi,
+                converted(rho_ma),
+                converted(rho_sh),
+                converted(rho_fl),
+                nphi_ma,
+                nphi_sh,
+                nphi_fl,
+            )
+            .expect("unit conversion preserves non-degenerate endpoint geometry");
+            assert!(
+                (converted_canonical - converted_shipped).abs() <= 1e-12,
+                "k/m3 conversion case {checked}"
+            );
+            checked += 1;
+        }
     }
 
     /// CORRECTNESS — SB-CLY-050 / SB-CLY-T18. The empty/default disposition and the
