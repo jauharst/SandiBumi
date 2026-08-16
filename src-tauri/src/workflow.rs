@@ -2627,6 +2627,11 @@ pub struct PaySummaryRequest {
     /// argument that evaporates after the run.
     #[serde(default)]
     pub weighting: BTreeMap<String, AverageWeighting>,
+    /// SB-CUT-012. The depth frame to summate in. Defaults to MD, which is the only frame
+    /// SandiBumi can currently weight; any other is REFUSED rather than served MD numbers under
+    /// a different label.
+    #[serde(default)]
+    pub frame: SummationFrame,
     #[serde(default)]
     pub skip_version: bool,
     /// When true, compute and return the per-zone statistics WITHOUT persisting any FLAG_*
@@ -2688,6 +2693,12 @@ pub struct PaySummaryRow {
     /// partition already closed, which is every ordinary run; a non-zero value here is the record
     /// that a correction happened and how big it was.
     pub residual_absorbed: f32,
+    /// SB-CUT-012. The depth frame these weights were measured in — part of the result's identity.
+    /// An MD and a TVD summation are separate records, never one rescaled into the other.
+    pub frame: SummationFrame,
+    /// SB-CUT-012. What the per-sample weights were differenced from. Naming the frame alone does
+    /// not say WHICH depths produced the increments.
+    pub weights_source: String,
     pub ntg: f32,
     pub avg_vsh: f32,
     pub avg_phie: f32,
@@ -2727,6 +2738,47 @@ pub struct PaySummaryRow {
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
+
+/// SB-CUT-012. The depth frame a summation's per-sample weights were measured in.
+///
+/// Part of a result's IDENTITY, not a display option. The per-sample weight is `Δz` in MD and
+/// `Δz·cos θ` in TVD, so the weights differ rather than merely the totals — in a 60° hold section
+/// by a factor of two, which is why IP says TVD zonal averages *"could be considerably
+/// different"*. A net thickness quoted in a deviated field without its frame is a number a reader
+/// cannot use. Techlog offers four frames, IP two; the union is the vocabulary here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum SummationFrame {
+    /// Measured depth along hole — the log's own depth column, differenced.
+    #[default]
+    Md,
+    /// True vertical depth.
+    Tvd,
+    /// True vertical depth subsea.
+    Tvdss,
+    /// True stratigraphic thickness.
+    Tst,
+}
+
+impl SummationFrame {
+    /// The chapter's own spelling of each frame. Its `match` is exhaustive, so it is also the
+    /// compile-time guard: a fifth variant cannot be added without deciding here what it is
+    /// called, which is a stronger guarantee than a list a test could let go stale.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SummationFrame::Md => "MD",
+            SummationFrame::Tvd => "TVD",
+            SummationFrame::Tvdss => "TVDSS",
+            SummationFrame::Tst => "TST",
+        }
+    }
+}
+
+/// SB-CUT-012. What an MD summation's weights were differenced from.
+///
+/// Recorded beside the frame because naming the frame alone does not say WHICH depths produced the
+/// increments — the same reason a calibration records the curves it was fitted on.
+pub const MD_WEIGHTS_SOURCE: &str = "log depth increments (MD)";
 
 /// SB-CUT-009. How an averaged curve is weighted across a zone.
 ///
@@ -2918,6 +2970,17 @@ fn floored_phie(raw: &[f32]) -> Vec<f32> {
 /// Computes the pay summary per well per zone and writes FLAG_SAND / FLAG_RESERVOIR /
 /// FLAG_PAY curves. Wells without zones get a single whole-well "ALL" zone.
 pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Result<Vec<PaySummaryRow>, String> {
+    // SB-CUT-012: refuse a frame whose per-sample weights cannot be computed, before any work.
+    // The per-sample weight is dz in MD and dz*cos(theta) in TVD, so a TVD summation is not a
+    // rescaling of an MD one - it is a different set of weights - and serving MD numbers under a
+    // TVD label is exactly what the requirement forbids.
+    if req.frame != SummationFrame::Md {
+        return Err(format!(
+            "cannot summate in {}: the per-sample weights would be dz*cos(theta) from the well's              deviation survey, and SandiBumi computes only MD (dz) weights today. Run in MD, or              ask for a {} summation to be built as its own record.",
+            req.frame.as_str(),
+            req.frame.as_str()
+        ));
+    }
     let mut all_rows = Vec::new();
 
     for well_id in &req.well_ids {
@@ -3208,6 +3271,8 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     not_net: recon.not_net,
                     unknown: recon.unknown,
                     residual_absorbed: recon.absorbed,
+                    frame: req.frame,
+                    weights_source: MD_WEIGHTS_SOURCE.to_string(),
                     // SB-CUT-004: the same net over the footage that was actually judged. MISSING
                     // rather than 0.0 when nothing was — there is no denominator, and a printed
                     // zero would be a claim about rock nobody looked at.
@@ -4051,6 +4116,7 @@ mod tests {
                 skip_version: true,
                 stats_only: false,
                 custody: Some(test_run_custody()),
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -5160,6 +5226,7 @@ mod tests {
             stats_only: true
         ,
             custody: None,
+            frame: Default::default(),
             weighting: Default::default(),
         };
         let rows = run_pay_summary(&dbm, &req).expect("summary runs on an uninterpreted well");
@@ -5256,6 +5323,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -5370,6 +5438,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -5496,6 +5565,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -5589,6 +5659,7 @@ mod tests {
                     skip_version: false,
                     stats_only: true,
                     custody: None,
+                    frame: Default::default(),
                     weighting,
                 },
             )
@@ -5712,6 +5783,7 @@ mod tests {
                     skip_version: false,
                     stats_only: true,
                     custody: None,
+                    frame: Default::default(),
                     weighting,
                 },
             )
@@ -5878,6 +5950,7 @@ mod tests {
                 skip_version: false,
                 stats_only: true,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -5987,6 +6060,92 @@ mod tests {
         assert!(near(m.hpv, 2.4), "Monte Carlo HPV is UPPER's 2.4, got {}", m.hpv);
     }
 
+    /// SB-CUT-012 (P2). `14_cutoffs-summation-mc.md:1078-1091` — a summation result **MUST** carry
+    /// `{frame, weights_source}` with `frame` one of MD, TVD, TVDSS or TST; MD and TVD summations
+    /// **MUST** be separate records; and SandiBumi **MUST NOT** present a TVD result as a
+    /// rescaling of an MD result.
+    ///
+    /// The per-sample weight is `Δz` in MD and `Δz·cos θ` in TVD, so it is the WEIGHTS that
+    /// differ, not merely the totals. In a 60° hold section they differ by a factor of two, which
+    /// is why IP says TVD zonal averages *"could be considerably different"* — the frame is part of
+    /// a result's identity, not a display option. A net thickness quoted in a deviated field
+    /// without its frame is a number a reader cannot use.
+    ///
+    /// **The summation is MD-only and this row does not change that.** It closes the MUST the
+    /// honest way for an ABSENT row: every result declares the frame it was actually computed in,
+    /// and a request for a frame whose weights SandiBumi cannot compute is REFUSED by name rather
+    /// than served MD numbers under a TVD label — which is precisely the third clause.
+    #[test]
+    fn a_summation_declares_the_depth_frame_its_weights_came_from_and_refuses_one_it_cannot_weight()
+    {
+        // The four frames the chapter names — Techlog offers four, IP two, and the union is the
+        // vocabulary. `as_str` matches exhaustively in production, so a fifth variant cannot be
+        // added without naming it there; this pins what those names ARE.
+        assert_eq!(
+            [
+                SummationFrame::Md.as_str(),
+                SummationFrame::Tvd.as_str(),
+                SummationFrame::Tvdss.as_str(),
+                SummationFrame::Tst.as_str()
+            ],
+            ["MD", "TVD", "TVDSS", "TST"]
+        );
+        assert_eq!(SummationFrame::default(), SummationFrame::Md);
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_partition_well(&conn, "FRAME-1");
+        let dbm = Mutex::new(conn);
+        let req = |frame: SummationFrame| PaySummaryRequest {
+            input_set: None,
+            well_ids: vec![well.clone()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.6,
+            perm_min: None,
+            skip_version: false,
+            stats_only: true,
+            custody: None,
+            weighting: Default::default(),
+            frame,
+        };
+
+        // A — every emitted row declares the frame AND where its weights came from. Both, because
+        // "MD" alone does not say which depths were differenced.
+        let rows = run_pay_summary(&dbm, &req(SummationFrame::Md)).expect("an MD summation runs");
+        assert!(!rows.is_empty());
+        for r in &rows {
+            assert_eq!(r.frame, SummationFrame::Md, "{} frame", r.flag);
+            assert_eq!(
+                r.weights_source, MD_WEIGHTS_SOURCE,
+                "{} must name the numbers its weights were differenced from",
+                r.flag
+            );
+        }
+
+        // B — the other three are REFUSED, by name, with the reason. Not returned empty, and above
+        // all not returned as MD numbers wearing a different label.
+        for frame in [SummationFrame::Tvd, SummationFrame::Tvdss, SummationFrame::Tst] {
+            let err = run_pay_summary(&dbm, &req(frame))
+                .expect_err("a frame whose weights cannot be computed must refuse");
+            assert!(
+                err.contains(frame.as_str()),
+                "the refusal must name the frame that was asked for: {err}"
+            );
+            assert!(
+                err.contains("cos") || err.contains("deviation") || err.contains("survey"),
+                "the refusal must say what is missing, not merely that it declines: {err}"
+            );
+        }
+
+        // C — and the refusal is a REFUSAL, not a fallback. If a TVD request ever starts returning
+        // rows, this is the assertion that catches it before anybody quotes them.
+        assert!(
+            run_pay_summary(&dbm, &req(SummationFrame::Tvd)).is_err(),
+            "a TVD result must never be an MD result relabelled"
+        );
+    }
+
     /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the
     /// only thing that can exclude a sample is the PERM cutoff. `perm` is the permeability the
     /// well MEASURED — `None` means the well carries none at all, which is the case under test.
@@ -6055,6 +6214,7 @@ mod tests {
                     stats_only: true
                 ,
                     custody: None,
+                    frame: Default::default(),
                     weighting: Default::default(),
                 },
             )
@@ -6320,6 +6480,7 @@ mod tests {
                 stats_only: true
             ,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -6887,6 +7048,7 @@ mod tests {
         ,
             stats_only: true,
             custody: None,
+            frame: Default::default(),
             weighting: Default::default(),
         };
         let rows = run_pay_summary(&dbm, &req).unwrap();
@@ -6956,6 +7118,7 @@ mod tests {
             stats_only: false
         ,
             custody: Some(test_run_custody()),
+            frame: Default::default(),
             weighting: Default::default(),
         };
         run_pay_summary(&dbm, &req).unwrap();
@@ -6987,6 +7150,7 @@ mod tests {
             stats_only: false
         ,
             custody: Some(test_run_custody()),
+            frame: Default::default(),
             weighting: Default::default(),
         };
         let refusal =
@@ -7064,6 +7228,7 @@ mod tests {
             stats_only: true
         ,
             custody: None,
+            frame: Default::default(),
             weighting: Default::default(),
         };
         let rows_stats = run_pay_summary(&dbm, &base).unwrap();
@@ -9570,6 +9735,7 @@ mod tests {
             &db,
             &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: false, stats_only: false ,
                 custody: Some(test_run_custody()),
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )

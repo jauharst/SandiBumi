@@ -2242,6 +2242,7 @@ mod tests {
                 stats_only: true
             ,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )

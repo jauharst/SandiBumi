@@ -300,6 +300,7 @@ fn pipeline_field_full_run() {
         stats_only: false
     ,
         custody: Some(crate::workflow::test_run_custody()),
+        frame: Default::default(),
         weighting: Default::default(),
     };
     match run_pay_summary(&db, &pay_req) {
@@ -525,6 +526,7 @@ fn pipeline_field_100well_stress() {
         &db,
         &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, input_set: None, skip_version: false, stats_only: false ,
             custody: Some(crate::workflow::test_run_custody()),
+            frame: Default::default(),
             weighting: Default::default(),
         },
     );

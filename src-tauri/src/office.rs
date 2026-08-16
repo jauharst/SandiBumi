@@ -733,6 +733,7 @@ pub fn export_workbook(
                 stats_only: true
             ,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )?
@@ -1077,6 +1078,7 @@ pub fn build_report_blocks(
             stats_only: true
         ,
             custody: None,
+            frame: Default::default(),
             weighting: Default::default(),
         },
     )
@@ -1841,6 +1843,7 @@ pub fn export_deck(
             stats_only: true
         ,
             custody: None,
+            frame: Default::default(),
             weighting: Default::default(),
         },
     )?;
@@ -1915,6 +1918,8 @@ mod tests {
             // Nothing unknown, so both ratios coincide.
             ntg_known: net / 100.0,
             residual_absorbed: 0.0,
+            frame: crate::workflow::SummationFrame::Md,
+            weights_source: crate::workflow::MD_WEIGHTS_SOURCE.to_string(),
             ntg: net / 100.0,
             avg_vsh: 0.3,
             avg_phie: phie,

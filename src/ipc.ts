@@ -2991,6 +2991,9 @@ export interface PaySummaryRequest {
    *  is porosity-weighted `Σ(Sw·φ·h)/Σ(φ·h)`, which all three vendors agree on, and the rest is
    *  thickness-weighted. Omit the whole object for exactly the behaviour that shipped before. */
   weighting?: Record<string, "thickness" | "porosity">;
+  /** SB-CUT-012. Depth frame to summate in; defaults to MD. Anything else is REFUSED with a
+   *  message naming the frame and what is missing — never served as MD numbers relabelled. */
+  frame?: "MD" | "TVD" | "TVDSS" | "TST";
   /** Write FLAG_* in place without creating a versioned log set, instead of versioning the pay
    *  flags (with the cutoffs in provenance) per well. Set by the report/composite render pass,
    *  whose flags are a render side-effect that should not churn the archive with a version per
@@ -3038,6 +3041,14 @@ export interface PaySummaryRow {
    *  reconciliation. Zero on any run whose partition already closed, which is every ordinary run.
    *  A residual beyond 1e-7 relative fails the summation instead of arriving here. */
   residual_absorbed: number;
+  /** SB-CUT-012. The depth frame these weights were measured in — `"MD"`, `"TVD"`, `"TVDSS"` or
+   *  `"TST"`. Part of the result's IDENTITY, not a display option: the per-sample weight is `Δz`
+   *  in MD and `Δz·cos θ` in TVD, so the weights differ, by a factor of two in a 60° hold. Today
+   *  the engine computes MD only and refuses any other frame rather than relabelling. */
+  frame: "MD" | "TVD" | "TVDSS" | "TST";
+  /** SB-CUT-012. What the per-sample weights were differenced from. Naming the frame alone does
+   *  not say which depths produced the increments. */
+  weights_source: string;
   ntg: number;
   // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
   // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.

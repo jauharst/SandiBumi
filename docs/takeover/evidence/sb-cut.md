@@ -227,14 +227,19 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-012
 
 - **Specified contract:** depth reference frame is part of result identity.
-- **Current implementation / as-built:** requests may select input curves, but thickness results do not name MD/TVD/TVDSS or another frame. ABSENT.
+- **Current implementation / as-built:** `SummationFrame {Md, Tvd, Tvdss, Tst}` and `MD_WEIGHTS_SOURCE` in `workflow.rs`; `PaySummaryRequest.frame` (serde default MD, persisted with the run configuration in `log_sets.params_json`) and `PaySummaryRow.frame` / `.weights_source`. PRESENT-OK.
+- **How an ABSENT row closed without building TVD summation:** the requirement does not demand that a TVD summation EXIST. It demands that a result carry its frame, that MD and TVD be separate records, and that a TVD result never be an MD result rescaled. So `run_pay_summary` declares MD on every row and REFUSES any other frame before touching a well, naming the frame and stating what is missing - the weights would be `dz*cos(theta)` from the deviation survey. That is the sanctioned second half of IMPLEMENT-OR-REFUSE, and it is a stronger guarantee than a feature would be: a TVD number cannot be quoted at all until one can honestly be computed.
+- **Why the frame is on the ROW and not only in provenance:** it is part of the result's IDENTITY. The per-sample weight is `dz` in MD and `dz*cos(theta)` in TVD, so the weights differ, not merely the totals - by a factor of two in a 60-degree hold, which is why IP says TVD zonal averages *"could be considerably different"*. A net thickness quoted in a deviated field without its frame is a number a reader cannot use.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T08 does not prove result-frame custody.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** O-3 keeps the incumbent Min Res Height / Min Pay Height frame unresolved; no choice is inferred.
-- **UI/IPC/provenance surface:** absent from result, log-set, Results QC, reports and office exports.
-- **History/reachability:** no complete frame field found.
-- **Blocking decision / next action:** define typed frame identity without resolving O-3 by guess, then carry it across all result surfaces.
+- **Automated evidence:** `a_summation_declares_the_depth_frame_its_weights_came_from_and_refuses_one_it_cannot_weight` (`src-tauri/src/workflow.rs`). CORRECTNESS. It pins the four-frame vocabulary and its spellings, that MD is the default, that every emitted row carries BOTH the frame and the source its weights were differenced from, and that TVD, TVDSS and TST each refuse with a message naming the frame AND what is missing - a refusal that says only *no* is not actionable.
+- **Mutation evidence:** three probes, one per clause, each read for WHICH assertion fired. Serving MD numbers for a non-MD request turned the refusal arm red. Emitting an empty `weights_source` turned the source arm red. Stamping a fixed frame instead of the requested one turned the frame arm red.
+- **A dead constant removed rather than declared:** a `SummationFrame::ALL` array existed for the test alone and the repo's own hygiene gate flagged it as unused in production. It is gone; `as_str`'s match is exhaustive and lives in production, so a fifth frame cannot be added without deciding there what it is called - a stronger guard than a list a test could let go stale.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only.
+- **Source/parameter boundary:** the four-frame vocabulary is the union of Techlog's four and IP's two, as the chapter states. **O-3 is left open and unguessed**, and it cannot bite here: SandiBumi's summation has NO height cutoff at all - `PaySummaryRequest` carries `vsh_max`, `phie_min`, `swe_max` and `perm_min` and nothing else - so there is no `Min Res Height` whose frame could be ambiguous.
+- **UI/IPC/provenance surface:** `ipc.ts` carries the frame on both the request and the row; `core_determinism_tests.rs` `packed_pay_summary` covers both new fields so the re-run hash cannot go blind to them.
+- **Named limit:** SandiBumi cannot summate in TVD, TVDSS or TST at all, and this row does not change that. The requirement as written is met - results declare their frame and a non-MD request refuses - but whether the pilot NEEDS a TVD summation for deviated wells is a product decision. REVIEW.md puts it to Jauhar.
+- **History/reachability:** no frame field existed; the negative inventory was correct.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-013
 

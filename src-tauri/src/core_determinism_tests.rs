@@ -67,6 +67,8 @@ fn packed_pay_summary(rows: &[workflow::PaySummaryRow]) -> Vec<u8> {
         append_text(&mut bytes, &row.well_name);
         append_text(&mut bytes, &row.zone);
         append_text(&mut bytes, &row.flag);
+        append_text(&mut bytes, row.frame.as_str());
+        append_text(&mut bytes, &row.weights_source);
         let values = [
             row.top,
             row.bottom,
@@ -307,6 +309,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
             skip_version: false,
             stats_only: true,
             custody: None,
+            frame: Default::default(),
             weighting: Default::default(),
         },
     )

@@ -396,6 +396,7 @@ fn report_pages_with_degradations(
             skip_version: false,
             stats_only: false,
             custody: spec.custody.clone(),
+            frame: Default::default(),
             weighting: Default::default(),
         },
     );
@@ -1378,6 +1379,7 @@ mod tests {
                 stats_only: true
             ,
                 custody: None,
+                frame: Default::default(),
                 weighting: Default::default(),
             },
         )
@@ -1528,6 +1530,7 @@ mod tests {
                     stats_only: true
                 ,
                     custody: None,
+                    frame: Default::default(),
                     weighting: Default::default(),
                 },
             )

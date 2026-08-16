@@ -14395,3 +14395,20 @@ every cutoff, so if they were excluded it could only be on zone membership.
 - [ ] **Check a well where a zone top falls mid-sample.** The sample should be split at the
       boundary, not counted whole to either side. That is a neighbouring rule I have not pinned
       here, so tell me if it looks wrong.
+
+## Every summation now says which depth it was measured in
+
+Net thickness measured along the hole is not net thickness measured vertically. In a 60° hold
+section the per-sample weights differ by a factor of two, so every average changes too — IP's own
+wording is that TVD zonal averages "could be considerably different". A net quoted without saying
+which one it is cannot be used in a deviated field.
+
+Every summary row now carries its frame (MD today) and what the weights were differenced from. And
+if anything asks for TVD, TVDSS or TST, the summation **refuses and says why** rather than handing
+back the MD numbers with a different label on them.
+
+- [ ] **Check the frame appears** wherever you read summary numbers, and that it says MD.
+- [ ] **Decide whether you actually need TVD summation.** SandiBumi cannot do it today and now says
+      so out loud instead of pretending. Building it means weighting each sample by Δz·cos θ off the
+      deviation survey, and keeping MD and TVD as separate records — not one converted into the
+      other. Tell me if the pilot needs it and I will scope it.
