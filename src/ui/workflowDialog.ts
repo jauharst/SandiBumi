@@ -20,6 +20,7 @@ import { buildRunCustodyControls } from "./runCustody";
 import { formRow } from "./modal";
 import { buildParamSources, withParamSources } from "./paramSources";
 import {
+  AUTO_INPUT_ALIAS,
   maskCurveNames,
   PRECONDITION_POLICY_FLAG_VALID_SAMPLES,
   PRECONDITION_POLICY_OPT,
@@ -302,6 +303,12 @@ export async function buildWorkflowContent(
 
   function logInControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLSelectElement {
     const select = document.createElement("select");
+    if (arg.preferred_aliases?.length) {
+      const automatic = document.createElement("option");
+      automatic.value = AUTO_INPUT_ALIAS;
+      automatic.textContent = `Auto — ${arg.preferred_aliases.join(" → ")}`;
+      select.appendChild(automatic);
+    }
     const names = inputCurveNames.includes(arg.default) ? inputCurveNames : [arg.default, ...inputCurveNames];
     for (const name of names) {
       const o = document.createElement("option");
@@ -309,9 +316,11 @@ export async function buildWorkflowContent(
       o.textContent = name;
       select.appendChild(o);
     }
-    select.value = step.log_inputs[arg.name] ?? arg.default;
+    select.value = step.log_inputs[arg.name] ?? (arg.preferred_aliases?.length ? AUTO_INPUT_ALIAS : arg.default);
     select.addEventListener("change", () => {
-      if (select.value === arg.default) delete step.log_inputs[arg.name];
+      if (select.value === AUTO_INPUT_ALIAS || (!arg.preferred_aliases?.length && select.value === arg.default)) {
+        delete step.log_inputs[arg.name];
+      }
       else step.log_inputs[arg.name] = select.value;
       onChanged();
     });
@@ -627,7 +636,7 @@ export async function buildWorkflowContent(
         control.value = step.params[arg.name] !== undefined ? String(step.params[arg.name]) : arg.default;
         control.classList.remove("workflow-invalid");
       } else if (col.kind === "log_in" && arg) {
-        control.value = step.log_inputs[arg.name] ?? arg.default;
+        control.value = step.log_inputs[arg.name] ?? (arg.preferred_aliases?.length ? AUTO_INPUT_ALIAS : arg.default);
       } else if ((col.kind === "option" || col.kind === "text") && arg) {
         control.value = step.opts[arg.name] ?? arg.default;
       } else if (col.kind === "log_out" && arg) {
@@ -723,7 +732,7 @@ export async function buildWorkflowContent(
       const extras = [...new Set([...col.args.values()].map((a) => a.default))].filter(
         (d) => !inputCurveNames.includes(d),
       );
-      values = [...extras, ...inputCurveNames];
+      values = [AUTO_INPUT_ALIAS, ...extras, ...inputCurveNames];
     } else if (col.kind === "mask") values = ["(none)", ...maskCurveNames(curveNames)];
     else if (col.kind === "precondition_policy") {
       values = [PRECONDITION_POLICY_REFUSE, PRECONDITION_POLICY_FLAG_VALID_SAMPLES];
@@ -749,7 +758,7 @@ export async function buildWorkflowContent(
     for (const v of values) {
       const o = document.createElement("option");
       o.value = v;
-      o.textContent = v;
+      o.textContent = v === AUTO_INPUT_ALIAS ? "Auto — manifest preference" : v;
       select.appendChild(o);
     }
     select.addEventListener("change", () => {
@@ -772,7 +781,9 @@ export async function buildWorkflowContent(
         }
       } else if (col.kind === "log_in") {
         for (const [step, arg] of col.args) {
-          if (v === arg.default) delete step.log_inputs[arg.name];
+          if (v === AUTO_INPUT_ALIAS || (!arg.preferred_aliases?.length && v === arg.default)) {
+            delete step.log_inputs[arg.name];
+          }
           else step.log_inputs[arg.name] = v;
           applied++;
         }

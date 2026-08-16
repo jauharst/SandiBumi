@@ -1013,6 +1013,8 @@ export interface ArgSpec {
   /** Semantic role of a binary flag output; absent for ordinary numeric/class channels. */
   flag_kind?: FlagKind | null;
   default: string;
+  /** Ordered automatic LogIn aliases; absent means the single manifest default is used. */
+  preferred_aliases?: string[];
   /** Named source for a numeric default, or exact `ABSENT` when no numeric default ships. */
   default_source: string;
   /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything

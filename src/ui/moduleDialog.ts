@@ -33,6 +33,7 @@ export const PRECONDITION_POLICY_OPT = "__PRECONDITION_POLICY";
 export const PRECONDITION_POLICY_REFUSE = "REFUSE";
 export const PRECONDITION_POLICY_FLAG_VALID_SAMPLES = "FLAG_VALID_SAMPLES";
 export const PRECONDITION_FLAG_OUTPUT_ARG = "__PRECONDITION_FLAG";
+export const AUTO_INPUT_ALIAS = "__AUTO_PREFERRED_ALIAS__";
 
 /** Catalog names with the well-known flag curves prepended when absent. */
 export function maskCurveNames(curveNames: string[]): string[] {
@@ -54,7 +55,10 @@ export function argumentHint(arg: ModuleSpec["args"][number]): string {
       : "";
     return `Condition ${condition.id}: ${condition.statement}${branch} Source: ${condition.source}.`;
   });
-  return [arg.desc, defaultSource, ...conditions].filter(Boolean).join(" ");
+  const aliasPreference = arg.preferred_aliases?.length
+    ? `Automatic input preference: ${arg.preferred_aliases.join(" → ")}. The curve resolved for each well is recorded in run provenance.`
+    : "";
+  return [arg.desc, aliasPreference, defaultSource, ...conditions].filter(Boolean).join(" ");
 }
 
 export interface ValidityConditionView {
@@ -333,13 +337,21 @@ export async function buildModuleContent(
    *  An empty value ("") is sent to the backend, which resolves it as an absent (all-NaN) input. */
   const fillLogSelect = (select: HTMLSelectElement, arg: (typeof spec.args)[number], current: string) => {
     select.innerHTML = "";
+    if (arg.preferred_aliases?.length) {
+      const automatic = document.createElement("option");
+      automatic.value = AUTO_INPUT_ALIAS;
+      automatic.textContent = `Auto — ${arg.preferred_aliases.join(" → ")}`;
+      select.appendChild(automatic);
+    }
     if (!arg.required) {
       const none = document.createElement("option");
       none.value = "";
       none.textContent = "(none)";
       select.appendChild(none);
     }
-    const names = current === "" || curveNames.includes(current) ? curveNames : [current, ...curveNames];
+    const names = current === "" || current === AUTO_INPUT_ALIAS || curveNames.includes(current)
+      ? curveNames
+      : [current, ...curveNames];
     for (const name of names) {
       const o = document.createElement("option");
       o.value = name;
@@ -353,7 +365,7 @@ export async function buildModuleContent(
     if (arg.kind === "log_in") {
       const select = document.createElement("select");
       select.className = "form-control";
-      fillLogSelect(select, arg, arg.default);
+      fillLogSelect(select, arg, arg.preferred_aliases?.length ? AUTO_INPUT_ALIAS : arg.default);
       logSelects.set(arg.name, select);
       const requirement = arg.required_any_of?.length
         ? `(one of ${[arg.name, ...arg.required_any_of].join(" / ")})`
@@ -608,7 +620,9 @@ export async function buildModuleContent(
   };
   const collectLogInputs = (): Record<string, string> => {
     const logInputs: Record<string, string> = {};
-    for (const [name, select] of logSelects) logInputs[name] = select.value;
+    for (const [name, select] of logSelects) {
+      if (select.value !== AUTO_INPUT_ALIAS) logInputs[name] = select.value;
+    }
     return logInputs;
   };
 

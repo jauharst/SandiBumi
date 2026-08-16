@@ -231,22 +231,21 @@ fn complete_chain_sets(
 
             let mut present_arguments = std::collections::HashSet::new();
             let mut missing_arguments = HashMap::new();
-            for arg in manifest
-                .args
-                .iter()
-                .filter(|arg| arg.kind == crate::modules::ArgKind::LogIn)
-            {
-                let curve = step
-                    .log_inputs
-                    .get(&arg.name)
-                    .cloned()
-                    .unwrap_or_else(|| arg.default.clone())
-                    .trim()
-                    .to_uppercase();
+            let resolved_log_args = workflow::resolved_log_args_for_well(
+                conn,
+                well_id,
+                manifest,
+                &step.log_inputs,
+                input_set,
+                None,
+                &produced,
+            )?;
+            for (arg_name, curve) in resolved_log_args {
+                let curve = curve.trim().to_uppercase();
                 if curve.is_empty() {
                     continue;
                 }
-                let argument = format!("step[{}].{}", index + 1, arg.name);
+                let argument = format!("step[{}].{}", index + 1, arg_name);
                 if produced.contains(&curve) {
                     inputs.push(crate::equations::AncestryInput {
                         well_id: well_id.to_string(),
@@ -259,17 +258,17 @@ fn complete_chain_sets(
                         rule: Some(crate::equations::CurveResolutionRule::WorkingInputSet),
                         rejected_candidates: Vec::new(),
                     });
-                    present_arguments.insert(arg.name.clone());
+                    present_arguments.insert(arg_name.clone());
                 } else {
                     match crate::equations::resolve_ancestry_input(
                         conn, well_id, &argument, &curve, input_set, None,
                     ) {
                         Ok(input) => {
                             inputs.push(input);
-                            present_arguments.insert(arg.name.clone());
+                            present_arguments.insert(arg_name.clone());
                         }
                         Err(error) => {
-                            missing_arguments.insert(arg.name.clone(), error);
+                            missing_arguments.insert(arg_name.clone(), error);
                         }
                     }
                 }

@@ -218,6 +218,11 @@ pub struct ArgSpec {
     pub flag_kind: Option<FlagKind>,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
+    /// LogIn only: ordered curve mnemonics tried when the interpreter has not selected one
+    /// explicitly. The first available curve wins and the resolved mnemonic is recorded in the
+    /// run ancestry. Empty means the ordinary single `default` mnemonic is used.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred_aliases: Vec<String>,
     /// Source for a numeric Param default, or the exact token [`ABSENT_DEFAULT_SOURCE`] when the
     /// parameter deliberately ships without one. Empty is invalid for every registered Param.
     #[serde(default)]
@@ -348,6 +353,7 @@ pub(crate) fn param(
         kind: ArgKind::Param,
         flag_kind: None,
         default: default.to_string(),
+        preferred_aliases: vec![],
         default_source: default_source.into(),
         choices: vec![],
         choice_labels: vec![],
@@ -370,6 +376,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         kind: ArgKind::Option,
         flag_kind: None,
         default: default.into(),
+        preferred_aliases: vec![],
         default_source: String::new(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
         choice_labels: Vec::new(),
@@ -486,6 +493,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         kind: ArgKind::Text,
         flag_kind: None,
         default: default.into(),
+        preferred_aliases: vec![],
         default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
@@ -508,6 +516,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         kind: ArgKind::LogIn,
         flag_kind: None,
         default: default_curve.into(),
+        preferred_aliases: vec![],
         default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
@@ -614,6 +623,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         kind: ArgKind::LogOut,
         flag_kind: None,
         default: String::new(),
+        preferred_aliases: vec![],
         default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
@@ -660,6 +670,35 @@ pub(crate) fn log_out_flag_as(
     ArgSpec {
         default: pattern.into(),
         ..log_out_flag(name, desc, kind)
+    }
+}
+
+/// A [`log_in`] whose automatic selection follows a source-defined ordered alias list.
+/// Explicit interpreter selections still win; the runner uses these only when no selection was
+/// supplied and records the mnemonic it actually found for each well.
+fn log_in_preferred(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    preferred_aliases: &[&str],
+    required: bool,
+) -> ArgSpec {
+    debug_assert!(!preferred_aliases.is_empty());
+    ArgSpec {
+        preferred_aliases: preferred_aliases
+            .iter()
+            .map(|alias| alias.trim().to_uppercase())
+            .collect(),
+        // Keep the ordinary raw mnemonic as the compatibility default for callers such as the
+        // Monte Carlo engine that construct a module context directly. Workflow/preflight paths
+        // consume `preferred_aliases` and therefore still resolve corrected-first per well.
+        ..log_in(
+            name,
+            desc,
+            unit,
+            preferred_aliases.last().expect("preferred aliases are non-empty"),
+            required,
+        )
     }
 }
 
@@ -2015,7 +2054,13 @@ fn vsh_gr_spec() -> ModuleSpec {
                     },
                 )],
             ), crate::param_sources::GR_SHALE_ENDPOINT),
-            log_in("GR", "Gamma ray log", "gapi", "GR", true),
+            log_in_preferred(
+                "GR",
+                "Gamma ray log",
+                "gapi",
+                &["GR_COR", "GR_EC", "GR"],
+                true,
+            ),
             log_out("VSH_GR", "VSH from gamma ray (unlimited)", "v/v"),
             log_out("VSH", "Limited volume of shale", "v/v"),
         ],
@@ -2104,9 +2149,27 @@ fn vsh_dn_spec() -> ModuleSpec {
                 "FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, 0.05, 1.0,
                 "docs/PRD_v2/10_clay-volume.md §5.1 — SandiBumi diagnostic threshold",
             ),
-            log_in("RHOB", "Density log", "g/cc", "RHOB", true),
-            log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
-            log_in("GR", "Gamma ray (optional clay-type cross-check)", "API", "GR", false),
+            log_in_preferred(
+                "RHOB",
+                "Density log",
+                "g/cc",
+                &["RHO_COR", "RHOB_EC", "RHOB"],
+                true,
+            ),
+            log_in_preferred(
+                "NPHI",
+                "Neutron porosity log",
+                "v/v",
+                &["NPHI_COR", "NPHI_EC", "NPHI"],
+                true,
+            ),
+            log_in_preferred(
+                "GR",
+                "Gamma ray (optional clay-type cross-check)",
+                "API",
+                &["GR_COR", "GR_EC", "GR"],
+                false,
+            ),
             log_out("VSH_DN", "VSH from density-neutron (unlimited)", "v/v"),
             log_out("VSH", "Limited volume of shale", "v/v"),
             log_out("VSH_DN_FLAG", "1 where N-D VSH is unreliable (off-model, or diverges from GR VSH)", "flag"),

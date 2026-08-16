@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-041: Corrected-first input aliases with exact custody
+
+- [ ] **Automated correctness:** exact T43 is GREEN after a witnessed RED and a raw-first mutation
+      check. Direct and saved-chain runs prefer `GR_COR`/`RHO_COR`/`NPHI_COR`, then SandiBumi's
+      native `GR_EC`/`RHOB_EC`/`NPHI_EC`, fall back to raw mnemonics, never treat `GRN` as a
+      corrected candidate, and record the exact per-well winners in ancestry. TypeScript and cargo
+      check are green; the fresh full gate passed 1027 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray and VSH from Density-Neutron. Confirm each governed input
+      opens on an `Auto` choice showing its ordered aliases and the help says that the per-well
+      resolved curve is recorded; confirm an explicit curve can still be selected.
+- [ ] **Manual mixed-well review:** run one batch containing a corrected-delivery well, a native
+      SandiBumi-corrected well and a raw-only well. Confirm the output follows each well's expected
+      source and inspect History/ancestry for the exact chosen mnemonic on all three.
+- [ ] **Field and harsh critique:** a deterministic corrected-first order prevents raw data from
+      silently winning when a corrected channel exists. It does not prove that a curve labelled
+      corrected was produced by an appropriate environmental-correction workflow; the interpreter
+      still owns source QC, curve identity and representative-well acceptance.
+
 ## 2026-08-16 — G2 SB-CLY-035: Two-sided differential-caliper bad-hole detection
 
 - [ ] **Automated correctness:** exact T36 is GREEN after a witnessed RED on the cited under-gauge

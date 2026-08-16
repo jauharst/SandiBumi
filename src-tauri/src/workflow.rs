@@ -1123,6 +1123,61 @@ fn resolved_log_args(spec: &modules::ModuleSpec, log_inputs: &HashMap<String, St
         .collect()
 }
 
+/// Resolve automatic input aliases against one well while preserving every explicit interpreter
+/// selection. The ordered aliases are a manifest contract; availability is checked through the
+/// same ancestry resolver that records the winning curve, so selection and provenance cannot
+/// disagree about which curve existed.
+pub(crate) fn resolved_log_args_for_well(
+    conn: &Connection,
+    well_id: &str,
+    spec: &modules::ModuleSpec,
+    log_inputs: &HashMap<String, String>,
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+    available_in_run: &HashSet<String>,
+) -> Result<Vec<(String, String)>, String> {
+    let mut resolved = Vec::new();
+    for argument in spec.args.iter().filter(|argument| argument.kind == ArgKind::LogIn) {
+        if let Some(explicit) = log_inputs.get(&argument.name) {
+            resolved.push((argument.name.clone(), explicit.clone()));
+            continue;
+        }
+
+        let mut selected = None;
+        for alias in &argument.preferred_aliases {
+            if available_in_run.contains(alias) {
+                selected = Some(alias.clone());
+                break;
+            }
+            match equations::try_resolve_ancestry_input(
+                conn,
+                well_id,
+                &argument.name,
+                alias,
+                input_set,
+                own_set_id,
+            )? {
+                Some(_) => {
+                    selected = Some(alias.clone());
+                    break;
+                }
+                None => {}
+            }
+        }
+        resolved.push((
+            argument.name.clone(),
+            selected.unwrap_or_else(|| {
+                argument
+                    .preferred_aliases
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| argument.default.clone())
+            }),
+        ));
+    }
+    Ok(resolved)
+}
+
 fn validity_input_arguments(spec: &modules::ModuleSpec) -> HashSet<String> {
     let is_log = |name: &str| {
         spec.args
@@ -1378,18 +1433,29 @@ pub fn module_input_availability(
         .find(|candidate| candidate.name == module)
         .ok_or_else(|| format!("unknown module '{module}'"))?;
     let needed = validity_input_arguments(&spec);
-    let log_args: Vec<(String, String)> = resolved_log_args(&spec, log_inputs)
-        .into_iter()
-        .filter(|(argument, _)| needed.contains(argument))
-        .collect();
     let mut rows = Vec::with_capacity(well_ids.len());
     for well_id in well_ids {
         let resolved = db
             .lock()
             .map_err(|_| "database busy".to_string())
-            .and_then(|conn| fetch_module_input_logs(&conn, well_id, &spec, &log_args, input_set, None));
+            .and_then(|conn| {
+                let log_args = resolved_log_args_for_well(
+                    &conn,
+                    well_id,
+                    &spec,
+                    log_inputs,
+                    input_set,
+                    None,
+                    &HashSet::new(),
+                )?
+                .into_iter()
+                .filter(|(argument, _)| needed.contains(argument))
+                .collect::<Vec<_>>();
+                fetch_module_input_logs(&conn, well_id, &spec, &log_args, input_set, None)
+                    .map(|resolved| (resolved, log_args))
+            });
         match resolved {
-            Ok((_, logs, _)) => {
+            Ok(((_, logs, _), log_args)) => {
                 let available_arguments = log_args
                     .iter()
                     .filter_map(|(argument, _)| {
@@ -1615,8 +1681,6 @@ fn run_workflow_module_into_with_parameter_serializer(
         (unit, map)
     };
 
-    // Input curves: dialog mnemonic over manifest default mnemonic.
-    let log_args = resolved_log_args(&spec, &req.log_inputs);
     // The names this run will write, decided ONCE. Every input to the decision — the manifest, the
     // chosen mnemonics, the renames — is well-independent, so a bad name is refused here as one
     // message rather than as N identical per-well failures in the Processing panel.
@@ -1640,6 +1704,7 @@ fn run_workflow_module_into_with_parameter_serializer(
         Computed {
             depth: Vec<f32>,
             outputs: HashMap<String, Vec<f32>>,
+            log_args: Vec<(String, String)>,
             degradations: Vec<modules::RunDegradation>,
             precondition_violations: Vec<modules::PreconditionViolation>,
             scientific_answered: bool,
@@ -1700,6 +1765,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 (
                     Vec<f32>,
                     HashMap<String, Vec<f32>>,
+                    Vec<(String, String)>,
                     Vec<modules::RunDegradation>,
                     Vec<modules::PreconditionViolation>,
                     bool,
@@ -1708,8 +1774,17 @@ fn run_workflow_module_into_with_parameter_serializer(
             > {
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
-                let (depth, mut logs, input_units, params, defaulted_parameters) = {
+                let (depth, mut logs, input_units, params, defaulted_parameters, log_args) = {
                     let conn = db.lock().unwrap();
+                    let log_args = resolved_log_args_for_well(
+                        &conn,
+                        well_id,
+                        &spec,
+                        &req.log_inputs,
+                        req.input_set.as_deref(),
+                        own_set,
+                        &HashSet::new(),
+                    )?;
                     let (depth, logs, input_units) = fetch_module_input_logs(
                         &conn,
                         well_id,
@@ -1729,7 +1804,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                         &req.params,
                         &depth,
                     )?;
-                    (depth, logs, input_units, params, defaulted_parameters)
+                    (depth, logs, input_units, params, defaulted_parameters, log_args)
                 };
 
                 // Optional bad-hole (or any flag) mask. Resolve it BEFORE the module runs so
@@ -1884,6 +1959,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 Ok((
                     depth,
                     outputs,
+                    log_args,
                     degradations,
                     precondition_violations,
                     scientific_answered,
@@ -1894,12 +1970,14 @@ fn run_workflow_module_into_with_parameter_serializer(
                 Ok((
                     depth,
                     outputs,
+                    log_args,
                     degradations,
                     precondition_violations,
                     scientific_answered,
                 )) => Outcome::Computed {
                     depth,
                     outputs,
+                    log_args,
                     degradations,
                     precondition_violations,
                     scientific_answered,
@@ -1977,6 +2055,7 @@ fn run_workflow_module_into_with_parameter_serializer(
         for (well_id, outcome) in req.well_ids.iter().zip(outcomes.iter()) {
             let Outcome::Computed {
                 outputs,
+                log_args,
                 precondition_violations,
                 scientific_answered,
                 ..
@@ -1995,7 +2074,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 req,
                 &spec,
                 &opts,
-                &log_args,
+                log_args,
                 &names,
                 precondition_violations,
                 parameter_serializer,
@@ -2108,6 +2187,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 degradations,
                 precondition_violations,
                 scientific_answered,
+                ..
             } => {
                 if outputs.is_empty() {
                     ModuleRunResult::skipped(well_id.clone())
@@ -4090,6 +4170,240 @@ mod tests {
             equations::CompleteLogSetSpec::try_new("INCOMPLETE", incomplete).is_err(),
             "schema v2 must not accept rejected candidates beside a mnemonic-only input"
         );
+    }
+
+    /// CORRECTNESS — `10_clay-volume.md` SB-CLY-041 / exact T43 and §5.2-53 cite Geolog's
+    /// ordered corrected mnemonics `GR_COR`, `RHO_COR`, `NPHI_COR`; the same chapter records that
+    /// `GRN` is normalized, not corrected. SandiBumi's existing correction modules emit the
+    /// independently named `GR_EC`, `RHOB_EC`, `NPHI_EC` curves. Linear-GR expectations are the
+    /// independent `(GR - 20) / (120 - 20)` arithmetic. The density-neutron expectation 0.4239
+    /// and its endpoint fixture come directly from SB-CLY-T18's cited Techlog-template witness.
+    #[test]
+    fn corrected_aliases_win_over_raw_and_normalized_inputs_raw_remains_the_fallback_and_each_resolved_curve_is_recorded(
+    ) {
+        fn add_well(conn: &duckdb::Connection, name: &str, depth: &[f32]) -> String {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(conn, id, name, None, None, None).unwrap();
+            let missing = vec![f32::NAN; depth.len()];
+            db::insert_standard_curves(
+                conn,
+                id,
+                depth.to_vec(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing,
+            )
+            .unwrap();
+            id.to_string()
+        }
+
+        fn add_curve(
+            conn: &duckdb::Connection,
+            well_id: &str,
+            depth: &[f32],
+            set_name: &str,
+            mnemonic: &str,
+            family: &str,
+            unit: &str,
+            values: &[f32],
+        ) {
+            let curve_id = db::upsert_curve_meta(
+                conn,
+                well_id,
+                set_name,
+                mnemonic,
+                Some(unit),
+                Some(family),
+                Some("SB-CLY-041 ordered-alias fixture"),
+                Some(1),
+            )
+            .unwrap();
+            db::insert_curve_samples(conn, &curve_id, depth, values).unwrap();
+        }
+
+        fn output_curve(conn: &duckdb::Connection, well_id: &str, curve: &str) -> Vec<f32> {
+            equations::fetch_curve_frame(conn, well_id, &[curve.to_string()])
+                .unwrap()
+                .1[curve]
+                .clone()
+        }
+
+        fn recorded_inputs(
+            conn: &duckdb::Connection,
+            well_id: &str,
+            output_set: &str,
+        ) -> HashMap<String, String> {
+            let params_json: String = conn
+                .query_row(
+                    "SELECT params_json FROM log_sets
+                     WHERE well_id = ?1 AND set_name = ?2
+                     ORDER BY version DESC LIMIT 1",
+                    duckdb::params![well_id, output_set],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            equations::parse_curve_ancestry(&params_json)
+                .unwrap()
+                .inputs
+                .into_iter()
+                .map(|input| (input.argument, input.curve))
+                .collect()
+        }
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depth = vec![1000.0_f32];
+        let vendor_gr = add_well(&conn, "VENDOR-CORRECTED-GAMMA", &depth);
+        let native_gr = add_well(&conn, "NATIVE-CORRECTED-GAMMA", &depth);
+        let raw_gr = add_well(&conn, "RAW-GAMMA-FALLBACK", &depth);
+        for well_id in [&vendor_gr, &native_gr, &raw_gr] {
+            add_curve(&conn, well_id, &depth, "RAW", "GR", "GR", "gAPI", &[40.0]);
+            add_curve(
+                &conn,
+                well_id,
+                &depth,
+                "NORMALIZED",
+                "GRN",
+                "GR",
+                "gAPI",
+                &[110.0],
+            );
+        }
+        add_curve(
+            &conn,
+            &vendor_gr,
+            &depth,
+            "CORRECTED",
+            "GR_COR",
+            "GR",
+            "gAPI",
+            &[70.0],
+        );
+        add_curve(
+            &conn,
+            &native_gr,
+            &depth,
+            "CORRECTED",
+            "GR_EC",
+            "GR",
+            "gAPI",
+            &[80.0],
+        );
+
+        let dbm = Mutex::new(conn);
+        let gr_run = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![vendor_gr.clone(), native_gr.clone(), raw_gr.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+                opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+                output_set: Some("ORDERED-GR-ALIASES".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert!(gr_run.iter().all(|result| result.error.is_none()), "{gr_run:?}");
+        {
+            let conn = dbm.lock().unwrap();
+            assert_eq!(output_curve(&conn, &vendor_gr, "VSH_GR"), vec![0.5]);
+            assert_eq!(output_curve(&conn, &native_gr, "VSH_GR"), vec![0.6]);
+            assert_eq!(output_curve(&conn, &raw_gr, "VSH_GR"), vec![0.2]);
+            assert_eq!(recorded_inputs(&conn, &vendor_gr, "ORDERED-GR-ALIASES")["GR"], "GR_COR");
+            assert_eq!(recorded_inputs(&conn, &native_gr, "ORDERED-GR-ALIASES")["GR"], "GR_EC");
+            assert_eq!(recorded_inputs(&conn, &raw_gr, "ORDERED-GR-ALIASES")["GR"], "GR");
+        }
+
+        let chain_registry = crate::chain::new_registry();
+        let chain_job = uuid::Uuid::new_v4();
+        let cancel = crate::chain::register(&chain_registry, chain_job);
+        crate::chain::run_chain(
+            &dbm,
+            &chain_registry,
+            chain_job,
+            &cancel,
+            &[crate::chain::ChainStep {
+                module: "vsh_gr".into(),
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+                opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+            }],
+            &[vendor_gr.clone(), raw_gr.clone()],
+            Some("ORDERED-GR-CHAIN"),
+            None,
+            &test_run_custody(),
+            None,
+        );
+        {
+            let conn = dbm.lock().unwrap();
+            assert_eq!(
+                recorded_inputs(&conn, &vendor_gr, "ORDERED-GR-CHAIN")["step[1].GR"],
+                "GR_COR"
+            );
+            assert_eq!(
+                recorded_inputs(&conn, &raw_gr, "ORDERED-GR-CHAIN")["step[1].GR"],
+                "GR"
+            );
+        }
+
+        let conn = dbm.into_inner().unwrap();
+        let vendor_dn = add_well(&conn, "VENDOR-CORRECTED-DENSITY-NEUTRON", &depth);
+        let native_dn = add_well(&conn, "NATIVE-CORRECTED-DENSITY-NEUTRON", &depth);
+        for well_id in [&vendor_dn, &native_dn] {
+            add_curve(&conn, well_id, &depth, "RAW", "RHOB", "RHOB", "g/cc", &[2.65]);
+            add_curve(&conn, well_id, &depth, "RAW", "NPHI", "NPHI", "v/v", &[0.0]);
+            add_curve(&conn, well_id, &depth, "RAW", "GR", "GR", "gAPI", &[10.0]);
+        }
+        for (well_id, rho, nphi, gr) in [
+            (&vendor_dn, "RHO_COR", "NPHI_COR", "GR_COR"),
+            (&native_dn, "RHOB_EC", "NPHI_EC", "GR_EC"),
+        ] {
+            add_curve(&conn, well_id, &depth, "CORRECTED", rho, "RHOB", "g/cc", &[2.35]);
+            add_curve(&conn, well_id, &depth, "CORRECTED", nphi, "NPHI", "v/v", &[0.30]);
+            add_curve(&conn, well_id, &depth, "CORRECTED", gr, "GR", "gAPI", &[55.0]);
+        }
+
+        let dbm = Mutex::new(conn);
+        let dn_run = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "vsh_dn".into(),
+                well_ids: vec![vendor_dn.clone(), native_dn.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([
+                    ("RHO_MA".into(), 2.65),
+                    ("RHO_SH".into(), 2.45),
+                    ("RHO_FL".into(), 1.0),
+                    ("NPHI_MA".into(), 0.0),
+                    ("NPHI_SH".into(), 0.4),
+                    ("NPHI_FL".into(), 1.0),
+                    ("GR_MA".into(), 10.0),
+                    ("GR_SH".into(), 100.0),
+                    ("FLAG_TOL".into(), 0.25),
+                ]),
+                opts: HashMap::new(),
+                output_set: Some("ORDERED-DN-ALIASES".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert!(dn_run.iter().all(|result| result.error.is_none()), "{dn_run:?}");
+        let conn = dbm.lock().unwrap();
+        for (well_id, expected) in [
+            (&vendor_dn, ["RHO_COR", "NPHI_COR", "GR_COR"]),
+            (&native_dn, ["RHOB_EC", "NPHI_EC", "GR_EC"]),
+        ] {
+            let actual = output_curve(&conn, well_id, "VSH_DN")[0];
+            assert!((actual - 0.4239).abs() <= 1e-4, "{well_id}: {actual}");
+            let recorded = recorded_inputs(&conn, well_id, "ORDERED-DN-ALIASES");
+            assert_eq!(recorded["RHOB"], expected[0]);
+            assert_eq!(recorded["NPHI"], expected[1]);
+            assert_eq!(recorded["GR"], expected[2]);
+        }
     }
 
     /// SB-MLA-055, the declaration half. A class output is registered under the name the run

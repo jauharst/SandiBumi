@@ -550,14 +550,14 @@
 
 - **Chapter evidence:** P2; historical status `PRESENT-DIVERGENT`; T43; sections 4.3, 6 and 8.
 - **Atomic obligations:** ordered aliases prefer corrected over raw across every indicator; persist the resolved mnemonic.
-- **Current source:** `vsh_gr` requests literal `GR`. The family registry folds raw, corrected and normalized gamma aliases into one unordered family, so corrected-only preference cannot be expressed. Generic run input bindings record a chosen mnemonic only after external resolution; the CLY manifest defines no preferred order.
-- **Qualifying acceptance tests:** none; corrected-present/raw-present and corrected-absent controls plus run-record assertion are missing. Test class `MISSING`.
-- **Supporting tests:** family alias resolution passed and confirms `GRN` currently collapses into `GR`, which characterizes the structural conflict rather than satisfying preference.
+- **Current source:** VSH manifests now declare ordered per-input aliases: `GR_COR -> GR_EC -> GR`, `RHO_COR -> RHOB_EC -> RHOB` and `NPHI_COR -> NPHI_EC -> NPHI`. The shared per-well resolver is used by direct runs, preflight and saved-chain ancestry; an explicit interpreter selection still wins. Module and Workflow controls expose a distinct Auto choice and state that the resolved curve is recorded.
+- **Qualifying acceptance tests:** exact T43 `corrected_aliases_win_over_raw_and_normalized_inputs_raw_remains_the_fallback_and_each_resolved_curve_is_recorded` passed 1/0/0 after witnessed RED and a raw-first mutation. It independently computes corrected and raw VSH-GR values, uses T18's cited density-neutron witness, includes `GRN` as a losing control, proves vendor/native/raw fallback order and reads exact direct plus saved-chain ancestry. Test class `CORRECTNESS`.
+- **Supporting tests:** TypeScript compilation and cargo check are green. The fresh full project gate passed 1027 / 0 / 37 with 31 owned warnings, exercising the typed manifest/UI and all existing workflow routes without changing the unordered semantic-family registry. The full Monte Carlo module suite also passed 23 / 0 / 0 after the resolver kept raw manifest defaults for direct-context compatibility.
 - **Manual evidence:** shale-volume 0/17; generic-curve-store 0/18; workflow 0/23.
-- **Git evidence:** literal binding and merged family are integrated; no corrected-preference list was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** corrected and normalized meanings must first be separated in the family vocabulary; mnemonic coincidence cannot establish processing state.
-- **Next action:** define ordered, state-aware input aliases and prove corrected preference, raw fallback and exact resolved-curve custody across all CLY indicators.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit will carry manifest, resolver, direct/chain custody, UI and evidence changes together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated T43; Visual, Manual and Field evidence remain open.
+- **Next action:** preserve exact T43 and explicit-selection precedence, perform the mixed-well review separately, and continue SB-CLY-042 without turning picking advice into a default.
 
 ## SB-CLY-042 - Picking conventions stated as help text, not encoded as defaults
 
