@@ -336,20 +336,19 @@
 - **Blocker or decision:** implementation is present but lacks its source-bound regression test and solver-wide parity.
 - **Next action:** add a nonzero sourced discriminator for every model and prove the threshold survives run provenance.
 
-### SB-SAT-025
+### SB-SAT-025 - Every method emits a clipped and an unclipped curve
 
-- **Specified contract:** Every method emits a clipped and an unclipped curve. Owned test intention(s): SB-SAT-T38.
-- **Current implementation:** standalone modules retain method-specific raw saturation plus clipped working outputs, but the solver and LRLC paths generally expose only clipped results.
-- **Qualifying acceptance tests:** none; the owned intentions SB-SAT-T38 are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** standalone output tests pass, but no whole-family clipped/unclipped inventory exists.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the pair is not universal or semantically typed.
-- **Next action:** add explicit raw and clipped roles to the common saturation result and inventory every model.
+- **Specified contract:** every saturation method **MUST** emit both a clipped curve (`SWE`/`SWT`, bounded to `[SWE_IRR, 1]` / `[SWT_IRR, 1]`) and an unclipped diagnostic (`SWE_<METHOD>` / `SWT_<METHOD>`). Where a method produces both a total and an effective result, **both** MUST have an unclipped counterpart (`12_saturation.md:1352-1366`).
+- **Why it matters:** a clipped-only curve cannot distinguish *the rock is wet* from *the model went out of range*. Geolog and Techlog both ship unclipped diagnostics; IP does not, and IP's own comparison-curve caveat exists precisely because it lacks them.
+- **Current implementation - both gaps verified in code:** `SWT_ARCH`, `SWE_INDO` and `SWE_SIM` are emitted unclipped. But `sw_arch` declares `SWT_ARCH` and has **no `SWE_ARCH`** - its effective result is clipped-only, even though the same module produces both a total and an effective answer, which is exactly the case the requirement singles out. Separately the LRLC modules emit clamped values only (`lrlc.rs:183`, `:365` show `limit(..., 0.0, 1.0)` with no unclipped twin).
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Manual evidence:** saturation 0/31.
+- **Source/parameter boundary:** no parameter is involved; this is an output-surface contract.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`, and the split is worth stating because half of it is ready. The `sw_arch` half is in **`modules.rs`, an ALLOWED file** - adding the missing `SWE_ARCH` unclipped twin needs no authorization and no decision. The LRLC half is in **`lrlc.rs`, a prohibited file**. Because the requirement is one MUST over *every* method, shipping only the `sw_arch` half would leave the contract unmet while adding a new output curve, so the row is held atomic rather than half-delivered. **`lrlc.rs` now joins `multimin2.rs` as the second prohibited file gating this group** - SB-SAT-023 needs both.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Next action:** Jauhar authorizes the narrow `lrlc.rs` edit alongside the `multimin2.rs` one already requested by SB-SAT-002 and SB-SAT-023. Then add `SWE_ARCH` to `sw_arch` and unclipped twins to the LRLC outputs, and pin from both sides: a sample the model drives out of range must show the clipped curve at its bound AND the unclipped diagnostic beyond it - one arm alone would pass a module that simply copies the clipped value into the diagnostic.
 
-### SB-SAT-026
+## SB-SAT-026
 
 - **Specified contract:** Never emit a bare `SW`; always emit a method-flag curve. Owned test intention(s): `SB-SAT-T39`, `SB-SAT-T40`.
 - **Current implementation:** current standalone and solver names avoid exact bare `SW`, but shared generic `SWE`/`SWT` identities are reused and no saturation method-flag curve is emitted.
