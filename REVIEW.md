@@ -14305,3 +14305,22 @@ carry the two new columns beside Gross and Net.
 - [ ] **Check nothing else moved.** Net, N/G and HPV should be exactly what they were before.
 - [ ] **Tell me if the grid is now too wide.** Two extra columns is two extra columns; I can move
       them behind a toggle if they get in the way of the numbers you actually read.
+
+## Two net-to-gross numbers, both labelled
+
+Following on from the four-way split: the dashboard now shows N/G twice. "N/G" is net over the
+whole zone, exactly as before. "N/G excl. Unk" is net over only the footage something could
+actually be judged on. On a fully logged, fully interpreted zone they are close. On a zone that
+runs below where the logs stop, or one with a long washout, they can differ by a lot — and that
+difference is the honest argument about whether the net-to-gross is defensible at all.
+
+Where nothing in a zone could be judged, the second number reads "—", not 0.00. A zero there would
+be a statement about rock nobody looked at.
+
+- [ ] **Compare the two columns on a zone you know is fully logged.** They should be close.
+- [ ] **Find a zone that runs past the bottom of the logs** and compare them again. The second
+      should be higher. If they are identical everywhere, something is wrong and I want to know.
+- [ ] **Tell me which of the two you actually want quoted in the report and the workbook.** Right
+      now only the dashboard and its CSV show both; the PDF, workbook and deck still quote the
+      original N/G alone. That is a deliberate stop, not an oversight — which number belongs in a
+      client deliverable is your call, not mine.

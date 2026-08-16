@@ -113,14 +113,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-004
 
 - **Specified contract:** report both N:G and N:(G-Unknown) with unambiguous labels.
-- **Current implementation / as-built:** PaySummaryRow has one ntg field computed as net/gross. ABSENT.
+- **Current implementation / as-built:** `PaySummaryRow` carries `ntg_known = net / (gross - unknown)` beside the existing `ntg = net / gross`. PRESENT-OK.
+- **Why both and not one:** the gap between them is exactly the null fraction. Over a washed-out or partly-logged interval that gap is the whole argument about whether a net-to-gross is defensible, and no incumbent surfaces both - so an interpreter comparing one tool's number with another's cannot tell they are answering different questions.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T11 is absent.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** the two denominators follow independently from the specified partition; no tolerance is invented.
-- **UI/IPC/provenance surface:** all summary/report/office consumers receive only ntg.
-- **History/reachability:** no second ratio field was found.
-- **Blocking decision / next action:** add both labelled ratios after SB-CUT-003 supplies Unknown footage.
+- **Automated evidence:** `a_summation_reports_net_to_gross_over_all_footage_and_over_only_the_footage_it_could_judge` (`src-tauri/src/workflow.rs`). CORRECTNESS. Three cases, because either ratio alone looks reasonable: the zone the samples tile exactly (0.50 against 0.67 - they differ even there, because some samples had nothing to judge); the zone declared ten units below the log (0.33 against 0.67, and the second is asserted strictly GREATER, so a second number equal to the first fails); and the well nobody interpreted, where the second ratio has no denominator and must come back MISSING.
+- **Mutation evidence:** two probes, each read for WHICH assertion fired. Dividing by `gross` instead of `gross - unknown` turned the first arm red with 0.5 against 10/15. Reporting 0.0 instead of MISSING where nothing was judged turned the third arm red with 0 - the value that reads as *none of the judged rock is net* about a well nobody looked at.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no value was adopted. Both denominators follow from the SB-CUT-003 partition; no tolerance is invented here (that is SB-CUT-005).
+- **UI/IPC/provenance surface:** `ipc.ts` types it `number | null`; `dashboardPanel.ts` `GRID_COLS` adds the labelled column **N/G excl. Unk** beside **N/G**, which drives both the grid and the CSV export; `core_determinism_tests.rs` `packed_pay_summary` covers it.
+- **Named limit:** the workbook, report and deck read the same `PaySummaryRow` and were NOT given the second column here. They render their own tables and adding a column to each is its own change with its own layout consequences; the summation itself now reports both, which is what this row requires.
+- **History/reachability:** `ntg` is unchanged - the first ratio was never wrong, only alone.
+- **Blocking decision / next action:** cleared. Jauhar field-verifies on a partly-logged zone.
 
 ### SB-CUT-005
 

@@ -36,6 +36,10 @@ const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean }[
   { key: "not_net", label: "Not net", digits: 1, num: true },
   { key: "unknown", label: "Unknown", digits: 1, num: true },
   { key: "ntg", label: "N/G", digits: 2, num: true },
+  // SB-CUT-004: the same net measured against only the footage that could be judged. Both are
+  // labelled because they answer different questions; where nothing was judged this is MISSING
+  // and renders "—", never 0.00.
+  { key: "ntg_known", label: "N/G excl. Unk", digits: 2, num: true },
   { key: "avg_vsh", label: "Avg VSH", digits: 2, num: true },
   { key: "avg_phie", label: "Avg PHIE", digits: 3, num: true },
   { key: "avg_swe", label: "Avg SWE", digits: 3, num: true },

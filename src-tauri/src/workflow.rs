@@ -2651,7 +2651,6 @@ pub struct PaySummaryRow {
     /// zone reading 40 % because 55 % was never logged both print 0.40, and only the split says
     /// which. Techlog books a non-positive clipped interval as UNKNOWN distinct from NOT-NET; IP
     /// marks nulls in-band inside the numeric column and never separates them at all.
-    #[serde(default)]
     pub not_net: f32,
     /// SB-CUT-003. Footage whose flag could not be EVALUATED, so that
     /// `gross = net + not_net + unknown` holds exactly.
@@ -2662,8 +2661,20 @@ pub struct PaySummaryRow {
     /// gap, or the ordinary case of a zone bottomed on a marker below the TD of the run that
     /// logged it. Summing the first alone would leave the identity broken over exactly the
     /// intervals where a reader most needs it to close.
-    #[serde(default)]
     pub unknown: f32,
+    /// SB-CUT-004. Net-to-gross over the footage the classifier could actually judge —
+    /// `net / (gross - unknown)`, the chapter's `N:(G−Unknown)`.
+    ///
+    /// Reported BESIDE [`Self::ntg`] rather than instead of it, because the two answer different
+    /// questions and the gap between them is the null fraction. Over a washed-out or
+    /// partially-logged interval that gap is the whole argument about whether a net-to-gross is
+    /// defensible; no incumbent surfaces both, so an interpreter comparing one tool's number with
+    /// another's cannot tell which was quoted.
+    ///
+    /// **MISSING, never zero, where nothing was judged.** With no judged footage there is no
+    /// denominator, and a printed 0.00 would be a claim about rock nobody looked at — the same
+    /// reasoning as [`Self::n_classified`]. Crosses IPC as JSON `null`, like the `avg_*` fields.
+    pub ntg_known: f32,
     pub ntg: f32,
     pub avg_vsh: f32,
     pub avg_phie: f32,
@@ -3006,6 +3017,13 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     net: net as f32,
                     not_net: not_net as f32,
                     unknown: unknown as f32,
+                    // SB-CUT-004: the same net over the footage that was actually judged. MISSING
+                    // rather than 0.0 when nothing was — there is no denominator, and a printed
+                    // zero would be a claim about rock nobody looked at.
+                    ntg_known: {
+                        let judged = gross as f64 - unknown;
+                        if judged > 0.0 { (net / judged) as f32 } else { f32::NAN }
+                    },
                     ntg: if gross > 0.0 { (net / gross as f64) as f32 } else { 0.0 },
                     // Averages are normalised by the net thickness over which THAT curve is
                     // valid — not total net — so a SAND-row sample with valid VSH but missing
@@ -5096,6 +5114,107 @@ mod tests {
                 r.gross,
                 "{} partition must close exactly even where the samples do not reach the base",
                 r.flag
+            );
+        }
+    }
+
+    /// SB-CUT-004 (P2). `14_cutoffs-summation-mc.md:966-975` — a summation **MUST** report both
+    /// `N:G = Net/Gross` and `N:(G−Unknown)`, each labelled.
+    ///
+    /// The two differ by exactly the null fraction. Over a washed-out or partially-logged interval
+    /// that difference is the whole argument about whether a net-to-gross is defensible, and no
+    /// incumbent surfaces both — so an interpreter comparing one tool's number with another's has
+    /// no way to know they are answering different questions.
+    ///
+    /// Pinned on three cases, because either ratio alone looks reasonable:
+    ///
+    /// * the zone the samples tile exactly, where the two still differ because some samples had
+    ///   nothing to judge;
+    /// * the zone declared below the logged interval, where they diverge by half — the case that
+    ///   makes the pair worth reporting at all;
+    /// * the well nobody interpreted, where the second ratio has NO denominator and must come back
+    ///   MISSING rather than 0.00, which would read as "none of the judged rock is net".
+    #[test]
+    fn a_summation_reports_net_to_gross_over_all_footage_and_over_only_the_footage_it_could_judge() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let tiled = seed_partition_well(&conn, "NG-TILED");
+        let overhang = seed_partition_well(&conn, "NG-OVERHANG");
+        db::upsert_zone_with_datum(
+            &conn,
+            &overhang,
+            "OVERHANG",
+            1000.0,
+            1030.0,
+            crate::schema_vocab::DepthDatum::Md,
+        )
+        .unwrap();
+        // Raw logs only — exactly the state after importing a LAS and running nothing, so every
+        // sample is unjudgeable and Gross − Unknown is zero.
+        let blank_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, blank_id, "NG-BLANK", Some("Synthetic"), None, None).unwrap();
+        let blank = blank_id.to_string();
+        let bn = 20usize;
+        let bdepth: Vec<f32> = (0..bn).map(|i| 1000.0 + i as f32).collect();
+        let bnan = vec![f32::NAN; bn];
+        db::insert_standard_curves(
+            &conn, blank_id, bdepth, vec![50.0; bn], bnan.clone(), vec![0.2; bn],
+            vec![2.4; bn], bnan.clone(), bnan,
+        )
+        .unwrap();
+
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![tiled.clone(), overhang.clone(), blank.clone()],
+                vsh_max: 0.5,
+                phie_min: 0.1,
+                swe_max: 0.6,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+            },
+        )
+        .expect("summary runs");
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+
+        // A — samples tile the zone exactly: 10 net of 20 gross, 5 of it unjudged.
+        for r in rows.iter().filter(|r| r.well_id == tiled) {
+            assert!(near(r.ntg, 0.5), "{} N:G is net/gross = 10/20, got {}", r.flag, r.ntg);
+            assert!(
+                near(r.ntg_known, 10.0 / 15.0),
+                "{} N:(G-Unknown) is net over judged footage = 10/15, got {}",
+                r.flag,
+                r.ntg_known
+            );
+        }
+
+        // B — the zone runs 10 units below the log. Half its footage was never judged, and the two
+        // ratios diverge from 0.33 to 0.67: the same rock, described twice, honestly.
+        for r in rows.iter().filter(|r| r.well_id == overhang) {
+            assert!(near(r.ntg, 10.0 / 30.0), "{} N:G, got {}", r.flag, r.ntg);
+            assert!(near(r.ntg_known, 10.0 / 15.0), "{} N:(G-Unknown), got {}", r.flag, r.ntg_known);
+            assert!(
+                r.ntg_known > r.ntg,
+                "{} excluding unjudged footage can only RAISE the ratio; a second number equal to \
+                 the first means Unknown never reached the denominator",
+                r.flag
+            );
+        }
+
+        // C — nothing was interpreted, so there is no judged footage to divide by. MISSING, never
+        // zero: a printed 0.00 is a claim about rock nobody looked at.
+        for r in rows.iter().filter(|r| r.well_id == blank) {
+            assert_eq!(r.n_classified, 0, "{} the well really is uninterpreted", r.flag);
+            assert!(near(r.unknown, r.gross), "{} every unit of it is Unknown", r.flag);
+            assert!(
+                r.ntg_known.is_nan(),
+                "{} N:(G-Unknown) has no denominator here and must be MISSING, got {}",
+                r.flag,
+                r.ntg_known
             );
         }
     }

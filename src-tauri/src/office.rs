@@ -1909,6 +1909,8 @@ mod tests {
             // helper would otherwise have to check for themselves.
             not_net: 100.0 - net,
             unknown: 0.0,
+            // Nothing unknown, so both ratios coincide.
+            ntg_known: net / 100.0,
             ntg: net / 100.0,
             avg_vsh: 0.3,
             avg_phie: phie,

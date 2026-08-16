@@ -3017,6 +3017,15 @@ export interface PaySummaryRow {
    *  VSH/PHIE/SWE to judge AND footage carrying no sample at all — a logging gap, or a zone
    *  bottomed on a marker below the TD of the run that logged it. */
   unknown: number;
+  /** SB-CUT-004. Net-to-gross over the footage that could actually be judged —
+   *  `net / (gross - unknown)`, the chapter's `N:(G-Unknown)`. Reported BESIDE `ntg`, never
+   *  instead of it: the gap between the two is the null fraction, and over a washed-out or
+   *  partly-logged interval that gap is the whole argument about whether a net-to-gross is
+   *  defensible.
+   *
+   *  `null` where nothing was judged — there is no denominator, and a printed 0.00 would be a
+   *  claim about rock nobody looked at. (Backend f32::NAN crosses as JSON null.) */
+  ntg_known: number | null;
   ntg: number;
   // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
   // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.
