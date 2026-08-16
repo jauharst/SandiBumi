@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `187 / 222`
+- Handled: `188 / 222`
 - Done: `131`
-- Blocked: `56`
-- Remaining unhandled: `35`
+- Blocked: `57`
+- Remaining unhandled: `34`
 
 ---
 
@@ -156,6 +156,7 @@ requirement appears exactly once.
 | `SB-POR-055` | One ruling on `RHO_DSH` | Narrowed twice - both stated blockers cleared this session, and the *no POR source topics* claim is now false since SB-POR-007 and 043 registered nine. What remains is substantive: the chapter records that **`RHO_DSH = 2.65` matches no held source at all** and sets `PHIT_SH` a factor **1.73 low**. Its own rule then requires ABSENT - which stops every porosity run until the user supplies it. That moves PHIE and therefore pay. | Rule `RHO_DSH`: ABSENT per the standing decision, or adjudicate a cited value as DEC-041 did. Then build the universal inventory gate, which needs no decision. |
 | `SB-POR-057` | Confirm DEC-042 supersedes its pay clause | Clause 3 says quick-look curves are **excluded by default from pay summation**. **Your ruling (b) / DEC-042 says the opposite** - same curves (`AVERAGE`, `GAS_RMS`), and the pay-eligible behaviour already shipped. This is the **second** record that ruling contradicts; the first was `PILOT_SCOPE.md` item 6. Implementing clause 3 as written would silently revert your ruling in code. | Confirm DEC-042 supersedes clause 3 here too, or state the narrower reading. Then build the comparison-only output class and provenance flag, and pin the ruled pay behaviour from both sides. |
 | `SB-SAT-002` | Narrow `multimin2.rs` authorization | **P0.** No effective-porosity Archie exists; the chapter puts the two forms **25.0 saturation units and HCPV 3.15x apart** and calls it the largest cross-tool trap in the domain. **The physics needs nothing** - SB-SAT-023 already supplies the inverse `SwT = Sw(1-Swb) + Swb`, `Swb = 1 - phie/phit`. What blocks it is that `SW_METHOD` codes come from `SwModel::flag_code()` and `SwModel` (prohibited `multimin2.rs`) has no `ArchieEffective` variant. Minting a code in `modules.rs` would break SB-SAT-001 arm D. | Authorize the narrow `multimin2.rs` variant (DEC-040 pattern). Then add the option with `archie_total` as default, lift `SWT` via SB-SAT-023's inverse, and pin that the branches disagree on the reference case and the round-trip is the identity. |
+| `SB-SAT-023` | Narrow `multimin2.rs` + `lrlc.rs` authorization | The Juhasz rule exists (`multimin2.rs:456` computes the right `Qvn`) but a blanket post-solve back-out overrides it, and the **inverse pair does not exist at all**. On the dossier fixture `Qvn` 0.42 vs `1-phie/phit` 0.20 makes `SWE` differ by **tens of saturation units while `SWT` matches exactly**. Every part of the fix is in a prohibited file. **Third row on this same authorization** - and SB-SAT-002 needs this row's inverse pair. | Authorize (DEC-040 pattern). Then per-model `Swb`, ship the inverse, record which rule applied, and pin `Swb=1 -> SWE=1`, the round-trip identity, and Juhasz-vs-Archie disagreement on the fixture. |
 
 ## Product-owner decision packet
 

@@ -311,20 +311,19 @@
 - **Blocker or decision:** the unresolved parameter is hidden inside implementation rather than shipped absent.
 - **Next action:** remove implicit custody, offer only the cited candidates without a default, and refuse runs that require an unselected vQ0.
 
-### SB-SAT-023
+### SB-SAT-023 - The effective back-out is per model, never blanket
 
-- **Specified contract:** The effective back-out is per model, never blanket. Owned test intention(s): `SB-SAT-T34`, `SB-SAT-T35`, `SB-SAT-T36`.
-- **Current implementation:** standalone Archie and solver post-processing apply generic effective conversions; multimin applies the same porosity-volume back-out to Archie, dual water, Juhasz and Waxman-Smits.
-- **Qualifying acceptance tests:** no full owned acceptance proof; the available oracle is implementation characterization, not correctness. Test class `CHARACTERIZATION`.
-- **Supporting evidence:** CHARACTERIZATION: `sw_dual_nonlinear_hand_computed_and_conversion` and post-solve tests pin the current blanket conversion.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
+- **Specified contract:** apply `SWE = MAX((SWT - Swb)/(1 - Swb), 0)` with a **per-model** `Swb`: `1 - phie/phit` for `archie_total`, `waxman_smits` and both dual-water forms; **`Qvn = clamp(Vsh*phit_sh/phit, 0, 1)`** for `juhasz`. `Swb = 1` MUST yield `SWE = 1`, not a divide-by-zero. Where the solver's construction collapses the two rules, SandiBumi MUST record which rule was applied. It MUST also ship the inverse pair `SwT = Sw(1 - Swb) + Swb` and `SxoT = Sxo(1 - Swb) + Swb`, and a round-trip through the pair MUST be the identity (`12_saturation.md:1337-1350`).
+- **Why it matters:** for the first group IP's E78 and Geolog's form are algebraically identical and all three tools agree. For Juhasz they are **not** equal - on the dossier fixture `Qvn` 0.42 against `1 - phie/phit` 0.20, `SWE` differs by **tens of saturation units while `SWT` matches exactly**. The chapter calls this the purest example of the silent, method-specific divergence the whole chapter exists to prevent.
+- **Current implementation - verified in code:** `sw_juhasz` (`multimin2.rs:443`) does compute the right `qvn = (vsh * phit_sh / phit).clamp(0.0, 1.0)` at `:456`, so the Juhasz rule itself exists. What does not is per-model custody: the solver applies the same porosity-volume back-out to Archie, dual water, Juhasz and Waxman-Smits alike, so the correct `Qvn` is computed and then overridden. The **inverse pair is absent entirely** - `grep` finds the forward back-out in `lrlc.rs:183`, `:365` and `sw_arch`, and no `Sw(1 - Swb) + Swb` anywhere - so there is nothing for a round-trip identity to be tested against.
+- **Qualifying acceptance tests:** none for the per-model contract. Test class `CHARACTERIZATION`.
+- **Manual evidence:** saturation 0/31.
+- **Source/parameter boundary:** both rules and the inverse are cited verbatim in the chapter; nothing needs inventing, and no value was.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`. Every part of the fix lands in prohibited files. The blanket post-solve conversion, the per-model `Swb` selection and `sw_juhasz` are all in `multimin2.rs`; the other live back-outs are in `lrlc.rs`. A shared helper in an allowed file would not help, because making those call it is itself the prohibited edit. **This is the third row blocked on the same narrow `multimin2.rs` authorization** - SB-SAT-002 and SB-SAT-006 sit in the same place, and SB-SAT-002 specifically needs *this* row's inverse pair, so one authorization would move several rows at once.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** per-model inverse definitions and degeneracy handling are absent.
-- **Next action:** define and test each model's sourced inverse separately, then remove the blanket post-solve conversion.
+- **Next action:** Jauhar authorizes the narrow `multimin2.rs` (and `lrlc.rs`) edits on the DEC-040 pattern. Then select `Swb` per model rather than blanket, ship the inverse pair, record which rule was applied where the construction collapses them, and pin: `Swb = 1` gives `SWE = 1` and not a divide-by-zero; the round-trip is the identity; and Juhasz and Archie **disagree** on the dossier fixture (`Qvn` 0.42 vs 0.20) while `SWT` matches - the arm that proves the back-out is genuinely per model.
 
-### SB-SAT-024
+## SB-SAT-024
 
 - **Specified contract:** `SWE_IRR` is an effective quantity, transformed per model. Owned test intention(s): SB-SAT-T37.
 - **Current implementation:** Archie uses `SWT_IRR`; Indonesia and both Simandoux branches use `SWE_IRR`, preserving the declared quantity distinction in the standalone engine.
