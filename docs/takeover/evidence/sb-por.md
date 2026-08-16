@@ -821,18 +821,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** none.
 - **Next action:** Jauhar field-verifies that a `K/M3` density and a `US/M` sonic import give the same answers as natively-canonical deliveries of the same wells.
 
-## SB-POR-057 - Comparison curves cannot become pay curves
+## SB-POR-057 - Quick-look curves are distinguishable
 
-- **Specified contract:** comparison outputs are separately typed and visually/provenance-labelled, and downstream pay selection rejects them by default.
-- **Current implementation:** `AVERAGE` and `GAS_RMS` are ordinary `phi_dn` method choices writing the same POR outputs as an authoritative method would. There is no comparison family, visual identity or pay-exclusion guard.
-- **Qualifying acceptance tests:** none; T36 is not executable across registry, display and pay selection. Test class `MISSING`.
-- **Supporting tests:** current `phi_dn` arithmetic characterizes the shortcuts but not their required exclusion.
-- **Manual evidence:** porosity 0/33; crossplot 6/13; no pay-selection evidence.
-- **Source/parameter boundary:** plausible shortcut output does not confer correctness authority.
-- **History/reachability:** ordinary shortcut registration is integrated; no comparison/pay type was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on POR family typing and downstream selection policy.
-- **Next action:** create a comparison-only output class, preserve method identity visually and in provenance, and make pay inputs reject it unless an explicit reviewed override exists.
+- **Specified contract:** quick-look comparison curves **MUST** be visually and structurally distinguishable from computed methods - **(1)** different mnemonic family, **(2)** flagged in provenance, **(3)** excluded by default from pay summation (`11_porosity.md:1123-1125`).
+- **Current implementation:** `AVERAGE` and `GAS_RMS` are ordinary `phi_dn` method choices writing the same POR outputs an authoritative method would. There is no comparison family, no visual identity and no pay-exclusion guard.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Supporting tests:** SB-POR-023's `the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method` pins the LABELLING, which is the nearest thing shipped. It does not create a family, a provenance flag or a pay guard.
+- **Manual evidence:** porosity 0/76.
+- **Source/parameter boundary:** no parameter is involved. SB-POR-004's family typing, one of this row's two stated dependencies, closed this session.
+- **Blocker or decision:** `BLOCKED-CONTRACT`, and the conflict is with **Jauhar's own ruling**, not with a missing source. Clause **(3)** says these curves are *excluded by default from pay summation*. **DEC-042 (ruling (b), 2026-08-16) says the opposite** - the neutron-density shortcuts stay labelled quick-look comparisons but their limited curve **is** a pay candidate, and that is what shipped in `run_pay_summary`. These are the same curves: `AVERAGE` and `GAS_RMS` are exactly the arithmetic and RMS shortcuts ruling (b) covered. This is the **second** place that ruling contradicts a written record - the first is `PILOT_SCOPE.md` item 6, already logged in DEC-042 - and it was found only by reading the requirement rather than the register. Implementing clause (3) as written would silently revert ruling (b) in code.
+- **What is NOT blocked:** clauses (1) and (2) - a comparison-only output class with its own mnemonic family, and a provenance flag - carry no conflict and are implementable once (3) is settled, since all three are one MUST.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Next action:** Jauhar confirms that DEC-042 supersedes clause (3) here as it supersedes `PILOT_SCOPE.md` item 6 - i.e. the curves are distinguishable and flagged but **not** pay-excluded - or states the narrower reading under which both can hold. Then build the comparison-only output class, flag it in provenance, and pin the ruled pay behaviour from both sides so neither reading can be satisfied by accident.
 
 ## SB-POR-058 - No silently dead parameters
 
