@@ -211,14 +211,18 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-011
 
 - **Specified contract:** samples outside all zones contribute to no cumulative result.
-- **Current implementation / as-built:** summary, sweep and Monte Carlo all restrict interval overlap to named zones or their ALL fallback; out-of-zone samples are skipped. PRESENT-OK.
+- **Current implementation / as-built:** unchanged - all three paths already restricted interval overlap to named zones. PRESENT-OK. **No production code was touched by this row**; it is the proof the register asked for.
 - **Release disposition and risk:** PILOT-BLOCKER; FIELD-EVIDENCE.
-- **Automated evidence:** CHARACTERIZATION; cutoff_sweep_ntg_and_dst_mask proves the sweep limb, while source inspection supports summary and MC. T10 is not implemented as one three-path acceptance fixture.
-- **Manual evidence:** NONE; applicable workflow scenarios remain unchecked.
-- **Source/parameter boundary:** zone-membership rule is cited; no endpoint is invented.
-- **UI/IPC/provenance surface:** zone rows expose only included results; no cumulative out-of-zone bucket exists.
-- **History/reachability:** all three paths are integrated.
-- **Blocking decision / next action:** add one shared observable fixture across summary, sweep and MC, then field-exercise zone boundaries.
+- **Automated evidence:** `a_sample_outside_every_declared_zone_contributes_to_no_summary_statistic_however_well_it_passes_the_cutoffs` (`src-tauri/src/workflow.rs`). CORRECTNESS, and it is the ONE three-path fixture the register asked for: one well, three bands (UPPER declared, LOWER declared, and a band below every zone), exercised through `run_pay_summary`, `run_cutoff_sweep` restricted to UPPER, and `montecarlo::zone_metrics`.
+- **The false pass it is built to avoid:** an out-of-zone sample that also fails a cut-off is excluded for the wrong reason and proves nothing. So the test OPENS by asserting those samples return `(1.0, 1.0, 1.0)` from `classify_sample` - they clear SAND, RESERVOIR and PAY on their own merits - and they carry values found nowhere else (φ 0.50 against the zones' 0.30 and 0.10), so any leak moves a number rather than hiding in an average.
+- **Mutation evidence:** five probes across the three limbs, each read for WHICH assertion fired. Summary: removing both zone clips, and removing only the base clip, each turned UPPER's net to 25; a third probe that leaked out-of-zone samples into the AVERAGES ONLY left net correct at 10 and moved `avg_phie` to 0.26, which is what proves the summary statistics are pinned independently of net rather than as a by-product of it. Sweep: ignoring the zone bounds turned the series to `[25, 25, 25]`. Monte Carlo: dropping the base clip turned its net to 25.
+- **A probe that did NOT fire, recorded rather than quietly dropped:** dropping Monte Carlo's zone TOP clip changed nothing, because this fixture's zone boundaries land exactly on sample boundaries. Straddling behaviour is a separate rule (a sample crossing a boundary contributes its in-zone part) and is not what this row owns; the base clip is the one that gates the below-zone band, and that is the probe kept.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only. The register's *field-exercise zone boundaries* stays Jauhar's and is asked in REVIEW.md.
+- **Source/parameter boundary:** IP's zone-membership rule is cited; no endpoint invented; every expected number is the fixture's own arithmetic.
+- **Supporting test, moved out of the qualifying register:** `cutoff_sweep_ntg_and_dst_mask` remains and still passes, but it is CHARACTERIZATION of the sweep limb alone and no longer the qualifying proof for this row. It is retained, not deleted.
+- **UI/IPC/provenance surface:** unchanged; no cumulative out-of-zone bucket exists, and the test asserts none is invented (exactly six rows: two declared zones by three flags).
+- **History/reachability:** all three paths were integrated and are unchanged.
+- **Blocking decision / next action:** cleared for automated evidence; field evidence remains open.
 
 ### SB-CUT-012
 

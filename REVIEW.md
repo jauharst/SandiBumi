@@ -14377,3 +14377,21 @@ porosity weighting in place. Same check on the Monte Carlo engine.
       the footage porosity was valid on, while HPV can only count footage where BOTH were valid, so
       the two legitimately part company there. Tell me if you would rather they were forced to
       agree — that would mean changing what Avg PHIE means, so it is your call, not mine.
+
+## Rock below your deepest marker cannot sneak into a summary
+
+If a well is logged 30 m past its last zone top, those samples may well pass every cutoff you have
+set — good sand, good porosity, low Sw. They must still count for nothing, because they are not in
+any zone you defined. All three places that add footage up now have one shared test proving it: the
+pay summary, the cutoff sweep, and Monte Carlo.
+
+The test is built so it cannot pass by accident — the out-of-zone samples are first proved to pass
+every cutoff, so if they were excluded it could only be on zone membership.
+
+- [ ] **Find a well logged well past its deepest marker** and check the summary. The footage below
+      the last zone should appear nowhere: not in net, not in the averages, not in HPV.
+- [ ] **Add a temporary zone covering that deep section, re-run, and confirm it now counts.** Same
+      data, different answer, and the only thing that changed is that you declared a zone.
+- [ ] **Check a well where a zone top falls mid-sample.** The sample should be split at the
+      boundary, not counted whole to either side. That is a neighbouring rule I have not pinned
+      here, so tell me if it looks wrong.

@@ -9,8 +9,8 @@
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 22,
     "REMEDIATE": 50,
-    "PROVE": 9,
-    "RETAIN": 141
+    "PROVE": 8,
+    "RETAIN": 142
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -243,7 +243,8 @@
     "SB-CUT-004",
     "SB-CUT-005",
     "SB-CUT-009",
-    "SB-CUT-010"
+    "SB-CUT-010",
+    "SB-CUT-011"
   ],
   "blocked_requirements": [
     "SB-CORE-003",

@@ -5810,6 +5810,183 @@ mod tests {
         );
     }
 
+    /// SB-CUT-011 (P1). `14_cutoffs-summation-mc.md:1064-1075` — a sample that passes every
+    /// cut-off but lies outside every defined zone **MUST NOT** contribute to any cumulative
+    /// result or summary statistic (IP's stated zone-membership rule).
+    ///
+    /// Easy to violate in a single-pass implementation that applies cut-offs before zone
+    /// membership, and easy to test WRONGLY: an out-of-zone sample that also fails a cut-off is
+    /// excluded for the wrong reason and proves nothing. So the samples outside every zone here
+    /// are asserted to pass all three cut-offs on their own, and they carry values found nowhere
+    /// else — φ 0.50 against the zones' 0.30 and 0.10 — so any leak moves a number.
+    ///
+    /// Three intervals, two of them declared, prove membership is what decides: the same engine
+    /// counts a sample in the zone that contains it, and not in the one next door.
+    #[test]
+    fn a_sample_outside_every_declared_zone_contributes_to_no_summary_statistic_however_well_it_passes_the_cutoffs(
+    ) {
+        // First, the guard that makes the rest meaningful: these values clear every cut-off.
+        assert_eq!(
+            classify_sample(0.80, 0.50, 0.85, f32::NAN, 0.9, 0.05, 0.9, None, false),
+            (1.0, 1.0, 1.0),
+            "the out-of-zone samples must pass SAND, RESERVOIR and PAY on their own merits - \
+             otherwise their absence below proves a cut-off worked, not the zone rule"
+        );
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "ZONE-EDGE", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 25usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
+            vec![2.35; n], nan.clone(), nan,
+        )
+        .unwrap();
+        // Three bands: UPPER (declared), LOWER (declared), and BELOW — outside every zone.
+        let band = |a: f32, b: f32, c: f32| -> Vec<f32> {
+            (0..n).map(|i| if i < 10 { a } else if i < 20 { b } else { c }).collect()
+        };
+        equations::write_computed_curve(&conn, &well, &depth, "VSH", &band(0.10, 0.40, 0.80))
+            .unwrap();
+        equations::write_computed_curve(&conn, &well, &depth, "PHIE", &band(0.30, 0.10, 0.50))
+            .unwrap();
+        equations::write_computed_curve(&conn, &well, &depth, "SWE", &band(0.20, 0.60, 0.85))
+            .unwrap();
+        for (name, top, base) in
+            [("UPPER", 1000.0, 1010.0), ("LOWER", 1010.0, 1020.0)]
+        {
+            db::upsert_zone_with_datum(
+                &conn, &well, name, top, base, crate::schema_vocab::DepthDatum::Md,
+            )
+            .unwrap();
+        }
+
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![well.clone()],
+                vsh_max: 0.9,
+                phie_min: 0.05,
+                swe_max: 0.9,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                weighting: Default::default(),
+            },
+        )
+        .expect("summary runs");
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        let row = |zone: &str, flag: &str| -> PaySummaryRow {
+            rows.iter()
+                .find(|r| r.zone == zone && r.flag == flag)
+                .unwrap_or_else(|| panic!("a {flag} row for {zone}"))
+                .clone()
+        };
+
+        assert_eq!(rows.len(), 6, "two declared zones by three flags, and nothing for BELOW");
+        assert!(
+            !rows.iter().any(|r| r.zone != "UPPER" && r.zone != "LOWER"),
+            "the footage below every zone must not produce a zone of its own"
+        );
+
+        for flag in SUMMARY_FLAGS {
+            let u = row("UPPER", flag);
+            assert!(near(u.net, 10.0), "{flag} UPPER net is its own ten units, got {}", u.net);
+            assert!(near(u.avg_phie, 0.30), "{flag} UPPER phi is 0.30, got {}", u.avg_phie);
+            assert!(near(u.avg_swe, 0.20), "{flag} UPPER Sw is 0.20, got {}", u.avg_swe);
+            assert!(near(u.hpv, 2.4), "{flag} UPPER HPV is 2.4, got {}", u.hpv);
+
+            let l = row("LOWER", flag);
+            assert!(near(l.net, 10.0), "{flag} LOWER net is its own ten units, got {}", l.net);
+            assert!(near(l.avg_phie, 0.10), "{flag} LOWER phi is 0.10, got {}", l.avg_phie);
+            assert!(near(l.avg_swe, 0.60), "{flag} LOWER Sw is 0.60, got {}", l.avg_swe);
+            assert!(near(l.hpv, 0.4), "{flag} LOWER HPV is 0.4, got {}", l.hpv);
+
+            // The below-every-zone band carries φ 0.50 and Sw 0.85, which appear in neither row —
+            // stated as its own assertion so a leak reads as what it is rather than as a stray
+            // arithmetic error somewhere above.
+            for r in [&u, &l] {
+                assert!(
+                    r.avg_phie < 0.31 && r.avg_swe < 0.61,
+                    "{flag} {} shows a trace of the samples below every zone: phi {} Sw {}",
+                    r.zone, r.avg_phie, r.avg_swe
+                );
+            }
+        }
+
+        // The register asks for ONE fixture across all three paths, because the rule is easy to
+        // hold in the summation and lose in a sibling that walks the same curves.
+
+        // Path 2 — the cutoff SWEEP, restricted to UPPER. Every sample clears a VSH cutoff of 0.9,
+        // so net is decided by zone membership alone and must be UPPER's own ten units.
+        let sweep = run_cutoff_sweep(
+            &dbm,
+            &CutoffSweepRequest {
+                input_set: None,
+                well_ids: vec![well.clone()],
+                property: "VSH".into(),
+                vsh_max: 0.9,
+                phie_min: 0.05,
+                swe_max: 0.9,
+                perm_min: None,
+                // Every sample's VSH is at most 0.80, so it clears every step of this range and
+                // net is decided by zone membership alone across the whole sweep.
+                sweep_min: 0.85,
+                sweep_max: 0.95,
+                steps: 3,
+                metric: "NET".into(),
+                zone: Some("UPPER".into()),
+                dst_dataset: None,
+            },
+        )
+        .expect("sweep runs");
+        let series = sweep.series.first().expect("one well, one series");
+        assert!(
+            near(series.gross as f32, 10.0),
+            "the sweep's gross is UPPER's own thickness, got {}",
+            series.gross
+        );
+        assert!(
+            series.values.iter().all(|v| near(*v as f32, 10.0)),
+            "the sweep must count only UPPER's samples, got {:?}",
+            series.values
+        );
+
+        // Path 3 — MONTE CARLO's per-realization zone metrics on the same arrays.
+        let step = vec![1.0f32; n];
+        let m = crate::montecarlo::zone_metrics(
+            &band(0.10, 0.40, 0.80),
+            &band(0.30, 0.10, 0.50),
+            &band(0.20, 0.60, 0.85),
+            &vec![f32::NAN; n],
+            &depth,
+            &step,
+            &db::ZoneEntry {
+                zone_name: "UPPER".into(),
+                top_depth: 1000.0,
+                bottom_depth: 1010.0,
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
+            },
+            &crate::montecarlo::Cutoffs {
+                vsh_max: 0.9,
+                phie_min: 0.05,
+                swe_max: 0.9,
+                perm_min: None,
+            },
+            false,
+        );
+        assert!(near(m.net, 10.0), "Monte Carlo counts only UPPER's samples, got {}", m.net);
+        assert!(near(m.avg_phie, 0.30), "Monte Carlo phi is UPPER's 0.30, got {}", m.avg_phie);
+        assert!(near(m.hpv, 2.4), "Monte Carlo HPV is UPPER's 2.4, got {}", m.hpv);
+    }
+
     /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the
     /// only thing that can exclude a sample is the PERM cutoff. `perm` is the permeability the
     /// well MEASURED — `None` means the well carries none at all, which is the case under test.
