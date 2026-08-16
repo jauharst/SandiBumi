@@ -29,13 +29,13 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 39 | — | 8 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 68 | — | 19 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 128 | 2026-08-13 | 33 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 131 | 2026-08-13 | 34 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
-| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 28 | — | 18 |
+| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 31 | — | 19 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 193 | 2026-07-19 | 33 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |

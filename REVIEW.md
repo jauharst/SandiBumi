@@ -14246,3 +14246,15 @@ now has a test so no future edit can slip one back in.
 - [ ] **Same check in SandiMin.** The solver refuses a fluid model with no Rw at all.
 - [ ] **If any screen shows 0.1, 0.03, 0.3 or 0.21 as a starting Rw**, tell me - those are the four values
       the test forbids.
+
+## Saturation: the module and SandiMin now give the same number
+
+The two engines used to compute different Simandoux equations under the same name - about 7.3 saturation
+units apart. The naming was fixed earlier; this pins the part naming cannot fix, that the numbers agree.
+Archie and both Simandoux forms are now cross-checked engine against engine to 1e-6.
+
+- [ ] **Run Simandoux on a well through the module**, then the same well and parameters through SandiMin.
+      SWE should match. Tell me if they do not - that is the failure this is meant to stop.
+- [ ] **Do the same with Archie.**
+- [ ] **Run both Simandoux variants** and confirm they give DIFFERENT answers from each other. If they
+      agree, the two equations have collapsed into one and the cross-check means nothing.

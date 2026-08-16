@@ -626,20 +626,21 @@
 - **Blocker or decision:** the user-required coupled Sxo/Sw path lacks a complete typed output and failure contract.
 - **Next action:** complete the source-bound iterative Sxo/Sw contract with effective/total outputs, volumes, flags, convergence and mud-base guards.
 
-### SB-SAT-047
+### SB-SAT-047 - One model, one number, whichever engine computes it
 
-- **Specified contract:** One model, one number, whichever engine computes it. Owned test intention(s): `SB-SAT-T30`, `SB-SAT-T61`.
-- **Current implementation:** same-looking methods use different equations, defaults, porosity bases, clamps and back-outs; no exact cross-engine parity harness exists.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T30`, `SB-SAT-T61` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** local module, solver and Results-QC tests all pass separately; none compares identical typed inputs and quantities across engines.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** parallel implementations can return different plausible numbers under the same displayed name.
-- **Next action:** build independent reference cases per canonical model and require bit/precision parity across every engine before release.
+- **Specified contract:** a named saturation model **MUST** return the same value from the deterministic module and from the mineral solver, given the same inputs and parameters, to a **stated tolerance**. Where the two contexts genuinely differ, the difference **MUST** be documented at the model level and asserted by a test that names it, not left to a source comment (`12_saturation.md:1832-1846`).
+- **Why P0:** the product was failing this in the most expensive possible way - the two engines computed **different Simandoux equations under the same name, 7.3 saturation units apart**. This is a SandiBumi-internal requirement with no vendor counterpart.
+- **Current implementation:** the engines now agree. `SB-SAT-001` closed the naming half earlier this session; this row closes the half naming alone cannot - that the NUMBERS match. Every solver equation is already public (`sw_archie`, `sw_simandoux_bardon_pied`, `sw_simandoux_modified_slb`, `sw_indonesia`, `sw_juhasz`, `sw_waxman_smits`), so the cross-assertion needed no change to `multimin2.rs` at all - only a test that calls both sides.
+- **Qualifying acceptance tests:** `a_named_saturation_model_returns_one_number_from_either_engine` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Tolerance is STATED, not implied:** `1e-6` in saturation units. Both engines solve the same closed forms in `f64`, so anything looser would hide a real divergence and demanding bit equality would fail on operation ordering alone. The chapter asks for a stated tolerance and this is it.
+- **Three-armed pin, and arm C is the one that matters.** (A) Archie agrees between engines - compared on the module's UNCLIPPED diagnostic, since the clipped curve carries irreducible-saturation bounds the solver form does not know about. (B) both Simandoux forms agree, each against its OWN counterpart. (C) the two Simandoux forms are genuinely DIFFERENT numbers on the sample - because without it, arm B would still pass if both engines had collapsed onto one equation, which is precisely the original failure just relocated.
+- **Verified by mutation:** swapping `sw_sim`'s branch so each option computes the other equation fails the test - that mutation IS the 7.3-saturation-unit bug.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a Simandoux run through SandiMin and the same run through the module report the same SWE on a real well.
 
-### SB-SAT-048
+## SB-SAT-048
 
 - **Specified contract:** LRLC coefficients are declared as one field's calibration. Owned test intention(s): `SB-SAT-T59`, `SB-SAT-T62`.
 - **Current implementation:** RtC and IMTS disclose placeholder/study-derived coefficients in documentation and explicit fits exist, but unfitted runs emit no observable calibration-status flag and generic provenance omits fit state.

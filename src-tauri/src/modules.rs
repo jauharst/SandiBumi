@@ -8693,6 +8693,81 @@ mod tests {
         }
     }
 
+    /// SB-SAT-047 (P0). `12_saturation.md:1832-1846` — a named saturation model **MUST** return the
+    /// same value from the deterministic module and from the mineral solver, given the same inputs
+    /// and parameters, to a stated tolerance.
+    ///
+    /// It is P0 because the product was failing it in the most expensive possible way: the two
+    /// engines computed **different Simandoux equations under the same name**, 7.3 saturation units
+    /// apart. SB-SAT-001 fixed the naming this session; this fixes the thing naming alone cannot —
+    /// that the two engines actually agree on the number.
+    ///
+    /// **Tolerance is stated, not implied:** 1e-6 in saturation units. Both engines solve the same
+    /// closed forms in f64 here, so anything looser would hide a real divergence, and demanding bit
+    /// equality would fail on ordering alone.
+    #[test]
+    fn a_named_saturation_model_returns_one_number_from_either_engine() {
+        const TOL: f64 = 1e-6;
+        let (a, m, n_exp, rw, rsh) = (1.0_f64, 2.0_f64, 2.0_f64, 0.05_f64, 4.0_f64);
+        let (rt, phie, vsh) = (8.0_f64, 0.22_f64, 0.25_f64);
+        let params = [
+            ("A", a), ("M", m), ("N", n_exp), ("RW", rw), ("RT_SH", rsh),
+            ("C", 1.0), ("SWE_IRR", 0.0), ("SWT_IRR", 0.0),
+        ];
+        let logs = [
+            ("RT", vec![rt as f32]),
+            ("PHIT", vec![phie as f32]),
+            ("PHIE", vec![phie as f32]),
+            ("VSH", vec![vsh as f32]),
+        ];
+
+        // A — Archie. The module's unclipped diagnostic is the comparable curve; the clipped one
+        // carries irreducible-saturation bounds the solver form does not know about.
+        let arch = sw_arch(&ctx_with(1, &logs, &params, &[("OPT_RW", "CONSTANT")]));
+        let solver_arch = crate::multimin2::sw_archie(rt, phie, rw, m, n_exp, a);
+        assert!(
+            (arch["SWT_ARCH"][0] as f64 - solver_arch).abs() < TOL,
+            "archie disagrees between engines: module {} vs solver {solver_arch}",
+            arch["SWT_ARCH"][0]
+        );
+
+        // B — both Simandoux forms, which is where the 7.3 su divergence lived. Each module branch
+        // must match its OWN solver counterpart, and the test names which is which.
+        for (option, solver) in [
+            (
+                "simandoux_bardon_pied",
+                crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n_exp, a),
+            ),
+            (
+                "simandoux_modified_slb",
+                crate::multimin2::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n_exp, a, 1.0),
+            ),
+        ] {
+            let out = sw_sim(&ctx_with(
+                1,
+                &logs,
+                &params,
+                &[("OPT_RW", "CONSTANT"), ("OPT_SIM", option)],
+            ));
+            assert!(
+                (out["SWE_SIM"][0] as f64 - solver).abs() < TOL,
+                "{option} disagrees between engines: module {} vs solver {solver}",
+                out["SWE_SIM"][0]
+            );
+        }
+
+        // C — and the two Simandoux forms are genuinely different numbers on this sample. Without
+        // this arm, arm B would still pass if BOTH engines had collapsed onto one equation — which
+        // is precisely the failure that made this row P0, just relocated.
+        let bp = crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n_exp, a);
+        let slb = crate::multimin2::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n_exp, a, 1.0);
+        assert!(
+            (bp - slb).abs() > 1e-3,
+            "the two Simandoux forms returned the same number ({bp} vs {slb}); agreement between \
+             engines means nothing if the engines have collapsed the two equations into one"
+        );
+    }
+
     /// SB-SAT-038 (P0). `12_saturation.md:1522-1537` — every saturation parameter **MUST** resolve
     /// to either a value with a **non-empty, checkable** source string or the explicit `NoDefault`
     /// state, and a default with an empty source **MUST fail the build**. A checkable reference is
