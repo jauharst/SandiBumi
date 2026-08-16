@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `155 / 222 handled — 116 DONE, 39 BLOCKED, 67 remaining`
+- Gate 2 requirement progress: `156 / 222 handled — 117 DONE, 39 BLOCKED, 66 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T07 / SB-CLY-050 - DONE; disputed live GR and density-neutron endpoints open empty, show exact competing source positions beside entry, and refuse before arithmetic until explicitly set`
+- Active increment: `G2-T07 / SB-CLY-051 - DONE; every shipping CLY default names its exact artefact or project-record locator, a product label alone is refused, and the locator survives into run provenance`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `Exact SB-CLY-050 Rust and frontend contracts are GREEN after witnessed RED on the selected RHO_MA, combined/wrong-tier evidence and missing point-of-entry rows. All eight disputed live fields are empty/required/source-bearing; unset evaluation refuses before dispatch; the cited T18 sets remain 0.4239 and 0.6000; evidence-load failure stays visible. TypeScript and cargo check are green; the fresh full gate is 1034 passed / 0 failed / 37 ignored with 31 owned warnings. Visual, Manual and Field evidence remain open.`
+- Automated gate: `Exact SB-CLY-051 Rust correctness is GREEN after witnessed RED on the incomplete NPHI source locator. Both live CLY modules and exactly three numeric defaults are inventoried; each carries the chapter-recorded locator; Techlog alone is refused at registry and pre-run-record boundaries; and all accepted locators persist unchanged with DEFAULTED resolution. TypeScript and cargo check are green; the fresh full gate is 1035 passed / 0 failed / 37 ignored with 31 owned warnings. Visual, Manual and Field evidence remain open.`
 - Pilot field evidence: `OPEN`
-- Open blockers: `39 requirements are explicitly BLOCKED and 67 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T07 with SB-CLY-051: require a checkable artefact locator rather than a product name alone wherever a CLY value ships, without opening protected vendor resources or promoting absent values.`
+- Open blockers: `39 requirements are explicitly BLOCKED and 66 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T07 with SB-CLY-054: retain source units and named conversions for every CLY parameter without inserting magic scale constants or inventing conversion provenance.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 26 implement-or-refuse / 70 remediate / 12 prove / 114 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 25 implement-or-refuse / 70 remediate / 12 prove / 115 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,8 +35,8 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `176` present-OK, `13` present-unverified, `146` present-divergent, `153` partial,
-  `391` absent and `52` unadjudicated.
+- As-built states: `177` present-OK, `13` present-unverified, `146` present-divergent, `153` partial,
+  `390` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-INS: `26/26` adjudicated - `9` present-OK, `1` present-unverified, `2` present-divergent,
@@ -64,8 +64,8 @@ Do not replace it with an estimated percentage.
 - SB-ENV: `58/58` adjudicated - `12` present-OK, `4` present-unverified, `11` present-divergent,
   `13` partial and `18` absent; `31` pilot blockers and `27` deferred; `12`
   correctness tests, `4` characterizations and `42` missing qualifying whole-contract proofs.
-- SB-CLY: `55/55` adjudicated - `5` present-OK, `10` present-divergent, `14` partial and `26` absent;
-  `11` pilot blockers and `44` deferred; `5` correctness tests, `2` characterizations and `48` missing qualifying
+- SB-CLY: `55/55` adjudicated - `6` present-OK, `10` present-divergent, `14` partial and `25` absent;
+  `11` pilot blockers and `44` deferred; `6` correctness tests, `2` characterizations and `47` missing qualifying
   whole-contract proofs.
 - SB-POR: `62/62` adjudicated - `21` present-divergent, `15` partial, `25` absent and `1`
   present-unverified; `26` pilot blockers and `36` deferred; `6` characterizations

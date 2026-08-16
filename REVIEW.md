@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-051: checkable source locators survive into run provenance
+
+- [ ] **Automated correctness:** the exact SB-CLY-T33 source-string limb was witnessed RED on
+      the incomplete `NPHI_FL` locator and is GREEN at 1 / 0 / 0. It inventories both live CLY
+      modules and exactly the three numeric defaults (`RHO_FL`, `NPHI_FL`, `FLAG_TOL`), pins each
+      chapter-recorded artefact or project-record locator, rejects `Techlog` alone at both registry
+      and pre-run-record boundaries, and proves the accepted strings persist unchanged with
+      `DEFAULTED` resolution and manifest identity. The empty-source and disputed-endpoint
+      supporting contracts remain green. TypeScript and cargo check are green; the fresh full gate
+      passed 1035 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Density-Neutron and inspect the help/source text for `RHO_FL`,
+      `NPHI_FL` and `FLAG_TOL`. Confirm the exact `.info`, Techlog HTML or SandiBumi section
+      locator is legible and not collapsed to a product badge. Run with the cited defaults and
+      confirm History shows the same source strings rather than a generic vendor label.
+- [ ] **Manual:** run `vsh_dn` without overriding the three cited defaults and inspect the stored
+      effective parameters. Confirm exactly those three are `DEFAULTED` with a manifest identity
+      and their unchanged source string, while every disputed endpoint remains explicitly supplied
+      or `REQUIRED_UNSET`. In a development fixture, replace one default source with `Techlog` and
+      confirm the run refuses before producing curves or a success record.
+- [ ] **Field and harsh critique:** a locator-shaped string is not proof that the protected vendor
+      artefact says what the chapter records, and a syntactic validator cannot detect a stale or
+      dishonest citation. This increment proves a zero-exception live inventory, fail-closed
+      custody and persistence using the chapter's recorded evidence; it deliberately does not open
+      protected resources, implement SB-CLY-031's categorical provenance curve, or claim field
+      verification. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-050: disputed endpoints remain unset beside their evidence
 
 - [ ] **Automated correctness:** the exact Rust contract was witnessed RED first on the selected

@@ -680,14 +680,14 @@
 
 - **Chapter evidence:** P1; historical status `ABSENT`; T33; sections 4.5, 5, 6 and 8.
 - **Atomic obligations:** every shipped default carries a specific artefact/publication/record locator; product name alone is rejected; persist source with the run.
-- **Current source:** `ArgSpec` has a generic topic key, not a per-value primary source field. Current CLY parameters leave it empty, ship defaults, and serialize only numeric request values; no CLY source locator reaches the run record.
-- **Qualifying acceptance tests:** none; zero-exception source inventory, generic-name rejection and run persistence are missing. Test class `MISSING`.
-- **Supporting tests:** the generic parameter-source panel can render other domains' topics, but it is not evidence for any CLY default.
+- **Current source:** `ArgSpec::default_source` now gives every numeric CLY default machine-readable primary-source custody. The zero-exception live inventory is `vsh_dn.RHO_FL`, `vsh_dn.NPHI_FL` and `vsh_dn.FLAG_TOL`; each identifies the recorded Geolog `.info`, Techlog HTML or SandiBumi chapter locator. All disputed endpoints remain `ABSENT`. `validate_parameter_sources` rejects an empty or generic product-only CLY source both at catalog construction and before `effective_module_parameters` can construct the run record; accepted sources pass through unchanged with `DEFAULTED` resolution and manifest identity.
+- **Qualifying acceptance tests:** `every_shipping_clay_default_names_a_checkable_artefact_and_a_product_name_alone_fails_before_the_run_record` was witnessed RED on the incomplete NPHI locator and passes. It inventories both live CLY modules and exactly three numeric defaults; pins each chapter-recorded locator; rejects `Techlog` alone at registry and run-record boundaries; and proves all three locators survive in the effective parameter record. Expected identities and locators come from sections 4.5, 5 and 6. Test class `CORRECTNESS`.
+- **Supporting tests:** `a_registered_default_without_a_source_fails_the_build_gate` remains green for the empty-source side, and SB-CLY-050's disputed-endpoint refusal remains green. Neither substitutes for the exact CLY inventory and persistence proof.
 - **Manual evidence:** shale-volume 0/17; workflow 0/23; processing-history 0/7.
-- **Git evidence:** generic source infrastructure is integrated; domain adoption is absent and no CLY source locator was found.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** protected artefacts were not opened; the chapter's recorded locator is evidence, and missing locators keep values absent.
-- **Next action:** add a source-or-ABSENT field to CLY parameter custody and reject generic vendor labels and missing source at both entry and persisted-run validation.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries the exact source strings, catalog/runtime refusals, acceptance test and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-051. Protected vendor artefact contents were not independently opened: the chapter's recorded locators are admissible evidence here, so this proves specificity and persistence rather than revalidating vendor facts. Missing locators continue to keep values absent.
+- **Next action:** preserve the exact default inventory and fail-closed source gate, complete Visual/Manual/Field review separately, then continue SB-CLY-054 without inventing a source-unit conversion.
 
 ## SB-CLY-052 - Import by ordinal **and** semantic key
 

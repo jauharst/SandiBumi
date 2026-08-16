@@ -648,6 +648,9 @@ pub(crate) fn effective_module_parameters(
     ),
     String,
 > {
+    if spec.category == "VSH" {
+        modules::validate_parameter_sources(std::slice::from_ref(spec))?;
+    }
     let manifest_version = crate::parameter_pack::module_parameter_schema_from_spec(spec)?
         .module_schema_version;
     let manifest_source = format!("module manifest {manifest_version}");

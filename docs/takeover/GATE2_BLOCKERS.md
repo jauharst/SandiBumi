@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `155 / 222`
-- Done: `116`
+- Handled: `156 / 222`
+- Done: `117`
 - Blocked: `39`
-- Remaining unhandled: `67`
+- Remaining unhandled: `66`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.

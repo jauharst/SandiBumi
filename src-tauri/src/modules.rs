@@ -1459,8 +1459,26 @@ pub(crate) fn retired_module(name: &str) -> Option<&'static str> {
 
 /// Registry build gate for SB-CORE-004. Numeric defaults are admissible only when their own
 /// machine-readable source is present; a deliberately absent default uses the exact `ABSENT`
-/// token and must not carry a concealed number.
-fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), String> {
+/// token and must not carry a concealed number. SB-CLY-051 additionally requires each shipping
+/// CLY default to name a checkable artefact rather than a product label.
+fn source_identifies_checkable_artefact(source: &str) -> bool {
+    let lower = source.to_ascii_lowercase();
+    let file_or_record = [
+        ".info", ".lls", ".html", ".htm", ".json", ".xml", ".md", ".pdf", "doi:",
+        "isbn",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+        || source.contains('/')
+        || source.contains('\\')
+        || source.contains('§');
+    let named_publication = source.split_whitespace().count() >= 2
+        && source.split(|character: char| !character.is_ascii_digit())
+            .any(|digits| digits.len() == 4 && digits.starts_with(['1', '2']));
+    file_or_record || named_publication
+}
+
+pub(crate) fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), String> {
     let mut failures = Vec::new();
     for module in modules {
         for arg in &module.args {
@@ -1483,6 +1501,12 @@ fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), String> {
                         arg.default
                     ));
                 }
+                continue;
+            }
+            if module.category == "VSH" && !source_identifies_checkable_artefact(source) {
+                failures.push(format!(
+                    "{identity} source '{source}' does not identify a checkable artefact locator, named publication, or project record; a product name alone is not a source"
+                ));
                 continue;
             }
             match arg.default.parse::<f64>() {
@@ -2327,7 +2351,7 @@ fn vsh_dn_spec() -> ModuleSpec {
             with_guidance(
                 param(
                     "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
-                    "Geolog V14 vsh_dn.info RHO_FL 1000 k/m3 and Techlog VSH neutron-density 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5",
+                    "Geolog vsh_dn.info RHO_FL DEFAULT 1000 k/m3; Techlog petrophysics-vsh-from-neutrondensity.html RHO fluid 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5",
                 ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
@@ -2348,7 +2372,7 @@ fn vsh_dn_spec() -> ModuleSpec {
             with_guidance(
                 param(
                     "NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2,
-                    "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+                    "Geolog vsh_dn.info NPHI_FL 1 v/v; Techlog petrophysics-vsh-from-neutrondensity.html NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
                 ),
                 &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
@@ -8382,6 +8406,117 @@ mod tests {
                 "the preset must be described as a named convention rather than an endpoint"
             );
         }
+    }
+
+    /// CORRECTNESS — SB-CLY-051 / SB-CLY-T33 and `10_clay-volume.md` sections 4.5, 5
+    /// and 6. The chapter identifies the exact Geolog `.info`, Techlog HTML and SandiBumi
+    /// section locators; a product name by itself is explicitly rejected there. The exact
+    /// three-default inventory prevents an implementation from validating only one convenient
+    /// field, while the effective-parameter assertion proves the locator reaches the run record.
+    #[test]
+    fn every_shipping_clay_default_names_a_checkable_artefact_and_a_product_name_alone_fails_before_the_run_record() {
+        let clay_modules = module_catalog()
+            .iter()
+            .filter(|module| module.category == "VSH")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            clay_modules
+                .iter()
+                .map(|module| module.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["vsh_gr", "vsh_dn"],
+            "the source audit must cover every shipping CLY module"
+        );
+
+        let shipping_defaults = clay_modules
+            .iter()
+            .flat_map(|module| {
+                module.args.iter().filter_map(move |arg| {
+                    (arg.kind == ArgKind::Param && arg.default.parse::<f64>().is_ok()).then(|| {
+                        (
+                            format!("{}.{}", module.name, arg.name),
+                            arg.default_source.as_str(),
+                        )
+                    })
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            shipping_defaults.keys().cloned().collect::<Vec<_>>(),
+            vec![
+                "vsh_dn.FLAG_TOL".to_string(),
+                "vsh_dn.NPHI_FL".to_string(),
+                "vsh_dn.RHO_FL".to_string(),
+            ],
+            "no shipping clay default may escape the source audit"
+        );
+        for (identity, locator) in &shipping_defaults {
+            let expected_locator = match identity.as_str() {
+                "vsh_dn.RHO_FL" => "vsh_dn.info RHO_FL",
+                "vsh_dn.NPHI_FL" => "vsh_dn.info NPHI_FL",
+                "vsh_dn.FLAG_TOL" => "docs/PRD_v2/10_clay-volume.md §5.1",
+                _ => unreachable!("the exact inventory assertion above closed this vocabulary"),
+            };
+            assert!(
+                locator.contains(expected_locator),
+                "{identity} must name its checkable artefact locator, got: {locator}"
+            );
+        }
+
+        let mut product_only = vsh_dn_spec();
+        product_only
+            .args
+            .iter_mut()
+            .find(|arg| arg.name == "RHO_FL")
+            .unwrap()
+            .default_source = "Techlog".into();
+        let registry_error = validate_parameter_sources(std::slice::from_ref(&product_only))
+            .expect_err("a product name alone must fail the CLY registry gate");
+        assert!(registry_error.contains("vsh_dn.RHO_FL"));
+        assert!(
+            registry_error.contains("checkable artefact"),
+            "the refusal must state the missing evidence, got: {registry_error}"
+        );
+        let run_error = crate::workflow::effective_module_parameters(
+            &product_only,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            "explicit values sourced by this test",
+            "",
+        )
+        .expect_err("the same invalid manifest must fail before constructing a run record");
+        assert!(run_error.contains("vsh_dn.RHO_FL"));
+
+        let vsh_dn = clay_modules
+            .iter()
+            .find(|module| module.name == "vsh_dn")
+            .unwrap();
+        let (recorded, _) = crate::workflow::effective_module_parameters(
+            vsh_dn,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+            "explicit values sourced by this test",
+            "",
+        )
+        .expect("the cited shipping manifest must construct a run record");
+        let recorded_defaults = recorded
+            .iter()
+            .filter(|parameter| {
+                parameter.resolution == Some(crate::equations::ParameterResolution::Defaulted)
+            })
+            .map(|parameter| (parameter.name.as_str(), parameter.source.as_str()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            recorded_defaults,
+            BTreeMap::from([
+                ("FLAG_TOL", shipping_defaults["vsh_dn.FLAG_TOL"]),
+                ("NPHI_FL", shipping_defaults["vsh_dn.NPHI_FL"]),
+                ("RHO_FL", shipping_defaults["vsh_dn.RHO_FL"]),
+            ]),
+            "every shipping clay default must retain its primary source in the run record"
+        );
     }
 
     /// CORRECTNESS — SB-CLY-050 / SB-CLY-T18. The empty/default disposition and the
