@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-POR-009","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample"
 "SB-POR-008","CORRECTNESS","src-tauri/src/modules.rs","one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities"
 "SB-POR-007","CORRECTNESS","src-tauri/src/modules.rs","every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent"
 "SB-POR-006","CORRECTNESS","src-tauri/src/workflow.rs","every_porosity_method_that_consumes_a_shale_or_clay_volume_declares_the_quantity_it_accepts_and_refuses_an_untyped_or_wrong_family_curve"

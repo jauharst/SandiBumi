@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-009: sonic porosity could report more effective than total
+
+- [ ] **Automated correctness:** `every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample`
+      found a real defect, not just an unasserted invariant. `phi_son` builds effective porosity as
+      `PHIT − VSH·(DT_SH − DT_MA)/(DT_FL − DT_MA)/Cp`. When `DT_SH < DT_MA` that shale term is
+      **negative**, so the subtraction becomes an addition and effective porosity overtakes total.
+      `DT_MA` 70 with `DT_SH` 60 are **both inside the shipped declared ranges**, giving
+      `PHIT_SON 0.0840` against `PHIE_SON 0.1008` — effective 20% above total with every input
+      nominally valid. `phi_son` now bounds PHIE by that sample's own already-limited PHIT, the same
+      construction `ssc`/`sspw` already used. The test also proves the witness really does invert the
+      ordering before enforcement, so it cannot pass by never stressing it; removing the guard
+      reproduces the exact violation.
+- [ ] **Manual:** run Porosity from Sonic on a shaly interval with `DT_MA` 70 and `DT_SH` 60 and
+      confirm PHIE_SON never plots above PHIT_SON. Then use a normal pair (e.g. `DT_MA` 55.5,
+      `DT_SH` 100) and confirm your usual answers are **unchanged** — the guard must bind only in
+      the inverted case.
+- [ ] **Field and harsh critique:** worth deciding whether any past sonic work used a shale slowness
+      below the matrix slowness; if so, its PHIE was overstated. Note this is a **guard, not a
+      correction** — an inverted `DT_SH`/`DT_MA` pair is still very likely a parameter error worth
+      catching at entry, and this row does not refuse it. Say so if you want a refusal instead. No
+      new numeric bound was introduced: the ceiling is the sample's own total porosity. Sonic is a
+      first-pilot exclusion. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-008: one formation-water clay-bound-water porosity, now shared
 
 - [ ] **Automated correctness:** `one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities`

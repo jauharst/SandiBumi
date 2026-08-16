@@ -3373,7 +3373,16 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
             // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
             // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand form.
             let pe = pt - v * (dt_sh - dt_ma) / (dt_fl - dt_ma) / cp;
-            phie_son[i] = limit(pe, 0.0, 1.0) as f32;
+            // SB-POR-009 / F21: effective porosity can never exceed total porosity. Density and
+            // D-N get this free because they rebuild PHIT from the limited PHIE, but sonic
+            // computes the two independently, so the ordering has to be imposed here — bounding
+            // PHIE by the already-limited PHIT, exactly as `ssc`/`sspw` do.
+            //
+            // This binds only where the shale term is NEGATIVE, i.e. DT_SH < DT_MA. That is not a
+            // hypothetical: DT_MA 70 and DT_SH 60 are both inside the shipped declared ranges, and
+            // there the subtraction becomes an addition and effective porosity overtakes total.
+            // No new bound is introduced — the ceiling is the sample's own total porosity.
+            phie_son[i] = limit(pe, 0.0, phit_son[i] as f64) as f32;
         }
     }
 
@@ -5775,6 +5784,130 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-009 and F21. `PHIT >= PHIE` must hold at
+    /// every sample by construction, and the requirement's own words are that the invariant "MUST
+    /// additionally be asserted, not merely relied on".
+    ///
+    /// The adversarial witness is not invented: `DT_MA = 70` and `DT_SH = 60` are both inside the
+    /// shipped `phi_son` declared ranges (`DT_MA` 40..70, `DT_SH` 60..150). There the shale term
+    /// `(DT_SH - DT_MA)` goes NEGATIVE, so the effective porosity is built by ADDING to the total —
+    /// which is how a sonic sample can report more effective than total porosity while every input
+    /// is nominally in range. Arm B proves the case really is adversarial, so this cannot pass by
+    /// picking inputs that never stress the ordering.
+    ///
+    /// `ssc`/`sspw` are proved structurally rather than executed: both bound effective porosity with
+    /// total porosity as the upper limit, so the invariant holds by construction there. Their file
+    /// is protected, and the 2026-08-16 authorization covered SB-POR-008 only.
+    #[test]
+    fn every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample() {
+        use crate::units::DepthUnit;
+
+        let n = 3usize;
+        let logs: HashMap<String, Vec<f32>> = HashMap::from([
+            ("DT".into(), vec![80.0, 95.0, 120.0]),
+            ("RHOB".into(), vec![2.30, 2.45, 2.10]),
+            ("NPHI".into(), vec![0.25, 0.35, 0.15]),
+            ("VSH".into(), vec![0.20, 0.60, 0.90]),
+        ]);
+        // Section 5.1 / 5.2 cited values, except the sonic pair, which is deliberately the
+        // in-range-but-inverted case described above.
+        let base: &[(&str, f64)] = &[
+            ("RHO_MA", 2.65),
+            ("RHO_SH", 2.50),
+            ("RHO_FL", 1.00),
+            ("RHO_DSH", 2.78),
+            ("RHO_W", 1.00),
+            ("NPHI_SH", 0.40),
+            ("PHIE_MAX", 0.30),
+            ("DT_FL", 189.0),
+            ("DT_MA", 70.0),
+            ("DT_SH", 60.0),
+        ];
+        let params: HashMap<String, Vec<f64>> =
+            base.iter().map(|(k, v)| ((*k).to_string(), vec![*v; n])).collect();
+
+        // B — the witness must actually be able to break the ordering, or arm A proves nothing.
+        let (dt, vsh) = (120.0_f64, 0.90_f64);
+        let raw_total = (dt - 70.0) / (189.0 - 70.0);
+        let raw_effective = raw_total - vsh * (60.0 - 70.0) / (189.0 - 70.0);
+        assert!(
+            raw_effective > raw_total,
+            "the chosen in-range sonic parameters must make the unguarded effective porosity exceed the total"
+        );
+
+        // A — execute every porosity module that can be driven from these inputs and pair its
+        // outputs by declared name, so a limited pair and an unlimited pair are both checked.
+        let mut checked = 0usize;
+        for module in ["phi_den", "phi_dn", "phi_son"] {
+            for opts in [
+                HashMap::new(),
+                HashMap::from([("OPT_SON".to_string(), "RHG".to_string())]),
+                HashMap::from([("OPT_CP".to_string(), "ON".to_string())]),
+                HashMap::from([("OPT_PHIEMAX".to_string(), "MAXIMUM".to_string())]),
+            ] {
+                let ctx = ModuleContext {
+                    n,
+                    logs: logs.clone(),
+                    params: params.clone(),
+                    opts,
+                    depth_unit: DepthUnit::Metres,
+                };
+                let outputs = run_module(module, &ctx)
+                    .unwrap_or_else(|error| panic!("{module} failed to run: {error}"));
+                for (name, effective) in &outputs {
+                    let Some(suffix) = name.strip_prefix("PHIE") else { continue };
+                    let Some(total) = outputs.get(&format!("PHIT{suffix}")) else { continue };
+                    for i in 0..n {
+                        let (e, t) = (effective[i], total[i]);
+                        if !e.is_finite() || !t.is_finite() {
+                            continue;
+                        }
+                        assert!(
+                            t >= e,
+                            "{module}: PHIT{suffix} {t} is below PHIE{suffix} {e} at sample {i}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            checked >= 30,
+            "the sweep must actually compare finite pairs, not silently skip them; compared {checked}"
+        );
+
+        // C — the protected methods hold the invariant by construction: effective porosity is
+        // bounded above by total porosity at the point it is written.
+        let ssc = include_str!("ssc.rs");
+        let bounded = ssc
+            .lines()
+            .filter(|line| line.contains("let phie = limit(") && line.contains(", phit)"))
+            .count();
+        assert_eq!(
+            bounded, 2,
+            "ssc and sspw must each bound effective porosity by total porosity; found {bounded}"
+        );
+
+        // D — the other side: no registered porosity method may emit a PHIT/PHIE pair that neither
+        // arm covers. A new method would otherwise inherit the guarantee without ever being checked.
+        let covered = ["phi_den", "phi_dn", "phi_son", "ssc", "sspw"];
+        for spec in module_catalog().iter().filter(|spec| spec.category == "Porosity") {
+            let emits_pair = spec
+                .args
+                .iter()
+                .any(|arg| arg.kind == ArgKind::LogOut && arg.name.starts_with("PHIE"))
+                && spec
+                    .args
+                    .iter()
+                    .any(|arg| arg.kind == ArgKind::LogOut && arg.name.starts_with("PHIT"));
+            assert!(
+                !emits_pair || covered.contains(&spec.name.as_str()),
+                "porosity method '{}' emits a PHIT/PHIE pair that this proof does not cover",
+                spec.name
+            );
+        }
+    }
 
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-008 and F16. The required form
     /// `PHIT_SH = (RHO_DSH - RHO_SH)/(RHO_DSH - RHO_W)` with `RHO_W` the FORMATION WATER density is

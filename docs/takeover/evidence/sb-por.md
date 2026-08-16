@@ -190,18 +190,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** none remaining for this row's contract. The CLY consumer `clsr_porosity_corrected` (SB-CLY-044) stays deferred outside the manifest and is not required for the "defined once, formation-water anchored, distinctly named" contract this row owns; when SB-CLY-044 is admitted it must consume `modules::shale_total_porosity` rather than re-derive it, which arm D of the test now enforces mechanically.
 - **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-009. A `DEC` row recording the 2026-08-16 `ssc.rs` authorization still needs adding to `DECISIONS.md`, which was outside this program's allowed paths.
 
-## SB-POR-009 - Limit PHIE before rebuilding PHIT
+## SB-POR-009 - PHIT is never below PHIE
 
-- **Specified contract:** at every finite sample, limited `PHIE` is formed first and `PHIT` is rebuilt so `PHIT >= PHIE`; T11 covers floor, ceiling, shale branch and missing data for every method.
-- **Current implementation:** `phi_den` and `phi_dn` use the required order. `phi_son` independently clamps both outputs, and SSC/SSPW use separate paths, so the universal ordering is not established.
-- **Qualifying acceptance tests:** none; no all-method, all-branch test exists. Test class `MISSING`.
-- **Supporting tests:** density/D-N flooring and shale-branch tests passed exactly once and show local ordering; they cannot close sonic or SSC/SSPW.
-- **Manual evidence:** porosity 0/33.
-- **Source/parameter boundary:** the ordering is specified; no floor value is adopted by this receipt.
-- **History/reachability:** the density/D-N ordering is integrated; no common family implementation was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-001 and the unresolved SB-POR-045 floor custody.
-- **Next action:** place order enforcement in the common POR limiter and test floor, ceiling, shale, naturally ordered and missing samples for every registered method.
+- **Specified contract:** `PHIT >= PHIE` holds at every sample by construction - limit `PHIE` first, then rebuild `PHIT` from the limited value (Geolog's ordering, F21) - and the invariant must additionally be asserted, not merely relied on.
+- **Current implementation:** `phi_den` and `phi_dn` hold it for free because they rebuild `PHIT` from the limited `PHIE`. `phi_son` computed the two independently and **did violate it**: `pe = pt - VSH*(DT_SH - DT_MA)/(DT_FL - DT_MA)/Cp`, so when `DT_SH < DT_MA` the shale term is negative and the subtraction becomes an addition. `DT_MA` 70 and `DT_SH` 60 are both inside the shipped declared ranges (`DT_MA` 40..70, `DT_SH` 60..150), giving `PHIT_SON 0.0840` against `PHIE_SON 0.1008` - effective porosity 20 percent above total with every input nominally valid. `phi_son` now bounds `PHIE` by the sample's own already-limited `PHIT`, which is the same construction `ssc` and `sspw` already use.
+- **Qualifying acceptance tests:** `every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample` pins four sides: it executes `phi_den`, `phi_dn` and `phi_son` across WYLLIE/RHG, Cp on/off and both PHIE-limiting modes, pairing outputs by declared name so limited and unlimited pairs are both checked; it proves separately that the chosen in-range sonic parameters really do invert the ordering before enforcement, so the sweep cannot pass by never stressing it; it proves `ssc`/`sspw` bound effective by total porosity structurally; and it refuses to let any registered Porosity-category method emitting a PHIT/PHIE pair escape coverage. Removing the enforcement reproduces the exact violation as RED. Test class `CORRECTNESS`.
+- **Supporting tests:** `phi_son_wyllie_cp_opt_in_only_scales_wyllie` passes unchanged, so the ordering guard does not disturb the compaction behaviour it pins.
+- **Manual evidence:** porosity 0/33; workflow 0/23.
+- **Source/parameter boundary:** SB-POR-009 and F21 supply the invariant and the ordering; the adversarial witness comes from the shipped manifest's own declared ranges rather than a chosen number. **No new numeric bound was introduced** - the ceiling imposed is the sample's own total porosity, not a constant. The invariant is an ordering contract and is independent of the unresolved `SB-POR-045` floor VALUE, so DEC-026 does not gate it.
+- **History/reachability:** the violation was reachable in shipped code for every sonic run whose shale slowness fell below its matrix slowness.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. `ssc`/`sspw` are proved structurally rather than executed because `ssc.rs` is protected and the 2026-08-16 authorization covered SB-POR-008 only; the invariant holds there by construction, so no edit is required.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-010.
 
 ## SB-POR-010 - Re-derivable audit trail for every POR curve
 
