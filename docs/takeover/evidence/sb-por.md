@@ -782,18 +782,17 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** depends on whether SB-POR-027 enters pilot scope.
 - **Next action:** if included, implement the canonical term and pair a sourced numeric fixture with an explicit forbidden-form inventory guard.
 
-## SB-POR-054 - Canonical correction sign and algebraic identity
+## SB-POR-054 - One canonical sign convention
 
-- **Specified contract:** every POR correction uses one named canonical sign convention and has an independently derived identity test that distinguishes forward from inverse/correction direction.
-- **Current implementation:** local formulas have embedded signs, but there is no POR-wide sign type, named convention, directional API or independent identity proof.
+- **Specified contract:** SandiBumi **MUST** state one canonical sign convention for every matrix/fluid/log transform and **MUST** carry a test proving algebraic identity with the inverted forms Geolog (`por_from_rhob.lls`) and Techlog (N-D crossplot page) publish (F22). Two independent vendors write these with **both** numerator and denominator inverted; a reader porting either line verbatim without noticing both flips ships a sign error that is invisible in review.
+- **Current implementation:** local formulas have embedded signs, but there is no POR-wide sign type, named convention or directional API. **Now evidenced concretely:** `modules.rs:3160` writes density matrix-first as `(rho_ma - r) / (rho_ma - rho_fl)`, while `modules.rs:3392` writes sonic log-first as `(d - dt_ma) / (dt_fl - dt_ma)`. Neither is wrong and they agree to the last bit - but two spellings with no stated canon is exactly what the MUST forbids.
 - **Qualifying acceptance tests:** none. Test class `MISSING`.
-- **Supporting tests:** local arithmetic tests can show current results but are circular for a universal sign identity.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** no sign is inferred from a current implementation result.
-- **History/reachability:** current and reachable searches found no canonical POR sign contract.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on separately named directions from SB-POR-005/SB-POR-040.
-- **Next action:** define the sign convention at the typed API boundary and derive the test expectation independently from the chapter equation.
+- **Supporting tests:** the per-module arithmetic tests pin each local formula; none proves identity with a vendor-published inverted form.
+- **Manual evidence:** porosity 0/70.
+- **Source/parameter boundary:** no parameter is involved. The identity expectation is derived from the chapter equation, not the code: at `rho_ma` 2.65, `rho_fl` 1.0, `rho_b` 2.3 both published forms give **0.2121212**, and the real error mode - flipping the **numerator only** - gives **−0.2121212**.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-CONTRACT`. The earlier *depends on SB-POR-005/SB-POR-040* reading is **stale** - neither is named in the requirement, and SB-POR-040 concerns excavation-correction directions, a different subject. This is one MUST with two clauses: the second (the identity proof) needs no decision and is ready to build; the first requires choosing which spelling is canonical and refactoring every transform to it. That is an API-convention call across many modules and **not** a petrophysical one - both forms are the same number - so it is recorded rather than decided unilaterally.
+- **Next action:** choose matrix-first or log-first, state it at the typed API boundary, then add the identity test with the single-flip arm, which is the arm that catches the real-world mistake.
 
 ## SB-POR-055 - Source, tier and default discipline for all parameters
 

@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `180 / 222`
+- Handled: `181 / 222`
 - Done: `128`
-- Blocked: `52`
-- Remaining unhandled: `42`
+- Blocked: `53`
+- Remaining unhandled: `41`
 
 ---
 
@@ -151,6 +151,7 @@ requirement appears exactly once.
 | `SB-POR-045` | RULED 0.001 on 2026-08-16 - implementation pending | The chapter (`:1052-1056`) says the floor value **MUST** ship with no default and be a documented user decision, because IP's manual gives **0.001 and 0.0001 for the same quantity in three places** and the chapter calls it unresolvable. A later product record picked 0.001; SandiBumi hard-codes 0.001. Does the later record supersede the chapter? Only you can say. It bites in tight and zero-porosity intervals - exactly where a pay cutoff sits. **Jauhar ruled 0.001.** The adjudication half is closed. Remaining: the chapter states TWO clauses - no default **and** documented user decision - and the ruling settles the second. Confirm whether 0.001 becomes a cited **default** (matching the SB-POR-011 and SB-POR-023 rulings) or a `param_open` that refuses unsupplied. | Confirm which reading, then move it out of the compile-time `PHIE_FLOOR` constant into source-labelled configuration and prove two values give distinct LIMITED outputs while the UNLIMITED twin is untouched. |
 | `SB-POR-047` | Dependency on SB-POR-003 / DEC-039 | The chapter (`:1061-1063`) requires porosity to accept `BADHOLE` as a declared input **and** record its effect **through SB-POR-003**. The declaration is ordinary wiring; the recording names a stream that does not exist pending DEC-039. The row's whole point is *not* depending on the analyst remembering a generic Mask, so the existing mask route does not satisfy it. | Settle DEC-039, then declare and consume `BADHOLE` per `gascorr`'s idiom and prove clean, flagged and flag-absent - absent recording that nobody looked, not a zero. |
 | `SB-POR-048` | Per-flag policy ruling, then DEC-039 | The chapter (`:1065-1072`) requires porosity to consume `COAL_FLAG`, `TIGHT_FLAG` and `COND_FLAG` **with defined branch behaviour** - and does not define it. Per flag: does it **mask**, **select a branch**, or only **annotate**? Three different porosity curves from identical data, none cited. Coal is the sharp case: a coal bed has a real very high apparent density porosity, and blanking it versus computing-and-labelling it is a method preference. Recording the outcome then needs DEC-039. | Rule the policy per flag; settle DEC-039; then declare the three as typed inputs, implement without deleting any existing guard, and prove each consumed flag plus an unflagged control. |
+| `SB-POR-054` | Which spelling is canonical | The `SB-POR-005`/`SB-POR-040` dependency was stale - neither appears in the requirement text. The real gap is evidenced: density writes `(rho_ma - r)/(rho_ma - rho_fl)` (`modules.rs:3160`) while sonic writes `(d - dt_ma)/(dt_fl - dt_ma)` (`:3392`). Identical numbers, two spellings, no stated convention - which is what the MUST forbids. Choosing one is an API-convention call across many modules, not a petrophysical one. | Pick the canonical spelling and state it at the typed API boundary. The identity test needs no decision and is ready: both published forms give 0.2121212 at rho_ma 2.65 / rho_fl 1.0 / rho_b 2.3, and a numerator-only flip giving -0.2121212 must be caught. |
 
 ## Product-owner decision packet
 
