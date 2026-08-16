@@ -472,14 +472,14 @@
 
 - **Chapter evidence:** P2; historical status `PARTIAL`; T36; sections 4.2, 6 and 8.
 - **Atomic obligations:** every rule supports minimum and maximum; caliper bad-hole detection covers over-gauge and under-gauge.
-- **Current source:** `badhole` uses absolute DRHO, but its caliper branch tests only positive enlargement. The manifest exposes only one maximum departure and cannot express the under-gauge side.
-- **Qualifying acceptance tests:** none; T36's under-gauge failure plus over-gauge/good-hole controls are missing. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho` passed exactly once for good, DRHO and over-gauge samples; it does not pin under-gauge behavior.
+- **Current source:** `badhole` now applies the explicit `DCAL_MAX` as a strict maximum absolute departure, `|CALI - bit size| > DCAL_MAX`, so one supplied magnitude defines symmetric minimum/maximum accepted gauge bounds. Its manifest and visible help use the same absolute-departure contract. The arbitrary per-indicator/per-zone rule-list generality remains owned by deferred SB-CLY-033 rather than being smuggled into this row.
+- **Qualifying acceptance tests:** `modules::tests::under_gauge_and_over_gauge_hole_both_fire_while_both_strict_boundaries_and_in_gauge_do_not` was witnessed RED with the cited T36 under-gauge sample returning clear, then passed after the absolute-departure change. It pins cited under-gauge, symmetric over-gauge, both strict boundaries, in-gauge and evaluated-state controls; test class `CORRECTNESS`.
+- **Supporting tests:** `badhole_flags_washout_and_drho`, the independent-term availability test and bit-size-source test remain green for DRHO, over-gauge, missing-geometry and measured/explicit bit-size paths.
 - **Manual evidence:** conditioning 0/27; shale-volume 0/17.
-- **Git evidence:** the one-sided caliper branch is integrated and reachable at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** any thresholds remain explicit user/source parameters; the required two-sided shape does not authorize a value.
-- **Next action:** express caliper acceptance as explicit lower/upper bounds in the shared rule model and add under-, over- and in-gauge controls.
+- **Git evidence:** implementation and exact T36 are prepared on current parent `bf35be67fb1f27c7ed42f44af2d1b3332e7bb39b`; no threshold magnitude, default, unit or DRHO behavior changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied built-in caliper contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for exact T36. `DCAL_MAX` remains an explicit user/source value with no shipped default; SB-CLY-033 still owns arbitrary discriminator-rule lists and is not claimed closed here.
+- **Next action:** preserve exact T36 and the strict-boundary controls, perform Visual/Manual/Field review separately, and continue SB-CLY-041.
 
 ## SB-CLY-036 - Per-indicator coal branch with its own provenance token
 

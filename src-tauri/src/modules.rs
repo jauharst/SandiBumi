@@ -2816,8 +2816,8 @@ fn badhole_spec() -> ModuleSpec {
         name: "badhole".into(),
         title: "Bad-Hole QC Flag".into(),
         category: "Prep".into(),
-        doc: "BADHOLE = 1 where the borehole is enlarged or the density correction is large \
-              enough to distrust the porosity logs: |DRHO| > DRHO_MAX, or (CALI - bit size) > \
+        doc: "BADHOLE = 1 where the borehole departs from gauge or the density correction is large \
+              enough to distrust the porosity logs: |DRHO| > DRHO_MAX, or |CALI - bit size| > \
               DCAL_MAX. Bit size comes from the BS curve where present, or the interpreter's \
               optional BS_INPUT; no value is substituted when both are absent, so only DRHO can \
               be evaluated. The flag is 0 in good hole and MISSING where no QC criterion can be \
@@ -2846,7 +2846,7 @@ fn badhole_spec() -> ModuleSpec {
             ),
             param_open(
                 "DCAL_MAX",
-                "Max acceptable (caliper - bit size)",
+                "Max acceptable absolute caliper departure from bit size",
                 "in",
                 0.0,
                 12.0,
@@ -2948,7 +2948,7 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         if !is_missing(cl) && !is_missing(bit) {
             any = true;
             cali_evaluated.set(i, FlagValue::Flagged);
-            if cl - bit > dcal_max {
+            if (cl - bit).abs() > dcal_max {
                 bad = true;
             }
         }
@@ -6975,6 +6975,36 @@ mod tests {
         assert_eq!(f[1], 1.0, "big DRHO");
         assert_eq!(f[2], 1.0, "washout");
         assert!(f[3].is_nan(), "no QC curves at all -> missing");
+    }
+
+    /// CORRECTNESS — `10_clay-volume.md` SB-CLY-035 / exact T36 supplies CALI = 6.0 in,
+    /// BS = 8.5 in and DCAL_MAX = 1.0 in and requires the under-gauge side to fire. The
+    /// over-gauge sample is the equal 2.5 in departure on the other side; 7.5/9.5 in are
+    /// independently derived strict boundaries and 8.5 in is the zero-departure control.
+    #[test]
+    fn under_gauge_and_over_gauge_hole_both_fire_while_both_strict_boundaries_and_in_gauge_do_not() {
+        let ctx = ctx_with(
+            5,
+            &[
+                ("DRHO", vec![f32::NAN; 5]),
+                ("CALI", vec![6.0, 7.5, 8.5, 9.5, 11.0]),
+                ("BS", vec![8.5; 5]),
+            ],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 1.0)],
+            &[],
+        );
+
+        let out = badhole(&ctx).expect("a complete caliper discriminator must run");
+        assert_eq!(
+            out["BADHOLE"],
+            [1.0, 0.0, 0.0, 0.0, 1.0],
+            "equal-magnitude under- and over-gauge departures must be treated symmetrically"
+        );
+        assert_eq!(
+            out["BADHOLE_CALI_EVALUATED"],
+            [1.0; 5],
+            "every finite caliper/bit-size pair was actually evaluated"
+        );
     }
 
     /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-021 and section 6.3 T32,

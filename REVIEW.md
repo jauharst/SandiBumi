@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-035: Two-sided differential-caliper bad-hole detection
+
+- [ ] **Automated correctness:** exact T36 is GREEN after a witnessed RED on the cited under-gauge
+      sample. The test also pins an equal over-gauge departure, both strict threshold boundaries,
+      zero departure and criterion availability; no threshold or default was added.
+- [ ] **Visual:** open Bad-Hole QC Flag and confirm `DCAL_MAX` is described as the maximum acceptable
+      **absolute** caliper departure from bit size, and the help equation displays
+      `|CALI - bit size| > DCAL_MAX`.
+- [ ] **Manual:** with an explicitly chosen bit size and differential-caliper threshold, preview one
+      under-gauge, one in-gauge and one over-gauge interval. Confirm both departures flag and the
+      in-gauge interval remains clear; do not count this checklist as completed until Jauhar runs it.
+- [ ] **Field and harsh critique:** automated symmetry is not evidence that a threshold is suitable
+      for a real tool string or interval. The interpreter still owns the value; a symmetric wrong
+      threshold would now reject bad data more consistently, not become correct.
+
 ## 2026-08-16 — G2 SB-CLY-034: Undeclared sentinel handling blocked on scoped import policy
 
 - [ ] **Decision dependency:** answer DEC-037. Exact T44 says a bare undeclared `-999` becomes

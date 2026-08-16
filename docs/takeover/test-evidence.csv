@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-CLY-035","CORRECTNESS","src-tauri/src/modules.rs","under_gauge_and_over_gauge_hole_both_fire_while_both_strict_boundaries_and_in_gauge_do_not"
 "SB-ENV-057","CORRECTNESS","src-tauri/src/modules.rs","every_project_depth_length_parameter_uses_one_token_while_metre_qualified_parameters_stay_metres"
 "SB-ENV-038","CORRECTNESS","src-tauri/src/condition.rs","a_gap_at_or_below_the_maximum_is_filled_while_epsilon_over_and_both_open_ends_are_not"
 "SB-ENV-034","CORRECTNESS","src-tauri/src/condition.rs","every_conditioning_and_framing_distance_is_physical_thickness_and_a_one_metre_despike_covers_one_metre_at_two_samplings"
