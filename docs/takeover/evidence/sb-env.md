@@ -748,14 +748,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T43/T67; sections 4.6, 6.6 and 8.
 - **Atomic obligations:** define one unit token for project-depth lengths; forbid false fixed-unit labels; validate through one conversion path.
-- **Current source:** live manifests use at least `depth`, `m|ft` and `m` for native-depth arithmetic. `depth_shift` and splice declare metres while applying values in the project depth unit; generic `DepthUnit` conversion does not validate these ArgSpec strings.
-- **Qualifying acceptance tests:** none; T67's complete declaration inventory is missing. Test class `MISSING`.
-- **Supporting tests:** generic project/file conversion passed, and the physical-window test supports behavior, but neither prevents false manifest labels.
+- **Current source:** `PROJECT_DEPTH_UNIT_TOKEN` defines `depth` once. Despike, Smooth, Fill Gaps, Block, Bed Detect, Condition Flags and `phimax.TVDSS_REF` all consume that token for nine native-depth parameters. `depth_shift.SHIFT` and `splice.SPLICE_DEPTH` remain explicitly metre-qualified because both implementations convert against `DepthUnit` before comparing with the project frame.
+- **Qualifying acceptance tests:** `modules::tests::every_project_depth_length_parameter_uses_one_token_while_metre_qualified_parameters_stay_metres` was witnessed RED on `condflag.MIN_THICK = m|ft`, then passed after enumerating the complete nine-parameter native-depth inventory, rejecting the legacy token globally and pinning both fixed-metre controls. T67/T43 supply the inventory and token contract; test class `CORRECTNESS`.
+- **Supporting tests:** exact T43 remains green for physical thickness at two samplings; `metre_qualified_depth_parameters_produce_the_same_results_in_foot_and_metre_projects` remains green for the fixed-metre side using the NIST international-foot conversion.
 - **Manual evidence:** data-conventions 0/45; conditioning 0/27; workflow 0/23.
-- **Git evidence:** the divergent tokens are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one canonical token/validator is missing; no conversion factor is open.
-- **Next action:** define the single project-depth-length token, migrate every declaration/doc string and add a whole-registry T67 plus metric/foot UI controls.
+- **Git evidence:** implementation and exact T67 are prepared on current parent `f1b95f8b6b40a2312f34a03f45712b43a14bda43`; no parameter magnitude or conversion factor changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated declaration truth; visual/manual/field evidence remains open.
+- **Next action:** preserve exact T67 plus both fixed-metre controls, execute visual/manual/field review separately and continue SB-CLY-001.
 
 ## SB-ENV-058 - Borehole-image speed correction, derived independently
 

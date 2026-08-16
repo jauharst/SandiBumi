@@ -30,7 +30,7 @@
 
 use crate::modules::{
     log_in, log_out_as, opt_labelled, param_open, param_open_when, ModuleContext, ModuleOutputs,
-    ModuleSpec,
+    ModuleSpec, PROJECT_DEPTH_UNIT_TOKEN,
 };
 use std::collections::HashMap;
 
@@ -246,12 +246,20 @@ pub fn block_spec() -> ModuleSpec {
             .into(),
         args: vec![
             param_open_when(
-                "INTERVAL", "Block thickness (OPT_BEDS = INTERVAL)", "depth", 0.0, 10000.0,
+                "INTERVAL",
+                "Block thickness (OPT_BEDS = INTERVAL)",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                10000.0,
                 &[("OPT_BEDS", "INTERVAL")],
                 "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
             ),
             param_open_when(
-                "MIN_BED", "Thinnest bed worth calling a bed (OPT_BEDS = AUTO)", "depth", 0.0, 10000.0,
+                "MIN_BED",
+                "Thinnest bed worth calling a bed (OPT_BEDS = AUTO)",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                10000.0,
                 &[("OPT_BEDS", "AUTO")],
                 "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
             ),
@@ -421,7 +429,7 @@ pub fn bed_detect_spec() -> ModuleSpec {
             param_open(
                 "MIN_BED",
                 "Thinnest bed worth calling a bed",
-                "depth",
+                PROJECT_DEPTH_UNIT_TOKEN,
                 0.0,
                 10000.0,
                 true,

@@ -156,6 +156,10 @@ pub struct ValidityBranch {
 /// default. This is a provenance state, not a citation and not permission to invent a value.
 pub const ABSENT_DEFAULT_SOURCE: &str = "ABSENT";
 
+/// The one manifest token for a numeric length expressed in the project's declared depth unit.
+/// Fixed-unit parameters such as metre-qualified `SHIFT` deliberately do not use this token.
+pub const PROJECT_DEPTH_UNIT_TOKEN: &str = "depth";
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ValidityRule {
@@ -1216,6 +1220,7 @@ fn module_catalog() -> &'static [ModuleSpec] {
         ];
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
+        validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
         modules
     })
 }
@@ -1303,6 +1308,30 @@ pub(crate) fn canonical_option_value(module: &str, argument: &str, value: &str) 
             "simandoux_modified_slb".into()
         }
         _ => trimmed.to_string(),
+    }
+}
+
+/// Registry build gate for SB-ENV-057. A numeric parameter may name a fixed unit (`m`, `ft`)
+/// when its implementation performs an explicit conversion, or use the single project-native
+/// token. Ambiguous union spellings cannot say which unit a supplied number is in and are refused.
+fn validate_project_depth_unit_tokens(modules: &[ModuleSpec]) -> Result<(), String> {
+    let invalid = modules
+        .iter()
+        .flat_map(|module| {
+            module.args.iter().filter_map(move |argument| {
+                (argument.kind == ArgKind::Param
+                    && matches!(argument.unit.as_str(), "m|ft" | "ft|m"))
+                .then(|| format!("{}.{}={}", module.name, argument.name, argument.unit))
+            })
+        })
+        .collect::<Vec<_>>();
+    if invalid.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-ENV-057 project-depth-unit registry gate failed: use '{PROJECT_DEPTH_UNIT_TOKEN}' for project-native lengths or one explicit fixed unit with conversion; invalid declarations: {}",
+            invalid.join(", ")
+        ))
     }
 }
 
@@ -2468,7 +2497,7 @@ fn phimax_spec() -> ModuleSpec {
             param_open_when(
                 "TVDSS_REF",
                 "Reference TVDSS where φmax = PHIMAX0",
-                "ft|m",
+                PROJECT_DEPTH_UNIT_TOKEN,
                 -30000.0,
                 30000.0,
                 &[("MODE", "linear"), ("MODE", "athy")],
@@ -3005,8 +3034,22 @@ fn condflag_spec() -> ModuleSpec {
                 0.3,
                 true,
             ),
-            param_open("MIN_THICK", "Drop flagged beds thinner than", "m|ft", 0.0, 10.0, true),
-            param_open("SHOULDER", "Shoulder width beyond bed edges", "m|ft", 0.0, 5.0, true),
+            param_open(
+                "MIN_THICK",
+                "Drop flagged beds thinner than",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                10.0,
+                true,
+            ),
+            param_open(
+                "SHOULDER",
+                "Shoulder width beyond bed edges",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                5.0,
+                true,
+            ),
             opt("OPT_XCOND", "Include gas crossover in COND_FLAG", "NO", &["NO", "YES"]),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log (matrix units matching RHO_MA)", "v/v", "NPHI", true),
@@ -5619,6 +5662,95 @@ mod tests {
         foot_splice_ctx.depth_unit = DepthUnit::Feet;
         let foot_splice = splice(&foot_splice_ctx);
         assert_eq!(metre_splice["SPLICED"], foot_splice["SPLICED"]);
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` SB-ENV-057 / exact SB-ENV-T67 defines `depth` as the
+    /// single manifest token for a length expressed in the project's declared depth unit. The
+    /// complete inventory applies that contract to the nine current native-depth parameters.
+    /// `SHIFT` and `SPLICE_DEPTH` pin the other side: they are explicitly metre-qualified and the
+    /// NIST-backed equivalence test above proves that their implementations convert rather than
+    /// consume a native project-unit value.
+    #[test]
+    fn every_project_depth_length_parameter_uses_one_token_while_metre_qualified_parameters_stay_metres(
+    ) {
+        use std::collections::BTreeSet;
+
+        let expected: BTreeSet<(&str, &str)> = [
+            ("despike", "WINDOW"),
+            ("smooth", "WINDOW"),
+            ("fill_gaps", "MAX_GAP"),
+            ("block", "INTERVAL"),
+            ("block", "MIN_BED"),
+            ("bed_detect", "MIN_BED"),
+            ("condflag", "MIN_THICK"),
+            ("condflag", "SHOULDER"),
+            ("phimax", "TVDSS_REF"),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut declared = BTreeSet::new();
+        for module in module_catalog() {
+            for argument in module.args.iter().filter(|argument| argument.kind == ArgKind::Param) {
+                if expected.contains(&(module.name.as_str(), argument.name.as_str())) {
+                    assert_eq!(
+                        argument.unit, PROJECT_DEPTH_UNIT_TOKEN,
+                        "{}.{} must use the one project-depth-length token",
+                        module.name, argument.name
+                    );
+                    declared.insert((module.name.as_str(), argument.name.as_str()));
+                }
+                assert!(
+                    !matches!(argument.unit.as_str(), "m|ft" | "ft|m"),
+                    "{}.{} retains the ambiguous legacy project-depth token {:?}",
+                    module.name,
+                    argument.name,
+                    argument.unit
+                );
+            }
+        }
+        assert_eq!(declared, expected, "the complete T43/T67 project-depth inventory changed");
+
+        validate_project_depth_unit_tokens(module_catalog())
+            .expect("the shipping registry uses no ambiguous project-depth parameter token");
+        let invalid = module_catalog()
+            .iter()
+            .find(|module| module.name == "condflag")
+            .expect("condflag is registered")
+            .clone();
+        for ambiguous_unit in ["m|ft", "ft|m"] {
+            let mut mutated = invalid.clone();
+            mutated
+                .args
+                .iter_mut()
+                .find(|argument| argument.name == "MIN_THICK")
+                .expect("condflag.MIN_THICK is declared")
+                .unit = ambiguous_unit.into();
+            let error = validate_project_depth_unit_tokens(&[mutated])
+                .expect_err("an ambiguous project-depth token must fail the registry gate");
+            assert!(
+                error.contains(&format!("condflag.MIN_THICK={ambiguous_unit}")),
+                "parameter identity missing: {error}"
+            );
+        }
+
+        for (module_name, argument_name) in
+            [("depth_shift", "SHIFT"), ("splice", "SPLICE_DEPTH")]
+        {
+            let module = module_catalog()
+                .iter()
+                .find(|module| module.name == module_name)
+                .unwrap_or_else(|| panic!("{module_name} is registered"));
+            let argument = module
+                .args
+                .iter()
+                .find(|argument| argument.name == argument_name)
+                .unwrap_or_else(|| panic!("{module_name}.{argument_name} is declared"));
+            assert_eq!(
+                argument.unit, "m",
+                "{module_name}.{argument_name} is fixed in metres and must not masquerade as native project depth"
+            );
+        }
     }
 
     /// T-PREP-16 steps 1, 2 and 4: the two combine rules that make a synthetic log usable, and

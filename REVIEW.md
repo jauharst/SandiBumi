@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-057: One project-depth-length token
+
+- [ ] **Automated correctness:** exact T67 is GREEN after a witnessed RED on
+      `condflag.MIN_THICK = m|ft`. The whole-registry test requires all nine current native-depth
+      parameters to use the one `depth` token, rejects the legacy `m|ft` token everywhere and pins
+      `SHIFT`/`SPLICE_DEPTH` as deliberately metre-qualified controls. Exact T43 and the NIST-backed
+      metre/foot equivalence regression are also GREEN.
+- [ ] **Visual:** open Despike, Smooth, Fill Gaps, Block, Bed Detect, Condition Flags and the
+      compaction-ceiling controls. Confirm every native-depth parameter shows the same `depth`
+      token, while Depth Shift and Splice still say `m` rather than pretending to be native-unit
+      quantities.
+- [ ] **Manual metric/foot review:** open one metre project and one foot project. Confirm native
+      thickness entries are interpreted in each project's declared unit, while a one-metre Shift
+      or Splice control lands at the same physical position in both projects.
+- [ ] **Field and harsh critique:** a truthful, uniform unit token prevents the UI from lying about
+      a value's dimension. It does not select a defensible thickness, gap, bed or shift magnitude;
+      those remain interpreter-owned, and all uncited numeric defaults remain absent.
+
 ## 2026-08-16 — G2 SB-ENV-042: Durable interactive-edit provenance and stale-undo refusal
 
 - [ ] **Automated correctness:** exact T45 is GREEN after a witnessed RED on the absent restart

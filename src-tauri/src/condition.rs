@@ -43,6 +43,7 @@
 use crate::modules::{
     log_in, log_out_as, log_out_flag_as, opt_labelled, param, param_open, param_open_when,
     FlagCurve, FlagKind, FlagValue, ModuleContext, ModuleOutputs, ModuleSpec,
+    PROJECT_DEPTH_UNIT_TOKEN,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -397,7 +398,14 @@ pub fn despike_spec() -> ModuleSpec {
             .into(),
         args: {
             let mut a = vec![
-                param_open("WINDOW", "Filter window (thickness, centred)", "depth", 0.0, 1000.0, true),
+                param_open(
+                    "WINDOW",
+                    "Filter window (thickness, centred)",
+                    PROJECT_DEPTH_UNIT_TOKEN,
+                    0.0,
+                    1000.0,
+                    true,
+                ),
                 // K = 3 is the ordinary three-deviation convention (the same generic statistical
                 // choice as Tukey's 1.5 x IQR already used in `distribution.rs`), NOT a field
                 // calibration — round, and stated as such.
@@ -590,7 +598,14 @@ pub fn smooth_spec() -> ModuleSpec {
             .into(),
         args: {
             let mut a = vec![
-                param_open("WINDOW", "Smoothing window (thickness, centred)", "depth", 0.0, 1000.0, true),
+                param_open(
+                    "WINDOW",
+                    "Smoothing window (thickness, centred)",
+                    PROJECT_DEPTH_UNIT_TOKEN,
+                    0.0,
+                    1000.0,
+                    true,
+                ),
                 opt_labelled(
                     "OPT_METHOD",
                     "How the window is averaged",
@@ -910,7 +925,14 @@ pub fn fill_gaps_spec() -> ModuleSpec {
             .into(),
         args: {
             let mut a = vec![
-                param_open("MAX_GAP", "Widest hole that may be filled (thickness)", "depth", 0.0, 10000.0, true),
+                param_open(
+                    "MAX_GAP",
+                    "Widest hole that may be filled (thickness)",
+                    PROJECT_DEPTH_UNIT_TOKEN,
+                    0.0,
+                    10000.0,
+                    true,
+                ),
                 opt_labelled(
                     "OPT_METHOD",
                     "How the hole is filled",
@@ -1474,7 +1496,7 @@ mod tests {
                     argument.name
                 );
                 assert!(
-                    matches!(argument.unit.as_str(), "depth" | "m|ft"),
+                    argument.unit == PROJECT_DEPTH_UNIT_TOKEN,
                     "{}.{} declares {:?}; SB-ENV-034 permits only the project's depth unit, never samples",
                     module.name,
                     argument.name,
