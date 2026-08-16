@@ -702,18 +702,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-DEPENDENCY` on SB-POR-003 / DEC-039, and the chapter says so in its own words - *record its effect through SB-POR-003*. The declaration half is ordinary wiring and could be built today on `gascorr`'s optional-flag idiom (`modules.rs:4404`); the recording half names a stream that does not exist. Building only the first and reporting `DONE` would be evidence inflation - one MUST, two clauses, the same shape as SB-POR-028.
 - **Next action:** settle DEC-039; then declare `BADHOLE` as a typed optional input on each applicable method, consume it rather than leaving it to a generic Mask, record its effect on that stream, and prove clean, flagged and flag-absent - absent recording that nobody looked, never a silent zero.
 
-## SB-POR-048 - Conditioning flags are declared, consumed and recorded
+## SB-POR-048 - Conditioning flags are declared porosity inputs
 
-- **Specified contract:** POR methods consume the applicable coal, tight, crossover, shoulder and conditioning flags through declared inputs and retain the selected branch/reason.
-- **Current implementation:** `condflag` emits `COAL`, `TIGHT`, `XOVER`, `SHOULDER` and `COND`; POR manifests declare none and bodies consume none.
-- **Qualifying acceptance tests:** none for declaration-through-provenance. Test class `MISSING`.
-- **Supporting tests:** the three `condflag` tests passed exactly once for detector behavior.
-- **Manual evidence:** conditioning 0/27; porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** existing detector decisions are not weakened and no new thresholds are selected.
-- **History/reachability:** detector outputs are integrated; no POR wiring was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the POR family needs an explicit per-flag policy, including whether a flag masks, selects a branch or only annotates.
-- **Next action:** define those semantics without deleting existing guards, then prove each consumed flag and an unflagged control.
+- **Specified contract:** porosity methods **MUST** consume `condflag`'s `COAL_FLAG`, `TIGHT_FLAG` and `COND_FLAG` as declared inputs **with defined branch behaviour** (`11_porosity.md:1065-1072`).
+- **Current implementation:** `condflag` emits `COAL`, `TIGHT`, `XOVER`, `SHOULDER` and `COND`; no POR manifest declares any of them and no POR body consumes any of them.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Supporting tests:** `condflag`'s own tests pin detection, including that a washout is never called coal. None establishes a porosity consumer.
+- **Manual evidence:** conditioning 0/27; porosity 0/64.
+- **Source/parameter boundary:** the chapter is emphatic that SandiBumi's conditioning module is **better than any incumbent's** here - parameterised, bed-thickness aware, and bad-hole aware - and simply not wired to the modules that need it. What it does **not** supply is the branch behaviour it requires be *defined*.
+- **Blocker or decision:** `BLOCKED-DECISION` **and** `BLOCKED-DEPENDENCY` - this row carries more than SB-POR-047. The open question is per flag: does a set `COAL_FLAG` **mask** the sample, **select** a different branch, or only **annotate** the answer? Those three produce different porosity curves from identical data, none is cited, and each is silently plausible. Coal is the sharp case - a coal bed has a real, very high apparent density porosity, so whether the user wants it blanked or computed-and-labelled is a method preference, not an engineering default. Recording whatever is ruled then lands on SB-POR-003's stream, blocked by DEC-039. Ruling first, stream second. No per-flag policy was invented.
+- **History/reachability:** the capability is built and the wiring is missing, exactly as §3.7 states.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Next action:** Jauhar rules the per-flag policy; settle DEC-039; then declare the three as typed inputs, implement the ruled behaviour **without deleting any existing guard**, and prove each consumed flag plus an unflagged control.
 
 ## SB-POR-049 - No hard-coded lithology kill
 
