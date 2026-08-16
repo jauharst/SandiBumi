@@ -29,7 +29,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 39 | — | 8 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 68 | — | 19 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 134 | 2026-08-13 | 35 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 137 | 2026-08-13 | 36 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |

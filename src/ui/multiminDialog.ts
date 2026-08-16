@@ -842,7 +842,11 @@ export async function buildMultiminContent(
       n: Number(nInp.value) || 2,
       mud_type: mudSel.value,
       rsh: Number(rshInp.value) || 4,
-      archie_a: Number(archieAInp.value) || 1,
+      // SB-SAT-034: `a` has no default. An empty box must reach the backend as an ABSENT
+      // field so it refuses by name, not as a silent 1 - that is the whole requirement.
+      ...(archieAInp.value.trim() === ""
+        ? {}
+        : { archie_a: Number(archieAInp.value) }),
       indonesia_k: Number(indonesiaKSel.value),
       simandoux_c: Number(simandouxCInp.value) || 1,
       phit_sh: Number(phitShInp.value) || 0.1,

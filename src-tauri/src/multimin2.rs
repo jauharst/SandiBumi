@@ -517,8 +517,13 @@ pub struct FluidProps {
     /// shaly-sand Sw models (Indonesia/Simandoux). Ignored by the dual-water models. Default 4.0.
     #[serde(default = "default_rsh")]
     pub rsh: f64,
-    /// Archie tortuosity factor a (Indonesia/Simandoux). The dual-water models use a = 1. Default 1.0.
-    #[serde(default = "default_archie_a")]
+    /// Archie tortuosity factor a (Indonesia/Simandoux). The dual-water models use a = 1 by
+    /// construction, but they are not the only callers of this field, so it carries NO default.
+    // SB-SAT-034: `a` ships NoDefault. IP publishes no default for a/m/n at all - the
+    // 1.0/2.0/2.0 commonly quoted are Basic Log Analysis values only - and a cementation
+    // exponent is a rock property measured on core. A shipped exponent is the
+    // highest-consequence silent default in petrophysics, so this field is REQUIRED and
+    // deserialization refuses without it, naming the parameter, exactly as `rw` already does.
     pub archie_a: f64,
     /// Indonesia shale exponent coefficient in `Vsh^(2-k·Vsh)`. Geolog's FULL/SIMPLE/TAR_SAND
     /// presets are k=1/0/2; k=1 is the cited FULL default.
@@ -545,9 +550,6 @@ fn default_mud() -> String {
 }
 fn default_rsh() -> f64 {
     4.0
-}
-fn default_archie_a() -> f64 {
-    1.0
 }
 fn default_indonesia_k() -> f64 {
     1.0

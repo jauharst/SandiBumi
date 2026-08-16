@@ -14272,3 +14272,17 @@ blank instead. gascorr has always behaved this way; IMTS was the one that did no
       normal sand went blank, that is a bug and I want to know.
 - [ ] **If a whole interval goes blank**, that is the honest answer, but tell me - it may mean the inputs
       or S factor need looking at rather than the solver.
+
+## Archie's `a` is no longer quietly 1
+
+Every saturation module already required you to type `a`, `m` and `n` — none of them shipped a
+default. SandiMin's solver did not: if you left the `a` box empty it used 1.0 without saying so.
+That is correct for the dual-water models, where `a = 1` is physics, but the same box feeds
+Indonesia and Simandoux, where `a` is a rock property you measure on core. A default that is right
+for the common case is the hardest kind to notice. It now refuses and names the parameter instead.
+
+- [ ] **Open SandiMin, clear the `a` box, and run.** It should refuse and say `archie_a` is missing.
+      If it runs and gives you numbers, that is the bug and I want to know.
+- [ ] **Put a value back in and re-run.** Nothing else should have changed.
+- [ ] **Check a saved SandiMin run from before this change still loads.** If one errors on open,
+      tell me — an old saved run may not carry `a`, and I would rather hear it from you than guess.

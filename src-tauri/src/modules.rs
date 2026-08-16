@@ -8824,6 +8824,60 @@ mod tests {
         .expect("a file-and-section citation is a checkable source");
     }
 
+    /// SB-SAT-034 (P0). `12_saturation.md:1470-1487` — `a`, `m`, `n` and the Waxman-Smits /
+    /// dual-water `m*`, `n*` **MUST** ship as `NoDefault`, a first-class state distinct from any
+    /// numeric value, and a run requesting a saturation model without them **MUST** fail with a
+    /// message naming the missing parameter.
+    ///
+    /// IP publishes **no default for a/m/n at all** — the 1.0/2.0/2.0 commonly quoted are Basic
+    /// Log Analysis values only. A cementation exponent is a rock property measured on core, and
+    /// the chapter is blunt about the stake: **a shipped exponent is the highest-consequence
+    /// silent default in petrophysics.**
+    ///
+    /// Every module already complied; the survivor was the solver defaulting `archie_a` to 1.0,
+    /// which served Indonesia and Simandoux where `a` is a free parameter, not only the
+    /// dual-water forms where `a = 1` is physical.
+    #[test]
+    fn no_saturation_engine_ships_a_cementation_or_tortuosity_exponent_the_user_did_not_supply() {
+        // A - no module ships a numeric default for any of the five.
+        let mut checked = 0;
+        for spec in module_catalog().iter().filter(|s| s.category == "Saturation") {
+            for arg in spec.args.iter().filter(|a| {
+                matches!(a.name.as_str(), "A" | "M" | "N" | "MSTAR" | "NSTAR")
+            }) {
+                checked += 1;
+                assert_eq!(
+                    arg.default, "",
+                    "{}.{} ships exponent default {:?} - these come from core, not from us",
+                    spec.name, arg.name, arg.default
+                );
+                assert_eq!(
+                    arg.default_source, ABSENT_DEFAULT_SOURCE,
+                    "{}.{} must DECLARE its absence, not merely leave the field blank",
+                    spec.name, arg.name
+                );
+            }
+        }
+        assert!(
+            checked >= 8,
+            "expected these on several saturation modules, found {checked} - a pass would be vacuous"
+        );
+
+        // B - the solver refuses rather than defaulting, and NAMES what is missing. That is the
+        // clause the chapter states explicitly, and a stronger guarantee than a blank field:
+        // a caller cannot forget to set it.
+        let payload = r#"{"rw":0.1,"rw_temp_f":77,"rmf":0.1,"rmf_temp_f":62,"ftemp_f":148,"m":2,"n":2,"mud_type":"WBM","rsh":4,"indonesia_k":1,"simandoux_c":1,"phit_sh":0.1,"ws_b":0}"#;
+        let without_a = serde_json::from_str::<crate::multimin2::FluidProps>(payload);
+        assert!(
+            without_a.is_err(),
+            "the solver accepted a fluid model with no tortuosity factor - it must refuse"
+        );
+        assert!(
+            format!("{:?}", without_a.unwrap_err()).contains("archie_a"),
+            "the refusal must NAME the missing parameter, or the user cannot act on it"
+        );
+    }
+
     /// SB-SAT-031 (P0). `12_saturation.md:1442-1456` — `Rw` **MUST** ship as `NoDefault` in every
     /// saturation module and in the solver. SandiBumi **MUST NOT** inherit IP's `0.1` or Techlog's
     /// `0.03`, and **MUST NOT** substitute a value derived from a formation-water environment band.

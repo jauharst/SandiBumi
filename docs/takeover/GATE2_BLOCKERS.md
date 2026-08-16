@@ -9,15 +9,15 @@ This is the human-readable companion to the machine-owned blocker set in
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
 - Handled: `200 / 222`
-- Done: `137`
-- Blocked: `63`
+- Done: `138`
+- Blocked: `62`
 - Remaining unhandled: `22`
 
 ---
 
 ## What I actually need from you (plain language)
 
-There are 49 blocked rows, but they are not 49 separate problems. They collapse into four kinds of
+There are 62 blocked rows, but they are not 62 separate problems. They collapse into four kinds of
 thing, and only two of them need you.
 
 ### 1. Decisions only you can make — about 22 rows
@@ -41,8 +41,15 @@ The big ones, each blocking several rows at once:
   one authorization. Two constraints survive it: `params_json` must not be reused (that column is the
   run's *parameters*, and mixing a narrative into it would make the two indistinguishable to every
   reader), and `computed_curves` stays deliberately primary-key-less.
-  *(DEC-039's own row in `DECISIONS.md` still reads OPEN — that file is outside my allowed paths, so
-  you need to close it there.)*
+  *(DEC-039's own row in `DECISIONS.md` is now closed there too — you added that file to my allowed
+  paths on 2026-08-16, so the ruling and the register finally agree.)*
+- **DEC-048 — RULED 2026-08-16. ✅** You authorized narrow edits to five protected files —
+  `multimin2.rs`, `lrlc.rs`, `multimin.rs`, `satheight.rs`, `montecarlo.rs`. That converts seven rows
+  from *waiting on you* to *waiting on me*: **SB-SAT-002, 023, 025, 026, 027** and **SB-CUT-001, 002**.
+  Two more were unblocked by it and have already shipped this session: **SB-SAT-028** (a
+  non-converged IMTS saturation is now blank instead of its last iterate) and **SB-SAT-034** (the one
+  surviving default exponent, the solver's `a = 1`, is gone). Nothing further is needed from you on
+  any of these; they are now ordinary engineering work.
 - **DEC-025 — where a neutron curve's matrix basis is stored.** A limestone-unit neutron read
   against a sandstone matrix is about 0.04 v/v low in clean water sand. We can convert between
   bases, but nothing records which basis a delivered curve is on, so nothing can refuse a wrong one.
@@ -160,7 +167,6 @@ requirement appears exactly once.
 | `SB-SAT-025` | Narrow `lrlc.rs` authorization | Half is **ready**: `sw_arch` has `SWT_ARCH` but no `SWE_ARCH`, and that fix is in allowed `modules.rs`. The other half - LRLC emitting clamped values only (`lrlc.rs:183`, `:365`) - is prohibited. Held atomic because the MUST covers *every* method. A clipped-only curve cannot distinguish *the rock is wet* from *the model went out of range*. | Authorize `lrlc.rs` alongside the `multimin2.rs` request. Then add `SWE_ARCH` and the LRLC twins, and pin that an out-of-range sample shows the clipped curve at its bound AND the diagnostic beyond it. |
 | `SB-SAT-026` | Narrow `lrlc.rs` + `multimin.rs` + `satheight.rs` | As-built said *no method-flag curve exists*; one does - `SW_METHOD`, on 3 of 7 saturation modules. The gap is **coverage**: `sw_rtc`, `sw_imts`, `multimin` and `sw_height` lack it, and all four are in prohibited files. The naming clause (no bare `SW`/`SXO`) is already true and only needs its enforcement test, which needs no authorization. | Authorize the three files so the remaining four modules emit `SW_METHOD`. Then pin both clauses universally, so a future saturation module cannot ship without a method flag. |
 | `SB-SAT-027` | Same `lrlc.rs` / `multimin2.rs` authorization | Behaviour is `PRESENT-OK` - the guards are transcribed - but *every* polynomial-form model must run through **one** solver, and the standalone and LRLC iterative paths are separate. `multimin2.rs:391` `sw_cond_root` is a second solver that is **not cross-asserted** against the first. The existing quadratic test compares the module to a closed form, not engine to engine. | Authorize, route every equation through the shared solver, and pin the guard suite plus `n = 2` closed-form equality **engine against engine**. |
-| `SB-SAT-034` | Narrow `multimin2.rs` - one field | **P0**, and nearly closed. The as-built's four claimed defaults are **all stale** - every `a`/`m`/`n`/`m*`/`n*` in `modules.rs` and `lrlc.rs` now uses `param_open`, and the `1.9` still visible is a test fixture. The **only** survivor is the solver's `archie_a = 1.0` (`multimin2.rs:549`), which serves Indonesia and Simandoux where `a` is a free parameter. *A shipped exponent is the highest-consequence silent default in petrophysics.* | Authorize one field: make `archie_a` required, as `FluidProps.rw` already is. Then pin that no exponent on any engine carries a default. |
 | `SB-CUT-001` | Narrow `montecarlo.rs` authorization | The discretisation model is not exposed at all and the clip rule is implemented **three times** - twice in allowed `workflow.rs`, once in prohibited `montecarlo.rs`. The requirement demands **one** implementation shared by all three consumers, so a partial fix would make the engines disagree rather than agree. Worth **0.25 ft per zone contact** on a 0.5 ft grid. Nothing needs inventing - `CENTRED` has four vendor votes. | Authorize `montecarlo.rs` (new file in the blocked set). Then one rule, model parameter defaulting to `CENTRED`, all three consumers routed through it. |
 | `SB-CUT-002` | Same `montecarlo.rs` authorization | `PaySummaryRow` (`workflow.rs:2637`) carries no discretisation model and no sample interval; Monte Carlo's `net`/`ntg` bundles (`montecarlo.rs:272-273`) are equally silent. IP ships **two different definitions of Net in one product** under the same heading and labels neither. The sample interval matters separately because net-to-gross is **not scale-invariant** - 0.55 -> 0.75 -> 1.0 across three blocking steps. | Authorize `montecarlo.rs`. Then record model + step on both, carry into report and workbook, and pin that two records computed at different steps are distinguishable. |
 
