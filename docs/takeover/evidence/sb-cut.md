@@ -84,19 +84,19 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
 - **Next action:** Jauhar authorizes the narrow `montecarlo.rs` edit alongside the existing SAT-group request. Then build ONE interval-ownership rule with the shared clip, expose the model parameter defaulting to `CENTRED`, route all three consumers through it, and pin: `sum(h) = Z_bot - Z_top` exactly under all three models; the three models DIFFER on a boundary falling between samples; and they AGREE when it falls on one - the arm proving the clip reduces to IP's half-weight rule.
 
-## SB-CUT-002
+## SB-CUT-002 - Name the discretisation model on every thickness-bearing result
 
-- **Specified contract:** every thickness-bearing result records discretisation model and sample interval.
-- **Current implementation / as-built:** PaySummaryRow and McZoneResult carry thickness values but neither model identity nor representative interval; reports and office outputs cannot recover them. ABSENT.
-- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T02b and T31 are not implemented as result-surface tests.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** identity metadata only; no numeric default is authorized.
-- **UI/IPC/provenance surface:** absent from returned rows, persisted run parameters, Results QC, report, workbook and deck.
-- **History/reachability:** no complete result-field implementation exists in reachable history.
-- **Blocking decision / next action:** add typed model and interval fields to every thickness result and render/export them.
+- **Specified contract:** every result record carrying a thickness, a net, a net-to-gross or a thickness-weighted average **MUST** carry the discretisation model that produced it **and the sample interval it was computed on**. A consumer **MUST NOT** have to infer either (`14_cutoffs-summation-mc.md:928-941`).
+- **Why:** IP ships **two different definitions of Net in one product** - Cut-off and Summation's half-weight rule and Curve Statistics' `count x step` - under the same column heading, and labels neither. A summation number without its discretisation model is not reproducible. The sample interval is required **separately** because net-to-gross is **not scale-invariant**: 0.55 -> 0.75 -> 1.0 across three blocking steps on the same data.
+- **Current implementation - verified in code.** `PaySummaryRow` (`workflow.rs:2637`) carries `well_id`, `well_name`, `zone`, `flag`, `top`, `bottom` and the summation numbers, and **no discretisation model or sample interval**. Monte Carlo is in scope too and equally silent: `montecarlo.rs:272-273` emits `net` and `ntg` percentile bundles per zone with no model recorded.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Manual evidence:** cutoffs 0/24.
+- **Source/parameter boundary:** nothing needs inventing - this is custody of a fact the run already knows. Note the row does **not** require SB-CUT-001 to land first: today's model is TOPS-with-clip, and recording *that* is truthful and useful, because the record states what produced **this** number. When SB-CUT-001 exposes the parameter the field simply becomes dynamic.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`, on the **same** `montecarlo.rs` authorization as SB-CUT-001. The `PaySummaryRow` half is in `workflow.rs`, allowed, and could be built today. The Monte Carlo half cannot, and the requirement is *every* thickness-bearing record - so shipping only the pay summary would leave the one consumer whose output is a **distribution** unlabelled, which is the harder number to reproduce and therefore the one that most needs its model stated. Held whole for that reason rather than for consistency alone.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Next action:** Jauhar authorizes the narrow `montecarlo.rs` edit - the same one SB-CUT-001 needs. Then add the model and the sample interval to `PaySummaryRow` and to the Monte Carlo result bundle, carry both into the report and the workbook, and pin from both sides: a record states the model and the step it was computed on, and **a consumer reading two records computed at different steps can tell them apart** - which is the whole point, since net-to-gross is not scale-invariant.
 
-### SB-CUT-003
+## SB-CUT-003
 
 - **Specified contract:** Gross equals Net plus NotNet plus Unknown exactly, with each component reported.
 - **Current implementation / as-built:** PaySummaryRow returns gross, net and n_classified only; NaN samples are excluded from classification without separate Unknown/NotNet footage. PARTIAL.

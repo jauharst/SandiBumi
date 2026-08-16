@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `199 / 222`
+- Handled: `200 / 222`
 - Done: `136`
-- Blocked: `63`
-- Remaining unhandled: `23`
+- Blocked: `64`
+- Remaining unhandled: `22`
 
 ---
 
@@ -163,6 +163,7 @@ requirement appears exactly once.
 | `SB-SAT-028` | Narrow `lrlc.rs` authorization | **P0, verified in code.** `sw_imts` iterates 100 times then writes the last iterate **unconditionally** - no convergence flag. A partial iterate is a plausible number in range, indistinguishable from a converged answer on the log, so no existing test could catch it. `gascorr` in this same repo already does it correctly and says why in a comment. **SandiBumi's own method has the defect its vendor-derived module avoids.** | Authorize `lrlc.rs`. Then leave a non-converged sample MISSING, and pin both sides - converging keeps its value, exhausted budget returns NaN. |
 | `SB-SAT-034` | Narrow `multimin2.rs` - one field | **P0**, and nearly closed. The as-built's four claimed defaults are **all stale** - every `a`/`m`/`n`/`m*`/`n*` in `modules.rs` and `lrlc.rs` now uses `param_open`, and the `1.9` still visible is a test fixture. The **only** survivor is the solver's `archie_a = 1.0` (`multimin2.rs:549`), which serves Indonesia and Simandoux where `a` is a free parameter. *A shipped exponent is the highest-consequence silent default in petrophysics.* | Authorize one field: make `archie_a` required, as `FluidProps.rw` already is. Then pin that no exponent on any engine carries a default. |
 | `SB-CUT-001` | Narrow `montecarlo.rs` authorization | The discretisation model is not exposed at all and the clip rule is implemented **three times** - twice in allowed `workflow.rs`, once in prohibited `montecarlo.rs`. The requirement demands **one** implementation shared by all three consumers, so a partial fix would make the engines disagree rather than agree. Worth **0.25 ft per zone contact** on a 0.5 ft grid. Nothing needs inventing - `CENTRED` has four vendor votes. | Authorize `montecarlo.rs` (new file in the blocked set). Then one rule, model parameter defaulting to `CENTRED`, all three consumers routed through it. |
+| `SB-CUT-002` | Same `montecarlo.rs` authorization | `PaySummaryRow` (`workflow.rs:2637`) carries no discretisation model and no sample interval; Monte Carlo's `net`/`ntg` bundles (`montecarlo.rs:272-273`) are equally silent. IP ships **two different definitions of Net in one product** under the same heading and labels neither. The sample interval matters separately because net-to-gross is **not scale-invariant** - 0.55 -> 0.75 -> 1.0 across three blocking steps. | Authorize `montecarlo.rs`. Then record model + step on both, carry into report and workbook, and pin that two records computed at different steps are distinguishable. |
 
 ## Product-owner decision packet
 
