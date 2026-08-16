@@ -14497,3 +14497,38 @@ they should offer you a unit selector instead is your call, and I have not made 
 - [ ] **Same for the workbook** — the cut-off rows in the header sheet.
 - [ ] **Tell me whether you want a unit selector on the cut-off boxes**, or whether fixed v/v and mD
       is right for how you work. If you ever type porosity in p.u., the selector is worth having.
+
+## A saturation curve now carries the paper it came from
+
+Geolog puts the published references inside every module manifest — Archie 1942, Poupon & Leveaux
+1971 Paper O, Simandoux 1963 with Bardon & Pied 1969, and so on. What none of the three tools does
+is carry that reference through to the ANSWER. Open a computed `SWE` in any of them and there is
+nothing in it that says which paper the equation came from.
+
+Every saturation run now records, beside the curve:
+
+- **the paper the equation traces to** — the module's own published references;
+- **the Worthington 1985 type** where a source states one — Indonesia is type 4, both Simandoux
+  equations are type 2, and Archie says `NONE-STATED` rather than leaving the field blank, because
+  "nobody classified this" and "nobody wrote it down" are different things;
+- **which of the two Simandoux equations ran.** They trace to the same references but are different
+  equations, and the word "Modified" means the opposite thing in Geolog and in IP;
+- **where a citation is disputed.** IMTS carries a note that IP credits the clay-bound-water paper to
+  Hill, Shirley & Klein while Geolog credits a paper of the same title, same conference, same year to
+  Juhász. Nobody has settled that, so the record says so rather than picking one;
+- **for RtC and IMTS, the standing of the calibration coefficients.** None of them ships as a default
+  any more, and the record says that per coefficient.
+
+All of this rides the ancestry record you already get, so it comes out in the report PDF, the Word
+document, the workbook and the deck without any new step.
+
+**One thing I did not claim.** For RtC and IMTS the record says a coefficient was ENTERED, but it
+cannot yet tell whether you got it from Calibrate RtC… or typed it in — a fitted coefficient is
+stored without a note saying where it came from. Rather than guess, the record says plainly that it
+cannot tell. Tell me if you want that closed and I will do it as its own change.
+
+- [ ] **Run a saturation model, then render the report.** The "Computed curve ancestry" section
+      should name the paper.
+- [ ] **Run both Simandoux equations on the same well** and check the record distinguishes them.
+- [ ] **Run RtC** and read the coefficient line — tell me whether that is the wording you want in
+      front of a client.

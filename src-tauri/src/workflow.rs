@@ -408,6 +408,52 @@ pub(crate) const INPUT_QUANTITY_PROVENANCE_PREFIX: &str = "INPUT_QUANTITY.";
 pub(crate) const POROSITY_OUTPUT_PROVENANCE_PREFIX: &str = "POROSITY_OUTPUT.";
 pub(crate) const SMOOTHING_POLICY_PROVENANCE_KEY: &str = "SMOOTHING_POLICY";
 
+/// SB-SAT-043 run-provenance keys. A saturation answer carries the paper it traces to, the
+/// Worthington 1985 classification where a source states one, any contested attribution, and — for
+/// the LRLC methods — the calibration standing of the coefficients it was computed on.
+pub(crate) const METHOD_CITATION_PROVENANCE_KEY: &str = "method_citation";
+pub(crate) const WORTHINGTON_TYPE_PROVENANCE_KEY: &str = "worthington_1985_type";
+pub(crate) const METHOD_CAUTION_PROVENANCE_KEY: &str = "method_attribution_caution";
+pub(crate) const UNFITTED_COEFFICIENTS_PROVENANCE_KEY: &str = "unfitted_coefficients";
+
+/// SB-SAT-043 / SB-SAT-048. The coefficients each LRLC method is calibrated on. They are one
+/// field's calibration, and a run on numbers that did not come from this project's own fit is
+/// indistinguishable in the OUTPUT from one that did — a foreign calibration *"does not announce
+/// itself: it yields a smooth, plausible Sw that is simply wrong"* (`lrlc.rs:83-90`).
+pub(crate) fn lrlc_calibration_coefficients(module: &str) -> &'static [&'static str] {
+    match module {
+        "sw_rtc" => &["A_CAP", "B_QV", "C0", "RSF"],
+        "sw_imts" => &["S_FACTOR"],
+        _ => &[],
+    }
+}
+
+/// SB-SAT-043. The persisted equation identity for a saturation run.
+///
+/// `sw_sim` offers two equations that trace to the same References block but are DIFFERENT
+/// equations, 7.3 saturation units apart, so the identity is the option's canonical value rather
+/// than the module name.
+pub(crate) fn saturation_method_id<'a>(
+    module: &str,
+    opts: &'a HashMap<String, String>,
+) -> Option<std::borrow::Cow<'a, str>> {
+    match module {
+        "sw_arch" => Some(std::borrow::Cow::Borrowed("archie_total")),
+        "sw_indo" => Some(std::borrow::Cow::Borrowed("indonesia")),
+        "sw_rtc" => Some(std::borrow::Cow::Borrowed("lrlc_rtc")),
+        "sw_imts" => Some(std::borrow::Cow::Borrowed("lrlc_imts")),
+        // `sw_height` and the retired `multimin` are deliberately absent. Both are registered in
+        // `SATURATION_METHODS` so the build gate accounts for every Saturation-category module,
+        // but neither gets a citation pushed into its run record: saturation-height's literature
+        // and its fitted-object provenance belong to `15_sat-height-rocktyping.md`, and printing
+        // this chapter's hand-off token in a deliverable would say less than nothing.
+        "sw_sim" => opts.get("OPT_SIM").map(|value| {
+            std::borrow::Cow::Owned(modules::canonical_option_value("sw_sim", "OPT_SIM", value))
+        }),
+        _ => None,
+    }
+}
+
 pub(crate) fn mask_provenance(opts: &HashMap<String, String>) -> serde_json::Value {
     match opts
         .get(MASK_PROVENANCE_KEY)
@@ -965,13 +1011,8 @@ fn complete_module_log_spec(
     // Saturation outputs retain the stable equation identity in addition to the
     // selected option. This is deliberately explicit: a downstream reviewer must
     // not need to decode a vendor adjective to know which equation produced SWE.
-    let method_id = match req.module.as_str() {
-        "sw_arch" => Some("archie_total"),
-        "sw_indo" => Some("indonesia"),
-        "sw_sim" => opts.get("OPT_SIM").map(String::as_str),
-        _ => None,
-    };
-    if let Some(method_id) = method_id {
+    let method_id = saturation_method_id(&req.module, opts);
+    if let Some(method_id) = method_id.as_deref() {
         legacy.insert("method_id".into(), serde_json::json!(method_id));
         parameters.push(equations::AncestryParameter {
             name: "method_id".into(),
@@ -981,6 +1022,104 @@ fn complete_module_log_spec(
             manifest_version: None,
             decision: None,
         });
+
+        // SB-SAT-043. The paper travels WITH the answer. Geolog ships references inside its module
+        // manifests but no vendor carries one through to the result, so a computed Sw arrives
+        // downstream with nothing to defend it. Attaching the citation to the equation identity is
+        // what makes SB-SAT-038's build-time source gate auditable in a deliverable rather than
+        // only at compile time.
+        let Some(method) = crate::param_sources::saturation_method(&req.module, method_id) else {
+            return Err(format!(
+                "saturation module '{}' ran as '{method_id}' with no registered literature \
+                 citation; register it in param_sources::SATURATION_METHODS",
+                req.module
+            ));
+        };
+        let mut record = vec![
+            (
+                METHOD_CITATION_PROVENANCE_KEY,
+                serde_json::json!(method.citation),
+                "docs/PRD_v2/12_saturation.md SB-SAT-043; param_sources::SATURATION_METHODS"
+                    .to_string(),
+            ),
+            (
+                // Carried on EVERY saturation run, including the models nobody classified: the
+                // field then says NONE-STATED and its source names what was consulted. Omitting it
+                // instead would make "no source classifies this" and "nobody recorded it" the same
+                // record, and only one of those is a fact a reader can check.
+                WORTHINGTON_TYPE_PROVENANCE_KEY,
+                match method.worthington {
+                    Some(kind) => serde_json::json!(kind),
+                    None => serde_json::json!(crate::param_sources::WORTHINGTON_NONE_STATED),
+                },
+                method.worthington_source.to_string(),
+            ),
+        ];
+        if !method.caution.trim().is_empty() {
+            record.push((
+                METHOD_CAUTION_PROVENANCE_KEY,
+                serde_json::json!(method.caution),
+                "docs/PRD_v2/12_saturation.md SB-SAT-043 - a disputed attribution travels with the \
+                 citation rather than being resolved on the user's behalf"
+                    .to_string(),
+            ));
+        }
+        // SB-SAT-048 via SB-SAT-T59. The LRLC coefficients are one field's calibration. No value
+        // ships as a default any more, so the flag reports the stronger fact — and would report
+        // the weaker one immediately if a default were ever reintroduced.
+        let coefficients = lrlc_calibration_coefficients(&req.module);
+        if !coefficients.is_empty() {
+            let resolutions = coefficients
+                .iter()
+                .map(|name| {
+                    let state = parameters
+                        .iter()
+                        .find(|parameter| parameter.name == *name)
+                        .map(|parameter| match parameter.resolution {
+                            Some(equations::ParameterResolution::Defaulted) => "SHIPPED_DEFAULT",
+                            Some(equations::ParameterResolution::Explicit) => "ENTERED",
+                            None => "UNRECORDED",
+                        })
+                        .unwrap_or("ABSENT");
+                    (name.to_string(), serde_json::json!(state))
+                })
+                .collect::<serde_json::Map<_, _>>();
+            let on_shipped_default = resolutions
+                .values()
+                .any(|state| state == &serde_json::json!("SHIPPED_DEFAULT"));
+            record.push((
+                UNFITTED_COEFFICIENTS_PROVENANCE_KEY,
+                serde_json::json!({
+                    "state": if on_shipped_default { "SHIPPED_DEFAULT_IN_USE" } else { "NO_SHIPPED_DEFAULT" },
+                    "coefficients": resolutions,
+                    "limit": "ENTERED does not distinguish a coefficient accepted from this \
+                              project's own calibration from one typed by hand: zone-parameter \
+                              custody carries no source text. Fitted-versus-entered is therefore \
+                              NOT claimed here.",
+                }),
+                "docs/PRD_v2/12_saturation.md SB-SAT-048 and SB-SAT-T59; src-tauri/src/lrlc.rs:83-90"
+                    .to_string(),
+            ));
+        }
+        for (name, value, source) in record {
+            if parameters.iter().any(|parameter| parameter.name == name)
+                || legacy.contains_key(name)
+            {
+                return Err(format!(
+                    "module '{}' declares an argument that collides with reserved \
+                     saturation-provenance key '{name}'",
+                    spec.name
+                ));
+            }
+            parameters.push(equations::AncestryParameter {
+                name: name.into(),
+                value,
+                source,
+                resolution: None,
+                manifest_version: None,
+                decision: None,
+            });
+        }
     }
 
     if modules::precondition_policy(opts)? == modules::PreconditionPolicy::FlagValidSamples {
@@ -6572,6 +6711,297 @@ mod tests {
         )
         .expect_err("a bare cut-off must stop the run");
         assert!(err.contains("no unit"), "{err}");
+    }
+
+    /// Seed a well that every resistivity saturation model can run on: a deep resistivity, and
+    /// the interpreted porosity and shale volume the shaly-sand models take as inputs.
+    fn seed_saturation_well(conn: &duckdb::Connection, name: &str) -> String {
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 12usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            conn, id, depth.clone(), vec![55.0; n], vec![9.0; n], nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        for (curve, value) in [
+            ("PHIE", 0.22f32),
+            ("PHIT", 0.26),
+            ("PHIT_SSPW", 0.26),
+            ("CAPBW_SSPW", 0.06),
+        ] {
+            equations::write_computed_curve(conn, &well, &depth, curve, &vec![value; n]).unwrap();
+        }
+        well
+    }
+
+    /// `VSH` must arrive with its physical family declared, so the shaly-sand models resolve it as
+    /// a shale volume rather than by mnemonic. Producing it through `vsh_gr` is the honest way to
+    /// get that: it is how a real well acquires one, and it exercises the same custody the run
+    /// will check.
+    fn seed_typed_vsh(dbm: &Mutex<duckdb::Connection>, well: &str) {
+        let results = run_workflow_module_into(
+            dbm,
+            &RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![well.to_string()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+                opts: HashMap::new(),
+                output_set: Some("INTERP".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+            None,
+            None,
+            None,
+        );
+        assert!(results[0].error.is_none(), "seeding VSH: {:?}", results[0].error);
+    }
+
+    /// SB-SAT-043 (P0). `docs/PRD_v2/12_saturation.md:1776-1795` and SB-SAT-T59 at `:2523-2532` —
+    /// every saturation run **MUST** emit, alongside its curves, a machine-readable record of the
+    /// model identifier, every parameter value used, each value's source string, the literature
+    /// citation the method traces to, and the Worthington 1985 type where one is stated by a
+    /// source; for the LRLC methods an explicit unfitted-coefficient flag; **zero fields empty**;
+    /// and that record **MUST** survive export into the deliverable.
+    ///
+    /// Geolog ships published references inside every module manifest but **no vendor carries the
+    /// reference through to the answer** (`:1783-1790`). A parameter that carries the paper it came
+    /// from, through the computation, into the deliverable is the claim this row exists to make —
+    /// and the only thing that makes SB-SAT-038's build-time source gate auditable downstream.
+    #[test]
+    fn a_saturation_run_carries_its_model_citation_worthington_type_and_unfitted_coefficient_flag_into_the_deliverable(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_saturation_well(&conn, "SANDI-SAT-1");
+        let dbm = Mutex::new(conn);
+        seed_typed_vsh(&dbm, &well);
+
+        let run = |module: &str, curve: &str, params: HashMap<String, f64>, opts: Vec<(&str, &str)>| {
+            let results = run_workflow_module_into(
+                &dbm,
+                &RunModuleRequest {
+                    module: module.into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params,
+                    opts: opts
+                        .into_iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                    output_set: Some(module.to_ascii_uppercase()),
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+                None,
+                None,
+                None,
+            );
+            assert!(results[0].error.is_none(), "{module}: {:?}", results[0].error);
+            let conn = dbm.lock().unwrap();
+            equations::curve_ancestry(&conn, &well, curve)
+                .unwrap_or_else(|error| panic!("{module} must record its ancestry: {error}"))
+        };
+
+        // A — the Indonesia leg, which is the one a source classifies. Its record must carry the
+        // paper the equation traces to and the Worthington 1985 type, both beside the value.
+        let indo = run(
+            "sw_indo",
+            "SWE",
+            HashMap::from([
+                ("A".into(), 1.0),
+                ("M".into(), 2.0),
+                ("N".into(), 2.0),
+                ("RT_SH".into(), 3.0),
+                ("RW".into(), 0.1),
+                ("SWE_IRR".into(), 0.05),
+            ]),
+            vec![("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL")],
+        );
+        let find = |ancestry: &equations::CurveAncestry, name: &str| {
+            ancestry
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the record must carry '{name}'; it carries {:?}",
+                        ancestry.parameters.iter().map(|p| &p.name).collect::<Vec<_>>()
+                    )
+                })
+                .clone()
+        };
+
+        assert_eq!(find(&indo, "method_id").value, serde_json::json!("indonesia"));
+        let citation = find(&indo, "method_citation");
+        assert!(
+            citation.value.as_str().unwrap_or("").contains("Poupon")
+                && citation.value.as_str().unwrap_or("").contains("Paper O"),
+            "the Indonesia record must name the paper it traces to: {}",
+            citation.value
+        );
+        let worthington = find(&indo, "worthington_1985_type");
+        assert_eq!(
+            worthington.value,
+            serde_json::json!(4),
+            "Geolog states sw_indo as Worthington type 4 (12_saturation.md:478)"
+        );
+
+        // B — zero fields empty. A record with a blank source is worse than no record: it reads as
+        // provenance and defends nothing.
+        for parameter in &indo.parameters {
+            assert!(
+                !parameter.source.trim().is_empty(),
+                "'{}' was recorded with no source",
+                parameter.name
+            );
+        }
+
+        // C — Archie is classified by NO source, and that must be SAID rather than left blank.
+        // Omitting the field and stating "none" are different claims, and only one is checkable.
+        let arch = run(
+            "sw_arch",
+            "SWE",
+            HashMap::from([
+                ("A".into(), 1.0),
+                ("M".into(), 2.0),
+                ("N".into(), 2.0),
+                ("RW".into(), 0.1),
+                ("SWT_IRR".into(), 0.05),
+            ]),
+            vec![("OPT_RW", "CONSTANT")],
+        );
+        let arch_type = find(&arch, "worthington_1985_type");
+        assert_eq!(
+            arch_type.value,
+            serde_json::json!(crate::param_sources::WORTHINGTON_NONE_STATED),
+            "no source classifies Archie, so the record must SAY so rather than omit the field"
+        );
+        assert!(
+            !arch_type.source.trim().is_empty(),
+            "and the record must still say WHY it carries none"
+        );
+
+        // D — the LRLC methods carry an explicit unfitted-coefficient flag. `sw_rtc`'s A_CAP/B_QV/
+        // C0/RSF are one field's calibration; a run on numbers that did not come from this
+        // project's own fit is indistinguishable in the OUTPUT from one that did.
+        let rtc = run(
+            "sw_rtc",
+            "SWE_RTC",
+            HashMap::from([
+                ("RW".into(), 0.3),
+                ("M".into(), 2.0),
+                ("N".into(), 2.0),
+                ("A_CAP".into(), 0.45),
+                ("B_QV".into(), 0.0057),
+                ("C0".into(), -0.0071),
+                ("RSF".into(), 2.25),
+                ("CEC".into(), 0.0),
+                ("RHOG".into(), 2.65),
+            ]),
+            vec![],
+        );
+        assert_eq!(find(&rtc, "method_id").value, serde_json::json!("lrlc_rtc"));
+        let flag = find(&rtc, "unfitted_coefficients");
+        assert!(
+            !flag.value.is_null() && !flag.source.trim().is_empty(),
+            "an LRLC run must state the calibration standing of its coefficients: {flag:?}"
+        );
+
+        // E — SURVIVES EXPORT. The disclosure cells are what the PDF, Word, workbook and deck all
+        // render, so a record that stopped at the database boundary would satisfy every assertion
+        // above and still fail the requirement.
+        let disclosures = {
+            let conn = dbm.lock().unwrap();
+            equations::curve_ancestry_disclosures(&conn, &[well.clone()], Some("SW_INDO")).unwrap()
+        };
+        let rendered = disclosures
+            .iter()
+            .flat_map(|disclosure| disclosure.cells())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        for expected in ["method_citation", "Paper O", "worthington_1985_type"] {
+            assert!(
+                rendered.contains(expected),
+                "the exported disclosure must carry '{expected}': {rendered}"
+            );
+        }
+
+        // F — the BUILD GATE, which is what makes this a contract rather than a table somebody
+        // remembered to fill in. It is written over the Saturation CATEGORY, not a hand-kept list,
+        // so the model that ships without a citation is caught rather than remembered.
+        use crate::param_sources::{
+            validate_saturation_methods, SaturationMethod, METHOD_OWNED_ELSEWHERE, RETIRED_METHOD,
+            SATURATION_METHODS, WORTHINGTON_NONE_STATED,
+        };
+        let catalog = modules::list_modules();
+        validate_saturation_methods(&catalog, SATURATION_METHODS)
+            .expect("the shipped registry passes its own gate");
+        let shipped = catalog
+            .iter()
+            .filter(|module| module.category == "Saturation")
+            .count();
+        assert!(
+            shipped >= 6 && SATURATION_METHODS.len() >= shipped,
+            "the gate must not pass by seeing nothing: {shipped} saturation modules, {} registered",
+            SATURATION_METHODS.len()
+        );
+
+        let entry = |citation: &'static str, worthington_source: &'static str| SaturationMethod {
+            module: "sw_arch",
+            method_id: "archie_total",
+            citation,
+            worthington: None,
+            worthington_source,
+            caution: "",
+        };
+        // A publication nobody can look up is not a citation - the same clause SB-CORE-004 applies
+        // to a parameter default, applied to the paper behind the equation.
+        assert!(
+            validate_saturation_methods(&[], &[entry("Archie", "none stated, per T59")]).is_err(),
+            "an author's name alone must not pass as a citation"
+        );
+        // Silence about the classification is what is being prevented, not the absence of one.
+        assert!(
+            validate_saturation_methods(&[], &[entry("Archie 1942 Trans. AIME 146:54-62", "")])
+                .is_err(),
+            "an entry that says nothing about the Worthington type must fail"
+        );
+        // A hand-off must name where the literature lives, or it is an omission wearing a token.
+        for token in [RETIRED_METHOD, METHOD_OWNED_ELSEWHERE] {
+            assert!(
+                validate_saturation_methods(&[], &[entry(token, "not classified")]).is_err(),
+                "'{token}' with no explanation must fail"
+            );
+        }
+        // And the clause that catches the NEXT model: a Saturation-category module absent from the
+        // registry fails the build, so a new saturation answer cannot ship with nothing behind it.
+        let orphan = catalog
+            .iter()
+            .find(|module| module.name == "sw_indo")
+            .expect("sw_indo is a shipping saturation module")
+            .clone();
+        let survivors = SATURATION_METHODS
+            .iter()
+            .copied()
+            .filter(|method| method.module != "sw_indo")
+            .collect::<Vec<_>>();
+        let error = validate_saturation_methods(&[orphan], &survivors)
+            .expect_err("an unregistered saturation module must fail the build");
+        assert!(
+            error.contains("sw_indo") && error.contains("citation"),
+            "and the failure must name the module and what it lacks: {error}"
+        );
+
+        // The token is a STATEMENT, so it must be a word the record can carry - a null value is
+        // refused by the ancestry validator, and would in any case be indistinguishable from an
+        // unwritten field.
+        assert!(!WORTHINGTON_NONE_STATED.trim().is_empty());
     }
 
     /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the

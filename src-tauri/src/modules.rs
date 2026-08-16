@@ -1906,6 +1906,12 @@ fn module_catalog() -> &'static [ModuleSpec] {
             crate::param_sources::CUT_DOMAIN_DEFAULTS,
         )
         .unwrap_or_else(|error| panic!("{error}"));
+        // SB-SAT-043: a saturation model cannot ship without the paper its answer traces to.
+        crate::param_sources::validate_saturation_methods(
+            &modules,
+            crate::param_sources::SATURATION_METHODS,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
         validate_clay_unit_contract(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));

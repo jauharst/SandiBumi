@@ -7,10 +7,10 @@
   "gate2_requirement_count": 222,
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
-    "IMPLEMENT-OR-REFUSE": 19,
+    "IMPLEMENT-OR-REFUSE": 18,
     "REMEDIATE": 48,
     "PROVE": 8,
-    "RETAIN": 147
+    "RETAIN": 148
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -249,7 +249,8 @@
     "SB-CUT-016",
     "SB-CUT-017",
     "SB-CUT-018",
-    "SB-CUT-019"
+    "SB-CUT-019",
+    "SB-SAT-043"
   ],
   "blocked_requirements": [
     "SB-CORE-003",

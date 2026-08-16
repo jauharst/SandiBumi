@@ -871,6 +871,209 @@ pub fn validate_domain_defaults(defaults: &[DomainDefault]) -> Result<(), String
     }
 }
 
+// ---------------------------------------------------------------------------
+// SB-SAT-043 — a saturation answer carries the paper it traces to
+// ---------------------------------------------------------------------------
+
+/// SB-SAT-043. One saturation equation, with the literature it traces to and the Worthington 1985
+/// classification where a source states one.
+///
+/// Geolog ships published references inside every module manifest, and **no vendor carries the
+/// reference through to the answer** (`docs/PRD_v2/12_saturation.md:481-484`). That is the whole
+/// point of this registry: the citation is attached to the METHOD IDENTITY, so it travels with the
+/// run into the ancestry record and out into the deliverable rather than sitting in a doc string
+/// nobody exports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaturationMethod {
+    /// The module that produces the answer.
+    pub module: &'static str,
+    /// The persisted equation identity. A module offering two equations has one entry per
+    /// equation, because the two trace to different places and the adjective in the UI does not
+    /// disambiguate them — `MODIFIED` means opposite things in Geolog and IP (`:135-146`).
+    pub method_id: &'static str,
+    /// The literature the equation traces to, or [`RETIRED_METHOD`] / [`METHOD_OWNED_ELSEWHERE`].
+    pub citation: &'static str,
+    /// Worthington 1985 type where a source states one. `None` is a STATEMENT, not a gap: the
+    /// record still carries the field and `worthington_source` says why it carries no number.
+    pub worthington: Option<u8>,
+    /// Where the classification comes from, or why none is carried. Never blank.
+    pub worthington_source: &'static str,
+    /// A contested or divergent attribution that must travel WITH the citation, or empty. A
+    /// citation the corpus disputes is still the citation; hiding the dispute is what makes it a
+    /// problem later.
+    pub caution: &'static str,
+}
+
+/// SB-SAT-043. The token for a module kept only so a saved chain resolves, which computes nothing.
+pub const RETIRED_METHOD: &str = "RETIRED";
+
+/// SB-SAT-043. What the Worthington field CARRIES when no source classifies the model.
+///
+/// A word rather than a null, and that is not cosmetic: `CurveAncestry::validate` refuses a
+/// parameter with no recorded value, and rightly — but more to the point, "no source classifies
+/// this model" and "nobody recorded a classification" are different claims, and only one of them
+/// is checkable. The field's `source` then says which source was consulted to reach it.
+pub const WORTHINGTON_NONE_STATED: &str = "NONE-STATED";
+
+/// SB-SAT-043. The token for a saturation module whose literature belongs to another chapter's
+/// requirements. Its `caution` names the chapter, so the entry is an explicit hand-off rather than
+/// an omission.
+pub const METHOD_OWNED_ELSEWHERE: &str = "OWNED-ELSEWHERE";
+
+/// SB-SAT-043. Every module in the `Saturation` category, with the paper its answer traces to.
+///
+/// Sourcing note: the citations are the References blocks the corpus records Geolog shipping per
+/// module (`docs/PRD_v2/12_saturation.md:469-479`), quoted rather than reassembled. Where a module
+/// offers two equations, both entries carry that module's References block and the equation
+/// identity distinguishes them — the chapter attributes the EQUATIONS at `:137-142` and the
+/// REFERENCES at `:470-471`, and it does not pair one paper to one branch. Inventing that pairing
+/// would be the same class of error as inventing a default.
+pub const SATURATION_METHODS: &[SaturationMethod] = &[
+    SaturationMethod {
+        module: "sw_arch",
+        method_id: "archie_total",
+        citation: "Archie 1942 Trans. AIME 146:54-62 (Geolog sw_arch.info References block; docs/PRD_v2/12_saturation.md:470)",
+        worthington: None,
+        worthington_source: "No source classifies Archie. Geolog states a Worthington 1985 type for sw_indo, sw_sim, sw_ws, sw_juha, sw_dual and sw_tot only (docs/PRD_v2/12_saturation.md:478-479), and SB-SAT-T59 lists archie_* as carrying none.",
+        caution: "",
+    },
+    SaturationMethod {
+        module: "sw_indo",
+        method_id: "indonesia",
+        citation: "Poupon & Leveaux 1971 SPWLA 12th Paper O (Geolog sw_indo.info References block; docs/PRD_v2/12_saturation.md:472)",
+        worthington: Some(4),
+        worthington_source: "Geolog states sw_indo as type 4, noting that Worthington fixes the saturation exponent N at 2 unlike the original formulae (docs/PRD_v2/12_saturation.md:478, :1910-1912)",
+        caution: "IP cites the same Indonesia paper for its NIGERIA module (docs/PRD_v2/12_saturation.md:421); the paper attaches to this equation, not to that one.",
+    },
+    SaturationMethod {
+        module: "sw_sim",
+        method_id: "simandoux_bardon_pied",
+        citation: "Simandoux 1963 Revue de l'IFP (SPWLA 'Shaly Sand' Reprint Volume 1982 translation); Bardon & Pied 1969 SPWLA 10th Paper Z (Geolog sw_sim.info References block; docs/PRD_v2/12_saturation.md:470-471, :158)",
+        worthington: Some(2),
+        worthington_source: "Geolog states sw_sim as type 2 (docs/PRD_v2/12_saturation.md:478-479); SB-SAT-T59 lists simandoux_* as type 2",
+        caution: "This is Geolog's OPT_SIM=MODIFIED and IP's plain 'Simandoux' - the same adjective names the OTHER equation in IP and Techlog (docs/PRD_v2/12_saturation.md:137-146). The References block does not attribute the shipped a = 0.8 to either paper (:157-159).",
+    },
+    SaturationMethod {
+        module: "sw_sim",
+        method_id: "simandoux_modified_slb",
+        citation: "Simandoux 1963 Revue de l'IFP (SPWLA 'Shaly Sand' Reprint Volume 1982 translation); Bardon & Pied 1969 SPWLA 10th Paper Z (Geolog sw_sim.info References block; docs/PRD_v2/12_saturation.md:470-471, :158)",
+        worthington: Some(2),
+        worthington_source: "Geolog states sw_sim as type 2 (docs/PRD_v2/12_saturation.md:478-479); SB-SAT-T59 lists simandoux_* as type 2",
+        caution: "This is Geolog's OPT_SIM=SCHLUM and IP's/Techlog's 'Modified Simandoux' - the (1-Vsh) divisor form (docs/PRD_v2/12_saturation.md:139-142). The chapter lists Schlumberger 1989 among Geolog's references but does not attach it to this branch, so it is not claimed here.",
+    },
+    SaturationMethod {
+        module: "sw_rtc",
+        method_id: "lrlc_rtc",
+        citation: "SandiBumi LRLC research, 'Study of LRLC caused by High Clay Volume and Microporosity in Pertamina Fields' (PHE UI + LAPI ITB); method math at docs/method_lrlc_rtc_imts.md, RtC sections; src-tauri/src/lrlc.rs:1-13",
+        worthington: None,
+        worthington_source: "No source classifies it. RtC is SandiBumi's own method, so no vendor classification applies (docs/PRD_v2/12_saturation.md:1890-1891), and Worthington 1985 predates it.",
+        caution: "",
+    },
+    SaturationMethod {
+        module: "sw_imts",
+        method_id: "lrlc_imts",
+        citation: "SandiBumi LRLC research, 'Study of LRLC caused by High Clay Volume and Microporosity in Pertamina Fields' (PHE UI + LAPI ITB); docs/method_lrlc_rtc_imts.md, IMTS sections; src-tauri/src/lrlc.rs:1-13. Waxman-Smits-family conductivity after Waxman & Smits 1968 SPEJ and Waxman & Thomas 1974 SPEJ, with the excess-conductivity coefficient after Juhasz 1979 SPWLA 20th Paper AA and 1981 SPWLA 22nd (docs/PRD_v2/12_saturation.md:473)",
+        worthington: None,
+        worthington_source: "No source classifies IMTS itself. Geolog classifies its own sw_ws as type 2 (docs/PRD_v2/12_saturation.md:478-479), but IMTS is SandiBumi's own mineral-textural scaling of that family and no source states a type for it; carrying sw_ws's number across would be a classification nobody published.",
+        caution: "Contested authorship, shipped unresolved: IP attributes the clay-bound-water relation to Hill, Shirley & Klein 1979 SPWLA 20th Paper AA while Geolog attributes a paper of that exact title, same symposium, same year, same paper letter, to Juhasz; Techlog cites Juhasz 1979 The Log Analyst p 3-14. Both readings ship and neither is chosen (docs/PRD_v2/12_saturation.md:486-491, ESC-1).",
+    },
+    SaturationMethod {
+        module: "sw_height",
+        method_id: "saturation_height",
+        citation: METHOD_OWNED_ELSEWHERE,
+        worthington: None,
+        worthington_source: "Worthington 1985 classifies resistivity saturation models; a saturation-height function is not one.",
+        caution: "Saturation-height belongs to docs/PRD_v2/15_sat-height-rocktyping.md, which owns the Leverett-J and Skelt-Harrison families and their fitted-object provenance; src-tauri/src/satheight.rs:122 already cites that chapter's parameter section. Registered here so a Saturation-category module cannot go unaccounted for, not to import that chapter's requirements.",
+    },
+    SaturationMethod {
+        module: "multimin",
+        method_id: "multimin_retired",
+        citation: RETIRED_METHOD,
+        worthington: None,
+        worthington_source: "A retired step computes no saturation, so there is nothing to classify.",
+        caution: "Retired and superseded by SandiMin (src-tauri/src/multimin.rs:10-13). The spec is kept only so a saved workflow chain resolves by name and can show its stored parameters; running the step returns a message and writes no curve, so no run of it can reach the provenance record.",
+    },
+];
+
+/// SB-SAT-043. The build gate. Every module in the `Saturation` category must be registered, and
+/// every registered method must carry a citation identifying a checkable artefact and a statement
+/// of its Worthington classification - including the statement that it has none.
+///
+/// The gate is over the CATEGORY rather than a hand-written list, for the same reason SB-CUT-018's
+/// pane enumeration discovers rather than lists: a hand-maintained list goes stale the day someone
+/// adds a model, and the model that ships without a citation would be the one nobody remembered.
+pub fn validate_saturation_methods(
+    modules: &[crate::modules::ModuleSpec],
+    methods: &[SaturationMethod],
+) -> Result<(), String> {
+    let mut failures = Vec::new();
+    let mut seen: Vec<(&str, &str)> = Vec::new();
+    for entry in methods {
+        let identity = format!("{}/{}", entry.module, entry.method_id);
+        if entry.module.trim().is_empty() || entry.method_id.trim().is_empty() {
+            failures.push("a saturation method entry has no identity".to_string());
+            continue;
+        }
+        if seen.contains(&(entry.module, entry.method_id)) {
+            failures.push(format!("{identity} is registered twice"));
+        }
+        seen.push((entry.module, entry.method_id));
+        if entry.worthington_source.trim().is_empty() {
+            failures.push(format!(
+                "{identity} states no Worthington classification and no reason for carrying none - \
+                 an empty field reads as an oversight, which is exactly what a reader cannot check"
+            ));
+        }
+        match entry.citation {
+            RETIRED_METHOD | METHOD_OWNED_ELSEWHERE => {
+                if entry.caution.trim().is_empty() {
+                    failures.push(format!(
+                        "{identity} carries '{}' instead of a citation but says nothing about why; \
+                         a hand-off must name where the method's literature lives",
+                        entry.citation
+                    ));
+                }
+            }
+            citation if !crate::modules::source_identifies_checkable_artefact(citation) => {
+                failures.push(format!(
+                    "{identity} citation '{citation}' does not identify a checkable artefact \
+                     locator or named publication; an author's name alone is not a citation"
+                ));
+            }
+            _ => {}
+        }
+    }
+    for module in modules
+        .iter()
+        .filter(|module| module.category == "Saturation")
+    {
+        if !methods.iter().any(|entry| entry.module == module.name) {
+            failures.push(format!(
+                "saturation module '{}' ships with no registered literature citation; a saturation \
+                 answer that cannot name the paper it traces to is the gap SB-SAT-043 closes",
+                module.name
+            ));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-SAT-043 saturation-citation gate failed ({} violation{}): {}",
+            failures.len(),
+            if failures.len() == 1 { "" } else { "s" },
+            failures.join("; ")
+        ))
+    }
+}
+
+/// SB-SAT-043. The registered method for one run, by module and persisted equation identity.
+pub fn saturation_method(module: &str, method_id: &str) -> Option<&'static SaturationMethod> {
+    SATURATION_METHODS
+        .iter()
+        .find(|entry| entry.module == module && entry.method_id == method_id)
+}
+
 #[cfg(test)]
 pub fn topics() -> &'static [&'static str] {
     &[

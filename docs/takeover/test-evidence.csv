@@ -301,6 +301,7 @@
 "SB-SAT-016","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
 "SB-SAT-017","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
 "SB-SAT-023","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
+"SB-SAT-043","CORRECTNESS","src-tauri/src/workflow.rs","a_saturation_run_carries_its_model_citation_worthington_type_and_unfitted_coefficient_flag_into_the_deliverable"
 "SB-SAT-044","CHARACTERIZATION","src-tauri/src/resultsqc.rs","shaly_sand_makes_archie_diverge_from_clay_models"
 "SB-SAT-046","CHARACTERIZATION","src-tauri/src/multimin2.rs","xu_split_recovers_sw_and_sxo_from_conductivity"
 "SB-SAT-048","CHARACTERIZATION","src-tauri/src/lrlc.rs","the_fit_recovers_the_coefficients_that_generated_the_rock"
