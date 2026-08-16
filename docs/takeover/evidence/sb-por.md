@@ -346,18 +346,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** SP-013's method disposition is closed by `DEC-017`; SB-POR-020 still separately requires an explicit vendor-rendering disposition, and the original scan must be verified before RHG80 code.
 - **Next action:** implement the verified original RHG80 route, keep vendor renderings distinctly labelled if later selected, and add a label/formula/provenance acceptance test that cannot pass on the current approximation.
 
-## SB-POR-021 - Chart-free analytic neutron-density method
+## SB-POR-021 - Chart-free analytic neutron-density crossplot
 
-- **Specified contract:** provide the cited Bateman-Konen analytic N-D method, independently validate it against the gated chart branch, and keep the average shortcut measurably distinct; T08 and T37 constrain both sides.
-- **Current implementation:** `phi_dn` offers only `AVERAGE` and `GAS_RMS` shortcuts. No Bateman-Konen evaluator exists; unrelated Bateman-Konen salinity/Rw code is not POR. The nine chapter constants remain non-adoptable.
-- **Qualifying acceptance tests:** none; T08/T37 are not executable. Test class `MISSING`.
-- **Supporting tests:** `phi_dn_crossplot_shale_reduction_and_branches` passed exactly once for the current shortcuts, not the analytic method.
-- **Manual evidence:** porosity 0/33; crossplot 6/13, with no POR analytic-method evidence.
-- **Source/parameter boundary:** ESC-POR-8 blocks adoption of the nine constants; they remain verification-only and no chart value is copied.
-- **History/reachability:** source, test and reachable-history searches found no POR Bateman-Konen method.
+- **Specified contract:** implement a chart-free analytic N-D crossplot as the primary N-D porosity method, following the Bateman & Konen (1977) family, so SandiBumi ships a real crossplot porosity without transcribing a single vendor chart value. The arithmetic average currently standing in for it costs 1.64-1.79 p.u.
+- **Current implementation:** `phi_dn` still offers only the `AVERAGE` and `GAS_RMS` shortcuts, which SB-POR-001 correctly types as a comparison producer rather than an interpretation method, and which SB-POR-004 gave collision-safe `PHIE_DN_LIM`/`PHIT_DN_LIM` identities. No Bateman-Konen analytic evaluator exists. The Bateman-Konen salinity/Rw code in the saturation path is a different equation family and is not POR.
+- **Qualifying acceptance tests:** none. Test class `MISSING`. A test built on the constants that are actually held would assert exactly the adoption ESC-POR-8 forbids.
+- **Supporting tests:** the SB-POR-001 envelope proof pins that D-N is typed as a comparison producer, so the shortcut is not currently masquerading as the analytic method.
+- **Manual evidence:** porosity 0/33.
+- **Source/parameter boundary:** section 5.6 ships the nine crossplot constants (`2.71 / 4.00 / 0.7 / -5 / -0.16 / -2.06 / -1.17 / -16 / -0.4`) as `NON-ADOPTABLE - cited for verification`: they are **Geolog's rendering** of the method in `phi_dnbk.lls` `DN_XPLOT` (tier T1), not the paper's. ESC-POR-8 states the position exactly - the 1977 paper is not held locally, so the constants are ABSENT and the method cannot ship as a default. Adopting a vendor's fitted constants for a published method without the publication is the "carried over from a neighbouring vendor" failure the parameter discipline exists to prevent, and it would also carry the same provenance exposure recorded for the vendor chart payloads under SB-PLT-024.
+- **History/reachability:** no analytic evaluator is present or reachable.
 - **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** close ESC-POR-8 with admissible primary custody before the analytic method can ship.
-- **Next action:** obtain the admissible constants/source, implement the analytic evaluator, and compare it independently with both chart and shortcut discriminators.
+- **Blocker or decision:** `BLOCKED-SOURCE`, ESC-POR-8. This is a source-intake item, not a design decision: no product choice unblocks it.
+- **Next action:** obtain Bateman, R.M. and Konen, C.E., *The Log Analyst*, Nov-Dec 1977, or an equivalent admissible primary source for the analytic form and its constants; then implement the evaluator and compare it independently against both the chart and shortcut discriminators. Meanwhile the pilot keeps the shortcuts explicitly labelled as comparisons and excluded from pay, per PILOT_SCOPE item 6.
 
 ## SB-POR-022 - SandiBumi-owned gated chart pipeline
 

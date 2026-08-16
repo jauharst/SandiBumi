@@ -8,15 +8,15 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `168 / 222 handled — 124 DONE, 44 BLOCKED, 54 remaining`
+- Gate 2 requirement progress: `169 / 222 handled — 124 DONE, 45 BLOCKED, 53 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: G2-T08 / SB-POR-011 - `BLOCKED-DECISION`; `phi_den`, `phi_dn` and `condflag` ship `RHO_MA` 2.645 while `gascorr`, which their own docs instruct chaining, ships 2.65. Section 5.1 cites both and adjudicates neither, so one shared parameter cannot be created without choosing a cited value. No value was registered and no test was written.
+- Active increment: G2-T08 / SB-POR-021 - `BLOCKED-SOURCE`; the chart-free analytic N-D method needs the Bateman-Konen family, but section 5.6 ships its nine constants `NON-ADOPTABLE` because they are Geolog's rendering rather than the paper's, and ESC-POR-8 records that Bateman & Konen (1977) is not held. No constant was adopted and no evaluator was written.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: no SB-POR-011 test was added. Every consumer now shares the `MATRIX_DENSITY` source topic from SB-POR-007, so the competing positions are disclosed at the point of entry, but the shipped defaults still disagree and unifying them is a product choice. The full gate is unchanged from the SB-POR-009 receipt at `1043 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: no SB-POR-021 test was added, because the method cannot ship without an admissible source for its constants and a test built on Geolog's transcription would assert the adoption ESC-POR-8 forbids. The full gate is unchanged from the SB-POR-009 receipt at `1043 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `44 requirements are explicitly BLOCKED and 54 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Open blockers: `45 requirements are explicitly BLOCKED and 53 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
 - Named residuals carried forward, not claimed as covered: `ssc`/`sspw` parameters remain unsourced for SB-POR-007 beyond the `RHO_W` added here. The same primary tier is spelled `T1p` in the porosity chapter, `T1′` in registry rows pinned by earlier CLY/CORE increments and `T1-prime` in a frontend fixture; Jauhar approved unifying it as its own increment, queued behind the remaining rows. `montecarlo.rs:1287` remains the SB-POR-006 residual. A `DEC` row recording the 2026-08-16 `ssc.rs` authorization still needs adding to `DECISIONS.md`, which is outside this program's allowed paths.
-- Next increment: `Continue G2-T08 with SB-POR-021, the first unhandled row of the immutable 222-row Gate 2 program. SB-POR-005 is release_disposition DEFERRED, as-built ABSENT and outside the approved manifest, so it is not Gate 2 work and naming it here would have widened the program.`
+- Next increment: `Continue G2-T08 with SB-POR-023, the first unhandled row of the immutable 222-row Gate 2 program. SB-POR-005 is release_disposition DEFERRED, as-built ABSENT and outside the approved manifest, so it is not Gate 2 work and naming it here would have widened the program.`
 
 ## Gate dashboard
 

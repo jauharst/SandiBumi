@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-021: analytic N-D crossplot blocked on a paper we do not hold
+
+- [ ] **Source needed, not a decision.** The chart-free analytic neutron-density method is the one
+      that lets SandiBumi ship a real crossplot porosity without transcribing any vendor chart. It
+      needs the Bateman & Konen (1977) family. The nine constants we hold
+      (`2.71 / 4.00 / 0.7 / −5 / −0.16 / −2.06 / −1.17 / −16 / −0.4`) are **Geolog's rendering** of
+      the method from `phi_dnbk.lls`, not the paper's own, and §5.6 ships them `NON-ADOPTABLE`.
+      ESC-POR-8 is explicit: until the paper is held, they are ABSENT and the method cannot ship as
+      a default. **Get the 1977 Log Analyst paper** (or an equivalent primary source) and this
+      unblocks. No product choice can substitute.
+- [ ] **What it costs meanwhile:** §3.2 measures the arithmetic-average shortcut standing in for the
+      real method at **1.64–1.79 p.u.** That is the gap you are carrying. The shortcut stays
+      explicitly labelled a comparison and excluded from pay by default, so it is disclosed rather
+      than silent — but it is not the method.
+- [ ] **Field and harsh critique:** I did not implement the evaluator on Geolog's constants. Doing so
+      would adopt a vendor's fitted parameters for a published method without the publication —
+      exactly the failure the parameter discipline exists to prevent, and the same provenance
+      exposure already flagged for the chart payloads under SB-PLT-024. If you have the paper in
+      your own library, this is a fast row. Gate unchanged at `1043 passed / 0 failed / 37 ignored`.
+      No box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-011: two matrix densities in one chained workflow
 
 - [ ] **Decision required — this one needs your number.** `phi_den`, `phi_dn` and `condflag` ship

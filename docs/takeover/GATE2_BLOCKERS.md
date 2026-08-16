@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `168 / 222`
+- Handled: `169 / 222`
 - Done: `124`
-- Blocked: `44`
-- Remaining unhandled: `54`
+- Blocked: `45`
+- Remaining unhandled: `53`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.
@@ -71,6 +71,7 @@ requirement appears exactly once.
 | `SB-POR-003` | DEC-039, DEC-038 and protected-file boundary | The singular branch/limit stream has no complete stable vocabulary, simultaneous-limit encoding, class metadata or unknown-code rule. Binary flags cannot carry branch identity, while unregistered categorical numbers are magic. SSC/SSPW branches and clamps also live in protected `ssc.rs`; T41 depends on later conditioning behavior. | Approve one exact versioned representation and every initial token/code or group member, including combinations and missing/unknown handling; settle DEC-038; then authorize the required narrow protected edits and prove the categorical output through write, reload, reframe and export. |
 | `SB-POR-010` | Dependency on SB-DBM-015 | Method identity, parameter values with source and tier, per-output convention and resolved input-curve identities are all already persisted. What is absent is the re-derivability clause: no stored manifest resolves module identity, options and defaults into one replayable record. | Settle DEC-021, DEC-023 and DEC-024, close SB-DBM-015, then prove a POR curve replays from its stored manifest alone without querying any mutable default. |
 | `SB-POR-011` | Product decision on a cited value | `phi_den`, `phi_dn` and `condflag` ship `RHO_MA` 2.645 while `gascorr`, which their own docs instruct chaining, ships 2.65. Section 5.1 cites both and adjudicates neither: 2.65 is the three-way endpoint agreement (T3), 2.645 is Geolog's shipped module default (T1). One shared parameter can carry only one default. | Jauhar chooses 2.65, 2.645, or explicitly ABSENT so the run refuses without a user value, and how the choice is source-labelled. Then one typed shared reference, proving a non-default override reaches every chained consumer unchanged. |
+| `SB-POR-021` | Source, ESC-POR-8 | The chart-free analytic N-D method needs the Bateman-Konen family, but the nine constants in section 5.6 are Geolog's rendering in `phi_dnbk.lls`, not the paper's, and Bateman & Konen (1977) is not held. Section 5.6 ships them `NON-ADOPTABLE`. Implementing on them would adopt a vendor's fitted parameters for a published method without the publication. | Obtain the 1977 paper or an equivalent admissible primary source, then implement the evaluator and compare it independently against both the chart and shortcut discriminators. |
 
 ## Product-owner decision packet
 
