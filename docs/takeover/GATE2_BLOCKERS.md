@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `175 / 222`
+- Handled: `176 / 222`
 - Done: `127`
-- Blocked: `48`
-- Remaining unhandled: `47`
+- Blocked: `49`
+- Remaining unhandled: `46`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.
@@ -75,6 +75,7 @@ requirement appears exactly once.
 | `SB-POR-025` | Dependency on SB-POR-021 / SB-POR-022 | The fresh-and-salt lever rule has no admissible values to interpolate between. Its endpoint sources are SB-POR-022, the gated chart digitisation, which is DEFERRED and outside the manifest; and SB-POR-021, whose 1977 primary source is now held but whose evaluator is unwritten. `nphimat` is a Prep converter, not a POR endpoint source. | Implement SB-POR-021's evaluator now the source is held, or promote SB-POR-022 into the manifest; then add a typed fluid-condition input with no default and persist the resolved salinity response. |
 | `SB-POR-026` | Output-surface ruling | The wiring is fully scoped - three specs (`phi_den`, `phi_dn`, `phi_son`) and `gascorr`'s shipped `log_in(GAS_FLAG, .., XOVER_FLAG, false)` idiom at `modules.rs:4404` - but its target is undecided. `11_porosity.md:951-952` reads as a new output CURVE; this register's own `next_action` reads as a PROVENANCE record. They ship different things and no cited text settles it. | Owner rules curve versus provenance. Then consume `condflag`'s flag rather than recomputing it, so the coal and washout exclusions survive, and pin both sides including the absent path staying MISSING, never 0. |
 | `SB-POR-028` | Dependency on SB-POR-003 / DEC-039 | Narrowed this session. The clamp VALUES are cited after all - `11_porosity.md` SS5:1231-1232, tier T1, Geolog `phi_dn.lls` / `phi_dnbk.lls` - and SB-POR-007 closed, so the parameter half is source-ready. The second clause still fails: hitting a clamp must raise SB-POR-003's flag, and that stream does not exist pending DEC-039. | Settle DEC-039, then promote the four literals mode-aware (chart vs Bateman-Konen clamps differ, linking this to SB-POR-021) and prove just-inside versus just-outside on both axes. |
+| `SB-POR-044` | PhiMax identity in the smooth form | The DEC-018 reading was stale - the row is in the approved 242. The real block: `11_porosity.md:1048-1050` says the smooth form's **three** parameters ship with no defaults, but its `PhiMax` collides with SandiBumi's `PHIE_MAX`, which already carries a Geolog-sourced 0.3. Reusing it hands the mode a default the chapter forbids; adding a second invents a parameter and leaves two ceilings that can disagree. | Owner rules which `PhiMax` is meant. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode with `param_open` parameters that refuse unsupplied, and pin step, smooth and refusal. |
 
 ## Product-owner decision packet
 

@@ -651,16 +651,16 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 ## SB-POR-044 - Optional smooth roll-off with no defaults
 
-- **Specified contract:** offer the specified smooth high-shale roll-off as an explicit option only when its three parameters are provided; ship no roll-off defaults and retain the hard-branch alternative.
-- **Current implementation:** no roll-off option or parameter set exists; only the hard-coded step branch ships.
+- **Specified contract:** a **smooth** high-shale roll-off **SHOULD** be offered as an alternative to the step, following IP's `(PhiMax + ΔPhiMax)(1 − Vcl)·10^(−10(Vcl − VclCutoff)^1.6)` shape. Its three parameters ship with **no defaults** — IP publishes none (F21).
+- **Current implementation:** none. `OPT_PHIEMAX` offers `SHALE_REDUCED` and `MAXIMUM` only; there is no smooth mode, no roll-off arithmetic and no defaultless parameter trio.
 - **Qualifying acceptance tests:** none. Test class `MISSING`.
-- **Supporting tests:** hard-branch characterizations do not prove a roll-off.
-- **Manual evidence:** porosity 0/33.
-- **Source/parameter boundary:** the bundled three-parameter set remains ABSENT; no plausible transition values are invented.
-- **History/reachability:** no current or reachable POR roll-off implementation was found.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** product must decide pilot inclusion; any use requires explicit user/cited parameters.
-- **Next action:** if included, implement it as opt-in with all parameters required and test both hard-branch and smooth paths without a default selection.
+- **Supporting tests:** none.
+- **Manual evidence:** porosity 0/64.
+- **Source/parameter boundary:** the shape is fully cited and needs no invention. What is **not** cited is the identity of `PhiMax`. Two of the three parameters - `ΔPhiMax` and `VclCutoff` - are new and defaultless. The third collides with the shipped `PHIE_MAX`, which carries a Geolog-sourced default of 0.3. Reusing `PHIE_MAX` gives the smooth form a default the chapter says it must not have; adding a second defaultless `PhiMax` invents a parameter and leaves two porosity ceilings on one module that can silently disagree. Both readings are plausible, neither is cited, and the wrong one is **silently** wrong - the roll-off computes and plots either way.
+- **History/reachability:** searches confirm absence of any smooth-roll-off path.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** `BLOCKED-CONTRACT`. The earlier *DEC-018 settles first-pilot inclusion* reading is **stale** - SB-POR-044 is in the approved 242-row manifest, verified against `pilot-scope.json` this session, so inclusion is already settled and cannot be the blocker. This is the same register-versus-chapter drift found in SB-POR-026, SB-POR-028 and SB-POR-043.
+- **Next action:** owner rules whether the smooth form's `PhiMax` **is** the existing `PHIE_MAX` - accepting that this mode then inherits a Geolog default IP does not publish - or is a separate defaultless parameter, stating how the two ceilings interact. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode on `phi_den` and `phi_dn` using `param_open` parameters that refuse to run unsupplied, and pin the hard-branch path, the smooth path and the refusal.
 
 ## SB-POR-045 - PHIE floor is configuration, not a compile-time authority
 
