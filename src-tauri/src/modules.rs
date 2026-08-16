@@ -5930,7 +5930,32 @@ mod tests {
             dn.doc
         );
 
-        // C — the registry identity from SB-POR-001 must still type this producer as a comparison,
+        // C — pay eligibility, settled by Jauhar on 2026-08-16 as option (b): the D-N limited output
+        // IS admitted to pay, so the canonical-first fallback reaching it is the approved contract
+        // rather than the leak it looked like. The pay path must therefore consult exactly the
+        // closed two-name pair and nothing wider — a family scan here would let any porosity-shaped
+        // curve into a reserves number, which is the failure the closed list exists to prevent.
+        //
+        // `PILOT_SCOPE.md` item 6 still reads "excluded from pay by default" and contradicts this
+        // ruling. That file is outside this program's allowed paths and is hash-bound to DEC-018,
+        // so the correction is recorded in the SB-POR-023 evidence row rather than made here.
+        let pay = include_str!("workflow.rs");
+        let candidates = pay
+            .split("let phie_candidates = vec![")
+            .nth(1)
+            .and_then(|tail| tail.split("];").next())
+            .expect("run_pay_summary must declare its PHIE candidate list");
+        assert!(
+            candidates.contains("\"PHIE\"") && candidates.contains("PHIE_DN_LIMITED_DEFAULT"),
+            "pay must reach the D-N limited output through the canonical-first pair: {candidates}"
+        );
+        assert_eq!(
+            candidates.matches(',').count(),
+            2,
+            "the pay fallback must stay a closed two-name pair, not a widening list: {candidates}"
+        );
+
+        // D — the registry identity from SB-POR-001 must still type this producer as a comparison,
         // so the label and the machine-readable role cannot drift apart.
         let roles: Vec<_> = dn
             .args
