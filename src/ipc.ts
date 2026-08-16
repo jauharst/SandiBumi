@@ -3110,6 +3110,10 @@ export interface PaySummaryRow {
    *  reconciliation. Zero on any run whose partition already closed, which is every ordinary run.
    *  A residual beyond 1e-7 relative fails the summation instead of arriving here. */
   residual_absorbed: number;
+  /** SB-CUT-030. True when a zonal average falls outside its quantity's physical bounds.
+   *  The value is emitted AS COMPUTED, not corrected - a corrected average is a number nobody
+   *  derived. Render it as a warning beside the value, never by rewriting the value. */
+  out_of_range?: boolean;
   /** SB-CUT-012. The depth frame these weights were measured in — `"MD"`, `"TVD"`, `"TVDSS"` or
    *  `"TST"`. Part of the result's IDENTITY, not a display option: the per-sample weight is `Δz`
    *  in MD and `Δz·cos θ` in TVD, so the weights differ, by a factor of two in a 60° hold. Today

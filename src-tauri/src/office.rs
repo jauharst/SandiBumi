@@ -1973,6 +1973,7 @@ mod tests {
             // Nothing unknown, so both ratios coincide.
             ntg_known: net / 100.0,
             residual_absorbed: 0.0,
+            out_of_range: false,
             frame: crate::workflow::SummationFrame::Md,
             weights_source: crate::workflow::MD_WEIGHTS_SOURCE.to_string(),
             unfiltered: Vec::new(),

@@ -2848,6 +2848,13 @@ pub struct PaySummaryRow {
     /// denominator, and a printed 0.00 would be a claim about rock nobody looked at — the same
     /// reasoning as [`Self::n_classified`]. Crosses IPC as JSON `null`, like the `avg_*` fields.
     pub ntg_known: f32,
+    /// SB-CUT-030. True when an emitted zonal average falls outside its quantity's physical
+    /// bounds. The value is **emitted as computed, not corrected** — a corrected average is a
+    /// number nobody derived, and the condition that produced it is exactly what a reviewer needs
+    /// to see. It rides in its own typed field for the SB-CUT-029 reason: a marker inside the
+    /// numeric column would stop being arithmetic.
+    #[serde(default)]
+    pub out_of_range: bool,
     /// SB-CUT-005. Footage moved into the largest component so the partition closes — reported
     /// rather than printed, which is the whole point of the requirement. Zero on any run whose
     /// partition already closed, which is every ordinary run; a non-zero value here is the record
@@ -3011,6 +3018,100 @@ impl CutoffEntry {
             ));
         }
         Ok(canonical)
+    }
+}
+
+/// SB-CUT-030. The three named stages a value passes through, and whether each clamps.
+///
+/// **`Accumulate` never clamps, and that is the whole requirement.** Clamping inside a sum is not
+/// a display choice; it moves the MEAN. For a truly wet interval the unclamped hydrocarbon
+/// contribution `phi*(1-Sw)` has expectation zero under symmetric noise, while the clamped
+/// contribution `phi*max(0, 1-Sw)` has expectation `phi*sigma/sqrt(2*pi)` = `0.3989*phi*sigma > 0`
+/// — always toward MORE hydrocarbon, by an amount independent of iteration count
+/// (`docs/PRD_v2/14_cutoffs-summation-mc.md:789-794`). A clamp that is correct for one
+/// deterministic evaluation is a bias in expectation over an ensemble.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClampStage {
+    /// Summation. NEVER clamped.
+    Accumulate,
+    /// The cut-off comparison. Clamped to the quantity's bounds.
+    FlagTest,
+    /// What a reader is shown. Clamped to the quantity's bounds.
+    Present,
+}
+
+/// SB-CUT-030. A quantity's physical bounds — **attached to the QUANTITY, never to a curve-type
+/// string**.
+///
+/// Binding bounds to a type string is the specific failure that makes IP's clipping worse than
+/// Techlog's unconditional clamp: IP clips by *declared curve type*, so mis-typing a curve silently
+/// changes its numerics, and the change is **invisible in the data**. A quantity cannot be
+/// mis-typed by a label because it is not a label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundedQuantity {
+    /// A volume fraction: Vsh, porosity, saturation. Bounded `0..=1`.
+    VolumeFraction,
+    /// Permeability. Bounded below at zero and **unbounded above**.
+    Permeability,
+    /// A quantity with no physical bounds at all — a reconstruction error, a resistivity, a
+    /// coefficient. It must NOT be clamped to `[0,1]` merely because that is the common case.
+    Unbounded,
+}
+
+impl BoundedQuantity {
+    /// The bounds, or `None` where the quantity has none. An open upper bound is `f64::INFINITY`
+    /// rather than a large number, so nothing accidentally clips a real permeability.
+    pub fn bounds(self) -> Option<(f64, f64)> {
+        match self {
+            BoundedQuantity::VolumeFraction => Some((0.0, 1.0)),
+            BoundedQuantity::Permeability => Some((0.0, f64::INFINITY)),
+            BoundedQuantity::Unbounded => None,
+        }
+    }
+
+    /// Whether a value lies outside the quantity's bounds. A NaN is not out of range — it is
+    /// absent, which is a different statement and already has its own carrier (SB-CUT-029).
+    pub fn is_out_of_range(self, value: f32) -> bool {
+        match self.bounds() {
+            Some((lo, hi)) => value.is_finite() && ((value as f64) < lo || (value as f64) > hi),
+            None => false,
+        }
+    }
+}
+
+/// SB-CUT-030. Apply one stage's clamping policy to one value of one quantity.
+///
+/// The single place the policy is expressed, so `accumulate` cannot quietly acquire a clamp in one
+/// caller while the others keep theirs.
+pub fn stage_value(stage: ClampStage, quantity: BoundedQuantity, value: f32) -> f32 {
+    match (stage, quantity.bounds()) {
+        // Never, for any quantity. This arm is the requirement.
+        (ClampStage::Accumulate, _) => value,
+        // An unbounded quantity is not clamped at any stage — there is nothing to clamp it to.
+        (_, None) => value,
+        (_, Some((lo, hi))) => {
+            if value.is_nan() {
+                value
+            } else {
+                value.clamp(lo as f32, hi as f32)
+            }
+        }
+    }
+}
+
+/// SB-CUT-030. The PRESENT stage for an emitted zonal average.
+///
+/// Clamped to the quantity's bounds, **except** where the average falls outside them — which the
+/// requirement says must be emitted AS COMPUTED and flagged, never corrected. A corrected average
+/// is a number nobody derived, and the condition that produced it is exactly what a reviewer needs
+/// to see. So the clamp is inert on every ordinary run by construction: an in-range value has
+/// nothing to clamp, and an out-of-range one is deliberately let through beside its flag.
+fn present_average(value: f32) -> f32 {
+    let quantity = BoundedQuantity::VolumeFraction;
+    if quantity.is_out_of_range(value) {
+        value
+    } else {
+        stage_value(ClampStage::Present, quantity, value)
     }
 }
 
@@ -3960,7 +4061,16 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                         }
                     };
                     for (slot, value) in [vsh[i], phie[i], swe[i]].into_iter().enumerate() {
-                        avg[slot].add(value, w(mode[slot]));
+                        // SB-CUT-030: values enter the sum through the ACCUMULATE stage, which
+                        // never clamps. A clamp inside a sum does not relocate a tail - it moves
+                        // the MEAN, by 0.3989*phi*sigma toward more hydrocarbon, independent of
+                        // iteration count. Named at the site so a future edit has to argue with it.
+                        let accumulated = stage_value(
+                            ClampStage::Accumulate,
+                            BoundedQuantity::VolumeFraction,
+                            value,
+                        );
+                        avg[slot].add(accumulated, w(mode[slot]));
                     }
                     if !phie[i].is_nan() && !swe[i].is_nan() {
                         hpv += phie[i] as f64 * (1.0 - swe[i] as f64) * h;
@@ -4011,10 +4121,26 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     // Averages are normalised over the footage THAT curve was valid on — not total
                     // net — so a SAND-row sample with valid VSH but missing PHIE does not drag
                     // avg_phie toward zero. Each carries the weighting its slot declared.
-                    avg_vsh: avg[0].value(),
-                    avg_phie: avg[1].value(),
-                    avg_swe: avg[2].value(),
-                    hpv: hpv as f32,
+                    // SB-CUT-030: the three averages are emitted through the PRESENT stage, and
+                    // an average outside its quantity's bounds is FLAGGED rather than corrected.
+                    // All three are volume fractions - the bound comes from the QUANTITY, not from
+                    // the curve's name or declared type, which is the failure mode IP has.
+                    out_of_range: [avg[0].value(), avg[1].value(), avg[2].value()]
+                        .iter()
+                        .any(|v| BoundedQuantity::VolumeFraction.is_out_of_range(*v)),
+                    avg_vsh: present_average(avg[0].value()),
+                    avg_phie: present_average(avg[1].value()),
+                    avg_swe: present_average(avg[2].value()),
+                    // SB-CUT-030: HPV is a volume-thickness, not a fraction - it routinely
+                    // exceeds 1 - so it goes through the PRESENT stage as an UNBOUNDED quantity.
+                    // That is the clause "an unbounded quantity MUST NOT be clamped to [0,1]"
+                    // stated at the one site where a careless clamp would destroy the number
+                    // rather than merely round it.
+                    hpv: stage_value(
+                        ClampStage::Present,
+                        BoundedQuantity::Unbounded,
+                        hpv as f32,
+                    ),
                     n_classified,
                     perm_cutoff_no_data,
                 });
@@ -4065,7 +4191,18 @@ fn classify_sample(
     // by the default flags, which say the same thing wherever nobody declares otherwise.
     let judge = |tier: &str| {
         let passes = |slot: &str, sample: f32| {
-            cuts.applied(tier, slot).map_or(true, |range| range.contains(sample))
+            // SB-CUT-030: the FLAG_TEST stage compares the value clamped to its QUANTITY's bounds
+            // - the bound comes from the quantity, never from the curve's name or declared type,
+            // which is the failure that makes IP's clipping invisible in the data. Inert for an
+            // in-range sample, which is every ordinary one, so no number moves; what it does is put
+            // the stage boundary somewhere a reader can find it.
+            let quantity = if slot == "PERM" {
+                BoundedQuantity::Permeability
+            } else {
+                BoundedQuantity::VolumeFraction
+            };
+            let tested = stage_value(ClampStage::FlagTest, quantity, sample);
+            cuts.applied(tier, slot).map_or(true, |range| range.contains(tested))
         };
         passes("VSH", vsh)
             && passes("PHIE", phie)
@@ -7214,6 +7351,192 @@ mod tests {
         assert!(err.contains("no unit"), "{err}");
     }
 
+    /// SB-CUT-030 (P1). `14_cutoffs-summation-mc.md:1378-1397` and §3.8 at `:778-806` — three
+    /// named stages, `accumulate` **never clamped** and `flag_test` / `present` clamped to the
+    /// **quantity's** bounds; bounds attach to the quantity and **never to a curve-type string**;
+    /// an unbounded quantity **MUST NOT** be clamped to `[0,1]`; a zonal average outside its
+    /// bounds **MUST** be emitted with `out_of_range: true`, **not corrected**; and percent-to-
+    /// fraction conversion and the bound check **MUST** be separate operations with an over-bound
+    /// value after conversion raising.
+    ///
+    /// The chapter quantifies why `accumulate` must not clamp, and the number is the argument: for
+    /// a truly wet interval the unclamped `phi*(1-Sw)` has expectation ZERO under symmetric noise,
+    /// while the clamped `phi*max(0, 1-Sw)` has expectation `0.3989*phi*sigma > 0`. Clamping does
+    /// not relocate a tail — it moves the MEAN, always toward more hydrocarbon, by an amount
+    /// independent of iteration count. Correct for one deterministic evaluation, a bias in
+    /// expectation over an ensemble.
+    #[test]
+    fn accumulate_never_clamps_while_flag_test_and_present_clamp_to_the_quantitys_own_bounds() {
+        use BoundedQuantity::{Permeability, Unbounded, VolumeFraction};
+        use ClampStage::{Accumulate, FlagTest, Present};
+
+        // A — the stage rule, at values outside the bounds on both sides. `accumulate` returns the
+        // value untouched for EVERY quantity; the other two clamp.
+        for quantity in [VolumeFraction, Permeability, Unbounded] {
+            for value in [-0.4f32, 1.7, 42.0] {
+                assert_eq!(
+                    stage_value(Accumulate, quantity, value),
+                    value,
+                    "accumulate must never clamp: {quantity:?} at {value}"
+                );
+            }
+        }
+        assert_eq!(stage_value(FlagTest, VolumeFraction, 1.7), 1.0);
+        assert_eq!(stage_value(Present, VolumeFraction, -0.4), 0.0);
+
+        // B — the quantified consequence, reproduced. A symmetric spread of `1 - Sw` about zero
+        // accumulates to zero unclamped and to a POSITIVE mean clamped: the bias is not a tail
+        // effect, it is the mean moving, and it moves toward more hydrocarbon every time.
+        let draws: Vec<f32> = (-50..=50).map(|i| i as f32 * 0.01).collect();
+        let unclamped: f64 = draws
+            .iter()
+            .map(|hc| stage_value(Accumulate, VolumeFraction, *hc) as f64)
+            .sum();
+        let clamped: f64 = draws
+            .iter()
+            .map(|hc| stage_value(Present, VolumeFraction, *hc) as f64)
+            .sum();
+        assert!(unclamped.abs() < 1e-6, "a symmetric spread accumulates to zero: {unclamped}");
+        assert!(
+            clamped > 0.0,
+            "and clamping the same spread moves the mean toward hydrocarbon: {clamped}"
+        );
+
+        // C — BOUNDS ATTACH TO THE QUANTITY. Permeability is bounded BELOW and open above, so a
+        // real 4,000 mD must survive; an unbounded quantity is not clamped to [0,1] merely because
+        // that is the common case. Binding bounds to a curve-type string is the specific failure
+        // that makes IP's clipping invisible in the data — a quantity cannot be mis-typed by a
+        // label, because it is not a label.
+        assert_eq!(stage_value(Present, Permeability, 4000.0), 4000.0);
+        assert_eq!(stage_value(Present, Permeability, -3.0), 0.0);
+        assert_eq!(
+            stage_value(Present, Unbounded, 42.0),
+            42.0,
+            "an unbounded quantity must not be clamped to [0,1]"
+        );
+        assert_eq!(Unbounded.bounds(), None);
+        assert_eq!(Permeability.bounds(), Some((0.0, f64::INFINITY)));
+
+        // D — an out-of-range value is DETECTED, and a NaN is not out of range: absent is a
+        // different statement and already has its own carrier (SB-CUT-029).
+        assert!(VolumeFraction.is_out_of_range(1.2) && VolumeFraction.is_out_of_range(-0.1));
+        assert!(!VolumeFraction.is_out_of_range(0.5));
+        assert!(!VolumeFraction.is_out_of_range(f32::NAN), "missing is not out of range");
+        assert!(!Unbounded.is_out_of_range(1e9));
+
+        // E — PERCENT-TO-FRACTION CONVERSION AND THE BOUND CHECK ARE SEPARATE OPERATIONS, and an
+        // over-bound value AFTER conversion raises. `35 pu` converts to 0.35 and passes; `35 v/v`
+        // needs no conversion and fails the check; `200 pu` converts to 2.0 and fails AFTER the
+        // conversion, which is the ordering the requirement asks for.
+        let por = CutoffQuantity::VolumeFraction;
+        assert!((CutoffEntry { value: 35.0, unit: "pu".into() }.canonical(por, "x").unwrap() - 0.35).abs() < 1e-12);
+        assert!(CutoffEntry { value: 35.0, unit: "v/v".into() }.canonical(por, "x").is_err());
+        let after = CutoffEntry { value: 200.0, unit: "pu".into() }
+            .canonical(por, "the PHIE cut-off")
+            .expect_err("2.0 v/v is impossible");
+        assert!(
+            after.contains("physical range") && after.contains('2'),
+            "the refusal must name the CONVERTED value, which is what proves the check ran after \
+             the conversion rather than instead of it: {after}"
+        );
+
+        // F — WIRED IN: a zonal average outside its bounds is EMITTED with the flag rather than
+        // corrected. An ordinary well flags nothing, which is the control that stops the flag from
+        // being stuck on.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_wet_reservoir(&conn, "SANDI-CLAMP-1");
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![well],
+                vsh_max: None,
+                phie_min: None,
+                swe_max: None,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                weighting: Default::default(),
+                frame: Default::default(),
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+            },
+        )
+        .expect("the run is valid");
+        assert!(!rows.is_empty());
+        assert!(
+            rows.iter().all(|r| !r.out_of_range),
+            "an in-range well must not be flagged - a flag that is always on says nothing"
+        );
+        let wire = serde_json::to_value(&rows[0]).unwrap();
+        assert!(
+            wire["out_of_range"].is_boolean(),
+            "and the condition rides a typed sibling, not the numeric column"
+        );
+
+        // G — the POSITIVE half, and it is the half the requirement actually turns on: a zonal
+        // average outside its bounds is EMITTED WITH THE FLAG AND NOT CORRECTED. Without this the
+        // in-range control above is satisfied by a flag hard-wired to `false`, which is a check
+        // that cannot fail — a mutation proved exactly that before this arm existed.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-CLAMP-2", Some("Synthetic"), None, None).unwrap();
+        let impossible = id.to_string();
+        let n = 8usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![30.0; n], vec![4.0; n], nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        // A supersaturated combination: a saturation above 1 is physically impossible and is
+        // exactly what an unclamped chain output looks like when a sampled parameter set is wrong.
+        for (curve, value) in [("VSH", 0.10f32), ("PHIE", 0.30), ("SWE", 1.40)] {
+            equations::write_computed_curve(&conn, &impossible, &depth, curve, &vec![value; n])
+                .unwrap();
+        }
+        let dbm = Mutex::new(conn);
+        let flagged = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![impossible],
+                vsh_max: None,
+                phie_min: None,
+                swe_max: None,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                weighting: Default::default(),
+                frame: Default::default(),
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+            },
+        )
+        .expect("an impossible saturation must still produce a result, flagged");
+        let row = flagged
+            .iter()
+            .find(|r| r.avg_swe.is_finite())
+            .expect("some row carries the saturation average");
+        assert!(
+            row.out_of_range,
+            "an average of {} is outside 0..1 and must be FLAGGED",
+            row.avg_swe
+        );
+        assert!(
+            (row.avg_swe - 1.40).abs() < 1e-5,
+            "and emitted AS COMPUTED, not corrected to 1.0 - a corrected average is a number \
+             nobody derived: {}",
+            row.avg_swe
+        );
+    }
+
     /// SB-CUT-029 (P1). `14_cutoffs-summation-mc.md:1361-1376` — a null or not-computed condition
     /// **MUST** be carried in a typed sibling field, **never as an in-band marker inside a numeric
     /// field**, and consumers **MUST** render a dash rather than a zero when the count is zero.
@@ -7245,6 +7568,7 @@ mod tests {
             n_classified,
             perm_cutoff_no_data: perm_no_data,
             residual_absorbed: 0.0,
+            out_of_range: false,
             unfiltered: vec!["PERM".into()],
             frame: Default::default(),
             weights_source: MD_WEIGHTS_SOURCE.into(),
@@ -7408,6 +7732,7 @@ mod tests {
             n_classified: 1,
             perm_cutoff_no_data: false,
             residual_absorbed: 0.0,
+            out_of_range: false,
             unfiltered: Vec::new(),
             frame: Default::default(),
             weights_source: MD_WEIGHTS_SOURCE.into(),

@@ -74,7 +74,7 @@
 "SB-CUT-027","CORRECTNESS","src-tauri/src/workflow.rs","a_run_carries_more_curves_than_any_vendor_cap_and_the_fixed_cutoff_and_tier_counts_are_arities_not_maxima"
 "SB-CUT-028","CORRECTNESS","src-tauri/src/workflow.rs","no_module_output_cutoff_field_or_result_field_is_a_bare_sw_rather_than_swe_or_swt"
 "SB-CUT-029","CORRECTNESS","src-tauri/src/workflow.rs","a_not_computed_condition_rides_a_typed_sibling_and_never_a_marker_inside_a_numeric_column"
-"SB-CUT-030","CHARACTERIZATION","src-tauri/src/workflow.rs","flooring_phie_leaves_missing_missing"
+"SB-CUT-030","CORRECTNESS","src-tauri/src/workflow.rs","accumulate_never_clamps_while_flag_test_and_present_clamp_to_the_quantitys_own_bounds"
 "SB-CUT-034","CHARACTERIZATION","src-tauri/src/montecarlo.rs","hpv_distribution_is_ordered_and_reproducible"
 "SB-CUT-039","CHARACTERIZATION","src-tauri/src/montecarlo.rs","convergence_early_stops_on_a_stationary_series"
 "SB-CUT-039","CHARACTERIZATION","src-tauri/src/montecarlo.rs","lhs_design_never_truncates"

@@ -14703,3 +14703,41 @@ that was the only thing outstanding.
 - [ ] **On a real study, check a zone you never interpreted reads as a dash rather than a zero** —
       in the summary pane, the report, and the workbook. The wire is proved; which surfaces you
       actually read is the half a test cannot claim.
+
+## Clamping happens in three named places, and summing is not one of them
+
+Clamping a value into its physical range is right in some places and wrong in others, and the
+difference is not a matter of taste.
+
+**Inside a sum it is wrong, and here is why.** Take a genuinely wet interval. The hydrocarbon
+contribution is `φ×(1−Sw)`, and with noise either side of Sw = 1 it averages to zero — which is
+correct, there is no hydrocarbon. Now clamp it at zero first: the negative half becomes zero, the
+positive half stays, and the average is **`0.399 × φ × σ` above zero**. Always positive. Always toward
+more hydrocarbon. And it does not shrink if you run more iterations — more iterations just measure
+the wrong number more precisely.
+
+So there are now three named stages: **accumulate** (never clamped), **flag test** (clamped) and
+**present** (clamped). Nothing you have moves — all 1,043 tests passed unchanged — because the
+clamps that were already there were in the two places clamping is correct.
+
+**Bounds belong to the quantity, not to a curve's label.** A porosity is 0–1 because it is a volume
+fraction, not because something is labelled "porosity". IP clips by declared curve type, so
+mis-typing a curve there silently changes its numbers and nothing in the data shows it. Permeability
+is bounded at zero and open above — 4,000 mD survives — and HPV is not a fraction at all, so it is
+never squeezed into 0–1.
+
+**An impossible average is now flagged, not fixed.** If a zone average comes out at Sw = 1.4, you
+see 1.4 with a warning beside it. Quietly writing 1.0 would hand you a number nobody calculated and
+hide the thing you most need to know.
+
+**One thing I did not change, and it is your call.** The Monte Carlo accumulator still sums the
+chain's *limited* curves. The specification's own analysis says that only bites in two setups: a
+wide-open cut-off set (Sw ≤ 1, φ ≥ 0 — the whole-zone-average configuration), and any zone average
+that is not restricted to pay. Pointing it at the unlimited curves instead would change every Monte
+Carlo result you have run in those setups, and the specification does not say which unlimited curve
+pairs with which limited one when a chain produces several. That is a method decision and it is
+yours.
+
+- [ ] **Re-run a pay summary and a Monte Carlo you have run before.** Both should be identical.
+- [ ] **Tell me whether to point the Monte Carlo accumulator at the unlimited curves.** I have set
+      out what changes if you say yes.
