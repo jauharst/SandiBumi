@@ -46,7 +46,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
 | `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 32 | 2026-07-20 | 11 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
 | `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 58 | — | 16 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 65 | 2026-07-20 | 18 |

@@ -46,26 +46,26 @@
       a sentence does not close that gap — SB-POR-021 does, and it needs the 1977 paper. No box is
       pre-checked.
 
-## 2026-08-16 — G2 SB-POR-021: analytic N-D crossplot blocked on a paper we do not hold
+## 2026-08-16 — G2 SB-POR-021: you supplied the paper, and it closes ESC-POR-8
 
-- [ ] **Source needed, not a decision.** The chart-free analytic neutron-density method is the one
-      that lets SandiBumi ship a real crossplot porosity without transcribing any vendor chart. It
-      needs the Bateman & Konen (1977) family. The nine constants we hold
-      (`2.71 / 4.00 / 0.7 / −5 / −0.16 / −2.06 / −1.17 / −16 / −0.4`) are **Geolog's rendering** of
-      the method from `phi_dnbk.lls`, not the paper's own, and §5.6 ships them `NON-ADOPTABLE`.
-      ESC-POR-8 is explicit: until the paper is held, they are ABSENT and the method cannot ship as
-      a default. **Get the 1977 Log Analyst paper** (or an equivalent primary source) and this
-      unblocks. No product choice can substitute.
-- [ ] **What it costs meanwhile:** §3.2 measures the arithmetic-average shortcut standing in for the
-      real method at **1.64–1.79 p.u.** That is the gap you are carrying. The shortcut stays
-      explicitly labelled a comparison and excluded from pay by default, so it is disclosed rather
-      than silent — but it is not the method.
-- [ ] **Field and harsh critique:** I did not implement the evaluator on Geolog's constants. Doing so
-      would adopt a vendor's fitted parameters for a published method without the publication —
-      exactly the failure the parameter discipline exists to prevent, and the same provenance
-      exposure already flagged for the chart payloads under SB-PLT-024. If you have the paper in
-      your own library, this is a fast row. Gate unchanged at `1043 passed / 0 failed / 37 ignored`.
-      No box is pre-checked.
+- [ ] **Source resolved — thank you, this was the blocking item.** The PDF you attached is Bateman &
+      Konen, *Wellsite Log Analysis and the Programmable Pocket Calculator*, **SPWLA Eighteenth
+      Annual Logging Symposium, June 5–8 1977** — the symposium paper published as the Nov–Dec 1977
+      *Log Analyst* article ESC-POR-8 names. **Appendix B (pp. 19–21) contains the full derivation
+      and all nine constants verbatim.** `2.71` and `4.0` are the limestone and pseudo-mineral
+      densities in B-5/B-11; `0.7 / −5 / −0.16` are B-12; `−1.17 / −2.06 / −0.4 / −16` are B-10.
+- [ ] **The important correction:** §5.6 shipped those constants `NON-ADOPTABLE` on the grounds they
+      were "Geolog's rendering, not the paper's". **They are the paper's.** Geolog transcribed it
+      faithfully. So they are primary-sourced (T1p), not vendor-derived, and the provenance exposure
+      that worried ESC-POR-8 does not apply.
+- [ ] **What is still outstanding:** the evaluator itself is unwritten — this row moves from
+      *blocked on a source* to *implementation pending*. One design constraint recorded for whoever
+      builds it: it must be its **own typed method**, not another `OPT_XPLOT` mode on the comparison
+      producer, or SB-POR-023's quick-look boundary collapses the moment the real method lands
+      beside the shortcut. A hand-derived witness is banked in the evidence file so the next session
+      does not re-derive it: at ρb 2.30, ρmf 1.00, φN 0.25 → **φx = 0.245219**.
+- [ ] **Field and harsh critique:** this is the 1.64–1.79 p.u. gap. Closing it is now engineering
+      rather than intake. No box is pre-checked.
 
 ## 2026-08-16 — G2 SB-POR-011: two matrix densities in one chained workflow
 
