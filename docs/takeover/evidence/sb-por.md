@@ -385,18 +385,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-CONTRACT`. `PILOT_SCOPE` item 6 requires the arithmetic and RMS comparisons to be "excluded from pay by default", while the approved SB-POR-004 contract makes pay fall back from an absent canonical `PHIE` to the exact D-N limited name. Both cannot hold for a D-N-only well, and engineering will not weaken either approved contract without an explicit ruling.
 - **Next action:** Jauhar rules - either pay refuses when only a comparison output exists, naming it, or the D-N limited output is explicitly admitted to pay and `PILOT_SCOPE` item 6 is corrected. Then prove the chosen behaviour on a D-N-only well. SB-POR-021 remains separately blocked on its source.
 
-## SB-POR-024 - Neutron matrix-basis refusal and provenance
+## SB-POR-024 - Declared neutron matrix units or refuse
 
-- **Specified contract:** N-D porosity must know the neutron matrix basis, convert it through an admissible path when requested, refuse missing/wrong basis, and record input/output basis.
-- **Current implementation:** `nphimat` can convert named matrix bases, but `phi_dn` accepts NPHI without inspecting or requiring basis metadata. No wrong-basis refusal or per-output basis provenance is emitted.
-- **Qualifying acceptance tests:** none; no accepted-versus-refused POR basis test exists. Test class `MISSING`.
-- **Supporting tests:** the five `nphimat` tests passed exactly once and prove conversion arithmetic only.
-- **Manual evidence:** porosity 0/33; generic-curve-store 0/18; workflow 0/23.
-- **Source/parameter boundary:** conversion must use the owned/cited basis tables; no basis is guessed from mnemonic.
-- **History/reachability:** the converter is integrated; no POR wiring or refusal was found.
+- **Specified contract:** N-D crossplot porosity must refuse to run on a neutron curve whose matrix units are not declared, and must state the declared basis in its output provenance.
+- **Current implementation:** `nphimat` already converts named matrix bases, so SandiBumi has the conversion the requirement says it must then *require*. What is missing is the declaration. `phi_dn` accepts an NPHI curve without inspecting or requiring basis metadata, no wrong-basis refusal exists, and no per-output basis provenance is emitted. The live `nphimat` choices are explicit module **parameters**, not stored curve attributes, so a run cannot learn the delivered basis from the data at all.
+- **Qualifying acceptance tests:** none. Test class `MISSING`. The refusal has nothing to read, and manufacturing something for it to read - inferring a basis from the mnemonic, or promoting the `nphimat` parameter to a hidden header default - would reproduce the precise silent-default failure `SB-DBM-017` forbids.
+- **Supporting tests:** the `nphimat` conversion tests pass and pin the conversion itself; none of them establishes that a POR run requires the declaration.
+- **Manual evidence:** porosity 0/33; envcorr-qc 0/27.
+- **Source/parameter boundary:** the magnitude is the chapter's own - a limestone-unit neutron against a sandstone matrix reads **about 0.04 v/v low in clean water sand**, which `condflag`'s doc string already states verbatim while `phi_dn` neither states nor checks. The cited closed enum for the basis lives in `20_envcorr-qc.md`. No numeric default is authorized and none was invented.
+- **History/reachability:** the gap is live: any D-N run today silently accepts whatever basis the delivery happened to use.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires neutron-basis metadata at import/storage plus a typed POR input guard.
-- **Next action:** carry basis through curve metadata, require it at `phi_dn`, and test explicit compatible conversion against absent and wrong-basis refusal controls.
+- **Blocker or decision:** `BLOCKED-DEC-025`. The refusal requires a stored, declared neutron matrix basis, but its metadata and persistence owner `SB-ENV-012` sits outside the immutable 242-row manifest. DEC-025 already names SB-POR-024 among the rows it blocks, alongside `SB-DBM-017` and `SB-DBM-T17`, so this row closes with them rather than separately.
+- **Next action:** settle DEC-025 - authorize the narrow SB-ENV-012 typed neutron-scale metadata/persistence seam as required infrastructure while SB-ENV-012 itself stays deferred, or revise and re-approve the manifest to include it. Then require the declaration at the `phi_dn` boundary, refuse an undeclared or wrong-basis curve by name, and emit the declared basis in per-output provenance.
 
 ## SB-POR-025 - Salinity interpolation for neutron response
 

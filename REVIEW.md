@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-024: D-N accepts a neutron curve without knowing its matrix units
+
+- [ ] **Decision dependency — DEC-025.** The crossplot must refuse an NPHI curve whose matrix units
+      are undeclared, and state the basis in provenance. `nphimat` already does the conversion; what
+      is missing is that **nothing stores the delivered basis**. The `nphimat` choices are module
+      parameters you type in, not curve metadata, so a D-N run has nothing to check against. Settling
+      DEC-025 (the narrow SB-ENV-012 neutron-scale metadata seam) unblocks this together with
+      SB-DBM-017.
+- [ ] **Why it matters in numbers:** a limestone-unit neutron run against a sandstone matrix reads
+      **~0.04 v/v low in clean water sand**. `condflag`'s own doc string already says this verbatim.
+      `phi_dn` neither says it nor checks it — so today the wrong basis simply computes.
+- [ ] **Automated correctness:** none, deliberately. I did not infer a basis from the mnemonic, and
+      did not promote the `nphimat` parameter into a hidden header default — that is precisely the
+      silent-default failure SB-DBM-017 exists to forbid. Gate unchanged at
+      `1044 passed / 0 failed / 37 ignored`.
+- [ ] **Field and harsh critique:** worth checking whether your deliveries actually arrive in mixed
+      bases. If they always arrive limestone-unit and you always set `nphimat` accordingly, the
+      exposure is small and this row is mostly hygiene. If bases vary between vendors or vintages,
+      this is a live 4-porosity-unit error with no warning. You know which it is; I do not. No box is
+      pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-023: the D-N shortcut no longer claims to be a chart lookup
 
 - [ ] **Automated correctness:** `phi_dn`'s doc string told users the arithmetic average and RMS were
