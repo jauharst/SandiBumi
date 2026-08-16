@@ -38,20 +38,18 @@
 - **Blocker or decision:** none.
 - **Next action:** Jauhar field-verifies that a saved chain storing `MODIFIED` still runs and now reports `simandoux_bardon_pied`.
 
-## SB-SAT-002
+## SB-SAT-002 - Effective and total Archie as separate named methods
 
-- **Specified contract:** Ship effective and total Archie as separate named methods. Owned test intention(s): `SB-SAT-T03`, `SB-SAT-T04`.
-- **Current implementation:** the standalone Archie path computes total saturation and then applies a generic effective back-out; the solver helper is total-porosity Archie only. Separate effective and total methods do not exist.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T03`, `SB-SAT-T04` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** `sw_arch_clean_sand` and `sw_archie_hand_computed` passed, but prove only the current total equation.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** current Rust/TypeScript surfaces, tests and reachable code history contain no complete implementation; documentation-only mentions are not credited.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** the two quantity contracts and their separate inputs/outputs are not implemented.
-- **Next action:** implement separately named total and effective Archie paths with independently sourced discriminators and explicit quantity metadata.
+- **Specified contract:** ship `archie_effective` (`Sw = (a*Rw/(Rt*phie^m))^(1/n)`) and `archie_total` (the same on phit, followed by the effective back-out) as two distinct, separately selectable methods; **MUST NOT** expose a method named `archie` with an undeclared porosity system (`12_saturation.md:893-906`).
+- **Why it is P0:** on the reference case the two answer **0.884 vs 0.634 - 25.0 saturation units, HCPV 3.15x apart**. The chapter calls it the largest single cross-tool trap in the domain, and it is invisible in the output.
+- **Current implementation:** `ABSENT`, confirmed in code. `sw_arch` (`modules.rs:4853` spec, `:4889` body) is total-only - `SWT = (A*Rw/(PHIT^M*RT))^(1/N)`, with `SWE` merely backed out via `swtsh = 1 - pe/pt`. There is no effective-porosity Archie.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Source/parameter boundary: nothing needs inventing.** The effective equation is cited above, and the missing half - what `SWT` becomes under it - is supplied by **SB-SAT-023** (`:1337-1344`): `SwT = Sw(1 - Swb) + Swb` with `Swb = 1 - phie/phit` for the Archie family, with a round-trip through the pair required to be the identity and `Swb = 1` required to yield `SWE = 1` rather than a divide-by-zero. `sw_arch` already computes exactly that `Swb` as its local `swtsh`. So the physics is complete and no ruling is needed on it.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`, and this **corrects an earlier assessment in this same session** that recorded the row as implementable-not-blocked. It is not. `SW_METHOD` is a categorical class curve whose codes come from `SwModel::flag_code()`, and `SwModel` (`multimin2.rs`) has **no `ArchieEffective` variant** - its members are `LinearDw`, `DualWaterNonlinear`, `ArchieTotal`, `Indonesia`, `SimandouxBardonPied`, `SimandouxModifiedSlb`, `Juhasz`. `multimin2.rs` is a prohibited file. Minting a code inside `modules.rs` instead would put the module vocabulary out of step with the solver registry - which is precisely what **SB-SAT-001 arm D** now forbids, so the workaround would fail a test shipped hours earlier.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Next action:** Jauhar authorizes a narrow `multimin2.rs` edit adding an `ArchieEffective` variant with its own `flag_code()` and catalogue entry - the DEC-040 pattern. Then add an equation-identity option to `sw_arch` carrying `archie_total` as the **default** so no saved run changes, branch the body to compute `SWE` directly on `PHIE` and lift `SWT` through SB-SAT-023's inverse, and pin from both sides: the two branches must DISAGREE on the chapter's reference case rather than quietly returning the same curve, and the round-trip must be the identity.
 
-### SB-SAT-003
+## SB-SAT-003
 
 - **Specified contract:** Ship a vendor alias table and resolve imports through it. Owned test intention(s): `SB-SAT-T01`, `SB-SAT-T05`.
 - **Current implementation:** no saturation alias table or import resolver exists; current strings are local option labels and direct enum values.
