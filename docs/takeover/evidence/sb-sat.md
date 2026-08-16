@@ -360,20 +360,21 @@
 - **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
 - **Next action:** Jauhar authorizes narrow edits to `lrlc.rs`, `multimin.rs` and `satheight.rs` to emit `SW_METHOD` (and `VOL_UWAT`/`VOL_XWAT` where missing) from the remaining four modules. Then pin both clauses universally over the shipping catalogue: no declared output anywhere equals bare `SW` or `SXO`, every saturation curve carries an `E`/`T` designator, and **every** module in the Saturation category declares a method-flag output - the universal form so a future saturation module cannot ship without one.
 
-## SB-SAT-027
+## SB-SAT-027 - One shared root-finder with Geolog's guards
 
-- **Specified contract:** One shared root-finder with Geolog's guards. Owned test intention(s): `SB-SAT-T12`, `SB-SAT-T41`.
-- **Current implementation:** Juhasz, Waxman-Smits and nonlinear dual water share one guarded root helper with a closed form and bisection branch; standalone and LRLC iterative paths remain separate.
-- **Qualifying acceptance tests:** none; the owned intentions `SB-SAT-T12`, `SB-SAT-T41` are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** general-exponent and nonphysical-input tests passed, but no cross-engine shared-root acceptance test exists.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the shared helper is integrated only within one engine and lacks the owned guard-suite proof.
-- **Next action:** route every applicable equation through the shared guarded solver and test closed-form/general equivalence plus all guards.
+- **Specified contract:** solve **every** polynomial-form saturation model with **one** shared root-finder using seed 0.5, **maximum 20 iterations**, tolerance `|d| < 1e-5`, and `sat = MAX(0, sat)` at each step. Where a closed form exists for `n = 2` it MAY be a fast path and **MUST be asserted equal to the general solver** (`12_saturation.md:1383-1397`).
+- **Why one solver:** Techlog's Levenberg-Marquardt is over-engineered for a scalar monotone root and its behaviour is undocumented and uninspectable (ESC-8); Geolog's guards are explicit and testable.
+- **Current implementation:** the module side transcribes Geolog's `CALC_SW`, and `multimin2.rs:391` `sw_cond_root` is a second, different solver - closed quadratic at `n = 2`, else bisection - which the chapter calls defensible for the solver's monotone forms but **not cross-asserted** against the first. Juhasz, Waxman-Smits and nonlinear dual water share that one guarded helper; the standalone and LRLC iterative paths remain separate.
+- **Qualifying acceptance tests:** none for the shared-solver contract. Test class `MISSING`.
+- **Supporting tests:** `sw_sim_matches_quadratic_solution` already asserts the module against the analytic quadratic at `N = 2`, which is one half of the chapter's *MUST be asserted equal* - but it compares the module to a closed form, not the two ENGINES to each other, which is the assertion the chapter actually asks for.
+- **Manual evidence:** saturation 0/31.
+- **Source/parameter boundary:** every guard is cited verbatim - seed 0.5, 20 iterations, 1e-5, `MAX(0, sat)`, from `sw_sim.lls:256-271`. Nothing needs inventing.
+- **Note on stale line references:** the chapter cites `modules.rs:2218-2230` for the transcription; that range no longer holds it, and the `for _ in 0..20` loop at `modules.rs:4541` is `gascorr`'s density iteration with a `1e-4` tolerance, not the saturation root-finder. A reader following the citation lands on the wrong loop - worth correcting when the row is built.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`. The requirement is *every* polynomial-form model through *one* solver, and the standalone and LRLC iterative paths are separate today - routing them means editing **`lrlc.rs`**, prohibited. The cross-assertion between the two engines also needs the solver side reachable on equal terms. This is the same authorization already requested by SB-SAT-023, 025 and 026.
+- **Verdict:** `PRESENT-OK` behaviour with `MISSING` proof; `PILOT-BLOCKER`; commit state `INTEGRATED`.
+- **Next action:** Jauhar authorizes the narrow `lrlc.rs` (and `multimin2.rs`) edits. Then route every applicable equation through the shared guarded solver and pin the guard suite owned rather than assumed: seed 0.5, the 20-iteration cap actually binding, `|d| < 1e-5`, `MAX(0, sat)` at each step, and the closed form at `n = 2` equal to the general solver **engine against engine** - the arm that is missing today.
 
-### SB-SAT-028
+## SB-SAT-028
 
 - **Specified contract:** Non-convergence MUST return null, never a partial iterate. Owned test intention(s): SB-SAT-T41.
 - **Current implementation:** the standalone iterative helper returns missing after its cap, but IMTS retains its last finite iterate after 100 iterations because convergence is not recorded.
