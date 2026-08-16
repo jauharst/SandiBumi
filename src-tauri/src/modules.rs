@@ -3177,8 +3177,11 @@ fn phi_dn_spec() -> ModuleSpec {
         category: "Porosity".into(),
         doc: "Shale-corrects RHOB and NPHI to 'shale reduced' values, then combines density \
               porosity and neutron porosity: AVERAGE = (PHID+PHIN)/2, GAS_RMS = sqrt((PHID²+PHIN²)/2) \
-              for gas-bearing zones. (Commercial suites use service-company chart lookups here; \
-              this is the standard analytic equivalent.) PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH."
+              for gas-bearing zones. QUICK-LOOK COMPARISON ONLY - neither combination is a crossplot \
+              porosity method: no vendor ships either as one, and IP says of the field shortcuts that \
+              they should not be used for anything other than this. The chart-free analytic \
+              neutron-density method is a separate contract (SB-POR-021). \
+              PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH."
             .into(),
         args: vec![
             opt("OPT_XPLOT", "Crossplot combination method", "AVERAGE", &["AVERAGE", "GAS_RMS"]),
@@ -5784,6 +5787,66 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-023 and F14. The requirement is explicit
+    /// that the arithmetic average and the RMS **MUST NOT** be presented as crossplot porosity
+    /// methods, and that the doc string claiming they are "the standard analytic equivalent" of
+    /// chart lookups **MUST** be removed. They **MAY** ship as explicitly labelled quick-look
+    /// comparison curves, which is what this pins.
+    ///
+    /// This covers the presentation arm only. The pay-eligibility arm is recorded as a live
+    /// contract conflict rather than silently resolved here - see the SB-POR-023 evidence row.
+    #[test]
+    fn the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method(
+    ) {
+        let dn = module_catalog()
+            .into_iter()
+            .find(|spec| spec.name == "phi_dn")
+            .expect("phi_dn is a shipping module");
+
+        // A — the exact claim the requirement orders removed must be gone from every porosity doc,
+        // not merely from the one line the chapter cites.
+        for spec in module_catalog().iter().filter(|spec| spec.category == "Porosity") {
+            let doc = spec.doc.to_lowercase();
+            assert!(
+                !doc.contains("standard analytic equivalent"),
+                "'{}' still claims to be the standard analytic equivalent of a chart lookup",
+                spec.name
+            );
+            assert!(
+                !doc.contains("chart lookup") || spec.name == "phi_dn",
+                "'{}' should not describe itself against chart lookups",
+                spec.name
+            );
+        }
+
+        // B — the other side. Removing the claim is not enough; the requirement permits these
+        // curves only as EXPLICITLY labelled quick-look comparisons, so the label must be present.
+        let doc = dn.doc.to_lowercase();
+        assert!(
+            doc.contains("quick-look comparison only"),
+            "the D-N shortcuts must be explicitly labelled quick-look comparisons: {}",
+            dn.doc
+        );
+        assert!(
+            doc.contains("not a crossplot") || doc.contains("neither combination is a crossplot"),
+            "the doc must say plainly that these are not crossplot porosity methods: {}",
+            dn.doc
+        );
+
+        // C — the registry identity from SB-POR-001 must still type this producer as a comparison,
+        // so the label and the machine-readable role cannot drift apart.
+        let roles: Vec<_> = dn
+            .args
+            .iter()
+            .filter_map(|arg| arg.porosity_output.as_ref())
+            .map(|contract| contract.method.clone())
+            .collect();
+        assert!(
+            !roles.is_empty() && roles.iter().all(|m| m.contains("COMPARISON")),
+            "phi_dn outputs must remain typed as a comparison producer: {roles:?}"
+        );
+    }
 
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-009 and F21. `PHIT >= PHIE` must hold at
     /// every sample by construction, and the requirement's own words are that the invariant "MUST

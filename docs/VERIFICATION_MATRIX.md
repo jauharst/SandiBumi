@@ -29,7 +29,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 29 | — | 6 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 54 | — | 16 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 103 | 2026-08-13 | 27 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 107 | 2026-08-13 | 28 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
@@ -49,7 +49,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `crossplot` | Crossplot | Partially exercised | 6 / 32 | 2026-07-20 | 11 |
 | `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 58 | — | 16 |
-| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 61 | 2026-07-20 | 17 |
+| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 65 | 2026-07-20 | 18 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |

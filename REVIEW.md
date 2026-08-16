@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-023: the D-N shortcut no longer claims to be a chart lookup
+
+- [ ] **Automated correctness:** `phi_dn`'s doc string told users the arithmetic average and RMS were
+      "the standard analytic equivalent" of service-company chart lookups. SB-POR-023 orders that
+      claim removed, and F14 records that **no vendor ships either as a porosity method**. It is
+      gone. `phi_dn` now says plainly that neither combination is a crossplot porosity method, is
+      labelled `QUICK-LOOK COMPARISON ONLY`, and points at SB-POR-021 as the real analytic contract.
+      The test pins the claim absent from *every* porosity doc, the label present, and the
+      machine-readable comparison typing still intact — so the wording and the registry cannot drift
+      apart. Two mutations produced RED at two different assertions.
+- [ ] **Decision required — a genuine conflict between two approved contracts.** `PILOT_SCOPE` item 6
+      says these comparisons are "excluded from pay by default". The SB-POR-004 contract you already
+      have says pay follows the canonical-first pair, so on a well interpreted with **D-N alone**,
+      pay falls back to `PHIE_DN_LIM` — a comparison output reaching pay. Both cannot hold. Rule
+      either: **pay refuses** when only a comparison output exists, naming it; or the D-N limited
+      output **is** admitted to pay and item 6 is corrected. I did not silently pick one.
+- [ ] **Manual:** open Density-Neutron Porosity and read the description — confirm it no longer
+      suggests parity with a chart lookup, and that you'd read it as a comparison rather than a
+      method. Then run a well with **only** D-N and check what the pay summary does; that is the
+      behaviour the ruling above decides.
+- [ ] **Field and harsh critique:** the doc string was the only place the product asserted that
+      equivalence, and §3.2 measures the shortcut against the real method at 1.64–1.79 p.u. Removing
+      a sentence does not close that gap — SB-POR-021 does, and it needs the 1977 paper. No box is
+      pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-021: analytic N-D crossplot blocked on a paper we do not hold
 
 - [ ] **Source needed, not a decision.** The chart-free analytic neutron-density method is the one

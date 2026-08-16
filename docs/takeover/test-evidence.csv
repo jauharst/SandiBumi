@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-POR-023","CORRECTNESS","src-tauri/src/modules.rs","the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method"
 "SB-POR-009","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample"
 "SB-POR-008","CORRECTNESS","src-tauri/src/modules.rs","one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities"
 "SB-POR-007","CORRECTNESS","src-tauri/src/modules.rs","every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent"
@@ -274,7 +275,6 @@
 "SB-PLT-035","CHARACTERIZATION","src-tauri/src/modules.rs","characterizes_the_interactive_clay_overlay_as_a_duplicate_formula_matching_batch_endpoints"
 "SB-POR-014","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
 "SB-POR-017","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
-"SB-POR-023","CHARACTERIZATION","src-tauri/src/modules.rs","phi_dn_crossplot_shale_reduction_and_branches"
 "SB-POR-028","CHARACTERIZATION","src-tauri/src/modules.rs","phi_dn_crossplot_shale_reduction_and_branches"
 "SB-POR-043","CHARACTERIZATION","src-tauri/src/modules.rs","phi_den_shale_branch_limits_and_missing"
 "SB-POR-045","CHARACTERIZATION","src-tauri/src/modules.rs","a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin"

@@ -372,18 +372,18 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** pilot inclusion and admissible chart-validation custody must be decided after ESC-POR-8.
 - **Next action:** keep the owned conversion tables separate; if included, add an explicitly gated POR validation adapter with independent source and no production dependence on protected material.
 
-## SB-POR-023 - Average and RMS are comparison curves only
+## SB-POR-023 - Quick-look shortcuts are not a crossplot method
 
-- **Specified contract:** arithmetic average and gas RMS remain visibly labelled comparison curves, never authoritative POR methods or pay defaults; T36 pins method registration and downstream exclusion.
-- **Current implementation:** `phi_dn` exposes `AVERAGE` and `GAS_RMS` as the only selectable methods and writes ordinary POR outputs. The documentation calls them analytic shortcuts rather than comparison-only quantities; no pay-exclusion type exists.
-- **Qualifying acceptance tests:** none for the specified comparison/pay contract. Test class `CHARACTERIZATION`: `phi_dn_crossplot_shale_reduction_and_branches` pins the current selectable shortcuts and their arithmetic.
-- **Supporting tests:** the characterization passed exactly once; it does not prove comparison typing or exclusion.
-- **Manual evidence:** porosity 0/33; crossplot 6/13; no pay-selection evidence.
-- **Source/parameter boundary:** the current shortcut formulas do not become authority for the absent analytic method.
-- **History/reachability:** current shortcut registration is integrated; no POR comparison family or pay guard was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-021 and SB-POR-057.
-- **Next action:** reclassify both shortcuts as method-qualified comparison outputs, make them ineligible for pay defaults, and prove the authoritative registry rejects them.
+- **Specified contract:** the arithmetic average and the RMS must not be presented as crossplot porosity methods, and the doc string claiming they are "the standard analytic equivalent" of chart lookups must be removed. They may ship as explicitly labelled quick-look comparison curves.
+- **Current implementation:** the **presentation arm is closed**. The forbidden claim is gone; `phi_dn` now states plainly that neither combination is a crossplot porosity method, is labelled `QUICK-LOOK COMPARISON ONLY`, quotes IP's own position that the field shortcuts should not be used for anything else, and points at SB-POR-021 as the separate analytic contract. SB-POR-001 already types both outputs `DENSITY_NEUTRON_COMPARISON` and SB-POR-004 gave them collision-safe `PHIE_DN_LIM`/`PHIT_DN_LIM` identities. The **pay-eligibility arm is not closed**: `run_pay_summary` resolves a logical PHIE through the SB-POR-004 canonical-first pair, so on a well interpreted with D-N alone it falls back to `PHIE_DN_LIM` and a comparison output reaches pay.
+- **Qualifying acceptance tests:** `the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method` pins the presentation arm from three sides - the forbidden claim absent from **every** porosity doc rather than only the cited line, the explicit quick-look label present, and the SB-POR-001 comparison typing still intact so the human label and the machine-readable role cannot drift apart. Two mutations produced RED at two different assertions: restoring the forbidden claim, and removing the label while leaving the claim absent. Test class `CORRECTNESS`, for the presentation arm only.
+- **Supporting tests:** `phi_dn_crossplot_shale_reduction_and_branches` characterizes the shortcut arithmetic and still passes. It was previously registered as this row's qualifying evidence; it is not, because it pins what the shortcuts compute rather than how they are presented, so it is recorded here as supporting rather than qualifying. Nothing was deleted from the suite.
+- **Manual evidence:** porosity 0/33; cutoffs-pay 0/23.
+- **Source/parameter boundary:** SB-POR-023 and F14 supply the prohibition and the permitted labelling; no numeric value is involved.
+- **History/reachability:** the misleading doc string shipped until this increment and was the only place a user was told the shortcut equalled a chart lookup.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-CONTRACT`. `PILOT_SCOPE` item 6 requires the arithmetic and RMS comparisons to be "excluded from pay by default", while the approved SB-POR-004 contract makes pay fall back from an absent canonical `PHIE` to the exact D-N limited name. Both cannot hold for a D-N-only well, and engineering will not weaken either approved contract without an explicit ruling.
+- **Next action:** Jauhar rules - either pay refuses when only a comparison output exists, naming it, or the D-N limited output is explicitly admitted to pay and `PILOT_SCOPE` item 6 is corrected. Then prove the chosen behaviour on a D-N-only well. SB-POR-021 remains separately blocked on its source.
 
 ## SB-POR-024 - Neutron matrix-basis refusal and provenance
 
