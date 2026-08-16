@@ -416,15 +416,15 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-026 - Crossover conditioning is consumed by POR
 
 - **Specified contract:** POR methods declare, consume and record the conditioning crossover decision rather than recomputing or ignoring it.
-- **Current implementation:** `condflag` emits `XOVER` and related flags, but POR manifests do not declare those inputs and their bodies do not consume or persist them.
+- **Current implementation:** `condflag` emits `XOVER_FLAG` and related flags (`modules.rs:4008`, `:4126`, `:4241`), but no POR manifest declares those inputs and no POR body consumes or persists them. Exactly three specs are in scope - `phi_den` (`modules.rs:3045`), `phi_dn` (`:3173`) and `phi_son` (`:3306`) - the same three that §3.7 names as declaring neither `COND_FLAG` nor `BADHOLE`.
 - **Qualifying acceptance tests:** none; T41 does not execute declaration-through-run custody. Test class `MISSING`.
-- **Supporting tests:** `condflag_detects_coal_tight_and_crossover`, `condflag_washout_is_not_coal_and_xcond_option`, and the generic empty-flag refusal passed exactly once.
-- **Manual evidence:** conditioning 0/27; porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** no threshold is adopted; only the already-produced decision is under review.
+- **Supporting tests:** `condflag_detects_coal_tight_and_crossover`, `condflag_washout_is_not_coal_and_xcond_option`, and the generic empty-flag refusal passed exactly once. They pin the detection; none of them establishes that a POR run declares or carries it.
+- **Manual evidence:** conditioning 0/27; porosity 0/48; workflow 0/23.
+- **Source/parameter boundary:** no threshold is adopted and none was invented - `XOVER_MIN` is already a sourced `condflag` parameter. `11_porosity.md:951-952` is narrower than this file's earlier reading: the chapter states that `condflag` already computes the flag and that **the requirement is the wiring**, i.e. custody of an existing determination rather than a new policy for what each POR method *does* with it. The flag must be **consumed, never re-derived**: `condflag`'s rule is `dphi - np > XOVER_MIN && !coal_hit && !washout`, so lifting only the first clause into a porosity module would drop both exclusions and call coal and washouts gas. `gascorr` already ships the idiom - `log_in("GAS_FLAG", .., "XOVER_FLAG", false)` at `modules.rs:4404`, an optional declared flag input aliased to `condflag`'s own output, whose doc string records that the upstream flag already excludes coal and washout.
 - **History/reachability:** XOVER generation is integrated; no POR consumer was found.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires the common flag contract and a declared policy for what each POR method does with XOVER.
-- **Next action:** add a typed required/optional conditioning input, record the branch taken, and prove both present and absent-policy paths.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-CONTRACT`. The wiring is scoped and idiom-matched, but its target is undecided. Whether *"surfaced as a flag on the porosity output"* means a **new named output curve** from each of the three modules - an output-surface contract under `workflow::resolve_output_names`, reaching LAS export, the curve catalogue and pay summary - or only a **provenance record** on the existing outputs, is a product-owner call. The chapter reads as a curve; this register's own `next_action` ("record the branch taken") reads as provenance. The two ship different things, no cited text settles it, and no ruling was invented. The earlier `UNDECIDED` framing ("a declared policy for what each POR method does with XOVER") over-scoped the row into a method decision the chapter does not ask for.
+- **Next action:** owner rules output curve versus provenance record. Then declare an optional crossover input on `phi_den`, `phi_dn` and `phi_son` following the `gascorr` idiom, consume `condflag`'s flag rather than recomputing it so the coal and washout exclusions survive, and pin both sides: a supplied flag reaching the porosity output, and an absent flag leaving it `MISSING` rather than `0`, since nobody-looked and no-crossover-found are different statements.
 
 ## SB-POR-027 - Neutron-sonic crossplot
 

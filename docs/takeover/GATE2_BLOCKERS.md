@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `172 / 222`
+- Handled: `173 / 222`
 - Done: `126`
-- Blocked: `46`
-- Remaining unhandled: `50`
+- Blocked: `47`
+- Remaining unhandled: `49`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.
@@ -73,6 +73,7 @@ requirement appears exactly once.
 | `SB-POR-021` | Implementation pending; ESC-POR-8 CLOSED | **Source resolved 2026-08-16.** Jauhar supplied Bateman & Konen, SPWLA Eighteenth Annual Logging Symposium, June 5-8 1977. Appendix B pp.19-21 carries the full derivation and all nine section 5.6 constants verbatim, so they are primary-sourced T1p rather than Geolog's rendering. The analytic evaluator itself is still unwritten. | Implement B-5/B-6/B-7 and the B-9..B-12 pseudo-mineral branches as a **typed deterministic method distinct from the D-N comparison producer** - not another `OPT_XPLOT` mode, or SB-POR-023's quick-look boundary collapses. Pin with the hand-derived witness `phi_x = 0.245219` at rho_b 2.30 / rho_mf 1.00 / phi_N 0.25. |
 | `SB-POR-024` | DEC-025 | The N-D crossplot must refuse an NPHI curve whose matrix units are not declared and must state the declared basis in provenance. `nphimat` already performs the conversion, but nothing stores the delivered basis: the live choices are explicit module parameters, not curve metadata, so the refusal has nothing to read. A limestone-unit neutron against a sandstone matrix reads about 0.04 v/v low in clean water sand. | Settle DEC-025 - authorize the narrow SB-ENV-012 typed neutron-scale metadata/persistence seam, or revise the manifest to include it. Then require the declaration at the `phi_dn` boundary, refuse an undeclared or wrong basis by name, and emit the basis in per-output provenance. Do not infer a basis from the mnemonic or supply a default. |
 | `SB-POR-025` | Dependency on SB-POR-021 / SB-POR-022 | The fresh-and-salt lever rule has no admissible values to interpolate between. Its endpoint sources are SB-POR-022, the gated chart digitisation, which is DEFERRED and outside the manifest; and SB-POR-021, whose 1977 primary source is now held but whose evaluator is unwritten. `nphimat` is a Prep converter, not a POR endpoint source. | Implement SB-POR-021's evaluator now the source is held, or promote SB-POR-022 into the manifest; then add a typed fluid-condition input with no default and persist the resolved salinity response. |
+| `SB-POR-026` | Output-surface ruling | The wiring is fully scoped - three specs (`phi_den`, `phi_dn`, `phi_son`) and `gascorr`'s shipped `log_in(GAS_FLAG, .., XOVER_FLAG, false)` idiom at `modules.rs:4404` - but its target is undecided. `11_porosity.md:951-952` reads as a new output CURVE; this register's own `next_action` reads as a PROVENANCE record. They ship different things and no cited text settles it. | Owner rules curve versus provenance. Then consume `condflag`'s flag rather than recomputing it, so the coal and washout exclusions survive, and pin both sides including the absent path staying MISSING, never 0. |
 
 ## Product-owner decision packet
 
