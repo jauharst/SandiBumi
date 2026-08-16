@@ -3058,19 +3058,31 @@ fn phi_den_spec() -> ModuleSpec {
                 "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
             ),
             with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
-            param(
-                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
-                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            with_sources(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FLUID_DENSITY,
             ),
             with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
-            param(
-                "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
-                "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            with_sources(
+                param(
+                    "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                    "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FORMATION_WATER_DENSITY,
             ),
-            opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
-            param(
-                "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
-                "Geolog V14 phi_den.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+            with_sources(
+                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
+                crate::param_sources::POROSITY_LIMIT_MODE,
+            ),
+            with_sources(
+                param(
+                    "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
+                    "Geolog V14 phi_den.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+                ),
+                crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3159,20 +3171,32 @@ fn phi_dn_spec() -> ModuleSpec {
                 "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
             ),
             with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
-            param(
-                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
-                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            with_sources(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FLUID_DENSITY,
             ),
             with_sources(param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true), crate::param_sources::SHALE_NEUTRON_ENDPOINT),
             with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
-            param(
-                "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
-                "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            with_sources(
+                param(
+                    "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                    "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FORMATION_WATER_DENSITY,
             ),
-            opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
-            param(
-                "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
-                "Geolog V14 phi_dn.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+            with_sources(
+                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
+                crate::param_sources::POROSITY_LIMIT_MODE,
+            ),
+            with_sources(
+                param(
+                    "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
+                    "Geolog V14 phi_dn.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+                ),
+                crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
@@ -3273,13 +3297,25 @@ fn phi_son_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_SON", "Sonic porosity method", "WYLLIE", &["WYLLIE", "RHG"]),
-            opt("OPT_CP", "Wyllie lack-of-compaction correction (Cp = DT_SH/100)", "OFF", &["OFF", "ON"]),
-            param_open("DT_MA", "Matrix transit time", "us/ft", 40.0, 70.0, true),
-            param(
-                "DT_FL", "Fluid transit time", "us/ft", 189.0, 150.0, 220.0,
-                "IP swparameters.htm Sonic water Default 189; Geolog phi_son.info DT_FL 620 us/m; docs/PRD_v2/11_porosity.md §5.2",
+            with_sources(
+                opt("OPT_CP", "Wyllie lack-of-compaction correction (Cp = DT_SH/100)", "OFF", &["OFF", "ON"]),
+                crate::param_sources::SONIC_COMPACTION_CORRECTION,
             ),
-            param_open("DT_SH", "Shale transit time", "us/ft", 60.0, 150.0, true),
+            with_sources(
+                param_open("DT_MA", "Matrix transit time", "us/ft", 40.0, 70.0, true),
+                crate::param_sources::MATRIX_TRANSIT_TIME,
+            ),
+            with_sources(
+                param(
+                    "DT_FL", "Fluid transit time", "us/ft", 189.0, 150.0, 220.0,
+                    "IP swparameters.htm Sonic water Default 189; Geolog phi_son.info DT_FL 620 us/m; docs/PRD_v2/11_porosity.md §5.2",
+                ),
+                crate::param_sources::FLUID_TRANSIT_TIME,
+            ),
+            with_sources(
+                param_open("DT_SH", "Shale transit time", "us/ft", 60.0, 150.0, true),
+                crate::param_sources::SHALE_TRANSIT_TIME,
+            ),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIT_SON", "Total porosity from sonic", "v/v"),
@@ -5722,6 +5758,197 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-007. Every expected topic, value, source
+    /// and tier below is transcribed from that chapter's section 5 parameter tables (5.1 densities,
+    /// 5.2 sonic transit times, 5.3 limits) and its tier key at lines 7-19; no value is read back
+    /// from the shipping manifests, so a manifest that merely describes itself cannot pass.
+    ///
+    /// The requirement is bounded by section 5 in both directions. A parameter section 5 carries a
+    /// row for **must** expose its source and tier; a parameter section 5 carries **no** row for —
+    /// `OPT_SON`, `OPT_XPLOT`, and `phimax`'s SandiBumi-own compaction trend — must stay untopiced
+    /// rather than borrow a neighbouring quantity's evidence. Section 5.3's "IP roll-off triple"
+    /// names `PHIMAX` but is a shale roll-off, not `phimax`'s compaction ceiling, and the two are
+    /// deliberately not merged here.
+    ///
+    /// Residual, per the owner's SB-POR-007 scope decision: `ssc` and `sspw` declare their own
+    /// parameters inside `src-tauri/src/ssc.rs`, which this program may not edit. Their parameters
+    /// therefore remain unsourced and are named rather than silently counted as covered. Both are
+    /// excluded from the first pilot, so nothing shipping in it is left without its citation.
+    #[test]
+    fn every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent(
+    ) {
+        use crate::param_sources as sources;
+
+        let modules = module_catalog();
+        let arg = |module: &str, argument: &str| -> ArgSpec {
+            modules
+                .iter()
+                .find(|spec| spec.name == module)
+                .unwrap_or_else(|| panic!("module '{module}' is not in the shipping catalog"))
+                .args
+                .iter()
+                .find(|a| a.name == argument)
+                .unwrap_or_else(|| panic!("'{module}.{argument}' is not a shipping argument"))
+                .clone()
+        };
+
+        // A — every section 5 row a live POR manifest exposes reaches its parameter.
+        let cited: &[(&str, &str, &str)] = &[
+            ("phi_den", "RHO_MA", sources::MATRIX_DENSITY),
+            ("phi_den", "RHO_SH", sources::SHALE_DENSITY),
+            ("phi_den", "RHO_DSH", sources::DRY_SHALE_DENSITY),
+            ("phi_den", "RHO_FL", sources::FLUID_DENSITY),
+            ("phi_den", "RHO_W", sources::FORMATION_WATER_DENSITY),
+            ("phi_den", "PHIE_MAX", sources::MAX_EFFECTIVE_POROSITY),
+            ("phi_den", "OPT_PHIEMAX", sources::POROSITY_LIMIT_MODE),
+            ("phi_dn", "RHO_MA", sources::MATRIX_DENSITY),
+            ("phi_dn", "RHO_SH", sources::SHALE_DENSITY),
+            ("phi_dn", "RHO_DSH", sources::DRY_SHALE_DENSITY),
+            ("phi_dn", "NPHI_SH", sources::SHALE_NEUTRON_ENDPOINT),
+            ("phi_dn", "RHO_FL", sources::FLUID_DENSITY),
+            ("phi_dn", "RHO_W", sources::FORMATION_WATER_DENSITY),
+            ("phi_dn", "PHIE_MAX", sources::MAX_EFFECTIVE_POROSITY),
+            ("phi_dn", "OPT_PHIEMAX", sources::POROSITY_LIMIT_MODE),
+            ("phi_son", "DT_MA", sources::MATRIX_TRANSIT_TIME),
+            ("phi_son", "DT_FL", sources::FLUID_TRANSIT_TIME),
+            ("phi_son", "DT_SH", sources::SHALE_TRANSIT_TIME),
+            ("phi_son", "OPT_CP", sources::SONIC_COMPACTION_CORRECTION),
+        ];
+        for (module, argument, topic) in cited {
+            assert_eq!(
+                &arg(module, argument).sources_topic,
+                topic,
+                "'{module}.{argument}' must expose its section 5 evidence under '{topic}'"
+            );
+        }
+
+        // B — a topic string is not evidence. Every one must resolve to real, completely
+        // attributed positions, and every position must be tiered.
+        //
+        // The eight topics this requirement registers are held to the porosity chapter's own tier
+        // key (lines 7-19). The four it *reuses* — matrix, shale and dry-shale density and the
+        // shale neutron endpoint — were registered and pinned by earlier CLY/CORE increments that
+        // render the same primary tier as `T1′`; re-spelling their evidence to `T1p` here would
+        // silently rewrite another requirement's record and break its pinned inventory, so they are
+        // held to complete attribution and a non-empty tier instead. The cross-chapter divergence
+        // between `T1p`, `T1′` and the frontend fixture's `T1-prime` is recorded, not resolved
+        // here: unifying a shared vocabulary is its own change, not a side effect of this one.
+        const POR_OWNED_TIERS: &[&str] = &["T1p", "T1", "T2", "T3", "T3-eq", "T4"];
+        let por_owned = [
+            sources::FLUID_DENSITY,
+            sources::FORMATION_WATER_DENSITY,
+            sources::MAX_EFFECTIVE_POROSITY,
+            sources::POROSITY_LIMIT_MODE,
+            sources::MATRIX_TRANSIT_TIME,
+            sources::FLUID_TRANSIT_TIME,
+            sources::SHALE_TRANSIT_TIME,
+            sources::SONIC_COMPACTION_CORRECTION,
+        ];
+        for (module, argument, topic) in cited {
+            let positions = sources::sources_for(topic);
+            assert!(
+                !positions.is_empty(),
+                "'{module}.{argument}' names topic '{topic}', which resolves to no evidence at all"
+            );
+            assert!(
+                sources::parameter_label(topic).is_some(),
+                "topic '{topic}' has no human label for the dialog to render"
+            );
+            for position in positions {
+                assert!(
+                    !position.product.is_empty()
+                        && !position.value.is_empty()
+                        && !position.source.is_empty(),
+                    "a '{topic}' position is missing its product, value or source: {position:?}"
+                );
+                assert!(
+                    !position.tier.is_empty(),
+                    "a '{topic}' position carries no evidence tier: {position:?}"
+                );
+                if por_owned.contains(topic) {
+                    assert!(
+                        POR_OWNED_TIERS.contains(&position.tier),
+                        "'{topic}' is registered by SB-POR-007 and carries tier '{}', which is not one of the porosity chapter's declared tiers",
+                        position.tier
+                    );
+                }
+            }
+        }
+
+        // C — the whole point of `with_sources`. Registering an attested vendor value must never
+        // give a deliberately absent parameter a number to fall back on. Each of these ships
+        // ABSENT per section 5, and each now also ships its competing evidence.
+        for (module, argument) in [
+            ("phi_den", "RHO_SH"),
+            ("phi_den", "RHO_DSH"),
+            ("phi_dn", "NPHI_SH"),
+            ("phi_son", "DT_MA"),
+            ("phi_son", "DT_SH"),
+        ] {
+            let spec = arg(module, argument);
+            assert!(
+                !spec.sources_topic.is_empty(),
+                "'{module}.{argument}' is the case this rule exists for and must be sourced"
+            );
+            assert!(
+                spec.default.is_empty() && spec.default_source == ABSENT_DEFAULT_SOURCE,
+                "'{module}.{argument}' ships ABSENT; disclosing evidence must not create a default"
+            );
+            assert!(
+                sources::sources_for(&spec.sources_topic)
+                    .iter()
+                    .any(|position| position.value.parse::<f64>().is_ok()),
+                "'{module}.{argument}' must still disclose at least one attested number"
+            );
+        }
+
+        // D — the other side. Section 5 registers no row for these, so nothing may be invented for
+        // them here; their sources belong to their own requirements (`OPT_XPLOT` to SB-POR-023
+        // under DEC-014, `OPT_SON` to the SB-POR-013..020 sonic group under DEC-017).
+        for (module, argument) in [
+            ("phi_dn", "OPT_XPLOT"),
+            ("phi_son", "OPT_SON"),
+            ("phimax", "MODE"),
+            ("phimax", "PHIMAX0"),
+        ] {
+            assert!(
+                arg(module, argument).sources_topic.is_empty(),
+                "'{module}.{argument}' has no section 5 row; sourcing it would invent a citation"
+            );
+        }
+
+        // E — the tier has to survive into the run record, not merely into the dialog. This is the
+        // exact call the runner makes for every sourced numeric parameter.
+        let phie_max = arg("phi_den", "PHIE_MAX");
+        let decision = sources::decision_for(
+            &phie_max.sources_topic,
+            &serde_json::Value::from(0.30_f64),
+        )
+        .expect("a sourced numeric parameter must produce a run-record decision");
+        assert_eq!(decision.parameter, "maximum effective porosity");
+        assert!(
+            decision
+                .alternatives
+                .iter()
+                .any(|position| position.tier == "T1"
+                    && position.value == "0.30"
+                    && position.source.contains("phi_*.info PHIE_MAX")),
+            "the persisted decision must carry the cited Geolog position with its tier: {:?}",
+            decision.alternatives
+        );
+        assert!(
+            decision
+                .alternatives
+                .iter()
+                .any(|position| position.value == "0.35"),
+            "the disagreeing Techlog ceiling must remain visible beside the chosen value"
+        );
+        assert!(
+            decision.alternatives.iter().all(|position| !position.tier.is_empty()),
+            "a position with no tier is an unranked claim, not evidence"
+        );
+    }
 
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-001 and SB-POR-T39, adjudicated by
     /// `docs/takeover/DECISIONS.md` DEC-015. The common contract owns family, custody shape,

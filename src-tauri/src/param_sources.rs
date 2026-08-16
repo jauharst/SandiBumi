@@ -76,6 +76,17 @@ pub const SHALE_DENSITY: &str = "shale_density";
 pub const DRY_SHALE_DENSITY: &str = "dry_shale_density";
 pub const MATRIX_NEUTRON_ENDPOINT: &str = "matrix_neutron_endpoint";
 pub const SHALE_NEUTRON_ENDPOINT: &str = "shale_neutron_endpoint";
+// SB-POR-007: the porosity chapter's section 5 rows that a live POR manifest actually exposes.
+// A parameter whose section 5 row is absent stays untopiced rather than borrowing a neighbouring
+// quantity's evidence.
+pub const FLUID_DENSITY: &str = "fluid_density";
+pub const FORMATION_WATER_DENSITY: &str = "formation_water_density";
+pub const MAX_EFFECTIVE_POROSITY: &str = "max_effective_porosity";
+pub const POROSITY_LIMIT_MODE: &str = "porosity_limit_mode";
+pub const MATRIX_TRANSIT_TIME: &str = "matrix_transit_time";
+pub const FLUID_TRANSIT_TIME: &str = "fluid_transit_time";
+pub const SHALE_TRANSIT_TIME: &str = "shale_transit_time";
+pub const SONIC_COMPACTION_CORRECTION: &str = "sonic_compaction_correction";
 pub const ARCHIE_A: &str = "archie_a";
 pub const ARCHIE_M: &str = "archie_m";
 pub const ARCHIE_N: &str = "archie_n";
@@ -437,6 +448,217 @@ const CUTOFF_SWE_MAX_SOURCES: &[ParamSource] = &[
     claim!("Geolog", "1", "permissive sensitivity cutoff", "Geolog tp_pay_sensitivity.info", "T1b"),
 ];
 
+// SB-POR-007 / docs/PRD_v2/11_porosity.md section 5. Every claim below is transcribed from a
+// section 5 row, including the rows whose SandiBumi parameter deliberately ships ABSENT: an
+// attested vendor value is disclosure, never a default, and `with_sources` exists precisely so
+// registering one cannot change whether the parameter has a default.
+const FLUID_DENSITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "1.00",
+        "fresh water",
+        "IP basicloganalysis.htm verbatim: Defaults to 1.0 gm/cc for fresh water",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "1.00",
+        "RHO_FL DEFAULT 1000 k/m3",
+        "Geolog V14 phi_den.info RHO_FL",
+        "T1"
+    ),
+    claim!(
+        "Techlog",
+        "1",
+        "RHOB_fluid on the effective-porosity-from-density page",
+        "Techlog 2018 petrophysics-effective-porosity-from-density.html",
+        "T3"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "1.10",
+        "salt water; a different formation, not a competing default",
+        "IP basicloganalysis.htm verbatim: Set to 1.1 gm/cc for salt water",
+        "T2"
+    ),
+];
+
+const FORMATION_WATER_DENSITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "1.00",
+        "RHO_W DEFAULT 1000 k/m3, validation 500:2000",
+        "Geolog V14 phi_den.info RHO_W",
+        "T1"
+    ),
+    claim!(
+        "Techlog",
+        "1",
+        "the neutron-density crossplot anchors on MUD FILTRATE density, a different quantity that happens to share the value",
+        "Techlog 2018 petrophysics-porosity-neutrondensity-crossplot.html rho_mf",
+        "T3-eq"
+    ),
+];
+
+const MAX_EFFECTIVE_POROSITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "0.30",
+        "PHIE_MAX in phi_den.info, phi_dn.info and phi_son.info alike",
+        "Geolog V14 phi_*.info PHIE_MAX",
+        "T1"
+    ),
+    claim!(
+        "Techlog",
+        "0.35",
+        "PHImax caps TOTAL porosity, so it is not the same ceiling",
+        "Techlog 2018 PorosityAndLithologyComputation.py PHImax",
+        "T1"
+    ),
+];
+
+const POROSITY_LIMIT_MODE_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "SHALE_REDUCED",
+        "OPT_PHIEMAX DEFAULT across every porosity module",
+        "Geolog V14 phi_*.info OPT_PHIEMAX",
+        "T1"
+    ),
+    claim!(
+        "Techlog",
+        "no constraint",
+        "Techlog applies no porosity ceiling by default; recorded, not adopted",
+        "Techlog 2018 PorosityAndLithologyComputation.py",
+        "T1"
+    ),
+];
+
+const MATRIX_TRANSIT_TIME_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "56.0",
+        "sandstone, Wyllie; corroborated by PhiSw.hlp",
+        "IP swparameters.htm Default 56",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "55.5",
+        "sandstone; DT_MA 182.1 us/m, inherited by Wyllie and paired with EXP_AFF 1.60 in the AFF table",
+        "Geolog V14 phi_son.info DT_MA and phi_son.lls AFF table",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "49.0",
+        "limestone, Wyllie",
+        "IP swparameters.htm Sonic Lime Default 49",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "47.6",
+        "limestone, AFF/Raiga, paired with EXP_AFF 1.76; the field-observed table instead gives 49.0",
+        "Geolog V14 phi_son.lls AFF table",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "44.0",
+        "dolomite, Wyllie",
+        "IP swparameters.htm Sonic Dol Default 44",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "43.5",
+        "dolomite, AFF/Raiga, paired with EXP_AFF 2.00; the field-observed table instead gives 44.0",
+        "Geolog V14 phi_son.lls AFF table",
+        "T1"
+    ),
+];
+
+const FLUID_TRANSIT_TIME_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "189",
+        "fresh",
+        "IP swparameters.htm Sonic water Default 189",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "189",
+        "DT_FL 620 us/m",
+        "Geolog V14 phi_son.info DT_FL",
+        "T1"
+    ),
+    claim!(
+        "Techlog",
+        "189",
+        "shipped value on the sonic porosity page",
+        "Techlog 2018 petrophysics-effective-porosity-from-sonic.html",
+        "T3"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "174",
+        "salt-saturated formation water, stated as approximate",
+        "IP basicloganalysis.htm verbatim: For salt-saturated formation water use about 174 usec/ft",
+        "T2"
+    ),
+];
+
+const SHALE_TRANSIT_TIME_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Techlog",
+        "100",
+        "DTshale in the shipped script",
+        "Techlog 2018 PorosityAndLithologyComputation.py DTshale",
+        "T1"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "validation 150:600 us/m with no numeric default",
+        "Geolog V14 phi_son.info DT_SH",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "none stated",
+        "a value must be entered",
+        "IP swparameters.htm",
+        "T2"
+    ),
+];
+
+const SONIC_COMPACTION_CORRECTION_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "1.0",
+        "the compaction factor itself",
+        "IP swparameters.htm Sonic Cp (Default 1.0)",
+        "T2"
+    ),
+    claim!("Geolog", "1", "BCP DEFAULT", "Geolog V14 phi_son.info BCP", "T1"),
+    claim!(
+        "Interactive Petrophysics",
+        "Cp = DTSH/100 only when DTSH > 100 us/ft",
+        "the greater-than-100 guard is part of the cited rule, not an addition to it",
+        "IP basicloganalysis.htm rule of thumb",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "PHIE_SON scaled by 328.084/DT_SH only when DT_SH > 328.084 us/m",
+        "the same guarded rule expressed at the 100 us/ft equivalent",
+        "Geolog V14 phi_son.lls",
+        "T1"
+    ),
+];
+
 pub fn sources_for(topic: &str) -> &'static [ParamSource] {
     match topic {
         CLUSTER_COUNT => CLUSTER_COUNT_SOURCES,
@@ -447,6 +669,14 @@ pub fn sources_for(topic: &str) -> &'static [ParamSource] {
         DRY_SHALE_DENSITY => DRY_SHALE_DENSITY_SOURCES,
         MATRIX_NEUTRON_ENDPOINT => MATRIX_NEUTRON_ENDPOINT_SOURCES,
         SHALE_NEUTRON_ENDPOINT => SHALE_NEUTRON_ENDPOINT_SOURCES,
+        FLUID_DENSITY => FLUID_DENSITY_SOURCES,
+        FORMATION_WATER_DENSITY => FORMATION_WATER_DENSITY_SOURCES,
+        MAX_EFFECTIVE_POROSITY => MAX_EFFECTIVE_POROSITY_SOURCES,
+        POROSITY_LIMIT_MODE => POROSITY_LIMIT_MODE_SOURCES,
+        MATRIX_TRANSIT_TIME => MATRIX_TRANSIT_TIME_SOURCES,
+        FLUID_TRANSIT_TIME => FLUID_TRANSIT_TIME_SOURCES,
+        SHALE_TRANSIT_TIME => SHALE_TRANSIT_TIME_SOURCES,
+        SONIC_COMPACTION_CORRECTION => SONIC_COMPACTION_CORRECTION_SOURCES,
         ARCHIE_A => ARCHIE_A_SOURCES,
         ARCHIE_M => ARCHIE_M_SOURCES,
         ARCHIE_N => ARCHIE_N_SOURCES,
@@ -469,6 +699,14 @@ pub fn parameter_label(topic: &str) -> Option<&'static str> {
         DRY_SHALE_DENSITY => "dry shale or dry clay density",
         MATRIX_NEUTRON_ENDPOINT => "matrix neutron endpoint",
         SHALE_NEUTRON_ENDPOINT => "shale neutron endpoint",
+        FLUID_DENSITY => "fluid density",
+        FORMATION_WATER_DENSITY => "formation-water density",
+        MAX_EFFECTIVE_POROSITY => "maximum effective porosity",
+        POROSITY_LIMIT_MODE => "porosity limiting mode",
+        MATRIX_TRANSIT_TIME => "matrix transit time",
+        FLUID_TRANSIT_TIME => "fluid transit time",
+        SHALE_TRANSIT_TIME => "shale transit time",
+        SONIC_COMPACTION_CORRECTION => "sonic compaction correction",
         ARCHIE_A => "Archie a",
         ARCHIE_M => "Archie m",
         ARCHIE_N => "Archie n",
@@ -493,6 +731,14 @@ pub fn topics() -> &'static [&'static str] {
         DRY_SHALE_DENSITY,
         MATRIX_NEUTRON_ENDPOINT,
         SHALE_NEUTRON_ENDPOINT,
+        FLUID_DENSITY,
+        FORMATION_WATER_DENSITY,
+        MAX_EFFECTIVE_POROSITY,
+        POROSITY_LIMIT_MODE,
+        MATRIX_TRANSIT_TIME,
+        FLUID_TRANSIT_TIME,
+        SHALE_TRANSIT_TIME,
+        SONIC_COMPACTION_CORRECTION,
         ARCHIE_A,
         ARCHIE_M,
         ARCHIE_N,
@@ -601,6 +847,17 @@ mod tests {
             DRY_SHALE_DENSITY,
             MATRIX_NEUTRON_ENDPOINT,
             SHALE_NEUTRON_ENDPOINT,
+            // SB-POR-007 added the porosity chapter's remaining section 5 disagreements. The
+            // inventory is still exact; it grew because more of the pilot's cited conflicts are
+            // now disclosed, not because the rule was relaxed.
+            FLUID_DENSITY,
+            FORMATION_WATER_DENSITY,
+            MAX_EFFECTIVE_POROSITY,
+            POROSITY_LIMIT_MODE,
+            MATRIX_TRANSIT_TIME,
+            FLUID_TRANSIT_TIME,
+            SHALE_TRANSIT_TIME,
+            SONIC_COMPACTION_CORRECTION,
             ARCHIE_A,
             ARCHIE_M,
             ARCHIE_N,

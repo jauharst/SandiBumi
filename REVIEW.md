@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-007: every cited porosity parameter shows its source and tier
+
+- [ ] **Automated correctness:** `every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent`
+      pins SB-POR-007 from four sides. It fixes the exact section 5 topic map across `phi_den`,
+      `phi_dn` and `phi_son`; requires every named topic to resolve to completely attributed,
+      tiered positions; requires the five deliberately ABSENT parameters (`RHO_SH`, `RHO_DSH`,
+      `NPHI_SH`, `DT_MA`, `DT_SH`) to keep an empty default *after* being sourced; and requires the
+      parameters section 5 does not cover to stay untopiced. A fifth arm proves the tier survives
+      into the run record through the exact call the runner makes. Three mutations produced RED at
+      three different assertions: a dropped `phi_son` OPT_CP attachment, a sourced `DT_SH` given the
+      attested Techlog 100 as a default, and an invented citation on `OPT_XPLOT`. Two tracker claims
+      turned out stale and are corrected: `ParamSource` already had a `tier` field, and run
+      persistence already retained source and tier. TypeScript and cargo check are green.
+- [ ] **Visual:** open Density Porosity, then Density-Neutron Porosity, then Porosity from Sonic.
+      Beside `RHO_FL`, `RHO_W`, `PHIE_MAX`, the PHIE limiting method, and the three sonic transit
+      times, confirm a collapsed "Shipped values elsewhere (n)" panel appears; expand each and
+      confirm every row reads `tier · source`. Confirm the same panels appear in the Workflow
+      step editor, which uses the same control.
+- [ ] **Manual:** confirm the disclosure changed no value. `RHO_SH`, `RHO_DSH`, `NPHI_SH`, `DT_MA`
+      and `DT_SH` must still open **empty and required** even though they now list attested vendor
+      numbers beside them — that is the whole point, and a filled-in field here is the bug. Confirm
+      `RHO_FL` still opens at 1.0 and `PHIE_MAX` at 0.3. Then run one well and check the run record
+      shows the chosen `PHIE_MAX` alongside both the Geolog 0.30 and Techlog 0.35 positions.
+- [ ] **Field and harsh critique:** this increment adds no capability — it makes existing
+      disagreements visible at the point of entry. Judge it on whether the panel actually helps you
+      pick, or is noise you learn to collapse. Two residuals are named, not fixed: `ssc`/`sspw`
+      parameters live in prohibited `ssc.rs` and remain unsourced (both are first-pilot exclusions),
+      and the same primary tier is spelled `T1p` here, `T1′` in older registry rows and `T1-prime`
+      in a frontend fixture. `RHO_DSH` still ships 2.65, which matches neither attested value;
+      making it ABSENT is SB-POR-055 and was deliberately left alone. No Visual, Manual or Field box
+      is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-006: a porosity method refuses an untyped shale or clay volume
 
 - [ ] **Automated correctness:** `every_porosity_method_that_consumes_a_shale_or_clay_volume_declares_the_quantity_it_accepts_and_refuses_an_untyped_or_wrong_family_curve`
