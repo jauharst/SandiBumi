@@ -14362,3 +14362,18 @@ Nothing changes unless you ask it to: leave it alone and every number is exactly
 - [ ] **Do you want this exposed in the Cutoffs & Summary pane?** Right now it is settable through
       the backend and recorded in provenance, but there is no control on screen. Also tell me if the
       default is wrong for how you work.
+
+## The hydrocarbon column now has to agree with itself
+
+HPV is added up sample by sample as Σφ(1−Sw)h. It can also be rebuilt from the three numbers printed
+beside it: Net × Avg PHIE × (1 − Avg SWE). Those two must give the same answer, and there is now a
+test that says so on every zone and every flag — plus a control proving it stops agreeing if the
+saturation average is weighted the wrong way. That is the point: the identity is what pins the
+porosity weighting in place. Same check on the Monte Carlo engine.
+
+- [ ] **Take any zone off the dashboard and multiply it out yourself**: Net × Avg PHIE ×
+      (1 − Avg SWE) should equal the HPV column.
+- [ ] **Expect a difference where SWE has gaps inside the net interval.** Avg PHIE is averaged over
+      the footage porosity was valid on, while HPV can only count footage where BOTH were valid, so
+      the two legitimately part company there. Tell me if you would rather they were forced to
+      agree — that would mean changing what Avg PHIE means, so it is your call, not mine.

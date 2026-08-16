@@ -713,20 +713,20 @@ struct StepPlan {
 
 /// Cutoffs bundled for the per-zone pay/HPV accumulation.
 #[derive(Clone, Copy)]
-struct Cutoffs {
-    vsh_max: f64,
-    phie_min: f64,
-    swe_max: f64,
-    perm_min: Option<f64>,
+pub(crate) struct Cutoffs {
+    pub(crate) vsh_max: f64,
+    pub(crate) phie_min: f64,
+    pub(crate) swe_max: f64,
+    pub(crate) perm_min: Option<f64>,
 }
 
 #[derive(Clone, Copy)]
-struct ZoneMetrics {
-    net: f32,
-    ntg: f32,
-    avg_phie: f32,
-    avg_swe: f32,
-    hpv: f32,
+pub(crate) struct ZoneMetrics {
+    pub(crate) net: f32,
+    pub(crate) ntg: f32,
+    pub(crate) avg_phie: f32,
+    pub(crate) avg_swe: f32,
+    pub(crate) hpv: f32,
 }
 
 /// Zone-resolved parameter array: manifest/step base, then well-wide '*' then named zones.
@@ -757,7 +757,11 @@ fn resolve_zone_param(
 }
 
 /// Per-zone net-pay / NTG / averages / HPV from a realization's output curves.
-fn zone_metrics(
+///
+/// `pub(crate)` for SB-CUT-010: the volumetric identity `HCPV = Net.phi_bar.(1 - Sw_bar)` is
+/// asserted against THIS function, because it is a statement about one realization and
+/// percentiles do not commute with a product - the P10/P50/P90 bundle cannot carry it.
+pub(crate) fn zone_metrics(
     vsh: &[f32],
     phie: &[f32],
     swe: &[f32],

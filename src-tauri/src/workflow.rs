@@ -5670,6 +5670,146 @@ mod tests {
         }
     }
 
+    /// SB-CUT-010 (P1, SILENT-WRONGNESS). `14_cutoffs-summation-mc.md:1050-1062` — `HCPV` computed
+    /// by direct summation `Σφ(1−Sw)h` **MUST** equal `Net × φ̄ × (1 − S̄w)` rebuilt from the
+    /// reported averages, to floating-point tolerance, for every emitted zone.
+    ///
+    /// The expected value is an INDEPENDENT algebraic identity, not a re-derivation of the code —
+    /// which is what the register meant by *shared implementation is not an independent proof*:
+    ///
+    /// ```text
+    /// Net · φ̄ · (1 − S̄w) = Net · (Σφh/Net) · (1 − Σ Sw·φ·h / Σφh)
+    ///                     = Σφh − Σ Sw·φ·h  =  Σ φh(1 − Sw)  =  HCPV
+    /// ```
+    ///
+    /// It cancels ONLY because `S̄w` is φ-weighted. With a thickness-weighted `S̄w` the `Σφh` does
+    /// not cancel and the two sides part company — so the identity is what locks SB-CUT-009's
+    /// weighting choice in place, and the negative control is the half that carries the proof. On
+    /// this fixture that is 1.4 against 1.2, a 14 % error in the hydrocarbon column.
+    ///
+    /// **Precondition, stated rather than assumed:** φ and Sw must be valid across the whole net
+    /// interval. Where Sw is missing over part of net, `Net · φ̄` counts footage `HCPV` cannot, and
+    /// the identity is not claimed — the engine deliberately normalises each average over the
+    /// footage ITS OWN curve was valid on, which is a separate pinned rule. T07's fixture is a
+    /// flagged interval with varying φ and Sw, so the precondition holds here by construction.
+    #[test]
+    fn hydrocarbon_pore_volume_summed_directly_equals_the_volume_rebuilt_from_the_reported_averages_in_both_engines(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_weighting_well(&conn, "HCPV-1", "PHIE");
+        let dbm = Mutex::new(conn);
+        let run = |weighting: BTreeMap<String, AverageWeighting>| {
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: 0.9,
+                    phie_min: 0.05,
+                    swe_max: 0.9,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting,
+                },
+            )
+            .expect("summary runs")
+        };
+        let rebuilt = |r: &PaySummaryRow| -> f64 {
+            r.net as f64 * r.avg_phie as f64 * (1.0 - r.avg_swe as f64)
+        };
+
+        // A — every emitted zone and flag closes. The absolute value is asserted too, so an
+        // engine that returned zeros everywhere could not satisfy the identity vacuously.
+        let rows = run(BTreeMap::new());
+        assert!(!rows.is_empty());
+        for r in &rows {
+            assert!(
+                (r.hpv as f64 - 1.4).abs() < 1e-6,
+                "{} HCPV by direct summation is 1.4 on this fixture, got {}",
+                r.flag,
+                r.hpv
+            );
+            assert!(
+                (r.hpv as f64 - rebuilt(r)).abs() / r.hpv as f64 <= 1e-6,
+                "{} the identity must close: summed {} against rebuilt {}",
+                r.flag,
+                r.hpv,
+                rebuilt(r)
+            );
+        }
+
+        // B — the negative control the chapter demands. Declaring thickness-weighted Sw leaves the
+        // direct summation alone (it never used an average) and moves the rebuilt side to 1.2. If
+        // this ever stops failing, the two sides have stopped being independent.
+        let off = run(BTreeMap::from([("SWE".to_string(), AverageWeighting::Thickness)]));
+        for r in &off {
+            assert!(
+                (r.hpv as f64 - 1.4).abs() < 1e-6,
+                "{} direct summation is unaffected by a weighting choice",
+                r.flag
+            );
+            assert!(
+                (rebuilt(r) - 1.2).abs() < 1e-6,
+                "{} thickness-weighted Sw rebuilds 1.2, got {}",
+                r.flag,
+                rebuilt(r)
+            );
+            assert!(
+                (r.hpv as f64 - rebuilt(r)).abs() / r.hpv as f64 > 1e-3,
+                "{} the identity MUST fail with thickness-weighted Sw - if it holds either way it \
+                 is proving nothing about the weighting",
+                r.flag
+            );
+        }
+
+        // C — the same identity in the Monte Carlo engine, which emits its own per-zone averages
+        // and its own HPV per realization. Checked on the realization's metrics, NOT on the
+        // P10/P50/P90 bundle: percentiles do not commute with a product, so the identity is a
+        // statement about one realization and asserting it across percentiles would be false.
+        let n = 11usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let step = vec![1.0f32; n];
+        let half = |lo: f32, hi: f32| -> Vec<f32> {
+            (0..n).map(|i| if i < 5 { lo } else { hi }).collect()
+        };
+        let m = crate::montecarlo::zone_metrics(
+            &half(0.10, 0.40),
+            &half(0.30, 0.10),
+            &half(0.20, 0.60),
+            &vec![f32::NAN; n],
+            &depth,
+            &step,
+            &db::ZoneEntry {
+                zone_name: "ALL".into(),
+                top_depth: 1000.0,
+                bottom_depth: 1010.0,
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
+            },
+            &crate::montecarlo::Cutoffs {
+                vsh_max: 0.9,
+                phie_min: 0.05,
+                swe_max: 0.9,
+                perm_min: None,
+            },
+            false,
+        );
+        let mc_rebuilt = m.net as f64 * m.avg_phie as f64 * (1.0 - m.avg_swe as f64);
+        assert!(
+            (m.hpv as f64 - 1.4).abs() < 1e-6,
+            "Monte Carlo sums the same 1.4, got {}",
+            m.hpv
+        );
+        assert!(
+            (m.hpv as f64 - mc_rebuilt).abs() / m.hpv as f64 <= 1e-6,
+            "the identity must close in the Monte Carlo engine too: {} against {}",
+            m.hpv,
+            mc_rebuilt
+        );
+    }
+
     /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the
     /// only thing that can exclude a sample is the PERM cutoff. `perm` is the permeability the
     /// well MEASURED — `None` means the well carries none at all, which is the case under test.

@@ -196,14 +196,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-010
 
 - **Specified contract:** direct HCPV equals Net times PhiAvg times one-minus-SwAvg only under porosity weighting, with a thickness-weighted negative control.
-- **Current implementation / as-built:** summary and Monte Carlo compute direct HPV and PHIE-weighted SWE in compatible forms, but no independent whole-identity fixture proves the compound contract. PRESENT-UNVERIFIED.
+- **Current implementation / as-built:** unchanged arithmetic in both engines - this row is a PROOF, not an implementation. PRESENT-OK. The only production change is visibility: `montecarlo.rs` `zone_metrics`, `ZoneMetrics` and `Cutoffs` become `pub(crate)` so the identity can be asserted against the function that actually emits it.
+- **Why against that function and not the run:** percentiles do not commute with a product. The identity is a statement about ONE realization, so asserting it across the P10/P50/P90 bundle would be asserting something false.
 - **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
-- **Automated evidence:** MISSING; T07 is absent and current helpers share the implementation under test.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** algebraic identity and negative control are independently derivable; R-13 forbids turning HCPV length into volume here.
-- **UI/IPC/provenance surface:** rows expose ingredients but do not declare the weighting convention.
-- **History/reachability:** compatible arithmetic is integrated.
-- **Blocking decision / next action:** add the independent positive identity and thickness-weighted negative control on observable rows.
+- **Automated evidence:** `hydrocarbon_pore_volume_summed_directly_equals_the_volume_rebuilt_from_the_reported_averages_in_both_engines` (`src-tauri/src/workflow.rs`). CORRECTNESS. The expected value is an INDEPENDENT algebraic identity rather than a re-derivation of the code, which is what the register meant by *shared implementation is not an independent proof*: `Net.phi_bar.(1-Sw_bar)` expands to `sum phi.h - sum Sw.phi.h`, which IS `sum phi.h.(1-Sw)`, and it cancels only because `Sw_bar` is phi-weighted. Three arms: every emitted zone and flag closes to 1e-6 relative AND the absolute 1.4 is asserted, so an engine returning zeros could not satisfy it vacuously; the thickness-weighted negative control the chapter demands, where the rebuilt side moves to 1.2 and the identity is asserted to FAIL by more than 1e-3; and the same identity in the Monte Carlo engine.
+- **Mutation evidence:** three probes, each read for WHICH assertion fired. Dropping phi from the direct summation turned arm A red at 6 against 1.4. Dropping phi from Monte Carlo's phi-weighted denominator turned arm C red at 1.4 against 1.88. Rebuilding HPV FROM the averages instead of summing it - the register's *shared implementation* made literal - turned arm B red, because the direct side started tracking a weighting choice it must be independent of.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no value was adopted; the numbers are the fixture's own arithmetic. **R-13 honoured:** HCPV stays a LENGTH throughout and is never multiplied into a volume.
+- **Named limit, stated rather than assumed:** the identity requires phi and Sw to be valid across the whole net interval. Where Sw is missing over part of net, `Net.phi_bar` counts footage `HCPV` cannot, and the identity is not claimed - the engine deliberately normalises each average over the footage ITS OWN curve was valid on, which is a separate pinned rule. T07's fixture is a flagged interval with varying phi and Sw, so the precondition holds there by construction. REVIEW.md tells Jauhar what to expect on a zone with gaps.
+- **UI/IPC/provenance surface:** unchanged; the rows already expose every ingredient, and SB-CUT-009 now carries the weighting convention in the run's persisted configuration.
+- **History/reachability:** compatible arithmetic was integrated and stays integrated.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-011
 
