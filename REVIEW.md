@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 blocker packet: one integrated decision and source intake view
+
+- [ ] **Automated correctness:** the Gate 2 program test was witnessed RED while the packet was
+      absent and is GREEN after creation. It compares the Markdown requirement rows with the
+      machine-owned `gate2-program.json` blocker set, refuses duplicates, omissions and invented
+      IDs, and requires the one-minute dashboard to link to the packet. The live equality is
+      39 documented / 39 blocked.
+- [ ] **Visual documentation review:** open `docs/takeover/STATUS.md`, follow the Gate 2 blocker
+      link and confirm the packet is scannable as one inventory plus product-decision, source/legal
+      and engineering-follow-through sections. This is documentation navigation, not evidence of
+      desktop UI behavior.
+- [ ] **Manual product review:** read DEC-021 through DEC-037 against the summarized recommendations
+      before approving any bundle. Provide named sources for scientific values and exact asset
+      routes for legal review; an approval alone does not convert a blocked requirement to done.
+- [ ] **Field and harsh critique:** consolidating blockers reduces omission risk but can create a
+      second stale truth source. The JSON/CSV remain authoritative and the automated equality test
+      protects only the ID inventory, not the accuracy of every prose summary or the validity of a
+      product/legal decision. No Manual or Field checkbox is pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-042: Sourced picking guidance without invented values
 
 - [ ] **Automated correctness:** the owned Rust contract is GREEN after witnessed RED, a

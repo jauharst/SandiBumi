@@ -150,3 +150,22 @@ test('the_live_gate_two_progress_receipt_accounts_for_every_handled_row_once', (
   assert.equal(program.gate2_requirement_count - handled.size, 70);
   assert.ok(program.completed_requirements.includes('SB-CLY-042'));
 });
+
+test('the_integrated_gate_two_blocker_packet_accounts_for_each_live_blocked_requirement_once_and_is_linked_from_the_dashboard', () => {
+  // CORRECTNESS — gate2-program.json is the machine-owned live blocker set;
+  // STATUS.md is the one-minute dashboard and must route readers to its maintained detail.
+  const program = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'takeover', 'gate2-program.json'), 'utf8'));
+  const blockerPath = path.join(repo, 'docs', 'takeover', 'GATE2_BLOCKERS.md');
+  const blockerDocument = fs.readFileSync(blockerPath, 'utf8');
+  const status = fs.readFileSync(path.join(repo, 'docs', 'takeover', 'STATUS.md'), 'utf8');
+  const documented = [...blockerDocument.matchAll(/^\| `(SB-[A-Z]+-\d{3})` \|/gmu)]
+    .map((match) => match[1]);
+
+  assert.equal(documented.length, new Set(documented).size, 'a blocked requirement must be documented once');
+  assert.deepEqual(
+    documented.toSorted(),
+    [...program.blocked_requirements].toSorted(),
+    'the human decision packet must equal the machine-owned blocker set',
+  );
+  assert.match(status, /\[Gate 2 blocker decision packet\]\(\.\/GATE2_BLOCKERS\.md\)/u);
+});

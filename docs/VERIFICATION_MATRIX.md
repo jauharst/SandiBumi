@@ -13,7 +13,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 |---|---|---|---:|---|---:|
 | `las-import` | LAS import | Not exercised | 0 / 132 | — | 43 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
-| `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
+| `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
@@ -64,4 +64,4 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 155 | 2026-08-13 | 53 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 148 | 2026-08-13 | 45 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 152 | 2026-08-13 | 46 |
