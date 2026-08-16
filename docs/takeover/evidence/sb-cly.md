@@ -30,14 +30,14 @@
 
 - **Chapter evidence:** P0; historical status `PARTIAL`; T01/T24/T32; sections 4.1, 6 and 8.
 - **Atomic obligations:** validate every indicator endpoint pair before arithmetic; distinguish invalid endpoints from missing input; emit `ENDPOINT_INVALID`; name the parameters, zone and offending values in a run message.
-- **Current source:** `vsh_gr` rejects missing, equal or inverted GR endpoints and `vsh_dn` rejects a near-zero geometry denominator, but both only `continue` into pre-filled `f32::NAN`. Neither emits a CLY reason token or run message; the N-D flag is also left `NaN` on the degenerate branch.
+- **Current source:** `vsh_gr` now declares a source-bearing endpoint-order precondition. The public runner can refuse it or keep unaffected samples with a generic binary precondition flag and condition message, but that framework records a sample index rather than the required zone and emits no CLY categorical reason. The direct evaluator still collapses invalid endpoints into `f32::NAN`; `vsh_dn` still leaves its value and diagnostic flag `NaN` on degenerate geometry.
 - **Qualifying acceptance tests:** none; T01/T24/T32 have no executable whole-contract body. Test class `MISSING`.
-- **Supporting tests:** `vsh_dn_degenerate_triangle_is_missing_not_inf` passed exactly once and proves no infinity escapes. It observes only internal numeric arrays and therefore is not an observable refusal test.
+- **Supporting tests:** `source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes` checks the internal `vsh_gr` refusal, the generic workflow precondition fixture proves only a range violation with a binary companion, and `vsh_dn_degenerate_triangle_is_missing_not_inf` proves only numeric containment. None observes the specified CLY token, zone-bearing message or exported reason.
 - **Manual evidence:** shale-volume 0/17; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the guards are integrated at the accepted anchor; no CLY reason token or reporting surface was found in current or reachable source.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-CLY-031/SB-CLY-032 reason custody is absent; no endpoint value is open or inferred.
-- **Next action:** add one pre-evaluation guard result used by every indicator, then prove missing-input and invalid-endpoint controls produce distinct exported reasons and a named run message.
+- **Git evidence:** current source was reverified at parent `26535ac2122e67137fcb2bae71c8ec261050c423`; no production code or test assertion changed in this blocker increment.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 `BLOCKED-DECISION/SCOPE` on DEC-036; no false closure.
+- **Blocker or decision:** DEC-036 — exact T01 requires SB-CLY-031/032's per-sample categorical provenance custody, but those owning rows are outside the immutable pilot manifest. No stable numeric/LAS codes, closed vocabulary, zone mapping or substitution-separation schema is authorized.
+- **Next action:** Jauhar either adds SB-CLY-031/032 to the approved manifest or explicitly authorizes their exact categorical schema as narrow infrastructure. Then implement one shared pre-evaluation result and prove T01/T24/T32 at the persisted/exported reporting surface.
 
 ## SB-CLY-002 - Stieber as one generic shape parameter
 

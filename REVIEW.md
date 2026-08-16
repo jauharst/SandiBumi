@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-001: Endpoint reporting blocked on provenance custody
+
+- [ ] **Decision dependency:** answer DEC-036. Exact T01 requires the categorical
+      `ENDPOINT_INVALID` token on a persisted/exportable per-sample provenance curve, but the
+      approved clay pilot includes SB-CLY-001 while excluding SB-CLY-031/032, which own that curve
+      and its closed vocabulary.
+- [ ] **Automated gap:** no SB-CLY-T01/T24/T32 acceptance test was added. The source-bearing
+      `vsh_gr` precondition can refuse or emit a generic binary precondition flag and message, but
+      it does not emit the required clay reason token, retain zone identity or fix `vsh_dn`'s
+      silent degenerate-geometry branch.
+- [ ] **Schema boundary:** choose a versioned CLY categorical representation with stable wire/LAS
+      encoding and a separate substitution field, or revise the pilot contract to a different
+      explicit representation. A generic `1 = precondition failed` is not the token
+      `ENDPOINT_INVALID` and cannot distinguish the three T32 absence reasons.
+- [ ] **Field and harsh critique:** the numerical guard prevents an inverted Vsh value, but a bare
+      gap still sends the interpreter hunting through inputs. Calling that safe because it no
+      longer computes would hide the exact operational failure this requirement was written to
+      expose.
+
 ## 2026-08-16 — G2 SB-ENV-057: One project-depth-length token
 
 - [ ] **Automated correctness:** exact T67 is GREEN after a witnessed RED on
