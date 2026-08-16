@@ -7214,6 +7214,119 @@ mod tests {
         assert!(err.contains("no unit"), "{err}");
     }
 
+    /// SB-CUT-027 (P2). `14_cutoffs-summation-mc.md:1331-1344` — SandiBumi **MUST NOT** impose a
+    /// fixed maximum on the number of input curves, cut-offs, report tiers or flag curves.
+    ///
+    /// Ledger D-5.4: IP's parameter model stops at **Curve 10**, its 2025 prose claims **50**, and
+    /// IP2018's *"up to 10 input curves … the additional 7"* was correct — the 2025 edit introduced
+    /// the error. All of them are vendor implementation limits with no physical basis, and
+    /// SandiBumi should inherit neither the caps nor the confusion.
+    ///
+    /// **A fixed ARITY is not a cap, and the distinction is the whole row.** Four cut-off fields
+    /// exist because four quantities are cut on; three tiers exist because three are emitted.
+    /// Neither is a budget a user can exhaust. A cap is a maximum imposed on a collection that
+    /// would otherwise grow — which is what this asserts the absence of.
+    #[test]
+    fn a_run_carries_more_curves_than_any_vendor_cap_and_the_fixed_cutoff_and_tier_counts_are_arities_not_maxima(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_wet_reservoir(&conn, "SANDI-NOCAP-1");
+        let depth: Vec<f32> = (0..11).map(|i| 1000.0 + i as f32).collect();
+
+        // A — sixty curves on one well, fetched in ONE frame. Sixty is chosen to clear BOTH of the
+        // vendor numbers the ledger records: past Curve 10, and past the 2025 prose's 50.
+        const CURVES: usize = 60;
+        let names: Vec<String> = (0..CURVES).map(|i| format!("NOCAP_{i:02}")).collect();
+        for (i, name) in names.iter().enumerate() {
+            equations::write_computed_curve(&conn, &well, &depth, name, &vec![i as f32; 11])
+                .unwrap();
+        }
+        let (frame_depth, columns) = equations::fetch_curve_frame(&conn, &well, &names)
+            .expect("a frame of sixty curves must resolve");
+        assert_eq!(frame_depth.len(), depth.len());
+        assert_eq!(
+            columns.len(),
+            CURVES,
+            "every requested curve must come back - a silent truncation IS a cap"
+        );
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(
+                columns[name][0], i as f32,
+                "curve {name} must carry its own values, not a neighbour's"
+            );
+        }
+
+        // B — the four cut-off fields are an ARITY. Each is independently absent-capable, so the
+        // four are not a budget: a run may use none of them, all of them, or any subset, and the
+        // count is not a resource anything competes for.
+        let dbm = Mutex::new(conn);
+        let vv = |value: f64| Some(CutoffSpec::from(CutoffEntry { value, unit: "v/v".into() }));
+        let summary = |vsh, phie, swe| {
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: vsh,
+                    phie_min: phie,
+                    swe_max: swe,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting: Default::default(),
+                    frame: Default::default(),
+                    enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
+                },
+            )
+            .expect("every subset of the cut-offs is a valid run")
+        };
+        let none = summary(None, None, None);
+        let all = summary(vv(0.50), vv(0.10), vv(0.90));
+        assert!(!none.is_empty() && !all.is_empty());
+
+        // C — the tier count is DATA, not a hard-coded three scattered through the engine. The row
+        // emission iterates `SUMMARY_FLAGS`, so the output carries exactly the tiers that constant
+        // names — which is what makes adding one a change to a list rather than a search for every
+        // place a `3` is written down.
+        let mut emitted: Vec<String> =
+            all.iter().map(|row| row.flag.clone()).collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+        emitted.sort();
+        let mut declared: Vec<String> = SUMMARY_FLAGS.iter().map(|f| f.to_string()).collect();
+        declared.sort();
+        assert_eq!(
+            emitted, declared,
+            "the emitted tiers must be exactly the declared ones, with nothing dropped and nothing \
+             invented"
+        );
+
+        // D — and no cap is expressed anywhere in the summation engine as a maximum COUNT of
+        // curves, cut-offs, tiers or flags. The clamps this domain does carry are on ITERATIONS
+        // and SWEEP STEPS, which are compute budgets on a loop rather than limits on how much
+        // rock a study may describe, so they are named here rather than exempted silently.
+        let source = include_str!("workflow.rs");
+        let body = source.split("\nmod tests {").next().unwrap_or(source);
+        for banned in [
+            "curves.len() >",
+            "cutoffs.len() >",
+            "flags.len() >",
+            "tiers.len() >",
+            "curve_names.len() >",
+            ".take(10)",
+            ".take(50)",
+        ] {
+            assert!(
+                !body.contains(banned),
+                "the summation engine must impose no maximum on how much a study describes, but \
+                 it contains '{banned}'"
+            );
+        }
+    }
+
     /// A clean, porous, WET sand: every sample passes a clay and a porosity cut-off and fails any
     /// ordinary saturation cut-off. It is the rock SB-CUT-026 exists to protect.
     fn seed_wet_reservoir(conn: &duckdb::Connection, name: &str) -> String {

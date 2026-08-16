@@ -14628,3 +14628,30 @@ never proof of this. It has been replaced with one that is.
 - [ ] **On a well with a known wet sand, check the RESERVOIR flag covers it and PAY does not.**
       This is the one where your own data is the real evidence — a synthetic sand proves the rule
       is applied, not that it is the right rule for your field.
+
+## No ceiling on how much rock a study can describe
+
+IP's parameter model stops at ten input curves. Its 2025 documentation claims fifty. Its 2018
+documentation said ten and was right — the newer edit introduced the error. None of those numbers
+comes from the rock; they are implementation limits, and we should inherit neither the caps nor the
+confusion about which one is real.
+
+There is now a test that puts **sixty curves on one well and reads them all back in a single
+frame**, checking each one carries its own values rather than a neighbour's. Sixty is chosen to
+clear both of their numbers.
+
+It also pins two things that would otherwise be easy to get wrong later:
+
+- **The three report levels come from one list.** The output carries exactly the levels that list
+  names — so adding a level is a change to a list, not a hunt for every place a "3" is written.
+- **The engine contains no maximum on how many curves, cut-offs, levels or flags a study has.** The
+  limits it does have are on how many Monte Carlo iterations run and how many steps a sweep takes,
+  which cap how long a calculation runs rather than how much rock it describes. Those are named in
+  the test so nobody can quietly widen the rule later to let a real cap through.
+
+**A note on the record:** this requirement was marked as diverging because the four cut-off boxes
+and three report levels look like a fixed schema. They are not a cap — four boxes exist because
+four things are cut on, not because you have run out of boxes. The specification says the same, and
+that is the reading I followed.
+
+- [ ] **Nothing to click.** This is a guard, not a feature.

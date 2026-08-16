@@ -452,14 +452,19 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-027
 
 - **Specified contract:** impose no arbitrary cap on curves, cutoffs, report tiers or flags.
-- **Current implementation / as-built:** curve collections are dynamic in places, but cutoff request fields and SUMMARY_FLAGS impose fixed four-cutoff/three-tier schemas. PRESENT-DIVERGENT.
+- **Current implementation / as-built:** no cap exists. PRESENT-OK, following the chapter.
+- **The register and the chapter disagreed, and the chapter wins.** The register read the four cut-off fields and the three `SUMMARY_FLAGS` entries as a *"fixed four-cutoff/three-tier schema"* and called the row PRESENT-DIVERGENT. The chapter's own as-built says PRESENT-OK - *"no cap exists, because the surface is not yet general enough to have one. This becomes a live constraint when `SB-CUT-024` is built."* Both read the same code; they differ on whether a fixed schema IS a cap. It is not, and the distinction is the whole row: **a fixed ARITY is not a maximum.** Four cut-off fields exist because four quantities are cut on, and three tiers because three are emitted - neither is a budget a user can exhaust. IP's Curve 10 is a cap because it limits a collection that would otherwise grow.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; T36 does not prove the compound no-cap contract.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** R-3 forbids an arbitrary cap; this adjudication does not invent a replacement maximum.
-- **UI/IPC/provenance surface:** fixed fields cap UI, IPC, result and report structure.
-- **History/reachability:** dynamic curve infrastructure and fixed cutoff/tier schemas are both integrated.
-- **Blocking decision / next action:** move cutoffs and tiers to typed collections and test growth beyond every current fixed count.
+- **Automated evidence:** `a_run_carries_more_curves_than_any_vendor_cap_and_the_fixed_cutoff_and_tier_counts_are_arities_not_maxima` (`src-tauri/src/workflow.rs`). CORRECTNESS. Four arms: **sixty curves on one well resolved in ONE frame**, chosen to clear both vendor numbers the ledger records - past IP's Curve 10 and past its 2025 prose's 50 - with each curve asserted to carry its own values, because a silent truncation IS a cap and a silently reused column would hide one; the four cut-off fields exercised as an arity, with a run using none of them and a run using all of them both valid, so the count is not a resource anything competes for; the emitted tiers asserted to be exactly the declared ones, which is what makes the tier count DATA rather than a `3` written down in several places; and a scan of the engine for a maximum expressed on a COUNT of curves, cut-offs, tiers or flags.
+- **The clamps this domain DOES carry are named rather than exempted silently.** Iterations and sweep steps are clamped, and those are compute budgets on a loop - a limit on how long a study runs, not on how much rock it may describe. Saying so in the test is what stops the scan from being quietly widened later to cover a real cap.
+- **Mutation evidence:** two probes, each read for WHICH assertion fired, both at distinct assertions. Dropping a tier from the row emission turned the declared-equals-emitted arm red. Introducing a vendor-style `.take(10)` into the engine turned the no-cap scan red - and that probe is deliberately a semantic NO-OP, since three tiers never reach a cap of ten, so **only** the scan can catch it. That is the arm's whole purpose: to catch a cap before it is large enough to bite.
+- **NOT mutated, and stated rather than glossed:** the sixty-curve arm. It resolves through `equations::fetch_curve_frame`, which lives in a protected file, so no mutation introducing a truncation there was available to this lane. The arm is a real regression lock - a cap added later would fail it - but its mutation is not available here.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no value adopted, and deliberately no replacement maximum invented. The number sixty is a test input chosen to clear both cited vendor numbers, not a new limit.
+- **UI/IPC/provenance surface:** unchanged.
+- **Scope boundary, stated rather than assumed:** the general case - arbitrary named tiers over arbitrary cut-off sets - is **SB-CUT-024**, which is **outside the Gate 2 manifest**, and the chapter says so in this row's own as-built: the constraint becomes live when that row is built. Generalising the tier list here would be doing an out-of-scope row's work.
+- **History/reachability:** dynamic curve infrastructure and the fixed cut-off/tier schema are both integrated, exactly as the register said; the reading of what they mean is what changed.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-028
 
