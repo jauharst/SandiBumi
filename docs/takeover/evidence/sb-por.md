@@ -662,18 +662,19 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-CONTRACT`. The earlier *DEC-018 settles first-pilot inclusion* reading is **stale** - SB-POR-044 is in the approved 242-row manifest, verified against `pilot-scope.json` this session, so inclusion is already settled and cannot be the blocker. This is the same register-versus-chapter drift found in SB-POR-026, SB-POR-028 and SB-POR-043.
 - **Next action:** owner rules whether the smooth form's `PhiMax` **is** the existing `PHIE_MAX` - accepting that this mode then inherits a Geolog default IP does not publish - or is a separate defaultless parameter, stating how the two ceilings interact. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode on `phi_den` and `phi_dn` using `param_open` parameters that refuse to run unsupplied, and pin the hard-branch path, the smooth path and the refusal.
 
-## SB-POR-045 - PHIE floor is configuration, not a compile-time authority
+## SB-POR-045 - Floor value ships with no default
 
-- **Specified contract:** conflicting cited floor values remain visible, no chapter default ships, the selected floor is recorded configuration, and T40 distinguishes it from a compile-time constant.
-- **Current implementation:** `PHIE_FLOOR` is compile-time `0.001` and density/D-N always use it. A later direct product record also chooses `0.001`, while the immutable chapter deliberately withholds a default because it records conflicting values.
-- **Qualifying acceptance tests:** none for the specified no-default/configuration contract. Test class `CHARACTERIZATION`: `a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin` pins the current constant and only sanity-checks that it is below `0.01`.
-- **Supporting tests:** the characterization passed exactly once for density and D-N.
-- **Manual evidence:** porosity 0/33; workflow 0/23; processing-history 0/7.
-- **Source/parameter boundary:** current code, chapter conflict and later direct product decision remain three separate facts; this lane does not adjudicate precedence.
-- **History/reachability:** the compile-time floor and later decision record are reachable.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** Jauhar must explicitly decide whether the later direct decision supersedes the chapter's no-default contract and how that decision is recorded.
-- **Next action:** after adjudication, move the authorized choice into source-labelled run configuration and prove two explicit values produce distinct limited outputs while unlimited data stays unchanged.
+- **Specified contract:** the value `PHIE` is **set to** when the floor binds **MUST** ship with no default and **MUST** be a documented user decision (`11_porosity.md:1052-1056`).
+- **Current implementation:** `PHIE_FLOOR` is a compile-time `0.001`; density and D-N always use it, with no note that the question is open.
+- **Qualifying acceptance tests:** none for the no-default contract. Test class `CHARACTERIZATION` - `a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin` pins the current constant and only sanity-checks it is below 0.01.
+- **Supporting tests:** that characterization passed exactly once for density and D-N.
+- **Manual evidence:** porosity 0/64.
+- **Source/parameter boundary:** F17 (`:425-431`) is the whole reason there is no default to adopt. IP's own manual states **0.0001** in the Limits/Badhole summary, **0.001** in the `Phie Limit` entry, and **0.0001** again under `Vcl Limit` and PHIFLAG 9 - *"three statements, two numbers"* - and the chapter records the question as **not resolvable from held evidence**. No value was selected here.
+- **Register check:** unlike SB-POR-026, 028, 043 and 044, this entry is **correct**; the chapter states the MUST directly. The Group F drift is real but not universal, and each row still has to be read.
+- **History/reachability:** the constant is live and binds in every shale interval in every well.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DECISION`. A later direct product record also chose `0.001`, so the live question is whether that record **supersedes** the chapter's explicit no-default mandate. Only Jauhar can adjudicate a conflict between two of his own records; choosing either would be making a product-owner decision for him. It bites only in tight and zero-porosity intervals - exactly where a net-pay cutoff sits - so the wrong choice moves pay.
+- **Next action:** adjudicate and record how; then move the authorized choice out of the compile-time constant into source-labelled run configuration, and prove two explicit values produce distinct LIMITED outputs while the UNLIMITED twin stays unchanged.
 
 ## SB-POR-046 - VSILT is warning-bearing and non-authoritative
 

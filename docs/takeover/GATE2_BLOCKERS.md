@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `176 / 222`
+- Handled: `177 / 222`
 - Done: `127`
-- Blocked: `49`
-- Remaining unhandled: `46`
+- Blocked: `50`
+- Remaining unhandled: `45`
 
 ---
 
@@ -140,6 +140,7 @@ requirement appears exactly once.
 | `SB-POR-026` | RULED 2026-08-16 - needs a place to put the comment | The wiring is fully scoped - three specs (`phi_den`, `phi_dn`, `phi_son`) and `gascorr`'s shipped `log_in(GAS_FLAG, .., XOVER_FLAG, false)` idiom at `modules.rs:4404` - but its target is undecided. `11_porosity.md:951-952` reads as a new output CURVE; this register's own `next_action` reads as a PROVENANCE record. **Jauhar ruled PROVENANCE RECORD**, so the contract is settled and only the wiring remains - the same state as SB-POR-021. | Declare an optional crossover input on the three `phi_*` specs per `gascorr`'s idiom, CONSUME `condflag`'s flag rather than recomputing it so the coal and washout exclusions survive, and write the result as a **direct comment on the curve's own description** (Jauhar, 2026-08-16: no flag curve, no flag-shaped key - the text an analyst reads in the catalogue and the LAS header), pinning both sides: absent must say nobody looked, never a 0 and never silence. **There is nowhere to write it today**: `computed_curves` is `(well_id, depth, curve_name, value)` and `curve_meta` has no free-text description; the only description that exists is per-MODULE in the manifest, identical every run. Adding the column means editing prohibited `db.rs`. Authorize a narrow `db.rs` edit, or fall back to the ancestry record that already exists near `workflow.rs:920`. |
 | `SB-POR-028` | Dependency on SB-POR-003 / DEC-039 | Narrowed this session. The clamp VALUES are cited after all - `11_porosity.md` SS5:1231-1232, tier T1, Geolog `phi_dn.lls` / `phi_dnbk.lls` - and SB-POR-007 closed, so the parameter half is source-ready. The second clause still fails: hitting a clamp must raise SB-POR-003's flag, and that stream does not exist pending DEC-039. | Settle DEC-039, then promote the four literals mode-aware (chart vs Bateman-Konen clamps differ, linking this to SB-POR-021) and prove just-inside versus just-outside on both axes. |
 | `SB-POR-044` | PhiMax identity in the smooth form | The DEC-018 reading was stale - the row is in the approved 242. The real block: `11_porosity.md:1048-1050` says the smooth form's **three** parameters ship with no defaults, but its `PhiMax` collides with SandiBumi's `PHIE_MAX`, which already carries a Geolog-sourced 0.3. Reusing it hands the mode a default the chapter forbids; adding a second invents a parameter and leaves two ceilings that can disagree. | Owner rules which `PhiMax` is meant. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode with `param_open` parameters that refuse unsupplied, and pin step, smooth and refusal. |
+| `SB-POR-045` | Adjudication between two of your own records | The chapter (`:1052-1056`) says the floor value **MUST** ship with no default and be a documented user decision, because IP's manual gives **0.001 and 0.0001 for the same quantity in three places** and the chapter calls it unresolvable. A later product record picked 0.001; SandiBumi hard-codes 0.001. Does the later record supersede the chapter? Only you can say. It bites in tight and zero-porosity intervals - exactly where a pay cutoff sits. | Adjudicate and record it. Then move the choice into source-labelled run configuration and prove two values give distinct LIMITED outputs while the UNLIMITED twin is untouched. |
 
 ## Product-owner decision packet
 
