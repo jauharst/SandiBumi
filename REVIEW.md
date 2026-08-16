@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-008: one formation-water clay-bound-water porosity, blocked on a protected file
+
+- [ ] **Decision dependency:** SB-POR-008 requires clay-bound-water porosity to be defined **once**,
+      as `(RHO_DSH − RHO_SH)/(RHO_DSH − RHO_W)` with `RHO_W` the **formation water** density.
+      `phi_den` and `phi_dn` already share that helper correctly, and `phi_son` has no such term at
+      all. But `ssc.rs:259` and `ssc.rs:464` each define their own `phit_sh` using **`RHOB_FL`**,
+      the *fluid* density — a different quantity under the same name, which is the F16 conflation
+      this requirement exists to stop. `ssc.rs` is prohibited for editing and declares no `RHO_W`
+      parameter at all, so fixing it needs both a new parameter and a formula change in a file this
+      program may not touch. Choose one: authorize a narrow `ssc.rs` edit that adds the
+      formation-water parameter and routes SSC and SSPW through the shared helper while preserving
+      their existing limited arithmetic; or explicitly re-adjudicate SB-POR-008 to the `modules.rs`
+      paths while SSC/SSPW remain first-pilot exclusions. The export arm additionally needs
+      SB-CLY-044's `clsr_porosity_corrected` admitted to the manifest or the arm re-scoped.
+- [ ] **Why this is worth your attention even though SSC/SSPW are pilot-excluded:** the two forms
+      give **identical numbers at the shipped defaults**, because fluid density and formation-water
+      density both default to 1.00. They separate only when an interpreter selects salt water
+      (§5.1 attests 1.10). So an SSC/SSPW run on a saline formation quietly returns a different
+      clay-bound-water porosity from the density and D-N modules, with no flag and no error.
+- [ ] **Automated correctness:** none, deliberately. A test covering only the `modules.rs` paths
+      would assert the quantity is "defined once" while two parallel definitions of that exact name
+      survive — converting a boundary into a false green. The full gate is unchanged from the
+      SB-POR-007 receipt at `1041 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Field and harsh critique:** no code changed, no value was invented, and no arm of the
+      contract was dropped to make the row closable. If you would rather see the `modules.rs` half
+      proven now and the `ssc.rs` half deferred, say so and it becomes a re-adjudication rather than
+      a boundary. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-POR-007: every cited porosity parameter shows its source and tier
 
 - [ ] **Automated correctness:** `every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent`
