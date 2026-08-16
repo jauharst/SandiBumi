@@ -556,7 +556,7 @@ pub fn brittleness_spec() -> ModuleSpec {
             log_in("VQTZ", "Quartz volume (mineral)", "v/v", "VOL_QUARTZ", false),
             log_in("VCARB", "Calcite volume (mineral)", "v/v", "VOL_CALCITE", false),
             log_in("VDOL", "Dolomite volume (mineral)", "v/v", "VOL_DOLOMITE", false),
-            log_in("VCLAY", "Clay / shale volume (mineral)", "v/v", "VSH", false),
+            log_in("VCLAY", "Clay volume (mineral)", "v/v", "VCL", false),
             log_in("VORG", "Organic / kerogen volume (Wang-Gale)", "v/v", "VKER", false),
             log_out("BI", "Brittleness index (0 ductile .. 1 brittle)", "-"),
             log_out("YME", "Dynamic Young's modulus (elastic)", "Mpsi"),

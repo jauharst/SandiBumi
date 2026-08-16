@@ -403,6 +403,8 @@ pub(crate) const MASK_PROVENANCE_KEY: &str = "MASK";
 pub(crate) const MASK_PROVENANCE_NONE: &str = "NONE";
 pub(crate) const MASK_PROVENANCE_APPLIED: &str = "APPLIED";
 pub(crate) const FLAG_KIND_PROVENANCE_PREFIX: &str = "FLAG_KIND.";
+pub(crate) const OUTPUT_QUANTITY_PROVENANCE_PREFIX: &str = "OUTPUT_QUANTITY.";
+pub(crate) const INPUT_QUANTITY_PROVENANCE_PREFIX: &str = "INPUT_QUANTITY.";
 pub(crate) const SMOOTHING_POLICY_PROVENANCE_KEY: &str = "SMOOTHING_POLICY";
 
 pub(crate) fn mask_provenance(opts: &HashMap<String, String>) -> serde_json::Value {
@@ -530,6 +532,32 @@ pub(crate) fn resolved_flag_output_names(
                     .and_then(|arg| arg.flag_kind)
             }?;
             Some((format!("{prefix}{name}"), kind))
+        })
+        .collect())
+}
+
+/// Resolve producer-declared VSH/VCL identities through the same rename and universal-prefix
+/// transforms as the write path. This is metadata about the persisted curve, so the mutable output
+/// mnemonic cannot be used to reconstruct it later.
+pub(crate) fn resolved_shale_clay_output_names(
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+) -> Result<Vec<(String, modules::ShaleClayQuantity)>, String> {
+    let prefix = opts
+        .get(OUT_PREFIX_OPT)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_uppercase)
+        .unwrap_or_default();
+    Ok(resolve_output_names(spec, opts)?
+        .into_iter()
+        .filter_map(|(declared, name)| {
+            let quantity = spec
+                .args
+                .iter()
+                .find(|arg| arg.name == declared)
+                .and_then(|arg| arg.output_shale_clay_quantity)?;
+            Some((format!("{prefix}{name}"), quantity))
         })
         .collect())
 }
@@ -816,6 +844,27 @@ fn complete_module_log_spec(
             decision: None,
         });
     }
+    for (curve, quantity) in resolved_shale_clay_output_names(spec, opts)? {
+        if !output_names.iter().any(|output| output == &curve) {
+            continue;
+        }
+        let name = format!("{OUTPUT_QUANTITY_PROVENANCE_PREFIX}{curve}");
+        if parameters.iter().any(|parameter| parameter.name == name) {
+            return Err(format!(
+                "module '{}' declares an argument that collides with reserved output-quantity provenance key '{}'",
+                spec.name, name
+            ));
+        }
+        parameters.push(equations::AncestryParameter {
+            name,
+            value: serde_json::to_value(quantity)
+                .map_err(|error| format!("cannot serialize output quantity for {curve}: {error}"))?,
+            source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+            resolution: None,
+            manifest_version: None,
+            decision: None,
+        });
+    }
     for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
         for zone_value in zone_params
             .iter()
@@ -919,7 +968,52 @@ fn complete_module_log_spec(
             req.input_set.as_deref(),
             None,
         ) {
-            Ok(input) => inputs.push(input),
+            Ok(input) => {
+                if let Some(arg) = spec.args.iter().find(|arg| {
+                    arg.name == *argument && !arg.accepted_shale_clay_quantities.is_empty()
+                }) {
+                    let accepted = arg
+                        .accepted_shale_clay_quantities
+                        .iter()
+                        .map(|quantity| quantity.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" or ");
+                    let quantity = shale_clay_quantity_for_ancestry_input(conn, &input)?
+                        .ok_or_else(|| {
+                            format!(
+                                "module '{}' input '{}' requires typed {accepted} metadata, but resolved curve '{}' has no VSH/VCL quantity metadata",
+                                spec.name, argument, input.curve
+                            )
+                        })?;
+                    if !arg.accepted_shale_clay_quantities.contains(&quantity) {
+                        return Err(format!(
+                            "module '{}' input '{}' requires {accepted}, but resolved curve '{}' carries {} metadata",
+                            spec.name,
+                            argument,
+                            input.curve,
+                            quantity.as_str()
+                        ));
+                    }
+                    let name = format!("{INPUT_QUANTITY_PROVENANCE_PREFIX}{argument}");
+                    if parameters.iter().any(|parameter| parameter.name == name) {
+                        return Err(format!(
+                            "module '{}' declares an argument that collides with reserved input-quantity provenance key '{}'",
+                            spec.name, name
+                        ));
+                    }
+                    parameters.push(equations::AncestryParameter {
+                        name,
+                        value: serde_json::to_value(quantity).map_err(|error| {
+                            format!("cannot serialize input quantity for {argument}: {error}")
+                        })?,
+                        source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+                        resolution: None,
+                        manifest_version: None,
+                        decision: None,
+                    });
+                }
+                inputs.push(input)
+            }
             Err(error) => {
                 missing.insert(argument.as_str(), error);
             }
@@ -1315,6 +1409,146 @@ fn resolved_module_input_unit(
         .optional()
         .map_err(|error| format!("cannot resolve imported curve unit: {error}"))?;
     Ok(generic.flatten())
+}
+
+fn shale_clay_quantity_from_family(family: Option<&str>) -> Option<modules::ShaleClayQuantity> {
+    match family.map(str::trim).map(str::to_uppercase).as_deref() {
+        Some("VSH") => Some(modules::ShaleClayQuantity::ShaleVolume),
+        Some("VCL") => Some(modules::ShaleClayQuantity::ClayVolume),
+        _ => None,
+    }
+}
+
+/// Read the producer-owned quantity metadata for the exact ancestry input the resolver selected.
+/// Generic/imported curves carry it in `curve_meta.family`; computed curves carry it in their
+/// versioned ancestry record. The mnemonic and unit are deliberately not consulted.
+pub(crate) fn shale_clay_quantity_for_ancestry_input(
+    conn: &Connection,
+    input: &equations::AncestryInput,
+) -> Result<Option<modules::ShaleClayQuantity>, String> {
+    let Some(chosen_curve_id) = input.chosen_curve_id.as_deref() else {
+        return Ok(None);
+    };
+    if chosen_curve_id.starts_with("computed:") {
+        let params_json: Option<String> = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE set_id = ?1",
+                duckdb::params![&input.set_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| {
+                format!(
+                    "cannot read quantity metadata for computed input '{}': {error}",
+                    input.curve
+                )
+            })?
+            .flatten();
+        let Some(params_json) = params_json else {
+            return Ok(None);
+        };
+        let ancestry = equations::parse_curve_ancestry(&params_json).map_err(|error| {
+            format!(
+                "cannot read quantity metadata for computed input '{}': {error}",
+                input.curve
+            )
+        })?;
+        let key = format!(
+            "{OUTPUT_QUANTITY_PROVENANCE_PREFIX}{}",
+            input.curve.trim().to_uppercase()
+        );
+        let matches = ancestry
+            .parameters
+            .iter()
+            .filter(|parameter| parameter.name == key)
+            .collect::<Vec<_>>();
+        if matches.len() > 1 {
+            return Err(format!(
+                "computed input '{}' carries duplicate quantity metadata",
+                input.curve
+            ));
+        }
+        return matches
+            .first()
+            .map(|parameter| {
+                serde_json::from_value(parameter.value.clone()).map_err(|error| {
+                    format!(
+                        "computed input '{}' carries invalid quantity metadata: {error}",
+                        input.curve
+                    )
+                })
+            })
+            .transpose();
+    }
+
+    let family: Option<Option<String>> = conn
+        .query_row(
+            "SELECT family FROM curve_meta WHERE curve_id = ?1",
+            duckdb::params![chosen_curve_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| {
+            format!(
+                "cannot read quantity metadata for imported input '{}': {error}",
+                input.curve
+            )
+        })?;
+    Ok(shale_clay_quantity_from_family(family.flatten().as_deref()))
+}
+
+fn validate_shale_clay_input_quantities(
+    conn: &Connection,
+    well_id: &str,
+    spec: &modules::ModuleSpec,
+    log_args: &[(String, String)],
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> Result<(), String> {
+    for argument in spec
+        .args
+        .iter()
+        .filter(|argument| !argument.accepted_shale_clay_quantities.is_empty())
+    {
+        let Some((_, curve)) = log_args.iter().find(|(name, _)| name == &argument.name) else {
+            continue;
+        };
+        if curve.trim().is_empty() {
+            continue;
+        }
+        let Some(input) = equations::try_resolve_ancestry_input(
+            conn,
+            well_id,
+            &argument.name,
+            curve,
+            input_set,
+            own_set_id,
+        )? else {
+            continue;
+        };
+        let accepted = argument
+            .accepted_shale_clay_quantities
+            .iter()
+            .map(|quantity| quantity.as_str())
+            .collect::<Vec<_>>()
+            .join(" or ");
+        let Some(actual) = shale_clay_quantity_for_ancestry_input(conn, &input)? else {
+            return Err(format!(
+                "module '{}' input '{}' requires typed {accepted} metadata, but resolved curve '{}' has no VSH/VCL quantity metadata; assign the physical family explicitly instead of relying on its mnemonic",
+                spec.name, argument.name, input.curve
+            ));
+        };
+        if !argument.accepted_shale_clay_quantities.contains(&actual) {
+            return Err(format!(
+                "module '{}' input '{}' requires {accepted}, but resolved curve '{}' carries {} metadata",
+                spec.name,
+                argument.name,
+                input.curve,
+                actual.as_str()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Resolve the selected input mnemonics into manifest argument names using the same input-set,
@@ -1784,6 +2018,14 @@ fn run_workflow_module_into_with_parameter_serializer(
                         req.input_set.as_deref(),
                         own_set,
                         &HashSet::new(),
+                    )?;
+                    validate_shale_clay_input_quantities(
+                        &conn,
+                        well_id,
+                        &spec,
+                        &log_args,
+                        req.input_set.as_deref(),
+                        own_set,
                     )?;
                     let (depth, logs, input_units) = fetch_module_input_logs(
                         &conn,
@@ -6879,7 +7121,9 @@ mod tests {
     #[test]
     fn a_restored_log_set_version_feeds_the_next_module_run() {
         use crate::equations::{
-            create_log_set, restore_log_set, write_computed_curves_versioned, LogSetSpec,
+            create_complete_log_set, restore_log_set, write_computed_curves_with_ancestry,
+            AncestryOutput, AncestryParameter, AncestryZoneScope, CompleteLogSetSpec,
+            CurveAncestry,
         };
 
         let conn = Connection::open_in_memory().unwrap();
@@ -6905,20 +7149,57 @@ mod tests {
         )
         .unwrap();
 
-        let spec = LogSetSpec {
-            set_name: "INTERP".into(),
-            module: "vsh_gr".into(),
-            params_json: "{}".into(),
-            inputs_json: "[\"GR\"]".into(),
+        let gr_input = equations::resolve_ancestry_input(&conn, &w, "GR", "GR", None, None)
+            .expect("the synthetic standard GR must have a resolvable source identity");
+        let producer_spec = || {
+            let parameters = vec![AncestryParameter {
+                name: format!("{OUTPUT_QUANTITY_PROVENANCE_PREFIX}VSH"),
+                value: serde_json::json!(modules::ShaleClayQuantity::ShaleVolume),
+                source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+                resolution: None,
+                manifest_version: None,
+                decision: None,
+            }];
+            CompleteLogSetSpec::try_new(
+                "INTERP",
+                CurveAncestry {
+                    schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+                    module: "vsh_gr".into(),
+                    module_version: env!("CARGO_PKG_VERSION").into(),
+                    inputs: vec![gr_input.clone()],
+                    parameter_state: equations::parameter_state_for(&parameters),
+                    parameters,
+                    zone_scope: AncestryZoneScope::WholeWell,
+                    actor: test_run_custody().actor,
+                    timestamp_utc_ms: equations::ancestry_timestamp_utc_ms().unwrap(),
+                    outputs: vec![AncestryOutput {
+                        curve: "VSH".into(),
+                        derivation: "SB-CLY-043 typed restore fixture".into(),
+                    }],
+                },
+            )
+            .unwrap()
         };
 
         // Version 1: a clean sand. Version 2: very shaly. Same curve, same well.
-        let (set1, v1) = create_log_set(&conn, &w, &spec).unwrap();
-        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.10f32, 0.10, 0.10])], &set1)
-            .unwrap();
-        let (set2, v2) = create_log_set(&conn, &w, &spec).unwrap();
-        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.80f32, 0.80, 0.80])], &set2)
-            .unwrap();
+        let (set1, v1) = create_complete_log_set(&conn, &w, &producer_spec()).unwrap();
+        write_computed_curves_with_ancestry(
+            &conn,
+            &w,
+            &depth,
+            &[("VSH", &[0.10f32, 0.10, 0.10])],
+            &set1,
+        )
+        .unwrap();
+        let (set2, v2) = create_complete_log_set(&conn, &w, &producer_spec()).unwrap();
+        write_computed_curves_with_ancestry(
+            &conn,
+            &w,
+            &depth,
+            &[("VSH", &[0.80f32, 0.80, 0.80])],
+            &set2,
+        )
+        .unwrap();
         assert_eq!((v1, v2), (1, 2));
 
         let dbm = Mutex::new(conn);
@@ -6960,7 +7241,7 @@ mod tests {
         // Roll back to version 1 and run again. Nothing else changed.
         {
             let c = dbm.lock().unwrap();
-            restore_log_set(&c, &set1).unwrap();
+            restore_log_set(&c, set1.as_str()).unwrap();
         }
         let r = run_workflow_module_into(&dbm, &req, None, None, None);
         assert!(r[0].error.is_none(), "phi_den on restored v1: {:?}", r[0].error);
@@ -7970,5 +8251,230 @@ mod tests {
             )
             .unwrap();
         assert_eq!(flag_only_curves, 0, "a finite framework flag must not version an all-MISSING scientific result");
+    }
+
+    #[test]
+    fn a_required_shale_volume_accepts_renamed_shale_metadata_and_refuses_clay_metadata_even_under_a_vsh_name() {
+        // CORRECTNESS — SB-CLY-043 / SB-CLY-T43. The expected result is the chapter's typed
+        // interface rule, not a snapshot: VSH and VCL are distinct, renaming does not change the
+        // quantity, and a VCL must be refused where VSH is required. The numerical values only
+        // make the existing public workflows finite: the GR triplet gives IGR=0.5 as in T04, and
+        // the Thomas-Stieber endpoints are the cited SB-TBD-T10 verification inputs. No value here
+        // becomes a product default.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depth = vec![1000.0f32, 1000.5];
+
+        let add_condition = |label: &str, gr: Vec<f32>| {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, label, None, None, Some(0.0)).unwrap();
+            let missing = vec![f32::NAN; depth.len()];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth.clone(),
+                gr,
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing,
+            )
+            .unwrap();
+            let well = id.to_string();
+            let phit = db::upsert_curve_meta(
+                &conn,
+                &well,
+                "RAW",
+                "PHIT",
+                Some("v/v"),
+                None,
+                Some("SB-CLY-043 type-contract fixture"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &phit, &depth, &[0.16, 0.16]).unwrap();
+            well
+        };
+
+        let renamed_shale = add_condition("RENAMED-SHALE-QUANTITY", vec![70.0, 70.0]);
+        let clay_under_vsh_name = add_condition("CLAY-METADATA-UNDER-VSH-NAME", vec![f32::NAN; 2]);
+        let vcl = db::upsert_curve_meta(
+            &conn,
+            &clay_under_vsh_name,
+            "RAW",
+            "VSH",
+            Some("v/v"),
+            Some("VCL"),
+            Some("SB-CLY-043 wrong-type control"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &vcl, &depth, &[0.4, 0.4]).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let produced = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![renamed_shale.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+                opts: HashMap::from([(
+                    format!("{OUT_NAME_PREFIX}VSH"),
+                    "RENAMED_SHALE".into(),
+                )]),
+                output_set: Some("SHALE-PRODUCER".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert_ne!(produced[0].outcome, ModuleRunOutcome::Failed, "the sourced producer fixture must run");
+        assert!(produced[0].rows_written > 0);
+
+        let run_thomas_stieber = |well: &str, vsh_curve: &str, output_set: &str| {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "thin_bed_ts".into(),
+                    well_ids: vec![well.to_string()],
+                    log_inputs: HashMap::from([
+                        ("PHIT".into(), "PHIT".into()),
+                        ("VSH".into(), vsh_curve.into()),
+                    ]),
+                    params: HashMap::from([("PHI_SD_MAX".into(), 0.30), ("PHI_SH".into(), 0.15)]),
+                    opts: HashMap::new(),
+                    output_set: Some(output_set.into()),
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+            .remove(0)
+        };
+
+        let accepted = run_thomas_stieber(&renamed_shale, "RENAMED_SHALE", "RENAMED-SHALE-CONSUMER");
+        assert_eq!(accepted.outcome, ModuleRunOutcome::Clean, "renaming a typed VSH must not erase its identity");
+        let refused = run_thomas_stieber(&clay_under_vsh_name, "VSH", "WRONG-TYPE-CONTROL");
+        assert_eq!(refused.outcome, ModuleRunOutcome::Failed, "VCL metadata must win over the misleading VSH mnemonic");
+        assert_eq!(refused.rows_written, 0);
+        let refusal = refused.error.expect("wrong quantity must explain its refusal");
+        assert!(refusal.contains("VSH") && refusal.contains("VCL"), "refusal must name both quantities: {refusal}");
+
+        let conn = dbm.lock().unwrap();
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets
+                 WHERE well_id = ?1 AND module = 'thin_bed_ts' AND set_name = 'RENAMED-SHALE-CONSUMER'
+                 ORDER BY version DESC LIMIT 1",
+                duckdb::params![renamed_shale],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let ancestry = equations::parse_curve_ancestry(&params_json).unwrap();
+        let received = ancestry
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name == "INPUT_QUANTITY.VSH")
+            .expect("the consumer run must record the quantity received");
+        assert_eq!(received.value, serde_json::json!("VSH"));
+        let wrong_type_sets: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'WRONG-TYPE-CONTROL'",
+                duckdb::params![clay_under_vsh_name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(wrong_type_sets, 0, "a type refusal must not version an interpretation");
+    }
+
+    #[test]
+    fn a_clay_volume_consumer_accepts_clay_refuses_shale_and_records_which_quantity_it_received() {
+        // CORRECTNESS — SB-CLY-043 plus the mineralogical clay identity stated by
+        // docs/PRD_v2/19_toc-unconventional.md §3.4. The old "Clay / shale volume" label cannot
+        // authorize substituting VSH in the Jarvie/Wang-Gale clay denominator. The 0.20 sample is
+        // only a finite fixture; no numeric output is used as a correctness oracle.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depth = vec![1000.0f32, 1000.5];
+        let add_quantity = |family: &str| {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, family, None, None, Some(0.0)).unwrap();
+            let missing = vec![f32::NAN; depth.len()];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing.clone(),
+                missing,
+            )
+            .unwrap();
+            let well = id.to_string();
+            let curve = db::upsert_curve_meta(
+                &conn,
+                &well,
+                "RAW",
+                "MINERAL_FRACTION",
+                Some("v/v"),
+                Some(family),
+                Some("SB-CLY-043 typed clay control"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, &[0.20, 0.20]).unwrap();
+            well
+        };
+        let vsh_well = add_quantity("VSH");
+        let vcl_well = add_quantity("VCL");
+        let dbm = Mutex::new(conn);
+
+        let results = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "brittleness".into(),
+                well_ids: vec![vsh_well.clone(), vcl_well.clone()],
+                log_inputs: HashMap::from([("VCLAY".into(), "MINERAL_FRACTION".into())]),
+                params: HashMap::new(),
+                opts: HashMap::from([("METHOD".into(), "mineral_jarvie".into())]),
+                output_set: Some("TYPED-CLAY-CONSUMER".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        let vsh_result = results.iter().find(|result| result.well_id == vsh_well).unwrap();
+        assert_eq!(vsh_result.outcome, ModuleRunOutcome::Failed);
+        let refusal = vsh_result.error.as_deref().expect("VSH in a VCL role must explain its refusal");
+        assert!(refusal.contains("VCL") && refusal.contains("VSH"), "refusal must name both quantities: {refusal}");
+        let vcl_result = results.iter().find(|result| result.well_id == vcl_well).unwrap();
+        assert_eq!(vcl_result.outcome, ModuleRunOutcome::Clean);
+
+        let conn = dbm.lock().unwrap();
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets
+                 WHERE well_id = ?1 AND module = 'brittleness' AND set_name = 'TYPED-CLAY-CONSUMER'
+                 ORDER BY version DESC LIMIT 1",
+                duckdb::params![vcl_well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let ancestry = equations::parse_curve_ancestry(&params_json).unwrap();
+        let received = ancestry
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name == "INPUT_QUANTITY.VCLAY")
+            .expect("the VCL consumer must record the received quantity");
+        assert_eq!(received.value, serde_json::json!("VCL"));
+        let wrong_type_sets: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'TYPED-CLAY-CONSUMER'",
+                duckdb::params![vsh_well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(wrong_type_sets, 0, "a VSH-to-VCL type refusal must not version an interpretation");
     }
 }

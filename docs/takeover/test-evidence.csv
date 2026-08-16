@@ -1,4 +1,6 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-CLY-043","CORRECTNESS","src-tauri/src/workflow.rs","a_required_shale_volume_accepts_renamed_shale_metadata_and_refuses_clay_metadata_even_under_a_vsh_name"
+"SB-CLY-043","CORRECTNESS","src-tauri/src/workflow.rs","a_clay_volume_consumer_accepts_clay_refuses_shale_and_records_which_quantity_it_received"
 "SB-CLY-042","CORRECTNESS","src-tauri/src/modules.rs","documented_picking_conventions_are_sourced_help_and_never_numeric_defaults"
 "SB-CLY-041","CORRECTNESS","src-tauri/src/workflow.rs","corrected_aliases_win_over_raw_and_normalized_inputs_raw_remains_the_fallback_and_each_resolved_curve_is_recorded"
 "SB-CLY-035","CORRECTNESS","src-tauri/src/modules.rs","under_gauge_and_over_gauge_hole_both_fire_while_both_strict_boundaries_and_in_gauge_do_not"

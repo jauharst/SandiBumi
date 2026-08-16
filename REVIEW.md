@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-043: VSH and VCL are different typed quantities
+
+- [ ] **Automated correctness:** the two owned tests were witnessed RED before the quantity
+      contract existed and are GREEN at 1 / 0 / 0 each. A renamed VSH remains VSH; VCL metadata
+      under a curve named VSH refuses; the mineralogical VCL role accepts VCL, refuses VSH, and
+      records `INPUT_QUANTITY.VCLAY = VCL`; failed type checks create no interpretation record.
+      The existing three-step VSH → PHIE → SWE chain is also GREEN and now asserts VSH producer
+      and consumer metadata in its pre-created ancestry set. TypeScript and cargo check are green;
+      the fresh full gate passed 1031 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray, VSH from Density-Neutron, Density-Neutron Porosity,
+      Thomas-Stieber and Brittleness. Confirm VSH outputs/inputs and the VCL-only mineral input are
+      understandable at the point of selection; then rename a VSH output and confirm its next
+      consumer still runs. This checklist is not proof until Jauhar performs it in the desktop app.
+- [ ] **Manual:** inspect History for the renamed producer, a direct consumer and a saved chain.
+      Confirm `OUTPUT_QUANTITY.<resolved curve>` and `INPUT_QUANTITY.<role>` state VSH or VCL as
+      appropriate. Assign an imported curve's family explicitly, then confirm a wrong assignment
+      refuses before any new log set or computed curve appears.
+- [ ] **Field and harsh critique:** metadata-backed types stop a plausible VCL-for-VSH substitution
+      from silently computing. They do not prove the interpreter assigned an imported curve's
+      physical family correctly. SB-CLY-046 still owns the complete cited vendor/output family
+      inventory; until it lands, imported curves require explicit family assignment and no alias
+      may be guessed from spelling. No Visual, Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 blocker packet: one integrated decision and source intake view
 
 - [ ] **Automated correctness:** the Gate 2 program test was witnessed RED while the packet was

@@ -1012,6 +1012,11 @@ export interface ArgSpec {
   kind: ArgKind;
   /** Semantic role of a binary flag output; absent for ordinary numeric/class channels. */
   flag_kind?: FlagKind | null;
+  /** Explicit physical quantities accepted by this input. VSH and VCL both use v/v, so neither
+   *  the unit nor the selected mnemonic is allowed to supply this identity. */
+  accepted_shale_clay_quantities?: Array<"VSH" | "VCL">;
+  /** Producer-owned physical identity recorded for this output after output renaming. */
+  output_shale_clay_quantity?: "VSH" | "VCL" | null;
   default: string;
   /** Ordered automatic LogIn aliases; absent means the single manifest default is used. */
   preferred_aliases?: string[];

@@ -150,6 +150,7 @@ fn complete_chain_sets(
         let zone_params =
             crate::db::list_zone_params(conn, well_id).map_err(|error| error.to_string())?;
         let mut produced = std::collections::HashSet::new();
+        let mut produced_shale_clay_quantities = HashMap::new();
         let mut inputs = Vec::new();
         let mut parameters = Vec::new();
         let mut outputs = Vec::new();
@@ -246,8 +247,13 @@ fn complete_chain_sets(
                     continue;
                 }
                 let argument = format!("step[{}].{}", index + 1, arg_name);
+                let quantity_contract = manifest
+                    .args
+                    .iter()
+                    .find(|arg| arg.name == arg_name)
+                    .filter(|arg| !arg.accepted_shale_clay_quantities.is_empty());
                 if produced.contains(&curve) {
-                    inputs.push(crate::equations::AncestryInput {
+                    let input = crate::equations::AncestryInput {
                         well_id: well_id.to_string(),
                         argument,
                         curve: curve.clone(),
@@ -257,13 +263,97 @@ fn complete_chain_sets(
                         chosen_curve_id: Some(format!("SELF:{curve}")),
                         rule: Some(crate::equations::CurveResolutionRule::WorkingInputSet),
                         rejected_candidates: Vec::new(),
-                    });
+                    };
+                    if let Some(contract) = quantity_contract {
+                        let accepted = contract
+                            .accepted_shale_clay_quantities
+                            .iter()
+                            .map(|quantity| quantity.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" or ");
+                        let actual = produced_shale_clay_quantities
+                            .get(&curve)
+                            .copied()
+                            .ok_or_else(|| {
+                                format!(
+                                    "module '{}' input '{}' requires typed {accepted} metadata, but chain-produced curve '{curve}' has no VSH/VCL quantity metadata",
+                                    step.module, arg_name
+                                )
+                            })?;
+                        if !contract.accepted_shale_clay_quantities.contains(&actual) {
+                            return Err(format!(
+                                "module '{}' input '{}' requires {accepted}, but chain-produced curve '{curve}' carries {} metadata",
+                                step.module,
+                                arg_name,
+                                actual.as_str()
+                            ));
+                        }
+                        parameters.push(crate::equations::AncestryParameter {
+                            name: format!(
+                                "{parameter_prefix}{}{}",
+                                workflow::INPUT_QUANTITY_PROVENANCE_PREFIX,
+                                arg_name
+                            ),
+                            value: serde_json::to_value(actual).map_err(|error| {
+                                format!(
+                                    "cannot serialize input quantity for {arg_name}: {error}"
+                                )
+                            })?,
+                            source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+                            resolution: None,
+                            manifest_version: None,
+                            decision: None,
+                        });
+                    }
+                    inputs.push(input);
                     present_arguments.insert(arg_name.clone());
                 } else {
                     match crate::equations::resolve_ancestry_input(
                         conn, well_id, &argument, &curve, input_set, None,
                     ) {
                         Ok(input) => {
+                            if let Some(contract) = quantity_contract {
+                                let accepted = contract
+                                    .accepted_shale_clay_quantities
+                                    .iter()
+                                    .map(|quantity| quantity.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" or ");
+                                let actual = workflow::shale_clay_quantity_for_ancestry_input(
+                                    conn, &input,
+                                )?
+                                .ok_or_else(|| {
+                                    format!(
+                                        "module '{}' input '{}' requires typed {accepted} metadata, but resolved curve '{}' has no VSH/VCL quantity metadata; assign the physical family explicitly instead of relying on its mnemonic",
+                                        step.module, arg_name, input.curve
+                                    )
+                                })?;
+                                if !contract.accepted_shale_clay_quantities.contains(&actual) {
+                                    return Err(format!(
+                                        "module '{}' input '{}' requires {accepted}, but resolved curve '{}' carries {} metadata",
+                                        step.module,
+                                        arg_name,
+                                        input.curve,
+                                        actual.as_str()
+                                    ));
+                                }
+                                parameters.push(crate::equations::AncestryParameter {
+                                    name: format!(
+                                        "{parameter_prefix}{}{}",
+                                        workflow::INPUT_QUANTITY_PROVENANCE_PREFIX,
+                                        arg_name
+                                    ),
+                                    value: serde_json::to_value(actual).map_err(|error| {
+                                        format!(
+                                            "cannot serialize input quantity for {arg_name}: {error}"
+                                        )
+                                    })?,
+                                    source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+                                    resolution: None,
+                                    manifest_version: None,
+                                    decision: None,
+                                });
+                            }
                             inputs.push(input);
                             present_arguments.insert(arg_name.clone());
                         }
@@ -290,10 +380,61 @@ fn complete_chain_sets(
                 }
             }
 
+            let mut step_output_quantities = HashMap::new();
+            for (curve, quantity) in workflow::resolved_shale_clay_output_names(manifest, &opts)? {
+                let curve = curve.to_uppercase();
+                if let Some(previous) = step_output_quantities.insert(curve.clone(), quantity) {
+                    if previous != quantity {
+                        return Err(format!(
+                            "module '{}' assigns both {} and {} quantity metadata to output '{curve}'",
+                            step.module,
+                            previous.as_str(),
+                            quantity.as_str()
+                        ));
+                    }
+                }
+            }
             for output in
                 workflow::preview_output_names(&step.module, &step.log_inputs, &step.opts)?
             {
                 let curve = output.name.to_uppercase();
+                if let Some(quantity) = step_output_quantities.get(&curve).copied() {
+                    if let Some(previous) =
+                        produced_shale_clay_quantities.insert(curve.clone(), quantity)
+                    {
+                        if previous != quantity {
+                            return Err(format!(
+                                "chain assigns both {} and {} quantity metadata to output '{curve}'",
+                                previous.as_str(),
+                                quantity.as_str()
+                            ));
+                        }
+                    }
+                    let name = format!(
+                        "{}{curve}",
+                        workflow::OUTPUT_QUANTITY_PROVENANCE_PREFIX
+                    );
+                    let value = serde_json::to_value(quantity).map_err(|error| {
+                        format!("cannot serialize output quantity for {curve}: {error}")
+                    })?;
+                    if let Some(previous) = parameters.iter().find(|parameter| parameter.name == name)
+                    {
+                        if previous.value != value {
+                            return Err(format!(
+                                "chain assigns conflicting VSH/VCL quantity metadata to output '{curve}'"
+                            ));
+                        }
+                    } else {
+                        parameters.push(crate::equations::AncestryParameter {
+                            name,
+                            value,
+                            source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+                            resolution: None,
+                            manifest_version: None,
+                            decision: None,
+                        });
+                    }
+                }
                 produced.insert(curve.clone());
                 outputs.push(crate::equations::AncestryOutput {
                     derivation: format!("step[{}] {}:{}", index + 1, step.module, output.arg),
@@ -1210,6 +1351,34 @@ mod tests {
         assert!(finite(&conn, &well, "VSH") > 0);
         assert!(finite(&conn, &well, "PHIE") > 0);
         assert!(finite(&conn, &well, "SWE") > 0);
+        // SB-CLY-043: the chain's pre-created SELF set is the producer record seen by later
+        // steps, so it must carry the VSH identity plus each typed consumer's received quantity.
+        // The mnemonic alone is not evidence: VSH and VCL share v/v and outputs are renameable.
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets
+                 WHERE well_id = ?1 AND set_name = 'INTERP' AND module LIKE 'workflow:%'
+                 ORDER BY version DESC LIMIT 1",
+                params![well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let ancestry = crate::equations::parse_curve_ancestry(&params_json).unwrap();
+        let quantity_parameters = ancestry
+            .parameters
+            .iter()
+            .filter(|parameter| parameter.name.contains("QUANTITY."))
+            .map(|parameter| (parameter.name.as_str(), parameter.value.as_str()))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(quantity_parameters.get("OUTPUT_QUANTITY.VSH"), Some(&Some("VSH")));
+        assert_eq!(
+            quantity_parameters.get("step[2].INPUT_QUANTITY.VSH"),
+            Some(&Some("VSH"))
+        );
+        assert_eq!(
+            quantity_parameters.get("step[3].INPUT_QUANTITY.VSH"),
+            Some(&Some("VSH"))
+        );
     }
 
     #[test]

@@ -216,6 +216,28 @@ pub struct SourcedGuidance {
     pub source: String,
 }
 
+/// Physical quantity carried by a shale/clay-volume curve.
+///
+/// `v/v` is only a unit: both quantities use it. The producer therefore declares this identity,
+/// and the runner carries it independently of the curve name so an output rename cannot turn clay
+/// into shale (or vice versa).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub enum ShaleClayQuantity {
+    #[serde(rename = "VSH")]
+    ShaleVolume,
+    #[serde(rename = "VCL")]
+    ClayVolume,
+}
+
+impl ShaleClayQuantity {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::ShaleVolume => "VSH",
+            Self::ClayVolume => "VCL",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ArgSpec {
     pub name: String,
@@ -225,6 +247,14 @@ pub struct ArgSpec {
     /// LogOut only: semantic flag role. `None` means an ordinary numeric/class output.
     #[serde(default)]
     pub flag_kind: Option<FlagKind>,
+    /// LogIn only: physical quantities this role accepts. Empty means this requirement has no
+    /// shale/clay quantity contract. More than one entry is an explicit dual-type consumer, never
+    /// a mnemonic fallback.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accepted_shale_clay_quantities: Vec<ShaleClayQuantity>,
+    /// LogOut only: producer-owned physical identity persisted beside the resolved output name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_shale_clay_quantity: Option<ShaleClayQuantity>,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
     /// LogIn only: ordered curve mnemonics tried when the interpreter has not selected one
@@ -365,6 +395,8 @@ pub(crate) fn param(
         unit: unit.into(),
         kind: ArgKind::Param,
         flag_kind: None,
+        accepted_shale_clay_quantities: vec![],
+        output_shale_clay_quantity: None,
         default: default.to_string(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -389,6 +421,8 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         unit: String::new(),
         kind: ArgKind::Option,
         flag_kind: None,
+        accepted_shale_clay_quantities: vec![],
+        output_shale_clay_quantity: None,
         default: default.into(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -518,6 +552,8 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         unit: String::new(),
         kind: ArgKind::Text,
         flag_kind: None,
+        accepted_shale_clay_quantities: vec![],
+        output_shale_clay_quantity: None,
         default: default.into(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -542,6 +578,8 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         unit: unit.into(),
         kind: ArgKind::LogIn,
         flag_kind: None,
+        accepted_shale_clay_quantities: vec![],
+        output_shale_clay_quantity: None,
         default: default_curve.into(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -650,6 +688,8 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         unit: unit.into(),
         kind: ArgKind::LogOut,
         flag_kind: None,
+        accepted_shale_clay_quantities: vec![],
+        output_shale_clay_quantity: None,
         default: String::new(),
         preferred_aliases: vec![],
         guidance: vec![],
@@ -1227,13 +1267,115 @@ fn is_missing(v: f64) -> bool {
     v.is_nan()
 }
 
+/// Apply the SB-CLY-043 contracts by module argument identity, never by the curve name selected at
+/// run time. This inventory is intentionally explicit: a role called `VCLAY` requires VCL while a
+/// role called `VSH` requires VSH, and neither decision can be recovered safely from spelling or
+/// from the shared `v/v` unit. A dual-type role must be added here only when its owning
+/// specification actually declares one.
+fn apply_shale_clay_quantity_contracts(modules: &mut [ModuleSpec]) -> Result<(), String> {
+    fn argument_mut<'a>(
+        modules: &'a mut [ModuleSpec],
+        module: &str,
+        argument: &str,
+    ) -> Result<&'a mut ArgSpec, String> {
+        modules
+            .iter_mut()
+            .find(|spec| spec.name == module)
+            .and_then(|spec| spec.args.iter_mut().find(|arg| arg.name == argument))
+            .ok_or_else(|| {
+                format!(
+                    "SB-CLY-043 quantity inventory names missing argument '{module}.{argument}'"
+                )
+            })
+    }
+
+    const VSH_INPUTS: &[(&str, &str)] = &[
+        ("phi_den", "VSH"),
+        ("phi_dn", "VSH"),
+        ("phi_son", "VSH"),
+        ("sspw", "VSH"),
+        ("sw_indo", "VSH"),
+        ("sw_sim", "VSH"),
+        ("thin_bed_ts", "VSH"),
+        ("rt_cutoff", "VSH"),
+    ];
+    const VSH_OUTPUTS: &[(&str, &str)] = &[
+        ("vsh_gr", "VSH_GR"),
+        ("vsh_gr", "VSH"),
+        ("vsh_dn", "VSH_DN"),
+        ("vsh_dn", "VSH"),
+        ("ssc", "VSH_SSC"),
+        ("ssc", "VSHGR"),
+        ("ssc", "VSHND"),
+        ("multimin", "VSH_MM"),
+    ];
+    const VCL_OUTPUTS: &[(&str, &str)] = &[("multimin", "VOL_CLAY")];
+
+    for (module, argument) in VSH_INPUTS {
+        let arg = argument_mut(modules, module, argument)?;
+        if arg.kind != ArgKind::LogIn {
+            return Err(format!("SB-CLY-043 input contract '{module}.{argument}' is not a LogIn"));
+        }
+        arg.accepted_shale_clay_quantities = vec![ShaleClayQuantity::ShaleVolume];
+    }
+    for (module, argument) in VSH_OUTPUTS {
+        let arg = argument_mut(modules, module, argument)?;
+        if arg.kind != ArgKind::LogOut {
+            return Err(format!("SB-CLY-043 output contract '{module}.{argument}' is not a LogOut"));
+        }
+        arg.output_shale_clay_quantity = Some(ShaleClayQuantity::ShaleVolume);
+    }
+    for (module, argument) in VCL_OUTPUTS {
+        let arg = argument_mut(modules, module, argument)?;
+        if arg.kind != ArgKind::LogOut {
+            return Err(format!("SB-CLY-043 output contract '{module}.{argument}' is not a LogOut"));
+        }
+        arg.output_shale_clay_quantity = Some(ShaleClayQuantity::ClayVolume);
+    }
+
+    let clay = argument_mut(modules, "brittleness", "VCLAY")?;
+    if clay.kind != ArgKind::LogIn {
+        return Err("SB-CLY-043 clay quantity contract 'brittleness.VCLAY' is not a LogIn".into());
+    }
+    clay.accepted_shale_clay_quantities = vec![ShaleClayQuantity::ClayVolume];
+
+    for module in modules {
+        for arg in &module.args {
+            if !arg.accepted_shale_clay_quantities.is_empty() && arg.kind != ArgKind::LogIn {
+                return Err(format!(
+                    "SB-CLY-043 accepted quantity contract '{}.{}' is not attached to a LogIn",
+                    module.name, arg.name
+                ));
+            }
+            if arg.output_shale_clay_quantity.is_some() && arg.kind != ArgKind::LogOut {
+                return Err(format!(
+                    "SB-CLY-043 output quantity contract '{}.{}' is not attached to a LogOut",
+                    module.name, arg.name
+                ));
+            }
+            let distinct = arg
+                .accepted_shale_clay_quantities
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>();
+            if distinct.len() != arg.accepted_shale_clay_quantities.len() {
+                return Err(format!(
+                    "SB-CLY-043 quantity contract '{}.{}' repeats an accepted quantity",
+                    module.name, arg.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Immutable registry of every deterministic module manifest, in workflow order. Monte Carlo and
 /// batch chains call `run_module` thousands of times, so rebuilding every manifest at each public
 /// dispatch would turn central validation into an avoidable per-realization cost.
 fn module_catalog() -> &'static [ModuleSpec] {
     static CATALOG: OnceLock<Vec<ModuleSpec>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let modules = vec![
+        let mut modules = vec![
             vsh_gr_spec(),
             vsh_dn_spec(),
             phi_den_spec(),
@@ -1286,6 +1428,7 @@ fn module_catalog() -> &'static [ModuleSpec] {
             crate::unconventional::gip_spec(),
             crate::unconventional::brittleness_spec(),
         ];
+        apply_shale_clay_quantity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
