@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-046: four source-held VSH/VCL curve families
+
+- [ ] **Automated correctness:** exact SB-CLY-T43 was witnessed RED on the live `VSH_GR`
+      output and is GREEN at 1 / 0 / 0. It inventories every typed CLY output and the reviewed
+      Geolog V14, IP 2018 and Techlog 2018 names; requires clipped `VSH`, unlimited
+      `VSH_UNCLIPPED`, `VCL` and categorical `CLY_STATE` to remain distinct; proves exact aliases
+      beat patterns; and refuses the cited `VSHH*`/`VSHV*` shear-velocity and `VCLC*` calcite
+      collisions. The generated registry parity/drift test, TypeScript and cargo check are green;
+      the fresh full gate passed 1032 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open the import vocabulary details and confirm the four families, exact aliases,
+      vendor patterns and exclusions are legible rather than presented as one undifferentiated
+      mnemonic dump. Import representative reviewed names, then confirm the curve tree/plot uses
+      the intended family and the three collision controls remain family-less.
+- [ ] **Manual:** inspect one clipped VSH, one unlimited VSH, one VCL and one state/flag curve in
+      metadata and History. Confirm unlimited VSH remains typed as shale volume, VCL stays clay
+      volume, and `CLY_STATE` is not accepted as either numeric quantity. Confirm a renamed output
+      still follows the explicit quantity custody from SB-CLY-043 rather than its spelling alone.
+- [ ] **Field and harsh critique:** wildcard dictionaries are dangerous because a plausible prefix
+      match can silently turn shear velocity or calcite into shale/clay volume. This increment uses
+      source-held patterns, exact-first resolution, explicit exclusions and ambiguity refusal, but
+      the automated list cannot prove every future vendor mnemonic. New aliases require a named
+      source and a collision review. Family registration also does not implement the categorical
+      provenance vocabulary deferred to SB-CLY-031/032. No Visual, Manual or Field box is
+      pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-043: VSH and VCL are different typed quantities
 
 - [ ] **Automated correctness:** the two owned tests were witnessed RED before the quantity

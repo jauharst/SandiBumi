@@ -1,8 +1,8 @@
 import type { PlotChannelBinding, ResolvedPlotCurve } from "../ipc";
 import {
-  UNIT_REGISTRY_FAMILIES,
   UNIT_REGISTRY_RULES,
   UNIT_REGISTRY_UNITS,
+  unitRegistryFamilyFor,
 } from "../generated/unitRegistry";
 
 export type AxisRangeTier =
@@ -314,10 +314,7 @@ export function auditUnitLimitRow(row: UnitLimitRow): UnitLimitAudit {
 }
 
 function registeredFamily(mnemonic: string): string | null {
-  const key = mnemonic.trim().toUpperCase();
-  const family = UNIT_REGISTRY_FAMILIES.find((entry) =>
-    entry.aliases.some((alias) => alias.toUpperCase() === key));
-  return family?.family ?? null;
+  return unitRegistryFamilyFor(mnemonic);
 }
 
 /** Returns the row-level activation result, including a preserved refusal reason. */

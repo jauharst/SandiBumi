@@ -29,6 +29,8 @@ test('one_versioned_registry_generates_equal_runtime_ui_documentation_and_test_p
   assert.deepEqual(manifest.populations, {
     families: registry.families.length,
     aliases: registry.families.reduce((sum, family) => sum + family.aliases.length, 0),
+    alias_patterns: registry.families.reduce((sum, family) => sum + (family.alias_patterns ?? []).length, 0),
+    alias_exclusions: registry.families.reduce((sum, family) => sum + (family.excluded_alias_patterns ?? []).length, 0),
     units: registry.unit_tokens.length,
     rules: registry.rules.length,
   });
@@ -63,13 +65,23 @@ test('one_versioned_registry_generates_equal_runtime_ui_documentation_and_test_p
   );
   assert.deepEqual(
     tsFamilies,
-    registry.families.map(({ family, canonical_unit, quantity_kind, aliases }) => ({
+    registry.families.map(({
+      family,
+      canonical_unit,
+      quantity_kind,
+      aliases,
+      alias_patterns = [],
+      excluded_alias_patterns = [],
+    }) => ({
       family,
       canonicalUnit: canonical_unit,
       quantityKind: quantity_kind,
       aliases,
+      aliasPatterns: alias_patterns,
+      excludedAliasPatterns: excluded_alias_patterns,
     })),
   );
+  assert.match(typescript, /export function unitRegistryFamilyFor/u);
   assert.match(typescript, /export const UNIT_REGISTRY_RULES = \[/u);
   for (const rule of registry.rules) {
     assert.match(typescript, new RegExp(`fromUnit: ${JSON.stringify(rule.from_unit)}`));

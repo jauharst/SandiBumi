@@ -15,6 +15,11 @@ pub struct FamilySpec {
     pub quantity_kind: QuantityKind,
     /// Uppercased mnemonic aliases that map to this family.
     pub aliases: &'static [&'static str],
+    /// Uppercased vendor wildcard rules. Exact aliases always win before patterns are considered.
+    pub alias_patterns: &'static [&'static str],
+    /// More-specific non-family rules from the same source vocabulary. A matching exclusion keeps
+    /// a broad vendor prefix from silently swallowing a different physical quantity.
+    pub excluded_alias_patterns: &'static [&'static str],
 }
 
 /// One independently checkable affine conversion rule. `derivation` is mandatory data,
@@ -361,7 +366,50 @@ pub fn ms_per_ft_designation(
 /// need a family won't auto-pick it).
 pub fn family_for(mnemonic: &str) -> Option<&'static FamilySpec> {
     let m = mnemonic.trim().to_uppercase();
-    FAMILIES.iter().find(|f| f.aliases.iter().any(|a| *a == m))
+    if let Some(exact) = FAMILIES
+        .iter()
+        .find(|family| family.aliases.iter().any(|alias| *alias == m))
+    {
+        return Some(exact);
+    }
+
+    let mut resolved = None;
+    for family in FAMILIES {
+        if family
+            .excluded_alias_patterns
+            .iter()
+            .any(|pattern| alias_pattern_matches(pattern, &m))
+            || !family
+                .alias_patterns
+                .iter()
+                .any(|pattern| alias_pattern_matches(pattern, &m))
+        {
+            continue;
+        }
+        if resolved.is_some() {
+            return None;
+        }
+        resolved = Some(family);
+    }
+    resolved
+}
+
+fn alias_pattern_matches(pattern: &str, value: &str) -> bool {
+    let pieces = pattern.split('*').collect::<Vec<_>>();
+    let mut cursor = 0;
+    for (index, piece) in pieces.iter().enumerate() {
+        if piece.is_empty() {
+            continue;
+        }
+        let Some(found) = value[cursor..].find(piece) else {
+            return false;
+        };
+        if index == 0 && !pattern.starts_with('*') && found != 0 {
+            return false;
+        }
+        cursor += found + piece.len();
+    }
+    pattern.ends_with('*') || pieces.last().is_none_or(|tail| value.ends_with(tail))
 }
 
 /// Canonical unit string SandiBumi stores a given family in.
@@ -567,6 +615,96 @@ mod tests {
         assert_eq!(family_for("AT90").unwrap().family, "RES_DEEP");
         assert_eq!(family_for("AT10").unwrap().family, "RES_SHAL");
         assert!(family_for("ZZ_UNKNOWN").is_none());
+    }
+
+    /// SB-CLY-046 / SB-CLY-T43. CORRECTNESS. SandiBumi output names come from the live
+    /// `modules::list_modules` manifest rather than a second copied inventory. Vendor expectations
+    /// come independently from Geolog V14 `vsh_*.info` OUTPUT rows, IP 2018 `clayvolume.htm`
+    /// (`VCL`, `VCLAV`, `VCLMIX`), and Techlog 2018 `A_family_assignment.json`
+    /// (`VSH*`, `VSH*UNCL*`, `VCL*`, with the `VSHH*`, `VSHV*`, and `VCLC*` collisions assigned
+    /// elsewhere). Chapter 10 section 6 T43 requires the four family identities to remain distinct.
+    #[test]
+    fn every_emitted_and_vendor_clay_shale_mnemonic_resolves_to_one_of_four_distinct_families() {
+        let family = |mnemonic: &str| {
+            family_for(mnemonic)
+                .unwrap_or_else(|| panic!("{mnemonic} must resolve to a clay/shale family"))
+                .family
+        };
+
+        for module in crate::modules::list_modules() {
+            for output in module.args.iter().filter(|argument| {
+                argument.kind == crate::modules::ArgKind::LogOut
+                    && argument.output_shale_clay_quantity.is_some()
+            }) {
+                let resolved = family(&output.name);
+                match output.output_shale_clay_quantity {
+                    Some(crate::modules::ShaleClayQuantity::ShaleVolume) => assert!(
+                        matches!(resolved, "VSH" | "VSH_UNCLIPPED"),
+                        "typed shale output {}.{} resolved to {resolved}",
+                        module.name,
+                        output.name
+                    ),
+                    Some(crate::modules::ShaleClayQuantity::ClayVolume) => assert_eq!(
+                        resolved, "VCL",
+                        "typed clay output {}.{} resolved to {resolved}",
+                        module.name, output.name
+                    ),
+                    None => unreachable!(),
+                }
+            }
+        }
+
+        for mnemonic in ["VSH", "VSH_NMR", "VDSH"] {
+            assert_eq!(family(mnemonic), "VSH", "{mnemonic} must be clipped shale volume");
+        }
+        for mnemonic in [
+            "VSH_GR",
+            "VSH_DN",
+            "VSH_DS",
+            "VSH_NS",
+            "VSH_RES",
+            "VSH_MN",
+            "VSH_NPHI",
+            "VSH_SP",
+            "VSH_AVG",
+            "VSH_HL",
+            "VSH_MIN",
+            "VSH_METHOD_UNCLIPPED",
+        ] {
+            assert_eq!(
+                family(mnemonic),
+                "VSH_UNCLIPPED",
+                "{mnemonic} must be unlimited shale volume"
+            );
+        }
+        for mnemonic in ["VCL", "VCLAV", "VCLMIX", "VCL_NMR", "VCL_METHOD"] {
+            assert_eq!(family(mnemonic), "VCL", "{mnemonic} must be clay volume");
+        }
+        for mnemonic in ["MTH_VSH", "VSH_DN_FLAG"] {
+            assert_eq!(
+                family(mnemonic),
+                "CLY_STATE",
+                "{mnemonic} must be a clay/shale flag or provenance curve"
+            );
+        }
+
+        assert_eq!(family("VSH_METHOD"), "VSH");
+        assert!(family_for("VSHH_METHOD").is_none());
+        assert!(family_for("VSHV_METHOD").is_none());
+        assert!(family_for("VCLC_METHOD").is_none());
+        assert_eq!(
+            crate::workflow::shale_clay_quantity_from_family(Some("VSH_UNCLIPPED")),
+            Some(crate::modules::ShaleClayQuantity::ShaleVolume)
+        );
+        assert_eq!(
+            crate::workflow::shale_clay_quantity_from_family(Some("CLY_STATE")),
+            None
+        );
+
+        let distinct = ["VSH", "VSH_UNCLIPPED", "VCL", "CLY_STATE"]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(distinct.len(), 4);
     }
 
     /// SB-DIO-025 / SB-DIO-T41. The query must expose exactly the families backed by

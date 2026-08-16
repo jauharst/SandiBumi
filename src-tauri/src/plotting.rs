@@ -1651,6 +1651,7 @@ fn quantity_name(unit: &str, mnemonic_or_family: &str) -> Option<String> {
         crate::curves::QuantityKind::Resistivity => "resistivity",
         crate::curves::QuantityKind::ChargePerVolume => "charge_per_volume",
         crate::curves::QuantityKind::Permeability => "permeability",
+        crate::curves::QuantityKind::Categorical => "categorical",
     };
     Some(name.into())
 }

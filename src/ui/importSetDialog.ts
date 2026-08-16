@@ -284,13 +284,20 @@ export function openImportSetDialog(
     vocabularySummary.textContent =
       `Recognized vocabulary ${UNIT_REGISTRY_VERSION} — ` +
       `${UNIT_REGISTRY_POPULATION.families} families, ` +
-      `${UNIT_REGISTRY_POPULATION.aliases} aliases, ${UNIT_REGISTRY_POPULATION.units} unit tokens`;
+      `${UNIT_REGISTRY_POPULATION.aliases} exact aliases, ` +
+      `${UNIT_REGISTRY_POPULATION.aliasPatterns} vendor patterns, ` +
+      `${UNIT_REGISTRY_POPULATION.units} unit tokens`;
     vocabulary.appendChild(vocabularySummary);
     const familyList = document.createElement("div");
     familyList.className = "form-hint";
     familyList.textContent = UNIT_REGISTRY_FAMILIES.map(
       (family) =>
-        `${family.family} [${family.quantityKind}, ${family.canonicalUnit}]: ${family.aliases.join(", ")}`,
+        `${family.family} [${family.quantityKind}, ${family.canonicalUnit}]: ` +
+        `${family.aliases.join(", ")}` +
+        (family.aliasPatterns.length > 0 ? `; patterns ${family.aliasPatterns.join(", ")}` : "") +
+        (family.excludedAliasPatterns.length > 0
+          ? `; excludes ${family.excludedAliasPatterns.join(", ")}`
+          : ""),
     ).join("\n");
     familyList.style.whiteSpace = "pre-wrap";
     vocabulary.appendChild(familyList);

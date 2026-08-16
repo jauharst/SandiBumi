@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `153 / 222 handled — 114 DONE, 39 BLOCKED, 69 remaining`
+- Gate 2 requirement progress: `154 / 222 handled — 115 DONE, 39 BLOCKED, 68 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T07 / SB-CLY-043 - DONE; VSH and VCL are separately typed from producer/import metadata, wrong and untyped substitutions refuse before writes, accepted inputs record the quantity received, and saved chains preserve the type between steps`
+- Active increment: `G2-T07 / SB-CLY-046 - DONE; clipped VSH, unlimited VSH, VCL and categorical state are four source-held families, exact aliases win, vendor-pattern collisions refuse, and Rust/UI consume one generated resolver`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `The two owned SB-CLY-043 correctness tests are GREEN after witnessed RED: a renamed VSH retains its type, VCL under a VSH mnemonic refuses, VSH in a VCL-only mineral role refuses, accepted VSH/VCL inputs record their type, and failed type checks write no interpretation. The existing three-step chain is GREEN with explicit VSH producer/consumer ancestry. TypeScript and cargo check are green; the fresh full gate is 1031 passed / 0 failed / 37 ignored with 31 owned warnings. Visual, Manual and Field evidence remain open.`
+- Automated gate: `Exact SB-CLY-T43 is GREEN after witnessed RED on live VSH_GR: every typed CLY output and reviewed Geolog/IP/Techlog mnemonic resolves, four families remain distinct, VSHH/VSHV shear and VCLC calcite collisions refuse, and unlimited VSH retains shale-volume type. Generated registry parity/drift refusal, TypeScript and cargo check are green; the fresh full gate is 1032 passed / 0 failed / 37 ignored with 31 owned warnings. Visual, Manual and Field evidence remain open.`
 - Pilot field evidence: `OPEN`
-- Open blockers: `39 requirements are explicitly BLOCKED and 69 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T07 with pilot-blocker SB-CLY-046: register the cited clipped-VSH, unclipped-VSH, VCL and flag/provenance curve families without inventing vendor aliases or folding normalized GR into corrected GR.`
+- Open blockers: `39 requirements are explicitly BLOCKED and 68 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T07 with SB-CLY-050: reconcile the pilot linear-GR output/unit contract against the newly registered family identities without inventing provenance tokens or changing deferred methods.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 27 implement-or-refuse / 71 remediate / 12 prove / 112 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 26 implement-or-refuse / 71 remediate / 12 prove / 113 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,8 +35,8 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `173` present-OK, `13` present-unverified, `148` present-divergent, `153` partial,
-  `392` absent and `52` unadjudicated.
+- As-built states: `176` present-OK, `13` present-unverified, `146` present-divergent, `153` partial,
+  `391` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-INS: `26/26` adjudicated - `9` present-OK, `1` present-unverified, `2` present-divergent,
@@ -64,8 +64,8 @@ Do not replace it with an estimated percentage.
 - SB-ENV: `58/58` adjudicated - `12` present-OK, `4` present-unverified, `11` present-divergent,
   `13` partial and `18` absent; `31` pilot blockers and `27` deferred; `12`
   correctness tests, `4` characterizations and `42` missing qualifying whole-contract proofs.
-- SB-CLY: `55/55` adjudicated - `2` present-OK, `12` present-divergent, `14` partial and `27` absent;
-  `11` pilot blockers and `44` deferred; `2` correctness tests, `2` characterizations and `51` missing qualifying
+- SB-CLY: `55/55` adjudicated - `5` present-OK, `10` present-divergent, `14` partial and `26` absent;
+  `11` pilot blockers and `44` deferred; `5` correctness tests, `2` characterizations and `48` missing qualifying
   whole-contract proofs.
 - SB-POR: `62/62` adjudicated - `21` present-divergent, `15` partial, `25` absent and `1`
   present-unverified; `26` pilot blockers and `36` deferred; `6` characterizations
@@ -160,6 +160,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G2-T07 SB-CLY-046 — four generated VSH/VCL families | DONE; REVIEW REQUIRED | the versioned unit registry now owns clipped VSH, unlimited VSH, VCL and categorical state plus reviewed Geolog/IP/Techlog aliases; exact aliases win, VSHH/VSHV shear and VCLC calcite collisions are excluded, ambiguous wildcard matches fail closed, and Rust/UI/documentation/verification share generated consumers; exact T43 was witnessed RED and passes 1/0/0; TypeScript and cargo check are green; fresh full gate 1032 passed / 0 failed / 37 ignored with 31 owned warnings; full provenance vocabulary remains deferred to SB-CLY-031/032; Visual, Manual and Field remain open | current topic-branch worktree |
 | G2-T07 SB-CLY-043 — typed VSH/VCL interfaces and custody | DONE; REVIEW REQUIRED | manifest roles distinguish VSH from VCL independently of mnemonic and shared v/v units; computed output ancestry and explicit imported family metadata supply the identity; direct and saved-chain runs refuse unknown/wrong substitutions before writes and record each accepted typed input; the mineralogical brittleness role is VCL-only rather than preserving its ambiguous old VSH default; two exact named tests were witnessed RED and pass 1/0/0 each, while the existing three-step chain proves VSH type propagation through its SELF ancestry; TypeScript and cargo check are green; fresh full gate 1031 passed / 0 failed / 37 ignored with 31 owned warnings; SB-CLY-046 still owns the full family/alias catalog; Visual, Manual and Field remain open | current topic-branch worktree |
 | G2-T07 SB-CLY-042 — sourced picking guidance without invented values | DONE; REVIEW REQUIRED | typed manifest guidance keeps advice/source separate from the numeric slot; GR percentile procedures, N-D clean-line construction and common-reference normalization guidance render identically in Module and Workflow editors; open endpoints remain ABSENT while independently cited density/fluid defaults and P3/P97 stay intact; initial missing-field/rendering failures plus removed-guidance, removed-renderer and cited-default-erasure mutations produced RED; TypeScript and cargo check are green; fresh full gate 1029 passed / 0 failed / 37 ignored with 31 owned warnings; Visual, Manual and Field remain open | current topic-branch worktree |
 | G2-T07 SB-CLY-041 — corrected-first input aliases with exact custody | DONE; REVIEW REQUIRED | exact T43 executes vendor-corrected, native-corrected and raw-only VSH-GR wells plus vendor/native VSH-DN; explicit interpreter selection wins, `GRN` never impersonates a corrected curve, and direct plus saved-chain ancestry records the exact per-well winner; initial raw-winner and raw-first-order mutations produced RED; direct-context manifest defaults remain raw so Monte Carlo compatibility is not silently changed; TypeScript and cargo check are green; fresh full gate 1027 passed / 0 failed / 37 ignored with 31 owned warnings; Visual, Manual and Field remain open | current topic-branch worktree |

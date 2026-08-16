@@ -1411,9 +1411,11 @@ fn resolved_module_input_unit(
     Ok(generic.flatten())
 }
 
-fn shale_clay_quantity_from_family(family: Option<&str>) -> Option<modules::ShaleClayQuantity> {
+pub(crate) fn shale_clay_quantity_from_family(
+    family: Option<&str>,
+) -> Option<modules::ShaleClayQuantity> {
     match family.map(str::trim).map(str::to_uppercase).as_deref() {
-        Some("VSH") => Some(modules::ShaleClayQuantity::ShaleVolume),
+        Some("VSH" | "VSH_UNCLIPPED") => Some(modules::ShaleClayQuantity::ShaleVolume),
         Some("VCL") => Some(modules::ShaleClayQuantity::ClayVolume),
         _ => None,
     }

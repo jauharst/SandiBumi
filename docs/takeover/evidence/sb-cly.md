@@ -615,14 +615,14 @@
 
 - **Chapter evidence:** P1; historical status `ABSENT`; T43; sections 4.4, 6 and 8.
 - **Atomic obligations:** distinct clipped Vsh, unlimited Vsh, Vcl and flag/provenance families with vendor aliases; no emitted curve resolves to none.
-- **Current source:** `curves.rs::FAMILIES` has no CLY family despite `vsh_gr`/`vsh_dn` emitting four CLY names. Raw/corrected/normalized GR aliases are also folded together.
-- **Qualifying acceptance tests:** none; the complete emitted/vendor mnemonic inventory and four-family distinctness test is missing. Test class `MISSING`.
-- **Supporting tests:** `families_resolve_common_mnemonics` passed and proves the existing registry behavior, including merged GR aliases; it does not include CLY outputs.
+- **Current source:** the versioned unit registry now defines clipped `VSH`, unlimited `VSH_UNCLIPPED`, `VCL` and categorical `CLY_STATE` independently. Its exact aliases and vendor wildcard rules generate Rust, TypeScript, documentation and verification consumers. Exact aliases win before patterns; cited `VSHH*`/`VSHV*` shear-velocity and `VCLC*` calcite collisions are excluded, and ambiguous matches fail closed. UI plot-family lookup and the import vocabulary consume the generated resolver rather than maintaining a second dictionary.
+- **Qualifying acceptance tests:** exact T43 `every_emitted_and_vendor_clay_shale_mnemonic_resolves_to_one_of_four_distinct_families` was witnessed RED on live emitted `VSH_GR` and passes 1/0/0. It inventories every typed `LogOut`, the exact Geolog/IP aliases, the Techlog vendor-pattern positives, all three cited collision families, the four distinct identities and the mapping from unlimited VSH family to typed shale volume. Test class `CORRECTNESS`.
+- **Supporting tests:** the existing generated-registry parity/drift refusal is green with the new pattern and exclusion fields; TypeScript compilation proves the generated resolver is consumed by the UI. The full project gate is 1032 / 0 / 37 with 31 owned warnings.
 - **Manual evidence:** generic-curve-store 0/18; shale-volume 0/17.
-- **Git evidence:** current and reachable family registries contain no VSH/VCL/provenance entries.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** aliases must come from the chapter's held evidence; family identity must remain distinct from mnemonic preference.
-- **Next action:** add the four distinct families and exhaustive alias inventory before enforcing SB-CLY-043 or exporting provenance.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries the reviewed source registry, four generated consumers, exact-first fail-closed resolvers, UI integration, typed workflow bridge, owned proof and evidence updates.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-046; Visual, Manual and Field evidence remain open. This registration does not invent the categorical provenance vocabulary owned by deferred SB-CLY-031/032.
+- **Next action:** preserve source-held aliases, collision exclusions and generated-consumer parity; perform Visual/Manual/Field review separately, then continue SB-CLY-050 without calling family registration a provenance-curve implementation.
 
 ## SB-CLY-047 - Organic-shale pre-correction in renormalised form
 
