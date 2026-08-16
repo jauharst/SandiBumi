@@ -469,14 +469,18 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-028
 
 - **Specified contract:** emitted saturation identities are SWE or SWT, never bare SW.
-- **Current implementation / as-built:** saturation modules and MC tracked outputs emit explicit SWE/SWT identities; the bare SW string found in contacts is an input alias, not an emitted result. PRESENT-OK.
+- **Current implementation / as-built:** unchanged and correct. `swe_max`, `avg_swe` and explicit `SWE` / `SWT` outputs throughout; the bare `SW` in `contacts` is an input alias, not an emitted result. PRESENT-OK.
+- **This is a PROVE row: nothing implemented, only proved.** The register's own note was exactly right and is worth keeping - a module/output parity test *"would also pass if both manifest and output added bare `SW`"*, so parity does not pin a negative registry contract. What was needed was a test that forbids the bare name AND demonstrates the explicit ones, from both sides.
+- **The chapter's `Verified by` points at the wrong test, and that is recorded rather than worked around.** SB-CUT-028 cites SB-CUT-T06, but the chapter's own test-to-requirement map assigns T06 to **SB-CUT-009**, and T06 as tabulated pins the phi-weighted average-form identity. That is the CONSEQUENCE of the naming, not the naming: it is why the row is P1, because in Techlog *"the SW curve is weighted by POR but the SWE is not"* - so the ambiguity does not stay an ambiguity, it becomes a different number. The naming contract needed its own test.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; module/output parity would also pass if both manifest and output added bare `SW`, so it does not pin T06's negative registry contract.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** identity convention only; no numeric parameter.
-- **UI/IPC/provenance surface:** summary and MC use avg_swe/SWE; modules declare SWE/SWT.
-- **History/reachability:** explicit outputs are integrated.
-- **Blocking decision / next action:** add a registry-wide positive/negative emitted-output test and field-check one report/export.
+- **Automated evidence:** `no_module_output_cutoff_field_or_result_field_is_a_bare_sw_rather_than_swe_or_swt` (`src-tauri/src/workflow.rs`). CORRECTNESS. Four arms: the module registry scanned from BOTH sides - no shipping module emits a bare `SW`, AND some module does emit `SWE` and `SWT`, with a floor on the number of outputs seen so a scan that stopped finding anything cannot pass; the pay-summary result row serialized and its field names checked, because the row outlives the run that made it; the cut-off record round-tripped from the wire, where a bare `sw_max` must NOT be read as the saturation cut-off; and the exemption stated where it belongs.
+- **The exemption is NAMED and narrow rather than discovered later as a false positive.** A bare `SW` may appear as an INPUT, because an input names the user's own curve and the requirement governs cut-off records and result fields. What it may never be is an OUTPUT - and the test asserts that a module reading a curve called `SW` does not also emit one, so the boundary is written down instead of being rediscovered by whoever next widens the scan.
+- **Mutation evidence:** three probes, each read for WHICH assertion fired, all three at distinct assertions. Renaming a shipping saturation output to bare `SW` turned the registry arm red. Renaming the serialized result field to `avg_sw` turned the result-field arm red. Adding `#[serde(alias = "sw_max")]` to the saturation cut-off turned the cut-off-record arm red - and that one is the subtlest of the three, because an alias is exactly how a bare name gets accepted "for compatibility" without anyone deciding to accept it.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** identity convention only; no numeric parameter, and none invented.
+- **UI/IPC/provenance surface:** unchanged. The wire field is `swe_max`, the result field `avg_swe`, and the module outputs `SWE` / `SWT`.
+- **History/reachability:** explicit outputs were already integrated; the negative contract had no test.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-029
 

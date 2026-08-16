@@ -14655,3 +14655,27 @@ four things are cut on, not because you have run out of boxes. The specification
 that is the reading I followed.
 
 - [ ] **Nothing to click.** This is a guard, not a feature.
+
+## Saturation always says which saturation it is
+
+`SWE` and `SWT` mean different things, and a bare `SW` does not say which. Worse, in Techlog the
+name itself changes the arithmetic — their SW curve is porosity-weighted and their SWE is not — so
+an ambiguous name does not stay an ambiguity, it becomes a different number in the report.
+
+Nothing here changed; SandiBumi already names them explicitly everywhere. What was missing was a
+test that would notice if that stopped being true. There is now one, and it checks three places a
+bare name could get in:
+
+- **No shipping module emits a curve called `SW`** — and, from the other side, some module does
+  emit `SWE` and `SWT`, so the check cannot pass by finding nothing.
+- **No result field is a bare `sw`** — the pay summary row says `avg_swe`.
+- **A cut-off sent as `sw_max` is not read as the saturation cut-off.** This is the one worth
+  having: an alias is exactly how a bare name gets accepted "for compatibility" without anyone
+  deciding to accept it.
+
+Reading a curve you happen to have called `SW` is still fine — that is your data, and the rule is
+about what we write down, not what we read.
+
+- [ ] **Look at one report and one LAS export** and confirm the saturation column is `SWE` or `SWT`
+      rather than a bare `SW`. The registry and the wire are covered by the test; what a rendered
+      deliverable shows you is the half a test cannot claim.

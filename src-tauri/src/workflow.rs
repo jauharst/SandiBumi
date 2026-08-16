@@ -7214,6 +7214,156 @@ mod tests {
         assert!(err.contains("no unit"), "{err}");
     }
 
+    /// SB-CUT-028 (P1). `14_cutoffs-summation-mc.md:1346-1359` — saturation quantities **MUST** be
+    /// named `SWE` or `SWT` explicitly wherever a cut-off, an average or a result field refers to
+    /// one, and a bare `SW` **MUST NOT** appear in a cut-off record or a result field.
+    ///
+    /// FINDINGS §6 rule 8, sharpened by T3: in Techlog the mnemonic silently changes the
+    /// weighting — *"the SW curve is weighted by POR but the SWE is not"* — so a bare name is both
+    /// ambiguous about which saturation is meant AND load-bearing on the arithmetic. That is why
+    /// this is P1: the ambiguity does not stay an ambiguity, it becomes a different number.
+    ///
+    /// The chapter's `Verified by` points at SB-CUT-T06, which its own test-to-requirement map
+    /// assigns to SB-CUT-009 and which pins the average-form identity — the CONSEQUENCE of the
+    /// naming rather than the naming. The naming contract therefore needs this test.
+    #[test]
+    fn no_module_output_cutoff_field_or_result_field_is_a_bare_sw_rather_than_swe_or_swt() {
+        // A — the registry, from BOTH sides. A scan that only forbids would pass by finding
+        // nothing at all, which is how a negative test quietly stops testing.
+        let catalog = modules::list_modules();
+        let outputs: Vec<(String, String)> = catalog
+            .iter()
+            .flat_map(|module| {
+                module
+                    .args
+                    .iter()
+                    .filter(|arg| arg.kind == ArgKind::LogOut)
+                    .map(move |arg| (module.name.clone(), arg.name.clone()))
+            })
+            .collect();
+        assert!(
+            outputs.len() > 50,
+            "the scan must see a real catalog, not an empty one: {} outputs",
+            outputs.len()
+        );
+        for (module, output) in &outputs {
+            assert_ne!(
+                output.to_ascii_uppercase(),
+                "SW",
+                "module '{module}' emits a bare SW; a saturation output must say SWE or SWT"
+            );
+        }
+        // and the positive control: the explicit identities really are what gets emitted.
+        for wanted in ["SWE", "SWT"] {
+            assert!(
+                outputs.iter().any(|(_, output)| output == wanted),
+                "some shipping module must emit '{wanted}'"
+            );
+        }
+
+        // B — a RESULT FIELD. The pay-summary row is what a consumer reads, and its saturation
+        // average must name its flavour there too, because the row outlives the run that made it.
+        let row = PaySummaryRow {
+            well_id: "w".into(),
+            well_name: "SANDI-SW-1".into(),
+            zone: "A".into(),
+            flag: "PAY".into(),
+            top: 0.0,
+            bottom: 1.0,
+            gross: 1.0,
+            net: 1.0,
+            not_net: 0.0,
+            unknown: 0.0,
+            ntg: 1.0,
+            ntg_known: 1.0,
+            avg_vsh: 0.1,
+            avg_phie: 0.2,
+            avg_swe: 0.3,
+            hpv: 0.14,
+            n_classified: 1,
+            perm_cutoff_no_data: false,
+            residual_absorbed: 0.0,
+            unfiltered: Vec::new(),
+            frame: Default::default(),
+            weights_source: MD_WEIGHTS_SOURCE.into(),
+        };
+        let serialized = serde_json::to_value(&row).expect("a row serializes");
+        let fields: Vec<String> = serialized
+            .as_object()
+            .expect("a row is an object")
+            .keys()
+            .cloned()
+            .collect();
+        assert!(fields.iter().any(|f| f == "avg_swe"), "the row names the flavour: {fields:?}");
+        for field in &fields {
+            assert!(
+                field != "avg_sw" && field != "sw" && field != "sw_max",
+                "result field '{field}' is a bare SW"
+            );
+        }
+
+        // C — a CUT-OFF RECORD. What is persisted with the run has to name the flavour, because
+        // that record is read years later by somebody who cannot ask which Sw was meant.
+        let request = PaySummaryRequest {
+            input_set: None,
+            well_ids: vec!["w".into()],
+            vsh_max: None,
+            phie_min: None,
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            perm_min: None,
+            skip_version: false,
+            stats_only: true,
+            custody: None,
+            weighting: Default::default(),
+            frame: Default::default(),
+            enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
+        };
+        // `PaySummaryRequest` is a wire type read from the frontend, so the record to inspect is
+        // the FIELD NAME the wire uses. Round-tripping the JSON the frontend sends is what proves
+        // the persisted cut-off names its flavour; a bare `sw_max` would not deserialize at all.
+        let wire = serde_json::json!({
+            "well_ids": ["w"],
+            "swe_max": {"value": 0.5, "unit": "v/v"},
+        });
+        let parsed: PaySummaryRequest =
+            serde_json::from_value(wire).expect("the cut-off record uses swe_max");
+        assert!(parsed.swe_max.is_some(), "and it carries the value");
+        let bare = serde_json::json!({ "well_ids": ["w"], "sw_max": {"value": 0.5, "unit": "v/v"} });
+        let parsed_bare: PaySummaryRequest =
+            serde_json::from_value(bare).expect("an unknown field is ignored, not accepted as SWE");
+        assert!(
+            parsed_bare.swe_max.is_none(),
+            "a bare sw_max must NOT be read as the saturation cut-off - silently accepting it \r
+             is exactly the ambiguity this row forbids"
+        );
+        let _ = &request;
+
+        // D — the exemption is NAMED and narrow. A bare `SW` may appear as an INPUT, because an
+        // input names the user's own curve and the requirement governs cut-off records and result
+        // fields. What it may never be is an OUTPUT, which arm A already forbids — so this arm
+        // states the boundary rather than leaving it to be rediscovered as a false positive.
+        let bare_sw_inputs: Vec<String> = catalog
+            .iter()
+            .flat_map(|module| {
+                module
+                    .args
+                    .iter()
+                    .filter(|arg| arg.kind == ArgKind::LogIn && arg.name.eq_ignore_ascii_case("SW"))
+                    .map(move |_| module.name.clone())
+            })
+            .collect();
+        for module in &bare_sw_inputs {
+            let emits_bare = outputs
+                .iter()
+                .any(|(m, o)| m == module && o.eq_ignore_ascii_case("SW"));
+            assert!(
+                !emits_bare,
+                "module '{module}' may READ a curve called SW, but it must not emit one"
+            );
+        }
+    }
+
     /// SB-CUT-027 (P2). `14_cutoffs-summation-mc.md:1331-1344` — SandiBumi **MUST NOT** impose a
     /// fixed maximum on the number of input curves, cut-offs, report tiers or flag curves.
     ///

@@ -72,6 +72,7 @@
 "SB-CORE-040","CORRECTNESS","src-tauri/tests/verification_matrix.rs","a_capability_matrix_is_generated_from_review_and_a_capability_map_and_checked_by_the_gate"
 "SB-CUT-026","CORRECTNESS","src-tauri/src/workflow.rs","a_wet_but_porous_clean_sand_is_reservoir_and_not_pay_because_saturation_enters_at_the_pay_tier"
 "SB-CUT-027","CORRECTNESS","src-tauri/src/workflow.rs","a_run_carries_more_curves_than_any_vendor_cap_and_the_fixed_cutoff_and_tier_counts_are_arities_not_maxima"
+"SB-CUT-028","CORRECTNESS","src-tauri/src/workflow.rs","no_module_output_cutoff_field_or_result_field_is_a_bare_sw_rather_than_swe_or_swt"
 "SB-CUT-029","CHARACTERIZATION","src-tauri/src/workflow.rs","a_well_with_no_perm_fails_the_cutoff_and_says_why"
 "SB-CUT-029","CHARACTERIZATION","src-tauri/src/workflow.rs","pay_summary_marks_an_uninterpreted_well_as_classifying_nothing"
 "SB-CUT-030","CHARACTERIZATION","src-tauri/src/workflow.rs","flooring_phie_leaves_missing_missing"
