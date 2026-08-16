@@ -190,11 +190,11 @@ pub struct McRequest {
     /// deterministic summation is: an MC run silently using a shipped 0.5 while the pay summary
     /// reports the property unfiltered is a disagreement nobody could reconcile.
     /// SB-CUT-019: carried as entered, with its unit, and canonicalised before any realization.
-    pub vsh_max: Option<crate::workflow::CutoffEntry>,
-    pub phie_min: Option<crate::workflow::CutoffEntry>,
-    pub swe_max: Option<crate::workflow::CutoffEntry>,
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffEntry>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// HPV histogram bin count.
     pub bins: usize,
     /// Low / high output percentiles as fractions in (0, 1) — default 0.10 / 0.90. One control
@@ -718,10 +718,10 @@ struct StepPlan {
 /// Cutoffs bundled for the per-zone pay/HPV accumulation.
 #[derive(Clone, Copy)]
 pub(crate) struct Cutoffs {
-    pub(crate) vsh_max: Option<f64>,
-    pub(crate) phie_min: Option<f64>,
-    pub(crate) swe_max: Option<f64>,
-    pub(crate) perm_min: Option<f64>,
+    pub(crate) vsh_max: Option<crate::workflow::CutoffRange>,
+    pub(crate) phie_min: Option<crate::workflow::CutoffRange>,
+    pub(crate) swe_max: Option<crate::workflow::CutoffRange>,
+    pub(crate) perm_min: Option<crate::workflow::CutoffRange>,
 }
 
 #[derive(Clone, Copy)]
@@ -801,14 +801,14 @@ pub(crate) fn zone_metrics(
             continue;
         }
         // SB-CUT-016: an absent cut-off does not filter. The NaN guard above is untouched.
-        let mut pay = cut.vsh_max.map_or(true, |m| v <= m)
-            && cut.phie_min.map_or(true, |m| p >= m)
-            && cut.swe_max.map_or(true, |m| s <= m);
+        let mut pay = cut.vsh_max.map_or(true, |r| r.contains(vsh[i]))
+            && cut.phie_min.map_or(true, |r| r.contains(phie[i]))
+            && cut.swe_max.map_or(true, |r| r.contains(swe[i]));
         if has_perm_cut {
             // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
             // PERM must fail, not silently pass (matches run_pay_summary's classify_sample, so
             // MC and the pay summary agree for identical cutoffs).
-            pay = pay && !perm[i].is_nan() && (perm[i] as f64) >= cut.perm_min.unwrap();
+            pay = pay && !perm[i].is_nan() && cut.perm_min.unwrap().contains(perm[i]);
         }
         if !pay {
             continue;
@@ -1354,28 +1354,36 @@ fn fraction_output_curves(
 /// calls it again and produces nothing on failure, because the job registry fixes that function's
 /// return type and a silent guess is the one outcome that must not happen.
 pub fn validate_cutoffs(req: &McRequest) -> Result<Cutoffs, String> {
-    let entered = |e: &Option<crate::workflow::CutoffEntry>,
-                   q: crate::workflow::CutoffQuantity,
-                   label: &str| { e.as_ref().map(|x| x.canonical(q, label)).transpose() };
+    use crate::workflow::{CutoffQuantity, CutoffSense};
+    let entered = |e: &Option<crate::workflow::CutoffSpec>,
+                   q: CutoffQuantity,
+                   sense: CutoffSense,
+                   label: &str| {
+        e.as_ref().map(|x| x.canonical(q, sense, label)).transpose()
+    };
     Ok(Cutoffs {
         vsh_max: entered(
             &req.vsh_max,
-            crate::workflow::CutoffQuantity::VolumeFraction,
+            CutoffQuantity::VolumeFraction,
+            CutoffSense::Maximum,
             "the VSH cut-off",
         )?,
         phie_min: entered(
             &req.phie_min,
-            crate::workflow::CutoffQuantity::VolumeFraction,
+            CutoffQuantity::VolumeFraction,
+            CutoffSense::Minimum,
             "the PHIE cut-off",
         )?,
         swe_max: entered(
             &req.swe_max,
-            crate::workflow::CutoffQuantity::VolumeFraction,
+            CutoffQuantity::VolumeFraction,
+            CutoffSense::Maximum,
             "the SWE cut-off",
         )?,
         perm_min: entered(
             &req.perm_min,
-            crate::workflow::CutoffQuantity::Permeability,
+            CutoffQuantity::Permeability,
+            CutoffSense::Minimum,
             "the PERM cut-off",
         )?,
     })
@@ -2124,9 +2132,9 @@ mod tests {
             iterations,
             seed,
             custody: Some(crate::workflow::test_run_custody()),
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             bins: 10,
             low_pctl: 0.10,
@@ -2176,7 +2184,7 @@ mod tests {
         crate::equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![1.0f32; n]).unwrap();
         let dbm = Mutex::new(conn);
 
-        let run = |steps: Vec<ChainStep>, perm_min: Option<crate::workflow::CutoffEntry>| -> McResult {
+        let run = |steps: Vec<ChainStep>, perm_min: Option<crate::workflow::CutoffSpec>| -> McResult {
             let mc = vec![McParam {
                 param: "GR_MA".into(),
                 dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
@@ -2195,7 +2203,7 @@ mod tests {
         // it, the equality below would prove only that the cutoff is broken everywhere.
         let reads_perm = || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("rocktyping")];
         let a_open = run(reads_perm(), None);
-        let a_cut = run(reads_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }));
+        let a_cut = run(reads_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         assert!(a_open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
         assert_eq!(a_cut.zones[0].net.mid, 0.0, "1 mD cannot pass a 1e9 mD cutoff — the cutoff works here");
 
@@ -2205,7 +2213,7 @@ mod tests {
         let makes_perm =
             || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
         let b_open = run(makes_perm(), None);
-        let b_cut = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }));
+        let b_cut = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
         assert!(bo.net.mid > 0.0, "chain B must have pay to lose");
         assert_eq!(bc.net.mid, 0.0, "a 1e9 mD cutoff must bite in chain B exactly as in chain A");
@@ -2223,7 +2231,7 @@ mod tests {
         // And the cutoff is still a cutoff rather than a switch that now deletes everything: a
         // threshold the modelled rock CLEARS must leave the pay alone. Without this, setting
         // `has_perm_cut` unconditionally would pass every assertion above.
-        let b_loose = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e-9, unit: "mD".into() }));
+        let b_loose = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e-9, unit: "mD".into() }.into()));
         assert_eq!(
             b_loose.zones[0].net.mid, bo.net.mid,
             "a cutoff the modelled permeability passes must not remove pay"
@@ -2281,9 +2289,9 @@ mod tests {
             &crate::workflow::PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }),
-                swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+                swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,

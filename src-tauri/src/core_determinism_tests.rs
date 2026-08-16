@@ -301,9 +301,9 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
         &db,
         &workflow::PaySummaryRequest {
             well_ids: ids.clone(),
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.55, unit: "v/v".into() }),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.65, unit: "v/v".into() }),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.55, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.65, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             input_set: None,

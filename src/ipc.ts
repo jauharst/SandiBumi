@@ -593,10 +593,10 @@ export interface ReportSpec {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: CutoffEntry | null;
-  phie_min: CutoffEntry | null;
-  swe_max: CutoffEntry | null;
-  perm_min?: CutoffEntry | null;
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min?: CutoffSpec | null;
   tables_only?: boolean;
 }
 
@@ -641,10 +641,10 @@ export interface DeckSpec {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: CutoffEntry | null;
-  phie_min: CutoffEntry | null;
-  swe_max: CutoffEntry | null;
-  perm_min?: CutoffEntry | null;
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min?: CutoffSpec | null;
   title?: string;
   author?: string;
   /** Which cutoff level the deck summarises (default PAY). */
@@ -672,10 +672,10 @@ export interface WorkbookSpec {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: CutoffEntry | null;
-  phie_min: CutoffEntry | null;
-  swe_max: CutoffEntry | null;
-  perm_min?: CutoffEntry | null;
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min?: CutoffSpec | null;
   title?: string;
   include_pay?: boolean;
   include_field?: boolean;
@@ -1588,10 +1588,10 @@ export interface McRequest {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: CutoffEntry | null;
-  phie_min: CutoffEntry | null;
-  swe_max: CutoffEntry | null;
-  perm_min: CutoffEntry | null;
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min: CutoffSpec | null;
   bins: number;
   /** Low / high output percentiles (fractions in (0,1); default 0.10 / 0.90). One control drives
    *  both the reported spread and the tornado's input sweep. The median is always reported. */
@@ -3000,6 +3000,27 @@ export interface CutoffEntry {
   unit: string;
 }
 
+/** SB-CUT-020. Which side of a bound a sample sitting exactly ON it falls.
+ *
+ *  Spelled as a word rather than `>=` / `>`, because this is the one setting whose misreading is
+ *  invisible: it changes the verdict only for samples exactly on the cut-off, which is precisely
+ *  the population a marginal-pay result turns on. */
+export type BoundOperator = "INCLUSIVE" | "EXCLUSIVE";
+
+/** SB-CUT-020. One side of a cut-off range, as entered. `operator` defaults to `INCLUSIVE`. */
+export interface CutoffSpecBound extends CutoffEntry {
+  operator?: BoundOperator;
+}
+
+/** SB-CUT-020. A cut-off, which may be single-sided or a two-sided range.
+ *
+ *  The single-sided form is the DEGENERATE case with an open far bound, not a separate mechanism,
+ *  so sending a bare `{value, unit}` keeps meaning exactly what it always meant: `>=` in a `_min`
+ *  slot, `<=` in a `_max` slot, inclusive on the boundary. Send `{min, max}` for a real window —
+ *  a porosity window that excludes both tight rock and bad-hole spikes, say. A range that can
+ *  admit no value is refused by the backend rather than quietly booking zero net. */
+export type CutoffSpec = CutoffEntry | { min?: CutoffSpecBound; max?: CutoffSpecBound };
+
 export interface PaySummaryRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
@@ -3007,10 +3028,10 @@ export interface PaySummaryRequest {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: CutoffEntry | null;
-  phie_min: CutoffEntry | null;
-  swe_max: CutoffEntry | null;
-  perm_min: CutoffEntry | null;
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min: CutoffSpec | null;
   /** SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — `"VSH"`,
    *  `"PHIE"` or `"SWE"` — which is the ROLE that curve plays in the summation, never the
    *  mnemonic it happens to be stored under. Omit a slot to take the cited default: saturation
@@ -3123,10 +3144,10 @@ export interface CutoffSweepRequest {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: CutoffEntry | null;
-  phie_min: CutoffEntry | null;
-  swe_max: CutoffEntry | null;
-  perm_min: CutoffEntry | null;
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min: CutoffSpec | null;
   sweep_min: number;
   sweep_max: number;
   steps: number;

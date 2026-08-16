@@ -292,9 +292,9 @@ fn pipeline_field_full_run() {
     let pay_req = PaySummaryRequest {
         input_set: None,
         well_ids: well_ids.clone(),
-        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }),
-        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }),
+        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
         perm_min: None,
         enabled_unset: Vec::new(),
         skip_version: false,
@@ -333,9 +333,9 @@ fn pipeline_field_full_run() {
         title: "Petrophysical Evaluation — field pipeline test".into(),
         author: "SandiBumi pipeline test".into(),
         methodology: vec![],
-        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }),
-        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }),
+        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
         perm_min: None,
         tables_only: false,
     };
@@ -525,7 +525,7 @@ fn pipeline_field_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
         enabled_unset: Vec::new(),
             custody: Some(crate::workflow::test_run_custody()),
             frame: Default::default(),

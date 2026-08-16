@@ -376,3 +376,4 @@
 "SB-CUT-017","CORRECTNESS","src-tauri/src/param_sources.rs","every_default_this_domain_ships_carries_a_checkable_source_or_declares_its_absence_and_owner"
 "SB-CUT-018","CORRECTNESS","src-tauri/src/param_sources.rs","every_pane_that_touches_a_cutoff_resolves_it_from_the_one_shared_authority"
 "SB-CUT-019","CORRECTNESS","src-tauri/src/workflow.rs","a_cutoff_is_refused_without_a_unit_and_thirty_five_is_porosity_units_or_out_of_bounds"
+"SB-CUT-020","CORRECTNESS","src-tauri/src/workflow.rs","a_sample_exactly_on_a_cutoff_bound_is_included_or_excluded_by_that_bounds_own_declared_operator"

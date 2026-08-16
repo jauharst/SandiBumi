@@ -429,11 +429,11 @@ pub struct WorkbookSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<crate::workflow::CutoffEntry>,
-    pub phie_min: Option<crate::workflow::CutoffEntry>,
-    pub swe_max: Option<crate::workflow::CutoffEntry>,
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffEntry>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -691,16 +691,41 @@ fn summary_sheet(
     // reads as "no data" in a spreadsheet, which is a different statement from "not filtered".
     // SB-CUT-019: the number stays a NUMBER so the sheet can still be pivoted, and the unit it
     // was entered in becomes part of the row label rather than being dropped.
-    let cut_row = |label: &str, v: &Option<crate::workflow::CutoffEntry>| match v {
-        Some(e) => (format!("{label} ({})", e.unit), Cell::Num(e.value)),
-        None => (label.to_string(), text("unfiltered")),
+    // SB-CUT-020: a two-sided range is TWO rows, one per bound, rather than one text cell holding
+    // both numbers. The blank-is-not-zero rule and the numbers-stay-numbers rule are the same rule
+    // here: a spreadsheet exists to be pivoted and re-averaged, and a range collapsed into prose
+    // cannot be. Each bound's row names its own operator, so the boundary convention survives too.
+    let cut_rows = |label: &str, v: &Option<crate::workflow::CutoffSpec>| {
+        let Some(spec) = v else {
+            return vec![(label.to_string(), text("unfiltered"))];
+        };
+        let bound_row = |side: &str, b: &crate::workflow::CutoffSpecBound| {
+            let inclusivity = match b.operator {
+                crate::workflow::BoundOperator::Inclusive => "inclusive",
+                crate::workflow::BoundOperator::Exclusive => "exclusive",
+            };
+            (
+                format!("{label}{side} ({}, {inclusivity})", b.entry.unit),
+                Cell::Num(b.entry.value),
+            )
+        };
+        match (&spec.min, &spec.max, &spec.single) {
+            (_, _, Some(single)) => vec![bound_row("", single)],
+            (low, high, None) => low
+                .iter()
+                .map(|b| bound_row(" lower", b))
+                .chain(high.iter().map(|b| bound_row(" upper", b)))
+                .collect(),
+        }
     };
     for (label, cell) in [
-        cut_row("Cutoff - VSH max", &spec.vsh_max),
-        cut_row("Cutoff - PHIE min", &spec.phie_min),
-        cut_row("Cutoff - SWE max", &spec.swe_max),
-        cut_row("Cutoff - PERM min", &spec.perm_min),
-    ] {
+        cut_rows("Cutoff - VSH max", &spec.vsh_max),
+        cut_rows("Cutoff - PHIE min", &spec.phie_min),
+        cut_rows("Cutoff - SWE max", &spec.swe_max),
+        cut_rows("Cutoff - PERM min", &spec.perm_min),
+    ]
+    .concat()
+    {
         row(&label, cell);
     }
     row("", Cell::Blank);
@@ -1207,7 +1232,10 @@ pub fn build_report_blocks(
         crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
         crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
         crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-        spec.perm_min.as_ref().map(|e| format!(", PERM >= {:.1} {}", e.value, e.unit)).unwrap_or_default()
+        match crate::workflow::cutoff_phrase(spec.perm_min.as_ref(), crate::workflow::CutoffSense::Minimum, 1).as_str() {
+            "" => String::new(),
+            phrase => format!(", PERM {phrase}"),
+        }
     );
     if pay_rows.is_empty() {
         // Never a silent gap in a client document: say the section could not be supported.
@@ -1590,11 +1618,11 @@ pub struct DeckSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<crate::workflow::CutoffEntry>,
-    pub phie_min: Option<crate::workflow::CutoffEntry>,
-    pub swe_max: Option<crate::workflow::CutoffEntry>,
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffEntry>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -1733,7 +1761,10 @@ pub fn build_deck_slides(
             crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
             crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
             crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-            spec.perm_min.as_ref().map(|e| format!(", PERM >= {:.1} {}", e.value, e.unit)).unwrap_or_default()),
+            match crate::workflow::cutoff_phrase(spec.perm_min.as_ref(), crate::workflow::CutoffSense::Minimum, 1).as_str() {
+                "" => String::new(),
+                phrase => format!(", PERM {phrase}"),
+            }),
         format!("Summarised at the {flag} level; SAND and RESERVOIR are in the workbook."),
         format!("Wells in scope: {}  ·  interpreted: {}", well_names.len(), with_results.len()),
         format!("Thicknesses and HPV in {unit}; VSH, PHIE and SWE as v/v fractions."),
@@ -2275,9 +2306,9 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
         DeckSpec {
             input_set: None,
             well_ids: vec!["id-A".into()],
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             title: "Sandi Field".into(),
             author: String::new(),

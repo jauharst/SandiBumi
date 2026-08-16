@@ -14532,3 +14532,38 @@ cannot tell. Tell me if you want that closed and I will do it as its own change.
 - [ ] **Run both Simandoux equations on the same well** and check the record distinguishes them.
 - [ ] **Run RtC** and read the coefficient line — tell me whether that is the wording you want in
       front of a client.
+
+## A cut-off can now be a window, and it says which side the boundary belongs to
+
+Until now a cut-off was one number and one direction: PHIE at least this, VSH at most that. Two
+things were missing.
+
+**A window.** Sometimes the sand you want is between two numbers — porosity above 0.10 to exclude
+tight rock, but below 0.35 to exclude a washout spike that is hole, not rock. You can now send a
+cut-off as a range with a bottom and a top.
+
+**Which side the boundary belongs to.** If your PHIE cut-off is 0.10 and a sample reads exactly
+0.10, is it in or out? That was never stated anywhere, and it decides marginal pay. Each end of the
+range now carries its own answer — inclusive means a sample exactly on the line is IN, exclusive
+means it is OUT — and there is a written specification with a test that checks every combination at
+exactly the boundary. The reason for being strict about this: the tool we took the idea from
+documents two of its own modes one way and implements them the other way round.
+
+**Nothing you already have changes.** A one-sided cut-off is now just a range with the far end open,
+and it is inclusive on the boundary — exactly what it always was. Every saved project, every report,
+every workflow step books the same net it booked yesterday. That is the thing worth checking.
+
+**One thing this uncovered, and it mattered.** Log samples are stored at single precision and a
+cut-off you type is double precision. So a sample reading 0.30 was actually very slightly ABOVE a
+cut-off of 0.30, meaning nothing ever sat exactly on the line — and an exclusive cut-off would have
+excluded nothing at all while looking perfectly configured. The comparison is now made at the
+precision the log data actually has, so "exactly on the cut-off" means what you would expect.
+
+**Also fixed while here:** the note that appears when a well has no permeability curve used to say
+"PERM ≥ x mD" no matter what you had actually set. It now prints your real cut-off.
+
+- [ ] **Run a pay summary on a well you know well and compare net against a previous run.** It
+      should be identical — this change is meant to be invisible to existing work.
+- [ ] **Tell me whether you want the cut-off boxes to offer a window and an in/out toggle.** Today
+      you can only enter the one-sided form by clicking; the rest is reachable from a saved run. I
+      have not added the control because how it should look is your call.

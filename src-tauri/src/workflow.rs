@@ -2745,13 +2745,13 @@ pub struct PaySummaryRequest {
     /// work spans Vsh 0.20-0.85 across intervals of a single area.
     /// SB-CUT-019: carried AS ENTERED, with its unit, and canonicalised on receipt. A bare
     /// number is refused rather than guessed at.
-    pub vsh_max: Option<CutoffEntry>,
+    pub vsh_max: Option<CutoffSpec>,
     /// SB-CUT-016. PHIE >= phie_min counts as reservoir (with sand). `None` = unfiltered.
-    pub phie_min: Option<CutoffEntry>,
+    pub phie_min: Option<CutoffSpec>,
     /// SB-CUT-016. SWE <= swe_max counts as pay (with reservoir). `None` = unfiltered.
-    pub swe_max: Option<CutoffEntry>,
+    pub swe_max: Option<CutoffSpec>,
     /// PERM >= perm_min added to the pay flag when PERM exists. `None` = unfiltered.
-    pub perm_min: Option<CutoffEntry>,
+    pub perm_min: Option<CutoffSpec>,
     /// SB-CUT-016. Cut-offs the caller switched ON and left without a value. A summation **MUST
     /// NOT** run against one, so any name here refuses the whole request.
     ///
@@ -3007,18 +3007,323 @@ impl CutoffEntry {
     }
 }
 
+/// SB-CUT-020. Which side of a bound a sample sitting exactly ON it falls.
+///
+/// Spelled as words rather than as `>=` / `>`, because a symbol on the wire invites parsing and
+/// this is the one field where a misread is invisible: it changes the verdict only for samples
+/// exactly on the cut-off, which is exactly the population a marginal-pay result turns on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum BoundOperator {
+    /// A sample exactly equal to the bound is INSIDE. `x >= min`, `x <= max`.
+    #[default]
+    Inclusive,
+    /// A sample exactly equal to the bound is OUTSIDE. `x > min`, `x < max`.
+    Exclusive,
+}
+
+/// SB-CUT-020. One side of a cut-off range, in the quantity's canonical unit.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct CutoffBound {
+    pub value: f64,
+    pub operator: BoundOperator,
+}
+
+/// SB-CUT-020. Which side of a range a single-sided cut-off occupies.
+///
+/// A slot named `phie_min` has always meant *at least this*, and `vsh_max` *at most this*. The
+/// sense is the slot's, not the value's, so the degenerate form cannot land on the wrong side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CutoffSense {
+    Minimum,
+    Maximum,
+}
+
+/// SB-CUT-020. A cut-off as a two-sided range — **and this doc comment is the specification that
+/// SB-CUT-T24 tests against**, deliberately, because the vendor cannot be the oracle: Techlog
+/// documents its modes 2 and 3 as outside tests and implements them as inside tests.
+///
+/// **The specification.** A sample value `x` passes the cut-off when it satisfies BOTH bounds:
+///
+/// | Side | Operator | Passes when | A sample exactly on the bound |
+/// |---|---|---|---|
+/// | low  | `INCLUSIVE` | `x >= value` | **inside** |
+/// | low  | `EXCLUSIVE` | `x > value`  | **outside** |
+/// | high | `INCLUSIVE` | `x <= value` | **inside** |
+/// | high | `EXCLUSIVE` | `x < value`  | **outside** |
+/// | either | *absent* | always | *not applicable — the far bound is open* |
+///
+/// An absent bound is an OPEN far bound, satisfied by every value. The single-sided `>=` / `<=`
+/// forms are therefore this range with one side absent and the other `INCLUSIVE` — the degenerate
+/// case, not a separate mechanism, so a project saved before ranges existed classifies identically.
+///
+/// `INCLUSIVE` is the default on both sides for the same reason: it is what the single-sided forms
+/// have always meant, and a generalisation that silently moved the boundary would rewrite every
+/// existing marginal result.
+///
+/// A range that can admit no value is REFUSED rather than quietly booking zero net — see
+/// [`CutoffSpec::canonical`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Default)]
+pub struct CutoffRange {
+    pub low: Option<CutoffBound>,
+    pub high: Option<CutoffBound>,
+}
+
+impl CutoffRange {
+    /// The specification above, and the only place a cut-off comparison is made.
+    ///
+    /// **The comparison happens in `f32`, the precision the DATA has, and that is required rather
+    /// than convenient.** A continuous log is `f32` (collaboration rule 2) while a cut-off is
+    /// entered as a decimal and held as `f64`. Widen the sample instead and `0.30f32` becomes
+    /// `0.30000001192…`, which is strictly GREATER than `0.30f64` — so a sample the user entered
+    /// `0.30` to sit exactly on never sits on it, and the EXCLUSIVE operator silently excludes
+    /// nothing at all. That is Techlog's mode 7 arrived at by arithmetic instead of by a bug.
+    /// Narrowing the bound instead compares two numbers the data can actually distinguish, which
+    /// is the only reading under which "exactly equal to the bound" means anything.
+    pub fn contains(&self, sample: f32) -> bool {
+        // A NaN satisfies no comparison, which is the honest answer: an unmeasured sample cannot
+        // demonstrate that it passes. The callers handle missing data before reaching here.
+        let low_ok = match self.low {
+            Some(CutoffBound { value, operator: BoundOperator::Inclusive }) => sample >= value as f32,
+            Some(CutoffBound { value, operator: BoundOperator::Exclusive }) => sample > value as f32,
+            None => true,
+        };
+        let high_ok = match self.high {
+            Some(CutoffBound { value, operator: BoundOperator::Inclusive }) => sample <= value as f32,
+            Some(CutoffBound { value, operator: BoundOperator::Exclusive }) => sample < value as f32,
+            None => true,
+        };
+        low_ok && high_ok
+    }
+}
+
+/// SB-CUT-020. One side of a cut-off range AS ENTERED — a value, its unit, and its operator.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CutoffSpecBound {
+    #[serde(flatten)]
+    pub entry: CutoffEntry,
+    #[serde(default)]
+    pub operator: BoundOperator,
+}
+
+/// SB-CUT-020. A cut-off as it arrives on the wire: a bare number, a `{value, unit}` entry, or a
+/// `{min, max}` range with a per-bound operator.
+///
+/// The first two forms are the degenerate single-sided case and are accepted unchanged, so every
+/// caller written before ranges existed keeps working and keeps meaning what it meant.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CutoffSpec {
+    pub min: Option<CutoffSpecBound>,
+    pub max: Option<CutoffSpecBound>,
+    /// The single-sided form, held until the slot's [`CutoffSense`] says which side it belongs to.
+    pub single: Option<CutoffSpecBound>,
+}
+
+/// Serialization is the INVERSE of deserialization, deliberately: a persisted run has to reload
+/// as the cut-off it was. A degenerate single-sided spec therefore writes the same object it
+/// arrived as - now carrying its operator - and a range writes `{min, max}` with an absent side
+/// omitted rather than written as a null.
+impl Serialize for CutoffSpec {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match (&self.min, &self.max, &self.single) {
+            (_, _, Some(single)) => single.serialize(serializer),
+            (min, max, None) => {
+                let mut map = serializer.serialize_map(None)?;
+                if let Some(bound) = min {
+                    map.serialize_entry("min", bound)?;
+                }
+                if let Some(bound) = max {
+                    map.serialize_entry("max", bound)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CutoffSpec {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            // NARROWEST FIRST, and it has to be. Both of `Range`'s fields are optional, so that
+            // arm matches ANY object — including `{value, unit}`, which it would silently accept
+            // as a range with no bounds at all: a cut-off that filters nothing, configured. That
+            // is Techlog's mode 7 reproduced by an ordering mistake, so `Single` is tried first.
+            // A `{min, max}` object carries no `value` field, so it cannot match `Single`.
+            Single(CutoffSpecBound),
+            /// A bare number is not a map, so it cannot reach the flattened `Single` arm - and
+            /// SB-CUT-019 requires it to PARSE and then be refused by name rather than returning
+            /// serde's *invalid type* text. It becomes a unitless single bound, which `canonical`
+            /// rejects with the message about porosity units.
+            Bare(f64),
+            Range {
+                #[serde(default)]
+                min: Option<CutoffSpecBound>,
+                #[serde(default)]
+                max: Option<CutoffSpecBound>,
+            },
+        }
+        Ok(match Wire::deserialize(deserializer)? {
+            Wire::Range { min, max } => CutoffSpec { min, max, single: None },
+            Wire::Single(single) => CutoffSpec { min: None, max: None, single: Some(single) },
+            Wire::Bare(value) => CutoffSpec {
+                min: None,
+                max: None,
+                single: Some(CutoffSpecBound {
+                    entry: CutoffEntry { value, unit: String::new() },
+                    operator: BoundOperator::default(),
+                }),
+            },
+        })
+    }
+}
+
+/// SB-CUT-020. The degenerate case, as a conversion: a single entered value becomes the
+/// single-sided range whose far bound is open and whose operator is `INCLUSIVE`.
+///
+/// The same statement the wire form makes, available in Rust so a caller that already holds an
+/// entry does not have to spell the range out and risk spelling it differently.
+impl From<CutoffEntry> for CutoffSpec {
+    fn from(entry: CutoffEntry) -> Self {
+        CutoffSpec {
+            min: None,
+            max: None,
+            single: Some(CutoffSpecBound { entry, operator: BoundOperator::default() }),
+        }
+    }
+}
+
+impl CutoffSpec {
+    /// Convert to canonical units and resolve the slot's sense, refusing anything the range
+    /// specification cannot mean.
+    pub fn canonical(
+        &self,
+        quantity: CutoffQuantity,
+        sense: CutoffSense,
+        label: &str,
+    ) -> Result<CutoffRange, String> {
+        let bound = |side: &Option<CutoffSpecBound>, side_label: &str| {
+            side.as_ref()
+                .map(|b| {
+                    b.entry
+                        .canonical(quantity, &format!("{label} {side_label}"))
+                        .map(|value| CutoffBound { value, operator: b.operator })
+                })
+                .transpose()
+        };
+        let mut range = CutoffRange {
+            low: bound(&self.min, "lower bound")?,
+            high: bound(&self.max, "upper bound")?,
+        };
+        if let Some(single) = bound(&self.single, "")? {
+            match sense {
+                CutoffSense::Minimum => range.low = Some(single),
+                CutoffSense::Maximum => range.high = Some(single),
+            }
+        }
+        // A window nobody could have meant is refused, not run. Zero net from an inverted range
+        // computes and plots exactly like zero net from tight rock, which is this row's risk class.
+        if let (Some(low), Some(high)) = (range.low, range.high) {
+            let empty = low.value > high.value
+                || (low.value == high.value
+                    && (low.operator == BoundOperator::Exclusive
+                        || high.operator == BoundOperator::Exclusive));
+            if empty {
+                return Err(format!(
+                    "{label} is the range {} to {}, which admits no value at all. A cut-off that \
+                     cannot pass books zero net and looks exactly like tight rock, so it is \
+                     refused rather than run.",
+                    low.value, high.value
+                ));
+            }
+        }
+        Ok(range)
+    }
+}
+
 /// SB-CUT-016. Render a cut-off for a deliverable: its value, or the word that says it was never
 /// applied.
 ///
 /// One helper rather than a spelling per surface. The two failures it exists to prevent are
 /// printing nothing - a reader then assumes the cut-off was used - and printing a number that was
 /// never applied, which is worse because it is checkable and wrong.
-pub fn cutoff_label(value: Option<&CutoffEntry>, decimals: usize) -> String {
-    match value {
-        // SB-CUT-019: the unit is printed WITH the number. A deliverable that says "PHIE >= 0.10"
-        // without saying in what has reproduced the very ambiguity the entry rule exists to stop.
-        Some(entry) => format!("{:.decimals$} {}", entry.value, entry.unit),
-        None => "unfiltered".to_string(),
+pub fn cutoff_label(value: Option<&CutoffSpec>, decimals: usize) -> String {
+    // SB-CUT-019: the unit is printed WITH the number. A deliverable that says "PHIE >= 0.10"
+    // without saying in what has reproduced the very ambiguity the entry rule exists to stop.
+    let Some(spec) = value else {
+        return "unfiltered".to_string();
+    };
+    // SB-CUT-020: a two-sided range prints in interval notation, where the bracket IS the operator
+    // and an engineer reads it without a legend. The single-sided inclusive form keeps its bare
+    // number, because that is what every existing deliverable shows and it has not changed meaning.
+    match (&spec.min, &spec.max, &spec.single) {
+        (_, _, Some(single)) => {
+            let unit = single.entry.unit.trim();
+            match single.operator {
+                BoundOperator::Inclusive => format!("{:.decimals$} {unit}", single.entry.value),
+                BoundOperator::Exclusive => {
+                    format!("{:.decimals$} {unit} (exclusive)", single.entry.value)
+                }
+            }
+        }
+        (low, high, None) => {
+            let unit = low
+                .as_ref()
+                .or(high.as_ref())
+                .map(|b| b.entry.unit.trim().to_string())
+                .unwrap_or_default();
+            let open_bracket = match low {
+                Some(b) if b.operator == BoundOperator::Exclusive => "(",
+                Some(_) => "[",
+                None => "(",
+            };
+            let close_bracket = match high {
+                Some(b) if b.operator == BoundOperator::Exclusive => ")",
+                Some(_) => "]",
+                None => ")",
+            };
+            let lo = low
+                .as_ref()
+                .map(|b| format!("{:.decimals$}", b.entry.value))
+                .unwrap_or_else(|| "-inf".into());
+            let hi = high
+                .as_ref()
+                .map(|b| format!("{:.decimals$}", b.entry.value))
+                .unwrap_or_else(|| "+inf".into());
+            format!("{open_bracket}{lo}, {hi}{close_bracket} {unit}")
+                .trim_end()
+                .to_string()
+        }
+    }
+}
+
+/// SB-CUT-020. Render a cut-off as a PHRASE for running prose — `>= 0.10 mD`, `> 0.10 mD`,
+/// `in [0.10, 0.35] v/v` — or the empty string when the cut-off was never applied.
+///
+/// Separate from [`cutoff_label`] because prose needs the comparison spelled out while a table cell
+/// gets its sense from the row label. One helper rather than a spelling per surface: three call
+/// sites used to hard-code `>=`, which a two-sided range or an exclusive bound makes untrue.
+pub fn cutoff_phrase(value: Option<&CutoffSpec>, sense: CutoffSense, decimals: usize) -> String {
+    let Some(spec) = value else {
+        return String::new();
+    };
+    match (&spec.min, &spec.max, &spec.single) {
+        (_, _, Some(single)) => {
+            let comparison = match (sense, single.operator) {
+                (CutoffSense::Minimum, BoundOperator::Inclusive) => ">=",
+                (CutoffSense::Minimum, BoundOperator::Exclusive) => ">",
+                (CutoffSense::Maximum, BoundOperator::Inclusive) => "<=",
+                (CutoffSense::Maximum, BoundOperator::Exclusive) => "<",
+            };
+            format!(
+                "{comparison} {:.decimals$} {}",
+                single.entry.value,
+                single.entry.unit.trim()
+            )
+        }
+        _ => format!("in {}", cutoff_label(value, decimals)),
     }
 }
 
@@ -3270,13 +3575,18 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     }
     // SB-CUT-019: canonicalise every entered cut-off before anything is computed. A bare number,
     // an unknown unit or a physically impossible value stops the run here, naming the field.
-    let cut = |entry: &Option<CutoffEntry>, quantity: CutoffQuantity, label: &str| {
-        entry.as_ref().map(|e| e.canonical(quantity, label)).transpose()
+    // SB-CUT-020: and resolve each into a RANGE. A single-sided entry becomes the degenerate
+    // range with an open far bound, so a request written before ranges existed means what it meant.
+    let cut = |spec: &Option<CutoffSpec>,
+               quantity: CutoffQuantity,
+               sense: CutoffSense,
+               label: &str| {
+        spec.as_ref().map(|s| s.canonical(quantity, sense, label)).transpose()
     };
-    let vsh_max = cut(&req.vsh_max, CutoffQuantity::VolumeFraction, "the VSH cut-off")?;
-    let phie_min = cut(&req.phie_min, CutoffQuantity::VolumeFraction, "the PHIE cut-off")?;
-    let swe_max = cut(&req.swe_max, CutoffQuantity::VolumeFraction, "the SWE cut-off")?;
-    let perm_min = cut(&req.perm_min, CutoffQuantity::Permeability, "the PERM cut-off")?;
+    let vsh_max = cut(&req.vsh_max, CutoffQuantity::VolumeFraction, CutoffSense::Maximum, "the VSH cut-off")?;
+    let phie_min = cut(&req.phie_min, CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "the PHIE cut-off")?;
+    let swe_max = cut(&req.swe_max, CutoffQuantity::VolumeFraction, CutoffSense::Maximum, "the SWE cut-off")?;
+    let perm_min = cut(&req.perm_min, CutoffQuantity::Permeability, CutoffSense::Minimum, "the PERM cut-off")?;
     let unfiltered: Vec<String> = [
         ("VSH", vsh_max.is_none()),
         ("PHIE", phie_min.is_none()),
@@ -3632,10 +3942,10 @@ fn classify_sample(
     phie: f32,
     swe: f32,
     perm: f32,
-    vsh_max: Option<f64>,
-    phie_min: Option<f64>,
-    swe_max: Option<f64>,
-    perm_min: Option<f64>,
+    vsh_max: Option<CutoffRange>,
+    phie_min: Option<CutoffRange>,
+    swe_max: Option<CutoffRange>,
+    perm_min: Option<CutoffRange>,
     has_perm_cut: bool,
 ) -> (f32, f32, f32) {
     // SB-CUT-016: an ABSENT cut-off does not filter. The NaN cascade below is deliberately
@@ -3646,21 +3956,21 @@ fn classify_sample(
     if vsh.is_nan() {
         return (f32::NAN, f32::NAN, f32::NAN);
     }
-    let sand = vsh_max.map_or(true, |m| (vsh as f64) <= m);
+    let sand = vsh_max.map_or(true, |r| r.contains(vsh));
     let fs = sand as u8 as f32;
     if phie.is_nan() {
         return (fs, f32::NAN, f32::NAN);
     }
-    let res = sand && phie_min.map_or(true, |m| (phie as f64) >= m);
+    let res = sand && phie_min.map_or(true, |r| r.contains(phie));
     let fr = res as u8 as f32;
     if swe.is_nan() {
         return (fs, fr, f32::NAN);
     }
-    let mut pay = res && swe_max.map_or(true, |m| (swe as f64) <= m);
+    let mut pay = res && swe_max.map_or(true, |r| r.contains(swe));
     if has_perm_cut {
         // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
         // PERM must fail, not silently pass (same rule as run_pay_summary).
-        pay = pay && !perm.is_nan() && (perm as f64) >= perm_min.unwrap();
+        pay = pay && !perm.is_nan() && perm_min.unwrap().contains(perm);
     }
     (fs, fr, pay as u8 as f32)
 }
@@ -3693,10 +4003,10 @@ fn compute_sweep(
     perm: &[f32],
     incl_h: &[f64],
     prop: SweepProp,
-    fixed_vsh: Option<f64>,
-    fixed_phie: Option<f64>,
-    fixed_swe: Option<f64>,
-    perm_min: Option<f64>,
+    fixed_vsh: Option<CutoffRange>,
+    fixed_phie: Option<CutoffRange>,
+    fixed_swe: Option<CutoffRange>,
+    perm_min: Option<CutoffRange>,
     sweep_min: f64,
     sweep_max: f64,
     steps: usize,
@@ -3720,10 +4030,22 @@ fn compute_sweep(
         let t = k as f64 / (steps - 1) as f64;
         let cut = sweep_min + (sweep_max - sweep_min) * t;
         let (mut vsh_max, mut phie_min, mut swe_max) = (fixed_vsh, fixed_phie, fixed_swe);
+        // SB-CUT-020: the SWEPT bound is the degenerate single-sided range in the slot's own
+        // sense, inclusive - the sweep varies a cut-off VALUE and says nothing about inclusivity,
+        // so it uses the same default the single-sided forms have always carried. The HELD
+        // cut-offs keep whatever operators the caller declared.
+        let swept = |low: bool| {
+            let bound = Some(CutoffBound { value: cut, operator: BoundOperator::Inclusive });
+            if low {
+                CutoffRange { low: bound, high: None }
+            } else {
+                CutoffRange { low: None, high: bound }
+            }
+        };
         match prop {
-            SweepProp::Vsh => vsh_max = Some(cut),
-            SweepProp::Phie => phie_min = Some(cut),
-            SweepProp::Swe => swe_max = Some(cut),
+            SweepProp::Vsh => vsh_max = Some(swept(false)),
+            SweepProp::Phie => phie_min = Some(swept(true)),
+            SweepProp::Swe => swe_max = Some(swept(false)),
         }
 
         let mut net = 0.0f64;
@@ -3779,10 +4101,10 @@ pub struct CutoffSweepRequest {
     /// Fixed values for the two cutoffs NOT being swept (the swept one's field is ignored).
     /// SB-CUT-016: `None` = that property is not filtered while this sweep runs. No default.
     /// SB-CUT-019: carried as entered, with its unit.
-    pub vsh_max: Option<CutoffEntry>,
-    pub phie_min: Option<CutoffEntry>,
-    pub swe_max: Option<CutoffEntry>,
-    pub perm_min: Option<CutoffEntry>,
+    pub vsh_max: Option<CutoffSpec>,
+    pub phie_min: Option<CutoffSpec>,
+    pub swe_max: Option<CutoffSpec>,
+    pub perm_min: Option<CutoffSpec>,
     pub sweep_min: f64,
     pub sweep_max: f64,
     pub steps: usize,
@@ -3902,13 +4224,16 @@ pub fn run_cutoff_sweep(
     // SB-CUT-019: the two HELD cut-offs are entered values and are canonicalised before any
     // sweep runs. The swept property's range is a plot bound, not a cut-off, and keeps its own
     // units by construction - it is expressed in whatever the swept quantity's canonical unit is.
-    let cut = |entry: &Option<CutoffEntry>, quantity: CutoffQuantity, label: &str| {
-        entry.as_ref().map(|e| e.canonical(quantity, label)).transpose()
+    let cut = |spec: &Option<CutoffSpec>,
+               quantity: CutoffQuantity,
+               sense: CutoffSense,
+               label: &str| {
+        spec.as_ref().map(|s| s.canonical(quantity, sense, label)).transpose()
     };
-    let held_vsh = cut(&req.vsh_max, CutoffQuantity::VolumeFraction, "the held VSH cut-off")?;
-    let held_phie = cut(&req.phie_min, CutoffQuantity::VolumeFraction, "the held PHIE cut-off")?;
-    let held_swe = cut(&req.swe_max, CutoffQuantity::VolumeFraction, "the held SWE cut-off")?;
-    let held_perm = cut(&req.perm_min, CutoffQuantity::Permeability, "the held PERM cut-off")?;
+    let held_vsh = cut(&req.vsh_max, CutoffQuantity::VolumeFraction, CutoffSense::Maximum, "the held VSH cut-off")?;
+    let held_phie = cut(&req.phie_min, CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "the held PHIE cut-off")?;
+    let held_swe = cut(&req.swe_max, CutoffQuantity::VolumeFraction, CutoffSense::Maximum, "the held SWE cut-off")?;
+    let held_perm = cut(&req.perm_min, CutoffQuantity::Permeability, CutoffSense::Minimum, "the held PERM cut-off")?;
     let prop = match req.property.to_uppercase().as_str() {
         "VSH" => SweepProp::Vsh,
         "PHIE" => SweepProp::Phie,
@@ -4439,9 +4764,9 @@ mod tests {
             &dbm,
             &PaySummaryRequest {
                 well_ids: vec![skip_candidate.clone()],
-                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 input_set: None,
@@ -5491,33 +5816,50 @@ mod tests {
     /// The shared cutoff classifier must reproduce the .paysum NaN propagation exactly:
     /// a missing input excludes it and everything downstream, and a missing PERM fails an
     /// active PERM cutoff instead of passing.
+    /// SB-CUT-020. The degenerate single-sided cut-offs these classification tests were written
+    /// against, named rather than positional: `at_most` is a high bound, `at_least` a low one, both
+    /// INCLUSIVE, which is exactly what a bare `>=` / `<=` cut-off has always meant.
+    fn at_most(value: f64) -> Option<CutoffRange> {
+        Some(CutoffRange {
+            low: None,
+            high: Some(CutoffBound { value, operator: BoundOperator::Inclusive }),
+        })
+    }
+
+    fn at_least(value: f64) -> Option<CutoffRange> {
+        Some(CutoffRange {
+            low: Some(CutoffBound { value, operator: BoundOperator::Inclusive }),
+            high: None,
+        })
+    }
+
     #[test]
     fn classify_sample_nan_propagation() {
         // Clean pay (no perm cut).
         assert_eq!(
-            classify_sample(0.2, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false),
+            classify_sample(0.2, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false),
             (1.0, 1.0, 1.0)
         );
         // Missing VSH → all excluded.
-        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false);
+        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false);
         assert!(s.is_nan() && r.is_nan() && p.is_nan());
         // Missing PHIE → SAND set, RES/PAY excluded.
-        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false);
+        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false);
         assert_eq!(s, 1.0);
         assert!(r.is_nan() && p.is_nan());
         // Missing SWE → SAND+RES set, PAY excluded.
-        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false);
+        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false);
         assert_eq!((s, r), (1.0, 1.0));
         assert!(p.is_nan());
         // Fails the sand cutoff → SAND 0 cascades to RES/PAY 0.
         assert_eq!(
-            classify_sample(0.9, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), None, false),
+            classify_sample(0.9, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), None, false),
             (0.0, 0.0, 0.0)
         );
         // Active PERM cutoff: missing PERM fails; sufficient PERM passes.
-        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, Some(0.5), Some(0.1), Some(0.6), Some(1.0), true);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, at_most(0.5), at_least(0.1), at_most(0.6), at_least(1.0), true);
         assert_eq!(p, 0.0);
-        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, Some(0.5), Some(0.1), Some(0.6), Some(1.0), true);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, at_most(0.5), at_least(0.1), at_most(0.6), at_least(1.0), true);
         assert_eq!(p, 1.0);
     }
 
@@ -5548,9 +5890,9 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![well.clone()],
-            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -5649,9 +5991,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone()],
-                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -5765,9 +6107,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone(), blank.clone()],
-                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -5893,9 +6235,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well],
-                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -5988,9 +6330,9 @@ mod tests {
                     well_ids: wells,
                     // Permissive on purpose: every sample must pass, so the only thing that can
                     // move an average is the weighting under test.
-                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
-                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
-                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                     perm_min: None,
                     enabled_unset: Vec::new(),
                     skip_version: false,
@@ -6113,9 +6455,9 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![well.clone()],
-                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
-                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
-                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                     perm_min: None,
                     enabled_unset: Vec::new(),
                     skip_version: false,
@@ -6199,9 +6541,9 @@ mod tests {
                 depth_datum: crate::schema_vocab::DepthDatum::Md,
             },
             &crate::montecarlo::Cutoffs {
-                vsh_max: Some(0.9),
-                phie_min: Some(0.05),
-                swe_max: Some(0.9),
+                vsh_max: at_most(0.9),
+                phie_min: at_least(0.05),
+                swe_max: at_most(0.9),
                 perm_min: None,
             },
             false,
@@ -6237,7 +6579,7 @@ mod tests {
     ) {
         // First, the guard that makes the rest meaningful: these values clear every cut-off.
         assert_eq!(
-            classify_sample(0.80, 0.50, 0.85, f32::NAN, Some(0.9), Some(0.05), Some(0.9), None, false),
+            classify_sample(0.80, 0.50, 0.85, f32::NAN, at_most(0.9), at_least(0.05), at_most(0.9), None, false),
             (1.0, 1.0, 1.0),
             "the out-of-zone samples must pass SAND, RESERVOIR and PAY on their own merits - \
              otherwise their absence below proves a cut-off worked, not the zone rule"
@@ -6281,9 +6623,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -6344,9 +6686,9 @@ mod tests {
                 input_set: None,
                 well_ids: vec![well.clone()],
                 property: "VSH".into(),
-                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
                 perm_min: None,
                 // Every sample's VSH is at most 0.80, so it clears every step of this range and
                 // net is decided by zone membership alone across the whole sweep.
@@ -6387,9 +6729,9 @@ mod tests {
                 depth_datum: crate::schema_vocab::DepthDatum::Md,
             },
             &crate::montecarlo::Cutoffs {
-                vsh_max: Some(0.9),
-                phie_min: Some(0.05),
-                swe_max: Some(0.9),
+                vsh_max: at_most(0.9),
+                phie_min: at_least(0.05),
+                swe_max: at_most(0.9),
                 perm_min: None,
             },
             false,
@@ -6438,9 +6780,9 @@ mod tests {
         let req = |frame: SummationFrame| PaySummaryRequest {
             input_set: None,
             well_ids: vec![well.clone()],
-            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -6526,7 +6868,7 @@ mod tests {
         // Every sample passes on VSH and PHIE; SWE 0.20 and 0.60 straddle a 0.4 cut-off.
         let well = seed_weighting_well(&conn, "CUTOFF-1", "PHIE");
         let dbm = Mutex::new(conn);
-        let vv = |v: Option<f64>| v.map(|x| CutoffEntry { value: x, unit: "v/v".into() });
+        let vv = |v: Option<f64>| v.map(|x| CutoffSpec::from(CutoffEntry { value: x, unit: "v/v".into() }));
         let req = |vsh: Option<f64>, phie: Option<f64>, swe: Option<f64>, blank: Vec<String>| {
             PaySummaryRequest {
                 input_set: None,
@@ -6697,8 +7039,8 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well],
-                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 35.0, unit: String::new() }),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 35.0, unit: String::new() }.into()),
                 swe_max: None,
                 perm_min: None,
                 skip_version: false,
@@ -6711,6 +7053,172 @@ mod tests {
         )
         .expect_err("a bare cut-off must stop the run");
         assert!(err.contains("no unit"), "{err}");
+    }
+
+    /// SB-CUT-020 (P2). `14_cutoffs-summation-mc.md:1223-1240` and SB-CUT-T24 at `:2085` — a
+    /// cut-off **MUST** be expressible as a two-sided range with an explicit operator selecting the
+    /// inclusivity of each bound; the single-sided `>=` / `<=` forms **MUST** be the degenerate
+    /// case with an open far bound; and every operator's boundary behaviour **MUST** be tested
+    /// against SandiBumi's **own written specification**, which is [`CutoffRange`]'s doc comment.
+    ///
+    /// The oracle is deliberately ours. Techlog's `limitType` is strictly more general than IP's
+    /// single-sided form, but its shipped implementation is the warning rather than the model:
+    /// modes 4/5/6 raise, mode 7 is a silent always-pass, and modes 2/3 are **documented as outside
+    /// tests and implemented as inside tests**. A boundary convention not tested against its own
+    /// spec is a coin flip at every sample sitting exactly on the cut-off — which is precisely the
+    /// population that decides a marginal-pay result.
+    #[test]
+    fn a_sample_exactly_on_a_cutoff_bound_is_included_or_excluded_by_that_bounds_own_declared_operator(
+    ) {
+        // A — the specification itself, at exactly the bound, for every operator on every side.
+        // This is the T24 case: a value equal to `min` and a value equal to `max`.
+        let low = |operator| CutoffRange {
+            low: Some(CutoffBound { value: 0.10, operator }),
+            high: None,
+        };
+        let high = |operator| CutoffRange {
+            low: None,
+            high: Some(CutoffBound { value: 0.50, operator }),
+        };
+        assert!(low(BoundOperator::Inclusive).contains(0.10f32), "x >= min admits x == min");
+        assert!(!low(BoundOperator::Exclusive).contains(0.10f32), "x > min excludes x == min");
+        assert!(high(BoundOperator::Inclusive).contains(0.50f32), "x <= max admits x == max");
+        assert!(!high(BoundOperator::Exclusive).contains(0.50f32), "x < max excludes x == max");
+        // and away from the bound every operator agrees, so the arms above isolate the boundary.
+        for operator in [BoundOperator::Inclusive, BoundOperator::Exclusive] {
+            assert!(low(operator).contains(0.11f32) && !low(operator).contains(0.09f32));
+            assert!(high(operator).contains(0.49f32) && !high(operator).contains(0.51f32));
+        }
+
+        // A2 — and "exactly on the bound" is decided at the precision the DATA has. A continuous
+        // log is f32; a cut-off is entered as a decimal. Widen the sample and 0.30f32 becomes
+        // 0.30000001192…, strictly GREATER than 0.30f64 — so the sample the user typed `0.30` to
+        // sit exactly on would not sit on it, and the exclusive operator would exclude nothing at
+        // all. Both sides are pinned, because an implementation comparing in f64 passes the
+        // inclusive half and fails only here.
+        let three_tenths = CutoffRange {
+            low: Some(CutoffBound { value: 0.30, operator: BoundOperator::Exclusive }),
+            high: None,
+        };
+        assert!(
+            (0.30f32 as f64) > 0.30f64,
+            "the premise: widening an f32 sample overshoots the f64 bound"
+        );
+        assert!(
+            !three_tenths.contains(0.30f32),
+            "an f32 sample of 0.30 sits exactly on a 0.30 bound and an exclusive bound excludes it"
+        );
+        assert!(
+            CutoffRange {
+                low: Some(CutoffBound { value: 0.30, operator: BoundOperator::Inclusive }),
+                high: None,
+            }
+            .contains(0.30f32),
+            "and an inclusive bound admits it"
+        );
+
+        // B — an ABSENT bound is an OPEN far bound and admits everything on that side. That is
+        // what makes the single-sided form a degenerate range rather than a separate mechanism.
+        let open = CutoffRange { low: None, high: None };
+        assert!(open.contains(-1e9f32) && open.contains(1e9f32));
+        assert!(low(BoundOperator::Inclusive).contains(1e9f32), "no high bound admits any large value");
+
+        // C — the DEGENERATE wire form is unchanged. A slot that has always meant "at least this"
+        // still means it, inclusively, and a slot that has always meant "at most this" likewise -
+        // the requirement makes the single-sided forms the degenerate case, so a project saved
+        // before ranges existed must classify every sample exactly as it did.
+        let entry: CutoffSpec = serde_json::from_str(r#"{"value":0.10,"unit":"v/v"}"#).unwrap();
+        let as_min = entry
+            .canonical(CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "PHIE")
+            .unwrap();
+        assert_eq!(as_min.low, Some(CutoffBound { value: 0.10, operator: BoundOperator::Inclusive }));
+        assert_eq!(as_min.high, None, "the far side stays open");
+        assert!(as_min.contains(0.10f32), "and a sample exactly on it still passes, as it always did");
+        let as_max = entry
+            .canonical(CutoffQuantity::VolumeFraction, CutoffSense::Maximum, "VSH")
+            .unwrap();
+        assert_eq!(as_max.high, Some(CutoffBound { value: 0.10, operator: BoundOperator::Inclusive }));
+        assert_eq!(as_max.low, None);
+
+        // D — a genuine two-sided range, with a different operator on each side, crosses the wire
+        // and filters both ends. `35 pu` is canonicalised per bound, so the unit rule of SB-CUT-019
+        // reaches inside a range rather than stopping at its edge.
+        let spec: CutoffSpec = serde_json::from_str(
+            r#"{"min":{"value":10,"unit":"pu","operator":"EXCLUSIVE"},
+                "max":{"value":35,"unit":"pu","operator":"INCLUSIVE"}}"#,
+        )
+        .unwrap();
+        let range = spec
+            .canonical(CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "PHIE")
+            .expect("a two-sided porosity window is a real cut-off");
+        assert!(!range.contains(0.10f32), "the low bound is exclusive, so 0.10 fails");
+        assert!(range.contains(0.35f32), "the high bound is inclusive, so 0.35 passes");
+        assert!(range.contains(0.20f32) && !range.contains(0.40f32));
+
+        // E — a range that can admit NOTHING is refused. Booking zero net from a window nobody
+        // could have meant is this row's own risk class: it computes, it plots, and it is wrong.
+        let empty: CutoffSpec = serde_json::from_str(
+            r#"{"min":{"value":0.40,"unit":"v/v"},"max":{"value":0.20,"unit":"v/v"}}"#,
+        )
+        .unwrap();
+        let error = empty
+            .canonical(CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "the PHIE cut-off")
+            .expect_err("an inverted window must refuse");
+        assert!(error.contains("PHIE"), "and name the cut-off: {error}");
+        let touching: CutoffSpec = serde_json::from_str(
+            r#"{"min":{"value":0.20,"unit":"v/v","operator":"EXCLUSIVE"},
+                "max":{"value":0.20,"unit":"v/v"}}"#,
+        )
+        .unwrap();
+        assert!(
+            touching
+                .canonical(CutoffQuantity::VolumeFraction, CutoffSense::Minimum, "PHIE")
+                .is_err(),
+            "bounds that meet with either side exclusive admit nothing either"
+        );
+
+        // F — WIRED IN, and the pair is the point: the SAME well and the SAME number classify
+        // differently on the operator alone. A sample sitting exactly on the cut-off is the
+        // population that decides a marginal result, so the operator has to reach the arithmetic.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_weighting_well(&conn, "SANDI-BOUND-1", "PHIE");
+        let dbm = Mutex::new(conn);
+        let net_with = |operator: &str| {
+            let spec: CutoffSpec = serde_json::from_str(&format!(
+                r#"{{"min":{{"value":0.30,"unit":"v/v","operator":"{operator}"}}}}"#
+            ))
+            .unwrap();
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: None,
+                    phie_min: Some(spec),
+                    swe_max: None,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting: Default::default(),
+                    frame: Default::default(),
+                    enabled_unset: Vec::new(),
+                },
+            )
+            .expect("the run itself is valid under both operators")
+            .iter()
+            .filter(|row| row.flag == "PAY")
+            .map(|row| row.net as f64)
+            .sum::<f64>()
+        };
+        let inclusive = net_with("INCLUSIVE");
+        let exclusive = net_with("EXCLUSIVE");
+        assert!(
+            inclusive > exclusive,
+            "the fixture's PHIE sits exactly on 0.30, so an inclusive bound must book footage an \
+             exclusive one does not: inclusive {inclusive}, exclusive {exclusive}"
+        );
     }
 
     /// Seed a well that every resistivity saturation model can run on: a deep resistivity, and
@@ -7064,11 +7572,11 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![no_perm.clone(), low_perm.clone()],
-                    vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                    phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                    swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                    vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                    phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                    swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                     enabled_unset: Vec::new(),
-                    perm_min: perm_min.map(|p| CutoffEntry { value: p, unit: "mD".into() }),
+                    perm_min: perm_min.map(|p| CutoffEntry { value: p, unit: "mD".into() }.into()),
                     skip_version: false,
                     stats_only: true
                 ,
@@ -7331,9 +7839,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![bare.clone(), good.clone()],
-                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -7518,7 +8026,7 @@ mod tests {
         // Each sample contributes a full 1 m of clamped thickness.
         let incl_h = [1.0f64; 5];
         let (cuts, vals, peak) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Vsh, Some(0.5), Some(0.1), Some(0.6), None, 0.0, 1.0,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Vsh, at_most(0.5), at_least(0.1), at_most(0.6), None, 0.0, 1.0,
             11, Metric::Net, 5.0,
         );
         assert_eq!(cuts.len(), 11);
@@ -7541,14 +8049,14 @@ mod tests {
         // SWE cutoff → NTG 1.0.
         let all = [1.0f64; 4];
         let (_, vals, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &all, SweepProp::Swe, Some(0.5), Some(0.1), Some(0.6), None, 0.0, 1.0, 3,
+            &vsh, &phie, &swe, &perm, &all, SweepProp::Swe, at_most(0.5), at_least(0.1), at_most(0.6), None, 0.0, 1.0, 3,
             Metric::Ntg, 4.0,
         );
         assert!((vals[2] - 1.0).abs() < 1e-9);
         // DST clips two samples to zero thickness → NET tops out at 2 m.
         let half = [1.0f64, 1.0, 0.0, 0.0];
         let (_, vals2, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &half, SweepProp::Swe, Some(0.5), Some(0.1), Some(0.6), None, 0.0, 1.0,
+            &vsh, &phie, &swe, &perm, &half, SweepProp::Swe, at_most(0.5), at_least(0.1), at_most(0.6), None, 0.0, 1.0,
             3, Metric::Net, 2.0,
         );
         assert!((vals2[2] - 2.0).abs() < 1e-9);
@@ -7597,12 +8105,12 @@ mod tests {
         // Permissive cutoffs: every in-zone sample pays → net = 1.5 (the clamped overlap), NOT
         // 2.0 (two full steps), so peak net is 1.5 and NTG never exceeds 1.
         let (_, _, peak) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, Some(0.9), Some(0.0), Some(1.0), None, 0.0, 1.0, 2,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, at_most(0.9), at_least(0.0), at_most(1.0), None, 0.0, 1.0, 2,
             Metric::Net, 1.5,
         );
         assert!((peak - 1.5).abs() < 1e-9, "net must be the clamped 1.5 m, not 2.0; got {peak}");
         let (_, ntg, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, Some(0.9), Some(0.0), Some(1.0), None, 0.0, 1.0, 2,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, at_most(0.9), at_least(0.0), at_most(1.0), None, 0.0, 1.0, 2,
             Metric::Ntg, 1.5,
         );
         assert!(ntg[1] <= 1.0 + 1e-9, "NTG must not exceed 1; got {}", ntg[1]);
@@ -7900,9 +8408,9 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false
@@ -7971,9 +8479,9 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -7997,10 +8505,14 @@ mod tests {
             // SB-CUT-019 tightened this: the stored form carries the UNIT beside the value,
             // because "entered with a unit and stored with it" is half the requirement. A bare
             // 0.5 in provenance would no longer say whether it meant v/v or porosity units.
+            // SB-CUT-020 tightened it again: the stored form also names the OPERATOR,
+            // so a reloaded run cannot silently move which side of the bound a sample
+            // falls on - the one difference that is invisible everywhere except at
+            // exactly the cut-off.
             for expected in [
-                "\"vsh_max\":{\"unit\":\"v/v\",\"value\":0.5}",
-                "\"phie_min\":{\"unit\":\"v/v\",\"value\":0.1}",
-                "\"swe_max\":{\"unit\":\"v/v\",\"value\":0.5}",
+                "\"vsh_max\":{\"operator\":\"INCLUSIVE\",\"unit\":\"v/v\",\"value\":0.5}",
+                "\"phie_min\":{\"operator\":\"INCLUSIVE\",\"unit\":\"v/v\",\"value\":0.1}",
+                "\"swe_max\":{\"operator\":\"INCLUSIVE\",\"unit\":\"v/v\",\"value\":0.5}",
             ] {
                 assert!(params.contains(expected), "cutoffs in provenance: {params}");
             }
@@ -8011,9 +8523,9 @@ mod tests {
         let req_skip = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: true,
@@ -8090,9 +8602,9 @@ mod tests {
         let base = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -10604,7 +11116,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
             enabled_unset: Vec::new(),
                 custody: Some(test_run_custody()),
                 frame: Default::default(),

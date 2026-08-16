@@ -44,11 +44,11 @@ pub struct ReportSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<crate::workflow::CutoffEntry>,
-    pub phie_min: Option<crate::workflow::CutoffEntry>,
-    pub swe_max: Option<crate::workflow::CutoffEntry>,
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffEntry>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -87,10 +87,16 @@ pub(crate) fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
                 crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
                 crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
                 crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-                spec.perm_min
-                    .as_ref()
-                    .map(|e| format!(", PERM ≥ {:.1} {}", e.value, e.unit))
-                    .unwrap_or_default()
+                match crate::workflow::cutoff_phrase(
+                    spec.perm_min.as_ref(),
+                    crate::workflow::CutoffSense::Minimum,
+                    1,
+                )
+                .as_str()
+                {
+                    "" => String::new(),
+                    phrase => format!(", PERM {phrase}"),
+                }
             ),
         ),
     ]
@@ -586,10 +592,17 @@ fn report_pages_with_degradations(
                     .then(|| {
                         format!(
                             "Note: this well carries no permeability curve, so every sample fails the \
-                             PERM ≥ {:.1} mD cutoff for want of data. The zero net pay below records an \
+                             PERM {} cutoff for want of data. The zero net pay below records an \
                              absence of evidence, not a dry reservoir — compute or import a permeability \
                              curve, or lift the cutoff, before reading these rows.",
-                            spec.perm_min.as_ref().map(|e| e.value).unwrap_or(0.0)
+                            // SB-CUT-020: the comparison comes from the cut-off itself. The note
+                            // used to hard-code `≥`, which an exclusive bound or a two-sided
+                            // window makes untrue — and this note exists to be read literally.
+                            crate::workflow::cutoff_phrase(
+                                spec.perm_min.as_ref(),
+                                crate::workflow::CutoffSense::Minimum,
+                                1,
+                            )
                         )
                     });
                 let p_rows: Vec<Vec<String>> = pay_rows
@@ -893,9 +906,9 @@ mod tests {
             title: "Petrophysical Evaluation".into(),
             author: "Tester".into(),
             methodology: vec![],
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             tables_only: true,
         }
@@ -1124,7 +1137,7 @@ mod tests {
         let quiet = pay_text(&spec);
         assert!(!quiet.contains("no permeability curve"), "no cutoff requested, no note: {quiet}");
 
-        spec.perm_min = Some(crate::workflow::CutoffEntry { value: 1000.0, unit: "mD".into() });
+        spec.perm_min = Some(crate::workflow::CutoffEntry { value: 1000.0, unit: "mD".into() }.into());
         let noted = pay_text(&spec);
         assert!(noted.contains("no permeability curve"), "the reason must be stated: {noted}");
         assert!(noted.contains("1000.0 mD"), "and name the cutoff it could not answer: {noted}");
@@ -1535,9 +1548,9 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![w],
-                    vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-                    phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
-                    swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
+                    vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                    phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                    swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                     enabled_unset: Vec::new(),
                     perm_min: None,
                     skip_version: true,
@@ -1653,9 +1666,9 @@ mod tests {
             title: "Petrophysical Evaluation — Sandi Field".into(),
             author: "Jauhar".into(),
             methodology: vec![],
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             tables_only: true,
         };
