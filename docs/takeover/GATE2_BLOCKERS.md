@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `157 / 222`
+- Handled: `158 / 222`
 - Done: `118`
-- Blocked: `39`
-- Remaining unhandled: `65`
+- Blocked: `40`
+- Remaining unhandled: `64`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.
@@ -66,6 +66,7 @@ requirement appears exactly once.
 | `SB-ENV-037` | DEC-035 | Exact recovery includes deferred absent culling, and current batch flags do not contain the original values needed for bit-exact restoration. | Add culling to the pilot or re-adjudicate first-pilot recovery to the shipped operations; in either case define one persisted bit-exact change record including missing-value bits. |
 | `SB-CLY-001` | DEC-036 | The generic binary precondition flag is not the specified categorical `ENDPOINT_INVALID` reason and carries no zone identity. | Add SB-CLY-031/032 to the pilot or authorize their exact categorical schema as narrow infrastructure, including versioned wire/LAS codes and separate substitution custody. |
 | `SB-CLY-034` | DEC-036 and DEC-037 | Provenance export is absent, and a global undeclared `-999` screen would delete legitimate values and violate explicit `NoNull`. | Settle categorical provenance plus a source-scoped rule where `NoNull` wins and matched undeclared values are quarantined behind a named import decision or exact approved automatic policy. |
+| `SB-CLY-055` | DEC-036 and DEC-037 | Exact T35 requires the deferred CLY provenance output and an authorized LAS token representation; exact T44 needs a source-scoped undeclared-`-999` policy compatible with per-channel `NoNull`. | Authorize the complete versioned categorical provenance schema as pilot infrastructure or add SB-CLY-031/032 to the manifest, then define the exact CLY source/mnemonic signatures and `NoNull`-first sentinel policy before writing the all-output round trip. |
 
 ## Product-owner decision packet
 

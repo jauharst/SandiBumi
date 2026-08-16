@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-055: complete CLY LAS round trip blocked on provenance and sentinel policy
+
+- [ ] **Decision dependency:** answer DEC-036 and DEC-037. Exact T35 requires the still-absent
+      typed CLY provenance curve and its LAS representation; exact T44 requires a source-scoped
+      undeclared-`-999` rule that does not violate an explicit per-channel `NoNull` declaration.
+- [ ] **Automated boundary:** no SB-CLY-T35/T44 acceptance test was added. Generic LAS numeric
+      round trip, declared-sentinel export and parser-null controls remain green, but none can prove
+      an output that does not exist or authorize treating every bare `-999` as absent.
+- [ ] **Import/export UX:** after the decisions close, export every live CLY value, flag and
+      provenance channel with explicit writer settings; re-import it; disclose the declared null;
+      and make any undeclared-sentinel quarantine name the rule, sentinel and affected curves.
+- [ ] **Field and harsh critique:** a round trip of only the curves that happen to ship is not an
+      “every domain curve” proof when the required provenance curve is absent. Likewise, preserving
+      bytes is not preserving meaning unless categorical token metadata survives. No Visual,
+      Manual or Field box is pre-checked.
+
 ## 2026-08-16 — G2 SB-CLY-054: named CLY unit conversion and run custody
 
 - [ ] **Automated correctness:** the exact SB-CLY-T21 and physical-unit T42 limbs were witnessed

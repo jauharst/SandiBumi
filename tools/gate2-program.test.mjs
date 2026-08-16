@@ -145,12 +145,13 @@ test('the_live_gate_two_progress_receipt_accounts_for_every_handled_row_once', (
   const handled = new Set([...program.completed_requirements, ...program.blocked_requirements]);
 
   assert.equal(program.completed_requirements.length, 118);
-  assert.equal(program.blocked_requirements.length, 39);
-  assert.equal(handled.size, 157, 'completed and blocked receipts must not overlap');
-  assert.equal(program.gate2_requirement_count - handled.size, 65);
+  assert.equal(program.blocked_requirements.length, 40);
+  assert.equal(handled.size, 158, 'completed and blocked receipts must not overlap');
+  assert.equal(program.gate2_requirement_count - handled.size, 64);
   assert.ok(program.completed_requirements.includes('SB-CLY-050'));
   assert.ok(program.completed_requirements.includes('SB-CLY-051'));
   assert.ok(program.completed_requirements.includes('SB-CLY-054'));
+  assert.ok(program.blocked_requirements.includes('SB-CLY-055'));
 });
 
 test('the_integrated_gate_two_blocker_packet_accounts_for_each_live_blocked_requirement_once_and_is_linked_from_the_dashboard', () => {

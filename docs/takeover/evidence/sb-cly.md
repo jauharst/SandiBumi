@@ -732,14 +732,14 @@
 
 - **Chapter evidence:** P1; historical status `PARTIAL`; T35/T44; sections 4.5, 6 and 8.
 - **Atomic obligations:** values, flags and provenance round-trip with absences intact; declared sentinel in header; provenance tokens survive as a curve.
-- **Current source:** every registered exporter requires writer settings and emits the project-declared sentinel; the default LAS path re-imports numeric values correctly and parser rules preserve declared/per-channel null semantics. CLY has no provenance curve or family and no domain-wide values/flags/provenance round-trip fixture.
-- **Qualifying acceptance tests:** none; generic numeric round trip does not close missing CLY provenance or the T44 conflict. Test class `MISSING`.
-- **Supporting tests:** all three export controls and all three parser null-policy controls passed exactly once.
+- **Current source:** every registered exporter requires explicit writer settings and emits the project-declared sentinel; the default LAS path re-imports numeric values correctly and parser rules preserve declared/per-channel plural/`NoNull` semantics. SB-CLY-046 now registers the categorical CLY family, but SB-CLY-031/032 remain deferred and no module emits the required per-sample provenance curve, closed token vocabulary or separate substitution channel. No source-scoped undeclared-`-999` quarantine exists.
+- **Qualifying acceptance tests:** none. Exact T35 cannot prove provenance tokens survive because the required output and wire representation do not exist. Exact T44 cannot be implemented globally without contradicting the green SB-DIO `NoNull` and per-channel contracts; the chapter supplies no complete source/mnemonic signature or precedence. Test class `MISSING`.
+- **Supporting tests:** the three export controls, generic numeric LAS round trip and three parser null-policy controls remain green. They prove the safe declaration-based boundary and prevent a missing provenance output or global magic-value rewrite from being counted as closure.
 - **Manual evidence:** las-export 0/2; shale-volume 0/17; processing-history 0/7.
-- **Git evidence:** generic declared-sentinel custody is integrated; CLY provenance export/import is unimplemented.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-CLY-031, SB-CLY-032 and SB-CLY-046; the writer sentinel remains project-declared, never hard-coded per format.
-- **Next action:** after typed provenance exists, add one all-output LAS round trip using explicit writer settings and prove values, NaNs, flags and tokens survive unchanged.
+- **Git evidence:** current source was reverified at parent `c12803b5`; this blocker increment changes no production behavior and weakens no existing LAS/null assertion.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY` on DEC-036 and DEC-037; no false closure.
+- **Blocker or decision:** DEC-036 must authorize the SB-CLY-031/032 categorical schema inside the immutable pilot scope or add those rows to the manifest, including stable numeric/LAS codes, token metadata, unknown-code refusal and separate substitution custody. DEC-037 must define the exact source-controlled CLY identifiers and precedence for undeclared `-999`; explicit `NoNull` remains authoritative and a number alone is not proof of absence.
+- **Next action:** settle DEC-036/037, then export and re-import every live CLY value, flag and typed provenance channel with explicit writer settings; prove declared null, NaN positions, numeric values, flag values, token identities and substitution custody survive, with unrelated and explicit-`NoNull` controls from both sides.
 
 ## Test-intent classification summary
 

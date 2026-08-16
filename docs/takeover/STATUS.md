@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `157 / 222 handled — 118 DONE, 39 BLOCKED, 65 remaining`
+- Gate 2 requirement progress: `158 / 222 handled — 118 DONE, 40 BLOCKED, 64 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T07 / SB-CLY-054 - DONE; every live CLY quantity uses a registered unit, source-unit conversions drive numeric defaults, and named conversion custody survives into the run and UI`
+- Active increment: G2-T07 / SB-CLY-055 - `BLOCKED-DECISION/DEPENDENCY`; exact T35 lacks the deferred SB-CLY-031/032 provenance output and LAS token schema, while exact T44 lacks a source-scoped undeclared-`-999` policy compatible with per-channel `NoNull`.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: Exact SB-CLY-054 Rust and frontend correctness is GREEN after witnessed RED on unit spelling drift and missing visible custody. All 20 live CLY quantities are registry-typed; `2645 k/m3 -> 2.645 g/cc` meets `1e-9`; the live N-D rearrangement matches the independent bilinear form in 10000 deterministic two-unit cases at `1e-12`; all defaulted and explicit values persist named unit custody while ABSENT values do not; and the dialog discloses source/canonical units and derivation. Wrong-factor, partial-persistence and wrong-sign mutations each produced RED. TypeScript and cargo check are green; the fresh full gate is `1037 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: No exact SB-CLY-T35/T44 test was added: a generic numeric round trip cannot prove an absent categorical provenance output, and a global bare-`-999` screen would violate the green per-channel `NoNull` contract. The safe declared-sentinel export/import and parser-null controls remain unchanged. TypeScript and cargo check are green; the fresh full gate is `1037 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `39 requirements are explicitly BLOCKED and 65 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T07 with SB-CLY-055: prove declared-sentinel LAS round-trip behavior for every shipping CLY value and flag without inventing the still-absent categorical provenance curve.`
+- Open blockers: `40 requirements are explicitly BLOCKED and 64 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T08 with SB-POR-001: define the common POR result envelope and separately cited per-method limit/correction policies without merging unlike method contracts or inventing a shared numeric bound.`
 
 ## Gate dashboard
 
