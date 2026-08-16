@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `181 / 222`
+- Handled: `182 / 222`
 - Done: `128`
-- Blocked: `53`
-- Remaining unhandled: `41`
+- Blocked: `54`
+- Remaining unhandled: `40`
 
 ---
 
@@ -153,6 +153,7 @@ requirement appears exactly once.
 | `SB-POR-047` | Dependency on SB-POR-003 / DEC-039 | The chapter (`:1061-1063`) requires porosity to accept `BADHOLE` as a declared input **and** record its effect **through SB-POR-003**. The declaration is ordinary wiring; the recording names a stream that does not exist pending DEC-039. The row's whole point is *not* depending on the analyst remembering a generic Mask, so the existing mask route does not satisfy it. | Settle DEC-039, then declare and consume `BADHOLE` per `gascorr`'s idiom and prove clean, flagged and flag-absent - absent recording that nobody looked, not a zero. |
 | `SB-POR-048` | Per-flag policy ruling, then DEC-039 | The chapter (`:1065-1072`) requires porosity to consume `COAL_FLAG`, `TIGHT_FLAG` and `COND_FLAG` **with defined branch behaviour** - and does not define it. Per flag: does it **mask**, **select a branch**, or only **annotate**? Three different porosity curves from identical data, none cited. Coal is the sharp case: a coal bed has a real very high apparent density porosity, and blanking it versus computing-and-labelling it is a method preference. Recording the outcome then needs DEC-039. | Rule the policy per flag; settle DEC-039; then declare the three as typed inputs, implement without deleting any existing guard, and prove each consumed flag plus an unflagged control. |
 | `SB-POR-054` | Which spelling is canonical | The `SB-POR-005`/`SB-POR-040` dependency was stale - neither appears in the requirement text. The real gap is evidenced: density writes `(rho_ma - r)/(rho_ma - rho_fl)` (`modules.rs:3160`) while sonic writes `(d - dt_ma)/(dt_fl - dt_ma)` (`:3392`). Identical numbers, two spellings, no stated convention - which is what the MUST forbids. Choosing one is an API-convention call across many modules, not a petrophysical one. | Pick the canonical spelling and state it at the typed API boundary. The identity test needs no decision and is ready: both published forms give 0.2121212 at rho_ma 2.65 / rho_fl 1.0 / rho_b 2.3, and a numerator-only flip giving -0.2121212 must be caught. |
+| `SB-POR-055` | One ruling on `RHO_DSH` | Narrowed twice - both stated blockers cleared this session, and the *no POR source topics* claim is now false since SB-POR-007 and 043 registered nine. What remains is substantive: the chapter records that **`RHO_DSH = 2.65` matches no held source at all** and sets `PHIT_SH` a factor **1.73 low**. Its own rule then requires ABSENT - which stops every porosity run until the user supplies it. That moves PHIE and therefore pay. | Rule `RHO_DSH`: ABSENT per the standing decision, or adjudicate a cited value as DEC-041 did. Then build the universal inventory gate, which needs no decision. |
 
 ## Product-owner decision packet
 

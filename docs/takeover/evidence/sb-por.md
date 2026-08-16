@@ -794,18 +794,17 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-CONTRACT`. The earlier *depends on SB-POR-005/SB-POR-040* reading is **stale** - neither is named in the requirement, and SB-POR-040 concerns excavation-correction directions, a different subject. This is one MUST with two clauses: the second (the identity proof) needs no decision and is ready to build; the first requires choosing which spelling is canonical and refactoring every transform to it. That is an API-convention call across many modules and **not** a petrophysical one - both forms are the same number - so it is recorded rather than decided unilaterally.
 - **Next action:** choose matrix-first or log-first, state it at the typed API boundary, then add the identity test with the single-flip arm, which is the arm that catches the real-world mistake.
 
-## SB-POR-055 - Source, tier and default discipline for all parameters
+## SB-POR-055 - Every parameter carries source and tier, or ships ABSENT
 
-- **Specified contract:** every one of the 74 parameter rows is represented with source/tier, unit and default state; ABSENT stays absent, NON-ADOPTABLE stays verification-only, and every resolved choice is visible and persisted.
-- **Current implementation:** POR manifests contain many numeric literals/defaults but no POR source topics or evidence tiers. Generic dialog support exists. Several chapter-absent capabilities have no parameters, and current hard-coded bounds/floor cannot express the chapter's custody states.
-- **Qualifying acceptance tests:** none; no complete 74-row source/default inventory exists. Test class `MISSING`.
-- **Supporting tests:** generic source-panel and manifest-shape tests prove infrastructure only.
-- **Manual evidence:** porosity 0/33; workflow 0/23; processing-history 0/7.
-- **Source/parameter boundary:** mechanically 15 rows contain `ABSENT` and 8 `NON-ADOPTABLE`, while chapter prose says 18 ABSENT; the mismatch is preserved and no row is normalized by guess.
-- **History/reachability:** generic `sources_topic` is reachable; no complete POR registry was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires row-by-row custody plus explicit resolution of PHIE-floor precedence; ESC-POR-8 remains open.
-- **Next action:** create a generated POR parameter inventory from admissible chapter rows and fail its gate if any live argument lacks source/tier/default-state or any absent value acquires a default.
+- **Specified contract:** every petrophysical parameter in the domain **MUST** carry a source string and tier, and where held sources disagree with no defensible adjudication the parameter **MUST** ship `ABSENT - ships with no default` with the competing values visible. A standing project decision, applying immediately to `RHO_SH`, `RHO_DSH`, `NPHI_SH`, `DT_SH` and `RHO_MA`.
+- **Current implementation:** partly built **this session**. SB-POR-007 registered eight cited POR topics with sources and tiers; SB-POR-043 added a ninth. The earlier *no POR source topics or evidence tiers* reading is now false. Still missing is the **universal gate**: nothing fails when a live POR argument lacks source, tier or default-state, so coverage is the set somebody remembered rather than a proven whole.
+- **Qualifying acceptance tests:** none for the universal contract. Test class `MISSING`.
+- **Supporting tests:** SB-POR-007's inventory test pins the nine registered topics exactly, including that each carries at least two disagreeing cited positions. It proves those nine, not all of them.
+- **Manual evidence:** porosity 0/70.
+- **Source/parameter boundary:** the chapter records that **`RHO_DSH = 2.65` matches no held source at all**, and that it sets `PHIT_SH` a factor **1.73 low** against the nearest vendor. `RHO_MA` left the uncited set when DEC-041 adjudicated 2.65. For Techlog neither script nor doc may be treated as authoritative alone - **nine** shipped quantities disagree between the two, two of them inside one equation (F23). No value was invented and `RHO_DSH` was left untouched.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DECISION` on `RHO_DSH`, narrowed twice - ESC-POR-8 closed when the 1977 Bateman-Konen primary source was banked this session, and PHIE-floor precedence was ruled by DEC-043 and DEC-047. Under the chapter's own rule `RHO_DSH` must ship ABSENT, which means **every porosity run stops until the user supplies it**. That is a large, deliberate behaviour change to a P0 default that currently computes silently, and a factor 1.73 on clay-bound-water porosity moves PHIE and therefore pay. Reserved for Jauhar.
+- **Next action:** rule `RHO_DSH` - ABSENT per the standing decision, or adjudicate a cited value as DEC-041 did. Then build the universal inventory gate over the live catalogue, which needs no decision and is the half that makes coverage provable rather than remembered.
 
 ## SB-POR-056 - Canonical porosity and input units
 
