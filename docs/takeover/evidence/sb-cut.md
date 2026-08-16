@@ -314,14 +314,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-018
 
 - **Specified contract:** every cutoff entry/display surface resolves one authority.
-- **Current implementation / as-built:** seven UI consumers plus the loader share loadCutoffDefaults, while dashboardPanel hardcodes 0.5/0.1/0.6. PARTIAL.
+- **Current implementation / as-built:** every cut-off surface resolves from `./cutoffs`. `dashboardPanel.ts` was the last bypass and now imports `loadCutoffDefaults` like the other seven, seeding all four boxes from the project's saved authority - blank where the authority is absent, which after SB-CUT-016 is the fresh-project state. PRESENT-OK.
+- **The enumeration DISCOVERS panes rather than listing them,** and that is the substance. A hand-maintained list goes stale the day somebody adds a pane, which is precisely how six copies of two disagreeing sets came to exist. The test scans `src/ui` for any file naming `vsh_max`/`phie_min`/`swe_max` and requires each to import from `./cutoffs`. Two exemptions, explicit and reviewable: `cutoffs.ts`, which IS the authority, and `paramSources.ts`, which names cut-offs as source topics without carrying values.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** MISSING; source inventory identifies the current eight loader-related files and one direct-literal bypass, but source inspection is not executable evidence and T35 does not exist as a registry test.
-- **Manual evidence:** NONE; field dashboard is 0/10.
-- **Source/parameter boundary:** shared authority must carry absent/source states; a centralized uncited value remains wrong.
-- **UI/IPC/provenance surface:** cutoff, summary, MC, report, Results QC, workbook and deck load the shared document; dashboard does not.
-- **History/reachability:** the shared loader and bypass are integrated.
-- **Blocking decision / next action:** register all cutoff surfaces, route dashboard through the same typed authority, and make the inventory fail on any future bypass.
+- **Automated evidence:** `every_pane_that_touches_a_cutoff_resolves_it_from_the_one_shared_authority` (`src-tauri/src/param_sources.rs`). CORRECTNESS. It enumerates by discovery, requires the shared import, forbids a hard-coded cut-off literal on any line that names a cut-off, refuses to pass on fewer than eight discovered surfaces, and asserts the Field Dashboard is among them by name - it was the bypass, so a scan that silently stopped seeing it would be the failure repeating itself.
+- **A false positive fixed rather than suppressed:** the literal scan first flagged `sweepMaxIn.value = "0.3"` in `cutoffDialog.ts`. That is a sweep RANGE - a plot bound with a legitimate default - not a cut-off. The scan is now scoped to lines that name a cut-off and skips lines mentioning `sweep`, rather than the file being exempted wholesale, which would have created a place to hide a real literal.
+- **Mutation evidence:** three probes, each read for WHICH assertion fired. Removing the shared import from the dashboard turned the authority arm red. Re-seeding `sweIn` with `"0.6"` turned the literal arm red, naming the offending line. Making the discovery filter match nothing turned the vacuity guard red at *found 0* - which is what stops the enumeration from passing by seeing nothing.
+- **Manual evidence:** field-dashboard 0/10. Automated only.
+- **Source/parameter boundary:** no value adopted. The banned literals are exactly the chapter's two documented copy-pasted sets plus the other vendors' published values, registered as FORBIDDEN rather than as candidates.
+- **UI/IPC/provenance surface:** all eight surfaces now read one authority; the dashboard's four boxes included.
+- **History/reachability:** the shared loader was integrated and is unchanged; only the bypass is gone.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-019
 

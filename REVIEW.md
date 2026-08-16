@@ -14450,3 +14450,20 @@ divergence written down where a machine can find it instead of buried in a code 
 
 - [ ] **Nothing to click.** But when you next look at Monte Carlo convergence, know that auto-stop
       stops five times sooner than the reference behaviour, and tell me whether you want it moved.
+
+## The Field Dashboard now shows the same cutoffs as everywhere else
+
+Six panes used to carry their own copies of the cutoff numbers, and **two of the copies disagreed**
+— Monte Carlo and Results QC used PHIE ≥ 0.08 / SWE ≤ 0.5 while the cutoff editor, summary, report
+and dashboard used 0.1 / 0.6. The Monte Carlo tooltip said "Cutoffs match the pay summary" the whole
+time it wasn't true. The Field Dashboard was the last pane still holding its own copies; it now
+reads the same saved project defaults as every other surface.
+
+There is a test that goes looking for panes rather than working from a list, so a pane added next
+year cannot quietly start its own copy again.
+
+- [ ] **Open a project where you have saved cutoffs, then open the Cutoffs pane and the Field
+      Dashboard side by side.** The four boxes should match exactly.
+- [ ] **Change a saved default, reopen both.** Both should move together.
+- [ ] **Compare Monte Carlo's cutoffs against the pay summary's** on the same project — the claim in
+      that tooltip should finally be true.

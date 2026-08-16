@@ -1,5 +1,6 @@
 import { resolveWellScope, runPaySummary, type BackendWellScope, type PaySummaryRow } from "../ipc";
 import { appState } from "../state";
+import { loadCutoffDefaults } from "./cutoffs";
 import { escapeHtml } from "./safeDom";
 import { reportDashboardCompletion } from "./reportingHonesty";
 import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
@@ -69,10 +70,15 @@ export async function buildDashboardContent(
   };
   // SB-CUT-016: no cut-off ships a value. A blank box means the summation is UNFILTERED on that
   // property, which the result then reports; it does not mean "use ours".
-  const vshIn = num("", "(unfiltered)");
-  const phieIn = num("", "(unfiltered)");
-  const sweIn = num("", "(unfiltered)");
-  const permIn = num("", "(off)");
+  // SB-CUT-018: and the values come from the ONE shared authority, never from a literal here. This
+  // pane was the last bypass - it seeded its own copies, so it could disagree with every other
+  // pane about the same project's cutoffs.
+  const saved = await loadCutoffDefaults();
+  const seed = (v: number | null) => (v === null ? "" : String(v));
+  const vshIn = num(seed(saved.vsh_max), "(unfiltered)");
+  const phieIn = num(seed(saved.phie_min), "(unfiltered)");
+  const sweIn = num(seed(saved.swe_max), "(unfiltered)");
+  const permIn = num(seed(saved.perm_min), "(off)");
   /** SB-CUT-016: a blank cut-off box is ABSENT, never a shipped number. */
   const cutoffOf = (i: HTMLInputElement): number | null => {
     const v = parseFloat(i.value);

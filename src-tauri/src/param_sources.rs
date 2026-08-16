@@ -953,6 +953,78 @@ fn value_agrees(cited: &str, value: f64) -> bool {
 #[cfg(test)]
 mod tests {
 
+    /// SB-CUT-018 (P0). `14_cutoffs-summation-mc.md:1181-1200` — every user-facing surface that
+    /// accepts or displays a cut-off **MUST** resolve it from a single shared module, no pane may
+    /// hard-code a cut-off literal, and **a test MUST enumerate the panes and fail when one
+    /// bypasses the authority**.
+    ///
+    /// The drift is documented in SandiBumi's own source: TWO disagreeing sets were copy-pasted
+    /// across six panes — VSH 0.5 / PHIE **0.08** / SWE **0.5** in `monteCarloDialog` and
+    /// `resultsQcPanel` against VSH 0.5 / PHIE **0.1** / SWE **0.6** in four others — while the
+    /// Monte Carlo tooltip claimed *"Cutoffs match the pay summary"* when they did not.
+    ///
+    /// **The enumeration DISCOVERS panes rather than listing them.** A hand-maintained list is a
+    /// list that goes stale the day somebody adds a pane, which is exactly how six copies happened.
+    /// Any file under `src/ui` that names a cut-off field must route through `./cutoffs`; the two
+    /// exemptions are explicit and are the authority itself and the source-topic table.
+    #[test]
+    fn every_pane_that_touches_a_cutoff_resolves_it_from_the_one_shared_authority() {
+        // The authority module, and the topic table that names cut-offs without carrying values.
+        const EXEMPT: [&str; 2] = ["cutoffs.ts", "paramSources.ts"];
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/ui");
+        let mut checked = 0;
+        let mut panes = Vec::new();
+        for entry in std::fs::read_dir(&ui).expect("the ui directory is beside the crate") {
+            let path = entry.expect("a readable entry").path();
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".ts") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).expect("a readable pane");
+            if !["vsh_max", "phie_min", "swe_max"].iter().any(|f| src.contains(f)) {
+                continue;
+            }
+            checked += 1;
+            if EXEMPT.contains(&name.as_str()) {
+                continue;
+            }
+            panes.push(name.clone());
+            assert!(
+                src.contains("from \"./cutoffs\""),
+                "{name} accepts or displays a cut-off but does not resolve it from the shared                  authority - this is the bypass that let two disagreeing sets ship at once"
+            );
+            // No pane may hard-code a cut-off literal. These are the exact numbers the two
+            // copy-pasted sets used, plus the other vendors' published values. Scoped to lines
+            // that actually NAME a cut-off: a sweep range or a plot bound is not a cut-off and
+            // legitimately has a default, and `sweepMaxIn.value = "0.3"` is one - which is why
+            // "sweep" is excluded rather than the whole file being scanned flat.
+            for line in src.lines() {
+                let lower = line.to_ascii_lowercase();
+                if lower.contains("sweep") {
+                    continue;
+                }
+                if !["vsh", "phie", "swe"].iter().any(|f| lower.contains(f)) {
+                    continue;
+                }
+                for banned in ["\"0.5\"", "\"0.08\"", "\"0.1\"", "\"0.6\"", "\"0.15\"", "\"0.85\"", "\"0.3\""] {
+                    assert!(
+                        !line.contains(banned),
+                        "{name} seeds a cut-off field with {banned}; a pane may READ the                          authority, never carry its own copy: {line}"
+                    );
+                }
+            }
+        }
+        assert!(
+            checked >= 8,
+            "expected the cut-off surfaces to be discovered, found {checked} - a pass over one or              two files would prove nothing"
+        );
+        assert!(
+            panes.iter().any(|p| p == "dashboardPanel.ts"),
+            "the Field Dashboard must be among the enumerated panes; it was the last bypass"
+        );
+    }
+
+
     /// SB-CUT-017 (P0). `14_cutoffs-summation-mc.md:1161-1174` — every default SandiBumi ships in
     /// this domain **MUST** carry a machine-readable source identifying the file, section or
     /// citation it came from; a default with no source **MUST FAIL THE BUILD**; and a module
