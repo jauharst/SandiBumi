@@ -8238,13 +8238,22 @@ mod tests {
             .split_once("#[cfg(test)]")
             .map(|(before, _)| before)
             .unwrap_or(&source);
+        // Deliberately a whole-file substring scan rather than a scoped one, and the trade-off is
+        // stated so a future false positive is SCOPED rather than deleted: "2.91" also matches
+        // 12.91 and 2.912, and a non-porosity module could one day need one legitimately. Erring
+        // toward a spurious failure is the safe direction here — the alternative is a guard that
+        // silently stops covering the thing it was written for. If this fires on innocent code,
+        // narrow the slice to the porosity spec bodies; do not remove the assertion.
         assert!(
             !production.contains("2.91"),
-            "the lower bound of Techlog's lithology-kill band appeared in production porosity source"
+            "the lower bound of Techlog's lithology-kill band (SB-POR-049) appeared in production \
+             source. If this is an unrelated module's legitimate literal, narrow this scan to the \
+             porosity bodies — do not delete it"
         );
         assert!(
             !production.contains("0.04 =>") && !production.contains("<= 0.04"),
-            "a hard-coded neutron kill threshold appeared in production porosity source"
+            "a hard-coded neutron kill threshold (SB-POR-049) appeared in production source. Same \
+             rule: narrow the scan, do not delete the assertion"
         );
     }
 
