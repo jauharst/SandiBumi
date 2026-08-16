@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-CLY-042","CORRECTNESS","src-tauri/src/modules.rs","documented_picking_conventions_are_sourced_help_and_never_numeric_defaults"
 "SB-CLY-041","CORRECTNESS","src-tauri/src/workflow.rs","corrected_aliases_win_over_raw_and_normalized_inputs_raw_remains_the_fallback_and_each_resolved_curve_is_recorded"
 "SB-CLY-035","CORRECTNESS","src-tauri/src/modules.rs","under_gauge_and_over_gauge_hole_both_fire_while_both_strict_boundaries_and_in_gauge_do_not"
 "SB-ENV-057","CORRECTNESS","src-tauri/src/modules.rs","every_project_depth_length_parameter_uses_one_token_while_metre_qualified_parameters_stay_metres"

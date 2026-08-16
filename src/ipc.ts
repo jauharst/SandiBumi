@@ -1015,6 +1015,8 @@ export interface ArgSpec {
   default: string;
   /** Ordered automatic LogIn aliases; absent means the single manifest default is used. */
   preferred_aliases?: string[];
+  /** Source-bearing advice shown beside the field. It never populates the argument value. */
+  guidance?: Array<{ text: string; source: string }>;
   /** Named source for a numeric default, or exact `ABSENT` when no numeric default ships. */
   default_source: string;
   /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything

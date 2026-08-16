@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-CLY-042: Sourced picking guidance without invented values
+
+- [ ] **Automated correctness:** the owned Rust contract is GREEN after witnessed RED, a
+      missing-guidance mutation and a cited-default-erasure mutation. It inventories the shipping
+      GR endpoints, N-D crossplot endpoints and normalization reference pair; requires advice plus
+      source; keeps every uncited endpoint `ABSENT`; and preserves cited RHO_MA/RHO_FL/NPHI_FL and
+      P3/P97 controls. The rendered-help test is GREEN after witnessed RED and a renderer-removal
+      mutation. TypeScript and cargo check are green; the fresh full gate passed 1029 / 0 / 37
+      with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray, VSH from Density-Neutron and the saved Workflow editor.
+      Confirm each relevant parameter exposes readable `Guidance:` and `Source:` text, and that the
+      same field still says `Default: ABSENT` when no value is cited. Confirm the guidance does not
+      prefill the numeric control.
+- [ ] **Manual method review:** compare the visible text against the intended picking route: pooled
+      and pre-clipped percentiles for GR, the declared N-D clean-line construction, and one common
+      reference interval/pair for normalization. Enter an interpreter-owned endpoint and confirm
+      the typed value remains distinguishable from the advice and its source.
+- [ ] **Field and harsh critique:** showing a sourced convention prevents a hidden house number
+      from masquerading as authority. It does not prove that the selected interval, crossplot point
+      or endpoint is representative of a real delivery; that remains Jauhar's manual and field
+      decision, and no checklist box is pre-checked by automation.
+
 ## 2026-08-16 — G2 SB-CLY-041: Corrected-first input aliases with exact custody
 
 - [ ] **Automated correctness:** exact T43 is GREEN after a witnessed RED and a raw-first mutation

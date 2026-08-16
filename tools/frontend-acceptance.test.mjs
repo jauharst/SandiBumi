@@ -2156,3 +2156,36 @@ test("a_missing_required_well_input_is_marked_beside_its_sourced_condition_befor
   assert.match(source, /moduleInputAvailability\(/u, "the pane must query scoped runner input availability");
   assert.match(source, /renderValidityConditions\(/u, "the query result must reach the visible field-adjacent surface");
 });
+
+test("source_bearing_picking_guidance_is_rendered_beside_the_parameter_without_becoming_its_value", async () => {
+  // CORRECTNESS — SB-CLY-042 and docs/PRD_v2/10_clay-volume.md sections 3.5 F17,
+  // 4.3 and 5. The literal advice/source are chapter fixtures; the empty default is the
+  // independently specified distinction between a picking convention and a numeric endpoint.
+  const { argumentHint } = await load("/src/ui/moduleDialog.ts");
+  const arg = {
+    name: "GR_MA",
+    desc: "Gamma ray matrix (clean)",
+    unit: "gapi",
+    kind: "param",
+    default: "",
+    default_source: "ABSENT",
+    choices: [],
+    guidance: [{
+      text: "Pool comparable rock, pre-clip the distribution, then select the documented percentile convention.",
+      source: "docs/PRD_v2/10_clay-volume.md section 3.5 F17",
+    }],
+    min: 0,
+    max: 200,
+    required: true,
+  };
+
+  const hint = argumentHint(arg);
+  assert.match(hint, /Guidance: Pool comparable rock, pre-clip the distribution/);
+  assert.match(hint, /Source: docs\/PRD_v2\/10_clay-volume\.md section 3\.5 F17/);
+  assert.match(hint, /Default: ABSENT/);
+  assert.equal(arg.default, "", "rendering advice must never populate the numeric value slot");
+
+  const withoutGuidance = argumentHint({ ...arg, guidance: [] });
+  assert.doesNotMatch(withoutGuidance, /Pool comparable rock/);
+  assert.match(withoutGuidance, /Default: ABSENT/, "absence stays explicit even with no advice");
+});

@@ -208,6 +208,15 @@ pub struct ValidityCondition {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SourcedGuidance {
+    /// Advice about how the interpreter may derive or select a value. This is deliberately
+    /// separate from [`ArgSpec::default`]: a convention is not a numeric value.
+    pub text: String,
+    /// Named source for the advice. Blank sources are rejected by the owned contract test.
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ArgSpec {
     pub name: String,
     pub desc: String,
@@ -223,6 +232,10 @@ pub struct ArgSpec {
     /// run ancestry. Empty means the ordinary single `default` mnemonic is used.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preferred_aliases: Vec<String>,
+    /// Source-bearing interpreter guidance shown beside the field. It may explain how to pick a
+    /// value, but it never supplies [`ArgSpec::default`] and is never consumed by computation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guidance: Vec<SourcedGuidance>,
     /// Source for a numeric Param default, or the exact token [`ABSENT_DEFAULT_SOURCE`] when the
     /// parameter deliberately ships without one. Empty is invalid for every registered Param.
     #[serde(default)]
@@ -354,6 +367,7 @@ pub(crate) fn param(
         flag_kind: None,
         default: default.to_string(),
         preferred_aliases: vec![],
+        guidance: vec![],
         default_source: default_source.into(),
         choices: vec![],
         choice_labels: vec![],
@@ -377,6 +391,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         flag_kind: None,
         default: default.into(),
         preferred_aliases: vec![],
+        guidance: vec![],
         default_source: String::new(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
         choice_labels: Vec::new(),
@@ -409,6 +424,17 @@ fn validity(id: &str, statement: &str, source: &str, rule: ValidityRule) -> Vali
 
 fn with_validity(mut arg: ArgSpec, conditions: Vec<ValidityCondition>) -> ArgSpec {
     arg.validity_conditions = conditions;
+    arg
+}
+
+fn with_guidance(mut arg: ArgSpec, items: &[(&str, &str)]) -> ArgSpec {
+    arg.guidance = items
+        .iter()
+        .map(|(text, source)| SourcedGuidance {
+            text: (*text).into(),
+            source: (*source).into(),
+        })
+        .collect();
     arg
 }
 
@@ -494,6 +520,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         flag_kind: None,
         default: default.into(),
         preferred_aliases: vec![],
+        guidance: vec![],
         default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
@@ -517,6 +544,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         flag_kind: None,
         default: default_curve.into(),
         preferred_aliases: vec![],
+        guidance: vec![],
         default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
@@ -624,6 +652,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         flag_kind: None,
         default: String::new(),
         preferred_aliases: vec![],
+        guidance: vec![],
         default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
@@ -1973,6 +2002,16 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
 // VSH_GR — Volume of shale from gamma ray (Loglan vsh_gr.lls)
 // ---------------------------------------------------------------------------
 
+const GR_ENDPOINT_PICKING_GUIDANCE: (&str, &str) = (
+    "IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value.",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; method_workflow_standards.md",
+);
+
+const ND_CROSSPLOT_PICKING_GUIDANCE: (&str, &str) = (
+    "IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation.",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page",
+);
+
 fn vsh_gr_spec() -> ModuleSpec {
     ModuleSpec {
         name: "vsh_gr".into(),
@@ -2018,7 +2057,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                     ValidityRule::Enumeration,
                 )],
             ),
-            with_sources(with_validity(
+            with_guidance(with_sources(with_validity(
                 param_open("GR_MA", "Gamma ray matrix (clean)", "gapi", 0.0, 200.0, true),
                 vec![
                     validity(
@@ -2039,8 +2078,8 @@ fn vsh_gr_spec() -> ModuleSpec {
                         ValidityRule::LessThan { other: "GR_SH".into() },
                     ),
                 ],
-            ), crate::param_sources::GR_CLEAN_ENDPOINT),
-            with_sources(with_validity(
+            ), crate::param_sources::GR_CLEAN_ENDPOINT), &[GR_ENDPOINT_PICKING_GUIDANCE]),
+            with_guidance(with_sources(with_validity(
                 param_open("GR_SH", "Gamma ray shale", "gapi", 0.0, 1000.0, true),
                 vec![validity(
                     "vsh_gr.gr_sh_range",
@@ -2053,7 +2092,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                         when: None,
                     },
                 )],
-            ), crate::param_sources::GR_SHALE_ENDPOINT),
+            ), crate::param_sources::GR_SHALE_ENDPOINT), &[GR_ENDPOINT_PICKING_GUIDANCE]),
             log_in_preferred(
                 "GR",
                 "Gamma ray log",
@@ -2128,23 +2167,47 @@ fn vsh_dn_spec() -> ModuleSpec {
               (clay-type or gas ambiguity), or falls off the matrix–shale–fluid triangle."
             .into(),
         args: vec![
-            param(
-                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
-                "Geolog V14 vsh_dn.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/10_clay-volume.md §5",
+            with_guidance(
+                param(
+                    "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                    "Geolog V14 vsh_dn.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/10_clay-volume.md §5",
+                ),
+                &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
-            param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
-            param(
-                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
-                "Geolog V14 vsh_dn.info RHO_FL 1000 k/m3 and Techlog VSH neutron-density 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5",
+            with_guidance(
+                param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+                &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
-            param_open("NPHI_MA", "Matrix neutron porosity", "v/v", -0.15, 0.5, true),
-            param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
-            param(
-                "NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2,
-                "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+            with_guidance(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "Geolog V14 vsh_dn.info RHO_FL 1000 k/m3 and Techlog VSH neutron-density 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5",
+                ),
+                &[ND_CROSSPLOT_PICKING_GUIDANCE],
             ),
-            param_open("GR_MA", "Clean GR (clay-type cross-check)", "API", 0.0, 150.0, true),
-            param_open("GR_SH", "Shale GR (clay-type cross-check)", "API", 40.0, 400.0, true),
+            with_guidance(
+                param_open("NPHI_MA", "Matrix neutron porosity", "v/v", -0.15, 0.5, true),
+                &[ND_CROSSPLOT_PICKING_GUIDANCE],
+            ),
+            with_guidance(
+                param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
+                &[ND_CROSSPLOT_PICKING_GUIDANCE],
+            ),
+            with_guidance(
+                param(
+                    "NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2,
+                    "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+                ),
+                &[ND_CROSSPLOT_PICKING_GUIDANCE],
+            ),
+            with_guidance(
+                param_open("GR_MA", "Clean GR (clay-type cross-check)", "API", 0.0, 150.0, true),
+                &[GR_ENDPOINT_PICKING_GUIDANCE],
+            ),
+            with_guidance(
+                param_open("GR_SH", "Shale GR (clay-type cross-check)", "API", 40.0, 400.0, true),
+                &[GR_ENDPOINT_PICKING_GUIDANCE],
+            ),
             param(
                 "FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, 0.05, 1.0,
                 "docs/PRD_v2/10_clay-volume.md §5.1 — SandiBumi diagnostic threshold",
@@ -4661,6 +4724,16 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
 // GR_NORMALIZE — two-point percentile gamma-ray normalization
 // ---------------------------------------------------------------------------
 
+const GR_NORMALIZATION_PERCENTILE_GUIDANCE: (&str, &str) = (
+    "P3/P97 is a named SandiBumi house preset for selecting well percentiles. It selects positions in the distribution; it is not a gamma-ray endpoint value.",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5.1; method_workflow_standards.md",
+);
+
+const GR_NORMALIZATION_REFERENCE_GUIDANCE: (&str, &str) = (
+    "Compute well percentiles over a common reference interval containing comparable rock. Derive one reference pair from the study distribution or an agreed reference, then use that same pair for every well in the study.",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; method_workflow_standards.md",
+);
+
 fn gr_normalize_spec() -> ModuleSpec {
     ModuleSpec {
         name: "gr_normalize".into(),
@@ -4678,16 +4751,28 @@ fn gr_normalize_spec() -> ModuleSpec {
               should coincide."
             .into(),
         args: vec![
-            param(
-                "P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0,
-                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            with_guidance(
+                param(
+                    "P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0,
+                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                ),
+                &[GR_NORMALIZATION_PERCENTILE_GUIDANCE],
             ),
-            param(
-                "P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0,
-                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            with_guidance(
+                param(
+                    "P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0,
+                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                ),
+                &[GR_NORMALIZATION_PERCENTILE_GUIDANCE],
             ),
-            param_open("GR_LOW_REF", "Reference GR at low percentile", "gapi", 0.0, 1000.0, true),
-            param_open("GR_HIGH_REF", "Reference GR at high percentile", "gapi", 0.0, 1000.0, true),
+            with_guidance(
+                param_open("GR_LOW_REF", "Reference GR at low percentile", "gapi", 0.0, 1000.0, true),
+                &[GR_NORMALIZATION_REFERENCE_GUIDANCE],
+            ),
+            with_guidance(
+                param_open("GR_HIGH_REF", "Reference GR at high percentile", "gapi", 0.0, 1000.0, true),
+                &[GR_NORMALIZATION_REFERENCE_GUIDANCE],
+            ),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
             log_out("GRN", "Normalized gamma ray", "gapi"),
         ],
@@ -8055,6 +8140,88 @@ mod tests {
             );
             assert_eq!(arg.default_source, ABSENT_DEFAULT_SOURCE);
             assert!(arg.required, "both ends of the reference pair are required");
+        }
+    }
+
+    /// CORRECTNESS — SB-CLY-042 and `10_clay-volume.md` sections 3.5 F15/F17, 4.3,
+    /// 5 and 5.1. IP's percentile pipeline, Techlog's quantile habit and the two
+    /// documented N-D clean-line constructions are advice for choosing endpoints, not endpoint
+    /// values. The chapter separately keeps the cited RHO_MA/RHO_FL/NPHI_FL defaults and the
+    /// named P3/P97 normalization preset, so those are the positive control against a lazy
+    /// implementation that simply erases every number.
+    #[test]
+    fn documented_picking_conventions_are_sourced_help_and_never_numeric_defaults() {
+        let catalog = module_catalog();
+        let argument = |module_name: &str, argument_name: &str| {
+            catalog
+                .iter()
+                .find(|module| module.name == module_name)
+                .unwrap_or_else(|| panic!("missing module {module_name}"))
+                .args
+                .iter()
+                .find(|arg| arg.name == argument_name)
+                .unwrap_or_else(|| panic!("missing argument {module_name}.{argument_name}"))
+        };
+
+        for (module_name, argument_name) in [
+            ("vsh_gr", "GR_MA"),
+            ("vsh_gr", "GR_SH"),
+            ("vsh_dn", "RHO_SH"),
+            ("vsh_dn", "NPHI_MA"),
+            ("vsh_dn", "NPHI_SH"),
+            ("vsh_dn", "GR_MA"),
+            ("vsh_dn", "GR_SH"),
+            ("gr_normalize", "GR_LOW_REF"),
+            ("gr_normalize", "GR_HIGH_REF"),
+        ] {
+            let arg = argument(module_name, argument_name);
+            assert!(
+                arg.default.is_empty(),
+                "{module_name}.{argument_name} must not turn picking advice into a value"
+            );
+            assert_eq!(
+                arg.default_source,
+                ABSENT_DEFAULT_SOURCE,
+                "{module_name}.{argument_name} must declare the missing value explicitly"
+            );
+            assert!(
+                !arg.guidance.is_empty(),
+                "{module_name}.{argument_name} must carry its picking convention beside the field"
+            );
+            assert!(
+                arg.guidance.iter().all(|item| {
+                    !item.text.trim().is_empty()
+                        && !item.source.trim().is_empty()
+                        && item.source.contains("10_clay-volume.md")
+                }),
+                "{module_name}.{argument_name} guidance must state both advice and source"
+            );
+        }
+
+        for argument_name in ["RHO_MA", "RHO_FL", "NPHI_FL"] {
+            let arg = argument("vsh_dn", argument_name);
+            assert!(
+                arg.default.parse::<f64>().is_ok(),
+                "the independently cited {argument_name} default must not be erased"
+            );
+            assert_ne!(arg.default_source, ABSENT_DEFAULT_SOURCE);
+            assert!(
+                !arg.guidance.is_empty(),
+                "{argument_name} still participates in the documented crossplot construction"
+            );
+        }
+
+        for argument_name in ["P_LOW", "P_HIGH"] {
+            let arg = argument("gr_normalize", argument_name);
+            assert!(
+                arg.default.parse::<f64>().is_ok(),
+                "the named P3/P97 preset is cited and must remain selectable"
+            );
+            assert!(arg.default_source.contains("method_workflow_standards.md"));
+            assert!(
+                !arg.guidance.is_empty(),
+                "the preset must be described as a named convention rather than an endpoint"
+            );
         }
     }
 

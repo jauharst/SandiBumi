@@ -58,7 +58,10 @@ export function argumentHint(arg: ModuleSpec["args"][number]): string {
   const aliasPreference = arg.preferred_aliases?.length
     ? `Automatic input preference: ${arg.preferred_aliases.join(" → ")}. The curve resolved for each well is recorded in run provenance.`
     : "";
-  return [arg.desc, aliasPreference, defaultSource, ...conditions].filter(Boolean).join(" ");
+  const guidance = (arg.guidance ?? []).map(
+    (item) => `Guidance: ${item.text} Source: ${item.source}.`,
+  );
+  return [arg.desc, aliasPreference, ...guidance, defaultSource, ...conditions].filter(Boolean).join(" ");
 }
 
 export interface ValidityConditionView {

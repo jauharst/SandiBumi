@@ -20,6 +20,7 @@ import { buildRunCustodyControls } from "./runCustody";
 import { formRow } from "./modal";
 import { buildParamSources, withParamSources } from "./paramSources";
 import {
+  argumentHint,
   AUTO_INPUT_ALIAS,
   maskCurveNames,
   PRECONDITION_POLICY_FLAG_VALID_SAMPLES,
@@ -445,9 +446,9 @@ export async function buildWorkflowContent(
 
     for (const arg of spec.args) {
       if (arg.kind === "log_in") {
-        box.appendChild(editorRow(`${arg.name}${arg.required ? "" : " (opt)"}`, logInControl(step, arg, onChanged), arg.desc));
+        box.appendChild(editorRow(`${arg.name}${arg.required ? "" : " (opt)"}`, logInControl(step, arg, onChanged), argumentHint(arg)));
       } else if (arg.kind === "option") {
-        box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), arg.desc));
+        box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), argumentHint(arg)));
       } else if (arg.kind === "param") {
         const unit = arg.unit ? ` [${arg.unit}]` : "";
         const control = paramControl(step, arg, onChanged);
@@ -455,7 +456,7 @@ export async function buildWorkflowContent(
           editorRow(
             `${arg.name}${unit}`,
             arg.sources_topic ? withParamSources(control, arg.sources_topic) : control,
-            arg.desc,
+            argumentHint(arg),
           ),
         );
       }
@@ -491,7 +492,7 @@ export async function buildWorkflowContent(
           onChanged();
         });
         placeholders.set(arg.name, input);
-        box.appendChild(editorRow(`Write ${arg.name} as`, input, arg.desc));
+        box.appendChild(editorRow(`Write ${arg.name} as`, input, argumentHint(arg)));
       }
       void moduleOutputNames(step.module, step.log_inputs, step.opts)
         .then((names) => {

@@ -563,14 +563,14 @@
 
 - **Chapter evidence:** P3; historical status `ABSENT`; T33; sections 4.3, 5, 6 and 8.
 - **Atomic obligations:** sourced picking advice attached to the parameter; never convert advice into a numeric default.
-- **Current source:** CLY parameter descriptions contain no source-bearing picking guidance, while `vsh_gr`, `vsh_dn` and the legacy normalization preset still ship uncited numeric endpoint/reference defaults.
-- **Qualifying acceptance tests:** none; no whole-domain help/source/no-default inventory exists. Test class `MISSING`.
-- **Supporting tests:** the module dialog can render a generic source topic when supplied, but current CLY arguments supply none.
+- **Current source:** `ArgSpec.guidance` serializes advice and source separately from `default`. `vsh_gr`, `vsh_dn` and `gr_normalize` attach the F15/F17 crossplot, percentile and common-reference procedures to each relevant field. Module and Workflow editors render the same source-bearing hint. Endpoint/reference values remain empty with source state `ABSENT`; the separately cited RHO_MA/RHO_FL/NPHI_FL defaults and named P3/P97 percentile preset remain intact.
+- **Qualifying acceptance tests:** `documented_picking_conventions_are_sourced_help_and_never_numeric_defaults` was witnessed RED, passed 1/0/0, turned RED when `vsh_gr.GR_SH` lost guidance, and turned RED when the cited RHO_MA positive control was changed to ABSENT. It inventories every shipping endpoint/reference field, requires non-empty advice and source, and pins the value/default distinction from both sides. Test class `CORRECTNESS`.
+- **Supporting tests:** `source_bearing_picking_guidance_is_rendered_beside_the_parameter_without_becoming_its_value` was witnessed RED, passed 1/0/0, and turned RED when the renderer omitted guidance. TypeScript compilation is green; Module and Workflow use one hint renderer.
 - **Manual evidence:** shale-volume 0/17; histogram 5/22; crossplot 6/13.
-- **Git evidence:** uncited defaults and source-free descriptions are integrated; no CLY picking-help records were found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** every numeric endpoint remains cited user/study data or ABSENT; advice cannot authorize a number.
-- **Next action:** withdraw uncited defaults, attach sourced convention text to open fields, and add a registry test that guidance never populates the value slot.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit will carry the typed manifest field, CLY guidance, shared rendering, tests and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-042; Visual, Manual and Field evidence remain open.
+- **Next action:** preserve the source-bearing guidance/default separation, execute visual/manual review separately, and continue SB-CLY-043 without inferring quantity type from mnemonic.
 
 ## SB-CLY-043 - Shale volume and clay volume are distinct typed quantities
 
