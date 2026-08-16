@@ -71,19 +71,20 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 
 ## Requirement receipts
 
-### SB-CUT-001
+### SB-CUT-001 - Make the depth discretisation model an explicit parameter
 
-- **Specified contract:** select CENTRED, TOPS or BOTTOMS explicitly and apply one clipped-interval model across deterministic summary, sweep and Monte Carlo.
-- **Current implementation / as-built:** workflow summary, compute_sweep and montecarlo::zone_metrics each implement a forward TOPS-like overlap independently; no request parameter selects the model. PRESENT-DIVERGENT.
-- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
-- **Automated evidence:** MISSING. T01, T02, T02b, T03, T03b and T03c have no executable whole-contract bodies; thin-zone tests characterize only current forward clipping.
-- **Manual evidence:** NONE; cutoffs/pay is 0/23 and Monte Carlo is 2/14 without this comparison.
-- **Source/parameter boundary:** the three models and exact fixtures are chapter-cited; no model is inferred from current code.
-- **UI/IPC/provenance surface:** PaySummaryRequest, sweep request, McRequest, result rows and exports omit the selection and shared identity.
-- **History/reachability:** the three implementations are integrated and reachable; no complete selector was found.
-- **Blocking decision / next action:** implement one typed discretisation enum and shared clipped-interval owner, then run all six independent fixtures.
+- **Specified contract:** expose the depth discretisation model as a named parameter with values `CENTRED`, `TOPS` and `BOTTOMS`, **default `CENTRED`**, all three implemented by the single interval-ownership rule plus the shared zone clip `h = max(0, min(Z_bot, b) - max(Z_top, a))`. `sum(h) = Z_bot - Z_top` **MUST** hold exactly under every model, and the rule **MUST have exactly one implementation**, shared by the pay summary, the cut-off sweep and the Monte Carlo path (`14_cutoffs-summation-mc.md:904-919`).
+- **Why CENTRED:** four independent vendor votes - IP hard-codes it; Geolog `tp_paysummary.info` L63 `FRAME_REP` defaults `CENTRALISED`; `determin_mc` pins it; Techlog implements an unreachable centred branch. Techlog's min/max clip is the correct IMPLEMENTATION because it is exact when a zone boundary falls between samples and reduces to IP's half-weight rule when it falls on one.
+- **Current implementation - verified in code.** No `CENTRED`/`TOPS`/`BOTTOMS` parameter exists anywhere: grep for those tokens returns nothing in `workflow.rs` or `montecarlo.rs`. The clip rule is duplicated - `workflow.rs` carries it at `:2933` and `:3225` among three sites, and `montecarlo.rs` has its own copy, its comment at `:778` recording the same last-in-zone bleed fix independently. The chapter's line numbers are stale but its substance holds exactly.
+- **Magnitude:** one half-step per zone-boundary contact - **0.25 ft on a 0.5 ft grid**, with opposite signs at the two contacts. On IP's own fixture the models differ 3.25 vs 3.0 ft.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Manual evidence:** cutoffs 0/24.
+- **Source/parameter boundary:** nothing needs inventing. The three model names, the default, the clip formula and the invariant are all cited. The default change is **not** an interpreter decision: the chapter mandates `CENTRED` on four vendor votes, and moving from today's TOPS-with-clip will change net thickness by up to a half-step per zone contact - a real, expected, cited move.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`. The requirement is *exactly one implementation shared by* the pay summary, the sweep **and the Monte Carlo path**. Two are in `workflow.rs`, allowed; the third is `montecarlo.rs`, prohibited. Building the shared rule in an allowed file does not help - making `montecarlo.rs` CALL it is itself the prohibited edit, and changing the other two while leaving Monte Carlo on its own copy would make the engines DISAGREE rather than agree, which is worse than today. **`montecarlo.rs` is a new file in the blocked set**, joining `multimin2.rs`, `lrlc.rs`, `multimin.rs` and `satheight.rs`.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Next action:** Jauhar authorizes the narrow `montecarlo.rs` edit alongside the existing SAT-group request. Then build ONE interval-ownership rule with the shared clip, expose the model parameter defaulting to `CENTRED`, route all three consumers through it, and pin: `sum(h) = Z_bot - Z_top` exactly under all three models; the three models DIFFER on a boundary falling between samples; and they AGREE when it falls on one - the arm proving the clip reduces to IP's half-weight rule.
 
-### SB-CUT-002
+## SB-CUT-002
 
 - **Specified contract:** every thickness-bearing result records discretisation model and sample interval.
 - **Current implementation / as-built:** PaySummaryRow and McZoneResult carry thickness values but neither model identity nor representative interval; reports and office outputs cannot recover them. ABSENT.

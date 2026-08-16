@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `198 / 222`
+- Handled: `199 / 222`
 - Done: `136`
-- Blocked: `62`
-- Remaining unhandled: `24`
+- Blocked: `63`
+- Remaining unhandled: `23`
 
 ---
 
@@ -162,6 +162,7 @@ requirement appears exactly once.
 | `SB-SAT-027` | Same `lrlc.rs` / `multimin2.rs` authorization | Behaviour is `PRESENT-OK` - the guards are transcribed - but *every* polynomial-form model must run through **one** solver, and the standalone and LRLC iterative paths are separate. `multimin2.rs:391` `sw_cond_root` is a second solver that is **not cross-asserted** against the first. The existing quadratic test compares the module to a closed form, not engine to engine. | Authorize, route every equation through the shared solver, and pin the guard suite plus `n = 2` closed-form equality **engine against engine**. |
 | `SB-SAT-028` | Narrow `lrlc.rs` authorization | **P0, verified in code.** `sw_imts` iterates 100 times then writes the last iterate **unconditionally** - no convergence flag. A partial iterate is a plausible number in range, indistinguishable from a converged answer on the log, so no existing test could catch it. `gascorr` in this same repo already does it correctly and says why in a comment. **SandiBumi's own method has the defect its vendor-derived module avoids.** | Authorize `lrlc.rs`. Then leave a non-converged sample MISSING, and pin both sides - converging keeps its value, exhausted budget returns NaN. |
 | `SB-SAT-034` | Narrow `multimin2.rs` - one field | **P0**, and nearly closed. The as-built's four claimed defaults are **all stale** - every `a`/`m`/`n`/`m*`/`n*` in `modules.rs` and `lrlc.rs` now uses `param_open`, and the `1.9` still visible is a test fixture. The **only** survivor is the solver's `archie_a = 1.0` (`multimin2.rs:549`), which serves Indonesia and Simandoux where `a` is a free parameter. *A shipped exponent is the highest-consequence silent default in petrophysics.* | Authorize one field: make `archie_a` required, as `FluidProps.rw` already is. Then pin that no exponent on any engine carries a default. |
+| `SB-CUT-001` | Narrow `montecarlo.rs` authorization | The discretisation model is not exposed at all and the clip rule is implemented **three times** - twice in allowed `workflow.rs`, once in prohibited `montecarlo.rs`. The requirement demands **one** implementation shared by all three consumers, so a partial fix would make the engines disagree rather than agree. Worth **0.25 ft per zone contact** on a 0.5 ft grid. Nothing needs inventing - `CENTRED` has four vendor votes. | Authorize `montecarlo.rs` (new file in the blocked set). Then one rule, model parameter defaulting to `CENTRED`, all three consumers routed through it. |
 
 ## Product-owner decision packet
 
