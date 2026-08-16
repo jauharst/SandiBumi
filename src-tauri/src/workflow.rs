@@ -2604,13 +2604,15 @@ pub struct PaySummaryRequest {
     /// not used to exclude anything, and the result says so. There is deliberately no default:
     /// four shipped vendor sets disagree, two of them from one vendor, and Jauhar's own delivered
     /// work spans Vsh 0.20-0.85 across intervals of a single area.
-    pub vsh_max: Option<f64>,
+    /// SB-CUT-019: carried AS ENTERED, with its unit, and canonicalised on receipt. A bare
+    /// number is refused rather than guessed at.
+    pub vsh_max: Option<CutoffEntry>,
     /// SB-CUT-016. PHIE >= phie_min counts as reservoir (with sand). `None` = unfiltered.
-    pub phie_min: Option<f64>,
+    pub phie_min: Option<CutoffEntry>,
     /// SB-CUT-016. SWE <= swe_max counts as pay (with reservoir). `None` = unfiltered.
-    pub swe_max: Option<f64>,
+    pub swe_max: Option<CutoffEntry>,
     /// PERM >= perm_min added to the pay flag when PERM exists. `None` = unfiltered.
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<CutoffEntry>,
     /// SB-CUT-016. Cut-offs the caller switched ON and left without a value. A summation **MUST
     /// NOT** run against one, so any name here refuses the whole request.
     ///
@@ -2755,15 +2757,128 @@ pub struct PaySummaryRow {
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
 
+/// SB-CUT-019. The quantity a cut-off constrains, which fixes both its canonical unit and the
+/// physical range it cannot leave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CutoffQuantity {
+    /// A volume fraction: Vsh, porosity, saturation. Canonical `v/v`, bounded 0..=1.
+    VolumeFraction,
+    /// Permeability. Canonical `mD`, bounded to non-negative.
+    Permeability,
+}
+
+impl CutoffQuantity {
+    pub fn canonical_unit(self) -> &'static str {
+        match self {
+            CutoffQuantity::VolumeFraction => "v/v",
+            CutoffQuantity::Permeability => "mD",
+        }
+    }
+}
+
+/// SB-CUT-019. A cut-off AS ENTERED — a number and the unit it was entered in.
+///
+/// The unit is not decoration. IP's own manual expresses the sensitivity-sweep example in porosity
+/// units and the cut-off default in `v/v` **for the same quantity, with no unit tag on the field**.
+/// Entering `35` where `0.1` is meant is a **350x** error whose symptom is an all-net result: a
+/// good-looking well, not a visible failure. So a bare number is refused rather than guessed at.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CutoffEntry {
+    pub value: f64,
+    /// The unit the user typed. Empty is a REFUSAL, never an assumption.
+    pub unit: String,
+}
+
+/// A bare number on the wire still DESERIALIZES — it becomes an entry with an empty unit, which
+/// then fails [`CutoffEntry::canonical`] with the message that names the field and says why.
+///
+/// Deliberate: refusing at the parse layer would return serde's *invalid type* text, which tells
+/// an analyst nothing about porosity units, and would also break every request shape written
+/// before this existed. The value is rejected either way; this controls WHICH message they get.
+impl<'de> Deserialize<'de> for CutoffEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Bare(f64),
+            Tagged { value: f64, unit: String },
+        }
+        Ok(match Wire::deserialize(deserializer)? {
+            Wire::Bare(value) => CutoffEntry { value, unit: String::new() },
+            Wire::Tagged { value, unit } => CutoffEntry { value, unit },
+        })
+    }
+}
+
+impl CutoffEntry {
+    /// Convert to the quantity's canonical unit, refusing a bare number, an unknown unit, and a
+    /// value outside the quantity's physical range.
+    ///
+    /// `35 pu` becomes `0.35 v/v`; `35 v/v` is refused as out of bounds - the same number, and
+    /// only the unit says which of those two the user meant.
+    pub fn canonical(&self, quantity: CutoffQuantity, label: &str) -> Result<f64, String> {
+        let unit = self.unit.trim();
+        if unit.is_empty() {
+            return Err(format!(
+                "{label} was entered as a bare number ({}) with no unit. A porosity cut-off \
+                 typed as 35 is 0.35 in porosity units and impossible in v/v, and the 350x \
+                 error looks like an all-net well rather than a failure - so state the unit.",
+                self.value
+            ));
+        }
+        if !self.value.is_finite() {
+            return Err(format!("{label} is not a finite number"));
+        }
+        let lower = unit.to_ascii_lowercase();
+        let canonical = match quantity {
+            CutoffQuantity::VolumeFraction => match lower.as_str() {
+                "v/v" | "frac" | "fraction" | "dec" => self.value,
+                "pu" | "p.u." | "%" | "pct" | "percent" => self.value / 100.0,
+                _ => {
+                    return Err(format!(
+                        "{label} is in '{unit}', which is not a unit of volume fraction. \
+                         Use v/v, pu or %."
+                    ))
+                }
+            },
+            CutoffQuantity::Permeability => match lower.as_str() {
+                "md" => self.value,
+                "d" | "darcy" => self.value * 1000.0,
+                _ => {
+                    return Err(format!(
+                        "{label} is in '{unit}', which is not a unit of permeability. Use mD or D."
+                    ))
+                }
+            },
+        };
+        let out_of_range = match quantity {
+            CutoffQuantity::VolumeFraction => !(0.0..=1.0).contains(&canonical),
+            CutoffQuantity::Permeability => canonical < 0.0,
+        };
+        if out_of_range {
+            return Err(format!(
+                "{label} is {} {unit}, which is {canonical} {} - outside the physical range \
+                 of the quantity. A volume fraction cannot exceed 1; if porosity units were \
+                 meant, enter the unit as pu.",
+                self.value,
+                quantity.canonical_unit()
+            ));
+        }
+        Ok(canonical)
+    }
+}
+
 /// SB-CUT-016. Render a cut-off for a deliverable: its value, or the word that says it was never
 /// applied.
 ///
 /// One helper rather than a spelling per surface. The two failures it exists to prevent are
 /// printing nothing - a reader then assumes the cut-off was used - and printing a number that was
 /// never applied, which is worse because it is checkable and wrong.
-pub fn cutoff_label(value: Option<f64>, decimals: usize) -> String {
+pub fn cutoff_label(value: Option<&CutoffEntry>, decimals: usize) -> String {
     match value {
-        Some(v) => format!("{v:.decimals$}"),
+        // SB-CUT-019: the unit is printed WITH the number. A deliverable that says "PHIE >= 0.10"
+        // without saying in what has reproduced the very ambiguity the entry rule exists to stop.
+        Some(entry) => format!("{:.decimals$} {}", entry.value, entry.unit),
         None => "unfiltered".to_string(),
     }
 }
@@ -3014,11 +3129,20 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             req.enabled_unset.join(", ")
         ));
     }
+    // SB-CUT-019: canonicalise every entered cut-off before anything is computed. A bare number,
+    // an unknown unit or a physically impossible value stops the run here, naming the field.
+    let cut = |entry: &Option<CutoffEntry>, quantity: CutoffQuantity, label: &str| {
+        entry.as_ref().map(|e| e.canonical(quantity, label)).transpose()
+    };
+    let vsh_max = cut(&req.vsh_max, CutoffQuantity::VolumeFraction, "the VSH cut-off")?;
+    let phie_min = cut(&req.phie_min, CutoffQuantity::VolumeFraction, "the PHIE cut-off")?;
+    let swe_max = cut(&req.swe_max, CutoffQuantity::VolumeFraction, "the SWE cut-off")?;
+    let perm_min = cut(&req.perm_min, CutoffQuantity::Permeability, "the PERM cut-off")?;
     let unfiltered: Vec<String> = [
-        ("VSH", req.vsh_max.is_none()),
-        ("PHIE", req.phie_min.is_none()),
-        ("SWE", req.swe_max.is_none()),
-        ("PERM", req.perm_min.is_none()),
+        ("VSH", vsh_max.is_none()),
+        ("PHIE", phie_min.is_none()),
+        ("SWE", swe_max.is_none()),
+        ("PERM", perm_min.is_none()),
     ]
     .iter()
     .filter(|(_, absent)| *absent)
@@ -3121,7 +3245,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         for i in 0..n {
             let (fs, fr, fp) = classify_sample(
                 vsh[i], phie[i], swe[i], perm[i],
-                req.vsh_max, req.phie_min, req.swe_max, req.perm_min, has_perm_cut,
+                vsh_max, phie_min, swe_max, perm_min, has_perm_cut,
             );
             flag_sand[i] = fs;
             flag_res[i] = fr;
@@ -3515,10 +3639,11 @@ pub struct CutoffSweepRequest {
     pub property: String,
     /// Fixed values for the two cutoffs NOT being swept (the swept one's field is ignored).
     /// SB-CUT-016: `None` = that property is not filtered while this sweep runs. No default.
-    pub vsh_max: Option<f64>,
-    pub phie_min: Option<f64>,
-    pub swe_max: Option<f64>,
-    pub perm_min: Option<f64>,
+    /// SB-CUT-019: carried as entered, with its unit.
+    pub vsh_max: Option<CutoffEntry>,
+    pub phie_min: Option<CutoffEntry>,
+    pub swe_max: Option<CutoffEntry>,
+    pub perm_min: Option<CutoffEntry>,
     pub sweep_min: f64,
     pub sweep_max: f64,
     pub steps: usize,
@@ -3635,6 +3760,16 @@ pub fn run_cutoff_sweep(
     db: &Mutex<Connection>,
     req: &CutoffSweepRequest,
 ) -> Result<CutoffSweepResult, String> {
+    // SB-CUT-019: the two HELD cut-offs are entered values and are canonicalised before any
+    // sweep runs. The swept property's range is a plot bound, not a cut-off, and keeps its own
+    // units by construction - it is expressed in whatever the swept quantity's canonical unit is.
+    let cut = |entry: &Option<CutoffEntry>, quantity: CutoffQuantity, label: &str| {
+        entry.as_ref().map(|e| e.canonical(quantity, label)).transpose()
+    };
+    let held_vsh = cut(&req.vsh_max, CutoffQuantity::VolumeFraction, "the held VSH cut-off")?;
+    let held_phie = cut(&req.phie_min, CutoffQuantity::VolumeFraction, "the held PHIE cut-off")?;
+    let held_swe = cut(&req.swe_max, CutoffQuantity::VolumeFraction, "the held SWE cut-off")?;
+    let held_perm = cut(&req.perm_min, CutoffQuantity::Permeability, "the held PERM cut-off")?;
     let prop = match req.property.to_uppercase().as_str() {
         "VSH" => SweepProp::Vsh,
         "PHIE" => SweepProp::Phie,
@@ -3763,8 +3898,8 @@ pub fn run_cutoff_sweep(
         };
 
         let (cutoffs, values, peak) = compute_sweep(
-            vsh, phie, swe, perm, &incl_h, prop, req.vsh_max, req.phie_min, req.swe_max,
-            req.perm_min, req.sweep_min, req.sweep_max, steps, metric, gross,
+            vsh, phie, swe, perm, &incl_h, prop, held_vsh, held_phie, held_swe,
+            held_perm, req.sweep_min, req.sweep_max, steps, metric, gross,
         );
         series.push(CutoffSweepSeries {
             well_id: well_id.clone(),
@@ -4165,9 +4300,9 @@ mod tests {
             &dbm,
             &PaySummaryRequest {
                 well_ids: vec![skip_candidate.clone()],
-                vsh_max: Some(0.5),
-                phie_min: Some(0.1),
-                swe_max: Some(0.5),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 input_set: None,
@@ -5274,9 +5409,9 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![well.clone()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.6),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -5375,9 +5510,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone()],
-                vsh_max: Some(0.5),
-                phie_min: Some(0.1),
-                swe_max: Some(0.6),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -5491,9 +5626,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone(), blank.clone()],
-                vsh_max: Some(0.5),
-                phie_min: Some(0.1),
-                swe_max: Some(0.6),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -5619,9 +5754,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well],
-                vsh_max: Some(0.5),
-                phie_min: Some(0.1),
-                swe_max: Some(0.6),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -5714,9 +5849,9 @@ mod tests {
                     well_ids: wells,
                     // Permissive on purpose: every sample must pass, so the only thing that can
                     // move an average is the weighting under test.
-                    vsh_max: Some(0.9),
-                    phie_min: Some(0.05),
-                    swe_max: Some(0.9),
+                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
+                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
                     perm_min: None,
                     enabled_unset: Vec::new(),
                     skip_version: false,
@@ -5839,9 +5974,9 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![well.clone()],
-                    vsh_max: Some(0.9),
-                    phie_min: Some(0.05),
-                    swe_max: Some(0.9),
+                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
+                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
                     perm_min: None,
                     enabled_unset: Vec::new(),
                     skip_version: false,
@@ -6007,9 +6142,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: Some(0.9),
-                phie_min: Some(0.05),
-                swe_max: Some(0.9),
+                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -6070,9 +6205,9 @@ mod tests {
                 input_set: None,
                 well_ids: vec![well.clone()],
                 property: "VSH".into(),
-                vsh_max: Some(0.9),
-                phie_min: Some(0.05),
-                swe_max: Some(0.9),
+                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }),
                 perm_min: None,
                 // Every sample's VSH is at most 0.80, so it clears every step of this range and
                 // net is decided by zone membership alone across the whole sweep.
@@ -6164,9 +6299,9 @@ mod tests {
         let req = |frame: SummationFrame| PaySummaryRequest {
             input_set: None,
             well_ids: vec![well.clone()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.6),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -6252,13 +6387,14 @@ mod tests {
         // Every sample passes on VSH and PHIE; SWE 0.20 and 0.60 straddle a 0.4 cut-off.
         let well = seed_weighting_well(&conn, "CUTOFF-1", "PHIE");
         let dbm = Mutex::new(conn);
+        let vv = |v: Option<f64>| v.map(|x| CutoffEntry { value: x, unit: "v/v".into() });
         let req = |vsh: Option<f64>, phie: Option<f64>, swe: Option<f64>, blank: Vec<String>| {
             PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: vsh,
-                phie_min: phie,
-                swe_max: swe,
+                vsh_max: vv(vsh),
+                phie_min: vv(phie),
+                swe_max: vv(swe),
                 perm_min: None,
                 skip_version: false,
                 stats_only: true,
@@ -6347,6 +6483,97 @@ mod tests {
         );
     }
 
+    /// SB-CUT-019 (P1). `14_cutoffs-summation-mc.md:1204-1221` and `:2087` (SB-CUT-T26) — a
+    /// cut-off **MUST** be entered with a unit and stored with it; a bare number **MUST** be
+    /// rejected; `35 pu` **MUST** be accepted and stored as `0.35 v/v`; `35 v/v` **MUST** be
+    /// rejected as out of bounds; dimensionless cut-offs **MUST** be bounded to their quantity's
+    /// physical range.
+    ///
+    /// IP's own manual expresses the sensitivity-sweep example in porosity units and the cut-off
+    /// default in `v/v` **for the same quantity, with no unit tag on the field**. `35` where `0.1`
+    /// is meant is a **350x** error, and its symptom is an all-net result — a good-looking well,
+    /// not a visible failure. The unit is the only thing that separates the two readings, so it is
+    /// required rather than guessed.
+    #[test]
+    fn a_cutoff_is_refused_without_a_unit_and_thirty_five_is_porosity_units_or_out_of_bounds() {
+        let por = CutoffQuantity::VolumeFraction;
+
+        // A — a bare number is REFUSED for the MISSING UNIT, not for the number being implausible.
+        // `0.10` is a perfectly ordinary porosity cut-off in v/v, so an implementation that only
+        // range-checked would let it through — and would then be silently choosing between
+        // 0.10 v/v and 0.10 pu, which differ by the same 100x the rule exists to stop.
+        let plausible = CutoffEntry { value: 0.10, unit: String::new() };
+        let err = plausible.canonical(por, "the PHIE cut-off").expect_err("a bare number refuses");
+        assert!(err.contains("PHIE"), "the refusal names the field: {err}");
+        assert!(err.contains("no unit"), "and refuses for the RIGHT reason: {err}");
+
+        // and the chapter's own example carries a message that explains the trap rather than
+        // saying "no" — a refusal an analyst cannot act on gets worked around, not obeyed.
+        let bare = CutoffEntry { value: 35.0, unit: String::new() };
+        let err = bare.canonical(por, "the PHIE cut-off").expect_err("a bare number must refuse");
+        assert!(err.contains("350"), "and states the size of the error it prevents: {err}");
+
+        // B — `35 pu` is accepted and canonicalised to 0.35 v/v.
+        let pu = CutoffEntry { value: 35.0, unit: "pu".into() };
+        assert!(
+            (pu.canonical(por, "the PHIE cut-off").expect("35 pu is a real porosity") - 0.35).abs()
+                < 1e-12,
+            "35 pu is 0.35 v/v"
+        );
+
+        // C — `35 v/v` is REFUSED as out of bounds. Same number as B, opposite verdict, and only
+        // the unit distinguishes them: that is the whole requirement in one pair of assertions.
+        let vv = CutoffEntry { value: 35.0, unit: "v/v".into() };
+        let err = vv.canonical(por, "the PHIE cut-off").expect_err("35 v/v is impossible");
+        assert!(err.contains("physical range"), "{err}");
+
+        // D — the bounds are the quantity's own, both ends.
+        assert!(CutoffEntry { value: -0.1, unit: "v/v".into() }.canonical(por, "x").is_err());
+        assert!(CutoffEntry { value: 1.0, unit: "v/v".into() }.canonical(por, "x").is_ok());
+        assert!(CutoffEntry { value: 100.0, unit: "%".into() }.canonical(por, "x").is_ok());
+
+        // E — permeability has its own unit family and its own bound, so the rule is a property of
+        // the QUANTITY rather than a single hard-coded 0..1.
+        let perm = CutoffQuantity::Permeability;
+        assert!(
+            (CutoffEntry { value: 1.0, unit: "D".into() }.canonical(perm, "k").unwrap() - 1000.0)
+                .abs()
+                < 1e-9,
+            "1 darcy is 1000 mD"
+        );
+        assert!(CutoffEntry { value: -1.0, unit: "mD".into() }.canonical(perm, "k").is_err());
+        assert!(
+            CutoffEntry { value: 1.0, unit: "v/v".into() }.canonical(perm, "k").is_err(),
+            "a volume fraction is not a permeability, however plausible the number"
+        );
+
+        // F — WIRED IN: the summation refuses before it computes anything, so a bare number can
+        // never reach the pay arithmetic. A refusal that only exists in a helper is not a contract.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_weighting_well(&conn, "UNIT-1", "PHIE");
+        let dbm = Mutex::new(conn);
+        let err = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![well],
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 35.0, unit: String::new() }),
+                swe_max: None,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                weighting: Default::default(),
+                frame: Default::default(),
+                enabled_unset: Vec::new(),
+            },
+        )
+        .expect_err("a bare cut-off must stop the run");
+        assert!(err.contains("no unit"), "{err}");
+    }
+
     /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the
     /// only thing that can exclude a sample is the PERM cutoff. `perm` is the permeability the
     /// well MEASURED — `None` means the well carries none at all, which is the case under test.
@@ -6407,11 +6634,11 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![no_perm.clone(), low_perm.clone()],
-                    vsh_max: Some(0.5),
-                    phie_min: Some(0.1),
-                    swe_max: Some(0.6),
+                    vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                    phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                    swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
                     enabled_unset: Vec::new(),
-                    perm_min,
+                    perm_min: perm_min.map(|p| CutoffEntry { value: p, unit: "mD".into() }),
                     skip_version: false,
                     stats_only: true
                 ,
@@ -6674,9 +6901,9 @@ mod tests {
             &PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![bare.clone(), good.clone()],
-                vsh_max: Some(0.5),
-                phie_min: Some(0.1),
-                swe_max: Some(0.6),
+                vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,
@@ -7243,9 +7470,9 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.5),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false
@@ -7314,9 +7541,9 @@ mod tests {
         let req = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.5),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -7337,9 +7564,16 @@ mod tests {
                 )
                 .expect("a PAYFLAG log set should exist after a versioned pay-summary run");
             assert_eq!(module, "pay_summary");
-            assert!(params.contains("\"vsh_max\":0.5"), "cutoffs in provenance: {params}");
-            assert!(params.contains("\"phie_min\":0.1"), "cutoffs in provenance: {params}");
-            assert!(params.contains("\"swe_max\":0.5"), "cutoffs in provenance: {params}");
+            // SB-CUT-019 tightened this: the stored form carries the UNIT beside the value,
+            // because "entered with a unit and stored with it" is half the requirement. A bare
+            // 0.5 in provenance would no longer say whether it meant v/v or porosity units.
+            for expected in [
+                "\"vsh_max\":{\"unit\":\"v/v\",\"value\":0.5}",
+                "\"phie_min\":{\"unit\":\"v/v\",\"value\":0.1}",
+                "\"swe_max\":{\"unit\":\"v/v\",\"value\":0.5}",
+            ] {
+                assert!(params.contains(expected), "cutoffs in provenance: {params}");
+            }
         }
 
         // `skip_version` is retained only so an older caller receives an explicit refusal instead
@@ -7347,9 +7581,9 @@ mod tests {
         let req_skip = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.5),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: true,
@@ -7426,9 +7660,9 @@ mod tests {
         let base = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.5),
+            vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }),
             perm_min: None,
             enabled_unset: Vec::new(),
             skip_version: false,
@@ -9940,7 +10174,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(0.5), phie_min: Some(0.1), swe_max: Some(0.6), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
             enabled_unset: Vec::new(),
                 custody: Some(test_run_custody()),
                 frame: Default::default(),

@@ -565,6 +565,8 @@ export async function buildMonteCarloContent(
       .filter((r) => r.a && r.b && r.a !== r.b && Number.isFinite(r.rho) && r.rho !== 0)
       .map((r) => ({ param_a: r.a, param_b: r.b, rho: r.rho }));
     const pm = permMin.value();
+    // SB-CUT-019: a cut-off travels with the unit it was entered in; a blank box is ABSENT.
+    const entered = (v: number) => (Number.isFinite(v) ? { value: v, unit: "v/v" } : null);
     const [loP, hiP] = pctlSel.value();
     const persist = persistChk.checked();
     const custody = persist ? await requestRunCustody("Persist Monte Carlo curves") : null;
@@ -575,10 +577,11 @@ export async function buildMonteCarloContent(
       mc_params: mcParams,
       iterations: Math.round(iters.value()),
       seed: Math.round(seed.value()),
-      vsh_max: vshMax.value(),
-      phie_min: phieMin.value(),
-      swe_max: sweMax.value(),
-      perm_min: Number.isFinite(pm) ? pm : null,
+      // SB-CUT-019: entered with a unit, never a bare number. A non-finite box is ABSENT.
+      vsh_max: entered(vshMax.value()),
+      phie_min: entered(phieMin.value()),
+      swe_max: entered(sweMax.value()),
+      perm_min: Number.isFinite(pm) ? { value: pm, unit: "mD" } : null,
       bins: Math.round(bins.value()),
       low_pctl: loP,
       high_pctl: hiP,

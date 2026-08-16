@@ -80,9 +80,11 @@ export async function buildDashboardContent(
   const sweIn = num(seed(saved.swe_max), "(unfiltered)");
   const permIn = num(seed(saved.perm_min), "(off)");
   /** SB-CUT-016: a blank cut-off box is ABSENT, never a shipped number. */
-  const cutoffOf = (i: HTMLInputElement): number | null => {
+  const cutoffOf = (i: HTMLInputElement, unit = "v/v"): { value: number; unit: string } | null => {
     const v = parseFloat(i.value);
-    return Number.isFinite(v) ? v : null;
+    // SB-CUT-019: the unit travels with the number, so the engine never has to guess whether a
+    // porosity cut-off was typed in v/v or porosity units - a 350x difference.
+    return Number.isFinite(v) ? { value: v, unit } : null;
   };
 
   // Flag / Metric are Organic segmented pills (design 1b) — same semantics the
@@ -409,7 +411,7 @@ export async function buildDashboardContent(
           vsh_max: cutoffOf(vshIn),
           phie_min: cutoffOf(phieIn),
           swe_max: cutoffOf(sweIn),
-          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
           // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
           // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.
           stats_only: true,

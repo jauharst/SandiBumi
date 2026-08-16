@@ -129,9 +129,11 @@ export async function buildCutoffContent(
   };
   /** SB-CUT-016: a cut-off has no fallback. A blank box is ABSENT — the property is not filtered
    *  — and the summation reports it as unfiltered rather than quoting a number nobody chose. */
-  const cutOf = (i: HTMLInputElement): number | null => {
+  const cutOf = (i: HTMLInputElement, unit = "v/v"): { value: number; unit: string } | null => {
     const v = parseFloat(i.value);
-    return Number.isFinite(v) ? v : null;
+    // SB-CUT-019: the unit travels with the number. A blank box is ABSENT (unfiltered), which is
+    // a different statement from a number with no unit - the backend refuses the latter.
+    return Number.isFinite(v) ? { value: v, unit } : null;
   };
 
   // --- Mode toggle ----------------------------------------------------------
@@ -538,7 +540,7 @@ export async function buildCutoffContent(
           vsh_max: cutOf(vshIn),
           phie_min: cutOf(phieIn),
           swe_max: cutOf(sweIn),
-          perm_min: Number.isFinite(permRaw) ? permRaw : null,
+          perm_min: Number.isFinite(permRaw) ? { value: permRaw, unit: "mD" } : null,
           sweep_min: sweepMin,
           sweep_max: sweepMax,
           steps: Math.round(numOf(stepsIn, 60)),
@@ -647,8 +649,8 @@ export async function buildCutoffContent(
       // Seed the crosshair from the current cutoff fields (Y=PHIE, X=VSH/SWE by family).
       // An absent cut-off has no line to draw, so the crosshair simply stays where it was rather
       // than jumping to a number nobody set.
-      yCut = cutOf(phieIn) ?? yCut;
-      xCut = (/sw/i.test(xCurve) ? cutOf(sweIn) : cutOf(vshIn)) ?? xCut;
+      yCut = cutOf(phieIn)?.value ?? yCut;
+      xCut = (/sw/i.test(xCurve) ? cutOf(sweIn) : cutOf(vshIn))?.value ?? xCut;
       const totalDst = built.reduce((a, s) => a + s.dst.reduce((p, q) => p + (q ? 1 : 0), 0), 0);
       setStatus(`DST crossplot: ${built.length} well(s), ${xCurve} vs ${yCurve}, ${totalDst} DST-tested points`);
       redraw();

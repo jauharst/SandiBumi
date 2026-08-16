@@ -150,14 +150,19 @@ export async function openWorkbookDialog(): Promise<void> {
     if (!dest) return;
     runBtn.disabled = true;
     status.textContent = `Computing ${wellIds.length} well(s)…`;
+    // SB-CUT-019: a cut-off carries the unit it was entered in; a blank box is ABSENT.
+    const cutOf = (i: HTMLInputElement, unit: string) => {
+      const v = parseFloat(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : null;
+    };
     try {
       const res = await exportWorkbook(
         {
           well_ids: wellIds,
-          vsh_max: parseFloat(vshIn.value),
-          phie_min: parseFloat(phieIn.value),
-          swe_max: parseFloat(sweIn.value),
-          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          vsh_max: cutOf(vshIn, "v/v"),
+          phie_min: cutOf(phieIn, "v/v"),
+          swe_max: cutOf(sweIn, "v/v"),
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
           input_set: setPicker.inputSet(),
           title: titleIn.value.trim(),
           include_pay: paySheet.checked,

@@ -429,11 +429,11 @@ pub struct WorkbookSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<f64>,
-    pub phie_min: Option<f64>,
-    pub swe_max: Option<f64>,
+    pub vsh_max: Option<crate::workflow::CutoffEntry>,
+    pub phie_min: Option<crate::workflow::CutoffEntry>,
+    pub swe_max: Option<crate::workflow::CutoffEntry>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffEntry>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -689,16 +689,19 @@ fn summary_sheet(
     row("", Cell::Blank);
     // SB-CUT-016: a cut-off that was not applied is a WORD, not a blank and not a number. A blank
     // reads as "no data" in a spreadsheet, which is a different statement from "not filtered".
-    let cut_cell = |v: Option<f64>| match v {
-        Some(x) => Cell::Num(x),
-        None => text("unfiltered"),
+    // SB-CUT-019: the number stays a NUMBER so the sheet can still be pivoted, and the unit it
+    // was entered in becomes part of the row label rather than being dropped.
+    let cut_row = |label: &str, v: &Option<crate::workflow::CutoffEntry>| match v {
+        Some(e) => (format!("{label} ({})", e.unit), Cell::Num(e.value)),
+        None => (label.to_string(), text("unfiltered")),
     };
-    row("Cutoff - VSH max (v/v)", cut_cell(spec.vsh_max));
-    row("Cutoff - PHIE min (v/v)", cut_cell(spec.phie_min));
-    row("Cutoff - SWE max (v/v)", cut_cell(spec.swe_max));
-    match spec.perm_min {
-        Some(p) => row("Cutoff - PERM min (mD)", Cell::Num(p)),
-        None => row("Cutoff - PERM min (mD)", text("not applied")),
+    for (label, cell) in [
+        cut_row("Cutoff - VSH max", &spec.vsh_max),
+        cut_row("Cutoff - PHIE min", &spec.phie_min),
+        cut_row("Cutoff - SWE max", &spec.swe_max),
+        cut_row("Cutoff - PERM min", &spec.perm_min),
+    ] {
+        row(&label, cell);
     }
     row("", Cell::Blank);
     row(
@@ -733,11 +736,11 @@ pub fn export_workbook(
             db_lock,
             &PaySummaryRequest {
                 well_ids: spec.well_ids.clone(),
-                vsh_max: spec.vsh_max,
-                phie_min: spec.phie_min,
-                swe_max: spec.swe_max,
+                vsh_max: spec.vsh_max.clone(),
+                phie_min: spec.phie_min.clone(),
+                swe_max: spec.swe_max.clone(),
                 enabled_unset: Vec::new(),
-                perm_min: spec.perm_min,
+                perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
                 stats_only: true
@@ -1079,11 +1082,11 @@ pub fn build_report_blocks(
         db_lock,
         &PaySummaryRequest {
             well_ids: vec![well_id.clone()],
-            vsh_max: spec.vsh_max,
-            phie_min: spec.phie_min,
-            swe_max: spec.swe_max,
+            vsh_max: spec.vsh_max.clone(),
+            phie_min: spec.phie_min.clone(),
+            swe_max: spec.swe_max.clone(),
             enabled_unset: Vec::new(),
-            perm_min: spec.perm_min,
+            perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: true,
             stats_only: true
@@ -1201,10 +1204,10 @@ pub fn build_report_blocks(
     let mut p = pay_sheet(&pay_rows, &unit);
     p.title = format!(
         "Pay Summary  (VSH <= {}, PHIE >= {}, SWE <= {}{})",
-        crate::workflow::cutoff_label(spec.vsh_max, 2),
-        crate::workflow::cutoff_label(spec.phie_min, 2),
-        crate::workflow::cutoff_label(spec.swe_max, 2),
-        spec.perm_min.map(|v| format!(", PERM >= {v:.1} mD")).unwrap_or_default()
+        crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+        crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+        crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+        spec.perm_min.as_ref().map(|e| format!(", PERM >= {:.1} {}", e.value, e.unit)).unwrap_or_default()
     );
     if pay_rows.is_empty() {
         // Never a silent gap in a client document: say the section could not be supported.
@@ -1587,11 +1590,11 @@ pub struct DeckSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<f64>,
-    pub phie_min: Option<f64>,
-    pub swe_max: Option<f64>,
+    pub vsh_max: Option<crate::workflow::CutoffEntry>,
+    pub phie_min: Option<crate::workflow::CutoffEntry>,
+    pub swe_max: Option<crate::workflow::CutoffEntry>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffEntry>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -1727,10 +1730,10 @@ pub fn build_deck_slides(
     // 1 — what the numbers mean, before any number is shown.
     let mut items = vec![
         format!("Cutoffs: VSH <= {}, PHIE >= {}, SWE <= {}{}",
-            crate::workflow::cutoff_label(spec.vsh_max, 2),
-            crate::workflow::cutoff_label(spec.phie_min, 2),
-            crate::workflow::cutoff_label(spec.swe_max, 2),
-            spec.perm_min.map(|p| format!(", PERM >= {p:.1} mD")).unwrap_or_default()),
+            crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+            spec.perm_min.as_ref().map(|e| format!(", PERM >= {:.1} {}", e.value, e.unit)).unwrap_or_default()),
         format!("Summarised at the {flag} level; SAND and RESERVOIR are in the workbook."),
         format!("Wells in scope: {}  ·  interpreted: {}", well_names.len(), with_results.len()),
         format!("Thicknesses and HPV in {unit}; VSH, PHIE and SWE as v/v fractions."),
@@ -1851,11 +1854,11 @@ pub fn export_deck(
         db_lock,
         &PaySummaryRequest {
             well_ids: spec.well_ids.clone(),
-            vsh_max: spec.vsh_max,
-            phie_min: spec.phie_min,
-            swe_max: spec.swe_max,
+            vsh_max: spec.vsh_max.clone(),
+            phie_min: spec.phie_min.clone(),
+            swe_max: spec.swe_max.clone(),
             enabled_unset: Vec::new(),
-            perm_min: spec.perm_min,
+            perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: true,
             stats_only: true
@@ -2272,9 +2275,9 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
         DeckSpec {
             input_set: None,
             well_ids: vec!["id-A".into()],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.6),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
             perm_min: None,
             title: "Sandi Field".into(),
             author: String::new(),

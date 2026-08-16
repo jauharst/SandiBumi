@@ -189,11 +189,12 @@ pub struct McRequest {
     /// SB-CUT-016. `None` = UNFILTERED on this property. Absent-capable for the same reason the
     /// deterministic summation is: an MC run silently using a shipped 0.5 while the pay summary
     /// reports the property unfiltered is a disagreement nobody could reconcile.
-    pub vsh_max: Option<f64>,
-    pub phie_min: Option<f64>,
-    pub swe_max: Option<f64>,
+    /// SB-CUT-019: carried as entered, with its unit, and canonicalised before any realization.
+    pub vsh_max: Option<crate::workflow::CutoffEntry>,
+    pub phie_min: Option<crate::workflow::CutoffEntry>,
+    pub swe_max: Option<crate::workflow::CutoffEntry>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffEntry>,
     /// HPV histogram bin count.
     pub bins: usize,
     /// Low / high output percentiles as fractions in (0, 1) — default 0.10 / 0.90. One control
@@ -370,7 +371,7 @@ pub struct McPlausibility {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct McResult {
     pub zones: Vec<McZoneResult>,
     /// Per-zone parameter sensitivity (empty unless `sensitivity` or `tornado` was requested).
@@ -1346,6 +1347,40 @@ fn fraction_output_curves(
 
 /// Runs the Monte Carlo study across the requested wells. All computation is in memory; the
 /// only DB access is the per-well input read in [`build_plans`].
+/// SB-CUT-019. Canonicalise every entered cut-off, refusing a bare number, an unknown unit or a
+/// physically impossible value.
+///
+/// Called at the ENTRY POINT - the Tauri command - so the user gets the message. `run_monte_carlo`
+/// calls it again and produces nothing on failure, because the job registry fixes that function's
+/// return type and a silent guess is the one outcome that must not happen.
+pub fn validate_cutoffs(req: &McRequest) -> Result<Cutoffs, String> {
+    let entered = |e: &Option<crate::workflow::CutoffEntry>,
+                   q: crate::workflow::CutoffQuantity,
+                   label: &str| { e.as_ref().map(|x| x.canonical(q, label)).transpose() };
+    Ok(Cutoffs {
+        vsh_max: entered(
+            &req.vsh_max,
+            crate::workflow::CutoffQuantity::VolumeFraction,
+            "the VSH cut-off",
+        )?,
+        phie_min: entered(
+            &req.phie_min,
+            crate::workflow::CutoffQuantity::VolumeFraction,
+            "the PHIE cut-off",
+        )?,
+        swe_max: entered(
+            &req.swe_max,
+            crate::workflow::CutoffQuantity::VolumeFraction,
+            "the SWE cut-off",
+        )?,
+        perm_min: entered(
+            &req.perm_min,
+            crate::workflow::CutoffQuantity::Permeability,
+            "the PERM cut-off",
+        )?,
+    })
+}
+
 pub fn run_monte_carlo(
     db: &Mutex<Connection>,
     req: &McRequest,
@@ -1385,11 +1420,13 @@ pub fn run_monte_carlo(
     }
     let specs: HashMap<String, modules::ModuleSpec> =
         modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
-    let cut = Cutoffs {
-        vsh_max: req.vsh_max,
-        phie_min: req.phie_min,
-        swe_max: req.swe_max,
-        perm_min: req.perm_min,
+    // SB-CUT-019: the cut-offs were canonicalised and validated by `validate_cutoffs` at the
+    // entry point. A run reaching here with an unusable entry produces NOTHING rather than
+    // guessing - `run_monte_carlo` cannot return an error because the job registry fixes its
+    // return type, so the refusal lives where the user's value first arrives.
+    let cut = match validate_cutoffs(req) {
+        Ok(cut) => cut,
+        Err(_) => return McResult::default(),
     };
 
     let mut zones_out: Vec<McZoneResult> = Vec::new();
@@ -1858,7 +1895,11 @@ pub fn run_monte_carlo(
                     "vsh_max": req.vsh_max,
                     "phie_min": req.phie_min,
                     "swe_max": req.swe_max,
-                    "perm_min": req.perm_min.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
+                    // SB-CUT-019: the ENTERED form goes into provenance - value AND unit -
+                    // because "stored with it" is half the requirement. An absent cut-off is
+                    // still the token ABSENT, which is what a reader needs to see.
+                    "perm_min": req.perm_min.as_ref().map(|e| serde_json::json!(e))
+                        .unwrap_or_else(|| serde_json::json!("ABSENT")),
                     "bins": req.bins,
                     "sensitivity": req.sensitivity,
                     "tornado": req.tornado,
@@ -2083,9 +2124,9 @@ mod tests {
             iterations,
             seed,
             custody: Some(crate::workflow::test_run_custody()),
-            vsh_max: Some(0.5),
-            phie_min: Some(0.08),
-            swe_max: Some(0.6),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
             perm_min: None,
             bins: 10,
             low_pctl: 0.10,
@@ -2135,7 +2176,7 @@ mod tests {
         crate::equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![1.0f32; n]).unwrap();
         let dbm = Mutex::new(conn);
 
-        let run = |steps: Vec<ChainStep>, perm_min: Option<f64>| -> McResult {
+        let run = |steps: Vec<ChainStep>, perm_min: Option<crate::workflow::CutoffEntry>| -> McResult {
             let mc = vec![McParam {
                 param: "GR_MA".into(),
                 dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
@@ -2154,7 +2195,7 @@ mod tests {
         // it, the equality below would prove only that the cutoff is broken everywhere.
         let reads_perm = || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("rocktyping")];
         let a_open = run(reads_perm(), None);
-        let a_cut = run(reads_perm(), Some(1.0e9));
+        let a_cut = run(reads_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }));
         assert!(a_open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
         assert_eq!(a_cut.zones[0].net.mid, 0.0, "1 mD cannot pass a 1e9 mD cutoff — the cutoff works here");
 
@@ -2164,7 +2205,7 @@ mod tests {
         let makes_perm =
             || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
         let b_open = run(makes_perm(), None);
-        let b_cut = run(makes_perm(), Some(1.0e9));
+        let b_cut = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }));
         let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
         assert!(bo.net.mid > 0.0, "chain B must have pay to lose");
         assert_eq!(bc.net.mid, 0.0, "a 1e9 mD cutoff must bite in chain B exactly as in chain A");
@@ -2182,7 +2223,7 @@ mod tests {
         // And the cutoff is still a cutoff rather than a switch that now deletes everything: a
         // threshold the modelled rock CLEARS must leave the pay alone. Without this, setting
         // `has_perm_cut` unconditionally would pass every assertion above.
-        let b_loose = run(makes_perm(), Some(1.0e-9));
+        let b_loose = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e-9, unit: "mD".into() }));
         assert_eq!(
             b_loose.zones[0].net.mid, bo.net.mid,
             "a cutoff the modelled permeability passes must not remove pay"
@@ -2240,9 +2281,9 @@ mod tests {
             &crate::workflow::PaySummaryRequest {
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: Some(0.5),
-                phie_min: Some(0.08),
-                swe_max: Some(0.6),
+                vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }),
+                swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 skip_version: false,

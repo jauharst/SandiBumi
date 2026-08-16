@@ -2364,6 +2364,10 @@ async fn run_monte_carlo(
     mut req: montecarlo::McRequest,
     scope: well_scope::WellScopeSelection,
 ) -> Result<montecarlo::McResult, String> {
+    // SB-CUT-019: refuse a bare or impossible cut-off HERE, where the user's value first
+    // arrives, so the message reaches them. `run_monte_carlo` cannot return an error - the job
+    // registry fixes its return type - so this is the entry point that owns the refusal.
+    montecarlo::validate_cutoffs(&req)?;
     let items = {
         let conn = db.0.lock().unwrap();
         req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Monte Carlo run")?;

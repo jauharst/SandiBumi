@@ -593,10 +593,10 @@ export interface ReportSpec {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: number | null;
-  phie_min: number | null;
-  swe_max: number | null;
-  perm_min?: number | null;
+  vsh_max: CutoffEntry | null;
+  phie_min: CutoffEntry | null;
+  swe_max: CutoffEntry | null;
+  perm_min?: CutoffEntry | null;
   tables_only?: boolean;
 }
 
@@ -641,10 +641,10 @@ export interface DeckSpec {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: number | null;
-  phie_min: number | null;
-  swe_max: number | null;
-  perm_min?: number | null;
+  vsh_max: CutoffEntry | null;
+  phie_min: CutoffEntry | null;
+  swe_max: CutoffEntry | null;
+  perm_min?: CutoffEntry | null;
   title?: string;
   author?: string;
   /** Which cutoff level the deck summarises (default PAY). */
@@ -672,10 +672,10 @@ export interface WorkbookSpec {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: number | null;
-  phie_min: number | null;
-  swe_max: number | null;
-  perm_min?: number | null;
+  vsh_max: CutoffEntry | null;
+  phie_min: CutoffEntry | null;
+  swe_max: CutoffEntry | null;
+  perm_min?: CutoffEntry | null;
   title?: string;
   include_pay?: boolean;
   include_field?: boolean;
@@ -1588,10 +1588,10 @@ export interface McRequest {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: number | null;
-  phie_min: number | null;
-  swe_max: number | null;
-  perm_min: number | null;
+  vsh_max: CutoffEntry | null;
+  phie_min: CutoffEntry | null;
+  swe_max: CutoffEntry | null;
+  perm_min: CutoffEntry | null;
   bins: number;
   /** Low / high output percentiles (fractions in (0,1); default 0.10 / 0.90). One control drives
    *  both the reported spread and the tornado's input sweep. The median is always reported. */
@@ -2989,6 +2989,17 @@ export async function setZoneParamBatch(
   return invoke<number>("set_zone_param_batch", { zoneName, entries });
 }
 
+/** SB-CUT-019. A cut-off AS ENTERED: the number and the unit it was typed in.
+ *
+ *  The unit is not decoration. IP's own manual expresses one quantity in porosity units in one
+ *  place and `v/v` in another, with no unit tag on the field, so `35` where `0.1` is meant is a
+ *  350x error whose symptom is a plausible all-net well. A bare number is REFUSED by the backend
+ *  rather than guessed at. Volume fractions accept `v/v`, `pu` or `%`; permeability `mD` or `D`. */
+export interface CutoffEntry {
+  value: number;
+  unit: string;
+}
+
 export interface PaySummaryRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
@@ -2996,10 +3007,10 @@ export interface PaySummaryRequest {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: number | null;
-  phie_min: number | null;
-  swe_max: number | null;
-  perm_min: number | null;
+  vsh_max: CutoffEntry | null;
+  phie_min: CutoffEntry | null;
+  swe_max: CutoffEntry | null;
+  perm_min: CutoffEntry | null;
   /** SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — `"VSH"`,
    *  `"PHIE"` or `"SWE"` — which is the ROLE that curve plays in the summation, never the
    *  mnemonic it happens to be stored under. Omit a slot to take the cited default: saturation
@@ -3112,10 +3123,10 @@ export interface CutoffSweepRequest {
   /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
    *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
    *  spans a wide range even within one field. */
-  vsh_max: number | null;
-  phie_min: number | null;
-  swe_max: number | null;
-  perm_min: number | null;
+  vsh_max: CutoffEntry | null;
+  phie_min: CutoffEntry | null;
+  swe_max: CutoffEntry | null;
+  perm_min: CutoffEntry | null;
   sweep_min: number;
   sweep_max: number;
   steps: number;

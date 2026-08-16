@@ -14467,3 +14467,33 @@ year cannot quietly start its own copy again.
 - [ ] **Change a saved default, reopen both.** Both should move together.
 - [ ] **Compare Monte Carlo's cutoffs against the pay summary's** on the same project — the claim in
       that tooltip should finally be true.
+
+## A cut-off now has to say what unit it is in
+
+Your manual expresses the sensitivity-sweep example in **porosity units** and the cut-off default in
+**v/v** — for the same quantity, on a field that carries no unit tag. So a porosity cut-off typed as
+`35` might mean 0.35, and might mean 35. That is a 350x error, and its symptom is not an error
+message: it is a well where every sample passes and the whole interval books as net. A good-looking
+result, not a visible failure.
+
+A cut-off is therefore now carried as a number **and** the unit it was entered in, all the way
+across to the engine, and the engine converts it before it computes anything:
+
+- `35 pu` is accepted and becomes `0.35 v/v`.
+- `35 v/v` is refused — a volume fraction cannot exceed 1.
+- A bare number with no unit is refused by name, and the message says why rather than just saying no.
+- Permeability has its own units: `1 D` becomes `1000 mD`, and a volume fraction is not accepted as
+  a permeability however plausible the number looks.
+
+The refusal happens at the entrance to the pay summary, the cut-off sweep and Monte Carlo, so a
+cut-off that never said its unit cannot reach the arithmetic by any route.
+
+**What you will see:** the cut-off number is now printed with its unit in the report and the
+workbook — `PHIE >= 0.10 v/v` rather than `PHIE >= 0.10`. The entry boxes themselves still assume
+v/v for VSH, PHIE and SWE and mD for permeability, which is what they have always meant; whether
+they should offer you a unit selector instead is your call, and I have not made it.
+
+- [ ] **Run a pay summary and open the report.** Every cut-off line should now carry its unit.
+- [ ] **Same for the workbook** — the cut-off rows in the header sheet.
+- [ ] **Tell me whether you want a unit selector on the cut-off boxes**, or whether fixed v/v and mD
+      is right for how you work. If you ever type porosity in p.u., the selector is worth having.

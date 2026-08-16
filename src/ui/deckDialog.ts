@@ -155,14 +155,20 @@ export async function openDeckDialog(): Promise<void> {
     if (!dest) return;
     runBtn.disabled = true;
     status.textContent = `Computing ${wellIds.length} well(s)…`;
+    // SB-CUT-019: a blank box is ABSENT (unfiltered); a number carries the unit it was typed in.
+    const cutOf = (i: HTMLInputElement, unit = "v/v"): { value: number; unit: string } | null => {
+      const v = parseFloat(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : null;
+    };
     try {
       const res = await exportDeck(
         {
           well_ids: wellIds,
-          vsh_max: parseFloat(vshIn.value),
-          phie_min: parseFloat(phieIn.value),
-          swe_max: parseFloat(sweIn.value),
-          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          // SB-CUT-019: entered with a unit, never a bare number.
+          vsh_max: cutOf(vshIn),
+          phie_min: cutOf(phieIn),
+          swe_max: cutOf(sweIn),
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
           input_set: setPicker.inputSet(),
           title: titleIn.value.trim(),
           author: authorIn.value.trim(),

@@ -9,6 +9,24 @@ export interface CutoffDefaults {
   perm_min: number | null;
 }
 
+/** SB-CUT-019. The unit each cut-off is entered and stored in. Volume fractions are held in `v/v`
+ *  and permeability in `mD`, so a saved project default carries its unit to the backend rather
+ *  than arriving as a bare number the engine would have to guess at. */
+export const CUTOFF_UNITS: Record<keyof CutoffDefaults, string> = {
+  vsh_max: "v/v",
+  phie_min: "v/v",
+  swe_max: "v/v",
+  perm_min: "mD",
+};
+
+/** SB-CUT-019. Wrap a stored canonical value as the entered form the backend requires. */
+export function asCutoffEntry(
+  field: keyof CutoffDefaults,
+  value: number | null,
+): { value: number; unit: string } | null {
+  return value === null ? null : { value, unit: CUTOFF_UNITS[field] };
+}
+
 /** The one canonical fallback, used when a project has no saved cutoffs. Every pay-cutoff pane seeds
  *  from `loadCutoffDefaults()` so Monte Carlo, the pay summary, the report and the cutoff editor can
  *  never quote different defaults for the same field. They used to: Monte Carlo hard-coded PHIE ≥

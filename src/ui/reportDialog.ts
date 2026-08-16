@@ -254,12 +254,20 @@ export async function buildReportContent(
   const buildSpec = (): ReportSpec | string => {
     const layout = layouts.find((l) => l.name === layoutSel.value);
     if (!layout) return "No layout selected.";
-    const vsh = Number(vshIn.value);
-    const phie = Number(phieIn.value);
-    const swe = Number(sweIn.value);
-    if ([vsh, phie, swe].some(Number.isNaN)) return "Cutoffs must be numbers.";
-    const perm = permIn.value.trim() === "" ? null : Number(permIn.value);
-    if (perm !== null && Number.isNaN(perm)) return "PERM cutoff must be a number or blank.";
+    // SB-CUT-019: a cut-off carries the unit it was entered in; a blank box is ABSENT, which the
+    // report prints as "unfiltered" rather than as a number that was never applied.
+    const cutOf = (i: HTMLInputElement, unit: string) => {
+      if (i.value.trim() === "") return null;
+      const v = Number(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : undefined;
+    };
+    const vsh = cutOf(vshIn, "v/v");
+    const phie = cutOf(phieIn, "v/v");
+    const swe = cutOf(sweIn, "v/v");
+    const perm = cutOf(permIn, "mD");
+    if ([vsh, phie, swe, perm].some((c) => c === undefined)) {
+      return "Cutoffs must be numbers, or blank to leave that property unfiltered.";
+    }
     return {
       composite: {
         well_id: well.well_id,
@@ -272,10 +280,10 @@ export async function buildReportContent(
       title: titleIn.value.trim() || "Petrophysical Evaluation",
       author: authorIn.value.trim(),
       methodology: textToRows(methodTa.value),
-      vsh_max: vsh,
-      phie_min: phie,
-      swe_max: swe,
-      perm_min: perm,
+      vsh_max: vsh ?? null,
+      phie_min: phie ?? null,
+      swe_max: swe ?? null,
+      perm_min: perm ?? null,
       input_set: setPicker.inputSet(),
       tables_only: tablesOnly.checked,
     };

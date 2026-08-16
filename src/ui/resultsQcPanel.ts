@@ -403,9 +403,10 @@ async function computeCutoff(
       {
         well_ids: [wellId],
         property: "PHIE",
-        vsh_max: vshMax,
-        phie_min: phieMin,
-        swe_max: sweMax,
+        // SB-CUT-019: the probe's cut-offs are held in v/v and travel with that unit.
+        vsh_max: vshMax === null ? null : { value: vshMax, unit: "v/v" },
+        phie_min: { value: phieMin, unit: "v/v" },
+        swe_max: sweMax === null ? null : { value: sweMax, unit: "v/v" },
         perm_min: null,
         sweep_min: sweepLo,
         sweep_max: sweepHi,

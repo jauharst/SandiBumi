@@ -44,11 +44,11 @@ pub struct ReportSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<f64>,
-    pub phie_min: Option<f64>,
-    pub swe_max: Option<f64>,
+    pub vsh_max: Option<crate::workflow::CutoffEntry>,
+    pub phie_min: Option<crate::workflow::CutoffEntry>,
+    pub swe_max: Option<crate::workflow::CutoffEntry>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffEntry>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -84,10 +84,13 @@ pub(crate) fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
             "VSH / PHIE / SWE flags → SAND, RESERVOIR, PAY",
             &format!(
                 "VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}{}",
-                crate::workflow::cutoff_label(spec.vsh_max, 2),
-                crate::workflow::cutoff_label(spec.phie_min, 2),
-                crate::workflow::cutoff_label(spec.swe_max, 2),
-                spec.perm_min.map(|p| format!(", PERM ≥ {p:.1} mD")).unwrap_or_default()
+                crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+                crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+                crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+                spec.perm_min
+                    .as_ref()
+                    .map(|e| format!(", PERM ≥ {:.1} {}", e.value, e.unit))
+                    .unwrap_or_default()
             ),
         ),
     ]
@@ -391,11 +394,11 @@ fn report_pages_with_degradations(
         db,
         &PaySummaryRequest {
             well_ids: vec![spec.composite.well_id.clone()],
-            vsh_max: spec.vsh_max,
-            phie_min: spec.phie_min,
-            swe_max: spec.swe_max,
+            vsh_max: spec.vsh_max.clone(),
+            phie_min: spec.phie_min.clone(),
+            swe_max: spec.swe_max.clone(),
             enabled_unset: Vec::new(),
-            perm_min: spec.perm_min,
+            perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: false,
             stats_only: false,
@@ -567,9 +570,9 @@ fn report_pages_with_degradations(
         // exactly the cardinal-rule failure the report path must not allow.
         let pay_section = format!(
             "Pay Summary  (VSH ≤ {}, PHIE ≥ {}, SWE ≤ {})",
-            crate::workflow::cutoff_label(spec.vsh_max, 2),
-            crate::workflow::cutoff_label(spec.phie_min, 2),
-            crate::workflow::cutoff_label(spec.swe_max, 2)
+            crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2)
         );
         match pay_result {
             Ok(pay_rows) if !pay_rows.is_empty() => {
@@ -586,7 +589,7 @@ fn report_pages_with_degradations(
                              PERM ≥ {:.1} mD cutoff for want of data. The zero net pay below records an \
                              absence of evidence, not a dry reservoir — compute or import a permeability \
                              curve, or lift the cutoff, before reading these rows.",
-                            spec.perm_min.unwrap_or(0.0)
+                            spec.perm_min.as_ref().map(|e| e.value).unwrap_or(0.0)
                         )
                     });
                 let p_rows: Vec<Vec<String>> = pay_rows
@@ -890,9 +893,9 @@ mod tests {
             title: "Petrophysical Evaluation".into(),
             author: "Tester".into(),
             methodology: vec![],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.6),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
             perm_min: None,
             tables_only: true,
         }
@@ -1121,7 +1124,7 @@ mod tests {
         let quiet = pay_text(&spec);
         assert!(!quiet.contains("no permeability curve"), "no cutoff requested, no note: {quiet}");
 
-        spec.perm_min = Some(1000.0);
+        spec.perm_min = Some(crate::workflow::CutoffEntry { value: 1000.0, unit: "mD".into() });
         let noted = pay_text(&spec);
         assert!(noted.contains("no permeability curve"), "the reason must be stated: {noted}");
         assert!(noted.contains("1000.0 mD"), "and name the cutoff it could not answer: {noted}");
@@ -1376,11 +1379,11 @@ mod tests {
             &dbm,
             &PaySummaryRequest {
                 well_ids: vec![w.clone()],
-                vsh_max: spec.vsh_max,
-                phie_min: spec.phie_min,
-                swe_max: spec.swe_max,
+                vsh_max: spec.vsh_max.clone(),
+                phie_min: spec.phie_min.clone(),
+                swe_max: spec.swe_max.clone(),
                 enabled_unset: Vec::new(),
-                perm_min: spec.perm_min,
+                perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
                 stats_only: true
@@ -1440,7 +1443,10 @@ mod tests {
 
         // Then methodology, zone parameters, pay summary — in that order. Located by first
         // occurrence rather than by index, so a table that paginates does not break the check.
-        let pay_section = "Pay Summary  (VSH \u{2264} 0.50, PHIE \u{2265} 0.10, SWE \u{2264} 0.60)";
+        // SB-CUT-019 tightened this: the deliverable names the UNIT beside every cut-off, so a
+        // client PDF can never say "PHIE ≥ 0.10" without saying in what.
+        let pay_section =
+            "Pay Summary  (VSH \u{2264} 0.50 v/v, PHIE \u{2265} 0.10 v/v, SWE \u{2264} 0.60 v/v)";
         let (m, z, p) = (first_with("Methodology"), first_with("Zone Parameters"), first_with(pay_section));
         assert!(0 < m && m < z && z < p, "page order was cover {m} methodology, {z} zones, {p} pay");
 
@@ -1529,9 +1535,9 @@ mod tests {
                 &PaySummaryRequest {
                     input_set: None,
                     well_ids: vec![w],
-                    vsh_max: Some(0.5),
-                    phie_min: Some(0.1),
-                    swe_max: Some(0.6),
+                    vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
+                    phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
+                    swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
                     enabled_unset: Vec::new(),
                     perm_min: None,
                     skip_version: true,
@@ -1616,7 +1622,7 @@ mod tests {
         // The section header and the note text must both render — this is what stops a failed or
         // empty pay run from leaving no trace at all in the client PDF.
         let ops = note_page(
-            "Pay Summary  (VSH ≤ 0.50, PHIE ≥ 0.10, SWE ≤ 0.60)",
+            "Pay Summary  (VSH ≤ 0.50 v/v, PHIE ≥ 0.10 v/v, SWE ≤ 0.60 v/v)",
             "SANDI-001",
             "Pay Summary unavailable — read-only database",
             210.0,
@@ -1647,9 +1653,9 @@ mod tests {
             title: "Petrophysical Evaluation — Sandi Field".into(),
             author: "Jauhar".into(),
             methodology: vec![],
-            vsh_max: Some(0.5),
-            phie_min: Some(0.1),
-            swe_max: Some(0.6),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }),
             perm_min: None,
             tables_only: true,
         };

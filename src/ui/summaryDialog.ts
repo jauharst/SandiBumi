@@ -65,14 +65,19 @@ export async function buildSummaryContent(
     if (!custody) return;
     runBtn.disabled = true;
     resultBox.textContent = "Computing…";
+    const cutOf = (i: HTMLInputElement, unit: string) => {
+      const v = parseFloat(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : null;
+    };
     try {
       const rows = await runPaySummary(
         {
           well_ids: wellIds,
-          vsh_max: parseFloat(vshIn.value),
-          phie_min: parseFloat(phieIn.value),
-          swe_max: parseFloat(sweIn.value),
-          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          // SB-CUT-019: entered with a unit; a blank box is ABSENT, not a bare number.
+          vsh_max: cutOf(vshIn, "v/v"),
+          phie_min: cutOf(phieIn, "v/v"),
+          swe_max: cutOf(sweIn, "v/v"),
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
           input_set: setPicker.inputSet(),
           custody,
         },
