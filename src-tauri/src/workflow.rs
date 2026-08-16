@@ -7214,6 +7214,152 @@ mod tests {
         assert!(err.contains("no unit"), "{err}");
     }
 
+    /// A clean, porous, WET sand: every sample passes a clay and a porosity cut-off and fails any
+    /// ordinary saturation cut-off. It is the rock SB-CUT-026 exists to protect.
+    fn seed_wet_reservoir(conn: &duckdb::Connection, name: &str) -> String {
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 11usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            conn, id, depth.clone(), vec![30.0; n], vec![4.0; n], vec![0.25; n], vec![2.3; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        for (curve, value) in [("VSH", 0.10f32), ("PHIE", 0.30), ("SWE", 0.80)] {
+            equations::write_computed_curve(conn, &well, &depth, curve, &vec![value; n]).unwrap();
+        }
+        well
+    }
+
+    /// SB-CUT-026 (P1). `14_cutoffs-summation-mc.md:1318-1329` — the net reservoir tier **MUST
+    /// NOT** apply a saturation cut-off by default; net reservoir **MUST** be porosity- and
+    /// clay-driven, and saturation **MUST** enter at the pay tier.
+    ///
+    /// F-25: IP's `Sw Net Use` and `Sw Pay Use` are separate ordinals and Net Reservoir is
+    /// described as porosity- and clay-driven. The consequence of getting it wrong is stated in
+    /// the chapter and is the reason this is P1 rather than a preference — **it reclassifies wet
+    /// reservoir as non-reservoir**. A water-bearing sand is still reservoir rock; it is the pay
+    /// tier that is allowed to care that it is wet.
+    #[test]
+    fn a_wet_but_porous_clean_sand_is_reservoir_and_not_pay_because_saturation_enters_at_the_pay_tier(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_wet_reservoir(&conn, "SANDI-WET-1");
+        let dbm = Mutex::new(conn);
+        let vv = |value: f64| Some(CutoffSpec::from(CutoffEntry { value, unit: "v/v".into() }));
+        let run = |swe: Option<CutoffSpec>, use_at: Vec<(&str, CutoffUse)>| {
+            let rows = run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: vv(0.50),
+                    phie_min: vv(0.10),
+                    swe_max: swe,
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting: Default::default(),
+                    frame: Default::default(),
+                    enabled_unset: Vec::new(),
+                    cutoff_use: use_at
+                        .into_iter()
+                        .map(|(slot, u)| (slot.to_string(), u))
+                        .collect(),
+                },
+            )
+            .expect("the run is valid");
+            let net = |flag: &str| {
+                rows.iter()
+                    .filter(|row| row.flag == flag)
+                    .map(|row| row.net as f64)
+                    .sum::<f64>()
+            };
+            (net("SAND"), net("RESERVOIR"), net("PAY"))
+        };
+
+        // A — the requirement's own failure mode. This sand is clean (VSH 0.10) and porous
+        // (PHIE 0.30) and WET (SWE 0.80). With a 0.50 saturation cut-off it must book as
+        // reservoir in full and as pay not at all.
+        let (sand, reservoir, pay) = run(vv(0.50), vec![]);
+        assert!(sand > 0.0, "the fixture books sand");
+        assert_eq!(
+            reservoir, sand,
+            "a wet sand is still reservoir rock: applying the saturation cut-off at the reservoir \
+             tier would reclassify it as non-reservoir, which is the defect this row prevents"
+        );
+        assert_eq!(pay, 0.0, "and saturation DOES enter at the pay tier");
+
+        // B — the reservoir tier is independent of the saturation cut-off's VALUE. Moving it must
+        // move pay and leave reservoir where it is; that is what "does not apply" means, as
+        // distinct from "applies but happens not to bite on this fixture".
+        let (_, reservoir_loose, pay_loose) = run(vv(0.90), vec![]);
+        assert_eq!(reservoir_loose, reservoir, "reservoir must not move with the SWE cut-off");
+        assert!(pay_loose > pay, "while pay must: {pay_loose} against {pay}");
+
+        // C — and reservoir IS porosity- and clay-driven, pinned from the positive side too. A
+        // tier that applied NOTHING would satisfy every assertion above and be a different bug.
+        let strict_clay = run(vv(0.50), vec![]).1;
+        let (_, reservoir_clay, _) = {
+            let rows = run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: vv(0.05),
+                    phie_min: vv(0.10),
+                    swe_max: vv(0.50),
+                    perm_min: None,
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    weighting: Default::default(),
+                    frame: Default::default(),
+                    enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
+                },
+            )
+            .expect("the run is valid");
+            let net = |flag: &str| {
+                rows.iter()
+                    .filter(|row| row.flag == flag)
+                    .map(|row| row.net as f64)
+                    .sum::<f64>()
+            };
+            (net("SAND"), net("RESERVOIR"), net("PAY"))
+        };
+        assert!(
+            reservoir_clay < strict_clay,
+            "a clay cut-off below the sand's VSH must reduce reservoir: {reservoir_clay} against \
+             {strict_clay}"
+        );
+
+        // D — it is a DEFAULT, not a prohibition. The requirement says the reservoir tier must not
+        // apply saturation *by default*; a user who declares otherwise is entitled to it, and
+        // removing the capability would be a different requirement.
+        let (_, reservoir_declared, _) = run(
+            vv(0.50),
+            vec![("SWE", CutoffUse { sand: false, reservoir: true, pay: true })],
+        );
+        assert_eq!(
+            reservoir_declared, 0.0,
+            "an explicit declaration must reach the reservoir tier - the rule is a default, not a \
+             prohibition"
+        );
+
+        // E — and the default itself is DECLARED rather than emergent, so it can be read off the
+        // configuration instead of inferred from a result.
+        assert!(
+            !default_cutoff_use("SWE").reservoir && default_cutoff_use("SWE").pay,
+            "SWE ships off at the reservoir tier and on at pay"
+        );
+    }
+
     /// SB-CUT-022 (P1). `14_cutoffs-summation-mc.md:1254-1272` and F-25 at `:489-501` — each
     /// cut-off **MUST** carry an explicit enable flag per report tier; activation **MUST NOT** be
     /// inferred from the presence of a curve or of a value; and the reservoir and pay tiers

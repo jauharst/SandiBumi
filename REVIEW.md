@@ -14602,3 +14602,29 @@ VALUE is applied, not whether the level can do without the curve.
       identical.
 - [ ] **Tell me whether you want these switches in the Cutoffs pane.** They are not on screen yet;
       today every run gets the standard ladder, and how the control should look is your call.
+
+## A wet sand is still reservoir rock
+
+Net reservoir does not apply a water-saturation cut-off, and now there is a test that says so.
+
+This was already how the engine behaved — nothing changed. What was missing was proof. The
+consequence of getting it wrong is specific: a clean, porous, water-bearing sand would stop counting
+as reservoir at all. It is not pay, and it should not be; but it is reservoir rock, and a reserves
+report that says otherwise has lost a sand it should be showing you.
+
+The test uses a sand built for the purpose — clean, porous, and wet at 80 % water — and checks that
+it books as reservoir in full and as pay not at all. It also checks the two things that would let a
+wrong implementation slip through: that reservoir does not move when you change the saturation
+cut-off, and that reservoir still responds to the clay and porosity cut-offs (a level that filtered
+nothing at all would otherwise look identical).
+
+**It is a default, not a ban.** If you deliberately declare that saturation should apply at the
+reservoir level, it does. The rule is about what happens when nobody says.
+
+**One correction to the record:** this requirement was listed as proved by a test about missing-data
+handling. That test is fine and stays, but it would have passed with the defect present, so it was
+never proof of this. It has been replaced with one that is.
+
+- [ ] **On a well with a known wet sand, check the RESERVOIR flag covers it and PAY does not.**
+      This is the one where your own data is the real evidence — a synthetic sand proves the rule
+      is applied, not that it is the right rule for your field.

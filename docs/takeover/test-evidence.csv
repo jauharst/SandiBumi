@@ -70,7 +70,7 @@
 "SB-CORE-035","CORRECTNESS","src-tauri/src/well_scope.rs","every_backend_scoped_operation_uses_current_group_membership_and_refuses_stale_or_unknown_scope"
 "SB-CORE-036","CORRECTNESS","src-tauri/src/jobs.rs","every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled"
 "SB-CORE-040","CORRECTNESS","src-tauri/tests/verification_matrix.rs","a_capability_matrix_is_generated_from_review_and_a_capability_map_and_checked_by_the_gate"
-"SB-CUT-026","CHARACTERIZATION","src-tauri/src/workflow.rs","classify_sample_nan_propagation"
+"SB-CUT-026","CORRECTNESS","src-tauri/src/workflow.rs","a_wet_but_porous_clean_sand_is_reservoir_and_not_pay_because_saturation_enters_at_the_pay_tier"
 "SB-CUT-029","CHARACTERIZATION","src-tauri/src/workflow.rs","a_well_with_no_perm_fails_the_cutoff_and_says_why"
 "SB-CUT-029","CHARACTERIZATION","src-tauri/src/workflow.rs","pay_summary_marks_an_uninterpreted_well_as_classifying_nothing"
 "SB-CUT-030","CHARACTERIZATION","src-tauri/src/workflow.rs","flooring_phie_leaves_missing_missing"

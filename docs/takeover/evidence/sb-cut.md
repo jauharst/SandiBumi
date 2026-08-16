@@ -436,14 +436,18 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-026
 
 - **Specified contract:** saturation is disabled at reservoir tier by default while pay still applies saturation.
-- **Current implementation / as-built:** classify_sample makes RESERVOIR from VSH and PHIE before reading SWE; PAY then requires SWE. PRESENT-OK.
+- **Current implementation / as-built:** unchanged and correct. `default_cutoff_use("SWE")` ships `{sand: false, reservoir: false, pay: true}` (SB-CUT-022), so `FLAG_RESERVOIR` applies VSH and PHIE and nothing else, and saturation enters at the pay tier. PRESENT-OK.
+- **This is a PROVE row: nothing was implemented, only proved.** The behaviour was already right; what was missing was a test that would notice if it stopped being right. The whole of the evidence is therefore the mutation record below.
+- **Why P1 rather than a preference.** The chapter states the consequence outright: getting it wrong **reclassifies wet reservoir as non-reservoir**. A water-bearing sand is still reservoir rock - it is the pay tier that is entitled to care that it is wet. F-25: IP's `Sw Net Use` and `Sw Pay Use` are separate ordinals and Net Reservoir is described as porosity- and clay-driven. Ledger D-5.10 records it as a default the vendor never states plainly.
 - **Release disposition and risk:** PILOT-BLOCKER; FIELD-EVIDENCE.
-- **Automated evidence:** CHARACTERIZATION; classify_sample_nan_propagation exercises the tier split, but T36 is not a named fresh-project/override acceptance test.
-- **Manual evidence:** NONE.
-- **Source/parameter boundary:** this is a tier rule, not a cutoff value.
-- **UI/IPC/provenance surface:** result flags embody the split but do not declare the tier policy.
-- **History/reachability:** classifier behavior is integrated.
-- **Blocking decision / next action:** add the owned positive reservoir and negative pay controls and field-exercise the rendered tiers.
+- **Automated evidence:** `a_wet_but_porous_clean_sand_is_reservoir_and_not_pay_because_saturation_enters_at_the_pay_tier` (`src-tauri/src/workflow.rs`). CORRECTNESS. Five arms over a purpose-built fixture - clean at VSH 0.10, porous at PHIE 0.30 and WET at SWE 0.80, which is exactly the rock the row protects. The wet sand books as reservoir IN FULL and as pay NOT AT ALL; the reservoir tier does not move when the saturation cut-off's value moves, while pay does, which distinguishes *does not apply* from *applies but happens not to bite on this fixture*; the reservoir tier IS clay-driven, pinned from the positive side so that a tier applying NOTHING cannot pass; an explicit declaration still reaches the reservoir tier, because the requirement forbids it BY DEFAULT and not at all; and the default is readable off the configuration rather than inferred from a result.
+- **The evidence register carried the wrong test, and it has been replaced rather than joined.** `classify_sample_nan_propagation` was registered as this row's proof with class `CHARACTERIZATION`. It is a real test and it stays in the suite, but it pins NaN propagation, not the tier the saturation cut-off enters at - it would pass unchanged with saturation applied at the reservoir tier, which is the entire defect. It is a supporting test, not a qualifying one, and a requirement's registered rows carry the requirement's class.
+- **Mutation evidence:** three probes, each read for WHICH assertion fired, all three at distinct assertions. Defaulting `SWE` on at the reservoir tier turned the wet-sand arm red - that is the defect itself, reproduced and caught. Turning `VSH` off at the reservoir tier turned the clay-driven arm red, which is the guard against satisfying this row with a tier that filters nothing. Making `cutoff_use_for` ignore the caller's declaration turned the default-not-prohibition arm red.
+- **Manual evidence:** cutoffs-pay 0/23. Automated only; no manual or field evidence is claimed. The risk class is FIELD-EVIDENCE, and this row does not claim to have supplied any: what a synthetic wet sand proves is that the tier rule holds, not that the rule is right for a particular reservoir.
+- **Source/parameter boundary:** no value adopted. The cut-off values in the fixture are test inputs chosen to straddle the tiers, not shipped defaults - there are none, since SB-CUT-016.
+- **UI/IPC/provenance surface:** unchanged. The default is `default_cutoff_use`, which SB-CUT-022 made declarable per run and persists with the run configuration.
+- **History/reachability:** the as-built was accurate; `FLAG_RESERVOIR` applied VSH and PHIE only, and still does.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-027
 
