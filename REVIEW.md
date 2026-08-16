@@ -14218,3 +14218,18 @@ as empty rather than wet, and in a summation those look identical.
       not a huge number.
 - [ ] **Sanity-check your net-pay totals** on a well with thin tight streaks - if bulk-volume water moved,
       tell me.
+
+## Saturation: pure shale now says so
+
+Modified Simandoux (Schlumberger form) divides by (1-Vsh), so at Vsh = 1 it is 0/0. SandiBumi already
+returned all-water there, which is the right answer - but it said nothing, so on the log that sample looked
+exactly like one the equation had actually solved. Indonesia has the same problem from the other side:
+at Vsh = 1 there is no effective porosity left to saturate. Both now raise a flagged condition. The
+numbers are unchanged.
+
+- [ ] **Run Modified Simandoux on an interval with Vsh at or near 1.** SWE should still read 1, and the
+      run record should now carry a clamped condition naming VSH >= 1.
+- [ ] **Run Indonesia over the same interval.** Same flag.
+- [ ] **Run a clean sand.** No such flag should appear - if it fires everywhere it tells you nothing.
+- [ ] **Tell me if this is too noisy in a batch** over very shaly wells. It is one condition per run, not
+      per sample, but you are the one who will see it.

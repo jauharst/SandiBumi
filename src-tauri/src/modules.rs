@@ -5027,6 +5027,16 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
         if is_missing(pe) {
             continue;
         }
+        // SB-SAT-030: at VSH -> 1 the water and effective porosity both go to zero, so the
+        // answer is degenerate even though nothing divides by zero here. The arithmetic is
+        // deliberately left alone — the requirement permits Sw = 1, it forbids Sw = 1 UNFLAGGED.
+        if vs >= 1.0 {
+            record_degradation_once(
+                RunDegradationKind::Clamped,
+                "indonesia: VSH >= 1 leaves no effective porosity, so the saturation is \
+                 degenerate rather than measured",
+            );
+        }
         if pe < 0.005 {
             swe_indo[i] = 1.0;
             swe_out[i] = 1.0;
@@ -5163,6 +5173,15 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         // shale as all water (same convention as the low-PHIE branch above). The shared solver
         // applies the same rule; keeping this explicit preserves the module's PHIE volume output.
         if modified_slb && vs >= 1.0 {
+            // SB-SAT-030: returning a plausible number from a singular equation is the
+            // fail-silent pattern. The value is still all-water — the chapter permits that —
+            // but it MUST NOT leave the run unflagged, because on the log an answer clamped
+            // out of a 0/0 is indistinguishable from one the equation actually produced.
+            record_degradation_once(
+                RunDegradationKind::Clamped,
+                "simandoux_modified_slb: VSH >= 1 makes the 1/(1-VSH) term singular; \
+                 saturation clamped to all-water rather than computed",
+            );
             swe_sim[i] = 1.0;
             swe_out[i] = 1.0;
             vol_uwat[i] = pe as f32;
@@ -8664,6 +8683,77 @@ mod tests {
                 assert!(out[k][i].is_nan(), "{k}[{i}] must be missing (NaN), was {}", out[k][i]);
             }
         }
+    }
+
+    /// SB-SAT-030. `12_saturation.md:1427-1440` — when `Vsh → 1` in `simandoux_modified_slb`
+    /// (whose `1/(1−Vsh)` term is singular) or in `indonesia` (where water and effective porosity
+    /// both go to zero), the run **MUST** raise a flagged condition. It **MAY** additionally
+    /// return `Sw = 1`; it **MUST NOT** return `Sw = 1` unflagged.
+    ///
+    /// Techlog Elan is the only vendor documenting this failure mode. Returning a plausible number
+    /// from a singular equation is the fail-silent pattern: on the log, a saturation clamped out of
+    /// a `0/0` is indistinguishable from one the equation actually produced.
+    ///
+    /// The values are deliberately unchanged — all-water is permitted. What this pins is that the
+    /// run says so.
+    #[test]
+    fn a_pure_shale_saturation_is_flagged_rather_than_quietly_returned_as_water() {
+        let params = [
+            ("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.05),
+            ("RT_SH", 4.0), ("C", 1.0), ("SWE_IRR", 0.0),
+        ];
+        // Each module gets the case the chapter documents for it. For
+        // `simandoux_modified_slb` the singularity is in the `1/(1-VSH)` term and is
+        // independent of porosity. For `indonesia` the chapter is explicit that water AND
+        // effective porosity both go to zero — at VSH=1 with a healthy PHIE it returns a
+        // COMPUTED value (measured: 0.373), so pairing VSH=1 with a real porosity would be
+        // asserting a physically inconsistent sample, not the documented degeneracy.
+        for (module, phie, opts) in [
+            (("sw_sim"), 0.10f32, vec![("OPT_RW", "CONSTANT"), ("OPT_SIM", "simandoux_modified_slb")]),
+            (("sw_indo"), 0.002f32, vec![("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL")]),
+        ] {
+            let logs = [
+                ("RT", vec![8.0f32]),
+                ("PHIE", vec![phie]),
+                ("VSH", vec![1.0f32]),
+            ];
+            let ctx = ctx_with(1, &logs, &params, &opts);
+            let (out, degradations, _, _) =
+                run_module_with_degradations(module, &ctx, DefaultUsage::default())
+                    .unwrap_or_else(|e| panic!("{module} failed to run: {e}"));
+
+            // A — the condition IS raised. This is the whole requirement.
+            assert!(
+                degradations.iter().any(|d| d.kind == RunDegradationKind::Clamped
+                    && d.detail.contains("VSH >= 1")),
+                "{module} returned a pure-shale saturation with no flagged condition: {degradations:?}"
+            );
+
+            // B — and the answer is still all water, so the flag did not come at the cost of the
+            // value the chapter permits. Asserting only arm A would pass a module that flagged and
+            // then emitted something else entirely.
+            let swe = out["SWE"][0];
+            assert!(
+                (swe - 1.0).abs() < 1e-6,
+                "{module}: pure shale must still read all water, got {swe}"
+            );
+        }
+
+        // C — the flag is specific to the singularity, not raised on every run. A clean sand must
+        // come back unflagged, or the condition carries no information.
+        let clean = ctx_with(
+            1,
+            &[("RT", vec![20.0f32]), ("PHIE", vec![0.25f32]), ("VSH", vec![0.10f32])],
+            &params,
+            &[("OPT_RW", "CONSTANT"), ("OPT_SIM", "simandoux_modified_slb")],
+        );
+        let (_, degradations, _, _) =
+            run_module_with_degradations("sw_sim", &clean, DefaultUsage::default())
+                .expect("clean sand runs");
+        assert!(
+            !degradations.iter().any(|d| d.detail.contains("VSH >= 1")),
+            "a clean sand must not raise the pure-shale condition: {degradations:?}"
+        );
     }
 
     /// SB-SAT-029. `12_saturation.md:1412-1425` — the documented guard rails, **including the

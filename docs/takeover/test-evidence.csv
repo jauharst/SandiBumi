@@ -302,7 +302,6 @@
 "SB-SAT-016","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
 "SB-SAT-017","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
 "SB-SAT-023","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
-"SB-SAT-030","CHARACTERIZATION","src-tauri/src/modules.rs","sw_sim_schlumberger_pure_shale_is_all_water"
 "SB-SAT-044","CHARACTERIZATION","src-tauri/src/resultsqc.rs","shaly_sand_makes_archie_diverge_from_clay_models"
 "SB-SAT-046","CHARACTERIZATION","src-tauri/src/multimin2.rs","xu_split_recovers_sw_and_sxo_from_conductivity"
 "SB-SAT-048","CHARACTERIZATION","src-tauri/src/lrlc.rs","the_fit_recovers_the_coefficients_that_generated_the_rock"
@@ -360,3 +359,4 @@
 "SB-SAT-001","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_model_is_named_by_its_equation_and_no_selector_offers_a_bare_vendor_adjective"
 "SB-SAT-006","CORRECTNESS","src-tauri/src/modules.rs","the_three_indonesia_presets_are_the_chapter_k_values_and_the_solver_shares_the_same_form"
 "SB-SAT-029","CORRECTNESS","src-tauri/src/modules.rs","every_standalone_saturation_guard_declares_a_tight_streak_wet_rather_than_empty"
+"SB-SAT-030","CORRECTNESS","src-tauri/src/modules.rs","a_pure_shale_saturation_is_flagged_rather_than_quietly_returned_as_water"

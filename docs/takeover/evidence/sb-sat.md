@@ -400,20 +400,22 @@
 - **Blocker or decision:** none.
 - **Next action:** Jauhar field-verifies that a tight streak with a little porosity reports bulk-volume water equal to that porosity rather than zero.
 
-## SB-SAT-030
+## SB-SAT-030 - Vsh -> 1 flags before the singularity
 
-- **Specified contract:** `Vsh → 1` MUST flag before the singularity, not silently return water. Owned test intention(s): SB-SAT-T44.
-- **Current implementation:** the standalone modified-Schlumberger branch returns all water at pure shale to avoid division by zero; it emits no pre-singularity flag.
-- **Qualifying acceptance tests:** no full owned acceptance proof; the available oracle is implementation characterization, not correctness. Test class `CHARACTERIZATION`.
-- **Supporting evidence:** CHARACTERIZATION: `sw_sim_schlumberger_pure_shale_is_all_water` pins the current silent fallback.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** the singularity is numerically hidden.
-- **Next action:** detect the near-pure-shale condition before evaluation, flag it, and prove a nearby valid sample remains evaluated.
+- **Specified contract:** when `Vsh -> 1` in `simandoux_modified_slb` (whose `1/(1-Vsh)` term is singular) or in `indonesia` (where water and effective porosity both go to zero), SandiBumi **MUST** raise a flagged condition. It **MAY** additionally return `Sw = 1`; it **MUST NOT** return `Sw = 1` unflagged (`12_saturation.md:1427-1440`). Techlog Elan is the only vendor documenting this failure mode.
+- **What changed:** the values are **unchanged** - all-water is permitted and still returned. What was added is the flag. `sw_sim`'s Schlumberger branch previously set all-water for `VSH >= 1` with the reason in a **source comment and nothing in the output**; it now records a `Clamped` degradation naming the condition. `sw_indo` gained the same flag, placed **above** its low-porosity early return so the degenerate case is reported rather than absorbed by the tight-streak rule.
+- **Qualifying acceptance tests:** `a_pure_shale_saturation_is_flagged_rather_than_quietly_returned_as_water` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** `sw_sim_schlumberger_pure_shale_is_all_water` (CHARACTERIZATION, moved out of the qualifying register when this row's class became CORRECTNESS - the test was not deleted, and it still pins the VALUE this row deliberately left unchanged).
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** no parameter and no threshold was introduced. `RunDegradationKind` was **not** extended - `Clamped` is one of the four existing members, and CLAUDE.md states that adding a fifth is a contract change rather than an ad-hoc message choice.
+- **Three-armed pin.** (A) the condition is raised, for both models. (B) the answer is still all water, so the flag did not come at the cost of the value the chapter permits - arm A alone would pass a module that flagged and then emitted something else. (C) a clean sand comes back **unflagged**, or the condition carries no information.
+- **A false assumption of mine was caught by the test and corrected.** The first draft asserted all-water for `indonesia` at `VSH = 1` with `PHIE = 0.10`. It returns a **computed 0.373** there. The chapter is explicit that indonesia's degeneracy is where water **and effective porosity** both go to zero, so pairing `VSH = 1` with a healthy porosity asserts a physically inconsistent sample rather than the documented case. Each module now gets the case its own failure mode describes, and the reasoning is recorded in the test.
+- **Verified by mutation:** weakening the flag so it no longer names the `VSH >= 1` condition fails the test - a flag that does not say what happened is the same silence in a different costume.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a pure-shale interval reports the clamped condition in the run record rather than passing as an ordinary all-water result.
 
-### SB-SAT-031
+## SB-SAT-031
 
 - **Specified contract:** `Rw` ships with no default. Owned test intention(s): `SB-SAT-T31`, `SB-SAT-T45`.
 - **Current implementation:** standalone saturation ships Rw=0.1 while LRLC and solver surfaces ship other concrete defaults; none represents absence.
