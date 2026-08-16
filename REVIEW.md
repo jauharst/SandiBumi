@@ -14679,3 +14679,27 @@ about what we write down, not what we read.
 - [ ] **Look at one report and one LAS export** and confirm the saturation column is `SWE` or `SWT`
       rather than a bare `SW`. The registry and the wire are covered by the test; what a rendered
       deliverable shows you is the half a test cannot claim.
+
+## "Not computed" travels beside the number, never inside it
+
+IP writes `$$` **into a numeric column** to mean "there were nulls here". A spreadsheet cannot add
+it, a script reading that column as a number cannot see it, and it survives every export looking
+like data.
+
+SandiBumi has never done that — the count of samples actually classified, the missing-permeability
+flag, and now the footage split all ride in their own fields beside the number. What was missing was
+a test that would notice if a marker ever crept into a numeric column.
+
+The test's important arm is the one that asserts two rows are the **same**: a zone nobody
+interpreted and a zone interpreted and found barren both read Net 0, N:G 0, HCPV 0 — identical
+numbers — and only the typed fields tell them apart. That forbids any future field from quietly
+encoding the difference back into the numbers, which is the shape the defect always takes.
+
+**A correction to the record:** this was marked partly done on the grounds that some footage null
+states had no typed field. That was true when it was written and stopped being true when the
+four-way footage split landed earlier in this same run of work — the specification had already said
+that was the only thing outstanding.
+
+- [ ] **On a real study, check a zone you never interpreted reads as a dash rather than a zero** —
+      in the summary pane, the report, and the workbook. The wire is proved; which surfaces you
+      actually read is the half a test cannot claim.

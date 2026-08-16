@@ -7214,6 +7214,131 @@ mod tests {
         assert!(err.contains("no unit"), "{err}");
     }
 
+    /// SB-CUT-029 (P1). `14_cutoffs-summation-mc.md:1361-1376` — a null or not-computed condition
+    /// **MUST** be carried in a typed sibling field, **never as an in-band marker inside a numeric
+    /// field**, and consumers **MUST** render a dash rather than a zero when the count is zero.
+    ///
+    /// F-15: IP prints `$$` **inside a numeric report column** to mean *"nulls present"* —
+    /// unparseable, uncarryable through a calculation, and invisible to a downstream consumer that
+    /// reads the column as a number. The chapter's as-built says the marker discipline is already
+    /// right and that *"the remaining work is the footage partition of `SB-CUT-003`"*; that row
+    /// landed, so what is left is this proof.
+    #[test]
+    fn a_not_computed_condition_rides_a_typed_sibling_and_never_a_marker_inside_a_numeric_column() {
+        let row = |name: &str, n_classified: usize, perm_no_data: bool| PaySummaryRow {
+            well_id: "w".into(),
+            well_name: name.into(),
+            zone: "WHOLE".into(),
+            flag: "PAY".into(),
+            top: 1000.0,
+            bottom: 1010.0,
+            gross: 10.0,
+            net: 0.0,
+            not_net: if n_classified == 0 { 0.0 } else { 10.0 },
+            unknown: if n_classified == 0 { 10.0 } else { 0.0 },
+            ntg: 0.0,
+            ntg_known: if n_classified == 0 { f32::NAN } else { 0.0 },
+            avg_vsh: f32::NAN,
+            avg_phie: f32::NAN,
+            avg_swe: f32::NAN,
+            hpv: 0.0,
+            n_classified,
+            perm_cutoff_no_data: perm_no_data,
+            residual_absorbed: 0.0,
+            unfiltered: vec!["PERM".into()],
+            frame: Default::default(),
+            weights_source: MD_WEIGHTS_SOURCE.into(),
+        };
+        let uninterpreted = serde_json::to_value(row("NEVER_INTERPRETED", 0, false)).unwrap();
+        let barren = serde_json::to_value(row("INTERPRETED_AND_BARREN", 40, true)).unwrap();
+
+        // A — NO IN-BAND MARKER. Every field that carries a quantity must serialize as a JSON
+        // number or null. A string in a numeric column is F-15 exactly: it survives the wire, it
+        // reads as data, and it stops being arithmetic.
+        for (label, value) in [("uninterpreted", &uninterpreted), ("barren", &barren)] {
+            let object = value.as_object().expect("a row is an object");
+            for field in [
+                "top", "bottom", "gross", "net", "not_net", "unknown", "ntg", "ntg_known",
+                "avg_vsh", "avg_phie", "avg_swe", "hpv", "residual_absorbed",
+            ] {
+                let cell = &object[field];
+                assert!(
+                    cell.is_number() || cell.is_null(),
+                    "{label} row: '{field}' carries {cell}, which is not a number - a marker \
+                     inside a numeric column is unparseable and uncarryable through a calculation"
+                );
+            }
+        }
+
+        // B — THE TYPED SIBLINGS, and their types. A count that arrived as a string, or a flag as
+        // "true", would satisfy arm A and defeat the requirement.
+        for (label, value) in [("uninterpreted", &uninterpreted), ("barren", &barren)] {
+            let object = value.as_object().expect("an object");
+            assert!(object["n_classified"].is_u64(), "{label}: the count is an integer");
+            assert!(
+                object["perm_cutoff_no_data"].is_boolean(),
+                "{label}: the missing-permeability condition is a boolean"
+            );
+            assert!(
+                object["unfiltered"]
+                    .as_array()
+                    .is_some_and(|names| names.iter().all(|name| name.is_string())),
+                "{label}: the unfiltered cut-offs are a list of names, not a packed string"
+            );
+        }
+
+        // C — the two rows are distinguishable PURELY from the typed fields. Their numeric columns
+        // are the same shape - net 0, N:G 0, HCPV 0 - which is the whole trap: a reader looking at
+        // the numbers alone cannot tell a well nobody interpreted from a well found barren, and
+        // nothing in the numbers is allowed to tell them apart either.
+        for field in ["net", "ntg", "hpv"] {
+            assert_eq!(
+                uninterpreted[field], barren[field],
+                "the numeric columns must NOT encode the difference - '{field}' does"
+            );
+        }
+        assert_ne!(
+            uninterpreted["n_classified"], barren["n_classified"],
+            "and the typed sibling must be what carries it"
+        );
+
+        // D — WIRED IN. A real run emits the siblings, so the discipline is a property of the
+        // engine's output rather than of a struct somebody could bypass.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_wet_reservoir(&conn, "SANDI-MARKER-1");
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: vec![well],
+                vsh_max: None,
+                phie_min: None,
+                swe_max: None,
+                perm_min: Some(CutoffEntry { value: 1.0, unit: "mD".into() }.into()),
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                weighting: Default::default(),
+                frame: Default::default(),
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+            },
+        )
+        .expect("the run is valid");
+        let pay = rows.iter().find(|r| r.flag == "PAY").expect("a pay row is emitted");
+        // This well carries no permeability at all, so every sample fails the cut-off for want of
+        // data. The zero is real arithmetic; the REASON rides beside it in its own typed field.
+        assert!(
+            pay.perm_cutoff_no_data,
+            "the well has no PERM, and the run must SAY so rather than leaving a bare zero"
+        );
+        assert_eq!(pay.net, 0.0, "while the number itself stays a number");
+        let wire = serde_json::to_value(pay).unwrap();
+        assert!(wire["net"].is_number() && wire["perm_cutoff_no_data"].is_boolean());
+    }
+
     /// SB-CUT-028 (P1). `14_cutoffs-summation-mc.md:1346-1359` — saturation quantities **MUST** be
     /// named `SWE` or `SWT` explicitly wherever a cut-off, an average or a result field refers to
     /// one, and a bare `SW` **MUST NOT** appear in a cut-off record or a result field.

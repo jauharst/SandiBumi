@@ -485,14 +485,20 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-029
 
 - **Specified contract:** null/absence states are carried as typed sibling fields, not inferred from numeric zeros.
-- **Current implementation / as-built:** n_classified and perm_cutoff_no_data distinguish two important absences, but other footage/result null states have no typed siblings. PARTIAL.
+- **Current implementation / as-built:** `n_classified`, `perm_cutoff_no_data`, and - since SB-CUT-003 landed this session - `not_net` and `unknown` carry every not-computed condition as a typed sibling. No numeric field carries a marker. PRESENT-OK.
+- **The register's `PARTIAL` was stale, and the chapter said so in advance.** The register read *"other footage/result null states have no typed siblings"*; the chapter's own as-built says the marker discipline is already right and that **"the remaining work is the footage partition of `SB-CUT-003`"**. That row landed earlier in this same program, so what remained here was the proof, not the plumbing. This is the third row in this block where the register and the chapter disagreed and the chapter was right.
+- **What F-15 actually is:** IP prints `$$` **inside a numeric report column** to mean *"nulls present"*. Unparseable, uncarryable through a calculation, and invisible to a downstream consumer that reads the column as a number - it survives the wire, it reads as data, and it stops being arithmetic.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** CHARACTERIZATION; pay_summary_marks_an_uninterpreted_well_as_classifying_nothing, a_well_with_no_perm_fails_the_cutoff_and_says_why, and the rendered zero-versus-absent frontend test prove two limbs only.
-- **Manual evidence:** NONE; Results QC is 0/1.
-- **Source/parameter boundary:** no null sentinel value is adopted; missing remains NaN plus typed context.
-- **UI/IPC/provenance surface:** summary UI honors n_classified, but full result/report/office null custody is incomplete.
-- **History/reachability:** both sibling fields and observable rendering regression are integrated.
-- **Blocking decision / next action:** inventory every nullable result and add typed reason/status siblings across IPC and exports.
+- **Automated evidence:** `a_not_computed_condition_rides_a_typed_sibling_and_never_a_marker_inside_a_numeric_column` (`src-tauri/src/workflow.rs`). CORRECTNESS. Four arms: every quantity-bearing field serializes as a JSON number or null, across both an uninterpreted row and an interpreted-and-barren one; the typed siblings are asserted to have their TYPES, because a count arriving as a string would satisfy the numbers-only scan and defeat the rule; the two rows are shown to be distinguishable **purely** from the siblings, with their numeric columns asserted EQUAL so nothing in the numbers is allowed to encode the difference; and a real run is asserted to emit the siblings, so the discipline belongs to the engine's output rather than to a struct somebody could bypass.
+- **The two-sided arm is the substance.** Asserting the numeric columns are the SAME is what makes this a proof rather than a demonstration: a reader looking at the numbers alone cannot tell a well nobody interpreted from a well found barren, and the test forbids any future field from quietly encoding it back into them.
+- **Mutation evidence:** three probes, each read for WHICH assertion fired, all three at distinct assertions. Serializing `perm_cutoff_no_data` as an in-band `"$$"` string - F-15 reproduced exactly - turned the boolean-type arm red. Serializing `n_classified` as a string turned the count-type arm red. Making the engine stop reporting the missing-permeability condition at all turned the wired-in arm red; that one is the different failure, the reason going MISSING rather than being misplaced, and it is worth having both.
+- **A note on reading those probe lines:** each string-marker probe inserts a helper function earlier in the file, so the reported panic line sits six lines below the assertion it names. The assertions were identified by subtracting that shift, not by trusting the raw number.
+- **The evidence register carried two CHARACTERIZATION rows and they are replaced, not joined.** `pay_summary_marks_an_uninterpreted_well_as_classifying_nothing` and `a_well_with_no_perm_fails_the_cutoff_and_says_why` are real tests and stay in the suite; they pin two individual limbs and neither pins the marker discipline itself. A requirement's registered rows carry the requirement's class.
+- **Manual evidence:** Results QC 0/1. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no null sentinel value is adopted, and none invented - missing stays `f32::NAN` with typed context beside it.
+- **UI/IPC/provenance surface:** every pay-summary row on the wire; the PDF and the summary pane honour the count, which is SB-CUT-055's own contract.
+- **History/reachability:** both sibling fields were integrated; the footage partition arrived with SB-CUT-003.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-030
 
