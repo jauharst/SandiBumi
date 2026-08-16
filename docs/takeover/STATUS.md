@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `159 / 222 handled — 119 DONE, 40 BLOCKED, 63 remaining`
+- Gate 2 requirement progress: `160 / 222 handled — 119 DONE, 41 BLOCKED, 62 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: G2-T08 / SB-POR-001 - `DONE`; every live POR module and porosity output is registered under one typed family/limit-interface/reason-schema/naming envelope, while density, D-N comparison, sonic, SSC and SSPW retain distinct source-linked numerical-policy identities and `phimax` is explicitly a limit producer.
+- Active increment: G2-T08 / SB-POR-002 - `BLOCKED-DECISION/BOUNDARY`; sonic still clamps in place, while SSC/SSPW discard pre-limit values inside protected `ssc.rs` and the chapter does not define whether their “unlimited” lineage bypasses only the final clamp or every upstream component limit. End-to-end custody also depends on SB-POR-004.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy` was witnessed RED before the envelope existed and again on an incorrect rename-case expectation, then GREEN. It independently inventories all six live POR modules and 21 porosity outputs, rejects omitted outputs and borrowed policies, preserves user-configurable output naming, and truthfully marks per-sample reason emission pending SB-POR-003. TypeScript and cargo check are green; the fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
+- Automated gate: no SB-POR-002 test was added because a passing test over current SSC/SSPW outputs would mislabel already-limited values as unlimited. Existing density/D-N twin and manifest-parity controls remain unchanged. DEC-038 records the missing workflow classification and unlimited-boundary contract; `ssc.rs` remains untouched. TypeScript and cargo check are green; the fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
-- Open blockers: `40 requirements are explicitly BLOCKED and 63 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
-- Next increment: `Continue G2-T08 with SB-POR-002: reverify the all-method unlimited/limited-pair contract and its SB-POR-004 collision-free custody dependency before changing any method output.`
+- Open blockers: `41 requirements are explicitly BLOCKED and 62 remain unhandled; the approved 222-row Gate 2 scope remains immutable, while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the exact ID inventory, human explanation, required input and maintenance rule.
+- Next increment: `Continue G2-T08 with SB-POR-003: determine whether the singular per-sample POR branch/limit stream has a complete typed wire vocabulary or needs a product decision before any numeric code is emitted.`
 
 ## Gate dashboard
 

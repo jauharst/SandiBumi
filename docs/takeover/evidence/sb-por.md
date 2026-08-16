@@ -100,15 +100,15 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-002 - Unlimited and limited pairs for every method
 
 - **Specified contract:** every method must preserve both unlimited `PHIT/PHIE` and limited `PHIT/PHIE`, with meanings visible through write, reload and export; T11, T19, T31 and T39 jointly constrain it.
-- **Current implementation:** density and D-N retain unlimited method-specific twins and shared limited outputs. Sonic has only one method-specific pair and clamps it in place; SSC/SSPW do not follow the twin convention.
-- **Qualifying acceptance tests:** none; no whole-family test proves both pairs and their custody for every method. Test class `MISSING`.
-- **Supporting tests:** `a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin` passed exactly once and closes only density and D-N examples; manifest-output parity passed but cannot prove semantic meaning.
+- **Current implementation:** density and D-N retain unlimited method-specific twins and shared limited outputs. Sonic has only one method-specific pair and clamps it in place. The SB-POR-001 registry classifies SSC/SSPW as deterministic methods, but both discard pre-limit values inside protected `ssc.rs`; their final porosity is already downstream of component and geometry clamps, so copying the value immediately before only the last clamp would not establish a complete unlimited lineage.
+- **Qualifying acceptance tests:** none. No whole-family test can presently prove both pairs and their custody without either mislabelling limited SSC/SSPW values or first deciding DEC-038. Test class `MISSING`.
+- **Supporting tests:** `a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin` closes only density and D-N examples. Manifest-output parity proves declared keys, not semantic unlimited meaning; generic LAS round trip proves numeric transport, not that the right lineage was stored.
 - **Manual evidence:** porosity 0/33; generic-curve-store 0/18; las-export 0/2.
 - **Source/parameter boundary:** the contract introduces no endpoint or default.
-- **History/reachability:** the density twin change is reachable; no corresponding sonic or full-family implementation was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-001 and collision-free custody from SB-POR-004.
-- **Next action:** add semantic unlimited/limited fields to the common POR result, then prove both are independently stored and exported for every method.
+- **History/reachability:** current source was reverified at parent `349be592`; this blocker increment changes no production behavior, no numeric limit and no protected file.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 `BLOCKED-DECISION/BOUNDARY` on DEC-038, the protected-file rule and SB-POR-004; no false closure.
+- **Blocker or decision:** DEC-038 must decide whether SSC/SSPW are methods governed by the twin contract or separately typed workflows. If governed, it must define which upstream limits the unlimited lineage bypasses; implementation then requires an explicit narrow exception for `ssc.rs`. Distinct write/reload/export custody still depends on SB-POR-004.
+- **Next action:** settle DEC-038 and SB-POR-004; then preserve separately named unlimited and limited pairs at the approved calculation boundary and prove both through write, reload and export, including distinct-name survival and explicit replacement/restore controls.
 
 ## SB-POR-003 - Per-sample branch and limit flag
 

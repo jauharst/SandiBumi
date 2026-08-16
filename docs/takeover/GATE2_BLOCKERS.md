@@ -8,10 +8,10 @@ This is the human-readable companion to the machine-owned blocker set in
 
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
-- Handled: `159 / 222`
+- Handled: `160 / 222`
 - Done: `119`
-- Blocked: `40`
-- Remaining unhandled: `63`
+- Blocked: `41`
+- Remaining unhandled: `62`
 - Evidence boundary: Automated, Visual, Manual and Field evidence are separate.
 - Scientific boundary: a value, limit, tolerance, endpoint or family classification is cited or
   remains absent. Current code is never its own authority.
@@ -67,6 +67,7 @@ requirement appears exactly once.
 | `SB-CLY-001` | DEC-036 | The generic binary precondition flag is not the specified categorical `ENDPOINT_INVALID` reason and carries no zone identity. | Add SB-CLY-031/032 to the pilot or authorize their exact categorical schema as narrow infrastructure, including versioned wire/LAS codes and separate substitution custody. |
 | `SB-CLY-034` | DEC-036 and DEC-037 | Provenance export is absent, and a global undeclared `-999` screen would delete legitimate values and violate explicit `NoNull`. | Settle categorical provenance plus a source-scoped rule where `NoNull` wins and matched undeclared values are quarantined behind a named import decision or exact approved automatic policy. |
 | `SB-CLY-055` | DEC-036 and DEC-037 | Exact T35 requires the deferred CLY provenance output and an authorized LAS token representation; exact T44 needs a source-scoped undeclared-`-999` policy compatible with per-channel `NoNull`. | Authorize the complete versioned categorical provenance schema as pilot infrastructure or add SB-CLY-031/032 to the manifest, then define the exact CLY source/mnemonic signatures and `NoNull`-first sentinel policy before writing the all-output round trip. |
+| `SB-POR-002` | DEC-038 and protected-file boundary | Sonic has no unlimited twin. SSC/SSPW discard pre-limit values inside protected `ssc.rs`, and “unlimited” is ambiguous because upstream component and geometry clamps may already have bound the final value. Independent storage/export proof also depends on SB-POR-004's collision-safe custody. | Decide whether SSC/SSPW are methods under SB-POR-002 or separately typed workflows. If included, define the exact unlimited boundary, finish SB-POR-004, and authorize one narrow `ssc.rs` edit that preserves all existing limited arithmetic while exposing the approved pre-limit lineage. |
 
 ## Product-owner decision packet
 
@@ -88,6 +89,8 @@ The detailed alternatives and affected tests for `DEC-021` through `DEC-037` liv
    explicitly revised.
 10. Authorize narrow categorical CLY provenance infrastructure; require source-scoped sentinel
     handling in which explicit `NoNull` wins.
+11. Classify SSC/SSPW under the POR twin contract and define exactly what their unlimited lineage
+    bypasses before authorizing any protected-file change.
 
 Approval of a decision authorizes the engineering contract; it does not itself mark any affected
 requirement done. Each requirement still needs its named test, full gate, evidence update and

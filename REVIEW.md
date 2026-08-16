@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-002: unlimited/limited POR pairs blocked at workflow semantics
+
+- [ ] **Decision dependency:** answer DEC-038, then complete SB-POR-004's collision-safe curve
+      custody. Decide whether SSC and SSPW are methods governed by SB-POR-002 or separately typed
+      workflows; if governed, define whether “unlimited” bypasses only the final porosity clamp or
+      every upstream component/intermediate clamp that can bind the result.
+- [ ] **Automated boundary:** no SB-POR-002 acceptance test was added. Density and D-N still keep
+      their existing twins, but sonic still clamps in place and SSC/SSPW discard pre-limit values
+      inside protected `ssc.rs`. Generic manifest parity and LAS round trip cannot prove semantic
+      unlimited custody.
+- [ ] **Implementation boundary:** after DEC-038 and SB-POR-004, authorize one narrow edit to
+      `ssc.rs` if SSC/SSPW remain in scope. Preserve existing limited arithmetic and parameters;
+      add separately named unlimited outputs from the approved boundary, then prove write, reload,
+      export and both distinct-name and intentional-replacement behavior.
+- [ ] **Field and harsh critique:** renaming an already-limited curve “unlimited” would manufacture
+      false QC evidence. Capturing only the last unclamped expression can be equally misleading
+      when upstream geometry and component limits already bound it. No Visual, Manual or Field box
+      is pre-checked, and no protected production file was changed.
+
 ## 2026-08-16 — G2 SB-POR-001: one POR envelope with method-specific policies
 
 - [ ] **Automated correctness:** the SB-POR-001/T39 contract was witnessed RED before the typed
