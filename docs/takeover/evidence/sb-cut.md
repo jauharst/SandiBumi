@@ -821,14 +821,17 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 ### SB-CUT-057
 
 - **Specified contract:** nested net-flag IPC uses exact snake_case names and rejects unknown or case-drift fields.
-- **Current implementation / as-built:** NetFlagSpec uses deny_unknown_fields; TypeScript sends snake_case; result serialization uses the declared snake_case key set. PRESENT-OK.
+- **Current implementation / as-built:** unchanged and correct. `NetFlagSpec` carries `#[serde(deny_unknown_fields)]`, the TypeScript side sends snake_case, and the result serializes under the declared key set. PRESENT-OK; **regression lock**.
+- **Verified, not assumed.** The three registered tests were re-read against the requirement rather than accepted on their names, because the requirement has three limbs and a test suite can satisfy two of them convincingly. Casing drift is pinned in `spec_deserializes_from_the_exact_json_the_frontend_sends`, which asserts a camelCase payload is REJECTED rather than half-parsed into defaults. The unknown-field limb is pinned by `serde_spec_fields`, which asks serde itself what the struct binds by probing with `{"__probe__":0}` and requiring the rejection - so the field list is read off the type rather than hand-maintained beside it. TypeScript-versus-Rust drift is pinned by `ipc_ts_declares_the_same_wire_names_as_the_rust_structs`.
+- **Why the rationale is not hypothetical:** Tauri camel-cases only the top-level command *argument* key, never nested struct fields, so a camelCase TypeScript DTO against a snake_case Rust struct deserialises to DEFAULTS with no error. That made an entire polygon-to-curve feature a no-op in a shipped build while every call returned success. A silent drop where a loud failure belongs.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** CORRECTNESS; spec_deserializes_from_the_exact_json_the_frontend_sends, result_serializes_under_the_names_the_frontend_reads and ipc_ts_declares_the_same_wire_names_as_the_rust_structs pin positive and negative wire shapes.
+- **Automated evidence:** `spec_deserializes_from_the_exact_json_the_frontend_sends`, `result_serializes_under_the_names_the_frontend_reads` and `ipc_ts_declares_the_same_wire_names_as_the_rust_structs` (`src-tauri/src/netflag.rs`). CORRECTNESS. Positive and negative wire shapes on both directions.
+- **Mutation evidence:** one probe. Removing `#[serde(deny_unknown_fields)]` from `NetFlagSpec` turned `ipc_ts_declares_the_same_wire_names_as_the_rust_structs` red - the field-list probe can no longer read the contract off the type, so the drift check loses its oracle. That is the load-bearing attribute, and the test notices when it goes.
 - **Manual evidence:** NONE specific to the IPC refusal.
-- **Source/parameter boundary:** exact wire schema is the expected value; no numeric source.
-- **UI/IPC/provenance surface:** positive exact payload works; camelCase and unknown probe keys fail.
-- **History/reachability:** wire fix and three regression locks are integrated.
-- **Blocking decision / next action:** preserve tests and field-exercise one polygon run before pilot release.
+- **Source/parameter boundary:** the exact wire schema is the expected value; no numeric source and none invented.
+- **UI/IPC/provenance surface:** the exact payload works; camelCase and unknown probe keys fail.
+- **History/reachability:** the wire fix and its three regression locks are integrated.
+- **Blocking decision / next action:** cleared.
 
 ### SB-CUT-058
 
