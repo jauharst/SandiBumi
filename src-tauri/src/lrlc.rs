@@ -337,6 +337,13 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Iterate SwT^n*/F*·(Cw + B·Qv_eff/SwT) = Ct, seeded with the Archie-like value.
         let mut sw = limit((fstar * ct / cw).powf(1.0 / nstar), 0.01, 1.0);
+        // SB-SAT-028: a solver that exhausts its iteration budget MUST return null, never the
+        // last iterate. A partial iterate is a finite saturation in the right range, so it is
+        // indistinguishable from a converged answer on the log — it is read, mapped and booked.
+        // `gascorr` (modules.rs) already refuses to write its 20th pass for the same reason,
+        // calling it "an internally inconsistent triple masquerading as a converged answer";
+        // this is SandiBumi's own method finally doing what its vendor-derived one always did.
+        let mut converged = false;
         for _ in 0..100 {
             // Waxman-Smits form: the excess-conductivity term is referenced to the ACTIVE
             // water, so it DIVIDES by Sw — it grows as hydrocarbon displaces water instead of
@@ -350,11 +357,13 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
             let next = limit((fstar * ct / denom).powf(1.0 / nstar), 0.0, 1.0);
             if (next - sw).abs() < 1e-6 {
                 sw = next;
+                converged = true;
                 break;
             }
             sw = next;
         }
-        if sw.is_nan() {
+        // A non-converged sample stays MISSING rather than shipping its last iterate.
+        if sw.is_nan() || !converged {
             continue;
         }
         swt_o[i] = sw as f32;
@@ -1260,6 +1269,60 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
 mod tests {
     use super::*;
     use crate::modules::ArgKind;
+
+    /// SB-SAT-028 (P0). `12_saturation.md:1399-1410` — a saturation solver that fails to converge
+    /// within its iteration budget MUST return null for that sample, and MUST NOT emit the last
+    /// iterate.
+    ///
+    /// A partial iterate is a finite saturation in the right range. It is not a visible error: it
+    /// is a plausible number a petrophysicist reads, maps and books, indistinguishable on the log
+    /// from one the equation actually solved. That is why no pre-existing test caught it — every
+    /// assertion about finiteness or bounds passes on a partial iterate.
+    #[test]
+    fn a_non_converged_imts_sample_is_missing_rather_than_its_last_iterate() {
+        let spec = sw_imts_spec();
+
+        // A — the ordinary path is untouched: a converging sample still carries its value. The
+        // guard must refuse non-convergence, not refuse everything.
+        let out = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![4.0]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.03]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &spec,
+            1,
+        ));
+        assert!(
+            out["SWT_IMTS"][0].is_finite(),
+            "a converging sample must keep its value, got {}",
+            out["SWT_IMTS"][0]
+        );
+
+        // B — the structural guard. A behavioural non-convergent input could not be constructed:
+        // the iteration is a contraction over the whole admissible parameter range, which is why
+        // the defect survived. Rather than contrive one — or quietly drop the arm — the write is
+        // pinned to sit behind the convergence flag, so removing the guard fails here.
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lrlc.rs"))
+            .expect("lrlc.rs is readable");
+        let production = source.split_once("#[cfg(test)]").map(|(a, _)| a).unwrap_or(&source);
+        let guard = production
+            .find("if sw.is_nan() || !converged {")
+            .expect("the non-convergence guard is gone — sw_imts would ship its last iterate");
+        let write = production
+            .find("swt_o[i] = sw as f32;")
+            .expect("sw_imts no longer writes SWT_IMTS");
+        assert!(
+            guard < write,
+            "the convergence guard must come BEFORE the write, or a non-converged iterate still ships"
+        );
+        assert!(
+            production.contains("converged = true;"),
+            "nothing ever sets the convergence flag, so the guard would reject every sample"
+        );
+    }
 
     fn ctx_with(logs: Vec<(&str, Vec<f32>)>, spec: &ModuleSpec, n: usize) -> ModuleContext {
         let mut params = HashMap::new();

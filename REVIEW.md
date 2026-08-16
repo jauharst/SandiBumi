@@ -14258,3 +14258,17 @@ Archie and both Simandoux forms are now cross-checked engine against engine to 1
 - [ ] **Do the same with Archie.**
 - [ ] **Run both Simandoux variants** and confirm they give DIFFERENT answers from each other. If they
       agree, the two equations have collapsed into one and the cross-check means nothing.
+
+## IMTS: a saturation that did not converge is now blank, not a guess
+
+sw_imts iterates up to 100 times to solve for SwT. If it ran out of passes it used to write whatever
+number it had reached, and that number looks completely normal on a log - a plausible saturation in the
+right range. There was no way to tell it apart from a properly solved one. It now leaves that sample
+blank instead. gascorr has always behaved this way; IMTS was the one that did not.
+
+- [ ] **Re-run IMTS on any well where you have ever distrusted the saturations**, especially high-clay or
+      very low-porosity intervals. Samples that were silently non-converged will now read blank.
+- [ ] **Check that ordinary intervals are unchanged.** Only non-converged samples should differ - if a
+      normal sand went blank, that is a bug and I want to know.
+- [ ] **If a whole interval goes blank**, that is the honest answer, but tell me - it may mean the inputs
+      or S factor need looking at rather than the solver.
