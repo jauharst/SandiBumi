@@ -374,20 +374,19 @@
 - **Verdict:** `PRESENT-OK` behaviour with `MISSING` proof; `PILOT-BLOCKER`; commit state `INTEGRATED`.
 - **Next action:** Jauhar authorizes the narrow `lrlc.rs` (and `multimin2.rs`) edits. Then route every applicable equation through the shared guarded solver and pin the guard suite owned rather than assumed: seed 0.5, the 20-iteration cap actually binding, `|d| < 1e-5`, `MAX(0, sat)` at each step, and the closed form at `n = 2` equal to the general solver **engine against engine** - the arm that is missing today.
 
-## SB-SAT-028
+## SB-SAT-028 - Non-convergence returns null, never a partial iterate
 
-- **Specified contract:** Non-convergence MUST return null, never a partial iterate. Owned test intention(s): SB-SAT-T41.
-- **Current implementation:** the standalone iterative helper returns missing after its cap, but IMTS retains its last finite iterate after 100 iterations because convergence is not recorded.
-- **Qualifying acceptance tests:** none; the owned intentions SB-SAT-T41 are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** no exact cap-hit test observes missing versus a partial iterate.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** the current implementation and cited supporting tests are reachable from the accepted implementation anchor; no unmerged branch is credited.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** non-convergence semantics disagree across engines.
-- **Next action:** return an explicit convergence state from one shared solver, emit missing on cap, and test a forced cap-hit path.
+- **Specified contract:** a saturation solver that fails to converge within its iteration budget **MUST** return null for that sample. SandiBumi **MUST NOT** emit the last iterate of a non-converged solve (`12_saturation.md:1399-1410`). Geolog sets `sat = MISSING` on non-convergence.
+- **Why P0:** a partial iterate is **indistinguishable from a converged answer on the log**. It is not a visible error - it is a plausible number in the right range that a petrophysicist will read, map and book. This is the silent-failure class CONTRACT SS5.3 and IP FINDINGS rule 14 both target.
+- **Current implementation - VERIFIED IN CODE, the finding stands exactly as written.** `sw_imts` in `lrlc.rs` runs `for _ in 0..100 { ... }` and then writes `swt_o[i] = sw as f32;` **unconditionally**. There is no convergence flag and no guard on falling out of the loop; only a NaN from a non-positive denominator is caught. The contrast is inside this same repository: `gascorr` (`modules.rs:4539-4556`) sets a `converged` flag and `continue`s on failure, with a comment stating that writing the last pass would be *an internally inconsistent triple masquerading as a converged answer* - which is precisely the defect `sw_imts` has. **SandiBumi's own in-house method has the defect its vendor-derived module avoids.**
+- **Qualifying acceptance tests:** none. Test class `MISSING`. No existing test could catch it: a non-converged iterate is a finite number in range, so every assertion about finiteness or bounds passes.
+- **Manual evidence:** saturation 0/31.
+- **Source/parameter boundary:** no parameter is involved and no tolerance needs choosing - the module already has an iteration budget and a convergence test; what is missing is *acting* on the failure.
+- **Blocker or decision:** `BLOCKED-BOUNDARY`. The defect and its fix are both inside `lrlc.rs`, a prohibited file, and the fix is small and needs no decision: track convergence and leave the sample `f32::NAN` when the budget is exhausted, exactly as `gascorr` already does. This is the **sixth** row waiting on the same narrow authorization.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Next action:** Jauhar authorizes the narrow `lrlc.rs` edit. Then make `sw_imts` leave a non-converged sample MISSING, and pin from both sides: a sample that converges keeps its value, and a sample driven past the budget comes back `NaN` rather than a plausible last iterate. One arm alone would pass a module that nulls everything.
 
-### SB-SAT-029
+## SB-SAT-029
 
 - **Specified contract:** Inherit the documented guard rails, including the volume detail. Owned test intention(s): `SB-SAT-T42`, `SB-SAT-T43`.
 - **Current implementation:** zero porosity and non-positive resistivity guards exist in several paths; standalone modules size unflushed-water volumes, while solver/LRLC paths omit the complete volume contract and variable-m guards.
