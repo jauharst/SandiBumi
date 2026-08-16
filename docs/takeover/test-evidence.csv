@@ -361,3 +361,4 @@
 "SB-SAT-029","CORRECTNESS","src-tauri/src/modules.rs","every_standalone_saturation_guard_declares_a_tight_streak_wet_rather_than_empty"
 "SB-SAT-030","CORRECTNESS","src-tauri/src/modules.rs","a_pure_shale_saturation_is_flagged_rather_than_quietly_returned_as_water"
 "SB-SAT-031","CORRECTNESS","src-tauri/src/modules.rs","no_saturation_engine_ships_a_formation_water_resistivity_the_user_did_not_supply"
+"SB-SAT-038","CORRECTNESS","src-tauri/src/modules.rs","a_saturation_default_without_a_checkable_source_fails_the_build"

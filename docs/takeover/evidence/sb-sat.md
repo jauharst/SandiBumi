@@ -507,20 +507,22 @@
 - **Blocker or decision:** pilot inclusion and coefficient custody are undecided.
 - **Next action:** if included, add one parameterized cited route with no coefficient default and explicit missing-input refusal.
 
-### SB-SAT-038
+### SB-SAT-038 - Every parameter carries a source string, and the build fails without one
 
-- **Specified contract:** Every parameter carries a source string, and the build fails without one. Owned test intention(s): SB-SAT-T31.
-- **Current implementation:** generic source-topic infrastructure exists, but saturation parameters have no complete source strings/tiers and builds do not reject missing metadata.
-- **Qualifying acceptance tests:** none; the owned intentions SB-SAT-T31 are not executable as full contracts. Test class `MISSING`.
-- **Supporting evidence:** no saturation parameter-inventory build test exists.
-- **Manual evidence:** saturation 2/97; workflow 0/23; verification-stewardship 0/24; no manual scenario was added or checked in this lane.
-- **Source/parameter boundary:** chapter sections 4 through 6 and their cited sources govern every expected value; no current literal is promoted to authority, and every ABSENT/no-default state remains fenced.
-- **History/reachability:** current Rust/TypeScript surfaces, tests and reachable code history contain no complete implementation; documentation-only mentions are not credited.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** 71 parameter rows are not enforced at compile/build time and 20 ABSENT-bearing plus 8 tierless rows need explicit custody.
-- **Next action:** create a generated saturation parameter registry from admissible sources and fail validation when source/no-default metadata is missing.
+- **Specified contract:** every saturation parameter **MUST** resolve to either a value with a **non-empty source string** or the explicit `NoDefault` state. A default with an empty source **MUST fail the build**. The source **MUST** be a specific checkable reference - a file and section, a module and parameter name, or a full literature citation (`12_saturation.md:1522-1537`).
+- **Why P0:** CONTRACT SS2 makes this the rule that outranks everything else. The domain's own evidence is the argument: three vendors ship three `Rw` defaults, three `B` method defaults, two `vQ0` values from the same paper, and a Simandoux `a` no cited paper supports - and none of them tells the user. A plausible-but-wrong endpoint computes, plots and ships into a reserves number without failing.
+- **Current implementation - the as-built was stale in both of its claims.** It says *no parameter carries a source string* and *`ArgSpec` has no field for one*. `ArgSpec` has `default_source`, and `validate_parameter_sources` (`modules.rs:1953`) already gated EVERY module for three of the four rules: non-empty source, `ABSENT` consistency (a source of ABSENT may not ship a default), and a finite numeric default wherever a source is cited.
+- **What this increment changed:** the fourth rule - the **checkable-artefact** test - was scoped to `category == "VSH"` alone. It now also covers `Saturation`. The whole shipping catalogue already satisfies it: the full suite passed unchanged at **1020 tests, 0 failures**, so this closed a contract without moving a single number.
+- **Qualifying acceptance tests:** `a_saturation_default_without_a_checkable_source_fails_the_build` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Manual evidence:** none needed - this is a build-time gate, not a screen.
+- **Source/parameter boundary:** no value was adopted or changed. The rule is about whether a source can be CHECKED, not about what it says.
+- **Four-armed pin.** (A) the shipping catalogue passes the stricter rule today. (B) a **bare product name** is refused - the clause that makes the rule bite, because that is exactly how an uncited vendor default looks when somebody writes it down in good faith - and the refusal must say *why*, so the fix is obvious. (C) an empty source is refused even though the number looks ordinary. (D) a proper file-and-section citation is **accepted** - without this arm the rule could block everything and teach the next author to route around it.
+- **Verified by mutation:** scoping the rule back to `VSH` alone fails the test.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** none for Jauhar. Worth knowing for later rows: this gate now refuses an uncited saturation default at build time, so a future parameter cannot ship one by accident.
 
-### SB-SAT-039
+## SB-SAT-039
 
 - **Specified contract:** `MUDBASE` is model-scoped. Owned test intention(s): SB-SAT-T53.
 - **Current implementation:** no MUDBASE option exists in saturation production code or reachable code history.

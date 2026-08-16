@@ -1975,7 +1975,15 @@ pub(crate) fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), S
                 }
                 continue;
             }
-            if module.category == "VSH" && !source_identifies_checkable_artefact(source) {
+            // SB-SAT-038 extends the checkable-artefact rule from VSH to Saturation. The chapter
+            // requires a source to be "a file and section, a module and parameter name, or a full
+            // literature citation" — a product name alone is not one. The domain's own evidence is
+            // the argument: three vendors ship three `Rw` defaults, three `B` method defaults, two
+            // `vQ0` values from the same paper, and a Simandoux `a` no cited paper supports — and
+            // none of them tells the user.
+            if matches!(module.category.as_str(), "VSH" | "Saturation")
+                && !source_identifies_checkable_artefact(source)
+            {
                 failures.push(format!(
                     "{identity} source '{source}' does not identify a checkable artefact locator, named publication, or project record; a product name alone is not a source"
                 ));
@@ -8683,6 +8691,62 @@ mod tests {
                 assert!(out[k][i].is_nan(), "{k}[{i}] must be missing (NaN), was {}", out[k][i]);
             }
         }
+    }
+
+    /// SB-SAT-038 (P0). `12_saturation.md:1522-1537` — every saturation parameter **MUST** resolve
+    /// to either a value with a **non-empty, checkable** source string or the explicit `NoDefault`
+    /// state, and a default with an empty source **MUST fail the build**. A checkable reference is
+    /// a file and section, a module and parameter name, or a full literature citation — a product
+    /// name alone is not one.
+    ///
+    /// The domain's own evidence is the argument: three vendors ship three `Rw` defaults, three `B`
+    /// method defaults, two `vQ0` values from the same paper, and a Simandoux `a` no cited paper
+    /// supports — and none of them tells the user. A plausible-but-wrong endpoint computes, plots,
+    /// and ships into a reserves number without failing.
+    ///
+    /// The as-built said no parameter carries a source and `ArgSpec` has no field for one. Both are
+    /// stale — `default_source` exists and `validate_parameter_sources` already gates every module.
+    /// What was missing is that the **checkable-artefact** rule was scoped to `VSH` alone; this
+    /// increment extends it to `Saturation`, which the whole shipping catalogue already satisfies.
+    #[test]
+    fn a_saturation_default_without_a_checkable_source_fails_the_build() {
+        // A — the shipping catalogue satisfies the stricter rule today.
+        validate_parameter_sources(&module_catalog())
+            .expect("every shipping saturation parameter must carry a checkable source or be ABSENT");
+
+        let saturation_param = |source: &str, default: f64| ModuleSpec {
+            name: "sw_probe".into(),
+            title: "probe".into(),
+            category: "Saturation".into(),
+            doc: String::new(),
+            args: vec![param("PROBE", "probe", "", default, 0.0, 10.0, source)],
+        };
+
+        // B — a product name alone is refused. This is the clause that makes the rule bite: it is
+        // exactly how an uncited vendor default looks when someone writes it down in good faith.
+        let bare_vendor = validate_parameter_sources(&[saturation_param("Geolog", 2.0)]);
+        assert!(
+            bare_vendor.is_err(),
+            "a bare product name passed as a source for a saturation default"
+        );
+        assert!(
+            format!("{bare_vendor:?}").contains("checkable"),
+            "the refusal must say WHY, so the fix is obvious: {bare_vendor:?}"
+        );
+
+        // C — an empty source is refused even though the number looks ordinary.
+        assert!(
+            validate_parameter_sources(&[saturation_param("", 2.0)]).is_err(),
+            "a saturation default with no source at all passed the build gate"
+        );
+
+        // D — and a properly cited one is accepted, or the rule would just block everything and
+        // teach the next author to route around it.
+        validate_parameter_sources(&[saturation_param(
+            "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
+            2.0,
+        )])
+        .expect("a file-and-section citation is a checkable source");
     }
 
     /// SB-SAT-031 (P0). `12_saturation.md:1442-1456` — `Rw` **MUST** ship as `NoDefault` in every
