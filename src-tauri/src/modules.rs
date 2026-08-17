@@ -9348,6 +9348,80 @@ mod tests {
         assert!(sf < ss, "full={sf} simple={ss}");
     }
 
+    /// SB-SAT-027 / SB-SAT-T12. Source: `docs/PRD_v2/12_saturation.md:1425-1431` — *"Where a closed
+    /// form exists for a special case (`n = 2`), it MAY be used as a fast path and MUST be asserted
+    /// equal to the general solver."* `multimin2::solve_simandoux_root` takes a closed quadratic
+    /// branch when `|n - 2| < 1e-9` and a bisection branch otherwise, so the two are exercised here
+    /// by straddling that guard: `n = 2.0` takes the fast path and `n = 2.0 + 2e-9` — physically the
+    /// same exponent — takes the general one.
+    ///
+    /// **This pins the clause the chapter can close, and deliberately not the whole requirement.**
+    /// The chapter also specifies Geolog's guards (seed 0.5, maximum 20 iterations, tolerance
+    /// `|delta| < 1e-5`, `sat = MAX(0, sat)` each step); the shipped solver instead uses 60-step
+    /// bisection on `[0, 1]` with a clamp. Bisection on a monotone function is unconditionally
+    /// convergent where Newton from a fixed seed is not, so the divergence is arguably an
+    /// improvement — but substituting it is a method decision and is recorded as an open blocker,
+    /// not settled by this test.
+    ///
+    /// The chapter's other as-built claim is stale and worth recording: it says `modules.rs`
+    /// transcribes `CALC_SW` while `multimin2.rs` is *"a second, different solver"*. It is not.
+    /// `sw_sim` delegates to `multimin2::sw_simandoux_*`, both of which call the one
+    /// `solve_simandoux_root`. There is a single engine, so the requirement's "one shared
+    /// root-finder" clause is met by construction.
+    #[test]
+    fn the_n_equals_two_closed_form_agrees_with_the_general_root_finder_on_the_same_inputs() {
+        // Straddles the fast-path guard: physically one exponent, two code paths.
+        const FAST: f64 = 2.0;
+        const GENERAL: f64 = 2.0 + 2e-9;
+
+        // Spread of shale volume, porosity and resistivity contrast, so agreement is not shown at
+        // one convenient point. Values are fixture geometry, not adopted endpoints.
+        let cases = [
+            // (rt, phie, vsh, rw, rsh, m, a)
+            (10.0, 0.25, 0.10, 0.05, 3.0, 2.0, 1.0),
+            (2.0, 0.30, 0.40, 0.08, 2.0, 2.0, 1.0),
+            (50.0, 0.12, 0.05, 0.03, 5.0, 1.8, 1.0),
+            (5.0, 0.20, 0.60, 0.10, 1.5, 2.1, 0.81),
+        ];
+
+        let mut saw_interior = false;
+        for (rt, phie, vsh, rw, rsh, m, a) in cases {
+            let fast = crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, FAST, a);
+            let general =
+                crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, GENERAL, a);
+            assert!(
+                fast.is_finite() && general.is_finite(),
+                "both paths must produce a number for rt={rt} phie={phie} vsh={vsh}"
+            );
+            // 60 bisection steps resolve to ~1e-18; the 2e-9 exponent offset perturbs the root by
+            // ~1e-9, so anything above that is a genuine disagreement between the two paths.
+            assert!(
+                (fast - general).abs() < 1e-7,
+                "fast path and general solver disagree at rt={rt} phie={phie} vsh={vsh}: \
+                 fast={fast} general={general}"
+            );
+            // Both must also be physical. A fast path that agreed with the general solver only by
+            // both being clamped to a bound would satisfy the line above while proving nothing.
+            assert!((0.0..=1.0).contains(&fast), "fast path outside [0,1]: {fast}");
+            if fast > 1e-6 && fast < 1.0 - 1e-6 {
+                saw_interior = true;
+            }
+        }
+        assert!(
+            saw_interior,
+            "at least one case must land strictly inside (0,1), or the agreement is only between clamps"
+        );
+
+        // The degenerate arm the closed form guards: with no sand term the quadratic would divide
+        // by zero, so the shale term alone must answer. Pinned from the other side too - with
+        // neither term there is no equation and the result is missing, never a plausible number.
+        let no_sand =
+            crate::multimin2::sw_simandoux_bardon_pied(10.0, 0.0, 0.30, 0.05, 2.0, 2.0, FAST, 1.0);
+        assert!(
+            no_sand.is_nan() || (0.0..=1.0).contains(&no_sand),
+            "a vanished sand term must not produce a non-physical saturation: {no_sand}"
+        );
+    }
     #[test]
     fn sw_sim_matches_quadratic_solution() {
         // MODIFIED Simandoux with N=2 is a quadratic we can solve analytically.
