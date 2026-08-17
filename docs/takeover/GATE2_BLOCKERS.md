@@ -23,8 +23,10 @@ engineering work. What still needs you is 8 documents and 1 legal question.
 
 ### 1. Decisions only you can make — all cleared 2026-08-17
 
-**Every decision that blocked a Gate 2 row is now ruled.** You answered twenty-two of them in one
-sitting on 2026-08-17, and **41 of the 62 blocked rows are decision-cleared** — they are ordinary
+**Every decision that blocked a Gate 2 row is now ruled.** You answered twenty-five of them in one
+sitting on 2026-08-17, with a twenty-sixth closed by reference (DEC-026 asked the PHIE-floor
+precedence question DEC-043 had already answered), and **41 of the 62 blocked rows are
+decision-cleared** — they are ordinary
 engineering work waiting to be done, not questions waiting on you.
 
 Twice you rejected the question's premise rather than picking one of my options, and both times you
