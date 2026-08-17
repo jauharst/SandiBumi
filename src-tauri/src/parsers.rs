@@ -627,6 +627,64 @@ fn parse_exact_decimal(raw: &str) -> Option<ExactDecimal> {
     Some(ExactDecimal { coefficient, exponent }.normalized())
 }
 
+/// What verifying a written index's spacing across every adjacent pair found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WrittenStep {
+    /// Fewer than two readable rows, so no interval exists to verify.
+    NoInterval,
+    /// Every interval is identical. Carries the step exactly as it should be declared.
+    Uniform(String),
+    /// The spacing changes. Carries a message naming where, and both spacings.
+    Varies(String),
+}
+
+/// Verifies a step across the WHOLE index, on the exact decimal text a writer will emit.
+///
+/// `SB-DIO-056`: the step MUST be computed over every adjacent pair and the first interval
+/// MUST NOT be declared as the step. Comparison is EXACT — no tolerance — for the same reason
+/// stated for the read-side check above: none is cited, so introducing one would be an uncited
+/// parameter (`DEC-055`).
+///
+/// The input is the emitted TEXT rather than the stored `f32`s, and that is the whole point. A
+/// conforming reader may reconstruct depths from `STRT`/`STEP` instead of reading the `DEPT`
+/// column, so the text is the thing that has to be uniform. It is also the only comparison that
+/// works: at ~1000 m an `f32` resolves to about 0.00006, so successive differences of a perfect
+/// 0.1524 m frame are not bit-identical and subtracting stored values would call it irregular.
+pub(crate) fn verify_written_step(written_depths: &[String]) -> WrittenStep {
+    let mut interval: Option<ExactDecimal> = None;
+    let mut previous: Option<(ExactDecimal, &str)> = None;
+    for token in written_depths {
+        let Some(current) = parse_exact_decimal(token) else {
+            // An unreadable row breaks adjacency. Never compare across it and invent a
+            // change of spacing between two rows that were never neighbours.
+            previous = None;
+            continue;
+        };
+        if let Some((prior_value, prior_token)) = previous {
+            if let Some(gap) = current.subtract(prior_value) {
+                match interval {
+                    None => interval = Some(gap),
+                    Some(first) if gap != first => {
+                        return WrittenStep::Varies(format!(
+                            "index is not uniformly sampled: spacing {} changes to {} between {} and {}; STEP written as 0",
+                            first.display(),
+                            gap.display(),
+                            prior_token,
+                            token
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        previous = Some((current, token));
+    }
+    match interval {
+        Some(step) => WrittenStep::Uniform(step.display()),
+        None => WrittenStep::NoInterval,
+    }
+}
+
 fn las_section_header(trimmed: &str) -> Option<&str> {
     let body = trimmed.strip_prefix('~')?.trim_start();
     let name = body

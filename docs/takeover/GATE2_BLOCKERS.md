@@ -9,24 +9,25 @@ This is the human-readable companion to the machine-owned blocker set in
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
 - Handled: `222 / 222`
-- Done: `160`
-- Blocked: `62`
+- Done: `161`
+- Blocked: `61`
 - Remaining unhandled: `0`
 
 ---
 
 ## What I actually need from you (plain language)
 
-There are 62 blocked rows, but they are not 62 separate problems. They collapse into four kinds of
-thing. **As of 2026-08-17 the decision bucket is empty** - 41 of the 62 are now ordinary
-engineering work. What still needs you is 8 documents and 1 legal question.
+There are 61 blocked rows, but they are not 61 separate problems. They collapse into four kinds of
+thing. **As of 2026-08-17 the decision bucket is empty** - 40 of them are now ordinary engineering
+work, and the first of those (SB-DIO-056) has since shipped. What still needs you is 8 documents
+and 1 legal question.
 
 ### 1. Decisions only you can make — all cleared 2026-08-17
 
 **Every decision that blocked a Gate 2 row is now ruled.** You answered twenty-five of them in one
 sitting on 2026-08-17, with a twenty-sixth closed by reference (DEC-026 asked the PHIE-floor
 precedence question DEC-043 had already answered), and **41 of the 62 blocked rows are
-decision-cleared** — they are ordinary
+decision-cleared** — one of them (SB-DIO-056) has since shipped and the rest are ordinary
 engineering work waiting to be done, not questions waiting on you.
 
 Twice you rejected the question's premise rather than picking one of my options, and both times you
@@ -147,7 +148,6 @@ requirement appears exactly once.
 | `SB-DIO-011` | Source | The deviation index alias list has no documented source; the prior test said every while enumerating only three sourced lists. | Supply a named source for every accepted deviation alias, then make T17 discover all index-alias declarations mechanically. |
 | `SB-DIO-031` | DEC-030 | One untyped request string conflates exact mnemonic absence with intentional semantic-family fallback. | Approve typed `EXACT_MNEMONIC` and `SEMANTIC_FAMILY` requests; exact never falls back, while family resolution returns the concrete curve identity and rule. |
 | `SB-DIO-034` | DEC-030 | Workflow family selection can return a different curve without returning its concrete identity. | Classify every resolver caller under the approved typed request split and prove all resolver surfaces, without disabling legitimate family workflows. |
-| `SB-DIO-056` | Source | The writer checks only the first interval and the chapter supplies no whole-index `STEP` comparison tolerance. | Supply a cited tolerance or explicitly adopt an exact-equality contract; never insert a plausible epsilon. |
 | `SB-DIO-057` | Source | Logarithmic-family membership is a scientific classification and cannot be inferred from mnemonic or display settings. | Publish a versioned ENV-reviewed family registry with a source for every member, then add pre-commit zero handling and custody. |
 | `SB-DIO-060` | Scope dependency | Exact signature-collision proof needs a real BIFF5 table read, but SB-DIO-059 is deferred. | Promote the narrow published-spec BIFF reader or keep BIFF unsupported and re-adjudicate the dependent acceptance boundary. |
 | `SB-DIO-061` | Inventory and allocation contract | The current corpus matrix is not a universal reader diagnostic proof and no sourced maximum whole-file allocation exists. | Publish the complete reader inventory and either a cited maximum size or an approved bounded-streaming contract; require location, rule and affected count per reader. |

@@ -5037,6 +5037,12 @@ export interface LasExportResult {
   precision: SamplePrecisionReport;
   /** Set only after SandiBumi's own LAS reader accepts the completed file. */
   self_checked: boolean;
+  /**
+   * Set when the index is not uniformly sampled, so `STEP` was written as `0` — LAS 2.0's
+   * own declaration for a non-uniform index. Names the depth where the spacing changes and
+   * both spacings. `null` means the index is uniform and `STEP` carries its real value.
+   */
+  nonuniform_step?: string | null;
 }
 
 export interface DataExportFormat {

@@ -171,6 +171,11 @@ pub struct LasExportResult {
     /// True only after the registered reader accepted the completed file and its declared
     /// depth unit, row count, and curve count matched what the writer says it emitted.
     pub self_checked: bool,
+    /// Set when the index is not uniformly sampled and `STEP` was therefore written as `0`.
+    /// Names the first depth at which the spacing changes and both spacings, so the user can
+    /// tell real drift from a delivery defect. `None` means the index is uniform and `STEP`
+    /// carries its real value — a silent `0` would be a degraded result presented as clean.
+    pub nonuniform_step: Option<String>,
 }
 
 fn fixed_decimal_4_reduces(value: f32) -> bool {
@@ -611,7 +616,17 @@ fn write_las(
     let depth_unit = crate::units::require_project_depth_unit(conn, "LAS export")?.code();
     let (provenance, legacy_unrecorded_curves) =
         provenance_lines(conn, well_id, &curve_names)?;
-    let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
+    // SB-DIO-056: the step is verified across the WHOLE index, on the fixed-decimal-4 text this
+    // writer is about to emit, and is declared as 0 when it varies — LAS 2.0's own provision for
+    // a non-uniform index (21_data-io.md:867). Declaring depth[1] - depth[0] tells a reader the
+    // file is uniformly sampled when it is not, and a conforming reader is then entitled to
+    // rebuild depths from STRT/STEP — silently re-gridding the data.
+    let written_depths: Vec<String> = depth.iter().map(|value| format!("{value:.4}")).collect();
+    let (step, nonuniform_step) = match crate::parsers::verify_written_step(&written_depths) {
+        crate::parsers::WrittenStep::Uniform(step) => (step.parse::<f32>().unwrap_or(0.0), None),
+        crate::parsers::WrittenStep::NoInterval => (0.0, None),
+        crate::parsers::WrittenStep::Varies(note) => (0.0, Some(note)),
+    };
     let mut values_reduced = depth.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
     for name in &curve_names {
         let key = name.trim().to_uppercase();
@@ -708,6 +723,7 @@ fn write_las(
         legacy_unrecorded_curves,
         precision,
         self_checked: false,
+        nonuniform_step,
     })
 }
 
@@ -1148,6 +1164,108 @@ mod tests {
     /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
     /// non-optional `WriterSettings` argument from a writer makes this assignment and the
     /// registry constant fail to compile.
+    /// SB-DIO-056 / SB-DIO-T82, SB-DIO-T83. Source: `docs/PRD_v2/21_data-io.md:1861-1878` — the
+    /// writer MUST compute the step over every adjacent pair, MUST write `STEP` as `0` when the
+    /// interval is not constant, and MUST NOT declare the first interval as the step. The `STEP = 0`
+    /// mechanism is LAS 2.0's own provision for a non-uniform index and is cited by the chapter at
+    /// `:867`; it is not a convention invented here. DEC-055 supplies the one thing the chapter left
+    /// open — "within the stated tolerance" — as EXACT equality with no epsilon, matching the
+    /// read-side rule already stated at `parsers.rs:549-552`.
+    ///
+    /// The comparison is made on the fixed-decimal-4 text the writer actually emits, not on the
+    /// stored `f32`s, because that text is what a conforming reader sees when it reconstructs
+    /// depths from `STRT`/`STEP` instead of reading the `DEPT` column.
+    #[test]
+    fn a_las_export_declares_a_step_only_when_every_written_interval_is_identical_and_writes_zero_otherwise(
+    ) {
+        fn export(depths: &[f32], tag: &str) -> (String, Option<String>) {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, "SANDI-STEP", Some("Synthetic"), None, None).unwrap();
+            let n = depths.len();
+            let gr: Vec<f32> = (0..n).map(|i| 40.0 + i as f32).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depths.to_vec(),
+                gr,
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan,
+            )
+            .unwrap();
+            let dest = tmp_path(tag);
+            let result = export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+            let text = crate::parsers::read_text_file(&dest).unwrap();
+            let _ = std::fs::remove_file(&dest);
+            let line = text
+                .lines()
+                .find(|line| line.trim_start().starts_with("STEP."))
+                .expect("~W must always carry a STEP line")
+                .to_string();
+            (line, result.nonuniform_step)
+        }
+
+        // A. A genuinely uniform frame still declares its own step. This arm is why the
+        //    comparison cannot be f32 subtraction: at ~1000 m an f32 resolves to about
+        //    0.00006, so the successive differences of a perfect 0.1524 m frame do not come
+        //    out bit-identical, and an implementation that subtracts stored f32s would call
+        //    this log irregular and write 0 — losing a true step on the commonest frame there
+        //    is. Without this arm, "always write 0" passes.
+        let (uniform, uniform_note) = export(
+            &[1000.0, 1000.1524, 1000.3048, 1000.4572],
+            "step-uniform",
+        );
+        assert!(
+            uniform.contains("0.1524"),
+            "a uniform frame must declare its real step: {uniform}"
+        );
+        assert!(
+            uniform_note.is_none(),
+            "a uniform frame must not be reported as non-uniform: {uniform_note:?}"
+        );
+
+        // B. Irregular, but only from the THIRD interval. The first two are identical, so this
+        //    fails an implementation that reads depth[1] - depth[0] (the divergence the chapter
+        //    names at :862) and equally one that checks only the first two pairs.
+        let (drifts, drift_note) = export(
+            &[1000.0, 1000.1524, 1000.3048, 1000.5],
+            "step-drifts-late",
+        );
+        assert!(
+            !drifts.contains("0.1524"),
+            "the first interval must never be declared as the step: {drifts}"
+        );
+        let declared: f32 = drifts
+            .split_whitespace()
+            .find_map(|token| token.parse::<f32>().ok())
+            .expect("the STEP line must carry a number");
+        assert_eq!(declared, 0.0, "a non-constant index must declare STEP 0: {drifts}");
+
+        // C. The zero is explained, not silent. A file that declares STEP 0 with nothing said
+        //    is a degraded result presented as clean — the chapter's own SB-CORE-002 complaint
+        //    against the neighbouring SB-DIO-055. Both spacings and the depth are named so the
+        //    user can tell real drift from a delivery defect.
+        let note = drift_note.expect("writing STEP 0 must be reported, never silent");
+        assert!(note.contains("1000.3048"), "the depth where spacing changes must be named: {note}");
+        assert!(note.contains("0.1524"), "the prior spacing must be named: {note}");
+        assert!(note.contains("0.1952"), "the new spacing must be named: {note}");
+
+        // D. A single-sample export has no interval at all, so it declares no step and is not
+        //    reported as drifting — absence of evidence is not non-uniformity.
+        let (single, single_note) = export(&[1000.0], "step-single-sample");
+        let only: f32 = single
+            .split_whitespace()
+            .find_map(|token| token.parse::<f32>().ok())
+            .expect("the STEP line must carry a number");
+        assert_eq!(only, 0.0, "one sample cannot declare a step: {single}");
+        assert!(single_note.is_none(), "one sample is not a drift finding: {single_note:?}");
+    }
     #[test]
     fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
         let _: WriterFn = write_las;
@@ -1297,6 +1415,7 @@ mod tests {
                     0,
                 ),
                 self_checked: false,
+                nonuniform_step: None,
             })
         }
         let corrupt = RegisteredWriter {
@@ -1351,6 +1470,7 @@ mod tests {
                     0,
                 ),
                 self_checked: false,
+                nonuniform_step: None,
             })
         }
 
