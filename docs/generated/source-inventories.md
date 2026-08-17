@@ -85,7 +85,74 @@ this table but does not define it.
 
 ## 3. `SB-DBM-005` — registered-module derivation-source map
 
-**Pending.** The inventory is still being assembled and will be added here.
+**51 registered modules** across 13 files, from `module_catalog()` in `modules.rs`. Note that
+`thomeer.rs`, `hfu.rs`, `reframe.rs` and `multimin2.rs` (SandiMin) define no `_spec()` and are **not
+reachable through `list_modules()`** — they are separate subsystems, not registered modules, so they
+carry no row here.
+
+The gaps are not 26 separate research problems. **They fall into three kinds, and only one of them
+is real work.**
+
+### Kind 1 — cited, nothing needed (21 modules)
+
+`ssc` (Kuttan et al., 21st SPWLA + Jauhar's Loglan) · `sspw` (Jauhar's spec, flagged reconstructed
+and unvalidated) · `nphimat` (SLB charts Por-4/Por-5) · `gascorr` (Standing; Papay 1968) ·
+`sw_arch` (Archie 1942) · `sw_indo` (Poupon & Leveaux 1971) · `sw_sim` (Simandoux 1963; Bardon &
+Pied 1969) · `sw_rtc` and `sw_imts` (Jauhar's LRLC study; Waxman & Smits 1968, Waxman & Thomas
+1974, Juhasz 1979/1981) · `thin_bed_ts` (Thomas & Stieber 1975) · `log_predict` (Geolog Facimage
+MRGC) · `sw_height` (Leverett 1941; Skelt & Harrison 1995) · `midplot` (SLB Lith-6) · `rocktyping`
+(Amaefule 1993; Kolodzie 1980; Corbett & Potter 2004) · `lucia_rfn` (Lucia 1995; Jennings & Lucia
+2003, SPE 78740) · `pittman_rx` (Pittman 1992, AAPG Bull. v76 — verified against the paper) ·
+`toc_passey`, `kerogen`, `gip`, `brittleness` (Passey, Schmoker & Hester, Langmuir, Rickman et al.,
+Jarvie, Wang & Gale) · `gr_normalize` and `normalize` (SandiBumi's own documented house preset —
+internal, but a stated source).
+
+Three of these carry the repo's **own** warnings and should not be read as clean: `sspw` is
+reconstructed from spec and unvalidated; `lucia_rfn`'s transcribed constants are flagged unverified
+against the primary paper; `sw_sim` discloses that the shipped `a = 0.8` is not attributed to
+either cited paper.
+
+### Kind 2 — generic utilities where no external method applies (8 modules)
+
+`depth_shift` · `splice` · `clip` · `fill_gaps` · `flip` · `perm_transform` (a regression form meant
+to be fitted from the user's own core) · `block` · `bed_detect`.
+
+**These need no citation and should be recorded as such**, not left looking like gaps. A depth-shift
+utility has no author. The honest source string is "mechanical operation, no external method".
+
+### Kind 3 — the real work: classic methods named but never cited (17 modules)
+
+This is the list that needs Jauhar. In every case the repo **names** the method in a comment but
+cites no publication, so a reader cannot check the implementation against a source.
+
+| Module | Method named in code | What is missing |
+|---|---|---|
+| `vsh_gr` | Larionov 1969, Stieber 1970, Clavier 1971 | No primary publication for any; `LARINOV3` is stated by coefficients only, with no attribution at all |
+| `vsh_dn` | N-D crossplot VSH | Endpoints cite vendor tables; the technique itself cites nothing |
+| `phi_den` | Density porosity | Same — endpoints sourced, equation not |
+| `phi_son` | Wyllie time-average, Raymer-Hunt-Gardner, Hilchie `Cp` | No year or journal for any of the three |
+| `phimax` | Athy-type exponential compaction | No citation, only an internal PRD section reference |
+| `precalc` | Arps | Named with no year |
+| `perm_wyllie_rose` | Timur, Morris-Biggs, Tixier | A "Western Atlas chartbook" attribution exists **only in the gitignored research corpus**, not in the module |
+| `perm_coates` | Coates | Only the Geolog Loglan file it was ported from |
+| `despike` | Hampel identifier | Method uncited; `K = 3.0` self-declared a convention |
+| `smooth` | Savitzky-Golay | No publication cited |
+| `electrofacies`, `gmm_facies` | k-means, Gaussian mixture / EM | Algorithms never attributed; only the cluster-count default is sourced |
+| `badhole`, `gr_hole_corr`, `nphi_env_corr`, `rhob_hole_corr` | linear hole-size / environmental corrections | No chart number, vendor document or year — `nphi_env_corr` says only "the applicable CNL chart" |
+| `rt_cutoff` | Vsh/PHIE cutoff ladder | Presented as SandiBumi's own construction; no external method |
+
+**Findings for Jauhar to rule on.**
+
+1. **Most of Kind 3 are textbook methods with well-known primary papers.** I can propose the
+   citations for his approval — I will not adopt one unilaterally, because a wrong attribution on a
+   physics method is exactly the silent failure this register exists to prevent. `condflag`'s coal
+   thresholds are already closed by `DEC-058` and `despike`'s window floor by `DEC-059`.
+2. **`perm_wyllie_rose` is the sharpest provenance issue here.** The only attribution anywhere is in
+   `docs/research_2026-08/` — which is **gitignored**, so the shipped module has no source at all in
+   the distributed repository. A licensed product shipping the Timur and Morris-Biggs coefficient
+   sets with no citation in-tree is precisely the `IP_PROVENANCE.md` §2 problem.
+3. **`vsh_gr`'s `LARINOV3` has no attribution even in a comment** — it is stated by its coefficients.
+   That is the one entry here where the repo does not even claim to know what it implements.
 
 ---
 
