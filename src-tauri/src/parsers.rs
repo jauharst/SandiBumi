@@ -886,6 +886,19 @@ pub fn resolve_index_column(
             _ => return Err("structural declaration identifies more than one REFERENCE column".into()),
         }
     }
+    // SB-DIO-010: the file's OWN declaration beats a positional assumption. A mnemonic the file
+    // wrote is evidence; a column number the caller guessed is not. This check used to sit BELOW
+    // the positional one, which made it unreachable for every production caller - all three pass
+    // `positional: Some(0)` intending a FALLBACK - so a LAS declaring `DEPT` in column 1 had its
+    // GR values read as depths. That shifts every curve against depth, and it still plots.
+    if let Some(column) = resolve_curve_index(headers, aliases) {
+        return Ok(IndexResolution {
+            column,
+            mnemonic: headers[column].clone(),
+            mechanism: IndexResolutionMechanism::NameAlias,
+        });
+    }
+    // Positional is the fallback it was always passed as: used only when no column names itself.
     if let Some(column) = positional {
         let mnemonic = headers
             .get(column)
@@ -894,13 +907,6 @@ pub fn resolve_index_column(
             column,
             mnemonic: mnemonic.clone(),
             mechanism: IndexResolutionMechanism::PositionalGuarantee,
-        });
-    }
-    if let Some(column) = resolve_curve_index(headers, aliases) {
-        return Ok(IndexResolution {
-            column,
-            mnemonic: headers[column].clone(),
-            mechanism: IndexResolutionMechanism::NameAlias,
         });
     }
     if let Some(column) = designated {
@@ -3629,6 +3635,64 @@ mod encoding_tests {
             read_text_file_with_encoding(&without_bom).unwrap().encoding,
             "UTF-16LE without BOM",
             "detection must still reach a BOM-less UTF-16 file - the failure this requirement names"
+        );
+    }
+    /// SB-DIO-010 / SB-DIO-T15. Source: `DEC-029` (2026-08-17) — keep the rule, move the proof.
+    /// The depth index is whichever column the FILE declares, never an assumed first column, and it
+    /// is proven on the formats the pilot actually imports rather than on a Geolog flat-ASCII file
+    /// the product does not read. `parse_las_2_all_with_null_rules` passes `positional: Some(0)` to
+    /// `resolve_index_column`, so column zero is a FALLBACK and a declared index must beat it.
+    ///
+    /// The failure this prevents is silent: assuming column one on a file that declares otherwise
+    /// reads a curve's values as depths, which shifts every other curve against depth and still
+    /// plots.
+    #[test]
+    fn the_depth_index_is_the_column_the_file_declares_not_the_first_one() {
+        fn parse_depths(curves: &[&str], rows: &[&str], tag: &str) -> Vec<f32> {
+            let mut las = String::from(
+                "~Version Information\nVERS. 2.0\nWRAP. NO\n~Well Information\nWELL. SANDI-IDX\nNULL. -999.25\n~Curve Information\n",
+            );
+            for c in curves {
+                las.push_str(&format!("{c} : curve\n"));
+            }
+            las.push_str("~ASCII\n");
+            for r in rows {
+                las.push_str(r);
+                las.push('\n');
+            }
+            let path = std::env::temp_dir().join(format!("sandibumi-idx-{tag}-{}.las", std::process::id()));
+            std::fs::write(&path, las).unwrap();
+            let parsed = parse_las_2_all(&path).expect("the fixture is a well-formed LAS 2.0 file");
+            let _ = std::fs::remove_file(&path);
+            parsed.depth
+        }
+
+        // A. The declaration is NOT first. DEPT sits in column 1, so the index must be read from
+        //    there. If the reader assumed column zero it would read GR's values as depths - and
+        //    the two are deliberately far apart so that mistake cannot pass as rounding.
+        let declared_second = parse_depths(
+            &["GR.GAPI", "DEPT.M", "NPHI.V/V"],
+            &["55.0 1000.0 0.25", "60.0 1000.5 0.26", "65.0 1001.0 0.27"],
+            "second",
+        );
+        assert_eq!(
+            declared_second,
+            vec![1000.0f32, 1000.5, 1001.0],
+            "the index must come from the declared DEPT column, not from column one"
+        );
+
+        // B. The declaration IS first. Pinned from this side too, because a reader that had simply
+        //    stopped honouring the positional fallback - or that always took the LAST alias match -
+        //    would satisfy arm A while breaking every ordinary file.
+        let declared_first = parse_depths(
+            &["DEPT.M", "GR.GAPI", "NPHI.V/V"],
+            &["2000.0 55.0 0.25", "2000.5 60.0 0.26"],
+            "first",
+        );
+        assert_eq!(
+            declared_first,
+            vec![2000.0f32, 2000.5],
+            "an ordinary depth-first file must still resolve to its own first column"
         );
     }
     #[test]

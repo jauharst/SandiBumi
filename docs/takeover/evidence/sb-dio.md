@@ -131,16 +131,17 @@
 
 ## SB-DIO-010 - Prefer a structural index declaration; fall back to names; record which mechanism fired.
 
-- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T15`, `SB-DIO-T16`.
-- **Atomic obligations:** prefer a structural declaration where present; honour a format-owned positional guarantee before names; otherwise resolve by alias or explicit designation; report the mechanism.
-- **Current source:** `parsers.rs::resolve_index_column` implements the ordered mechanisms and returns `IndexResolution`; LAS and core import results carry it through IPC. No production reader or Tauri command imports Geolog flat ASCII or consumes a `.flat_ascii_format` `CLASSES` declaration.
-- **Qualifying acceptance tests:** none; test class is `MISSING`. The existing `a_structural_index_wins_and_every_resolution_records_the_mechanism_that_fired` test passed 1/0/0, but only its T16 arm drives the production LAS importer. The T15 arm supplies in-memory headers/classes directly to the resolver, so a tree with no structural file reader still passes.
-- **Supporting tests:** SB-DIO-013 exercises the user-designation outcome.
-- **Manual evidence:** `las-import` 0/63, `delimited-intake` 3/27 and `data-conventions` 0/80; this re-verification claims no visual, manual or field exercise.
-- **Git evidence:** reachable `4a6bc9f` contains the resolver/result change; current Gate 2 re-verification found that its T15 test arm stops at the helper boundary.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `BLOCKED` on DEC-029. Exact T15 requires an actual Geolog flat-ASCII import, while DEC-003 and G2-T04 define a LAS-2/delimited pilot surface. The cited local specs establish `CLASSES = REFERENCE | LOG`, but engineering will not fabricate a test-only reader or silently widen the approved format surface.
-- **Next action:** after DEC-029, either implement a source-faithful Geolog flat-ASCII import that returns `IndexResolution::StructuralDeclaration` for a non-first reference column and pins its non-structural fallback, or reconcile the acceptance boundary explicitly; retain the passing production LAS T16 arm unchanged.
+- **Chapter evidence:** P1; owned test `SB-DIO-T15`; ruled by `DEC-029` (2026-08-17).
+- **A REAL DEFECT was found and fixed here; this was not a proof-only row.** `resolve_index_column` checked `positional` BEFORE the name-alias arm and returned immediately, so the alias arm was **unreachable for every production caller** - all three pass `positional: Some(0)` intending a fallback. A LAS declaring `DEPT` in column 1 therefore had **column 0 read as depth**: the test returned `[55.0, 60.0, 65.0]`, the GR values, where `[1000.0, 1000.5, 1001.0]` was declared. Every other curve is then shifted against a depth column that is not depth, and it still plots.
+- **The fix is a precedence swap, not new machinery:** the file's own mnemonic beats a caller's positional guess. A mnemonic the file wrote is evidence; a column number the caller assumed is not.
+- **DEC-029 moved the proof onto the pilot formats.** The approved test drove a Geolog flat-ASCII file the product does not read; the rule is proven instead on LAS 2.0, which the pilot actually imports. No test-only reader was added and no format capability is claimed that the product does not ship.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** `the_depth_index_is_the_column_the_file_declares_not_the_first_one` (`src-tauri/src/parsers.rs`). CORRECTNESS. Two arms: a LAS declaring `DEPT` second resolves its index there, with the GR values deliberately far from the depths so the failure cannot pass as rounding; and an ordinary depth-first LAS still resolves to its own first column, which fails an implementation that had merely stopped honouring the positional fallback or that took the last alias match.
+- **RED/GREEN evidence, stronger than an injected mutation:** the test was red against shipped code for the exact defect above and green after the precedence swap. All 1,049 backend tests pass; every existing LAS round-trip is unaffected because a depth-first file now resolves to column 0 by ALIAS exactly where it previously resolved by POSITION.
+- **Manual evidence:** delimited-intake 3/27; data-conventions 4/122. Automated only.
+- **Source/parameter boundary:** no value adopted.
+- **Verdict:** `PRESENT-OK`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocking decision / next action:** cleared by DEC-029. None outstanding.
 
 ## SB-DIO-011 - Index aliases MUST be namespace-aware and MUST have one definition per path.
 

@@ -9,8 +9,8 @@ This is the human-readable companion to the machine-owned blocker set in
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
 - Handled: `222 / 222`
-- Done: `163`
-- Blocked: `59`
+- Done: `164`
+- Blocked: `58`
 - Remaining unhandled: `0`
 
 ---
@@ -71,7 +71,7 @@ that is what made an earlier summary mis-state the shape of this gate.
 
 ## What I actually need from you (plain language)
 
-There are 59 blocked rows, but they are not 59 separate problems. They collapse into four kinds of
+There are 58 blocked rows, but they are not 58 separate problems. They collapse into four kinds of
 thing. **As of 2026-08-17 the decision bucket is empty** - 38 of them are now ordinary engineering
 work; SB-DIO-056, SB-DIO-062 and SB-POR-054 have since shipped. What still needs you is 8 documents
 and 1 legal question.
@@ -200,7 +200,6 @@ requirement appears exactly once.
 | `SB-DBM-032` | Engineering - DEC-028 RULED | **The DEC-028 arm is DONE (2026-08-17).** The one-handle conflict is settled and pinned: `a_parameter_row_carrying_only_one_of_its_two_handles_is_refused_by_name` asserts a semantic-only row and an ordinal-only row are each refused BY NAME, a complete row still loads (so the row is not satisfied by a loader that refuses everything), and a semantic identifier paired with a foreign ordinal resolves to nothing. **Mutation note:** single-point mutations do NOT turn it red - defeating the structural ordinal guard or the empty-semantic-id guard individually still refuses, because schema validation refuses too. That is defence in depth rather than a hole; the anti-vacuity guarantee is the complete-row arm. **TWO pieces remain, both implementation, neither needing Jauhar:** unit source tilt, and append-only ordinal custody. | Implement unit source tilt and append-only ordinal custody, then the remaining T32 arms. DEC-028 is ruled and needs nothing further; SB-INS-015/T18 stays untouched and is the contract this row was corrected TO, not away from. |
 | `SB-DBM-041` | Dependency on structured audit | The count divergence is closed, but the inspector cannot claim a complete provenance inventory before `audit_entry` and `audit_detail` exist. | Close DEC-022/023 and SB-DBM-011, then derive the inspector inventory from the complete registered audit/provenance schema. |
 | `SB-DIO-007` | Product contract | Empty and explicitly nulled cells collapse to the same arithmetic/export state; the project forbids `Option<f32>`. | Approve a versioned bytemuck source-cell-state mask beside the numeric `f32` array and define preservation or sidecar/refusal per deliverable. |
-| `SB-DIO-010` | Engineering - DEC-029 RULED | The helper resolves a structural index, but no real production reader consumes the cited Geolog flat-ASCII `REFERENCE` declaration. | Authorize a narrow source-faithful Geolog structural reader as pilot infrastructure or explicitly reconcile T15 with the LAS/delimited pilot surface. |
 | `SB-DIO-011` | Source | The deviation index alias list has no documented source; the prior test said every while enumerating only three sourced lists. | Supply a named source for every accepted deviation alias, then make T17 discover all index-alias declarations mechanically. |
 | `SB-DIO-031` | Engineering - DEC-030 RULED | One untyped request string conflates exact mnemonic absence with intentional semantic-family fallback. | Approve typed `EXACT_MNEMONIC` and `SEMANTIC_FAMILY` requests; exact never falls back, while family resolution returns the concrete curve identity and rule. |
 | `SB-DIO-034` | Engineering - DEC-030 RULED | Workflow family selection can return a different curve without returning its concrete identity. | Classify every resolver caller under the approved typed request split and prove all resolver surfaces, without disabling legitimate family workflows. |

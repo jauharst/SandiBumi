@@ -114,6 +114,7 @@
 "SB-DBM-040","CHARACTERIZATION","src-tauri/src/jobs.rs","every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled"
 "SB-DBM-042","CORRECTNESS","src-tauri/src/db.rs","consecutive_destructive_upgrades_name_each_backup_for_the_source_format_it_restores"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own"
+"SB-DIO-010","CORRECTNESS","src-tauri/src/parsers.rs","the_depth_index_is_the_column_the_file_declares_not_the_first_one"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_registered_writer_cannot_omit_the_required_sentinel_argument"
 "SB-DIO-002","CORRECTNESS","src-tauri/src/export.rs","the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked"
 "SB-DIO-003","CORRECTNESS","src-tauri/src/ingest.rs","a_channel_declared_no_null_preserves_a_sentinel_shaped_amplitude_and_reports_no_null"

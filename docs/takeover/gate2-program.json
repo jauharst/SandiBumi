@@ -8,9 +8,9 @@
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 17,
-    "REMEDIATE": 41,
+    "REMEDIATE": 40,
     "PROVE": 6,
-    "RETAIN": 158
+    "RETAIN": 159
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -263,7 +263,8 @@
     "SB-CUT-030",
     "SB-DIO-056",
     "SB-DIO-062",
-    "SB-POR-054"
+    "SB-POR-054",
+    "SB-DIO-010"
   ],
   "blocked_requirements": [
     "SB-CORE-003",
@@ -284,7 +285,6 @@
     "SB-DBM-032",
     "SB-DBM-041",
     "SB-DIO-007",
-    "SB-DIO-010",
     "SB-DIO-011",
     "SB-DIO-031",
     "SB-DIO-034",
