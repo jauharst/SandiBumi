@@ -786,11 +786,17 @@ pub(crate) fn zone_metrics(
         // run_pay_summary): the last in-zone sample no longer bleeds a full step past the
         // base, and net can never exceed gross — so MC P10/P50/P90 net/NTG/HPV agree with
         // the pay summary.
-        let s_top = depth[i] as f64;
-        let s_bot = (depth[i] + step[i]) as f64;
-        let lo = s_top.max(zone.top_depth as f64);
-        let hi = s_bot.min(zone.bottom_depth as f64);
-        let h = hi - lo;
+        // SB-CUT-001: the ONE discretisation rule, shared with run_pay_summary. This was a
+        // third inline copy; three copies of a net-pay clamp is three places for it to drift,
+        // and a Monte Carlo P50 disagreeing with the deterministic pay summary for that
+        // reason would look like uncertainty rather than a bug. Narrow edit under DEC-048.
+        let h = crate::workflow::sample_incl_thickness(
+            depth[i] as f64,
+            (depth[i] + step[i]) as f64,
+            zone.top_depth as f64,
+            zone.bottom_depth as f64,
+            None,
+        );
         if h <= 0.0 {
             continue;
         }

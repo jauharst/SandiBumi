@@ -4029,11 +4029,16 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     // last in-zone sample no longer bleeds a full step past the base, a sample
                     // straddling the zone top is counted for its in-zone part, and net can never
                     // exceed gross (a sub-step-thick zone previously could).
-                    let s_top = depth[i] as f64;
-                    let s_bot = (depth[i] + step[i]) as f64;
-                    let lo = s_top.max(zone.top_depth as f64);
-                    let hi = s_bot.min(zone.bottom_depth as f64);
-                    let h = hi - lo;
+                    // SB-CUT-001: ONE discretisation rule, shared. This site used to inline
+                    // its own copy of the clamp; a second copy is a second thing to keep in
+                    // step, and net pay is where a silent divergence costs most.
+                    let h = sample_incl_thickness(
+                        depth[i] as f64,
+                        (depth[i] + step[i]) as f64,
+                        zone.top_depth as f64,
+                        zone.bottom_depth as f64,
+                        None,
+                    );
                     if h <= 0.0 {
                         continue;
                     }
@@ -4433,7 +4438,7 @@ fn aux_intervals(rows: &[db::AuxRow]) -> Vec<(f32, f32)> {
 /// zone `[ztop, zbot)`, further intersected with the (merged, non-overlapping) DST intervals
 /// when present. Mirrors run_pay_summary's zone clamp so a sample straddling the zone/DST
 /// boundary contributes only its in-interval part and net can never exceed gross.
-fn sample_incl_thickness(
+pub(crate) fn sample_incl_thickness(
     s_top: f64,
     s_bot: f64,
     ztop: f64,
