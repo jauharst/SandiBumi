@@ -64,17 +64,19 @@ and a wrongly declared reference offsets a whole well with nothing in the number
 are G5 commercial questions: licence unit, commercial model, support hours, update window, benchmark
 hardware profile, lineage granularity.
 
-### 2. Documents I need you to find — 8 rows
+### 2. Documents I need you to find — 7 rows
 
 These are not decisions. They are stopped because the source that fixes the number is not in the
 repo and I will not invent it. This is the same shape as SB-POR-021 earlier: you sent the 1977
 Bateman & Konen paper and the block dissolved in one message.
 
-- **`SB-CORE-015`** — the API RP66 V1 writer specification. **You ruled on 2026-08-17 (DEC-054) that
-  DLIS export IS in the first pilot and that you will get the spec**, so the scope question is
-  answered and only the document is outstanding. Nothing is being written toward a writer meanwhile:
-  a half-built encoder behind a disabled button is the shape that later gets enabled by someone who
-  assumes it was finished.
+- **`SB-CORE-015`** — **RESOLVED 2026-08-17. The spec is found.** You supplied
+  `energistics.org/sites/default/files/RP66/V1/Toc/main.html`, which is the full normative RP66 V1
+  document — sections 1-7 plus Appendix B (Representation Codes) and Appendix E (Checksum), and
+  section 2 carries the Storage Unit Label, Visible Record and Logical Record Segment framing. This
+  row is no longer waiting on you. It is now a **substantial engineering row**, not a quick one: a
+  conforming writer means storage-unit framing, record segmentation, EFLR/IFLR, representation codes
+  and the checksum. Nothing partial ships in the meantime.
 - **`SB-ENV-004`** — the largest of these: 19 sources to supply or adjudicate, plus a docs-only
   31/32 identity reconciliation before the inventory tests can be written.
 - **`SB-DBM-005`** — the complete registered-module derivation-source map. **`SB-DBM-010` unblocks
@@ -129,7 +131,7 @@ requirement appears exactly once.
 | `SB-CORE-003` | Engineering follow-through | The common validity schema, refusal path and linear-GR conditions exist, but not every selected pilot method yet carries its own cited valid and invalid conditions. | Populate cited conditions while executing the remaining ENV, CLY, POR, SAT and CUT rows, then re-audit the whole pilot registry. Jauhar supplies a source only when a selected method's condition is not cited. |
 | `SB-CORE-005` | Source and legal | The merged endpoint library has no exact per-value origin map. Equal vendor values do not prove origin. | Provide exact construction custody or primary sources per value; keep unresolved values absent; obtain counsel disposition for CLAIM-012. |
 | `SB-CORE-007` | Product contract | A no-parameter execution fixture cannot run producers with required absent parameters, and raw repeated output names conflate canonical results, working aliases and categorical flags. | Approve registry-level semantic identities and declaration inspection without forcing unlike outputs equal or executing a module whose required values are absent. |
-| `SB-CORE-015` | Source and scope | LAS semantic self-round-trip is covered, but exact T15 requires an unshipped DLIS writer and the withheld normative RP66 writer source. | Supply the API RP66 V1 writer source and explicitly approve or reject DLIS export for the first pilot. |
+| `SB-CORE-015` | Engineering follow-through | LAS semantic self-round-trip is covered, but exact T15 requires a DLIS writer that does not exist. **Both original blockers are cleared**: DEC-054 put DLIS export in the first pilot, and the normative API RP66 V1 source was supplied on 2026-08-17 and verified complete. | Build the writer from RP66 V1 — storage-unit and visible-record framing, logical record segmentation, EFLR/IFLR, Appendix B representation codes, Appendix E checksum — citing section numbers rather than copying specification text. Nothing partial ships. No further input from Jauhar. |
 | `SB-CORE-044` | Source and legal | Chart payloads, the merged endpoint library and branded themes still lack primary-source, design-around or counsel closure. | Obtain the named source and counsel dispositions; remove or independently re-source uncleared routes; then add the fail-closed release inventory proof. |
 | `SB-DBM-002` | DEC-021 | `CARGO_PKG_VERSION` is hand-maintained and cannot identify which module implementation produced a curve. | Choose a build-derived module artefact boundary, derivation, stored representation and cross-machine stability rule. |
 | `SB-DBM-005` | Source map | No complete source-controlled map assigns every shipping module a primary citation or approved first-principles derivation document. | Approve or provide the complete registered-module derivation-source map before adding fail-closed registration and run/deliverable custody. |
