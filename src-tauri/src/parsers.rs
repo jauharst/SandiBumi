@@ -3546,6 +3546,91 @@ mod encoding_tests {
     /// A BOM is authoritative and must win over the cp1252 fallback: Excel's "Unicode text"
     /// export is UTF-16LE, and decoding those bytes as cp1252 would yield NUL-riddled nonsense
     /// that parses as one giant column instead of erroring — a silently wrong import.
+    /// SB-DIO-062 / SB-DIO-T95. Source: `docs/PRD_v2/21_data-io.md:1970-1978` — a text reader MUST
+    /// detect UTF-8, UTF-16 in both byte orders with and without BOM, and the Windows single-byte
+    /// code pages, and MUST report the encoding it chose. `DEC-053` (2026-08-17) publishes today's
+    /// decode order as the declared contract and adds no further code page: BOM first, then valid
+    /// UTF-8, then Windows-1252 as a fallback that cannot fail. No ambiguity rule is needed or
+    /// invented, because the order is total — there is no point at which the reader picks between
+    /// two candidates.
+    ///
+    /// The fallback's inability to fail is the FEATURE, not an accident, and is pinned as a
+    /// property rather than by one example: a real 330 KB core table of pure ASCII carrying two
+    /// `0x95` bullets in a comment field was refused outright by a strict decode, losing 3,045
+    /// plugs to two characters. Bytes are interpreted, never rejected.
+    #[test]
+    fn the_declared_text_encoding_inventory_is_total_and_every_file_reports_the_encoding_it_was_read_as(
+    ) {
+        let payload = "WELL,DEPTH\nSANDI-1,10.5\n";
+        let utf16 = |be: bool, bom: bool| -> Vec<u8> {
+            let mut out: Vec<u8> = Vec::new();
+            if bom {
+                out.extend_from_slice(if be { &[0xFE, 0xFF] } else { &[0xFF, 0xFE] });
+            }
+            for unit in payload.encode_utf16() {
+                out.extend_from_slice(&if be { unit.to_be_bytes() } else { unit.to_le_bytes() });
+            }
+            out
+        };
+        let mut utf8_bom = vec![0xEF, 0xBB, 0xBF];
+        utf8_bom.extend_from_slice(payload.as_bytes());
+
+        // A. Every member of the declared inventory is detected AND reported by its declared name.
+        //    Reporting is half the requirement: a reader that silently guesses right is still
+        //    wrong, because a UTF-16 LAS read as UTF-8 presents as "this is not a LAS file" and
+        //    sends the user to the wrong problem. Without this arm a reader that returned one
+        //    fixed label for everything would pass.
+        let declared: Vec<(&str, Vec<u8>)> = vec![
+            ("UTF-8 with BOM", utf8_bom),
+            ("UTF-16LE with BOM", utf16(false, true)),
+            ("UTF-16BE with BOM", utf16(true, true)),
+            ("UTF-16LE without BOM", utf16(false, false)),
+            ("UTF-16BE without BOM", utf16(true, false)),
+            ("UTF-8", payload.as_bytes().to_vec()),
+        ];
+        for (expected, bytes) in &declared {
+            let path = write_bytes(&format!("sandibumi_enc_{}.csv", expected.replace(' ', "_")), bytes);
+            let decoded = read_text_file_with_encoding(&path).unwrap();
+            assert_eq!(
+                &decoded.encoding, expected,
+                "the reader must report the encoding it chose, not merely decode correctly"
+            );
+            assert!(
+                decoded.text.starts_with("WELL"),
+                "{expected}: a BOM must be stripped and the payload decoded, got {:?}",
+                decoded.text.chars().take(12).collect::<String>()
+            );
+        }
+
+        // B. The fallback CANNOT FAIL, pinned as a property over every possible byte rather than by
+        //    one bullet character. This is what makes bytes interpreted rather than rejected; a
+        //    future "stricter" reader would pass a test that only checked the happy path.
+        let every_byte: Vec<u8> = (0u8..=255).collect();
+        let path = write_bytes("sandibumi_enc_every_byte.csv", &every_byte);
+        let decoded = read_text_file_with_encoding(&path)
+            .expect("the declared fallback must decode any byte sequence rather than erroring");
+        assert_eq!(
+            decoded.encoding, "Windows-1252",
+            "an arbitrary byte sequence falls to the declared single-byte page"
+        );
+        assert!(
+            !decoded.text.is_empty(),
+            "every byte maps to some character in the fallback page"
+        );
+
+        // C. The order is TOTAL: a declared BOM is believed over content sniffing. Same bytes, one
+        //    with a BOM and one without, must report DIFFERENT encodings - which fails a reader
+        //    that ignores the BOM and sniffs everything, and equally one that ignores content and
+        //    only ever honours a BOM.
+        let with_bom = write_bytes("sandibumi_enc_order_bom.csv", &utf16(false, true));
+        let without_bom = write_bytes("sandibumi_enc_order_sniff.csv", &utf16(false, false));
+        assert_eq!(read_text_file_with_encoding(&with_bom).unwrap().encoding, "UTF-16LE with BOM");
+        assert_eq!(
+            read_text_file_with_encoding(&without_bom).unwrap().encoding,
+            "UTF-16LE without BOM",
+            "detection must still reach a BOM-less UTF-16 file - the failure this requirement names"
+        );
+    }
     #[test]
     fn boms_are_honoured_utf8_and_utf16() {
         let mut u8bom: Vec<u8> = vec![0xEF, 0xBB, 0xBF];

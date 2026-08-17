@@ -9,17 +9,17 @@ This is the human-readable companion to the machine-owned blocker set in
 - Gate: `G2 - SILENT-WRONGNESS CLOSURE`
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
 - Handled: `222 / 222`
-- Done: `161`
-- Blocked: `61`
+- Done: `162`
+- Blocked: `60`
 - Remaining unhandled: `0`
 
 ---
 
 ## What I actually need from you (plain language)
 
-There are 61 blocked rows, but they are not 61 separate problems. They collapse into four kinds of
-thing. **As of 2026-08-17 the decision bucket is empty** - 40 of them are now ordinary engineering
-work, and the first of those (SB-DIO-056) has since shipped. What still needs you is 8 documents
+There are 60 blocked rows, but they are not 60 separate problems. They collapse into four kinds of
+thing. **As of 2026-08-17 the decision bucket is empty** - 39 of them are now ordinary engineering
+work; SB-DIO-056 and SB-DIO-062 have since shipped. What still needs you is 8 documents
 and 1 legal question.
 
 ### 1. Decisions only you can make — all cleared 2026-08-17
@@ -153,7 +153,6 @@ requirement appears exactly once.
 | `SB-DIO-057` | Source | Logarithmic-family membership is a scientific classification and cannot be inferred from mnemonic or display settings. | Publish a versioned ENV-reviewed family registry with a source for every member, then add pre-commit zero handling and custody. |
 | `SB-DIO-060` | Scope dependency | Exact signature-collision proof needs a real BIFF5 table read, but SB-DIO-059 is deferred. | Promote the narrow published-spec BIFF reader or keep BIFF unsupported and re-adjudicate the dependent acceptance boundary. |
 | `SB-DIO-061` | Inventory and allocation contract | The current corpus matrix is not a universal reader diagnostic proof and no sourced maximum whole-file allocation exists. | Publish the complete reader inventory and either a cited maximum size or an approved bounded-streaming contract; require location, rule and affected count per reader. |
-| `SB-DIO-062` | Source and selection contract | The chapter names plural Windows code pages but not the exact supported pages or how ambiguous bytes select one. | Publish the page inventory and deterministic selection rule, or require an explicit ambiguity decision/refusal; retain the existing UTF and CP1252 controls. |
 | `SB-PLT-024` | Legal | Nineteen vendor-derived numeric chart definitions remain imported and bundled; fail-closed rendering does not remove distributed bytes. | Counsel chooses licence, independent primary-source re-derivation, or removal from the paid build/repository. Engineering cannot declare permission. |
 | `SB-ENV-004` | Source and specification | Nineteen environmental parameters lack admissible sources and T07 says 31 absent identities while the authoritative parameter table says 32. | Supply/adjudicate the 19 sources and perform a docs-only 31/32 identity reconciliation before implementing the exact inventory tests. |
 | `SB-ENV-005` | OI-4 and dependency | Corrected curves have no complete typed list of applied, unavailable, disabled or refused steps, and the persistence owner is open. | Select one authoritative run-level correction manifest linked to output curves, with source-complete step identities, versions, parameters and sample coverage. |
