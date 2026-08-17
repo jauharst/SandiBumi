@@ -235,6 +235,8 @@ pub enum ShaleClayQuantity {
 pub const POROSITY_FAMILY_ID: &str = "POR";
 pub(crate) const PHIE_DN_LIMITED_DEFAULT: &str = "PHIE_DN_LIM";
 pub(crate) const PHIT_DN_LIMITED_DEFAULT: &str = "PHIT_DN_LIM";
+pub(crate) const PHIE_DNBK_LIMITED_DEFAULT: &str = "PHIE_DNBK_LIM";
+pub(crate) const PHIT_DNBK_LIMITED_DEFAULT: &str = "PHIT_DNBK_LIM";
 pub const POROSITY_LIMITING_CONTRACT: &str = "porosity_method_limit_policy_v1";
 pub const POROSITY_FLAG_CONTRACT: &str = "porosity_branch_limit_reason_v1";
 pub const POROSITY_OUTPUT_NAMING_CONTRACT: &str = "workflow_resolved_output_name_v1";
@@ -1453,6 +1455,7 @@ fn apply_shale_clay_quantity_contracts(modules: &mut [ModuleSpec]) -> Result<(),
     const VSH_INPUTS: &[(&str, &str)] = &[
         ("phi_den", "VSH"),
         ("phi_dn", "VSH"),
+        ("phi_dnbk", "VSH"),
         ("phi_son", "VSH"),
         ("sspw", "VSH"),
         ("sw_indo", "VSH"),
@@ -1605,6 +1608,32 @@ const PHI_DN_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
     ),
 ];
 
+/// SB-POR-021. Its own convention token, not the comparison producer's: this route reduces shale
+/// on the neutron side only (no density clamp) and enters the crossplot in LIMESTONE units, so it
+/// does not share `phi_dn`'s shale-reduced framing even though both consume the same two logs.
+const PHI_DNBK_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
+    porosity_output(
+        "PHIE_DNBK",
+        PorosityOutputRole::UnlimitedEffective,
+        "BATEMAN_KONEN_PSEUDO_MINERAL_CROSSPLOT_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIT_DNBK",
+        PorosityOutputRole::UnlimitedTotal,
+        "BATEMAN_KONEN_PSEUDO_MINERAL_CROSSPLOT_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIE",
+        PorosityOutputRole::LimitedEffective,
+        "BATEMAN_KONEN_PSEUDO_MINERAL_CROSSPLOT_WITH_TOTAL_REBUILD",
+    ),
+    porosity_output(
+        "PHIT",
+        PorosityOutputRole::LimitedTotal,
+        "BATEMAN_KONEN_PSEUDO_MINERAL_CROSSPLOT_WITH_TOTAL_REBUILD",
+    ),
+];
+
 const PHI_SON_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
     porosity_output(
         "PHIT_SON",
@@ -1654,6 +1683,14 @@ const POROSITY_MODULE_REGISTRATIONS: &[PorosityModuleRegistration] = &[
         limiting_policy: "phi_dn_effective_floor_and_selected_ceiling",
         limiting_policy_source: "docs/PRD_v2/11_porosity.md §5 porosity limits and DEC-015",
         outputs: PHI_DN_POROSITY_OUTPUTS,
+    },
+    PorosityModuleRegistration {
+        module: "phi_dnbk",
+        role: PorosityModuleRole::DeterministicMethod,
+        method: "BATEMAN_KONEN_ANALYTIC_CROSSPLOT",
+        limiting_policy: "phi_dnbk_effective_floor_and_selected_ceiling",
+        limiting_policy_source: "docs/PRD_v2/11_porosity.md §5.6 Bateman-Konen crossplot constants, §5 porosity limits and DEC-015",
+        outputs: PHI_DNBK_POROSITY_OUTPUTS,
     },
     PorosityModuleRegistration {
         module: "phi_son",
@@ -1873,6 +1910,7 @@ fn module_catalog() -> &'static [ModuleSpec] {
             vsh_dn_spec(),
             phi_den_spec(),
             phi_dn_spec(),
+            phi_dnbk_spec(),
             phi_son_spec(),
             phimax_spec(),
             crate::ssc::ssc_spec(),
@@ -2693,6 +2731,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
         "vsh_dn" => Ok(vsh_dn(ctx)),
         "phi_den" => Ok(phi_den(ctx)),
         "phi_dn" => Ok(phi_dn(ctx)),
+        "phi_dnbk" => Ok(phi_dnbk(ctx)),
         "phi_son" => Ok(phi_son(ctx)),
         "phimax" => Ok(phimax(ctx)),
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
@@ -3357,6 +3396,171 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
     HashMap::from([
         ("PHIE_DN".to_string(), phie_dn),
         ("PHIT_DN".to_string(), phit_dn),
+        ("PHIE".to_string(), phie_lim_out),
+        ("PHIT".to_string(), phit_lim_out),
+    ])
+}
+
+// ---------------------------------------------------------------------------
+// PHI_DNBK — Bateman-Konen chart-free analytic neutron-density crossplot (SB-POR-021)
+// ---------------------------------------------------------------------------
+
+/// The nine Appendix B constants. Source: Bateman, R.M. & Konen, C.E., "Wellsite Log Analysis and
+/// the Programmable Pocket Calculator", SPWLA Eighteenth Annual Logging Symposium, June 5-8 1977,
+/// Appendix B pp.19-21 — primary-sourced T1p, which is what closed `ESC-POR-8` on 2026-08-16 and
+/// superseded `11_porosity.md` §5.6's NON-ADOPTABLE classification of Geolog's rendering of them.
+///
+/// These are constants OF THE METHOD, not user parameters. `RHO_1` is the limestone matrix the
+/// crossplot is entered in, which is why this module never reads `RHO_MA`: the matrix density is an
+/// OUTPUT here (B-7), not an input. Making either a parameter would let a user retune a published
+/// transform into something that is no longer the cited method while still carrying its name.
+const BK_RHO_1: f64 = 2.71;
+const BK_RHO_2: f64 = 4.00;
+
+/// B-9..B-12: the pseudo-mineral pair (phi_Da, phi_Na) for a shale-reduced neutron reading, chosen
+/// by which side of the density-porosity line the point falls on. The two branches are different
+/// EQUATIONS, not one equation with a different constant.
+fn bk_pseudo_mineral(nphi: f64, phid: f64, rho_fl: f64) -> (f64, f64) {
+    if nphi >= phid {
+        // B-11 / B-12: rho_2 = 4.0, phi_Na = 0.7 - 10^-(5 phi_N + 0.16).
+        (
+            two_endpoint_fraction(BK_RHO_2, BK_RHO_1, rho_fl),
+            0.7 - 10f64.powf(-(5.0 * nphi + 0.16)),
+        )
+    } else {
+        // B-9 / B-10: phi_Da = 1, phi_Na = -(1.17 + 2.06 phi_N) + 10^-(0.4 + 16 phi_N).
+        (
+            1.0,
+            -(1.17 + 2.06 * nphi) + 10f64.powf(-(0.4 + 16.0 * nphi)),
+        )
+    }
+}
+
+fn phi_dnbk_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "phi_dnbk".into(),
+        title: "Porosity from Bateman-Konen N-D Crossplot".into(),
+        category: "Porosity".into(),
+        doc: "The chart-free ANALYTIC neutron-density crossplot (Bateman & Konen 1977, Appendix B), \
+              solved as a two-pseudo-mineral system rather than looked up in a transcribed chart. \
+              This is a deterministic interpretation METHOD and is deliberately not a mode of \
+              phi_dn, whose AVERAGE and GAS_RMS are quick-look comparisons only: on the same \
+              shale-reduced pair the two routes differ by 1.64-1.79 p.u. The crossplot is entered \
+              in LIMESTONE units, so RHO_MA is not an input - the apparent matrix density RHOMAA_BK \
+              is an OUTPUT (B-7). Shale reduction clamps the NEUTRON side only, per the method's \
+              own source. PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH."
+            .into(),
+        args: vec![
+            with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
+            with_sources(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FLUID_DENSITY,
+            ),
+            with_sources(param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true), crate::param_sources::SHALE_NEUTRON_ENDPOINT),
+            with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
+            with_sources(
+                param(
+                    "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                    "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FORMATION_WATER_DENSITY,
+            ),
+            with_sources(
+                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
+                crate::param_sources::POROSITY_LIMIT_MODE,
+            ),
+            with_sources(
+                param(
+                    "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
+                    "Geolog V14 phi_dn.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+                ),
+                crate::param_sources::MAX_EFFECTIVE_POROSITY,
+            ),
+            param_sourced(
+                "VSH_SHALE",
+                "High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)",
+                "v/v",
+                0.95,
+                0.0,
+                1.0,
+                crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
+                "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
+            ),
+            log_in("RHOB", "Density log", "g/cc", "RHOB", true),
+            log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
+            log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
+            log_out("PHIE_DNBK", "PHIE from the analytic crossplot (unlimited)", "v/v"),
+            log_out("PHIT_DNBK", "PHIT from the analytic crossplot (unlimited)", "v/v"),
+            log_out("RHOMAA_BK", "Apparent matrix density returned by the crossplot (B-7)", "g/cc"),
+            log_out_as("PHIE", PHIE_DNBK_LIMITED_DEFAULT, "Limited effective porosity", "v/v"),
+            log_out_as("PHIT", PHIT_DNBK_LIMITED_DEFAULT, "Limited total porosity", "v/v"),
+        ],
+    }
+}
+
+fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
+    let rho = ctx.log("RHOB");
+    let nphi = ctx.log("NPHI");
+    let vsh = ctx.log("VSH");
+    let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
+    let mut phie_bk = vec![f32::NAN; ctx.n];
+    let mut phit_bk = vec![f32::NAN; ctx.n];
+    let mut rhomaa = vec![f32::NAN; ctx.n];
+    let mut phie_lim_out = vec![f32::NAN; ctx.n];
+    let mut phit_lim_out = vec![f32::NAN; ctx.n];
+
+    for i in 0..ctx.n {
+        let (r, np, v) = (rho[i] as f64, nphi[i] as f64, vsh[i] as f64);
+        if is_missing(r) || is_missing(np) || is_missing(v) {
+            continue;
+        }
+        let rho_sh = ctx.p("RHO_SH", i);
+        let rho_fl = ctx.p("RHO_FL", i);
+        let nphi_sh = ctx.p("NPHI_SH", i);
+        let phie_max = ctx.p("PHIE_MAX", i);
+        let phit_sh = phit_sh_at(ctx, i);
+
+        if v >= ctx.p("VSH_SHALE", i) {
+            phie_bk[i] = 0.0;
+            phie_lim_out[i] = PHIE_FLOOR as f32;
+            phit_bk[i] = phit_sh as f32;
+            phit_lim_out[i] = phit_sh as f32;
+            continue;
+        }
+
+        // Shale-reduce. The NEUTRON side only is clamped, and to [-0.015, 1.0] rather than
+        // phi_dn's [-0.015, 0.40]: `11_porosity.md` §5 lines 1231-1232 record both clamps as
+        // MODE-SPECIFIC, with no density clamp at all in the Bateman-Konen route. Borrowing the
+        // chart mode's tighter pair here would silently truncate the very readings the analytic
+        // form exists to solve.
+        let rhosr = (r - v * rho_sh) / (1.0 - v);
+        let nphisr = limit((np - v * nphi_sh) / (1.0 - v), -0.015, 1.0);
+
+        // B-5: density porosity in LIMESTONE units - the frame the crossplot is defined in.
+        let phid = two_endpoint_fraction(rhosr, BK_RHO_1, rho_fl);
+        let (pda, pna) = bk_pseudo_mineral(nphisr, phid, rho_fl);
+        // B-6: solve the two-pseudo-mineral system for crossplot porosity.
+        let phix = (pda * nphisr - phid * pna) / (pda - pna);
+        // B-7: the apparent matrix density that pair implies.
+        rhomaa[i] = ((rhosr - phix * rho_fl) / (1.0 - phix)) as f32;
+
+        let pe = phix * (1.0 - v);
+        let pt = pe + v * phit_sh;
+        let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
+        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        phie_bk[i] = pe as f32;
+        phit_bk[i] = pt as f32;
+        phie_lim_out[i] = pe_l as f32;
+        phit_lim_out[i] = (pe_l + v * phit_sh) as f32;
+    }
+
+    HashMap::from([
+        ("PHIE_DNBK".to_string(), phie_bk),
+        ("PHIT_DNBK".to_string(), phit_bk),
+        ("RHOMAA_BK".to_string(), rhomaa),
         ("PHIE".to_string(), phie_lim_out),
         ("PHIT".to_string(), phit_lim_out),
     ])
@@ -6106,7 +6310,7 @@ mod tests {
         // A — execute every porosity module that can be driven from these inputs and pair its
         // outputs by declared name, so a limited pair and an unlimited pair are both checked.
         let mut checked = 0usize;
-        for module in ["phi_den", "phi_dn", "phi_son"] {
+        for module in ["phi_den", "phi_dn", "phi_dnbk", "phi_son"] {
             for opts in [
                 HashMap::new(),
                 HashMap::from([("OPT_SON".to_string(), "RHG".to_string())]),
@@ -6158,7 +6362,7 @@ mod tests {
 
         // D — the other side: no registered porosity method may emit a PHIT/PHIE pair that neither
         // arm covers. A new method would otherwise inherit the guarantee without ever being checked.
-        let covered = ["phi_den", "phi_dn", "phi_son", "ssc", "sspw"];
+        let covered = ["phi_den", "phi_dn", "phi_dnbk", "phi_son", "ssc", "sspw"];
         for spec in module_catalog().iter().filter(|spec| spec.category == "Porosity") {
             let emits_pair = spec
                 .args
@@ -6484,7 +6688,7 @@ mod tests {
             .map(|module| module.name.as_str())
             .collect::<HashSet<_>>();
         let expected_modules = HashSet::from([
-            "phi_den", "phi_dn", "phi_son", "phimax", "ssc", "sspw",
+            "phi_den", "phi_dn", "phi_dnbk", "phi_son", "phimax", "ssc", "sspw",
         ]);
         assert_eq!(
             live_porosity_modules, expected_modules,
@@ -6508,6 +6712,15 @@ mod tests {
                     ("PHIT_DN", PorosityOutputRole::ComparisonUnlimitedTotal),
                     ("PHIE", PorosityOutputRole::ComparisonLimitedEffective),
                     ("PHIT", PorosityOutputRole::ComparisonLimitedTotal),
+                ]),
+            ),
+            (
+                "phi_dnbk",
+                BTreeMap::from([
+                    ("PHIE_DNBK", PorosityOutputRole::UnlimitedEffective),
+                    ("PHIT_DNBK", PorosityOutputRole::UnlimitedTotal),
+                    ("PHIE", PorosityOutputRole::LimitedEffective),
+                    ("PHIT", PorosityOutputRole::LimitedTotal),
                 ]),
             ),
             (
@@ -6607,8 +6820,8 @@ mod tests {
         }
         assert_eq!(
             method_policies.len(),
-            5,
-            "density, D-N comparison, sonic, SSC and SSPW must not borrow one another's numerical limit policy"
+            6,
+            "density, D-N comparison, Bateman-Konen, sonic, SSC and SSPW must not borrow one another's numerical limit policy"
         );
 
         assert!(
@@ -8574,6 +8787,147 @@ mod tests {
             &ctx_with(1, &[("RHOB", vec![2.3]), ("NPHI", vec![f32::NAN]), ("VSH", vec![0.2])], &params, &[]),
         );
         assert!(mn["PHIE"][0].is_nan() && mn["PHIT_DN"][0].is_nan());
+    }
+
+    /// SB-POR-021 / SB-POR-T08 and SB-POR-T37. Source: Bateman, R.M. & Konen, C.E., "Wellsite Log
+    /// Analysis and the Programmable Pocket Calculator", SPWLA Eighteenth Annual Logging Symposium,
+    /// June 5-8 1977, **Appendix B pp.19-21**, which carries the derivation and all nine of the
+    /// chapter's §5.6 constants verbatim. Holding that paper is what closed `ESC-POR-8` on
+    /// 2026-08-16 and reclassified the constants from Geolog's rendering to primary-sourced T1p;
+    /// Geolog `phi_dnbk.lls` `DN_XPLOT` transcribes the same equations and corroborates them.
+    ///
+    /// **The subject is that this is a DISTINCT METHOD, not a third `OPT_XPLOT` mode**, which is
+    /// the whole reason the row exists: `phi_dn`'s AVERAGE and GAS_RMS are typed a comparison
+    /// producer (SB-POR-001/023), and folding a real crossplot into them collapses that boundary.
+    /// Both witnesses are hand-derived from the paper's own equations rather than from any code,
+    /// and they land on OPPOSITE pseudo-mineral branches, so neither alone would prove the branch
+    /// test fires at all.
+    #[test]
+    fn the_bateman_konen_crossplot_reproduces_the_papers_own_witnesses_on_both_pseudo_mineral_branches() {
+        // A. UPPER branch, phi_N >= phi_D, so rho_2 = 4.0 (B-11) and phi_Na is B-12. The witness is
+        //    the one recorded with the source: rho_b 2.30, rho_mf 1.00, phi_N 0.25 in limestone
+        //    units gives phi_D 0.2397661, phi_Na 0.6610955, phi_Da -0.7543860 and phi_x 0.245219.
+        //    VSH is zero so PHIE is phi_x itself and the witness is read without a shale model.
+        let clean = [("RHOB", vec![2.30f32]), ("NPHI", vec![0.25f32]), ("VSH", vec![0.0f32])];
+        let endpoints = [("RHO_FL", 1.00), ("RHO_SH", 2.50), ("NPHI_SH", 0.35), ("PHIE_MAX", 0.5)];
+        let up = phi_dnbk(&ctx_with(1, &clean, &endpoints, &[]));
+        // The expectation is B-6 evaluated on the SOURCE'S OWN intermediates, typed here as the
+        // literals the register records, rather than a single magic answer. That pins the code's
+        // phi_D, phi_Na and phi_Da as well as B-6 itself: if any intermediate were wrong the
+        // result would leave this expectation, and it is not a tautology because only the equation
+        // is shared - every input to it comes from the source.
+        //
+        // FINDING, recorded rather than smoothed over: the register prints the final witness as
+        // `0.245219`, but its own four intermediates give `0.2452203`. The slip is in the printed
+        // last digit, not in the method; the intermediates are what the paper carries and they
+        // agree with this implementation exactly. Widening the tolerance to swallow 1.3e-6 would
+        // have hidden a real disagreement, so the cited numbers drive the expectation instead.
+        let (phi_d, phi_na, phi_da) = (0.2397661_f64, 0.6610955_f64, -0.7543860_f64);
+        let phi_x = (phi_da * 0.25 - phi_d * phi_na) / (phi_da - phi_na);
+        assert!(
+            (up["PHIE_DNBK"][0] as f64 - phi_x).abs() < 1e-6,
+            "Appendix B upper branch: B-6 on the cited intermediates gives {phi_x}, got {}",
+            up["PHIE_DNBK"][0]
+        );
+
+        // B-7 returns the APPARENT MATRIX DENSITY, and it is pinned as the inverse of the mixing
+        // law it came from rather than against a magnitude of my own arithmetic: rho_sr must be
+        // exactly what rho_ma and the fluid rebuild at that porosity.
+        let (rma, phix) = (up["RHOMAA_BK"][0] as f64, up["PHIE_DNBK"][0] as f64);
+        assert!(
+            (rma * (1.0 - phix) + 1.00 * phix - 2.30).abs() < 1e-5,
+            "B-7 apparent matrix density must invert its own mixing law, got {rma}"
+        );
+
+        // B. LOWER branch, phi_N < phi_D, so phi_Da = 1 (B-9) and phi_Na is B-10 - a different pair
+        //    of equations, not a different constant. `11_porosity.md` §3.2 line 628 and §6 T37:
+        //    RHOB 2.20, NPHI 0.30, VSH 0.20 shale-reduce to 2.125 / 0.2875 on the shipped endpoints
+        //    and the Bateman-Konen route returns PHIE 0.2578699.
+        let shaly = [("RHOB", vec![2.20f32]), ("NPHI", vec![0.30f32]), ("VSH", vec![0.20f32])];
+        let lo = phi_dnbk(&ctx_with(1, &shaly, &endpoints, &[]));
+        assert!(
+            (lo["PHIE_DNBK"][0] as f64 - 0.2578699).abs() < 1e-6,
+            "T37 lower-branch witness PHIE = 0.2578699, got {}",
+            lo["PHIE_DNBK"][0]
+        );
+
+        // C. The separation from the shortcut it replaces, which is the p.u. cost the row is
+        //    written against. T37's average-route value is stated on Geolog `phi_den.info`'s
+        //    2645 k/m3, so RHO_MA is passed explicitly here: SB-POR-011 moved the shipped default
+        //    to 2.65 on 2026-08-16, which would return 0.2422727 instead and is a different claim.
+        //    Bateman-Konen itself never reads RHO_MA - it enters in limestone units and RETURNS the
+        //    matrix density - so only the comparison arm needs the parameter.
+        let mut shortcut = endpoints.to_vec();
+        shortcut.push(("RHO_MA", 2.645));
+        shortcut.push(("VSH_SHALE", 0.95));
+        let avg = phi_dn(&ctx_with(1, &shaly, &shortcut, &[("OPT_XPLOT", "AVERAGE")]));
+        assert!(
+            (avg["PHIE_DN"][0] as f64 - 0.2414438).abs() < 1e-6,
+            "T37 average-route value 0.2414438, got {}",
+            avg["PHIE_DN"][0]
+        );
+        assert!(
+            (lo["PHIE_DNBK"][0] as f64 - avg["PHIE_DN"][0] as f64 - 0.0164261).abs() < 1e-6,
+            "the analytic route must differ from the shortcut by T37's stated 1.64 p.u."
+        );
+
+        // E. The shale-reduction clamps are the METHOD'S OWN, not the chart mode's.
+        //    `11_porosity.md` §5 lines 1231-1232 record them as mode-specific: neutron
+        //    [-0.015, 1.0] here against [-0.015, 0.40] in the chart mode, and NO density clamp here
+        //    against [1.950, 3.000] there. Neither witness above reaches either bound, so without
+        //    this arm `phi_dn`'s tighter pair could be copied back and every assertion would still
+        //    pass while the readings the analytic form exists to solve were truncated.
+        //
+        //    Pinned by COLLAPSE rather than by a magnitude: a clamp that bit would map both inputs
+        //    onto the same clamped value and return the same answer, so no expected number has to
+        //    be invented for a case the source gives no witness for.
+        let readings = |rhob: f32, nphi: f32| {
+            phi_dnbk(&ctx_with(
+                1,
+                &[("RHOB", vec![rhob]), ("NPHI", vec![nphi]), ("VSH", vec![0.0f32])],
+                &endpoints,
+                &[],
+            ))["PHIE_DNBK"][0]
+        };
+        assert!(
+            (readings(2.30, 0.55) - readings(2.30, 0.40)).abs() > 0.05,
+            "a neutron reading above the chart mode's 0.40 must not be clamped onto it"
+        );
+        assert!(
+            (readings(1.50, 0.25) - readings(1.95, 0.25)).abs() > 0.05,
+            "the density side carries no clamp in this mode; 1.50 must not be lifted to 1.95"
+        );
+
+        // D. Typed distinctly, pinned from the other side: an implementation that satisfied A-C as
+        //    a third `OPT_XPLOT` mode on the comparison producer would pass everything above and
+        //    still be the defect this row names.
+        let modules = list_modules();
+        let bk = modules
+            .iter()
+            .find(|module| module.name == "phi_dnbk")
+            .expect("the analytic crossplot must be its own registered module");
+        let dn = modules.iter().find(|module| module.name == "phi_dn").unwrap();
+        assert!(
+            !bk.args.iter().any(|argument| argument.name == "OPT_XPLOT"),
+            "a crossplot method must not be reachable as a mode of the comparison producer"
+        );
+        let contract = bk
+            .args
+            .iter()
+            .find_map(|argument| argument.porosity_output.as_ref())
+            .expect("its outputs must carry POR custody");
+        let comparison = dn
+            .args
+            .iter()
+            .find_map(|argument| argument.porosity_output.as_ref())
+            .unwrap();
+        assert_eq!(contract.module_role, PorosityModuleRole::DeterministicMethod);
+        assert_eq!(comparison.module_role, PorosityModuleRole::ComparisonProducer);
+        assert_ne!(contract.method, comparison.method, "one method identity each");
+        assert_ne!(
+            contract.limiting_policy, comparison.limiting_policy,
+            "a method must not borrow the comparison producer's numerical limit policy"
+        );
     }
 
     #[test]

@@ -176,7 +176,7 @@ pub(crate) fn module_depth_unit_dependency(module: &str) -> Result<DepthUnitDepe
         | "despike" | "smooth" | "fill_gaps" | "block" | "bed_detect" | "sw_height" => {
             Ok(DepthUnitDependency::Declared)
         }
-        "vsh_gr" | "vsh_dn" | "phi_den" | "phi_dn" | "phi_son" | "ssc" | "sspw"
+        "vsh_gr" | "vsh_dn" | "phi_den" | "phi_dn" | "phi_dnbk" | "phi_son" | "ssc" | "sspw"
         | "badhole" | "nphimat" | "gascorr" | "gr_hole_corr" | "nphi_env_corr"
         | "rhob_hole_corr" | "gr_normalize" | "log_predict" | "sw_arch" | "sw_indo"
         | "sw_sim" | "sw_rtc" | "sw_imts" | "perm_wyllie_rose" | "perm_coates"
@@ -10610,6 +10610,7 @@ mod tests {
             std::collections::BTreeSet::from([
                 ("phi_den".to_string(), "VSH".to_string()),
                 ("phi_dn".to_string(), "VSH".to_string()),
+                ("phi_dnbk".to_string(), "VSH".to_string()),
                 ("phi_son".to_string(), "VSH".to_string()),
                 ("sspw".to_string(), "VSH".to_string()),
             ]),

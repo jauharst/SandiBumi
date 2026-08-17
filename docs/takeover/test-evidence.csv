@@ -383,3 +383,4 @@
 "SB-CUT-020","CORRECTNESS","src-tauri/src/workflow.rs","a_sample_exactly_on_a_cutoff_bound_is_included_or_excluded_by_that_bounds_own_declared_operator"
 "SB-CUT-022","CORRECTNESS","src-tauri/src/workflow.rs","each_cutoff_declares_the_tiers_it_is_used_at_and_reservoir_and_pay_share_one_value_with_independent_flags"
 "SB-ENV-037","CORRECTNESS","src-tauri/src/condition.rs","every_shipped_conditioning_operation_restores_its_input_bit_for_bit_from_its_own_record"
+"SB-POR-021","CORRECTNESS","src-tauri/src/modules.rs","the_bateman_konen_crossplot_reproduces_the_papers_own_witnesses_on_both_pseudo_mineral_branches"
