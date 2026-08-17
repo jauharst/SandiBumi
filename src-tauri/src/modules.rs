@@ -1401,6 +1401,29 @@ const MISSING: f64 = f64::NAN;
 /// judgement the curve exists to support.
 pub(crate) const PHIE_FLOOR: f64 = 0.001;
 
+/// The ONE two-endpoint porosity identity: how far a log reading has moved from its matrix
+/// endpoint toward its fluid endpoint. `SB-POR-054`.
+///
+/// **Callers never write the subtraction.** That is the entire point, and it is a structural
+/// guarantee rather than a review convention. The published forms differ between vendors — the
+/// textbook density form is `(rho_ma - rho_b)/(rho_ma - rho_fl)` while Geolog's `por_from_rhob.lls`
+/// and Techlog's N-D crossplot page both invert numerator AND denominator
+/// (`(rho_b - rho_lim)/(rho_mf - rho_lim)`). All three are algebraically identical, because negating
+/// both halves of a quotient is exact in IEEE-754 and cancels.
+///
+/// The hazard is not either published form. It is the MIXED ordering — one half flipped and the
+/// other not — which returns a **negative** porosity from an expression that looks like both
+/// textbooks at a glance, and which `11_porosity.md:512-518` records as what a reader ships when
+/// they port one vendor line verbatim without noticing both flips. Routing every site through this
+/// function makes that expression unwritable rather than merely discouraged.
+///
+/// `DEC-049` (2026-08-17): density and sonic porosity keep their own conventions because they are
+/// different measurements with different endpoints. That is preserved here — each caller supplies
+/// its own matrix and fluid endpoints; only the ORDER of the subtraction is shared.
+pub(crate) fn two_endpoint_fraction(log_value: f64, matrix: f64, fluid: f64) -> f64 {
+    (log_value - matrix) / (fluid - matrix)
+}
+
 fn is_missing(v: f64) -> bool {
     v.is_nan()
 }
@@ -3176,7 +3199,8 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
 
-        let pe = (rho_ma - r) / (rho_ma - rho_fl) - v * (rho_ma - rho_sh) / (rho_ma - rho_fl);
+        let pe = two_endpoint_fraction(r, rho_ma, rho_fl)
+            - v * two_endpoint_fraction(rho_sh, rho_ma, rho_fl);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
         let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
@@ -3313,7 +3337,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let rhosr = limit((r - v * rho_sh) / (1.0 - v), 1.95, 3.0);
         let nphisr = limit((np - v * nphi_sh) / (1.0 - v), -0.015, 0.40);
 
-        let phid = (rho_ma - rhosr) / (rho_ma - rho_fl);
+        let phid = two_endpoint_fraction(rhosr, rho_ma, rho_fl);
         let phix = if gas_rms {
             ((phid * phid + nphisr * nphisr) / 2.0).sqrt()
         } else {
@@ -3408,13 +3432,13 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
         let pt = if rhg {
             0.625 * (d - dt_ma) / d
         } else {
-            (d - dt_ma) / (dt_fl - dt_ma) / cp
+            two_endpoint_fraction(d, dt_ma, dt_fl) / cp
         };
         phit_son[i] = limit(pt, 0.0, 1.0) as f32;
         if !is_missing(v) {
             // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
             // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand form.
-            let pe = pt - v * (dt_sh - dt_ma) / (dt_fl - dt_ma) / cp;
+            let pe = pt - v * two_endpoint_fraction(dt_sh, dt_ma, dt_fl) / cp;
             // SB-POR-009 / F21: effective porosity can never exceed total porosity. Density and
             // D-N get this free because they rebuild PHIT from the limited PHIE, but sonic
             // computes the two independently, so the ordering has to be imposed here — bounding
@@ -7030,6 +7054,66 @@ mod tests {
     /// CORRECTNESS — SB-CORE-004 / SB-CORE-T10 and `CONTRACT.md` section 2.
     /// The expected rule comes from the requirement: every shipped numeric default has a
     /// machine-readable source, and an explicit `ABSENT` parameter has no default.
+    /// SB-POR-054 / SB-POR-T22. Source: `docs/PRD_v2/11_porosity.md:1103-1107` — SandiBumi MUST
+    /// state one canonical sign convention for every matrix/fluid/log transform AND MUST carry a
+    /// test proving algebraic identity with the inverted forms Geolog (`por_from_rhob.lls`) and
+    /// Techlog (N-D crossplot page) publish. `:512-518` (finding F22) records why: two independent
+    /// vendors write these with BOTH numerator and denominator inverted, and *"a reader porting
+    /// either line verbatim without noticing both flips ships a sign error"*.
+    ///
+    /// `DEC-049` (2026-08-17), in Jauhar's words *"both true, its different type of porosity"* —
+    /// density and sonic are different measurements with different endpoints, so each keeps its own
+    /// convention. What is shared is the ORDER of the subtraction, not the endpoints.
+    #[test]
+    fn every_published_spelling_of_the_two_endpoint_porosity_identity_agrees_and_the_half_flipped_form_is_negative(
+    ) {
+        // The chapter's own worked case: quartz matrix, fresh water, a 2.30 g/cc reading. These
+        // three numbers are the requirement's example, not endpoints adopted as defaults here.
+        let (rho_ma, rho_fl, rho_b) = (2.65f64, 1.0f64, 2.30f64);
+
+        // A. All three PUBLISHED spellings agree, which is the identity the requirement asks to be
+        //    proven. The textbook form and the vendor form are opposite orderings of both halves;
+        //    negating numerator and denominator together is exact in IEEE-754, so they agree to the
+        //    bit, not merely to a tolerance.
+        let textbook = (rho_ma - rho_b) / (rho_ma - rho_fl);
+        // Geolog `por_from_rhob.lls` and Techlog's N-D crossplot page: both halves inverted.
+        let vendor_inverted = (rho_b - rho_ma) / (rho_fl - rho_ma);
+        let canonical = two_endpoint_fraction(rho_b, rho_ma, rho_fl);
+        assert_eq!(
+            textbook, vendor_inverted,
+            "the two published spellings must be algebraically identical, not merely close"
+        );
+        assert_eq!(
+            canonical, textbook,
+            "the canonical helper must equal the published forms exactly"
+        );
+        assert!(
+            (canonical - 0.212_121_212_121_212_1).abs() < 1e-12,
+            "the chapter's worked case must reproduce: got {canonical}"
+        );
+
+        // B. The MIXED ordering — one half flipped, the other not — is the actual hazard, and it
+        //    returns a NEGATIVE porosity from an expression that reads like both textbooks at a
+        //    glance. Pinned from both sides: it is the exact negation of the right answer, and the
+        //    canonical helper is not it. Without this arm, a helper that had itself been written
+        //    with one half flipped would satisfy every agreement assertion above by symmetry.
+        let half_flipped = (rho_ma - rho_b) / (rho_fl - rho_ma);
+        assert_eq!(half_flipped, -canonical, "the half-flip is exactly the sign error");
+        assert!(half_flipped < 0.0, "a half-flipped porosity is negative: {half_flipped}");
+        assert_ne!(canonical, half_flipped);
+
+        // C. The helper is endpoint-agnostic, which is what lets density and sonic keep their own
+        //    conventions per DEC-049 while sharing one subtraction order. Deliberately synthetic
+        //    numbers — no petrophysical endpoint is adopted or implied by this arm.
+        assert!((two_endpoint_fraction(125.0, 100.0, 200.0) - 0.25).abs() < 1e-12);
+        // A reading AT the matrix endpoint is zero porosity, and AT the fluid endpoint is unity,
+        // whichever way round the two endpoints sit — the property that makes one order safe for a
+        // density (matrix heavier than fluid) and a sonic (matrix faster than fluid) alike.
+        assert_eq!(two_endpoint_fraction(rho_ma, rho_ma, rho_fl), 0.0);
+        assert_eq!(two_endpoint_fraction(rho_fl, rho_ma, rho_fl), 1.0);
+        assert_eq!(two_endpoint_fraction(200.0, 200.0, 100.0), 0.0);
+        assert_eq!(two_endpoint_fraction(100.0, 200.0, 100.0), 1.0);
+    }
     #[test]
     fn a_registered_default_without_a_source_fails_the_build_gate() {
         let mut bad = ModuleSpec {
