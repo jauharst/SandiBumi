@@ -15,6 +15,60 @@ This is the human-readable companion to the machine-owned blocker set in
 
 ---
 
+## What was solved on 2026-08-17, and what it changed
+
+A working session closed three rows outright, materially advanced three more, and corrected the
+register against its own chapters **seven times**. Read this before trusting a blocker below.
+
+### Rows closed
+
+- **`SB-DIO-056`** — the LAS writer took `depth[1] - depth[0]` as the `STEP`. On a merged or
+  depth-shifted well that is not the step, and a conforming reader is entitled to rebuild depths
+  from `STRT`/`STEP`, silently re-gridding the data. Now verified across the whole index, declaring
+  `STEP 0` when it varies (LAS 2.0's own provision) and naming the depth where it changes.
+  **The comparison is made on the emitted fixed-decimal-4 TEXT, not the stored `f32`s** — at ~1000 m
+  an `f32` resolves to ~0.00006, so a perfect 0.1524 m frame is not bit-identical under subtraction
+  and would be called irregular. Proven by mutation, not argued.
+- **`SB-DIO-062`** — the declared text-encoding inventory is published as a contract and pinned.
+  No ambiguity rule was invented, because the decode order is TOTAL. The cp1252 fallback's
+  inability to fail is pinned as a **property over every byte**, not one example.
+- **`SB-POR-054`** — density and sonic wrote the same identity two ways.
+  `modules::two_endpoint_fraction` is now the one subtraction order and **no call site writes a
+  subtraction**, so the half-flipped form — which returns a NEGATIVE porosity from an expression
+  that reads like both textbooks — is unwritable rather than discouraged. Bit-identical: negating
+  both halves of a quotient is exact in IEEE-754, and all backend tests passed unchanged.
+
+### Rows advanced, with the remaining question stated exactly
+
+- **`SB-SAT-027`** — the register claimed two un-cross-asserted solvers. **There is one**: `sw_sim`
+  delegates to `multimin2`, and 15 `modules.rs` sites route there. The `n = 2` fast path is now
+  proven equal to the general root-finder. **One clause left, and it is a method ruling:** the
+  chapter specifies Geolog's guards (seed 0.5, 20 iterations, `|delta| < 1e-5`) while the solver
+  uses 60-step bisection — arguably better, since bisection on a monotone function is
+  unconditionally convergent, but swapping a specified numerical method is Jauhar's call.
+- **`SB-CUT-001`** — the net-pay clip rule existed **three times**. All three consumers now route
+  through `workflow::sample_incl_thickness`; proven number-neutral. **One clause left, and it moves
+  reserves:** the requirement wants a model parameter defaulting to CENTRED while every shipped path
+  uses FORWARD, and the two differ by half a sample step at each zone boundary.
+- **`SB-DBM-032`** — DEC-028 ruled both one-handle parameter forms are refused, and a test now pins
+  it. Honest limit: defeating the structural ordinal guard did NOT turn the test red, because schema
+  validation refuses too. That is defence in depth, and it means the test proves the CONTRACT rather
+  than any single guard.
+
+### The register was wrong seven times, and in one direction
+
+Every correction made the work SMALLER or different, never larger: a fixed arity mistaken for a cap;
+a landed dependency recorded as outstanding; a chapter permitting a fast path recorded as forbidding
+it; two engines that were one; a stale `SB-POR-005`/`SB-POR-040` link in neither requirement text.
+**Read the chapter before believing a blocker.**
+
+### The stale class column
+
+Roughly **31 of the 59** blocked rows cite a `DEC-` number in their Blocker class. Those decisions
+were RULED on 2026-08-17. Those rows are ordinary engineering waiting on implementation, not
+questions waiting on Jauhar — but the class column still reads as though the decision were open, and
+that is what made an earlier summary mis-state the shape of this gate.
+
 ## What I actually need from you (plain language)
 
 There are 59 blocked rows, but they are not 59 separate problems. They collapse into four kinds of

@@ -373,6 +373,99 @@ pub fn load_parameter_pack_against_schema(
 mod tests {
     use super::*;
 
+    /// SB-DBM-032 / SB-DBM-T32. Source: `DEC-028` (2026-08-17) — **refuse BOTH one-handle forms.**
+    /// A parameter row is addressed by a semantic identifier AND an ordinal; a row carrying only
+    /// one of them is refused rather than loaded with a warning.
+    ///
+    /// **The expectation was CORRECTED, not the guard weakened.** The row as adjudicated expected a
+    /// one-handle legacy row to load with a warning, which disagreed with the closed installer
+    /// contract already refusing a missing ordinal (`SB-INS-015` / `SB-INS-T18`). Jauhar ruled the
+    /// refusal stands and this row matches it. Nothing existing is loosened and no test is ignored.
+    ///
+    /// **Why an ordinal alone is the dangerous half.** A semantic identifier is a name — wrong, it
+    /// fails to resolve and says so. An ordinal is a POSITION: reinterpreting a legacy row by
+    /// position alone silently binds a value to whichever parameter now sits at that index, which
+    /// computes, plots and ships. That is why neither handle may stand in for the pair.
+    #[test]
+    fn a_parameter_row_carrying_only_one_of_its_two_handles_is_refused_by_name() {
+        let temp =
+            std::env::temp_dir().join(format!("sandibumi-one-handle-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let schema = module_parameter_schema("vsh_gr").expect("a shipping module owns its schema");
+        let first = &schema.parameters[0];
+
+        let write = |name: &str, row: serde_json::Value| -> std::path::PathBuf {
+            let path = temp.join(name);
+            let fixture = serde_json::json!({ "rows": [row] });
+            std::fs::write(&path, serde_json::to_vec_pretty(&fixture).unwrap()).unwrap();
+            path
+        };
+
+        // A. Semantic identifier only — no ordinal. Refused, and the message names the row.
+        let semantic_only = write(
+            "semantic-only.json",
+            serde_json::json!({
+                "semantic_id": first.semantic_id,
+                "module_schema_version": schema.module_schema_version,
+                "display_label": "Legacy one-handle row",
+                "value": { "fixture": "semantic-only" }
+            }),
+        );
+        let err = load_parameter_pack_for_module(&semantic_only, "vsh_gr")
+            .expect_err("a row with no ordinal must be refused, never loaded with a warning");
+        assert!(
+            err.contains("ordinal"),
+            "the refusal must name the missing handle: {err}"
+        );
+
+        // B. Ordinal only — empty semantic identifier. Refused for the same reason and separately,
+        //    because this is the half that would otherwise bind a value BY POSITION.
+        let ordinal_only = write(
+            "ordinal-only.json",
+            serde_json::json!({
+                "semantic_id": "",
+                "module_schema_version": schema.module_schema_version,
+                "ordinal": first.ordinal,
+                "display_label": "Legacy one-handle row",
+                "value": { "fixture": "ordinal-only" }
+            }),
+        );
+        let err = load_parameter_pack_for_module(&ordinal_only, "vsh_gr")
+            .expect_err("a row with no semantic identifier must be refused");
+        assert!(
+            err.contains("semantic"),
+            "the refusal must name the missing handle: {err}"
+        );
+
+        // C. Both handles present — loads. Without this the row would be satisfied by a loader
+        //    that refuses everything, which is not the contract.
+        let complete = write(
+            "both-handles.json",
+            serde_json::json!({
+                "semantic_id": first.semantic_id,
+                "module_schema_version": schema.module_schema_version,
+                "ordinal": first.ordinal,
+                "display_label": "Complete row",
+                "value": { "fixture": "complete" }
+            }),
+        );
+        let pack = load_parameter_pack_for_module(&complete, "vsh_gr")
+            .expect("a row carrying both handles is well formed and must load");
+
+        // D. The two handles must agree with EACH OTHER, and that existing refusal is untouched:
+        //    a lookup pairing this row's semantic identifier with a different row's ordinal
+        //    resolves to nothing rather than to whichever row matched one half.
+        assert!(pack.by_key(&first.semantic_id, first.ordinal).is_some());
+        let other_ordinal = schema.parameters[1].ordinal;
+        assert_ne!(other_ordinal, first.ordinal, "the fixture needs two distinct ordinals");
+        assert!(
+            pack.by_key(&first.semantic_id, other_ordinal).is_none(),
+            "a semantic identifier paired with a foreign ordinal must not resolve"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
     /// SB-INS-014 / SB-INS-T16. Duplicate display labels with unique semantic identifiers and
     /// ordinals come from dossier section 2.4. Fixture values are opaque test markers, not
     /// scientific parameters or shipped defaults. This exercises the product-reachable loader,
