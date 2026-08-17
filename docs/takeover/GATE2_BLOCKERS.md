@@ -18,52 +18,68 @@ This is the human-readable companion to the machine-owned blocker set in
 ## What I actually need from you (plain language)
 
 There are 62 blocked rows, but they are not 62 separate problems. They collapse into four kinds of
-thing, and only two of them need you.
+thing. **As of 2026-08-17 the decision bucket is empty** - 41 of the 62 are now ordinary
+engineering work. What still needs you is 8 documents and 1 legal question.
 
-### 1. Decisions only you can make — about 22 rows
+### 1. Decisions only you can make — all cleared 2026-08-17
 
-These are stopped because answering them is a petrophysical or product call, not an engineering one.
-I will not guess these: every one of them is *silently* wrong if guessed, meaning the wrong answer
-still computes, still plots, and still ships into a client report with nothing to catch it.
+**Every decision that blocked a Gate 2 row is now ruled.** You answered twenty-two of them in one
+sitting on 2026-08-17, and **41 of the 62 blocked rows are decision-cleared** — they are ordinary
+engineering work waiting to be done, not questions waiting on you.
 
-The big ones, each blocking several rows at once:
+Twice you rejected the question's premise rather than picking one of my options, and both times you
+were right:
 
-- **DEC-039 — RULED 2026-08-16. ✅** You chose: record it as a **comment on the curve**, carried
-  **per curve version**, since each curve already has versions and each version gets its own comment
-  reflecting what the user did on that run. That is the same mechanism you ruled for SB-POR-026, so
-  the two share one answer. It is a much simpler answer than the one engineering had drafted (a
-  categorical class curve with a closed code registry) and it dissolves that draft's hardest parts:
-  nothing to enumerate, no combination rule when several limits bind at once — the text just says so
-  — no unknown-code refusal to design, and no categorical-export contract. **One narrow thing left:**
-  `log_sets`, which is the per-version record, has no free-text comment column, and adding one means
-  editing `db.rs`. **That edit was explicitly authorized on 2026-08-16 (DEC-045)**, so SB-POR-003,
-  026, 028, 047 and 048 are now implementation-pending rather than decision-blocked — five rows on
-  one authorization. Two constraints survive it: `params_json` must not be reused (that column is the
-  run's *parameters*, and mixing a narrative into it would make the two indistinguishable to every
-  reader), and `computed_curves` stays deliberately primary-key-less.
-  *(DEC-039's own row in `DECISIONS.md` is now closed there too — you added that file to my allowed
-  paths on 2026-08-16, so the ruling and the register finally agree.)*
-- **DEC-048 — RULED 2026-08-16. ✅** You authorized narrow edits to five protected files —
-  `multimin2.rs`, `lrlc.rs`, `multimin.rs`, `satheight.rs`, `montecarlo.rs`. That converts seven rows
-  from *waiting on you* to *waiting on me*: **SB-SAT-002, 023, 025, 026, 027** and **SB-CUT-001, 002**.
-  Two more were unblocked by it and have already shipped this session: **SB-SAT-028** (a
-  non-converged IMTS saturation is now blank instead of its last iterate) and **SB-SAT-034** (the one
-  surviving default exponent, the solver's `a = 1`, is gone). Nothing further is needed from you on
-  any of these; they are now ordinary engineering work.
-- **DEC-025 — where a neutron curve's matrix basis is stored.** A limestone-unit neutron read
-  against a sandstone matrix is about 0.04 v/v low in clean water sand. We can convert between
-  bases, but nothing records which basis a delivered curve is on, so nothing can refuse a wrong one.
-  The owner of that metadata sits outside the approved scope, so you either authorize a narrow seam
-  or widen the manifest. **Blocks SB-POR-024, SB-DBM-017.**
-- **DEC-018 follow-ups — three rows still point at it.** Two of these look stale to me; see §3.
-- **DEC-021/023/024** — you said hold, so SB-POR-010 stays parked. No action unless you want it moved.
+- **SB-POR-054 → DEC-049.** I asked which of two spellings of the porosity identity was canonical.
+  You said *"both true, its different type of porosity."* Density and sonic porosity are different
+  measurements with different endpoints, each carrying its own conventional form. The MUST is
+  satisfied by declaring each type's convention, not by forcing one spelling onto both. What is
+  actually dangerous here is neither published form — it is the MIXED ordering, which returns a
+  negative porosity from an expression that looks like both textbooks at a glance.
+- **SB-CORE-007 → DEC-051.** I asked how strict the output-name collision rule should be. You said
+  modules already carry distinct defaults (`PHIE_DEN`, `PHIE_SON`) and a user typing `PHIE` is
+  deliberately replacing a result. So a default collision is a registry bug and a typed one is a
+  supported workflow — which dissolves the row's difficulty instead of answering it: with unique
+  defaults, no rule has to tell canonical results from working aliases from categorical flags.
 
-### 2. Documents I need you to find — about 7 rows
+Five rulings each cleared several rows at once. **DEC-031** — one coded correction-state curve, the
+applied-step manifest in the log-set archive, partial correction over the intervals a caliper
+actually covers — settled three storage requirements on one answer and, through the chapter's own
+OI-7, settled **DEC-032** as well. **DEC-021** (a per-module source digest, replacing a package
+version that does not move when a module's arithmetic does) with **DEC-023/024** closed all four
+arms of the re-run manifest. **DEC-025** authorized the neutron matrix-basis seam. **DEC-036**
+authorized a narrow versioned CLY provenance registry, because unlike DEC-035's deferred cull these
+deferred rows own infrastructure that already-approved rows cannot be built without.
+
+Two rulings carry a stated risk rather than a buried one. **DEC-022** — legacy timestamps are WIB —
+is only correct if every legacy record came off a UTC+7 machine, and a timestamp carries no evidence
+of the clock that made it. **DEC-056** deliberately does *not* take that route for depth: legacy
+depths are typed MD and stay untied to any datum, because the KB-to-GL difference is commonly 5–15 m
+and a wrongly declared reference offsets a whole well with nothing in the numbers to show it.
+
+**Six decisions remain open — DEC-004 through DEC-009 — and none of them blocks a Gate 2 row.** They
+are G5 commercial questions: licence unit, commercial model, support hours, update window, benchmark
+hardware profile, lineage granularity.
+
+### 2. Documents I need you to find — 8 rows
 
 These are not decisions. They are stopped because the source that fixes the number is not in the
-repo and I will not invent it. Each names exactly what would unblock it. This is the same shape as
-SB-POR-021 earlier this session: you sent the 1977 Bateman & Konen paper and the block dissolved in
-one message. Mostly `SB-DIO-*` and `SB-ENV-004`.
+repo and I will not invent it. This is the same shape as SB-POR-021 earlier: you sent the 1977
+Bateman & Konen paper and the block dissolved in one message.
+
+- **`SB-CORE-015`** — the API RP66 V1 writer specification. **You ruled on 2026-08-17 (DEC-054) that
+  DLIS export IS in the first pilot and that you will get the spec**, so the scope question is
+  answered and only the document is outstanding. Nothing is being written toward a writer meanwhile:
+  a half-built encoder behind a disabled button is the shape that later gets enabled by someone who
+  assumes it was finished.
+- **`SB-ENV-004`** — the largest of these: 19 sources to supply or adjudicate, plus a docs-only
+  31/32 identity reconciliation before the inventory tests can be written.
+- **`SB-DBM-005`** — the complete registered-module derivation-source map. **`SB-DBM-010` unblocks
+  itself the moment this lands**, so it is two rows on one document.
+- **`SB-DIO-011`** — a named source for every accepted deviation alias.
+- **`SB-DIO-057`** — a versioned ENV-reviewed family registry with a source for every member.
+- **`SB-CORE-005`** and **`SB-CORE-044`** — sources *and* counsel dispositions; these two sit
+  partly in the legal bucket below.
 
 ### 3. Rows where the tracking file is simply wrong
 
