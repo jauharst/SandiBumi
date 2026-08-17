@@ -8,6 +8,17 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// SB-DBM-032, from F-19 (`22_database-model.md:433-441`). A tilt is a property of the VALUE, not a
+/// display mode: IP's `Lg` prefix marks a value interpolated logarithmically between its zone
+/// endpoints, so a tilted parameter flattened to a scalar has lost physics rather than formatting.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ParameterTilt {
+    None,
+    Linear,
+    Log,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ParameterPackRow {
     pub semantic_id: String,
@@ -16,6 +27,56 @@ pub struct ParameterPackRow {
     pub display_label: String,
     /// The installation domain preserves a supplied value but does not interpret or default it.
     pub value: serde_json::Value,
+    /// The value's own unit. `None` is a genuinely unitless parameter (a mode, a ratio), never an
+    /// unknown one — an unstated unit on a numeric parameter is refused at load.
+    pub unit: Option<String>,
+    /// Mandatory for a numeric value (§5.4). A silently defaulted number is not a legal state.
+    pub source: Option<String>,
+    pub tilt: ParameterTilt,
+}
+
+impl ParameterPackRow {
+    /// The value at a depth inside the zone this parameter belongs to.
+    ///
+    /// **Within-zone only** (`22_database-model.md:2953`): a depth outside `[zone_top, zone_base]`
+    /// returns `None` rather than an extrapolated or clamped number, because the parameter STEPS at
+    /// the boundary and the neighbouring zone carries its own endpoints. Returning a clamped value
+    /// here would silently spread one zone's calibration into the next.
+    pub fn value_at_depth(&self, zone_top: f64, zone_base: f64, depth: f64) -> Option<f64> {
+        let (lo, hi) = if zone_top <= zone_base {
+            (zone_top, zone_base)
+        } else {
+            (zone_base, zone_top)
+        };
+        if !(depth >= lo && depth <= hi) {
+            return None;
+        }
+        match self.tilt {
+            ParameterTilt::None => self.value.as_f64(),
+            tilt => {
+                let (top, base) = tilt_endpoints(&self.value)?;
+                let span = zone_base - zone_top;
+                // A zero-thickness zone has no interior to interpolate across; its own top value is
+                // the only answer that is not a division by zero.
+                let fraction = if span == 0.0 { 0.0 } else { (depth - zone_top) / span };
+                Some(match tilt {
+                    ParameterTilt::Log => {
+                        (top.ln() + (base.ln() - top.ln()) * fraction).exp()
+                    }
+                    _ => top + (base - top) * fraction,
+                })
+            }
+        }
+    }
+}
+
+/// The two endpoints a tilted value interpolates between, as the chapter's "two-endpoint range".
+fn tilt_endpoints(value: &serde_json::Value) -> Option<(f64, f64)> {
+    let pair = value.as_array()?;
+    if pair.len() != 2 {
+        return None;
+    }
+    Some((pair[0].as_f64()?, pair[1].as_f64()?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +87,14 @@ struct RawParameterPackRow {
     ordinal: Option<u32>,
     display_label: String,
     value: serde_json::Value,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    /// Read as a raw token so an unrecognised tilt is refused BY NAME rather than failing as a
+    /// generic deserialization error or, worse, defaulting to `NONE`.
+    #[serde(default)]
+    tilt: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,12 +223,59 @@ fn parse_parameter_pack_structure(path: &Path) -> Result<ParameterPack, String> 
                 previous + 1
             ));
         }
+        // SB-DBM-032. The tilt token is validated before anything is read from the value, because
+        // an unrecognised tilt must never fall through to NONE — that is the one failure mode that
+        // returns a plausible number instead of an error.
+        let tilt = match row.tilt.as_deref() {
+            None | Some("NONE") => ParameterTilt::None,
+            Some("LINEAR") => ParameterTilt::Linear,
+            Some("LOG") => ParameterTilt::Log,
+            Some(other) => {
+                return Err(format!(
+                    "{}: row {row_number} ({}) declares unrecognised tilt {other}; expected NONE, LINEAR or LOG",
+                    path.display(),
+                    row.semantic_id
+                ))
+            }
+        };
+        if tilt != ParameterTilt::None {
+            let (top, base) = tilt_endpoints(&row.value).ok_or_else(|| {
+                format!(
+                    "{}: row {row_number} ({}) declares tilt {:?} but its value is not a two-endpoint range",
+                    path.display(),
+                    row.semantic_id,
+                    tilt
+                )
+            })?;
+            // A logarithmic tilt through zero or a negative endpoint has no logarithm. Refusing
+            // here beats handing back a NaN that a caller has to notice.
+            if tilt == ParameterTilt::Log && (top <= 0.0 || base <= 0.0) {
+                return Err(format!(
+                    "{}: row {row_number} ({}) is tilted LOG between {top} and {base}; a logarithmic tilt needs two positive endpoints",
+                    path.display(),
+                    row.semantic_id
+                ));
+            }
+        }
+        // §5.4: `source` is mandatory for any numeric parameter, and a silently defaulted value is
+        // not a legal state. A tilted value is numeric by construction even though it is an array.
+        let numeric = row.value.is_number() || tilt != ParameterTilt::None;
+        if numeric && row.source.as_deref().map(str::trim).unwrap_or_default().is_empty() {
+            return Err(format!(
+                "{}: row {row_number} ({}) carries a numeric value with no source; a silently defaulted parameter is not a legal state",
+                path.display(),
+                row.semantic_id
+            ));
+        }
         rows.push(ParameterPackRow {
             semantic_id: row.semantic_id,
             module_schema_version: row.module_schema_version,
             ordinal,
             display_label: row.display_label,
             value: row.value,
+            unit: row.unit,
+            source: row.source,
+            tilt,
         });
     }
 
@@ -372,6 +488,190 @@ pub fn load_parameter_pack_against_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SB-DBM-032 / SB-DBM-T32, the arms the one-handle refusal below does not reach. Sources:
+    /// `22_database-model.md:1749-1752` (each value carries its unit and its `tilt`, and `tilt` is a
+    /// property of the VALUE, not a display mode), `:1753` (ordinals are append-only and are never
+    /// renumbered; retiring one leaves a gap), `§5.4` as routed at `:3217` (dual handle, `tilt`,
+    /// **mandatory `source`**, append-only ordinals), and **F-19** at `:433-441`, which supplies the
+    /// witness used here: `Rw` tilted logarithmically between 0.28 and 0.19 across a zone "is not
+    /// 0.235". Within-zone-only interpolation and the step at a zone boundary are `:2953` and T32.
+    ///
+    /// **Why 0.235 is the whole point.** It is the LINEAR midpoint of the same two endpoints, so a
+    /// tilt stored as a display mode — or a LOG tilt quietly evaluated linearly — returns a number
+    /// that looks entirely reasonable and is wrong by 0.0043 ohm.m on `Rw`. That propagates straight
+    /// into Sw. The chapter names the wrong answer rather than only the right one, so this test
+    /// pins BOTH: the log answer must be produced, and the linear answer must not be.
+    #[test]
+    fn a_stored_parameter_carries_its_unit_and_source_and_a_tilted_value_never_interpolates_across_a_zone_boundary(
+    ) {
+        let temp = std::env::temp_dir().join(format!("sandibumi-tilt-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let write = |name: &str, rows: serde_json::Value| -> std::path::PathBuf {
+            let path = temp.join(name);
+            std::fs::write(
+                &path,
+                serde_json::to_vec_pretty(&serde_json::json!({ "rows": rows })).unwrap(),
+            )
+            .unwrap();
+            path
+        };
+        let row = |id: &str, ordinal: u32, extra: serde_json::Value| {
+            let mut base = serde_json::json!({
+                "semantic_id": id,
+                "module_schema_version": "1",
+                "ordinal": ordinal,
+                "display_label": id,
+            });
+            let object = base.as_object_mut().unwrap();
+            for (key, value) in extra.as_object().unwrap() {
+                object.insert(key.clone(), value.clone());
+            }
+            base
+        };
+
+        // A. ROUND TRIP. The unit, the source and the tilt survive the load as fields of the row,
+        //    which is what "a property of the value" means in storage terms.
+        let tilted = write(
+            "tilted.json",
+            serde_json::json!([row(
+                "RW",
+                7,
+                serde_json::json!({
+                    "value": [0.28, 0.19],
+                    "unit": "ohm.m",
+                    "source": "F-19 worked example, 22_database-model.md:439",
+                    "tilt": "LOG"
+                })
+            )]),
+        );
+        let pack = parse_parameter_pack_structure(&tilted).expect("a fully declared row must load");
+        let rw = pack.by_ordinal(7).expect("the row keeps the ordinal it declared");
+        assert_eq!(rw.unit.as_deref(), Some("ohm.m"));
+        assert_eq!(rw.tilt, ParameterTilt::Log);
+        assert!(rw.source.is_some(), "a numeric value must arrive with its source");
+
+        // B. The chapter's own witness, pinned from BOTH sides. At the zone midpoint the LOG tilt
+        //    is the geometric mean of the endpoints and the LINEAR tilt is the arithmetic one; the
+        //    chapter states the log answer is NOT 0.235, so an implementation that ignored the tilt
+        //    token would land exactly on the number it names as wrong.
+        let (top, base) = (2000.0_f64, 2100.0_f64);
+        let mid = rw.value_at_depth(top, base, 2050.0).expect("the midpoint is inside the zone");
+        assert!(
+            (mid - (0.28_f64 * 0.19).sqrt()).abs() < 1e-9,
+            "a LOG tilt interpolates geometrically, got {mid}"
+        );
+        assert!(
+            (mid - 0.235).abs() > 1e-3,
+            "0.235 is the linear midpoint the chapter names as the wrong answer, got {mid}"
+        );
+        // Its endpoints are exact, or the interpolation is not anchored to the zone at all.
+        assert!((rw.value_at_depth(top, base, top).unwrap() - 0.28).abs() < 1e-12);
+        assert!((rw.value_at_depth(top, base, base).unwrap() - 0.19).abs() < 1e-12);
+
+        // The linear twin on the same endpoints must produce the number the log twin must not, or
+        // arm B proves only that some arithmetic happened.
+        let linear = write(
+            "linear.json",
+            serde_json::json!([row(
+                "RW",
+                7,
+                serde_json::json!({
+                    "value": [0.28, 0.19],
+                    "unit": "ohm.m",
+                    "source": "F-19 worked example, 22_database-model.md:439",
+                    "tilt": "LINEAR"
+                })
+            )]),
+        );
+        let linear_mid = parse_parameter_pack_structure(&linear)
+            .unwrap()
+            .by_ordinal(7)
+            .unwrap()
+            .value_at_depth(top, base, 2050.0)
+            .unwrap();
+        assert!((linear_mid - 0.235).abs() < 1e-12, "LINEAR midpoint is 0.235, got {linear_mid}");
+
+        // C. WITHIN-ZONE ONLY, and the step at the boundary. A depth outside the zone has no value
+        //    from this row at all — it is not extrapolated and not clamped — because the parameter
+        //    belongs to the next zone there, and that zone carries its own endpoints.
+        assert!(
+            rw.value_at_depth(top, base, base + 0.1).is_none(),
+            "interpolation is within-zone only; the sample below the base belongs to the next zone"
+        );
+        assert!(rw.value_at_depth(top, base, top - 0.1).is_none());
+
+        // D. MANDATORY SOURCE for a numeric value. §5.4: a silently defaulted value is not a legal
+        //    state, so the refusal happens at load rather than leaving an uncited number in a pack.
+        let sourceless = write(
+            "sourceless.json",
+            serde_json::json!([row("RW", 7, serde_json::json!({ "value": 0.28, "unit": "ohm.m" }))]),
+        );
+        let err = parse_parameter_pack_structure(&sourceless)
+            .expect_err("a numeric value with no source must be refused");
+        assert!(err.contains("source") && err.contains("RW"), "refuse by name: {err}");
+
+        // E. APPEND-ONLY ORDINALS. A gap is a RETIRED parameter and is legal; what must never
+        //    happen is compaction, because renumbering is how ledger R-10's ClayVol #41 bound one
+        //    parameter's value to another. Pinned by asking for the declared ordinal, not the
+        //    position: under compaction 9 would have become 4 and this lookup would miss.
+        let sparse = write(
+            "sparse.json",
+            serde_json::json!([
+                row("A", 1, serde_json::json!({ "value": { "f": 1 } })),
+                row("B", 2, serde_json::json!({ "value": { "f": 2 } })),
+                row("C", 5, serde_json::json!({ "value": { "f": 3 } })),
+                row("D", 9, serde_json::json!({ "value": { "f": 4 } })),
+            ]),
+        );
+        let sparse = parse_parameter_pack_structure(&sparse).expect("a sparse pack is legal");
+        assert_eq!(
+            sparse.rows.iter().map(|r| r.ordinal).collect::<Vec<_>>(),
+            vec![1, 2, 5, 9],
+            "a gap marks a retired parameter and must survive the load uncompacted"
+        );
+        assert_eq!(sparse.by_ordinal(9).unwrap().semantic_id, "D");
+        assert!(sparse.by_ordinal(3).is_none(), "a retired slot resolves to nothing, not to a neighbour");
+
+        // F. The tilt declaration must be honest about its own shape. A tilt needs two endpoints to
+        //    interpolate between; a scalar carrying a tilt token is a value that has already lost
+        //    the physics the token claims, and an unknown token must never fall back to NONE.
+        let scalar_tilt = write(
+            "scalar-tilt.json",
+            serde_json::json!([row(
+                "RW",
+                7,
+                serde_json::json!({ "value": 0.28, "unit": "ohm.m", "source": "s", "tilt": "LOG" })
+            )]),
+        );
+        let err = parse_parameter_pack_structure(&scalar_tilt)
+            .expect_err("a tilted value must carry the two endpoints it interpolates between");
+        assert!(err.contains("endpoint"), "{err}");
+
+        let bad_token = write(
+            "bad-token.json",
+            serde_json::json!([row(
+                "RW",
+                7,
+                serde_json::json!({ "value": [0.28, 0.19], "source": "s", "tilt": "SPLINE" })
+            )]),
+        );
+        let err = parse_parameter_pack_structure(&bad_token)
+            .expect_err("an unrecognised tilt must be refused, never silently treated as NONE");
+        assert!(err.contains("SPLINE"), "the refusal must name the token it rejected: {err}");
+
+        // A LOG tilt through zero or a negative endpoint has no logarithm; refusing at load beats
+        // returning a NaN a caller would have to notice.
+        let bad_log = write(
+            "bad-log.json",
+            serde_json::json!([row(
+                "RW",
+                7,
+                serde_json::json!({ "value": [0.28, 0.0], "source": "s", "tilt": "LOG" })
+            )]),
+        );
+        assert!(parse_parameter_pack_structure(&bad_log).is_err());
+    }
 
     /// SB-DBM-032 / SB-DBM-T32. Source: `DEC-028` (2026-08-17) — **refuse BOTH one-handle forms.**
     /// A parameter row is addressed by a semantic identifier AND an ordinal; a row carrying only
