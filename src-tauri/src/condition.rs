@@ -361,6 +361,41 @@ fn out_args(
     ]
 }
 
+/// `SB-ENV-037`: the bit-exact recovery record for one conditioning operation.
+///
+/// Carries the ORIGINAL value at every sample the operation changed, and `MISSING` everywhere
+/// else. A record naming only WHICH samples changed is not a recovery record — restoring needs
+/// the value that was there, and the shipped flag channel alone cannot supply it.
+///
+/// **The flag is what disambiguates a restored absence, so the two travel together or neither
+/// means anything.** `fill_gaps` changes samples whose original WAS missing, so its record is
+/// `MISSING` exactly where it restores; read without the companion flag, "the original was
+/// absent" and "this sample was never touched" are the same bits.
+///
+/// Bit custody is literal, per `DEC-035`: the original `f32` is carried through unchanged, so a
+/// NaN arrives back with the payload it had rather than a canonical quiet NaN elected here.
+///
+/// Scoped to the operations the pilot ships. `smooth` changes every sample, so its record would
+/// be the whole input curve — a different shape, deliberately not folded in here — and `flip` is
+/// analytically invertible. Culling's recovery ships with culling under the deferred
+/// `SB-ENV-036`.
+fn recovery_record(original: &[f32], flag: &crate::modules::FlagCurve) -> Vec<f32> {
+    (0..original.len())
+        .map(|i| if flag.is_flagged(i) { original[i] } else { MISSING })
+        .collect()
+}
+
+/// The one output declaration for [`recovery_record`], so its name cannot drift between the
+/// three specs that carry it.
+fn recovery_arg() -> crate::modules::ArgSpec {
+    log_out_as(
+        "OUT_ORIG",
+        "{OUT_CURVE}_ORIG",
+        "Original values at every changed sample",
+        "",
+    )
+}
+
 // ---------------------------------------------------------------------------
 // DESPIKE
 // ---------------------------------------------------------------------------
@@ -455,6 +490,7 @@ pub fn despike_spec() -> ModuleSpec {
                 "{OUT_CURVE}_SPK",
                 Some(FlagKind::DiagnosticIndicator),
             ));
+            a.push(recovery_arg());
             a
         },
     }
@@ -568,6 +604,8 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
+        // SB-ENV-037: record built BEFORE the flag is consumed; both are written or neither.
+        res.insert("OUT_ORIG".to_string(), recovery_record(&vals, &flag));
         res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
@@ -846,6 +884,7 @@ pub fn clip_spec() -> ModuleSpec {
                 "{OUT_CURVE}_CLP",
                 Some(FlagKind::DiagnosticIndicator),
             ));
+            a.push(recovery_arg());
             a
         },
     }
@@ -891,6 +930,9 @@ pub fn clip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
+        // SB-ENV-037: the record is built BEFORE the flag is consumed, and both are written or
+        // neither is — a recovery record without its flag cannot be read back.
+        res.insert("OUT_ORIG".to_string(), recovery_record(&vals, &flag));
         res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
@@ -950,6 +992,7 @@ pub fn fill_gaps_spec() -> ModuleSpec {
                 "{OUT_CURVE}_FILL",
                 Some(FlagKind::DiagnosticIndicator),
             ));
+            a.push(recovery_arg());
             a
         },
     }
@@ -1012,6 +1055,8 @@ pub fn fill_gaps(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
+        // SB-ENV-037: record built BEFORE the flag is consumed; both are written or neither.
+        res.insert("OUT_ORIG".to_string(), recovery_record(&vals, &flag));
         res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
@@ -1366,6 +1411,109 @@ mod tests {
         (0..n).map(|i| start + i as f32 * step).collect()
     }
 
+    /// SB-ENV-037 / SB-ENV-T45. Source: `DEC-035` (2026-08-17) — the bit-exact recovery contract
+    /// covers the operations the pilot SHIPS (despike, clip, gap fill); culling's recovery ships
+    /// with culling under the deferred `SB-ENV-036`, and T45's cull arm is removed citing that
+    /// ruling. "Bit-identical" is read literally: the original 32 bits are stored and restored.
+    ///
+    /// **The subject is the ROUND TRIP, not the record's shape.** A test asserting only that
+    /// `OUT_ORIG` holds certain values would pass for a record nothing can actually restore from,
+    /// which is the defect this row names — the shipped flag channel already identified WHICH
+    /// samples changed and that was never enough.
+    #[test]
+    fn every_shipped_conditioning_operation_restores_its_input_bit_for_bit_from_its_own_record() {
+        // Restoration is the whole contract, so it is written once and applied to all three:
+        // where the flag is set, take the recorded original; elsewhere keep the conditioned value.
+        fn restore(out: &[f32], orig: &[f32], flag: &[f32]) -> Vec<f32> {
+            (0..out.len())
+                .map(|i| if flag[i] == 1.0 { orig[i] } else { out[i] })
+                .collect()
+        }
+        // Compared as BITS, not as values: `assert_eq!` on f32 makes every NaN unequal, and NaN is
+        // exactly the case that matters here.
+        fn bits(v: &[f32]) -> Vec<u32> {
+            v.iter().map(|x| x.to_bits()).collect()
+        }
+
+        let depth = regular(9, 0.5, 1000.0);
+
+        // A. CLIP, blanking out-of-range samples. The originals are ordinary numbers destroyed by
+        //    the operation, so a record that kept only the flag could never bring them back.
+        let clip_in = vec![10.0f32, 12.0, 900.0, 11.0, -50.0, 13.0, 14.0, 1000.0, 12.5];
+        let out = clip(&ctx_for(
+            &depth,
+            &clip_in,
+            &[("MIN", 0.0), ("MAX", 100.0)],
+            &[("OPT_ACTION", "BLANK"), ("OPT_FLAG", "YES")],
+        ))
+        .expect("the fixture is in range of the module's own guards");
+        assert_eq!(
+            bits(&restore(&out["OUT_CURVE"], &out["OUT_ORIG"], &out["OUT_FLAG"])),
+            bits(&clip_in),
+            "clip must restore bit for bit from its own record"
+        );
+
+        // B. FILL GAPS, which is the arm that proves why the flag and the record travel together.
+        //    Every sample it changes had a MISSING original, so the record is NaN exactly where it
+        //    restores. Read without the flag, "the original was absent" and "this sample was never
+        //    touched" are the same bits - so a record alone cannot be interpreted.
+        // The absent samples carry a NON-CANONICAL quiet NaN payload, and that is deliberate.
+        // With a plain `f32::NAN` fixture, "carried the original's bits" and "wrote the module's
+        // own MISSING constant" are the same bits, so the round trip would pass for an
+        // implementation that had lost the payload entirely - which is exactly what DEC-035's
+        // "bit-identical, read literally" forbids. A mutation proved that hole was real.
+        let absent = f32::from_bits(0x7FC0_1234);
+        assert!(absent.is_nan() && absent.to_bits() != f32::NAN.to_bits());
+        let fill_in = vec![10.0f32, 12.0, absent, absent, 18.0, 20.0, 22.0, 24.0, 26.0];
+        let out = fill_gaps(&ctx_for(
+            &depth,
+            &fill_in,
+            &[("MAX_GAP", 5.0)],
+            &[("OPT_METHOD", "LINEAR"), ("OPT_FLAG", "YES")],
+        ))
+        .expect("a two-sample hole is inside MAX_GAP");
+        let filled = &out["OUT_CURVE"];
+        assert!(
+            filled[2].is_finite() && filled[3].is_finite(),
+            "the fixture must actually fill something, or the round trip proves nothing"
+        );
+        assert_eq!(
+            bits(&restore(filled, &out["OUT_ORIG"], &out["OUT_FLAG"])),
+            bits(&fill_in),
+            "gap fill must restore the ORIGINAL ABSENCE, NaN included, not merely a number"
+        );
+
+        // C. DESPIKE. Same contract on the third shipped operation.
+        let spike_in = vec![10.0f32, 10.2, 9.8, 10.1, 250.0, 10.0, 9.9, 10.3, 10.1];
+        let out = despike(&ctx_for(
+            &depth,
+            &spike_in,
+            &[("WINDOW", 3.0), ("K", 3.0)],
+            &[("OPT_METHOD", "HAMPEL"), ("OPT_FLAG", "YES")],
+        ))
+        .expect("a nine-sample window clears the Hampel floor");
+        assert_eq!(
+            bits(&restore(&out["OUT_CURVE"], &out["OUT_ORIG"], &out["OUT_FLAG"])),
+            bits(&spike_in),
+            "despike must restore bit for bit from its own record"
+        );
+
+        // D. The record and its flag are written together or not at all. With the flag declined
+        //    there is nothing to interpret a record against, so neither is emitted - and this arm
+        //    fails an implementation that emits an uninterpretable record anyway.
+        let bare = clip(&ctx_for(
+            &depth,
+            &clip_in,
+            &[("MIN", 0.0), ("MAX", 100.0)],
+            &[("OPT_ACTION", "BLANK"), ("OPT_FLAG", "NO")],
+        ))
+        .unwrap();
+        assert!(!bare.contains_key("OUT_FLAG"));
+        assert!(
+            !bare.contains_key("OUT_ORIG"),
+            "a recovery record without its flag cannot be read back and must not be written"
+        );
+    }
     /// **SB-MLA-055 here is a refusal with no safe alternative, which is why it is a refusal.**
     ///
     /// `frame::block` could offer MODE, so it refuses the averaging statistics and keeps the one
