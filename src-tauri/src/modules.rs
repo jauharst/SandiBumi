@@ -5098,17 +5098,21 @@ fn gr_hole_corr_spec() -> ModuleSpec {
                 true,
             ),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
+            // SB-ENV-007 (DEC-031 part c): partial correction is AUTHORIZED - the run covers
+            // what the caliper covers and the state channel records the rest - so SB-ENV-006's
+            // refusal is NARROWED to its stated case: an input with no finite caliper anywhere.
             with_validity(
                 log_in("CALI", "Caliper log", "in", "CALI", false),
                 vec![validity(
                     "gr_hole_corr.caliper_coverage",
-                    "Caliper is required at every finite GR sample; without it the correction-named output would be an unmarked input copy.",
-                    "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T11/T12",
-                    ValidityRule::RequiredWhereFinite { input: "GR".into() },
+                    "At least one finite caliper sample is required; with none anywhere the correction-named output would be an unmarked input copy (SB-ENV-006, narrowed to this case by DEC-031 part c - a partially covered caliper now runs, with the uncovered gap recorded on the state channel).",
+                    "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T11/T12; DEC-031 (2026-08-17)",
+                    ValidityRule::RequiredCompanion { any_of: vec!["CALI".into()], when: None },
                 )],
             ),
             log_in("BS", "Bit size log", "in", "BS", false),
             log_out("GR_EC", "Environmentally corrected gamma ray", "gapi"),
+            log_out("GR_EC_CSTATE", "Coded correction state (0 corrected in full, 1 partial, 2 not applied at this sample, 3 reserved: refused; MISSING where the input is). Categorical - the state, never a mask; DEC-031's stable table.", ""),
         ],
     }
 }
@@ -5118,6 +5122,11 @@ fn gr_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
     let cali = ctx.log("CALI");
     let bs = ctx.log("BS");
     let mut out = vec![f32::NAN; ctx.n];
+    // SB-ENV-007 (DEC-031): the per-sample state channel, emitted on EVERY run - part (c)
+    // lets a raw value pass through under a corrected name, and the state channel is the only
+    // thing that records it. 0 = corrected in full, 2 = not applied (no caliper at the
+    // sample), NaN = no input sample. Codes are stable; a renumbering is a migration.
+    let mut state = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
         let g = gr[i] as f64;
         if is_missing(g) {
@@ -5125,7 +5134,9 @@ fn gr_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
         }
         let cl = cali[i] as f64;
         if is_missing(cl) {
-            out[i] = g as f32; // no caliper: pass through
+            out[i] = g as f32; // no caliper: pass through - and the state channel SAYS so
+            state[i] = 2.0;
+            record_branch("not applied (no caliper)");
             continue;
         }
         let bit = {
@@ -5134,8 +5145,10 @@ fn gr_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
         };
         let enlargement = (cl - bit).max(0.0); // undersize holes get no correction
         out[i] = (g * (1.0 + ctx.p("K_GR", i) * enlargement)) as f32;
+        state[i] = 0.0;
+        record_branch("corrected in full");
     }
-    HashMap::from([("GR_EC".to_string(), out)])
+    HashMap::from([("GR_EC".to_string(), out), ("GR_EC_CSTATE".to_string(), state)])
 }
 
 fn nphi_env_corr_spec() -> ModuleSpec {
@@ -5158,6 +5171,7 @@ fn nphi_env_corr_spec() -> ModuleSpec {
             // degF FTEMP would otherwise be silently applied as degC. Mirrors gascorr's contract.
             log_in_computed("FTEMP", "Formation temperature (precalc)", "degC", "FTEMP", false),
             log_out("NPHI_EC", "Environmentally corrected neutron porosity", "v/v"),
+            log_out("NPHI_EC_CSTATE", "Coded correction state (0 corrected in full, 1 partial, 2 not applied at this sample, 3 reserved: refused; MISSING where the input is). Categorical - the state, never a mask; DEC-031's stable table.", ""),
         ],
     }
 }
@@ -5166,6 +5180,10 @@ fn nphi_env_corr(ctx: &ModuleContext) -> ModuleOutputs {
     let nphi = ctx.log("NPHI");
     let ftemp = ctx.log("FTEMP");
     let mut out = vec![f32::NAN; ctx.n];
+    // SB-ENV-007 (DEC-031): this correction has TWO steps (salinity, temperature), so a
+    // sample where only the salinity step could run is 1 = PARTIAL - the step set that
+    // identifies which part travels in the run's log-set manifest via the branch record.
+    let mut state = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
         let np = nphi[i] as f64;
         if is_missing(np) {
@@ -5175,10 +5193,15 @@ fn nphi_env_corr(ctx: &ModuleContext) -> ModuleOutputs {
         let ft = ftemp[i] as f64;
         if !is_missing(ft) {
             corr += ctx.p("K_TEMP", i) * (ft - ctx.p("T_REF", i));
+            state[i] = 0.0;
+            record_branch("corrected in full (salinity + temperature)");
+        } else {
+            state[i] = 1.0;
+            record_branch("partial: salinity only (temperature step skipped, FTEMP missing)");
         }
         out[i] = (np + corr) as f32;
     }
-    HashMap::from([("NPHI_EC".to_string(), out)])
+    HashMap::from([("NPHI_EC".to_string(), out), ("NPHI_EC_CSTATE".to_string(), state)])
 }
 
 fn rhob_hole_corr_spec() -> ModuleSpec {
@@ -5216,10 +5239,11 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
                     "rhob_hole_corr.caliper_coverage",
                     "Caliper is required at every finite RHOB sample; without it the correction-named output would be an unmarked input copy.",
                     "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T12",
-                    ValidityRule::RequiredWhereFinite { input: "RHOB".into() },
+                    ValidityRule::RequiredCompanion { any_of: vec!["CALI".into()], when: None },
                 )],
             ),
             log_out("RHOB_EC", "Environmentally corrected density", "g/cc"),
+            log_out("RHOB_EC_CSTATE", "Coded correction state (0 corrected in full, 1 partial, 2 not applied at this sample, 3 reserved: refused; MISSING where the input is). Categorical - the state, never a mask; DEC-031's stable table.", ""),
         ],
     }
 }
@@ -5228,6 +5252,8 @@ fn rhob_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
     let rhob = ctx.log("RHOB");
     let cali = ctx.log("CALI");
     let mut out = vec![f32::NAN; ctx.n];
+    // SB-ENV-007 (DEC-031): the per-sample state channel - see gr_hole_corr.
+    let mut state = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
         let r = rhob[i] as f64;
         if is_missing(r) {
@@ -5235,13 +5261,17 @@ fn rhob_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
         }
         let cl = cali[i] as f64;
         let corr = if is_missing(cl) {
+            state[i] = 2.0;
+            record_branch("not applied (no caliper)");
             0.0
         } else {
+            state[i] = 0.0;
+            record_branch("corrected in full");
             ctx.p("K_RHO", i) * (cl - ctx.p("HD_REF", i)).max(0.0)
         };
         out[i] = (r + corr) as f32;
     }
-    HashMap::from([("RHOB_EC".to_string(), out)])
+    HashMap::from([("RHOB_EC".to_string(), out), ("RHOB_EC_CSTATE".to_string(), state)])
 }
 
 // ---------------------------------------------------------------------------
@@ -11649,6 +11679,68 @@ mod tests {
     /// sourced expectation is relational: with a correction input missing, every registered
     /// `*_EC` producer either refuses or returns values that are not an unmarked input copy; with
     /// the complete fixture it remains runnable, so a blanket retirement cannot satisfy the test.
+    /// SB-ENV-007 (DEC-031), pinned from BOTH sides per constraint 4: a partially covered
+    /// caliper RUNS - correcting what it covers, passing the rest through RAW with the state
+    /// channel recording exactly that - while an input with no finite caliper anywhere STILL
+    /// refuses (SB-ENV-006 narrowed, never deleted). The state table is DEC-031's: 0 full,
+    /// 1 partial, 2 not applied, MISSING where the input is - and nphi_env_corr's two steps
+    /// make 1 = partial a real state, not a dead code.
+    #[test]
+    fn a_partially_covered_correction_runs_and_the_state_channel_records_what_was_not_applied() {
+        // A. gr_hole_corr, caliper over half the interval: RUNS under DEC-031 part (c).
+        let ctx = ctx_with(
+            4,
+            &[
+                ("GR", vec![80.0, 90.0, 100.0, f32::NAN]),
+                ("CALI", vec![10.5, f32::NAN, 10.5, 10.5]),
+            ],
+            &[("K_GR", 0.01), ("BS_DEF", 8.5)],
+            &[],
+        );
+        let out = run_module("gr_hole_corr", &ctx)
+            .expect("a partially covered caliper runs - DEC-031 part (c)");
+        let ec = &out["GR_EC"];
+        let state = &out["GR_EC_CSTATE"];
+        // covered: corrected, state 0
+        assert!((ec[0] - 80.0 * (1.0 + 0.01 * 2.0)).abs() < 1e-4);
+        assert_eq!(state[0], 0.0);
+        // uncovered: the RAW value passes through under the corrected name - authorized, and
+        // the state channel is the only thing that records it.
+        assert_eq!(ec[1].to_bits(), 90.0f32.to_bits());
+        assert_eq!(state[1], 2.0, "not applied must be RECORDED, never silent");
+        assert_eq!(state[2], 0.0);
+        // no input sample: MISSING, never a code that asserts a correction nobody ran.
+        assert!(ec[3].is_nan() && state[3].is_nan());
+
+        // B. The other side: no finite caliper anywhere STILL refuses, naming the ruling.
+        let uncovered = ctx_with(
+            2,
+            &[("GR", vec![80.0, 90.0])],
+            &[("K_GR", 0.01), ("BS_DEF", 8.5)],
+            &[],
+        );
+        let error = run_module("gr_hole_corr", &uncovered)
+            .expect_err("no caliper anywhere is still SB-ENV-006's refusal");
+        assert!(error.contains("DEC-031"), "{error}");
+
+        // C. nphi_env_corr: two steps, so a missing FTEMP sample is 1 = PARTIAL (salinity
+        //    only), not 0 and not 2 - the step set travels in the run manifest.
+        let ctx = ctx_with(
+            3,
+            &[
+                ("NPHI", vec![0.20, 0.20, f32::NAN]),
+                ("FTEMP", vec![80.0, f32::NAN, 80.0]),
+            ],
+            &[("K_SAL", 0.01), ("SALW", 20000.0), ("K_TEMP", 0.0002), ("T_REF", 24.0)],
+            &[],
+        );
+        let out = run_module("nphi_env_corr", &ctx).expect("run");
+        let state = &out["NPHI_EC_CSTATE"];
+        assert_eq!(state[0], 0.0, "both steps applied");
+        assert_eq!(state[1], 1.0, "salinity applied, temperature step skipped = PARTIAL");
+        assert!(state[2].is_nan());
+    }
+
     #[test]
     fn every_ec_module_with_a_missing_correction_input_refuses_or_changes_the_curve_and_complete_inputs_still_run(
     ) {

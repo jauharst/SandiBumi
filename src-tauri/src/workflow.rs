@@ -1879,6 +1879,16 @@ fn fetch_mask_aligned(
     // flagged while 6 = neither evaluable would read as a bad-hole flag - the exact
     // inversion. Mask with the binary BADHOLE channel; this curve is the reason, never
     // the trigger.
+    // SB-ENV-007 (DEC-031 constraint 1): the coded correction-state curves are refused the
+    // same way - 0 = corrected-in-full would read clean and 2 = not-applied would read
+    // flagged under rule 11's any-non-zero mask, inverting the best state exactly.
+    if mask_name.trim().to_uppercase().ends_with("_CSTATE") {
+        return Err(format!(
+            "{mask_name} is a coded correction-state curve, not a flag: 0 means corrected in \
+             full and 2 means not applied, so masking on it would invert the intent. Mask with \
+             a binary flag such as BADHOLE instead."
+        ));
+    }
     if mask_name.eq_ignore_ascii_case("BADHOLE_REASON") {
         return Err(
             "BADHOLE_REASON is a coded reason curve, not a flag: 0 means NOT flagged and 6              means neither criterion was evaluable, so masking on it would invert the intent.              Mask with BADHOLE instead."
@@ -7639,6 +7649,77 @@ mod tests {
         );
     }
 
+    /// SB-ENV-007 (DEC-031 constraints 1 and b): the coded state curve is refused as a MASK
+    /// by name, and the applied-step manifest rides the run's LOG-SET record - the branch
+    /// record composes "corrected in full N, not applied M" into the version comment, which
+    /// is the per-run manifest the per-sample channel complements.
+    #[test]
+    fn the_correction_state_is_refused_as_a_mask_and_the_step_manifest_rides_the_log_set() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-CST", None, None, None).unwrap();
+        let n = 4usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        // GR everywhere, caliper over half: a partial run under DEC-031 part (c).
+        let cali_id = db::upsert_curve_meta(
+            &conn, &id.to_string(), "RAW", "CALI", Some("in"), Some("CALI"), None, None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &cali_id, &depth, &[10.5, f32::NAN, 10.5, f32::NAN])
+            .unwrap();
+        db::insert_standard_curves(
+            &conn, id, depth, vec![80.0; n], nan.clone(), nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+        let run = |mask: Option<&str>| -> Vec<ModuleRunResult> {
+            let mut opts: HashMap<String, String> = HashMap::new();
+            if let Some(mask) = mask {
+                opts.insert("MASK".to_string(), mask.to_string());
+            }
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "gr_hole_corr".into(),
+                    well_ids: vec![id.to_string()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::from([
+                        ("K_GR".to_string(), 0.01_f64),
+                        ("BS_DEF".to_string(), 8.5_f64),
+                    ]),
+                    opts,
+                    output_set: None,
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+        };
+        // A. The state curve is the reason, never the trigger.
+        let refused = run(Some("GR_EC_CSTATE"));
+        let error = refused[0].error.clone().expect("a state curve must be refused as a mask");
+        assert!(error.contains("Mask with"), "the refusal names the fix: {error}");
+        // B. The partial run's applied-step manifest rides the log-set record.
+        let results = run(None);
+        assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
+            results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+        let conn = dbm.lock().unwrap();
+        let comment = equations::list_log_sets(&conn, &id.to_string())
+            .unwrap()
+            .into_iter()
+            .find(|set| set.module == "gr_hole_corr")
+            .unwrap()
+            .comment
+            .expect("a correction run records its step manifest");
+        assert!(
+            comment.contains("corrected in full 2 samples")
+                && comment.contains("not applied (no caliper) 2 samples"),
+            "the manifest states what was and was not applied: {comment}"
+        );
+    }
+
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
     /// every record carrying a thickness, a net, a net-to-gross or a thickness-weighted average
     /// MUST carry the discretisation model that produced it and the sample interval it was
@@ -12498,7 +12579,11 @@ mod tests {
             .as_deref()
             .expect("the missing caliper must be reported to the caller");
         assert!(error.contains("gr_hole_corr.caliper_coverage"), "condition id missing: {error}");
-        assert!(error.contains("sample 0"), "affected sample missing: {error}");
+        // DEC-031 part (c) narrowed this refusal to the whole-run case - no finite caliper
+        // ANYWHERE - so the message names the anywhere-condition and the ruling, not a sample:
+        // a partially covered caliper now runs with the gap on the state channel instead.
+        assert!(error.contains("has a finite sample"), "the anywhere-condition missing: {error}");
+        assert!(error.contains("DEC-031"), "the narrowing ruling missing: {error}");
         assert!(error.contains("SB-ENV-006"), "contract source missing: {error}");
         assert!(refused[0].output_curves.is_empty());
         assert_eq!(refused[0].rows_written, 0);

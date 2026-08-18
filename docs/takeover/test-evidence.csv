@@ -410,3 +410,5 @@
 "SB-ENV-022","CORRECTNESS","src-tauri/src/modules.rs","the_badhole_reason_names_which_criterion_fired_and_keeps_the_drho_sign_in_every_combination"
 "SB-ENV-022","CORRECTNESS","src-tauri/src/workflow.rs","the_coded_badhole_reason_is_refused_as_a_mask_by_name"
 "SB-ENV-023","CORRECTNESS","src-tauri/src/modules.rs","the_badhole_reason_names_which_criterion_fired_and_keeps_the_drho_sign_in_every_combination"
+"SB-ENV-007","CORRECTNESS","src-tauri/src/modules.rs","a_partially_covered_correction_runs_and_the_state_channel_records_what_was_not_applied"
+"SB-ENV-007","CORRECTNESS","src-tauri/src/workflow.rs","the_correction_state_is_refused_as_a_mask_and_the_step_manifest_rides_the_log_set"
