@@ -303,7 +303,6 @@
 "SB-SAT-014","CHARACTERIZATION","src-tauri/src/multimin2.rs","waxman_b_matches_juhasz_fit"
 "SB-SAT-016","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
 "SB-SAT-017","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
-"SB-SAT-023","CHARACTERIZATION","src-tauri/src/multimin2.rs","sw_dual_nonlinear_hand_computed_and_conversion"
 "SB-SAT-043","CORRECTNESS","src-tauri/src/workflow.rs","a_saturation_run_carries_its_model_citation_worthington_type_and_unfitted_coefficient_flag_into_the_deliverable"
 "SB-SAT-044","CHARACTERIZATION","src-tauri/src/resultsqc.rs","shaly_sand_makes_archie_diverge_from_clay_models"
 "SB-SAT-046","CHARACTERIZATION","src-tauri/src/multimin2.rs","xu_split_recovers_sw_and_sxo_from_conductivity"
@@ -388,3 +387,4 @@
 "SB-DBM-032","CORRECTNESS","src-tauri/src/parameter_pack.rs","a_parameter_row_carrying_only_one_of_its_two_handles_is_refused_by_name"
 "SB-SAT-002","CORRECTNESS","src-tauri/src/modules.rs","effective_and_total_archie_are_two_separately_named_methods_that_disagree_on_the_reference_case"
 "SB-SAT-025","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_method_emits_a_clipped_curve_and_an_unclipped_diagnostic_that_exceeds_the_bounds"
+"SB-SAT-023","CORRECTNESS","src-tauri/src/multimin2.rs","the_effective_backout_swb_is_per_model_and_the_inverse_pair_round_trips_as_the_identity"

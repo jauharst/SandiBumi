@@ -5224,8 +5224,9 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
             let swe_irr =
                 if swb >= 1.0 { 0.0 } else { ((swt_irr - swb) / (1.0 - swb)).max(0.0) };
             let swe_l = limit(swe, swe_irr, 1.0);
-            swt_arch[i] = (swe * (1.0 - swb) + swb) as f32;
-            swt_out[i] = (swe_l * (1.0 - swb) + swb) as f32;
+            // SB-SAT-023: the lift is the shipped inverse pair, one implementation everywhere.
+            swt_arch[i] = crate::multimin2::swt_from_swe(swe, swb) as f32;
+            swt_out[i] = crate::multimin2::swt_from_swe(swe_l, swb) as f32;
             swe_out[i] = swe_l as f32;
             vol_uwat[i] = (pe * swe_l) as f32;
             continue;

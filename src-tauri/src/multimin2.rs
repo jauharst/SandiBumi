@@ -509,6 +509,72 @@ pub fn sw_archie(rt: f64, phit: f64, rw: f64, m: f64, n: f64, a: f64) -> f64 {
     ((a * rw) / (phit.powf(m) * rt)).powf(1.0 / n).clamp(0.0, 1.0)
 }
 
+/// SB-SAT-023: the effective back-out, `SWE = MAX((SWT − Swb)/(1 − Swb), 0)`. `Swb = 1` is all
+/// bound water and yields SWE = 1, never a division by zero (IP E78; Geolog `sw_ws.lls:296` is the
+/// algebraically identical form).
+pub fn swe_from_swt(swt: f64, swb: f64) -> f64 {
+    if swb >= 1.0 {
+        return 1.0;
+    }
+    ((swt - swb) / (1.0 - swb)).max(0.0)
+}
+
+/// SB-SAT-023: the inverse lift, `SwT = Sw(1 − Swb) + Swb` — and `SxoT = Sxo(1 − Swb) + Swb` is
+/// the SAME published formula applied to Sxo, deliberately one implementation. A round trip
+/// through the pair is the identity for Swb < 1; at Swb = 1 the map is non-invertible because
+/// everything is bound water, and both directions return 1.
+pub fn swt_from_swe(swe: f64, swb: f64) -> f64 {
+    if swb >= 1.0 {
+        return 1.0;
+    }
+    swe * (1.0 - swb) + swb
+}
+
+/// SB-SAT-023: Juhász's own bound-water term — `Qvn = clamp(Vsh·φt_sh/φt, 0, 1)` from the shale
+/// point (Geolog `sw_juha.lls:262`; Techlog agrees) — NOT `1 − φe/φt`, and on the dossier fixture
+/// the two differ by tens of saturation units.
+pub fn juhasz_qvn(vsh: f64, phit_sh: f64, phit: f64) -> f64 {
+    if !(phit > 0.0) {
+        return f64::NAN;
+    }
+    (vsh * phit_sh / phit).clamp(0.0, 1.0)
+}
+
+/// SB-SAT-023: which `Swb` rule a model's effective back-out uses. Recorded on the run result —
+/// the solver's construction makes φt ≡ φe + v_bw, which COLLAPSES `1 − φe/φt` with `v_bw/φt`,
+/// so the name is the only place the distinction survives.
+pub fn effective_backout_rule(model: SwModel) -> &'static str {
+    match model {
+        SwModel::Juhasz => "juhasz_qvn",
+        _ => "porosity_volume_1_minus_phie_over_phit",
+    }
+}
+
+/// SB-SAT-023: the per-model effective back-out itself. Returns `(SWE, rule name)`.
+pub fn effective_backout(
+    model: SwModel,
+    swt: f64,
+    phie: f64,
+    phit: f64,
+    vsh: f64,
+    phit_sh: f64,
+) -> (f64, &'static str) {
+    let rule = effective_backout_rule(model);
+    let swb = match model {
+        SwModel::Juhasz => juhasz_qvn(vsh, phit_sh, phit),
+        _ => {
+            if !(phit > 0.0) {
+                return (f64::NAN, rule);
+            }
+            1.0 - (phie / phit).clamp(0.0, 1.0)
+        }
+    };
+    if !swb.is_finite() {
+        return (f64::NAN, rule);
+    }
+    (swe_from_swt(swt, swb), rule)
+}
+
 /// Juhász (1981) "normalized Waxman-Smits" TOTAL water saturation — the wet-shale excess-conductivity
 /// form Jauhar groups with the "use wet parameters straight away" methods. Instead of dual water's
 /// temperature-form Cwb, the clay excess conductivity is read straight from the SHALE point:
@@ -762,6 +828,9 @@ pub struct MultiminWellResult {
 
 #[derive(Debug, Serialize)]
 pub struct MultiminResult {
+    /// SB-SAT-023: which effective back-out Swb rule this run's model applies — recorded because
+    /// the solver's construction collapses the first group's two algebraic spellings.
+    pub swb_rule: Option<String>,
     pub outputs: Vec<String>,
     pub wells: Vec<MultiminWellResult>,
     /// Model degrees of freedom = (tools + soft constraints + unity) − components. 0 = exactly
@@ -774,7 +843,7 @@ pub struct MultiminResult {
 }
 
 fn fail(msg: &str) -> MultiminResult {
-    MultiminResult { outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
+    MultiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
 }
 
 /// Curve-safe token for a component name: uppercase, non-alphanumeric → '_'.
@@ -1759,7 +1828,9 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            // SB-SAT-023: the shared per-model back-out (first group, where the
+                            // construction collapses 1−φe/φt with v_bw/φt).
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
                         SwModel::ArchieTotal => {
                             // Clean-sand Archie on total porosity, then free-water/φe (same conversion as
@@ -1772,7 +1843,7 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
                         SwModel::ArchieEffective => {
                             // SB-SAT-002: Archie directly on phie. The result IS the free-water/phie
@@ -1801,7 +1872,10 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            // SB-SAT-023: Juhász's back-out is Qvn from the shale point. The
+                            // correct Qvn used to be computed and then OVERRIDDEN by the blanket
+                            // porosity-volume conversion — the exact defect the row names.
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
                         SwModel::WaxmanSmits => {
                             // Total-porosity B·Qv form: Qv from the solved clay volumes, B from the
@@ -1818,7 +1892,7 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
                         SwModel::LinearDw => f64::NAN,
                     }
@@ -2095,7 +2169,15 @@ pub fn run_multimin(
         });
     }
 
-    MultiminResult { outputs: out_names, wells, dof, dof_note, error: None }
+    MultiminResult {
+        // SB-SAT-023: the applied Swb rule travels with the result, never implicit.
+        swb_rule: post_solve.then(|| effective_backout_rule(model).to_string()),
+        outputs: out_names,
+        wells,
+        dof,
+        dof_note,
+        error: None,
+    }
 }
 
 /// Rebuilds a tool's measurement in its DISPLAY domain from the solved native prediction:
@@ -4141,6 +4223,75 @@ mod tests {
         let arch = sw_archie(15.0, 0.22, 0.08, 2.0, 2.0, 1.0);
         let indo0 = sw_indonesia(15.0, 0.22, 0.0, 0.08, 4.0, 2.0, 2.0, 1.0, 1.0);
         assert!((arch - indo0).abs() < 1e-9, "Archie vs Indonesia(Vsh=0): {arch} vs {indo0}");
+    }
+
+    /// SB-SAT-023 / SB-SAT-T34-T36. Source: `12_saturation.md:1337-1354` — the effective back-out
+    /// `SWE = MAX((SWT − Swb)/(1 − Swb), 0)` takes a PER-MODEL `Swb`: `1 − φe/φt` for the
+    /// Archie/Waxman-Smits/dual-water group, **`Qvn = clamp(Vsh·φt_sh/φt, 0, 1)` for Juhász**
+    /// (Geolog `sw_juha.lls:262`, Techlog agree; the two forms are NOT equal). `Swb = 1` yields
+    /// `SWE = 1`, never a divide-by-zero. The inverse pair `SwT = Sw(1−Swb) + Swb` ships, and a
+    /// round trip through the pair is the identity.
+    ///
+    /// The dossier fixture is the arm that proves the back-out is genuinely per model: Qvn 0.42
+    /// against `1 − φe/φt` 0.20 moves SWE by tens of saturation units **while SWT matches
+    /// exactly** — the defect was precisely that the correct Qvn was computed at `:456` and then
+    /// overridden by the blanket porosity-volume conversion.
+    #[test]
+    fn the_effective_backout_swb_is_per_model_and_the_inverse_pair_round_trips_as_the_identity() {
+        // A. Swb = 1 is all bound water: SWE = 1, not a division by zero, in both directions.
+        assert_eq!(swe_from_swt(0.73, 1.0), 1.0);
+        assert_eq!(swt_from_swe(0.73, 1.0), 1.0);
+
+        // B. The pair is the inverse pair, and the round trip is the identity (Swb < 1 — at
+        //    Swb = 1 the map is deliberately non-invertible: everything is bound water).
+        for swb in [0.0, 0.2, 0.42, 0.9] {
+            for sw in [0.0, 0.31, 0.5, 1.0] {
+                let there = swt_from_swe(sw, swb);
+                assert!(
+                    (swe_from_swt(there, swb) - sw).abs() < 1e-12,
+                    "round trip must be the identity at Swb {swb}, Sw {sw}"
+                );
+            }
+        }
+        // The floor is MAX(.., 0): an SWT below Swb reads all-bound, never negative.
+        assert_eq!(swe_from_swt(0.1, 0.2), 0.0);
+
+        // C. The dossier fixture: φt 0.25, φe 0.20 → porosity-volume Swb 0.20; Vsh 0.35 with
+        //    φt_sh 0.30 → Qvn 0.42. One SWT, two rules, two answers tens of units apart.
+        let (phit, phie, vsh, phit_sh) = (0.25, 0.20, 0.35, 0.30);
+        assert!((juhasz_qvn(vsh, phit_sh, phit) - 0.42).abs() < 1e-12);
+        let swt = 0.60;
+        let (swe_arch, rule_arch) =
+            effective_backout(SwModel::ArchieTotal, swt, phie, phit, vsh, phit_sh);
+        let (swe_juh, rule_juh) = effective_backout(SwModel::Juhasz, swt, phie, phit, vsh, phit_sh);
+        assert!((swe_arch - 0.50).abs() < 1e-9, "porosity-volume rule: (0.60-0.20)/0.80");
+        assert!((swe_juh - (0.60 - 0.42) / 0.58).abs() < 1e-9, "Juhász rule uses Qvn");
+        assert!(
+            (swe_arch - swe_juh) > 0.15,
+            "the two rules must disagree by tens of saturation units on the same SWT"
+        );
+
+        // D. Which rule applied is RECORDED, never implicit — the solver's construction collapses
+        //    1 − φe/φt with v_bw/φt, so the name is the only place the distinction survives.
+        assert_eq!(rule_arch, "porosity_volume_1_minus_phie_over_phit");
+        assert_eq!(rule_juh, "juhasz_qvn");
+        assert_eq!(effective_backout_rule(SwModel::WaxmanSmits), "porosity_volume_1_minus_phie_over_phit");
+        assert_eq!(effective_backout_rule(SwModel::DualWaterNonlinear), "porosity_volume_1_minus_phie_over_phit");
+        assert_eq!(effective_backout_rule(SwModel::Juhasz), "juhasz_qvn");
+
+        // E. The SxoT lift is the SAME published formula on Sxo — one implementation, stated.
+        assert!((swt_from_swe(0.85, 0.2) - (0.85 * 0.8 + 0.2)).abs() < 1e-12);
+
+        // F. The rule is recorded ON THE RESULT of a real run, not merely derivable — this is the
+        //    "record which rule was applied" clause, and it survives to the UI.
+        let (db, wid, _phie) = ftemp_test_well("MM-SWBRULE", 100.0, 0.40);
+        let res = run_multimin(&db, &ftemp_req(wid, 100.0, None), None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert_eq!(
+            res.swb_rule.as_deref(),
+            Some("porosity_volume_1_minus_phie_over_phit"),
+            "a post-solve run must state its effective back-out rule"
+        );
     }
 
     #[test]
