@@ -1438,6 +1438,15 @@ fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equat
     equations::list_log_sets(&conn, &well_id).map_err(|e| e.to_string())
 }
 
+/// DEC-045/DEC-039: set the free-text comment on ONE log-set version — the record of what this
+/// run did (the branch a module took, every limit that bound, or the user's own annotation).
+/// An explicit whitelisted write per rule 6; versions never inherit it.
+#[tauri::command]
+fn set_log_set_comment(db: tauri::State<DbState>, set_id: String, comment: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    equations::set_log_set_comment(&conn, &set_id, &comment)
+}
+
 /// Distinct constellation (log-set) names across the project — powers the input/output
 /// constellation pickers in the module and workflow dialogs (which run across many wells).
 #[tauri::command]
@@ -4172,6 +4181,7 @@ pub fn run() {
             run_equation,
             list_curve_catalog,
             list_log_sets,
+            set_log_set_comment,
             list_log_set_names,
             restore_log_set,
             delete_log_set,

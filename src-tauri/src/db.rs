@@ -388,7 +388,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             duplicate_resolution VARCHAR,
             -- NULL = legacy/unclassified. Every complete production write starts CLEAN and is
             -- changed atomically to DEGRADED when a structured event is persisted with its rows.
-            outcome_state VARCHAR CHECK (outcome_state IN ('CLEAN', 'DEGRADED'))
+            outcome_state VARCHAR CHECK (outcome_state IN ('CLEAN', 'DEGRADED')),
+            -- DEC-045/DEC-039: the per-VERSION free-text comment - the branch a POR module took
+            -- and every limit that bound, or what the user did on that run. Versions never
+            -- inherit it: a comment describes ONE run. NULL = no comment recorded.
+            comment VARCHAR
         );
 
         -- Structured reasons a durable run is DEGRADED. Multiple workflow steps may append to one
@@ -1111,6 +1115,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         "ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
          ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
          ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS outcome_state VARCHAR;
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS comment VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;

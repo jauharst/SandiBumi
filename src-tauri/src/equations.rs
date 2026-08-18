@@ -2016,6 +2016,8 @@ pub struct LogSetEntry {
     /// `None` is a pre-contract run whose result cannot honestly be classified after the fact.
     pub outcome_state: Option<String>,
     pub degradations: Vec<StoredRunDegradation>,
+    /// DEC-045/DEC-039: this version's own free-text comment. Versions never inherit it.
+    pub comment: Option<String>,
 }
 
 fn restore_record(params_json: Option<&str>) -> Option<LogSetRestoreRecord> {
@@ -2046,6 +2048,32 @@ fn params_json_with_restore_record(
             .map_err(|error| format!("cannot serialize restore provenance: {error}"))?,
     );
     Ok(serde_json::Value::Object(parameters).to_string())
+}
+
+/// DEC-045/DEC-039 (SB-POR-003/026/028/047/048's shared seam): record the per-VERSION free-text
+/// comment — the branch a module took and every limit that bound, stated as text rather than as an
+/// enumerated vocabulary, which is exactly what the DEC-039 ruling replaced the categorical stream
+/// with. One comment describes ONE run: writing to a version never touches any other version, and
+/// an empty text is refused — "no comment" is the NULL the row already has, never an empty string
+/// that reads as a recorded nothing.
+pub(crate) fn set_log_set_comment(
+    conn: &Connection,
+    set_id: &str,
+    comment: &str,
+) -> Result<(), String> {
+    if comment.trim().is_empty() {
+        return Err("a version comment must say something; absence is the NULL it already has".into());
+    }
+    let updated = conn
+        .execute(
+            "UPDATE log_sets SET comment = ?2 WHERE set_id = ?1",
+            params![set_id, comment],
+        )
+        .map_err(|error| error.to_string())?;
+    if updated == 0 {
+        return Err(format!("no log-set version {set_id} to comment"));
+    }
+    Ok(())
 }
 
 /// Registers a new run event: version = 1 + the well's highest version of `set_name`
@@ -3553,7 +3581,7 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
         "SELECT s.set_id, s.set_name, s.version, s.module, s.params_json, s.inputs_json,
                 strftime(s.created_at, '%Y-%m-%d %H:%M'),
                 EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = s.set_id),
-                s.outcome_state
+                s.outcome_state, s.comment
          FROM log_sets s
          WHERE s.well_id = ?1
          ORDER BY s.set_name, s.version DESC",
@@ -3578,6 +3606,7 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
             restored_from,
             outcome_state: r.get(8)?,
             degradations: Vec::new(),
+            comment: r.get(9)?,
         })
     })?;
     let mut entries = Vec::new();
@@ -4227,6 +4256,46 @@ mod tests {
     /// expectations come from `22_database-model.md` §6 T35, sourced there to SB-CORE-010,
     /// F-06 and the shipped archive-purpose statement. The numeric rows are non-physical fixture
     /// labels, not petrophysical values or defaults.
+    /// DEC-045 / DEC-039 — the per-version comment column, the shared seam SB-POR-003, 026, 028,
+    /// 047 and 048 were each blocked on ("there is nowhere to write it today"). Source: DEC-039
+    /// (2026-08-16) records the branch-and-limit state as a COMMENT ON THE CURVE carried per
+    /// curve version; DEC-045 authorizes exactly this column in `db.rs`.
+    #[test]
+    fn a_log_set_version_carries_its_own_comment_and_never_lends_it_to_another_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, well_id, "COMMENT-COL", None, None, Some(0.0)).unwrap();
+        let well_id = well_id.to_string();
+        let spec = LogSetSpec {
+            set_name: "PHIE_RUNS".into(),
+            module: "phi_den".into(),
+            params_json: "{}".into(),
+            inputs_json: "[]".into(),
+        };
+        let (v1, _) = create_log_set(&conn, &well_id, &spec).unwrap();
+        let (v2, _) = create_log_set(&conn, &well_id, &spec).unwrap();
+
+        // A. A comment lands on ITS version and reloads through the catalog listing.
+        set_log_set_comment(&conn, &v1, "gas branch; PHIE ceiling bound at 2 samples").unwrap();
+        let sets = list_log_sets(&conn, &well_id).unwrap();
+        let find = |id: &str| sets.iter().find(|s| s.set_id == id).unwrap();
+        assert_eq!(
+            find(&v1).comment.as_deref(),
+            Some("gas branch; PHIE ceiling bound at 2 samples"),
+            "the comment must survive write and reload"
+        );
+
+        // B. Versions never inherit: the sibling run stays NULL — a comment describes ONE run.
+        assert_eq!(find(&v2).comment, None, "a version must never lend its comment to another");
+
+        // C. An empty text is refused: "no comment" is the NULL the row already has, and an
+        //    empty string would read as a recorded nothing.
+        assert!(set_log_set_comment(&conn, &v1, "   ").is_err());
+        // D. A comment on a version that does not exist is an error, not a silent no-op.
+        assert!(set_log_set_comment(&conn, "no-such-set", "text").is_err());
+    }
+
     #[test]
     fn archive_updates_and_deletes_are_refused_and_restoring_version_one_creates_version_four_without_changing_versions_one_through_three() {
         use crate::db;
