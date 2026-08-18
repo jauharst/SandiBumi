@@ -3501,6 +3501,13 @@ fn phi_den_spec() -> ModuleSpec {
             // recomputed - condflag's coal and washout exclusions survive that way - and it
             // never alters an output; the record is the DEC-039 version comment.
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
+            // SB-POR-048 (DEC-068, Jauhar 2026-08-18: "coal > blank, tight just flag,
+            // cond just flag, latter 2 only indicator"): coal BLANKS - a coal bed's huge
+            // apparent porosity is never reported as rock porosity - while tight and cond
+            // are INDICATORS, consumed for provenance and never altering an output.
+            log_in("COAL_FLAG", "Coal flag from condflag (flagged samples blanked - coal apparent porosity is never rock porosity)", "", "COAL_FLAG", false),
+            log_in("TIGHT_FLAG", "Tight flag from condflag (indicator only - never alters an output)", "", "TIGHT_FLAG", false),
+            log_in("COND_FLAG", "Conditioning flag from condflag (indicator only - never alters an output)", "", "COND_FLAG", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIE_DEN", "PHIE from density (unlimited)", "v/v"),
@@ -3540,6 +3547,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
     let rho = ctx.log("RHOB");
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
+    let coal = ctx.log("COAL_FLAG");
     let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
     let mut phie_den = vec![f32::NAN; ctx.n];
     let mut phit_den = vec![f32::NAN; ctx.n];
@@ -3550,6 +3558,11 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
         // analyst remembered to set; the run's log-set comment records the exclusion.
         if badhole[i] == 1.0 {
+            continue;
+        }
+        // SB-POR-048 (DEC-068): coal is blanked by the METHOD; TIGHT_FLAG and COND_FLAG
+        // are declared indicators and deliberately never read here.
+        if coal[i] == 1.0 {
             continue;
         }
         let (r, v) = (rho[i] as f64, vsh[i] as f64);
@@ -3701,6 +3714,13 @@ fn phi_dn_spec() -> ModuleSpec {
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
+            // SB-POR-048 (DEC-068, Jauhar 2026-08-18: "coal > blank, tight just flag,
+            // cond just flag, latter 2 only indicator"): coal BLANKS - a coal bed's huge
+            // apparent porosity is never reported as rock porosity - while tight and cond
+            // are INDICATORS, consumed for provenance and never altering an output.
+            log_in("COAL_FLAG", "Coal flag from condflag (flagged samples blanked - coal apparent porosity is never rock porosity)", "", "COAL_FLAG", false),
+            log_in("TIGHT_FLAG", "Tight flag from condflag (indicator only - never alters an output)", "", "TIGHT_FLAG", false),
+            log_in("COND_FLAG", "Conditioning flag from condflag (indicator only - never alters an output)", "", "COND_FLAG", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3727,6 +3747,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
     let nphi = ctx.log("NPHI");
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
+    let coal = ctx.log("COAL_FLAG");
     let gas_rms = ctx.o("OPT_XPLOT") == "GAS_RMS";
     let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
     let mut phie_dn = vec![f32::NAN; ctx.n];
@@ -3738,6 +3759,11 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
         // analyst remembered to set; the run's log-set comment records the exclusion.
         if badhole[i] == 1.0 {
+            continue;
+        }
+        // SB-POR-048 (DEC-068): coal is blanked by the METHOD; TIGHT_FLAG and COND_FLAG
+        // are declared indicators and deliberately never read here.
+        if coal[i] == 1.0 {
             continue;
         }
         let (r, np, v) = (rho[i] as f64, nphi[i] as f64, vsh[i] as f64);
@@ -3912,6 +3938,13 @@ fn phi_dnbk_spec() -> ModuleSpec {
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
+            // SB-POR-048 (DEC-068, Jauhar 2026-08-18: "coal > blank, tight just flag,
+            // cond just flag, latter 2 only indicator"): coal BLANKS - a coal bed's huge
+            // apparent porosity is never reported as rock porosity - while tight and cond
+            // are INDICATORS, consumed for provenance and never altering an output.
+            log_in("COAL_FLAG", "Coal flag from condflag (flagged samples blanked - coal apparent porosity is never rock porosity)", "", "COAL_FLAG", false),
+            log_in("TIGHT_FLAG", "Tight flag from condflag (indicator only - never alters an output)", "", "TIGHT_FLAG", false),
+            log_in("COND_FLAG", "Conditioning flag from condflag (indicator only - never alters an output)", "", "COND_FLAG", false),
             // SB-POR-028: the Bateman-Konen mode's OWN clamp - neutron side only, wider,
             // and deliberately no density pair, because this mode has no density clamp and
             // shipping a disabled one would misstate the method.
@@ -3942,6 +3975,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
     let nphi = ctx.log("NPHI");
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
+    let coal = ctx.log("COAL_FLAG");
     let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
     let mut phie_bk = vec![f32::NAN; ctx.n];
     let mut phit_bk = vec![f32::NAN; ctx.n];
@@ -3953,6 +3987,11 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
         // analyst remembered to set; the run's log-set comment records the exclusion.
         if badhole[i] == 1.0 {
+            continue;
+        }
+        // SB-POR-048 (DEC-068): coal is blanked by the METHOD; TIGHT_FLAG and COND_FLAG
+        // are declared indicators and deliberately never read here.
+        if coal[i] == 1.0 {
             continue;
         }
         let (r, np, v) = (rho[i] as f64, nphi[i] as f64, vsh[i] as f64);
@@ -4062,6 +4101,13 @@ fn phi_son_spec() -> ModuleSpec {
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
+            // SB-POR-048 (DEC-068, Jauhar 2026-08-18: "coal > blank, tight just flag,
+            // cond just flag, latter 2 only indicator"): coal BLANKS - a coal bed's huge
+            // apparent porosity is never reported as rock porosity - while tight and cond
+            // are INDICATORS, consumed for provenance and never altering an output.
+            log_in("COAL_FLAG", "Coal flag from condflag (flagged samples blanked - coal apparent porosity is never rock porosity)", "", "COAL_FLAG", false),
+            log_in("TIGHT_FLAG", "Tight flag from condflag (indicator only - never alters an output)", "", "TIGHT_FLAG", false),
+            log_in("COND_FLAG", "Conditioning flag from condflag (indicator only - never alters an output)", "", "COND_FLAG", false),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIT_SON", "Total porosity from sonic", "v/v"),
@@ -4074,6 +4120,7 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
     let dt = ctx.log("DT");
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
+    let coal = ctx.log("COAL_FLAG");
     let rhg = ctx.o("OPT_SON") == "RHG";
     let cp_on = ctx.o("OPT_CP") == "ON";
     let mut phit_son = vec![f32::NAN; ctx.n];
@@ -4083,6 +4130,11 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
         // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
         // analyst remembered to set; the run's log-set comment records the exclusion.
         if badhole[i] == 1.0 {
+            continue;
+        }
+        // SB-POR-048 (DEC-068): coal is blanked by the METHOD; TIGHT_FLAG and COND_FLAG
+        // are declared indicators and deliberately never read here.
+        if coal[i] == 1.0 {
             continue;
         }
         let (d, v) = (dt[i] as f64, vsh[i] as f64);
@@ -7461,6 +7513,87 @@ mod tests {
             decision.alternatives.iter().all(|position| !position.tier.is_empty()),
             "a position with no tier is an unranked claim, not evidence"
         );
+    }
+
+    /// SB-POR-048 (DEC-068, RULED 2026-08-18): every porosity METHOD consumes condflag's
+    /// three flags as declared inputs with the ruled behaviour - a COAL sample is BLANKED
+    /// (a coal bed's huge apparent porosity is never reported as rock porosity), while
+    /// TIGHT and COND are INDICATORS whose presence never moves a number. Proven per flag
+    /// beside an unflagged control, on every method, with the existing BADHOLE guard
+    /// untouched. `ssc`/`sspw` are DEC-038 typed workflows, outside the method family.
+    #[test]
+    fn a_coal_sample_is_blanked_while_tight_and_cond_only_annotate_and_the_unflagged_control_computes(
+    ) {
+        // Sample layout: 0 = unflagged control, 1 = coal, 2 = tight, 3 = cond.
+        let flags: [(&str, Vec<f32>); 3] = [
+            ("COAL_FLAG", vec![0.0, 1.0, 0.0, 0.0]),
+            ("TIGHT_FLAG", vec![0.0, 0.0, 1.0, 0.0]),
+            ("COND_FLAG", vec![0.0, 0.0, 0.0, 1.0]),
+        ];
+        let base_params: Vec<(&str, f64)> = vec![
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+            ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015),
+            ("NPHISR_MAX", 0.40), ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+            ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
+            ("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 100.0),
+        ];
+        let base_logs: Vec<(&str, Vec<f32>)> = vec![
+            ("RHOB", vec![2.3, 1.8, 2.6, 2.3]),
+            ("NPHI", vec![0.25, 0.5, 0.05, 0.25]),
+            ("DT", vec![90.0, 130.0, 60.0, 90.0]),
+            ("VSH", vec![0.2, 0.1, 0.1, 0.2]),
+        ];
+        for module in ["phi_den", "phi_dn", "phi_dnbk", "phi_son"] {
+            // A - manifest: all three are declared, optional, on the method.
+            let spec = module_catalog()
+                .iter()
+                .find(|candidate| candidate.name == module)
+                .unwrap()
+                .clone();
+            for flag in ["COAL_FLAG", "TIGHT_FLAG", "COND_FLAG"] {
+                let declared = spec
+                    .args
+                    .iter()
+                    .find(|argument| argument.name == flag)
+                    .unwrap_or_else(|| panic!("{module} must declare {flag}"));
+                assert_eq!(declared.kind, ArgKind::LogIn, "{module}.{flag}");
+                assert!(!declared.required, "{module}.{flag} stays optional");
+            }
+
+            // B - behaviour: flagged run beside the unflagged control.
+            let mut logs = base_logs.clone();
+            logs.extend(flags.iter().cloned());
+            let flagged = run_module(module, &ctx_with(4, &logs, &base_params, &[]))
+                .unwrap_or_else(|error| panic!("{module}: {error}"));
+            let control = run_module(module, &ctx_with(4, &base_logs, &base_params, &[]))
+                .unwrap_or_else(|error| panic!("{module}: {error}"));
+
+            for (curve, values) in &flagged {
+                if !curve.starts_with("PHI") {
+                    continue;
+                }
+                // Coal (sample 1): blanked - MISSING, not zero and not a floored value.
+                assert!(
+                    values[1].is_nan(),
+                    "{module}.{curve} at the coal sample must be blanked, got {}",
+                    values[1]
+                );
+                // Unflagged control (0), tight (2) and cond (3): bit-identical to the run
+                // with no flags supplied - an indicator never moves a number.
+                for i in [0usize, 2, 3] {
+                    assert_eq!(
+                        values[i].to_bits(),
+                        control[curve][i].to_bits(),
+                        "{module}.{curve}[{i}] must not move under an indicator flag"
+                    );
+                }
+                // And the control itself actually computed where it should.
+                assert!(
+                    control[curve][0].is_finite(),
+                    "{module}.{curve} control sample must compute"
+                );
+            }
+        }
     }
 
     /// SB-POR-045 (DEC-043 ruled 0.001, DEC-067 ships it as the cited DEFAULT): the value

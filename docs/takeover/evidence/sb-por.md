@@ -696,18 +696,12 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** `BLOCKED-DEPENDENCY` on SB-POR-003 / DEC-039, and the chapter says so in its own words - *record its effect through SB-POR-003*. The declaration half is ordinary wiring and could be built today on `gascorr`'s optional-flag idiom (`modules.rs:4404`); the recording half names a stream that does not exist. Building only the first and reporting `DONE` would be evidence inflation - one MUST, two clauses, the same shape as SB-POR-028.
 - **Next action:** settle DEC-039; then declare `BADHOLE` as a typed optional input on each applicable method, consume it rather than leaving it to a generic Mask, record its effect on that stream, and prove clean, flagged and flag-absent - absent recording that nobody looked, never a silent zero.
 
-## SB-POR-048 - Conditioning flags are declared porosity inputs
+## SB-POR-048 - Porosity consumes the conditioning flags with defined branch behaviour
 
-- **Specified contract:** porosity methods **MUST** consume `condflag`'s `COAL_FLAG`, `TIGHT_FLAG` and `COND_FLAG` as declared inputs **with defined branch behaviour** (`11_porosity.md:1065-1072`).
-- **Current implementation:** `condflag` emits `COAL`, `TIGHT`, `XOVER`, `SHOULDER` and `COND`; no POR manifest declares any of them and no POR body consumes any of them.
-- **Qualifying acceptance tests:** none. Test class `MISSING`.
-- **Supporting tests:** `condflag`'s own tests pin detection, including that a washout is never called coal. None establishes a porosity consumer.
-- **Manual evidence:** conditioning 0/27; porosity 0/64.
-- **Source/parameter boundary:** the chapter is emphatic that SandiBumi's conditioning module is **better than any incumbent's** here - parameterised, bed-thickness aware, and bad-hole aware - and simply not wired to the modules that need it. What it does **not** supply is the branch behaviour it requires be *defined*.
-- **Blocker or decision:** `BLOCKED-DECISION` **and** `BLOCKED-DEPENDENCY` - this row carries more than SB-POR-047. The open question is per flag: does a set `COAL_FLAG` **mask** the sample, **select** a different branch, or only **annotate** the answer? Those three produce different porosity curves from identical data, none is cited, and each is silently plausible. Coal is the sharp case - a coal bed has a real, very high apparent density porosity, so whether the user wants it blanked or computed-and-labelled is a method preference, not an engineering default. Recording whatever is ruled then lands on SB-POR-003's stream, blocked by DEC-039. Ruling first, stream second. No per-flag policy was invented.
-- **History/reachability:** the capability is built and the wiring is missing, exactly as §3.7 states.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
-- **Next action:** Jauhar rules the per-flag policy; settle DEC-039; then declare the three as typed inputs, implement the ruled behaviour **without deleting any existing guard**, and prove each consumed flag plus an unflagged control.
+- **Specified contract:** porosity methods consume condflag's COAL_FLAG, TIGHT_FLAG and COND_FLAG as declared inputs with DEFINED behaviour per flag. The chapter left the policy undefined; DEC-068 (Jauhar 2026-08-18) defined it: coal blanks, tight and cond are indicators only.
+- **Current implementation (2026-08-18):** DONE. All four methods (phi_den, phi_dn, phi_dnbk, phi_son) declare the three flags as optional typed inputs defaulting to condflag's mnemonics. A COAL sample is excluded by the METHOD exactly as a BADHOLE sample is - the existing guard untouched - so a coal bed's real but huge apparent porosity is never reported as rock porosity; the blank is MISSING, never zero and never a floored value. TIGHT and COND are declared indicators: resolved into run provenance (the GAS_FLAG pattern, DEC-039 version-comment channel) and deliberately never read by the arithmetic. ssc/sspw are outside the method family per DEC-038.
+- **Qualifying test:** `a_coal_sample_is_blanked_while_tight_and_cond_only_annotate_and_the_unflagged_control_computes` - per method: declarations pinned optional; coal sample MISSING; tight, cond and the unflagged control bit-identical to a flag-free run; control computes. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-049 - No hard-coded lithology kill
 

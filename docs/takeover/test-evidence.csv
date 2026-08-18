@@ -424,3 +424,4 @@
 "SB-SAT-027","CORRECTNESS","src-tauri/src/modules.rs","the_n_equals_two_closed_form_agrees_with_the_general_root_finder_on_the_same_inputs"
 "SB-POR-055","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_parameter_carries_a_source_or_is_honestly_absent_and_rho_dsh_ships_the_adjudicated_2_70"
 "SB-POR-045","CORRECTNESS","src-tauri/src/modules.rs","the_phie_floor_is_a_cited_default_the_user_can_move_and_only_the_limited_curve_moves_with_it"
+"SB-POR-048","CORRECTNESS","src-tauri/src/modules.rs","a_coal_sample_is_blanked_while_tight_and_cond_only_annotate_and_the_unflagged_control_computes"
