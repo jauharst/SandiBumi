@@ -2816,6 +2816,14 @@ pub struct PaySummaryRow {
     pub bottom: f32,
     pub gross: f32,
     pub net: f32,
+    /// SB-CUT-002: the discretisation model this row's thicknesses were computed under. A
+    /// consumer must never have to infer it — two tools disagreeing by half a step at every
+    /// zone contact both print plausible nets.
+    pub discretisation_model: String,
+    /// SB-CUT-002: the sample interval (project depth unit) the summation ran on — the median
+    /// forward step of this well's frame. Net-to-gross is not scale-invariant, so two rows
+    /// computed at different steps are different statements even over the same rock.
+    pub sample_interval: f32,
     /// SB-CUT-003. Footage the classifier EVALUATED and rejected — it saw the sample and the
     /// sample failed a cutoff.
     ///
@@ -3891,6 +3899,9 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             };
         }
 
+        // SB-CUT-002: the interval every row of this well will record.
+        let sample_interval = median_sample_interval(&step);
+
         // Flags per sample: NaN inputs exclude the sample (flag stays NaN). Single-sourced
         // through `classify_sample` so the sweep engine below applies identical cutoff logic.
         let mut flag_sand = vec![f32::NAN; n];
@@ -4105,6 +4116,8 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     well_name: well_name.clone(),
                     zone: zone.zone_name.clone(),
                     flag: flag_name.to_string(),
+                    discretisation_model: DISCRETISATION_MODEL.to_string(),
+                    sample_interval,
                     top: zone.top_depth,
                     bottom: zone.bottom_depth,
                     gross,
@@ -4438,6 +4451,26 @@ fn aux_intervals(rows: &[db::AuxRow]) -> Vec<(f32, f32)> {
 /// zone `[ztop, zbot)`, further intersected with the (merged, non-overlapping) DST intervals
 /// when present. Mirrors run_pay_summary's zone clamp so a sample straddling the zone/DST
 /// boundary contributes only its in-interval part and net can never exceed gross.
+/// SB-CUT-002: the discretisation model `sample_incl_thickness` IS — the forward-interval,
+/// zone-clipped rule the chapter's T02 hand-traces from Techlog's computeGross and names TOPS.
+/// A summation number without its model is not reproducible: IP ships two different "Net"
+/// definitions under one column heading and labels neither. SB-CUT-001's CENTRED-default ruling
+/// is still Jauhar's; when it lands, the records already say which model each number came from.
+pub const DISCRETISATION_MODEL: &str = "TOPS";
+
+/// SB-CUT-002: the sample interval a summation was computed on — the median forward step, the
+/// same summary `reframe`'s regularize already uses for "the source's own spacing". Recorded
+/// per record because net-to-gross is NOT scale-invariant (the chapter's T4: 0.55 → 0.75 → 1.0
+/// across three blocking steps). NaN when no positive step exists.
+pub(crate) fn median_sample_interval(step: &[f32]) -> f32 {
+    let mut positive: Vec<f32> = step.iter().copied().filter(|s| *s > 0.0).collect();
+    if positive.is_empty() {
+        return f32::NAN;
+    }
+    positive.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    positive[positive.len() / 2]
+}
+
 pub(crate) fn sample_incl_thickness(
     s_top: f64,
     s_bot: f64,
@@ -6859,6 +6892,122 @@ mod tests {
         );
     }
 
+    /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
+    /// every record carrying a thickness, a net, a net-to-gross or a thickness-weighted average
+    /// MUST carry the discretisation model that produced it and the sample interval it was
+    /// computed on; a consumer must never have to infer either. IP ships TWO definitions of
+    /// "Net" in one product under the same heading and labels neither, and net-to-gross is not
+    /// scale-invariant (T4: 0.55 → 0.75 → 1.0 across three blocking steps).
+    #[test]
+    fn every_thickness_bearing_result_names_its_discretisation_model_and_the_step_it_ran_on() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // Two wells, SAME rock, DIFFERENT frames: 1.0 m and 0.5 m steps.
+        let mut wells = Vec::new();
+        for (name, step) in [("STEP-ONE", 1.0f32), ("STEP-HALF", 0.5f32)] {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
+            let well = id.to_string();
+            let n = (20.0 / step) as usize + 1;
+            let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * step).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
+                vec![2.35; n], nan.clone(), nan,
+            )
+            .unwrap();
+            for (curve, value) in [("VSH", 0.10), ("PHIE", 0.30), ("SWE", 0.20)] {
+                equations::write_computed_curve(&conn, &well, &depth, curve, &vec![value; n])
+                    .unwrap();
+            }
+            db::upsert_zone_with_datum(
+                &conn, &well, "Z", 1000.0, 1010.0, crate::schema_vocab::DepthDatum::Md,
+            )
+            .unwrap();
+            wells.push((well, step));
+        }
+        let dbm = Mutex::new(conn);
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                input_set: None,
+                well_ids: wells.iter().map(|(w, _)| w.clone()).collect(),
+                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                perm_min: None,
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                frame: Default::default(),
+                weighting: Default::default(),
+            },
+        )
+        .unwrap();
+
+        // A. Every row STATES the model — the shipped TOPS rule — and its own well's step.
+        for r in &rows {
+            assert_eq!(
+                r.discretisation_model, DISCRETISATION_MODEL,
+                "a thickness-bearing record must name the model that produced it"
+            );
+            let expected = wells.iter().find(|(w, _)| *w == r.well_id).unwrap().1;
+            assert!(
+                (r.sample_interval - expected).abs() < 1e-6,
+                "{}: the record must carry ITS OWN frame's step {expected}, got {}",
+                r.well_name,
+                r.sample_interval
+            );
+        }
+
+        // B. The whole point: two records over the SAME rock at different steps are
+        //    distinguishable BY THE RECORD, with no depth column to re-derive it from.
+        let one = rows.iter().find(|r| r.well_name == "STEP-ONE").unwrap();
+        let half = rows.iter().find(|r| r.well_name == "STEP-HALF").unwrap();
+        assert!(
+            (one.sample_interval - half.sample_interval).abs() > 0.4,
+            "records computed at different steps must be distinguishable"
+        );
+
+        // C. The workbook carries both — per row, since wells in one workbook differ in frame —
+        //    and as NUMBERS-stay-numbers: the step is a numeric cell, the model a text cell.
+        let sheet = crate::office::pay_sheet(&rows, "m");
+        let model_col = sheet
+            .columns
+            .iter()
+            .position(|c| c.header == "Model")
+            .expect("the pay sheet must carry the discretisation model");
+        let step_col = sheet
+            .columns
+            .iter()
+            .position(|c| c.header.starts_with("Step"))
+            .expect("the pay sheet must carry the sample interval");
+        let mut seen_steps = std::collections::BTreeSet::new();
+        for row in &sheet.rows {
+            match (&row[model_col], &row[step_col]) {
+                (crate::office::Cell::Text(model), crate::office::Cell::Num(step)) => {
+                    assert_eq!(model, DISCRETISATION_MODEL);
+                    seen_steps.insert((step * 1000.0).round() as i64);
+                }
+                other => panic!("model must be text and step numeric, got {other:?}"),
+            }
+        }
+        assert_eq!(
+            seen_steps.into_iter().collect::<Vec<_>>(),
+            vec![500, 1000],
+            "both frames' steps must survive into the workbook"
+        );
+
+        // D. The Monte Carlo bundle carries the same identity fields (populated by the same
+        //    helpers); their presence on the struct is pinned here, their end-to-end values by
+        //    the MC engine's own DB tests running under the same construction site.
+        let median = median_sample_interval(&[0.5, 0.5, 0.5, 1.0]);
+        assert!((median - 0.5).abs() < 1e-9, "the median step is the regularize convention");
+        assert!(median_sample_interval(&[0.0, -1.0]).is_nan(), "no positive step is NaN, not zero");
+    }
+
     /// SB-CUT-011 (P1). `14_cutoffs-summation-mc.md:1064-1075` — a sample that passes every
     /// cut-off but lies outside every defined zone **MUST NOT** contribute to any cumulative
     /// result or summary statistic (IP's stated zone-membership rule).
@@ -7556,6 +7705,8 @@ mod tests {
         let row = |name: &str, n_classified: usize, perm_no_data: bool| PaySummaryRow {
             well_id: "w".into(),
             well_name: name.into(),
+            discretisation_model: DISCRETISATION_MODEL.to_string(),
+            sample_interval: 0.5,
             zone: "WHOLE".into(),
             flag: "PAY".into(),
             top: 1000.0,
@@ -7720,6 +7871,8 @@ mod tests {
         let row = PaySummaryRow {
             well_id: "w".into(),
             well_name: "SANDI-SW-1".into(),
+            discretisation_model: DISCRETISATION_MODEL.to_string(),
+            sample_interval: 0.5,
             zone: "A".into(),
             flag: "PAY".into(),
             top: 0.0,

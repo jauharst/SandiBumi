@@ -272,6 +272,10 @@ pub struct McZoneResult {
     pub top: f32,
     pub bottom: f32,
     pub gross: f32,
+    /// SB-CUT-002: the discretisation model and the sample interval these percentile bundles
+    /// were computed under — the same identity the deterministic pay summary records.
+    pub discretisation_model: String,
+    pub sample_interval: f32,
     pub iterations: usize,
     pub net: Pctl,
     pub ntg: Pctl,
@@ -1783,6 +1787,8 @@ pub fn run_monte_carlo(
                 top: zone.top_depth,
                 bottom: zone.bottom_depth,
                 gross: zone.bottom_depth - zone.top_depth,
+                discretisation_model: crate::workflow::DISCRETISATION_MODEL.to_string(),
+                sample_interval: crate::workflow::median_sample_interval(&step_thick),
                 iterations: used_iterations,
                 net: summarize(&net, lo_p, hi_p),
                 ntg: summarize(&ntg, lo_p, hi_p),

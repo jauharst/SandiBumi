@@ -575,11 +575,29 @@ fn report_pages_with_degradations(
         // silently missing section — this is a client PDF, and dropping a table it cannot support
         // (unwrap_or_default previously collapsed both Err and empty into "no section at all") is
         // exactly the cardinal-rule failure the report path must not allow.
+        // SB-CUT-002: the printed table names its discretisation identity in the heading.
+        // The step is stated only when every row shares one; wells on different frames say so
+        // rather than quoting one well's step as everyone's.
         let pay_section = format!(
-            "Pay Summary  (VSH ≤ {}, PHIE ≥ {}, SWE ≤ {})",
+            "Pay Summary  (VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}, {} model{})",
             crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
             crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
-            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2)
+            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+            crate::workflow::DISCRETISATION_MODEL,
+            match pay_result.as_ref().ok().and_then(|rows| {
+                let mut steps: Vec<f32> =
+                    rows.iter().map(|r| r.sample_interval).filter(|s| s.is_finite()).collect();
+                steps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                steps.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+                match steps.as_slice() {
+                    [only] => Some(format!(", step {only:.4}")),
+                    [] => None,
+                    _ => Some(", mixed steps — see workbook".to_string()),
+                }
+            }) {
+                Some(s) => s,
+                None => String::new(),
+            }
         );
         match pay_result {
             Ok(pay_rows) if !pay_rows.is_empty() => {
@@ -1461,7 +1479,7 @@ mod tests {
         // SB-CUT-019 tightened this: the deliverable names the UNIT beside every cut-off, so a
         // client PDF can never say "PHIE ≥ 0.10" without saying in what.
         let pay_section =
-            "Pay Summary  (VSH \u{2264} 0.50 v/v, PHIE \u{2265} 0.10 v/v, SWE \u{2264} 0.60 v/v)";
+            "Pay Summary  (VSH \u{2264} 0.50 v/v, PHIE \u{2265} 0.10 v/v, SWE \u{2264} 0.60 v/v, TOPS model, step 0.5000)";
         let (m, z, p) = (first_with("Methodology"), first_with("Zone Parameters"), first_with(pay_section));
         assert!(0 < m && m < z && z < p, "page order was cover {m} methodology, {z} zones, {p} pay");
 

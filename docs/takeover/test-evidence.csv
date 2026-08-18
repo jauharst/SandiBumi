@@ -388,3 +388,4 @@
 "SB-SAT-002","CORRECTNESS","src-tauri/src/modules.rs","effective_and_total_archie_are_two_separately_named_methods_that_disagree_on_the_reference_case"
 "SB-SAT-025","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_method_emits_a_clipped_curve_and_an_unclipped_diagnostic_that_exceeds_the_bounds"
 "SB-SAT-023","CORRECTNESS","src-tauri/src/multimin2.rs","the_effective_backout_swb_is_per_model_and_the_inverse_pair_round_trips_as_the_identity"
+"SB-CUT-002","CORRECTNESS","src-tauri/src/workflow.rs","every_thickness_bearing_result_names_its_discretisation_model_and_the_step_it_ran_on"

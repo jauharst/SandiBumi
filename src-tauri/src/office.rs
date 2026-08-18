@@ -489,11 +489,20 @@ pub fn pay_sheet(rows: &[PaySummaryRow], unit: &str) -> Sheet {
             Column::new("SWE (v/v)", 10.0, CellFormat::Num2),
             Column::new(&format!("HPV ({unit})"), 11.0, CellFormat::Num2),
             Column::new("Samples", 10.0, CellFormat::Int),
+            // SB-CUT-002: the result identity travels WITH the numbers it qualifies — per row,
+            // because wells in one workbook can run on different frames.
+            Column::new("Model", 10.0, CellFormat::Text),
+            Column::new(&format!("Step ({unit})"), 10.0, CellFormat::Num3),
         ],
     );
     sheet.notes.push(
         "Fractions are v/v, matching the report PDF. A BLANK means the well was not interpreted over \
          that zone - it is not a zero, and Excel's AVERAGE/COUNT skip it."
+            .into(),
+    );
+    sheet.notes.push(
+        "Model/Step name the discretisation rule and the sample interval each row was computed on. \
+         Net-to-gross is not scale-invariant, so rows at different steps are different statements."
             .into(),
     );
     sheet.shade = Some(Shade { col: 2, equals: "PAY".into() });
@@ -515,6 +524,10 @@ pub fn pay_sheet(rows: &[PaySummaryRow], unit: &str) -> Sheet {
             if judged { num(r.avg_swe) } else { Cell::Blank },
             if judged { num(r.hpv) } else { Cell::Blank },
             Cell::Num(r.n_classified as f64),
+            // SB-CUT-002: the identity travels with the numbers it qualifies - the model as
+            // text, the step as a NUMBER so it can be filtered and compared in Excel.
+            text(&r.discretisation_model),
+            num(r.sample_interval),
         ]);
     }
     sheet
@@ -1958,6 +1971,8 @@ mod tests {
     fn row(well: &str, zone: &str, flag: &str, net: f32, phie: f32, n: usize) -> PaySummaryRow {
         PaySummaryRow {
             well_id: format!("id-{well}"),
+            discretisation_model: crate::workflow::DISCRETISATION_MODEL.to_string(),
+            sample_interval: 0.5,
             well_name: well.into(),
             zone: zone.into(),
             flag: flag.into(),
