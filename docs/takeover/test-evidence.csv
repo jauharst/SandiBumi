@@ -179,7 +179,6 @@
 "SB-ENV-009","CORRECTNESS","src-tauri/src/modules.rs","an_unknown_method_name_is_refused_with_its_parameter_value_and_permitted_set_before_any_branch_runs"
 "SB-ENV-009","CORRECTNESS","src-tauri/src/chain.rs","an_invalid_saved_chain_step_after_a_valid_step_refuses_before_any_previous_value_is_versioned"
 "SB-ENV-021","CORRECTNESS","src-tauri/src/modules.rs","a_bad_hole_flag_uses_each_available_term_records_which_was_evaluated_and_stays_missing_when_neither_was_evaluable"
-"SB-ENV-027","CHARACTERIZATION","src-tauri/src/workflow.rs","a_masked_washout_defeats_the_very_module_meant_to_repair_it"
 "SB-ENV-028","CORRECTNESS","src-tauri/src/chain.rs","every_completed_direct_and_chain_run_records_the_applied_mask_or_explicit_none_and_the_chain_step_position"
 "SB-ENV-035","CORRECTNESS","src-tauri/src/condition.rs","a_smoothed_curve_never_fills_a_gap"
 "SB-ENV-039","CORRECTNESS","src-tauri/src/condition.rs","clipping_can_blank_or_clamp_and_an_empty_side_is_not_a_bound"
@@ -400,3 +399,5 @@
 "SB-DIO-031","CORRECTNESS","src-tauri/src/equations.rs","an_exact_request_never_falls_back_to_family_while_a_semantic_request_names_the_curve_it_chose"
 "SB-DIO-034","CORRECTNESS","src-tauri/src/plotting.rs","a_family_resolved_track_names_the_concrete_curve_it_chose_never_a_silent_stand_in"
 "SB-DIO-031","CORRECTNESS","src-tauri/src/curve_edit.rs","an_edit_addressed_to_an_exact_name_never_lands_on_a_family_relative"
+"SB-ENV-027","CORRECTNESS","src-tauri/src/workflow.rs","the_one_declared_repair_survives_the_mask_and_wears_its_marker_while_other_modes_stay_masked"
+"SB-ENV-027","CORRECTNESS","src-tauri/src/workflow.rs","the_masked_washout_is_now_repaired_by_the_declared_exemption_it_once_defeated"

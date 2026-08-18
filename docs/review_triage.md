@@ -126,7 +126,7 @@ your wells.
 
 - [x] **T-PREP-05** — a per-zone gradient override reaches exactly its own samples · `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (`workflow.rs`). **Found a defect while writing it** — see finding 6.
 - [x] **T-WELL-16** — a per-zone override actually drives a module run · same test (it is the same claim, so one test retires both)
-- [x] **T-PREP-16** — synthetic log: gap fill, raw kept, downward-only repair, and the masked-washout case · `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (`modules.rs`) + `a_masked_washout_defeats_the_very_module_meant_to_repair_it` (`workflow.rs`). The second **pins the audited defect as-is**, not as correct behaviour.
+- [x] **T-PREP-16** — synthetic log: gap fill, raw kept, downward-only repair, and the masked-washout case · `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (`modules.rs`) + `the_masked_washout_is_now_repaired_by_the_declared_exemption_it_once_defeated` (`workflow.rs`). The masked-washout defect was **fixed by SB-ENV-027 / DEC-033 (2026-08-18)** — the second test now pins the repair surviving the mask, with its reconstruction marker.
 
 - [x] **T-IMP-04** — malformed LAS: all-null depth **and** the truncated last row · `malformed_las_exemplars_fail_the_documented_way` (already existed) + `a_truncated_las_refuses_rather_than_importing_what_survived` (`example_data_test.rs`). **Your Blocked mark is now answerable** — there was no truncated exemplar to import, so `dataset for test/examples/bad_truncated.las` was added to the generator.
 - [x] **T-IMP-08** — a repeated plug depth is dropped, first kept, import never aborts · `a_repeated_plug_depth_is_dropped_not_a_failed_import` (`parsers.rs`)

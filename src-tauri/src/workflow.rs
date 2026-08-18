@@ -2321,9 +2321,24 @@ fn run_workflow_module_into_with_parameter_serializer(
                     )?
                 };
 
+                // SB-ENV-027 (DEC-033): the ONE approved repair exemption - log_predict's SYN
+                // when OPT_COMBINE = MAX_RAW, the mode that is genuinely a washout repair. The
+                // declaration is per OUTPUT and per MODE: SYN produced under SYNTHETIC or
+                // FILL_MISSING is masked normally, and BOTH mask passes are bypassed for the
+                // declared repair - a repair blanked at the second pass is a repair that did
+                // not happen. Adding an entry here is a DECISION that returns to DEC-033,
+                // never an implementation convenience.
+                let repair_run = req.module == "log_predict"
+                    && req.opts
+                        .get("OPT_COMBINE")
+                        .map(|mode| mode.trim() == "MAX_RAW")
+                        .unwrap_or(false);
+
                 // Blank flagged samples in the module INPUTS (never DEPTH) before the run, so
                 // per-run statistics only see unmasked data.
-                apply_mask_to_logs(&mut logs, &log_args, mask.as_deref());
+                if !repair_run {
+                    apply_mask_to_logs(&mut logs, &log_args, mask.as_deref());
+                }
 
                 // Per-well opts: everything the run decided, plus THIS well's declared class
                 // curves. Set only where the well has any, so a project that has never run a
@@ -2483,14 +2498,64 @@ fn run_workflow_module_into_with_parameter_serializer(
                         .collect();
                 }
 
+                // SB-ENV-027 (DEC-033): resolve the declared repair output's STORED name
+                // (rename + prefix applied, exactly as the map above composed it).
+                let repair_exempt_output: Option<String> = repair_run
+                    .then(|| {
+                        out_names
+                            .iter()
+                            .find(|(declared, _)| declared == "SYN")
+                            .map(|(_, resolved)| {
+                                match opts
+                                    .get(OUT_PREFIX_OPT)
+                                    .map(|value| value.trim())
+                                    .filter(|value| !value.is_empty())
+                                {
+                                    Some(prefix) => {
+                                        format!("{}{resolved}", prefix.to_uppercase())
+                                    }
+                                    None => resolved.clone(),
+                                }
+                            })
+                    })
+                    .flatten();
+
                 // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
-                // never trusted downstream.
+                // never trusted downstream - EXCEPT the one declared repair output, whose
+                // finite values at masked depths are the module's whole purpose.
                 if let Some(mask) = &mask {
-                    for values in outputs.values_mut() {
+                    for (name, values) in outputs.iter_mut() {
+                        if repair_exempt_output.as_deref() == Some(name.as_str()) {
+                            continue;
+                        }
                         for (v, m) in values.iter_mut().zip(mask.iter()) {
                             if modules::sample_is_flagged(*m) {
                                 *v = f32::NAN;
                             }
+                        }
+                    }
+                    // DEC-033 constraint 3: the typed binary companion that makes the
+                    // exemption honest - 1 marks a finite value PRODUCED AT A MASKED DEPTH
+                    // ("this number was reconstructed, not measured"), 0 an ordinary finite
+                    // sample, MISSING where the output itself is. Deliberately NOT any
+                    // replaced-sample flag: it discloses reconstruction, it does not judge
+                    // hole quality.
+                    if let Some(name) = repair_exempt_output.as_ref() {
+                        if let Some(values) = outputs.get(name) {
+                            let marker: Vec<f32> = values
+                                .iter()
+                                .zip(mask.iter())
+                                .map(|(value, flag)| {
+                                    if value.is_nan() {
+                                        f32::NAN
+                                    } else if modules::sample_is_flagged(*flag) {
+                                        1.0
+                                    } else {
+                                        0.0
+                                    }
+                                })
+                                .collect();
+                            outputs.insert(format!("{name}_RECON_FLAG"), marker);
                         }
                     }
                 }
@@ -7382,6 +7447,100 @@ mod tests {
         );
     }
 
+    /// SB-ENV-027 (DEC-033): the ONE declared repair - log_predict.SYN under OPT_COMBINE =
+    /// MAX_RAW - survives BOTH mask passes and wears the typed reconstruction marker, while the
+    /// SAME output under SYNTHETIC or FILL_MISSING stays masked normally. Pinned from both
+    /// sides: a test proving only the MAX_RAW bypass would pass for an implementation that
+    /// exempts every mode.
+    #[test]
+    fn the_one_declared_repair_survives_the_mask_and_wears_its_marker_while_other_modes_stay_masked(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 20usize;
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-REPAIR", None, None, None).unwrap();
+        let well = id.to_string();
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        // A clean linear GR-DT relation, one flagged sample (14) whose RAW reads 200 - far
+        // ABOVE the ~115 trend, so max(raw, syn) keeps the raw 200 ONLY if the input pass was
+        // bypassed for the repair; a masked input would leave the prediction alone (~115).
+        let gr: Vec<f32> = (0..n)
+            .map(|i| if i == 19 { f32::NAN } else { 50.0 + 2.0 * i as f32 })
+            .collect();
+        let mut dt: Vec<f32> = gr.iter().map(|g| g + 50.0).collect();
+        dt[14] = 200.0;
+        let flag: Vec<f32> = (0..n).map(|i| if i == 14 { 1.0 } else { 0.0 }).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), gr, nan.clone(), nan.clone(), nan.clone(), dt, nan,
+        )
+        .unwrap();
+        let badhole = db::upsert_curve_meta(
+            &conn, &well, "RAW", "BADHOLE", Some(""), Some("BADHOLE"),
+            Some("SB-ENV-027 fixture"), None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &badhole, &depth, &flag).unwrap();
+        let dbm = Mutex::new(conn);
+        let run = |mode: &str| {
+            let req = RunModuleRequest {
+                module: "log_predict".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::from([
+                    ("TARGET".to_string(), "DT".to_string()),
+                    ("P1".to_string(), "GR".to_string()),
+                ]),
+                params: HashMap::new(),
+                opts: HashMap::from([
+                    ("MASK".to_string(), "BADHOLE".to_string()),
+                    ("OPT_COMBINE".to_string(), mode.to_string()),
+                ]),
+                output_set: None,
+                input_set: None,
+                custody: test_run_custody(),
+            };
+            let results = run_workflow_module_into(&dbm, &req, None, None, None);
+            assert!(results.iter().all(|r| r.error.is_none()), "{mode}: {:?}",
+                results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+        };
+        let read = |name: &str| -> Vec<f32> {
+            let conn = dbm.lock().unwrap();
+            equations::fetch_curve_frame(&conn, &well, &[name.to_string()])
+                .unwrap()
+                .1
+                .remove(name)
+                .unwrap()
+        };
+        // A. The undeclared modes stay masked: SYN at the flagged depth is MISSING.
+        for mode in ["SYNTHETIC", "FILL_MISSING"] {
+            run(mode);
+            let syn = read("DT_SYN");
+            assert!(
+                syn[14].is_nan(),
+                "{mode}: SYN at a masked depth must stay masked, got {}",
+                syn[14]
+            );
+        }
+        // B. The declared repair survives BOTH passes: the flagged depth's raw 200 was
+        //    visible to MAX_RAW (input pass bypassed) and the result was not blanked
+        //    (output pass bypassed) - bit-for-bit the raw reading, which max() keeps.
+        run("MAX_RAW");
+        let syn = read("DT_SYN");
+        assert_eq!(
+            syn[14].to_bits(),
+            200.0f32.to_bits(),
+            "the declared repair must see and keep the raw reading, got {}",
+            syn[14]
+        );
+        // C. The typed companion discloses exactly which finite values were reconstructed:
+        //    1 at the masked depth, 0 on an ordinary sample, MISSING where the output is.
+        let marker = read("DT_SYN_RECON_FLAG");
+        assert_eq!(marker[14].to_bits(), 1.0f32.to_bits());
+        assert_eq!(marker[5].to_bits(), 0.0f32.to_bits());
+        assert!(marker[19].is_nan(), "no output, no marker - got {}", marker[19]);
+    }
+
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
     /// every record carrying a thickness, a net, a net-to-gross or a thickness-weighted average
     /// MUST carry the discretisation model that produced it and the sample interval it was
@@ -11904,7 +12063,7 @@ mod tests {
     /// well, the same washout, no mask — and the repair happens. The module works. The runner
     /// throws the answer away.
     #[test]
-    fn a_masked_washout_defeats_the_very_module_meant_to_repair_it() {
+    fn the_masked_washout_is_now_repaired_by_the_declared_exemption_it_once_defeated() {
         use crate::db;
         use duckdb::Connection;
         use uuid::Uuid;
@@ -11986,27 +12145,40 @@ mod tests {
             rhob_true[washout]
         );
 
-        // Now with the mask the module's own documentation recommends.
+        // Now with the mask the module's own documentation recommends. SB-ENV-027
+        // (DEC-033, 2026-08-18) FIXED the audited defect this test used to pin as-is: the
+        // declared repair - log_predict.SYN under MAX_RAW, the one approved inventory
+        // entry - survives both mask passes, so the masked run repairs the washout exactly
+        // as the unmasked control did. T-PREP-16's known-issue line was updated with this.
         let r = run(Some("BADHOLE"));
         assert!(r[0].error.is_none(), "masked log_predict: {:?}", r[0].error);
         let masked = syn_of();
         assert!(
-            masked[washout].is_nan(),
-            "AUDIT-2026-07-21 (Prep statistical #1) says the repaired value is re-blanked at the \
-             masked depth, and T-PREP-16 tells the tester to expect that. It returned {} instead \
-             — if this was fixed deliberately, update this test and T-PREP-16's known-issue line \
-             together.",
-            masked[washout]
+            !masked[washout].is_nan() && (masked[washout] - rhob_true[washout]).abs() < 0.1,
+            "the declared repair must survive the mask it once defeated: got {} for a true {}",
+            masked[washout],
+            rhob_true[washout]
         );
+        // And the typed companion discloses the reconstruction at exactly that depth.
+        let marker = {
+            let conn = dbm.lock().unwrap();
+            let (_, cols) = equations::fetch_curve_frame(
+                &conn, &w, &["RHOB_SYN_RECON_FLAG".to_string()],
+            )
+            .unwrap();
+            cols["RHOB_SYN_RECON_FLAG"].clone()
+        };
+        assert_eq!(marker[washout].to_bits(), 1.0f32.to_bits());
+        assert_eq!(marker[3].to_bits(), 0.0f32.to_bits());
         assert!(
             masked.iter().enumerate().any(|(i, v)| i != washout && !v.is_nan()),
             "the masked run wrote nothing anywhere — that is a different failure"
         );
 
-        // The second blank. Feeding the module a context where only the PREDICTOR is missing at
-        // the washout — which is what the input-side mask does — already yields MISSING, before
-        // the output pass ever runs. So exempting log_predict from output masking would not fix
-        // this on its own.
+        // The mechanism the exemption must defeat, kept as documentation: a context where
+        // only the PREDICTOR is missing at the washout — what the input-side mask used to do
+        // — already yields MISSING before the output pass ever runs. This is WHY DEC-033
+        // constraint 2 bypasses BOTH passes, not one.
         let mut gr_masked = gr.clone();
         gr_masked[washout] = f32::NAN;
         let ctx = modules::ModuleContext {
