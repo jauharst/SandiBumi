@@ -110,6 +110,11 @@ pub enum SwModel {
     /// Archie (1942) clean-sand, total-porosity form. Post-solve; ignores the clay conductivity term.
     #[serde(alias = "archie")]
     ArchieTotal,
+    /// Archie (1942) clean-sand, EFFECTIVE-porosity form (SB-SAT-002): Sw = (a*Rw/(Rt*phie^m))^(1/n)
+    /// directly on phie, so bound water never enters the equation and no total->effective back-out
+    /// exists. On the dossier reference case it sits 25.0 saturation units from `ArchieTotal` -
+    /// the two are separately named because nothing else distinguishes them in an output.
+    ArchieEffective,
     /// Poupon-Leveaux "Indonesia" (1971), effective-porosity form. Non-linear in Sw, post-solve.
     Indonesia,
     /// Simandoux / Bardon-Pied form without a `(1-Vsh)` divisor. Post-solve.
@@ -133,6 +138,7 @@ impl SwModel {
             SwModel::LinearDw => "linear_dw",
             SwModel::DualWaterNonlinear => "dual_water_nonlinear",
             SwModel::ArchieTotal => "archie_total",
+            SwModel::ArchieEffective => "archie_effective",
             SwModel::Indonesia => "indonesia",
             SwModel::SimandouxBardonPied => "simandoux_bardon_pied",
             SwModel::SimandouxModifiedSlb => "simandoux_modified_slb",
@@ -154,6 +160,7 @@ impl SwModel {
             SwModel::SimandouxModifiedSlb => 6.0,
             SwModel::Juhasz => 7.0,
             SwModel::WaxmanSmits => 8.0,
+            SwModel::ArchieEffective => 9.0,
         }
     }
 
@@ -192,6 +199,11 @@ pub fn sw_model_catalog() -> Vec<SwModelChoice> {
             id: SwModel::ArchieTotal.id(),
             label: "archie_total — Archie on total porosity",
             flag_code: SwModel::ArchieTotal.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::ArchieEffective.id(),
+            label: "archie_effective — Archie on effective porosity",
+            flag_code: SwModel::ArchieEffective.flag_code(),
         },
         SwModelChoice {
             id: SwModel::Indonesia.id(),
@@ -1692,6 +1704,20 @@ pub fn run_multimin(
                                 return f64::NAN;
                             }
                             ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                        }
+                        SwModel::ArchieEffective => {
+                            // SB-SAT-002: Archie directly on phie. The result IS the free-water/phie
+                            // fraction - bound water never enters the equation, so unlike every other
+                            // post-solve branch there is no total->effective conversion to apply, and
+                            // applying one here would be the 25-saturation-unit trap the row names.
+                            if !(phie > 1e-9) {
+                                return f64::NAN;
+                            }
+                            let swe = sw_archie(rt, phie, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
+                            if !swe.is_finite() {
+                                return f64::NAN;
+                            }
+                            swe.clamp(0.0, 1.0)
                         }
                         SwModel::Juhasz => {
                             // Normalized Waxman-Smits on total porosity: excess conductivity from the

@@ -5099,6 +5099,16 @@ fn resolve_rw(ctx: &ModuleContext, ftemp: &[f32], i: usize) -> f64 {
 
 fn sw_arch_spec() -> ModuleSpec {
     let mut args = vec![
+        // SB-SAT-002: effective and total Archie are two separately NAMED methods, never one
+        // method with an undeclared porosity system. archie_total is the default because it is
+        // what every saved run of this module has always computed; the ids are the equation
+        // identities the sw_model catalog carries, not adjectives.
+        opt(
+            "OPT_EQN",
+            "Archie porosity system (equation identity)",
+            "archie_total",
+            &["archie_total", "archie_effective"],
+        ),
         with_sources(param_open("A", "Tortuosity constant", "", 0.1, 5.0, true), crate::param_sources::ARCHIE_A),
         with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
         with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
@@ -5126,8 +5136,13 @@ fn sw_arch_spec() -> ModuleSpec {
         name: "sw_arch".into(),
         title: "SW — Archie".into(),
         category: "Saturation".into(),
-        doc: "SWT = (A*Rw / (PHIT^M * RT))^(1/N), on total porosity; SWE derived by removing \
-              the shale-bound water fraction. Archie (1942)."
+        doc: "Archie (1942) as two separately named methods (SB-SAT-002). archie_total: \
+              SWT = (A*Rw/(PHIT^M*RT))^(1/N) on total porosity, SWE by the back-out \
+              max((SWT-Swb)/(1-Swb), 0) with Swb = 1-PHIE/PHIT. archie_effective: \
+              SWE = (A*Rw/(PHIE^M*RT))^(1/N) directly on effective porosity, SWT lifted \
+              through the inverse SwT = Sw*(1-Swb)+Swb. On the dossier reference case the \
+              two differ by 25.0 saturation units - both are Archie, so the identity must \
+              be declared, never inferred."
             .into(),
         args,
     }
@@ -5138,6 +5153,8 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
     let phit = ctx.log("PHIT");
     let phie = ctx.log("PHIE");
     let ftemp = ctx.log("FTEMP");
+    // SB-SAT-002: which Archie this run IS. Total stays the default so no saved run changes.
+    let effective_eqn = ctx.o("OPT_EQN") == "archie_effective";
     let mut swt_arch = vec![f32::NAN; ctx.n];
     let mut swt_out = vec![f32::NAN; ctx.n];
     let mut swe_out = vec![f32::NAN; ctx.n];
@@ -5174,6 +5191,38 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         let n_exp = ctx.p("N", i);
         let swt_irr = ctx.p("SWT_IRR", i);
 
+        if effective_eqn {
+            // SB-SAT-002: Sw = (a*Rw/(Rt*phie^m))^(1/n) DIRECTLY on effective porosity
+            // (12_saturation.md:893-896). Bound water never enters the equation, so there is
+            // no back-out; SWT is instead LIFTED through SB-SAT-023's inverse
+            // SwT = Sw(1-Swb)+Swb with Swb = 1-phie/phit (:1337-1344), and the round trip
+            // through the pair is the identity.
+            if is_missing(pe) {
+                continue;
+            }
+            let swb = (1.0 - pe / pt).clamp(0.0, 1.0);
+            if pe < 0.005 {
+                // Swb = 1 yields SWE = 1, never a divide-by-zero - SB-SAT-023's own clause,
+                // coinciding with this module's standing low-porosity all-water convention.
+                swt_arch[i] = 1.0;
+                swt_out[i] = 1.0;
+                swe_out[i] = 1.0;
+                vol_uwat[i] = 0.0;
+                continue;
+            }
+            let swe = (a * rw / (pe.powf(m) * r)).powf(1.0 / n_exp);
+            // The irreducible bound is declared in TOTAL space; carry it into effective space
+            // by the same back-out the total branch uses, so one SWT_IRR means one thing.
+            let swe_irr =
+                if swb >= 1.0 { 0.0 } else { ((swt_irr - swb) / (1.0 - swb)).max(0.0) };
+            let swe_l = limit(swe, swe_irr, 1.0);
+            swt_arch[i] = (swe * (1.0 - swb) + swb) as f32;
+            swt_out[i] = (swe_l * (1.0 - swb) + swb) as f32;
+            swe_out[i] = swe_l as f32;
+            vol_uwat[i] = (pe * swe_l) as f32;
+            continue;
+        }
+
         let ff = a / pt.powf(m);
         let swt = (ff * rw / r).powf(1.0 / n_exp);
         swt_arch[i] = swt as f32;
@@ -5199,9 +5248,14 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
+    let flag_model = if effective_eqn {
+        crate::multimin2::SwModel::ArchieEffective
+    } else {
+        crate::multimin2::SwModel::ArchieTotal
+    };
     let method_flag = swt_arch
         .iter()
-        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::ArchieTotal.flag_code() } else { f32::NAN })
+        .map(|sw| if sw.is_finite() { flag_model.flag_code() } else { f32::NAN })
         .collect();
     HashMap::from([
         ("SWT_ARCH".to_string(), swt_arch),
@@ -9103,6 +9157,122 @@ mod tests {
         let out = sw_arch(&ctx);
         assert!((out["SWT"][0] - 0.4).abs() < 1e-4, "SWT was {}", out["SWT"][0]);
         assert!((out["SWE"][0] - 0.4).abs() < 1e-4);
+    }
+
+    /// SB-SAT-002 / SB-SAT-T03, with T04's equation-identity arm. Sources: the effective form is
+    /// `12_saturation.md:893-896` (`Sw = (a·Rw/(Rt·φe^m))^(1/n)`); the total form's SWT lift is
+    /// SB-SAT-023 at `:1337-1344` (`SwT = Sw(1−Swb) + Swb`, `Swb = 1 − φe/φt`, round trip an
+    /// identity, `Swb = 1` yielding SWE = 1); the witness is the dossier §3.1 reference case at
+    /// `:121-123` — φt 0.25, φe 0.20, Rw 0.25, a = 1, m = n = 2, Rt = 8 → **0.884 vs 0.634**,
+    /// 25.0 saturation units and HCPV 3.15× apart, tolerance ±0.002 per T03 (`:2092-2097`).
+    ///
+    /// **Why both numbers are pinned on ONE fixture:** the chapter calls this the largest single
+    /// cross-tool trap in the domain precisely because nothing errors — both curves are called
+    /// "Archie". A test that checked either branch alone would pass an implementation that wired
+    /// both selections to the same equation, which is the defect the row names.
+    #[test]
+    fn effective_and_total_archie_are_two_separately_named_methods_that_disagree_on_the_reference_case()
+    {
+        let reference = |eqn: &[(&str, &str)]| {
+            sw_arch(&ctx_with(
+                1,
+                &[("RT", vec![8.0]), ("PHIT", vec![0.25]), ("PHIE", vec![0.20])],
+                &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.25), ("SWT_IRR", 0.0)],
+                &[&[("OPT_RW", "CONSTANT")], eqn].concat(),
+            ))
+        };
+
+        // A. The two methods disagree by 25.0 saturation units on identical inputs.
+        let total = reference(&[("OPT_EQN", "archie_total")]);
+        let effective = reference(&[("OPT_EQN", "archie_effective")]);
+        assert!(
+            (total["SWE"][0] as f64 - 0.634).abs() < 0.002,
+            "archie_total SWE on the reference case is 0.634, got {}",
+            total["SWE"][0]
+        );
+        assert!(
+            (effective["SWE"][0] as f64 - 0.884).abs() < 0.002,
+            "archie_effective SWE on the reference case is 0.884, got {}",
+            effective["SWE"][0]
+        );
+
+        // B. The DEFAULT is archie_total — no saved run changes meaning. Two halves, because the
+        //    test harness bypasses spec defaults: the body's own fallback for an absent option is
+        //    pinned bit for bit below, and the DECLARED default — what production runs receive
+        //    through build_opts — is pinned on the spec itself. The first half alone let a flipped
+        //    spec default survive mutation, which is exactly the saved-run regression this guards.
+        let eqn_arg = sw_arch_spec()
+            .args
+            .into_iter()
+            .find(|arg| arg.name == "OPT_EQN")
+            .expect("the equation identity must be a declared option");
+        assert_eq!(
+            eqn_arg.default,
+            "archie_total",
+            "the declared default must keep every saved run on the total equation"
+        );
+        let bare = reference(&[]);
+        for key in ["SWT_ARCH", "SWT", "SWE", "VOL_UWAT", "SW_METHOD"] {
+            assert_eq!(
+                bare[key][0].to_bits(),
+                total[key][0].to_bits(),
+                "an unstated equation must stay archie_total on {key}"
+            );
+        }
+
+        // C. T04's identity arm: the effective branch is EXACTLY its cited equation on its own
+        //    porosity, and monotone decreasing in Rt and in φe.
+        let mut previous_rt = f64::INFINITY;
+        for rt in [8.0_f64, 16.0, 32.0] {
+            let out = sw_arch(&ctx_with(
+                1,
+                &[("RT", vec![rt as f32]), ("PHIT", vec![0.25]), ("PHIE", vec![0.20])],
+                &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.25), ("SWT_IRR", 0.0)],
+                &[("OPT_RW", "CONSTANT"), ("OPT_EQN", "archie_effective")],
+            ));
+            let expected = ((1.0 * 0.25) / (rt * 0.20_f64.powf(2.0))).powf(0.5);
+            let got = out["SWE"][0] as f64;
+            assert!((got - expected).abs() < 1e-6, "Rt {rt}: expected {expected}, got {got}");
+            assert!(got < previous_rt, "Sw must fall as Rt rises");
+            previous_rt = got;
+        }
+
+        // D. The SWT the effective branch reports is SB-SAT-023's inverse of its own SWE, and the
+        //    round trip through the pair is the identity. Swb = 1 − 0.20/0.25 = 0.2 exactly.
+        let (swe, swt) = (effective["SWE"][0] as f64, effective["SWT"][0] as f64);
+        let swb = 1.0 - 0.20 / 0.25;
+        assert!((swt - (swe * (1.0 - swb) + swb)).abs() < 1e-6, "SwT = Sw(1−Swb) + Swb, got {swt}");
+        assert!(((swt - swb) / (1.0 - swb) - swe).abs() < 1e-6, "the round trip must be the identity");
+
+        // E. Swb = 1 (φe = 0) yields all water, not a division by zero — SB-SAT-023's own clause,
+        //    which on this branch coincides with the module's standing zero-porosity convention.
+        let tight = sw_arch(&ctx_with(
+            1,
+            &[("RT", vec![8.0]), ("PHIT", vec![0.25]), ("PHIE", vec![0.0])],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.25), ("SWT_IRR", 0.0)],
+            &[("OPT_RW", "CONSTANT"), ("OPT_EQN", "archie_effective")],
+        ));
+        assert_eq!(tight["SWE"][0], 1.0, "Swb = 1 must yield SWE = 1, never a divide-by-zero");
+        assert!(tight["SWT"][0].is_finite());
+
+        // F. Two separately NAMED methods, resolvable both ways: each branch stamps its own
+        //    SW_METHOD code, the codes differ, and each resolves through the shared catalog to the
+        //    id the chapter names. An implementation wiring both selections to one equation - or
+        //    one flag - fails here even if it dodged arm A.
+        let (flag_total, flag_effective) = (total["SW_METHOD"][0], effective["SW_METHOD"][0]);
+        assert_ne!(flag_total.to_bits(), flag_effective.to_bits(), "one flag cannot name two methods");
+        assert_eq!(crate::multimin2::sw_model_id_from_flag(flag_total), Some("archie_total"));
+        assert_eq!(crate::multimin2::sw_model_id_from_flag(flag_effective), Some("archie_effective"));
+
+        // G. The solver engine carries the same identity: the catalogue lists archie_effective,
+        //    and its post-solve Sw is the same cited equation the module computes. Two engines,
+        //    one method — pinned against the reference case rather than against each other's code.
+        assert!(
+            crate::multimin2::sw_model_catalog().iter().any(|entry| entry.id == "archie_effective"),
+            "the solver catalogue must offer the effective method"
+        );
+        let solver = crate::multimin2::sw_archie(8.0, 0.20, 0.25, 2.0, 2.0, 1.0);
+        assert!((solver - 0.883883476).abs() < 2e-3, "the shared kernel on φe gives 0.884, got {solver}");
     }
 
     #[test]
