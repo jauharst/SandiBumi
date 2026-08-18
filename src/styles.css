@@ -59,7 +59,7 @@
   /* Semantic QC status colours (pass / warn / fail) — deliberately NOT the brand
      --accent/--accent2/--warn tokens, so a client skin can never re-roll the meaning of the
      Results-QC scorecard. Chosen for legibility on any light panel; the dark themes override below.
-     All five brand skins are light-background, so they inherit these unchanged. */
+     All five alternative light themes inherit these unchanged. */
   --qc-ok: #2e7d32;
   --qc-warn: #c07000;
   --qc-alert: #c62828;
@@ -67,9 +67,9 @@
 
   /* ------------------------------------------------------------------
      BRAND IDENTITY — theme-independent, and deliberately NOT --accent.
-     The wordmark was painted with --accent, so every client skin re-rolled
-     it: SandiBumi read Halliburton red on that theme and SLB blue on the
-     next. A skin recolours the APPLICATION, never the product's own mark —
+     The wordmark was painted with --accent, so every colour theme re-rolled
+     it: SandiBumi read one theme's red and the next one's blue as its own
+     identity. A theme recolours the APPLICATION, never the product's mark —
      a deliverable-adjacent screenshot that shows the operator's red as our
      identity misattributes the software. This token must never appear in a
      [data-theme] block, dark included: #c67139 clears 4.5:1 on the dark
@@ -201,8 +201,8 @@
 @media (prefers-color-scheme: dark) {
   /* `:not([data-theme])` — no theme chosen AT ALL — not `:not([data-theme="light"])`.
      theme.ts deletes the attribute for "system" and sets it for every other choice, so
-     the old test also caught the five explicitly-chosen LIGHT client skins: on any machine
-     whose OS is set to dark, Pertamina/Halliburton/Schlumberger/LAPI-ITB/white kept their
+     the old test also caught the five explicitly-chosen LIGHT themes: on any machine
+     whose OS is set to dark, the four colour themes and white kept their
      white panels but picked up the DARK --qc-* status colours, putting pale #5cc264 on
      #ffffff (~2:1 contrast) in the Results-QC scorecard of a client deliverable.
      An explicit theme choice must ignore the OS preference entirely. */
@@ -233,33 +233,34 @@
 }
 
 /* --------------------------------------------------------------------------
-   Client-branded skins — colours matched to each operator/partner identity.
+   Colour themes — four alternative light palettes. DEC-074 (2026-08-18): the
+   former client-branded skins ship as neutrally named colour themes; the
+   palettes are unchanged, the names and brand identity are gone.
    All light + professional (deliverable-adjacent). Selected explicitly from
    the Project ▸ Appearance dropdown; not driven by OS preference.
    -------------------------------------------------------------------------- */
 
-/* Pertamina — official brand palette (Jauhar's swatch card, 2026-07-19):
-   red #ED1A2F / blue #006BB8 / green #A6C210 / dark #161B22 / white. */
-:root[data-theme="pertamina"] {
+/* Colour theme 1 — blue primary, lime-green secondary, red warn on cool white. */
+:root[data-theme="color-1"] {
   --bg-app: #eef2f6;
   --bg-panel: #ffffff;
   --bg-panel-alt: #e2e9f0;
   --bg-hover: #d9e9f6;
   --border: #cdd8e3;
   --border-strong: #a9bccd;
-  --text: #161b22;        /* Pertamina dark */
+  --text: #161b22;        /* dark ink */
   --text-dim: #5a6b7a;
-  --accent: #006bb8;      /* Pertamina blue */
+  --accent: #006bb8;      /* blue */
   --accent-dim: #00538f;
   --accent-soft: #d4e7f5;
-  --accent2: #a6c210;     /* Pertamina green */
+  --accent2: #a6c210;     /* lime green */
   --accent2-soft: #eef3d1;
-  --warn: #ed1a2f;        /* Pertamina red */
+  --warn: #ed1a2f;        /* red */
   --track-hd: #e2e9f0;
 }
 
-/* Halliburton — signature red with graphite grey on neutral white. */
-:root[data-theme="halliburton"] {
+/* Colour theme 2 — red primary with graphite grey on neutral white. */
+:root[data-theme="color-2"] {
   --bg-app: #f3f3f4;
   --bg-panel: #ffffff;
   --bg-panel-alt: #e8e8ea;
@@ -268,7 +269,7 @@
   --border-strong: #b3b3b8;
   --text: #1b1b1e;
   --text-dim: #63636b;
-  --accent: #e31b23;      /* Halliburton red */
+  --accent: #e31b23;      /* red */
   --accent-dim: #b3141b;
   --accent-soft: #fbdcde;
   --accent2: #3f4249;     /* graphite */
@@ -277,8 +278,8 @@
   --track-hd: #e8e8ea;
 }
 
-/* Schlumberger / SLB — deep SLB blue with a bright cyan-blue secondary. */
-:root[data-theme="schlumberger"] {
+/* Colour theme 3 — deep blue with a bright cyan-blue secondary. */
+:root[data-theme="color-3"] {
   --bg-app: #eef1f7;
   --bg-panel: #ffffff;
   --bg-panel-alt: #e1e7f2;
@@ -287,7 +288,7 @@
   --border-strong: #a4b3cf;
   --text: #101a2c;
   --text-dim: #566073;
-  --accent: #0033a0;      /* SLB blue */
+  --accent: #0033a0;      /* deep blue */
   --accent-dim: #00246f;
   --accent-soft: #d5e0f4;
   --accent2: #00a3e0;     /* bright blue */
@@ -296,8 +297,8 @@
   --track-hd: #e1e7f2;
 }
 
-/* LAPI ITB — ITB institutional navy with an academic gold secondary. */
-:root[data-theme="lapi-itb"] {
+/* Colour theme 4 — navy with a gold secondary. */
+:root[data-theme="color-4"] {
   --bg-app: #eef0f3;
   --bg-panel: #ffffff;
   --bg-panel-alt: #e0e4ea;
@@ -306,10 +307,10 @@
   --border-strong: #a6b0be;
   --text: #121a24;
   --text-dim: #5b6470;
-  --accent: #003c7d;      /* ITB navy blue */
+  --accent: #003c7d;      /* navy */
   --accent-dim: #002a58;
   --accent-soft: #d4e0ef;
-  --accent2: #d99400;     /* ITB gold */
+  --accent2: #d99400;     /* gold */
   --accent2-soft: #f6e6c2;
   --warn: #b33636;
   --track-hd: #e0e4ea;
@@ -699,9 +700,9 @@ textarea {
 .ribbon-logo {
   width: 18px;
   height: 18px;
-  /* The mark's own cream tile rounded to read as a logo tile on any skin —
+  /* The mark's own cream tile rounded to read as a logo tile on any theme —
      at --r-sm it was a 3px-cornered square, invisible on the cream ground
-     and a bare block on Halliburton's grey. */
+     and a bare block on colour theme 2's grey. */
   border-radius: 5px;
   flex: 0 0 auto;
 }
@@ -1062,8 +1063,8 @@ textarea {
 
    The colour is the NEUTRAL strong-border token, never `--accent`. This asks
    to be read as the card's own border drawn heavier — which is what it is —
-   and an accent ring instead turned into a hard saturated frame on the client
-   skins (deep #0033a0 around a whole panel on Schlumberger). The accent is
+   and an accent ring instead turned into a hard saturated frame on the colour
+   themes (deep #0033a0 around a whole panel on colour theme 3). The accent is
    for controls the user acts on; a pane is a surface, not a control. It also
    keeps the workspace quiet: with no hairline on the other cards this is the
    only line on screen, so it does not need colour to be found.

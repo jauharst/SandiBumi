@@ -2204,4 +2204,74 @@ mod tests {
         let err = validate_installer_qualification(&per_user).unwrap_err();
         assert!(err.contains("per_machine"), "{err}");
     }
+
+    /// SB-PLT-024 / SB-CORE-044 theme arm (DEC-074, RULED 2026-08-18: "for pertamina halli
+    /// and SLB theme, change their name to 'color theme', as simple as that"). The former
+    /// client-branded skins ship as neutrally named colour themes: the palettes are
+    /// UNCHANGED, the names and brand identity are gone from every theme surface. The one
+    /// permitted survival is theme.ts's legacy-id migration map - kept so a stored
+    /// preference from an older build still resolves to its palette - pinned here to
+    /// exactly the four migration keys mapping each old id to ITS OWN palette, so a brand
+    /// name cannot ride back in anywhere else and a reshuffle cannot silently hand a user
+    /// a different theme.
+    #[test]
+    fn the_colour_themes_carry_no_client_brand_and_the_old_ids_survive_only_as_migration_keys() {
+        let styles = include_str!("../../src/styles.css").to_lowercase();
+        let shell = include_str!("../../index.html").to_lowercase();
+        let theme = include_str!("../../src/theme.ts").to_lowercase();
+
+        // A - no brand name on any theme surface the user or the palette machinery sees.
+        for brand in ["pertamina", "halliburton", "schlumberger", "lapi-itb", "lapi itb"] {
+            assert!(!styles.contains(brand), "styles.css still names {brand}");
+            assert!(!shell.contains(brand), "index.html still names {brand}");
+        }
+
+        // B - the neutral ids exist end to end: offered, typed, and styled.
+        for id in ["color-1", "color-2", "color-3", "color-4"] {
+            assert!(theme.contains(&format!("\"{id}\"")), "theme.ts must carry {id}");
+            assert!(
+                styles.contains(&format!("[data-theme=\"{id}\"]")),
+                "styles.css must style {id}"
+            );
+            assert!(shell.contains(&format!("value=\"{id}\"")), "the dropdown must offer {id}");
+        }
+
+        // C - the palettes are unchanged (the ruling renames, never recolours): each
+        // theme's signature accent survives at its shipped value.
+        for accent in ["#006bb8", "#e31b23", "#0033a0", "#003c7d"] {
+            // Pinned at the DECLARATION - the bare hex also appears in prose comments,
+            // which a recoloured palette would leave untouched.
+            assert!(
+                styles.contains(&format!("--accent: {accent}")),
+                "a renamed palette lost its accent {accent}"
+            );
+        }
+
+        // D - the old ids survive ONLY inside the migration map, each mapping to its own
+        // palette, and getTheme actually consults the map.
+        let map_start = theme.find("legacy_theme_ids").expect("the migration map exists");
+        let map_end = map_start + theme[map_start..].find("};").expect("the map closes");
+        let map = &theme[map_start..map_end];
+        for (old, new) in [
+            ("pertamina", "color-1"),
+            ("halliburton", "color-2"),
+            ("schlumberger", "color-3"),
+            ("lapi-itb", "color-4"),
+        ] {
+            assert_eq!(
+                theme.matches(old).count(),
+                1,
+                "{old} must survive only as the one migration key"
+            );
+            assert!(
+                map.contains(&format!("{old}: \"{new}\""))
+                    || map.contains(&format!("\"{old}\": \"{new}\"")),
+                "the migration must map {old} to its own palette {new}"
+            );
+        }
+        assert!(
+            theme.contains("in legacy_theme_ids"),
+            "getTheme must consult the migration map, or every stored preference resets"
+        );
+    }
 }

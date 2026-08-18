@@ -186,7 +186,7 @@ requirement appears exactly once.
 | `SB-CORE-005` | Source and legal | The merged endpoint library has no exact per-value origin map. Equal vendor values do not prove origin. | Provide exact construction custody or primary sources per value; keep unresolved values absent; obtain counsel disposition for CLAIM-012. |
 | `SB-CORE-007` | Product contract | A no-parameter execution fixture cannot run producers with required absent parameters, and raw repeated output names conflate canonical results, working aliases and categorical flags. | Approve registry-level semantic identities and declaration inspection without forcing unlike outputs equal or executing a module whose required values are absent. |
 | `SB-CORE-015` | Engineering follow-through | LAS semantic self-round-trip is covered, but exact T15 requires a DLIS writer that does not exist. **Both original blockers are cleared**: DEC-054 put DLIS export in the first pilot, and the normative API RP66 V1 source was supplied on 2026-08-17 and verified complete. | Build the writer from RP66 V1 — storage-unit and visible-record framing, logical record segmentation, EFLR/IFLR, Appendix B representation codes, Appendix E checksum — citing section numbers rather than copying specification text. Nothing partial ships. No further input from Jauhar. |
-| `SB-CORE-044` | Source and legal | Chart payloads, the merged endpoint library and branded themes still lack primary-source, design-around or counsel closure. | Obtain the named source and counsel dispositions; remove or independently re-source uncleared routes; then add the fail-closed release inventory proof. |
+| `SB-CORE-044` | Source and legal | Chart payloads and the merged endpoint library still lack primary-source, design-around or counsel closure (the theme arm closed via the DEC-074 neutral rename, 2026-08-18). | Obtain the named source and counsel dispositions; remove or independently re-source uncleared routes; then add the fail-closed release inventory proof. |
 | `SB-DBM-005` | Source map | No complete source-controlled map assigns every shipping module a primary citation or approved first-principles derivation document. | Approve or provide the complete registered-module derivation-source map before adding fail-closed registration and run/deliverable custody. |
 | `SB-DBM-010` | Dependency on source map | Parameter sources and legacy labels travel through current outputs, but free-form derivation text is not a source-controlled citation. | Close SB-DBM-005, then establish one machine-readable provenance/sidecar contract across pilot exports, reports and Office deliverables. |
 | `SB-DBM-031` | Source declaration | Untyped legacy/imported depth frames have no recoverable datum or source sign. | Require explicit datum at every remaining boundary; migrate only source-declared rows; preserve unknown legacy meaning and refuse cross-datum comparison. |
@@ -244,7 +244,7 @@ The following evidence can be supplied without choosing a software design:
 - A versioned source-cited logarithmic curve-family registry.
 - A complete Windows single-byte code-page inventory and ambiguity rule.
 - Sources for the 19 source-required environmental parameters.
-- Counsel dispositions for the endpoint library, chart payloads, branded themes and dependency
+- Counsel dispositions for the endpoint library, chart payloads (themes closed by DEC-074) and dependency
   attention items.
 
 Providing a number without its source does not unblock a row. Providing a legal opinion without
