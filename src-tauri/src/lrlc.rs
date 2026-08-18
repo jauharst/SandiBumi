@@ -136,6 +136,7 @@ pub fn sw_rtc_spec() -> ModuleSpec {
             log_out("SWE_RTC", "SWE from RtC (unlimited)", "v/v"),
             log_out("SWT", "Limited total water saturation", "v/v"),
             log_out("SWE", "Limited effective water saturation", "v/v"),
+            log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
             log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("RT_CORR", "Clay/capillary-corrected resistivity", "ohm.m"),
             log_out("CEX_RTC", "Excess conductivity removed", "mho/m"),
@@ -157,6 +158,7 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
     let mut swe_o = vec![f32::NAN; ctx.n];
     let mut swt_raw_o = vec![f32::NAN; ctx.n];
     let mut swe_raw_o = vec![f32::NAN; ctx.n];
+    let mut vol_uwat_o = vec![f32::NAN; ctx.n];
     let mut rtc_o = vec![f32::NAN; ctx.n];
     let mut cex_o = vec![f32::NAN; ctx.n];
 
@@ -194,9 +196,14 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
             let swb = limit(cb / pt, 0.0, 0.99);
             swe_raw_o[i] = ((swt_raw - swb) / (1.0 - swb)) as f32;
             swe_o[i] = limit((swt - swb) / (1.0 - swb), 0.0, 1.0) as f32;
+            // SB-SAT-026 (DEC-064): the effective-volume identity - unflushed water volume
+            // is PHIE x limited SWE with PHIE = PHIT - CBW, which equals PHIT*SWT - CBW
+            // wherever the clip does not bind.
+            vol_uwat_o[i] = ((pt - cb) * swe_o[i] as f64) as f32;
         } else {
             swe_raw_o[i] = swt_raw as f32;
             swe_o[i] = swt as f32;
+            vol_uwat_o[i] = (pt * swt) as f32;
         }
     }
 
@@ -211,6 +218,7 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         ("SWT".to_string(), swt_o),
         ("SWE".to_string(), swe_o),
         ("SW_METHOD".to_string(), method_flag),
+        ("VOL_UWAT".to_string(), vol_uwat_o),
         ("RT_CORR".to_string(), rtc_o),
         ("CEX_RTC".to_string(), cex_o),
     ])
@@ -312,6 +320,7 @@ pub fn sw_imts_spec() -> ModuleSpec {
             log_out("SWE_IMTS", "SWE from IMTS (unlimited)", "v/v"),
             log_out("SWT", "Limited total water saturation", "v/v"),
             log_out("SWE", "Limited effective water saturation", "v/v"),
+            log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
             log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("QVEFF", "Effective Qv (meq/cm3)", "meq/cm3"),
         ],
@@ -331,6 +340,7 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
     let mut swe_o = vec![f32::NAN; ctx.n];
     let mut swt_raw_o = vec![f32::NAN; ctx.n];
     let mut swe_raw_o = vec![f32::NAN; ctx.n];
+    let mut vol_uwat_o = vec![f32::NAN; ctx.n];
     let mut qveff_o = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
@@ -408,9 +418,12 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
             let swb = limit(cb / pt, 0.0, 0.99);
             swe_raw_o[i] = ((sw_raw - swb) / (1.0 - swb)) as f32;
             swe_o[i] = limit((sw - swb) / (1.0 - swb), 0.0, 1.0) as f32;
+            // SB-SAT-026 (DEC-064): same effective-volume identity as sw_rtc.
+            vol_uwat_o[i] = ((pt - cb) * swe_o[i] as f64) as f32;
         } else {
             swe_raw_o[i] = sw_raw as f32;
             swe_o[i] = sw as f32;
+            vol_uwat_o[i] = (pt * sw) as f32;
         }
     }
 
@@ -424,6 +437,7 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         ("SWT".to_string(), swt_o),
         ("SWE".to_string(), swe_o),
         ("SW_METHOD".to_string(), method_flag),
+        ("VOL_UWAT".to_string(), vol_uwat_o),
         ("QVEFF".to_string(), qveff_o),
     ])
 }
@@ -1313,6 +1327,107 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
 mod tests {
     use super::*;
     use crate::modules::ArgKind;
+
+    /// SB-SAT-026 (DEC-064): `VOL_UWAT` on the LRLC pair is the EFFECTIVE-volume identity -
+    /// PHIE x limited SWE with PHIE = PHIT - CBW, the same identity the Archie family
+    /// already emits - so it equals PHIT*SWT - CBW wherever the clip does not bind, and
+    /// degenerates to PHIT*SWT when no clay-bound water is supplied. A missing saturation
+    /// carries no water volume.
+    #[test]
+    fn vol_uwat_is_the_effective_volume_identity_on_both_lrlc_modules() {
+        let spec = sw_rtc_spec();
+        let out = sw_rtc(&ctx_with(
+            vec![
+                ("RT", vec![4.0, 4.0, f32::NAN]),
+                ("PHIT", vec![0.25, 0.25, 0.25]),
+                ("CBW", vec![0.05, f32::NAN, 0.05]),
+            ],
+            &spec,
+            3,
+        ));
+        let (pt, cb) = (0.25f64, 0.05f64);
+        let expected = ((pt - cb) * out["SWE"][0] as f64) as f32;
+        assert!(
+            (out["VOL_UWAT"][0] - expected).abs() < 1e-6,
+            "with CBW: VOL_UWAT {} must be PHIE x SWE {expected}",
+            out["VOL_UWAT"][0]
+        );
+        let expected_nocbw = (pt * out["SWT"][1] as f64) as f32;
+        assert!(
+            (out["VOL_UWAT"][1] - expected_nocbw).abs() < 1e-6,
+            "without CBW: VOL_UWAT {} must be PHIT x SWT {expected_nocbw}",
+            out["VOL_UWAT"][1]
+        );
+        assert!(out["VOL_UWAT"][2].is_nan(), "no saturation, no water volume");
+
+        // Clip-binding sample: RT 0.1 drives the raw SWT far past 1, the limited pair
+        // lands on the clamp, and VOL_UWAT must follow the LIMITED curve - the raw
+        // excursion belongs to the diagnostics, never to a water volume.
+        let clipped = sw_rtc(&ctx_with(
+            vec![
+                ("RT", vec![0.1]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.05]),
+            ],
+            &sw_rtc_spec(),
+            1,
+        ));
+        assert!(clipped["SWT_RTC"][0] > 1.0, "the fixture must actually bind the clip");
+        let expected_clip = ((pt - cb) * clipped["SWE"][0] as f64) as f32;
+        assert!(
+            (clipped["VOL_UWAT"][0] - expected_clip).abs() < 1e-6,
+            "at the clip VOL_UWAT {} must follow limited SWE: {expected_clip}",
+            clipped["VOL_UWAT"][0]
+        );
+        assert!(
+            clipped["VOL_UWAT"][0] <= (pt - cb) as f32 + 1e-6,
+            "a water volume can never exceed the effective porosity"
+        );
+
+        let spec = sw_imts_spec();
+        let out = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![4.0]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.05]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &spec,
+            1,
+        ));
+        let expected = ((pt - cb) * out["SWE"][0] as f64) as f32;
+        assert!(
+            (out["VOL_UWAT"][0] - expected).abs() < 1e-6,
+            "sw_imts: VOL_UWAT {} must be PHIE x SWE {expected}",
+            out["VOL_UWAT"][0]
+        );
+
+        // sw_imts clip-binding sample: a very low RT converges AT the bound, the raw
+        // diagnostic reads past it, and VOL_UWAT follows the LIMITED curve.
+        let clipped = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![0.05]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.05]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &sw_imts_spec(),
+            1,
+        ));
+        assert!(
+            clipped["SWT_IMTS"][0] > 1.0,
+            "the fixture must land the solve on the bound with a raw excursion, got {}",
+            clipped["SWT_IMTS"][0]
+        );
+        let expected_clip = ((pt - cb) * clipped["SWE"][0] as f64) as f32;
+        assert!(
+            (clipped["VOL_UWAT"][0] - expected_clip).abs() < 1e-6,
+            "sw_imts at the clip: VOL_UWAT {} must follow limited SWE {expected_clip}",
+            clipped["VOL_UWAT"][0]
+        );
+    }
 
     /// SB-SAT-028 (P0). `12_saturation.md:1399-1410` — a saturation solver that fails to converge
     /// within its iteration budget MUST return null for that sample, and MUST NOT emit the last

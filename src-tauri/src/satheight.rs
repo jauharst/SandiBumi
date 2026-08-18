@@ -155,7 +155,13 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
             log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", "m", "TVD", false),
-            log_out("SWH", "Water saturation from height function", "v/v"),
+            // DEC-064 (2026-08-18, Jauhar: "it principally SWT"): the height-function saturation
+            // belongs to the TOTAL porosity system, so it carries the T designator through the
+            // family pattern (SWT_RTC / SWT_IMTS): SWT is the limited result - exactly the
+            // values the single SWH output always carried - and SWT_HGT is the SB-SAT-025
+            // unclipped diagnostic, the model evaluation before the [SWT_IRR, 1] clamp.
+            log_out("SWT_HGT", "SWT from height function (unlimited)", "v/v"),
+            log_out("SWT", "Limited total water saturation", "v/v"),
             log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("HAFWL", "Height above free-water level", "m"),
         ],
@@ -170,6 +176,7 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
     let skelt = ctx.o("OPT_SWH") == "SKELT";
 
     let mut swh_out = vec![f32::NAN; ctx.n];
+    let mut swh_raw_out = vec![f32::NAN; ctx.n];
     let mut hafwl_out = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
@@ -193,12 +200,16 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         hafwl_out[i] = h_metres as f32;
 
         if h <= 0.0 {
-            swh_out[i] = 1.0; // at/below the free-water level: fully water
+            // At/below the free-water level: fully water. A model statement, not a clip -
+            // the unclipped diagnostic says the same thing.
+            swh_out[i] = 1.0;
+            swh_raw_out[i] = 1.0;
             continue;
         }
         // Tight/zero porosity carries no meaningful saturation-height signal.
         if pe < 0.005 {
             swh_out[i] = 1.0;
+            swh_raw_out[i] = 1.0;
             continue;
         }
 
@@ -232,6 +243,8 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
             ctx.p("SWH_A", i) * j.powf(ctx.p("SWH_B", i))
         };
 
+        // SB-SAT-025: raw first, clip second - the diagnostic keeps what the fit said.
+        swh_raw_out[i] = sw as f32;
         swh_out[i] = sw.clamp(swt_irr.max(0.0), 1.0) as f32;
     }
 
@@ -241,7 +254,8 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwHeight.flag_code() } else { f32::NAN })
         .collect();
     HashMap::from([
-        ("SWH".to_string(), swh_out),
+        ("SWT_HGT".to_string(), swh_raw_out),
+        ("SWT".to_string(), swh_out),
         ("SW_METHOD".to_string(), method_flag),
         ("HAFWL".to_string(), hafwl_out),
     ])
@@ -312,7 +326,7 @@ mod tests {
             vec![("DEPTH", vec![1900.0]), ("TVD", vec![1900.0]), ("PHIE", vec![0.25]), ("PERM", vec![100.0])];
         // 2000 m FWL - 1900 m TVD = 100 m of column.
         let m_ctx = ctx_in_unit(1, &logs_m, &[("FWL", 2000.0)], &[("OPT_SWH", "LEVERETT")], DepthUnit::Metres);
-        let metric = sw_height(&m_ctx)["SWH"][0];
+        let metric = sw_height(&m_ctx)["SWT"][0];
 
         // The same well in feet: 6561.68 ft TVD, 6889.764 ft FWL — still 328.084 ft = 100 m.
         let logs_ft: Vec<(&str, Vec<f32>)> = vec![
@@ -323,7 +337,7 @@ mod tests {
         ];
         let ft_ctx =
             ctx_in_unit(1, &logs_ft, &[("FWL", 6889.7638)], &[("OPT_SWH", "LEVERETT")], DepthUnit::Feet);
-        let imperial = sw_height(&ft_ctx)["SWH"][0];
+        let imperial = sw_height(&ft_ctx)["SWT"][0];
 
         assert!(metric.is_finite() && metric > 0.0 && metric < 1.0, "metric Sw not usable: {metric}");
         assert!(
@@ -355,8 +369,8 @@ mod tests {
             DepthUnit::Feet,
         ));
 
-        let metric_sw = metric["SWH"][0];
-        let imperial_sw = imperial["SWH"][0];
+        let metric_sw = metric["SWT"][0];
+        let imperial_sw = imperial["SWT"][0];
         assert!(metric_sw.is_finite() && metric_sw > 0.0 && metric_sw < 1.0);
         assert!(
             (metric_sw - imperial_sw).abs() < 1e-4,
@@ -398,6 +412,33 @@ mod tests {
         assert!(fit_leverett_j(&bad, 72.0).is_none());
     }
 
+    /// SB-SAT-026 / SB-SAT-025 (DEC-064): the limited SWT carries exactly the clamped
+    /// values the single SWH output always did, while SWT_HGT keeps what the FIT said -
+    /// just above the FWL the Leverett J-function reads past 1, the limited curve lands
+    /// on 1.0, and the diagnostic still shows the excursion. Clipping the diagnostic, or
+    /// un-clipping the limited curve, each fails one side of this.
+    #[test]
+    fn the_height_diagnostic_keeps_what_the_fit_said_while_swt_clips() {
+        // FWL 2000 m (fixture), sample 2 m above it: tiny Pc -> tiny J -> with the
+        // negative exponent the fit reads far above 1.
+        let out = sw_height(&ctx_from_spec(
+            1,
+            &[
+                ("DEPTH", vec![1998.0]),
+                ("PHIE", vec![0.25]),
+                ("PERM", vec![100.0]),
+            ],
+            &[],
+            &[],
+        ));
+        assert!(
+            out["SWT_HGT"][0] > 1.0,
+            "the unclipped diagnostic must keep the fit's excursion, got {}",
+            out["SWT_HGT"][0]
+        );
+        assert_eq!(out["SWT"][0], 1.0, "the limited curve lands on the clamp");
+    }
+
     #[test]
     fn sw_height_leverett_transition_zone_shape() {
         // Three samples: below FWL, just above, and far above. SWH must be 1 below the
@@ -413,7 +454,7 @@ mod tests {
             &[("OPT_SWH", "LEVERETT")],
         );
         let out = sw_height(&ctx);
-        let swh = &out["SWH"];
+        let swh = &out["SWT"];
         assert_eq!(swh[0], 1.0, "below FWL is all water");
         assert!(swh[1] > swh[2], "saturation decreases with height: {} vs {}", swh[1], swh[2]);
         assert!(swh[2] >= 0.0 && swh[2] < 1.0);
@@ -429,7 +470,7 @@ mod tests {
             &[("OPT_SWH", "SKELT")],
         );
         let out = sw_height(&ctx);
-        let s = out["SWH"][0];
+        let s = out["SWT"][0];
         assert!(s.is_finite() && s > 0.0 && s <= 1.0, "SWH={s}");
     }
 
@@ -452,7 +493,7 @@ mod tests {
         );
         let out = sw_height(&ctx);
         assert!((out["HAFWL"][0] - 50.0).abs() < 1e-3, "HAFWL={}", out["HAFWL"][0]);
-        let s = out["SWH"][0];
+        let s = out["SWT"][0];
         assert!(s.is_finite() && s > 0.0 && s < 1.0, "SWH in transition zone: {s}");
     }
 }

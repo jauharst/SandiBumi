@@ -1066,6 +1066,71 @@ mod tests {
     /// and the column exports as ALL NULL — a full-length curve of nothing, in a file that looks
     /// perfectly well formed. The exporter uppercases the key for exactly this reason; this test
     /// is what stops that line being "tidied" away.
+    /// SB-SAT-026 / exact SB-SAT-T40 persistence half (DEC-064 closed the naming ruling):
+    /// the per-sample SW_METHOD flag survives write, reload and LAS export AS THE
+    /// CATEGORICAL IT IS - codes bit-exact, an absence MISSING and never a code, and every
+    /// surviving code still resolving through the ONE shared model registry (the SB-SAT-003
+    /// alias table), so an exported flag can never drift into a number nobody can decode.
+    #[test]
+    fn the_sw_method_flag_survives_write_reload_and_las_export_as_the_categorical_it_is() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        // One code per shipped non-solver family member plus both Archie systems;
+        // depth[5] deliberately has NO row - an absence.
+        let codes = [3.0f32, 9.0, 10.0, 11.0, 12.0];
+        for (i, code) in codes.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+                 VALUES (?1, ?2, 'SW_METHOD', ?3, NULL)",
+                params![id.to_string(), depth[i], code],
+            )
+            .unwrap();
+        }
+        let dest = tmp_path("sat-t40-roundtrip");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&dest).unwrap();
+        assert!(text.contains("SW_METHOD"), "the flag survives as a curve");
+
+        let conn2 = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn2).unwrap();
+        let results =
+            crate::ingest::import_las_files(&conn2, &[dest.to_str().unwrap().to_string()], None);
+        let _ = std::fs::remove_file(&dest);
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+        let well2 = results[0].well_id.clone().expect("well imported");
+        let catalog = db::list_generic_curve_catalog(&conn2, &well2).unwrap();
+        let flag = catalog
+            .iter()
+            .find(|curve| curve.mnemonic == "SW_METHOD")
+            .expect("the flag is present after re-import");
+        let mut stmt = conn2
+            .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+            .unwrap();
+        let values: Vec<f32> = stmt
+            .query_map(params![flag.curve_id], |row| {
+                Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(&values[..5], &codes, "codes are bit-exact through export and re-import");
+        assert!(values[5].is_nan(), "the absence comes back MISSING, never a code");
+        for (code, expected) in codes.iter().zip([
+            "archie_total",
+            "archie_effective",
+            "sw_rtc",
+            "sw_imts",
+            "sw_height",
+        ]) {
+            assert_eq!(
+                crate::multimin2::sw_model_id_from_flag(*code),
+                Some(expected),
+                "a survived code must still resolve through the shared registry"
+            );
+        }
+    }
+
     /// SB-CLY-055 (DEC-036): the domain's curves round-trip LAS - the declared null is in
     /// the header, an absence comes back MISSING on both the volume and the token curve,
     /// and every registry v1 provenance code survives as a curve bit-exact, ready for the
