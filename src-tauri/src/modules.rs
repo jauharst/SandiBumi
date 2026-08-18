@@ -2788,6 +2788,10 @@ pub(crate) fn module_source_digest(module: &str) -> &'static str {
     }
 }
 
+/// SB-ENV-029 (DEC-025): the runner injects the resolved neutron input's DECLARED matrix
+/// basis under this opt key; nphimat validates MATRIX_IN against it. Absent means undeclared.
+pub(crate) const NEUTRON_BASIS_OPT: &str = "__NEUTRON_BASIS_NPHI";
+
 pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // Retired modules resolve by name (their spec stays in the catalog) but must not run — a
     // saved chain step that reaches one fails loudly and actionably rather than silently
@@ -2818,7 +2822,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
         "precalc" => Ok(precalc(ctx)),
         "badhole" => badhole(ctx),
         "condflag" => condflag(ctx),
-        "nphimat" => Ok(nphimat(ctx)),
+        "nphimat" => nphimat(ctx),
         "gascorr" => gascorr(ctx),
         "gr_hole_corr" => Ok(gr_hole_corr(ctx)),
         "nphi_env_corr" => Ok(nphi_env_corr(ctx)),
@@ -4846,10 +4850,44 @@ pub(crate) fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], 
     }
 }
 
-fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
+fn nphimat(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let np = ctx.log("NPHI");
     let (t_ss, t_dol) = nphimat_tables(ctx.o("TOOL"), ctx.o("SALINITY") == "SALT_250K");
-    let matrix_in = ctx.o("MATRIX_IN");
+    let matrix_in = ctx.o("MATRIX_IN").to_string();
+    // SB-ENV-029 (DEC-025): the input curve's DECLARED neutron matrix basis is a consistency
+    // gate on MATRIX_IN. The module has its scale from the option, so an ABSENT declaration
+    // runs on the option alone (the pre-seam behavior, now explicit); a declaration that
+    // CONTRADICTS the option refuses by name - converting a limestone-declared log as
+    // sandstone is ~0.04 v/v of silent error in clean water sand - and a declaration nobody
+    // can read refuses naming the token, never guesses.
+    let declared = ctx.o(NEUTRON_BASIS_OPT).trim().to_string();
+    if !declared.is_empty() {
+        let normalized = match declared.to_uppercase().as_str() {
+            "LS" | "LIMESTONE" => Some("LS"),
+            "SS" | "SANDSTONE" => Some("SS"),
+            "DOL" | "DOLOMITE" => Some("DOL"),
+            _ => None,
+        };
+        match normalized {
+            None => {
+                return Err(format!(
+                    "the input neutron curve declares matrix basis '{declared}', which is not a \
+                     recognized token (LS/LIMESTONE, SS/SANDSTONE, DOL/DOLOMITE) - correct the \
+                     declaration (set_curve_neutron_basis) rather than letting nphimat guess"
+                ));
+            }
+            Some(token) if token != matrix_in => {
+                return Err(format!(
+                    "the input neutron curve declares matrix basis '{declared}' but MATRIX_IN = \
+                     {matrix_in}: converting on the wrong scale is a silent ~0.04 v/v error, so \
+                     nphimat refuses - align MATRIX_IN with the declaration, or correct the \
+                     declaration (DEC-025)"
+                ));
+            }
+            _ => {}
+        }
+    }
+    let matrix_in = matrix_in.as_str();
 
     let mut ls = vec![f32::NAN; ctx.n];
     let mut ss = vec![f32::NAN; ctx.n];
@@ -4871,11 +4909,11 @@ fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
         dol[i] = if matrix_in == "DOL" { np[i] } else { chart_lerp(t_dol, app, false) as f32 };
     }
 
-    HashMap::from([
+    Ok(HashMap::from([
         ("NPHI_LS".to_string(), ls),
         ("NPHI_SS".to_string(), ss),
         ("NPHI_DOL".to_string(), dol),
-    ])
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -11561,7 +11599,7 @@ mod tests {
             &[],
             &[("TOOL", "TNPH"), ("SALINITY", "SALT_250K"), ("MATRIX_IN", "LS")],
         );
-        let out = nphimat(&ctx);
+        let out = nphimat(&ctx).expect("an undeclared basis runs on the option alone");
         assert_eq!(out["NPHI_LS"][0], 0.18, "input convention passes through untouched");
         assert!((out["NPHI_SS"][0] - 0.24).abs() < 0.006, "book says 24 pu, got {}", out["NPHI_SS"][0]);
         assert!(out["NPHI_DOL"][0] < 0.18, "dolomite reads below limestone");
@@ -11580,7 +11618,7 @@ mod tests {
             &[],
             &[("TOOL", "TNPH"), ("SALINITY", "SALT_250K"), ("MATRIX_IN", "SS")],
         );
-        let out = nphimat(&ctx);
+        let out = nphimat(&ctx).expect("an undeclared basis runs on the option alone");
         assert_eq!(out["NPHI_SS"][0], 0.2396, "input convention passes through untouched");
         assert!((out["NPHI_LS"][0] - 0.18).abs() < 1e-4, "got {}", out["NPHI_LS"][0]);
     }
@@ -11591,7 +11629,7 @@ mod tests {
         // limestone reads ~11.8 pu in dolomite (digitized table nodes).
         let opts: &[(&str, &str)] = &[("TOOL", "NPHI"), ("SALINITY", "FRESH"), ("MATRIX_IN", "LS")];
         let ctx = ctx_with(1, &[("NPHI", vec![0.20])], &[], opts);
-        let out = nphimat(&ctx);
+        let out = nphimat(&ctx).expect("an undeclared basis runs on the option alone");
         assert!((out["NPHI_DOL"][0] - 0.1181).abs() < 2e-4, "got {}", out["NPHI_DOL"][0]);
         assert!((out["NPHI_SS"][0] - 0.2460).abs() < 2e-4, "got {}", out["NPHI_SS"][0]);
         // SALINITY only selects between TNPH curve pairs — other tools ignore it.
@@ -11601,7 +11639,7 @@ mod tests {
             &[],
             &[("TOOL", "NPHI"), ("SALINITY", "SALT_250K"), ("MATRIX_IN", "LS")],
         );
-        assert_eq!(nphimat(&ctx_salt)["NPHI_DOL"][0], out["NPHI_DOL"][0]);
+        assert_eq!(nphimat(&ctx_salt).expect("run")["NPHI_DOL"][0], out["NPHI_DOL"][0]);
     }
 
     #[test]
@@ -11612,7 +11650,7 @@ mod tests {
             &[],
             &[("TOOL", "NPHI"), ("SALINITY", "FRESH"), ("MATRIX_IN", "DOL")],
         );
-        let out = nphimat(&ctx);
+        let out = nphimat(&ctx).expect("an undeclared basis runs on the option alone");
         assert_eq!(out["NPHI_DOL"][0], 0.05, "input convention passes through untouched");
         // The recovered apparent limestone must land back on the dolomite curve...
         let back = chart_lerp(crate::neutron_charts::CNL_NPHI_DOL, out["NPHI_LS"][0] as f64, false);
@@ -11631,7 +11669,7 @@ mod tests {
             &[],
             &[("TOOL", "TNPH"), ("SALINITY", "FRESH"), ("MATRIX_IN", "LS")],
         );
-        let out = nphimat(&ctx);
+        let out = nphimat(&ctx).expect("an undeclared basis runs on the option alone");
         let t = crate::neutron_charts::CNL_TNPH_FRESH_SS;
         assert!(out["NPHI_SS"][0] > t[t.len() - 1].1, "extends past the last table node");
         assert!(out["NPHI_SS"][0] < 0.60, "with a sane end-segment slope");
@@ -11685,6 +11723,43 @@ mod tests {
     /// refuses (SB-ENV-006 narrowed, never deleted). The state table is DEC-031's: 0 full,
     /// 1 partial, 2 not applied, MISSING where the input is - and nphi_env_corr's two steps
     /// make 1 = partial a real state, not a dead code.
+    /// SB-ENV-029 (DEC-025): nphimat validates MATRIX_IN against the input curve's DECLARED
+    /// neutron matrix basis - all four states at the consumer. MATCHED runs bit-identical to
+    /// undeclared (the gate moves no number); MISMATCHED refuses naming both sides;
+    /// UNKNOWN refuses naming the token, never guessing; ABSENT runs on the option alone,
+    /// the pre-seam behavior now explicit - the module HAS its scale from MATRIX_IN, so
+    /// DEC-025's refuse-without applies to a declaration it cannot reconcile, not to silence.
+    #[test]
+    fn nphimat_validates_matrix_in_against_the_declared_basis_and_never_guesses() {
+        let base = |extra: &[(&str, &str)]| {
+            let mut opts = vec![("MATRIX_IN", "LS"), ("TOOL", "TNPH")];
+            opts.extend_from_slice(extra);
+            ctx_with(1, &[("NPHI", vec![0.18])], &[], &opts)
+        };
+        // ABSENT: runs on the option alone.
+        let undeclared = nphimat(&base(&[])).expect("undeclared basis runs");
+        // MATCHED (both spellings): runs, bit-identical to undeclared - a gate, not a term.
+        for token in ["LS", "LIMESTONE", "limestone"] {
+            let matched = nphimat(&base(&[(NEUTRON_BASIS_OPT, token)]))
+                .expect("a matching declaration runs");
+            assert_eq!(
+                matched["NPHI_SS"][0].to_bits(),
+                undeclared["NPHI_SS"][0].to_bits(),
+                "{token}: the consistency gate must move no number"
+            );
+        }
+        // MISMATCHED: refuses naming both the declaration and the option.
+        let err = nphimat(&base(&[(NEUTRON_BASIS_OPT, "SANDSTONE")]))
+            .expect_err("a contradicted declaration refuses");
+        assert!(err.contains("SANDSTONE") && err.contains("MATRIX_IN"), "{err}");
+        assert!(err.contains("DEC-025"), "the ruling is named: {err}");
+        // UNKNOWN: refuses naming the token and the fix, never guesses a scale.
+        let err = nphimat(&base(&[(NEUTRON_BASIS_OPT, "CHALK?")]))
+            .expect_err("an unreadable declaration refuses");
+        assert!(err.contains("CHALK?"), "the token is named: {err}");
+        assert!(err.contains("set_curve_neutron_basis"), "the fix is named: {err}");
+    }
+
     #[test]
     fn a_partially_covered_correction_runs_and_the_state_channel_records_what_was_not_applied() {
         // A. gr_hole_corr, caliper over half the interval: RUNS under DEC-031 part (c).

@@ -357,18 +357,12 @@
 - **Blocker or decision:** none for SB-ENV-028. OI-4's broader correction-step/edit persistence decision remains open and is not silently settled by this narrow run-context record.
 - **Next action:** preserve typed direct/per-step mask custody, execute the four review scenarios separately and continue SB-ENV-029 without inferring neutron matrix-scale metadata.
 
-## SB-ENV-029 - Conditioning flags validate their own stated preconditions
+## SB-ENV-029 - Conditioning validates neutron scale against the declared matrix
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T18/T19; sections 4.3, 5.1, 6.2 and 8.
-- **Atomic obligations:** validate the documented neutron matrix-scale pairing before crossover arithmetic and refuse/flag a mismatch.
-- **Current source:** reverified after SB-ENV-028: `condflag_spec` contains a prose warning, while `condflag` consumes numeric curves and matrix parameters without curve-owned matrix-scale metadata or validation. No current request, ancestry or curve record can establish which scale the neutron samples actually use.
-- **Qualifying acceptance tests:** none. Exact T18 requires both `condflag` and the neutron correction to receive a limestone-scale curve and reject/flag its sandstone `RHO_MA` pairing; that input state cannot be represented. T19 is explicitly a `CHARACTERIZATION` of the uncited approximately 0.04 statement and cannot substitute for T18 correctness. Test class `MISSING`.
-- **Supporting tests:** condflag detection tests exercise numerical branches with no scale metadata; they prove arithmetic under an assumed pairing, not the pairing's validity.
-- **Manual evidence:** conditioning 1/86; data-conventions 4/134; all four SB-ENV-029 review scenarios remain unchecked.
-- **Git evidence:** no production behavior or test changed. A local `condflag` option was rejected as false metadata because it could disagree with the source curve and would not satisfy SB-ENV-012's every-consumer contract.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; `BLOCKED-DEPENDENCY/DECISION`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** SB-ENV-012 owns the cited closed `{SANDSTONE, LIMESTONE, DOLOMITE}` curve-metadata contract but is outside DEC-018's immutable pilot manifest. DEC-025 must authorize that typed metadata/persistence seam as infrastructure or revise the manifest. No numeric scale default or approximately 0.04 correction is authorized.
-- **Next action:** after DEC-025, implement curve-owned scale metadata with explicit absence and unknown-value refusal, then add matched, mismatched, absent and unknown controls at `condflag` and the neutron correction for exact T18. Keep T19 labelled characterization.
+- **Specified contract:** the neutron-scale metadata seam (DEC-025) plus consumer validation of matched / mismatched / absent / unknown, with the uncited numeric offset kept characterization-only.
+- **Current implementation (2026-08-18):** DONE. The seam shipped under SB-DBM-017; the runner resolves the same NPHI curve the fetch used and injects its declared basis; nphimat gates MATRIX_IN against it - matched runs bit-identical to undeclared, mismatched refuses naming both sides and DEC-025, unknown refuses naming the token and `set_curve_neutron_basis`, absent runs on the option alone (the module has its scale; refuse-without applies to an unreconcilable declaration, not to silence - legacy projects keep running).
+- **Qualifying tests:** all four states at the consumer plus the production-runner injection. Four mutations killed on distinct assertions (unknown silently accepted, mismatch dropped, matched path perturbed, injection dropped). Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-030 - One flag polarity, defined once, as a type
 

@@ -2376,6 +2376,35 @@ fn run_workflow_module_into_with_parameter_serializer(
                 if let Some(cls) = class_by_well.get(well_id) {
                     well_opts.insert(modules::CLASS_CURVES_OPT.to_string(), cls.clone());
                 }
+                // SB-ENV-029 (DEC-025): nphimat validates MATRIX_IN against the input curve's
+                // DECLARED neutron matrix basis, so the runner resolves the same curve the
+                // fetch used and injects its declaration - never inferring one.
+                if req.module == "nphimat" {
+                    let curve_name = log_args
+                        .iter()
+                        .find(|(argument, _)| argument == "NPHI")
+                        .map(|(_, curve)| curve.clone())
+                        .unwrap_or_else(|| "NPHI".to_string());
+                    let conn = db.lock().unwrap();
+                    if let Ok(Some(curve_id)) = equations::resolve_generic_curve_id(
+                        &conn,
+                        well_id,
+                        &curve_name,
+                        equations::CurveRequest::SemanticFamily,
+                    ) {
+                        let declared: Option<String> = conn
+                            .query_row(
+                                "SELECT neutron_basis FROM curve_meta WHERE curve_id = ?1",
+                                duckdb::params![curve_id],
+                                |row| row.get(0),
+                            )
+                            .ok()
+                            .flatten();
+                        if let Some(basis) = declared {
+                            well_opts.insert(modules::NEUTRON_BASIS_OPT.to_string(), basis);
+                        }
+                    }
+                }
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: well_opts, depth_unit };
                 // SB-POR-047 + SB-POR-026: run custody, composed where the inputs exist.
                 // Supplied means the resolved column has ANY finite sample; a curve that
@@ -7718,6 +7747,61 @@ mod tests {
                 && comment.contains("not applied (no caliper) 2 samples"),
             "the manifest states what was and was not applied: {comment}"
         );
+    }
+
+    /// SB-ENV-029 (DEC-025): the runner carries the input curve's DECLARED neutron basis to
+    /// nphimat's consistency gate - a declaration made at import reaches the module that
+    /// would otherwise convert on the wrong scale silently.
+    #[test]
+    fn a_declared_neutron_basis_reaches_nphimat_through_the_production_runner() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-NBAS", None, None, None).unwrap();
+        let n = 3usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth, nan.clone(), nan.clone(), vec![0.18; n], nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        // The NPHI standard column resolves through the generic-store migration path; declare
+        // the basis on the migrated curve.
+        db::migrate_standard_curves_to_generic_store(&conn).unwrap();
+        let nphi_curve = db::list_generic_curve_catalog(&conn, &id.to_string())
+            .unwrap()
+            .into_iter()
+            .find(|c| c.mnemonic == "NPHI")
+            .expect("NPHI migrated")
+            .curve_id;
+        db::set_curve_neutron_basis(
+            &conn, &nphi_curve, "LIMESTONE", "declared at import by the user (DEC-025)",
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+        let run = |matrix_in: &str| -> Vec<ModuleRunResult> {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "nphimat".into(),
+                    well_ids: vec![id.to_string()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::new(),
+                    opts: HashMap::from([("MATRIX_IN".to_string(), matrix_in.to_string())]),
+                    output_set: None,
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+        };
+        // Contradiction refuses through the full production path.
+        let refused = run("SS");
+        let error = refused[0].error.clone().expect("the declared basis must gate MATRIX_IN");
+        assert!(error.contains("LIMESTONE") && error.contains("DEC-025"), "{error}");
+        // Agreement runs.
+        let matched = run("LS");
+        assert!(matched[0].error.is_none(), "{:?}", matched[0].error);
     }
 
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
