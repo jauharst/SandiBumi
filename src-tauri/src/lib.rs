@@ -2485,6 +2485,20 @@ fn param_sources(topic: String) -> Vec<param_sources::ParamSource> {
 
 /// SB-DBM-025: the cross-module constant registry, inspectable from the UI - a registry
 /// nobody can read is a comment. Serialized as (name, value, unit, consumers, source) rows.
+/// SB-DBM-017 / DEC-025: declare the neutron matrix basis on one curve - stated by the user
+/// at (or after) import, NEVER inferred from contractor, tool, salinity or a matrix default.
+/// Both the basis and its source are required; absence stays absent.
+#[tauri::command]
+fn set_curve_neutron_basis(
+    state: tauri::State<DbState>,
+    curve_id: String,
+    basis: String,
+    source: String,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|_| "database busy".to_string())?;
+    db::set_curve_neutron_basis(&conn, &curve_id, &basis, &source).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn cross_module_constants() -> Vec<(String, f64, String, String, String)> {
     param_sources::CROSS_MODULE_CONSTANTS
@@ -4348,6 +4362,7 @@ pub fn run() {
             curve_sampling,
             param_sources,
             cross_module_constants,
+            set_curve_neutron_basis,
             rename_ml_model,
             delete_ml_model,
             ml_model_citations,

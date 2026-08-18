@@ -404,3 +404,4 @@
 "SB-ENV-033","CORRECTNESS","src-tauri/src/condition.rs","the_four_sample_window_still_refuses_while_a_zero_mad_window_runs_and_reports_its_fallback_scale"
 "SB-DBM-009","CORRECTNESS","src-tauri/src/db.rs","legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source"
 "SB-DBM-025","CORRECTNESS","src-tauri/src/param_sources.rs","every_cross_module_constant_is_registered_with_its_source_and_the_registry_is_what_runs"
+"SB-DBM-017","CORRECTNESS","src-tauri/src/db.rs","the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent"

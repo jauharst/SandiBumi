@@ -218,18 +218,13 @@
 - **Blocker or decision:** none for the exact approved deterministic pilot chain. This does not close SB-DBM-015's absent stored re-run manifest or extend proof to the 689 deferred requirements.
 - **Next action:** retain T16 in the default gate; Jauhar may field-verify a representative sanitized delivery in Gate 4 without relabelling the automated fixture as field evidence.
 
-## SB-DBM-017 - A metadata attribute that drives physics is an input of the module that consumes it
+## SB-DBM-017 - Neutron matrix scale is typed curve metadata with a declared owner
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T17`; sections 4.2 and 6.3.
-- **Atomic obligations:** declare every physics-driving metadata attribute as a module input; record runtime value; mark prior output stale on change; refuse a named unset attribute instead of defaulting.
-- **Current source:** no registry attribute declares metadata-to-physics dependencies, no run record stores them generically, and no stale-output invalidation follows such changes. `nphimat` consumes explicit `TOOL`, `SALINITY` and `MATRIX_IN` options; those are not persisted curve attributes and missing options resolve through module defaults rather than T17's named refusal.
-- **Qualifying acceptance tests:** none; T17's changed and unset controls are missing. Test class is `MISSING`.
-- **Supporting tests:** bespoke module arguments and warnings do not prove the universal metadata dependency contract.
-- **Manual evidence:** `workflow` 0/23, `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the registry/run/staleness mechanism is absent. DEC-003 already fixes the pilot chain, and DEC-018 includes SB-DBM-017 and SB-POR-024 but excludes the owning SB-ENV-012 metadata contract.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** DEC-025. The chapter-cited first-pilot candidate is neutron matrix scale: SB-POR-024 requires the basis and provenance, while SB-ENV-012 owns the typed curve attribute, persistence and every-consumer validation. SB-ENV-012 is outside DEC-018's immutable manifest. No source authorizes inventing a Logging Contractor field or default tool, salinity or matrix selection.
-- **Next action:** authorize SB-ENV-012's typed neutron-scale seam as required infrastructure or revise and re-approve DEC-018 to include it; then implement T17's changed and unset controls without a default.
+- **Specified contract:** the neutron matrix basis drives physics (~0.04 v/v in clean water sand) and needs a typed metadata owner; DEC-025 (RULED 2026-08-17) authorized the narrow seam - declared, never inferred from contractor/tool/salinity/default; absence stays absent; import can state it; a declaration records its source.
+- **Current implementation (2026-08-18):** DONE. `curve_meta.neutron_basis` + `neutron_basis_source` (additive ALTER, legacy projects converge). `db::set_curve_neutron_basis` refuses empty basis or source and unknown curves; the `set_curve_neutron_basis` Tauri command is the import surface's way to state it; the curve catalog surfaces the basis so absence is visible. The seam is this field only, per the ruling.
+- **Qualifying test:** `db::inspector_tests::the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent` - None until declared, refusals write nothing, scoped to the named curve, DEC-025 recorded as authority, zero-row guard specifically exercised with a well-formed absent UUID. Three mutations killed (emptiness guard removed, source dropped from the UPDATE, zero-row guard removed - the last only after the fixture was corrected from a malformed id that failed at the cast upstream of the guard). Test class `CORRECTNESS`.
+- **Boundary:** the module that REFUSES a missing basis by name is SB-POR-024's half; the wizard pre-fill field is UI polish over the shipped command.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-018 - Training-set identity is recorded as ids and intervals, not as names
 

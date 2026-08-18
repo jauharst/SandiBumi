@@ -926,6 +926,12 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         );
         -- `pinned` added via ALTER so existing project databases converge on the same shape.
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS pinned INTEGER DEFAULT 0;
+        -- SB-DBM-017 / DEC-025: the neutron matrix basis is DECLARED curve metadata, never
+        -- inferred from contractor, tool, salinity or a matrix default. NULL is the honest
+        -- absence - a limestone-unit neutron read against a sandstone matrix is ~0.04 v/v low
+        -- in clean water sand, and nothing can refuse a wrong basis that was never recorded.
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS neutron_basis VARCHAR;
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS neutron_basis_source VARCHAR;
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS set_version INTEGER DEFAULT 1;
         UPDATE curve_meta SET set_version = 1 WHERE set_version IS NULL;
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS final_flag INTEGER;
@@ -5808,6 +5814,64 @@ mod inspector_tests {
     /// recorded as the converted values' SOURCE - so a later reader sees the offset was
     /// declared by the product owner, never measured from the data - and new rows default to
     /// UTC so the local meaning cannot creep back in.
+    /// SB-DBM-017 / DEC-025: the neutron matrix basis is DECLARED curve metadata. Absence
+    /// stays absent - never inferred from the unit, the family, the contractor, the tool or a
+    /// matrix default - a declaration is scoped to the one curve it names, it carries its
+    /// source, and an empty declaration is refused rather than stored blank.
+    #[test]
+    fn the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        // Idempotent additive schema: a legacy project converges on the same shape.
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-NB", None, None, None).unwrap();
+        let well = id.to_string();
+        let nphi = upsert_curve_meta(
+            &conn, &well, "RAW", "NPHI", Some("v/v"), Some("NPHI"), Some("LAS import"), None,
+        )
+        .unwrap();
+        let gr = upsert_curve_meta(
+            &conn, &well, "RAW", "GR", Some("gapi"), Some("GR"), Some("LAS import"), None,
+        )
+        .unwrap();
+        let basis_of = |curve: &str| -> Option<String> {
+            list_generic_curve_catalog(&conn, &well)
+                .unwrap()
+                .into_iter()
+                .find(|c| c.curve_id == curve)
+                .unwrap()
+                .neutron_basis
+        };
+        // A. An imported neutron curve carries NO basis until somebody declares one - the
+        //    unit and the family are not a declaration.
+        assert_eq!(basis_of(&nphi), None, "absence stays absent; nothing is inferred");
+        // B. An empty declaration is refused, not stored blank - and a missing source too:
+        //    a declaration without an authority is a guess wearing a declaration's clothes.
+        assert!(set_curve_neutron_basis(&conn, &nphi, "", "user").is_err());
+        assert!(set_curve_neutron_basis(&conn, &nphi, "LIMESTONE", "  ").is_err());
+        assert_eq!(basis_of(&nphi), None, "a refused declaration must write nothing");
+        // C. A real declaration lands on exactly the curve it names, with its source.
+        set_curve_neutron_basis(
+            &conn, &nphi, "LIMESTONE", "declared at import by the user (DEC-025)",
+        )
+        .unwrap();
+        assert_eq!(basis_of(&nphi).as_deref(), Some("LIMESTONE"));
+        assert_eq!(basis_of(&gr), None, "the declaration is scoped to the curve it names");
+        let source: String = conn
+            .query_row(
+                "SELECT neutron_basis_source FROM curve_meta WHERE curve_id = ?1",
+                params![nphi],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(source.contains("DEC-025"), "the declaration records its authority: {source}");
+        // D. An unknown curve is refused by name - a WELL-FORMED id that matches no row, so
+        //    the refusal comes from the zero-row guard, not from a cast error upstream of it.
+        let absent = Uuid::new_v4().to_string();
+        assert!(set_curve_neutron_basis(&conn, &absent, "SANDSTONE", "user").is_err());
+    }
+
     #[test]
     fn legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source(
     ) {
@@ -8909,6 +8973,8 @@ pub struct GenericCurveCatalogEntry {
     pub n_valid: i64,
     /// Stored rows excluded from numeric statistics because their value is non-finite.
     pub n_missing: i64,
+    /// SB-DBM-017 / DEC-025: the DECLARED neutron matrix basis; None is the honest absence.
+    pub neutron_basis: Option<String>,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub mean: Option<f64>,
@@ -8969,6 +9035,37 @@ pub fn list_generic_curve_inventory(
 /// from `equations::list_curve_catalog` (the existing standard+computed catalog), which
 /// remains the frontend's data source until the Phase 6 curve-store migration is wired
 /// through the rest of the app (workflow modules, log views, equations).
+/// SB-DBM-017 / DEC-025: records the DECLARED neutron matrix basis on one curve, with the
+/// declaration's source. Refuses an empty basis or source - an empty declaration is not a
+/// declaration - and never fills a default: ABSENT stays absent, and inference from the
+/// contractor, the tool or the salinity is exactly what this field exists to replace.
+pub fn set_curve_neutron_basis(
+    conn: &Connection,
+    curve_id: &str,
+    basis: &str,
+    source: &str,
+) -> DbResult<()> {
+    let basis = basis.trim();
+    let source = source.trim();
+    if basis.is_empty() || source.is_empty() {
+        return Err(DbError::Invalid(
+            "a neutron matrix basis is DECLARED: both the basis and its source are required, \
+             and an absent basis stays absent rather than being written blank"
+                .into(),
+        ));
+    }
+    let n = conn.execute(
+        "UPDATE curve_meta SET neutron_basis = ?2, neutron_basis_source = ?3 WHERE curve_id = ?1",
+        params![curve_id, basis, source],
+    )?;
+    if n == 0 {
+        return Err(DbError::Invalid(format!(
+            "no curve '{curve_id}' to declare a neutron basis on"
+        )));
+    }
+    Ok(())
+}
+
 pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<Vec<GenericCurveCatalogEntry>> {
     let mut stmt = conn.prepare(
         "SELECT m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
@@ -8979,12 +9076,12 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
                 MIN(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
                 MAX(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
                 AVG(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
-                COALESCE(m.pinned, 0)
+                COALESCE(m.pinned, 0), m.neutron_basis
          FROM curve_meta m
          LEFT JOIN curve_samples s ON s.curve_id = m.curve_id
          WHERE m.well_id = ?1
          GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
-                  m.set_version, m.final_flag, m.modified_seq, m.pinned
+                  m.set_version, m.final_flag, m.modified_seq, m.pinned, m.neutron_basis
          ORDER BY m.set_name, m.family, m.mnemonic",
     )?;
     let rows = stmt.query_map(params![well_id], |row| {
@@ -9006,6 +9103,7 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
             max: row.get(14)?,
             mean: row.get(15)?,
             pinned: row.get::<_, i32>(16)? != 0,
+            neutron_basis: row.get(17)?,
         })
     })?;
     let mut out = Vec::new();
