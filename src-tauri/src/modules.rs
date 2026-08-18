@@ -3462,7 +3462,7 @@ fn phi_den_spec() -> ModuleSpec {
                 crate::param_sources::FORMATION_WATER_DENSITY,
             ),
             with_sources(
-                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
+                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM", "SMOOTH_ROLLOFF"]),
                 crate::param_sources::POROSITY_LIMIT_MODE,
             ),
             with_sources(
@@ -3484,6 +3484,30 @@ fn phi_den_spec() -> ModuleSpec {
                 0.0001,
                 0.01,
                 "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
+            ),
+            // SB-POR-044 (DEC-066): the smooth high-shale roll-off's PhiMax IS PHIE_MAX
+            // above (Jauhar: "its 0.3 as default value as PHIE_MAX ... refer to porosity
+            // limit in IP2025 help"; note his convention: clay + silt pooled as shale, so
+            // the formula's Vcl is this module's VSH input). The remaining two shape
+            // parameters ship ABSENT - IP publishes no default for either (F21, confirmed
+            // by the full IP 2025 ingest) - and are required only on the smooth branch.
+            param_open_when(
+                "DPHIMAX",
+                "Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)",
+                "v/v",
+                0.0,
+                1.0,
+                &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")],
+                "IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)",
+            ),
+            param_open_when(
+                "VCL_CUTOFF",
+                "Smooth roll-off onset shale volume (IP VclCutoff)",
+                "v/v",
+                0.0,
+                1.0,
+                &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")],
+                "IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)",
             ),
             param_sourced(
                 "VSH_SHALE",
@@ -3548,7 +3572,11 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
     let coal = ctx.log("COAL_FLAG");
-    let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
+    let limit_mode = ctx.o("OPT_PHIEMAX").to_string();
+    // SB-POR-044 (DEC-066): SMOOTH_ROLLOFF is the alternative to the high-shale STEP -
+    // the kill branch is bypassed and the ceiling itself decays smoothly instead.
+    let smooth = limit_mode == "SMOOTH_ROLLOFF";
+    let shale_reduced = !smooth && limit_mode != "MAXIMUM";
     let mut phie_den = vec![f32::NAN; ctx.n];
     let mut phit_den = vec![f32::NAN; ctx.n];
     let mut phie_lim_out = vec![f32::NAN; ctx.n];
@@ -3575,7 +3603,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
-        if v >= ctx.p("VSH_SHALE", i) {
+        if !smooth && v >= ctx.p("VSH_SHALE", i) {
             record_branch("high-shale kill");
             phie_den[i] = 0.0;
             phie_lim_out[i] = ctx.p("PHIE_FLOOR", i) as f32;
@@ -3588,8 +3616,28 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = two_endpoint_fraction(r, rho_ma, rho_fl)
             - v * two_endpoint_fraction(rho_sh, rho_ma, rho_fl);
         let pt = pe + v * phit_sh;
-        let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, ctx.p("PHIE_FLOOR", i), phie_lim);
+        let phie_lim = if smooth {
+            // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
+            // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
+            // is negative under a non-integer power - undefined - so the term is 1 and
+            // the limit is the linear envelope; past the cutoff it decays smoothly,
+            // which is the whole point of offering an alternative to the step.
+            let roll = {
+                let past = v - ctx.p("VCL_CUTOFF", i);
+                if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
+            };
+            (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
+        } else if shale_reduced {
+            phie_max * (1.0 - v)
+        } else {
+            phie_max
+        };
+        // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
+        // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
+        // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
+        // kill branch fires before their ceiling can reach the floor.
+        let floor = ctx.p("PHIE_FLOOR", i);
+        let pe_l = limit(pe, floor, phie_lim.max(floor));
         if pe_l != pe {
             record_bound_limit("PHIE");
         }
@@ -3656,7 +3704,7 @@ fn phi_dn_spec() -> ModuleSpec {
                 crate::param_sources::FORMATION_WATER_DENSITY,
             ),
             with_sources(
-                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
+                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM", "SMOOTH_ROLLOFF"]),
                 crate::param_sources::POROSITY_LIMIT_MODE,
             ),
             with_sources(
@@ -3678,6 +3726,30 @@ fn phi_dn_spec() -> ModuleSpec {
                 0.0001,
                 0.01,
                 "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
+            ),
+            // SB-POR-044 (DEC-066): the smooth high-shale roll-off's PhiMax IS PHIE_MAX
+            // above (Jauhar: "its 0.3 as default value as PHIE_MAX ... refer to porosity
+            // limit in IP2025 help"; note his convention: clay + silt pooled as shale, so
+            // the formula's Vcl is this module's VSH input). The remaining two shape
+            // parameters ship ABSENT - IP publishes no default for either (F21, confirmed
+            // by the full IP 2025 ingest) - and are required only on the smooth branch.
+            param_open_when(
+                "DPHIMAX",
+                "Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)",
+                "v/v",
+                0.0,
+                1.0,
+                &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")],
+                "IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)",
+            ),
+            param_open_when(
+                "VCL_CUTOFF",
+                "Smooth roll-off onset shale volume (IP VclCutoff)",
+                "v/v",
+                0.0,
+                1.0,
+                &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")],
+                "IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)",
             ),
             param_sourced(
                 "VSH_SHALE",
@@ -3749,7 +3821,11 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
     let badhole = ctx.log("BADHOLE");
     let coal = ctx.log("COAL_FLAG");
     let gas_rms = ctx.o("OPT_XPLOT") == "GAS_RMS";
-    let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
+    let limit_mode = ctx.o("OPT_PHIEMAX").to_string();
+    // SB-POR-044 (DEC-066): SMOOTH_ROLLOFF is the alternative to the high-shale STEP -
+    // the kill branch is bypassed and the ceiling itself decays smoothly instead.
+    let smooth = limit_mode == "SMOOTH_ROLLOFF";
+    let shale_reduced = !smooth && limit_mode != "MAXIMUM";
     let mut phie_dn = vec![f32::NAN; ctx.n];
     let mut phit_dn = vec![f32::NAN; ctx.n];
     let mut phie_lim_out = vec![f32::NAN; ctx.n];
@@ -3777,7 +3853,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
-        if v >= ctx.p("VSH_SHALE", i) {
+        if !smooth && v >= ctx.p("VSH_SHALE", i) {
             record_branch("high-shale kill");
             phie_dn[i] = 0.0;
             phie_lim_out[i] = ctx.p("PHIE_FLOOR", i) as f32;
@@ -3810,8 +3886,28 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
 
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
-        let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, ctx.p("PHIE_FLOOR", i), phie_lim);
+        let phie_lim = if smooth {
+            // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
+            // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
+            // is negative under a non-integer power - undefined - so the term is 1 and
+            // the limit is the linear envelope; past the cutoff it decays smoothly,
+            // which is the whole point of offering an alternative to the step.
+            let roll = {
+                let past = v - ctx.p("VCL_CUTOFF", i);
+                if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
+            };
+            (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
+        } else if shale_reduced {
+            phie_max * (1.0 - v)
+        } else {
+            phie_max
+        };
+        // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
+        // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
+        // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
+        // kill branch fires before their ceiling can reach the floor.
+        let floor = ctx.p("PHIE_FLOOR", i);
+        let pe_l = limit(pe, floor, phie_lim.max(floor));
         if pe_l != pe {
             record_bound_limit("PHIE");
         }
@@ -3903,7 +3999,7 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 crate::param_sources::FORMATION_WATER_DENSITY,
             ),
             with_sources(
-                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
+                opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM", "SMOOTH_ROLLOFF"]),
                 crate::param_sources::POROSITY_LIMIT_MODE,
             ),
             with_sources(
@@ -3925,6 +4021,30 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 0.0001,
                 0.01,
                 "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
+            ),
+            // SB-POR-044 (DEC-066): the smooth high-shale roll-off's PhiMax IS PHIE_MAX
+            // above (Jauhar: "its 0.3 as default value as PHIE_MAX ... refer to porosity
+            // limit in IP2025 help"; note his convention: clay + silt pooled as shale, so
+            // the formula's Vcl is this module's VSH input). The remaining two shape
+            // parameters ship ABSENT - IP publishes no default for either (F21, confirmed
+            // by the full IP 2025 ingest) - and are required only on the smooth branch.
+            param_open_when(
+                "DPHIMAX",
+                "Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)",
+                "v/v",
+                0.0,
+                1.0,
+                &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")],
+                "IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)",
+            ),
+            param_open_when(
+                "VCL_CUTOFF",
+                "Smooth roll-off onset shale volume (IP VclCutoff)",
+                "v/v",
+                0.0,
+                1.0,
+                &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")],
+                "IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)",
             ),
             param_sourced(
                 "VSH_SHALE",
@@ -3976,7 +4096,11 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
     let coal = ctx.log("COAL_FLAG");
-    let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
+    let limit_mode = ctx.o("OPT_PHIEMAX").to_string();
+    // SB-POR-044 (DEC-066): SMOOTH_ROLLOFF is the alternative to the high-shale STEP -
+    // the kill branch is bypassed and the ceiling itself decays smoothly instead.
+    let smooth = limit_mode == "SMOOTH_ROLLOFF";
+    let shale_reduced = !smooth && limit_mode != "MAXIMUM";
     let mut phie_bk = vec![f32::NAN; ctx.n];
     let mut phit_bk = vec![f32::NAN; ctx.n];
     let mut rhomaa = vec![f32::NAN; ctx.n];
@@ -4004,7 +4128,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
-        if v >= ctx.p("VSH_SHALE", i) {
+        if !smooth && v >= ctx.p("VSH_SHALE", i) {
             record_branch("high-shale kill");
             phie_bk[i] = 0.0;
             phie_lim_out[i] = ctx.p("PHIE_FLOOR", i) as f32;
@@ -4042,8 +4166,28 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
 
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
-        let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, ctx.p("PHIE_FLOOR", i), phie_lim);
+        let phie_lim = if smooth {
+            // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
+            // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
+            // is negative under a non-integer power - undefined - so the term is 1 and
+            // the limit is the linear envelope; past the cutoff it decays smoothly,
+            // which is the whole point of offering an alternative to the step.
+            let roll = {
+                let past = v - ctx.p("VCL_CUTOFF", i);
+                if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
+            };
+            (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
+        } else if shale_reduced {
+            phie_max * (1.0 - v)
+        } else {
+            phie_max
+        };
+        // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
+        // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
+        // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
+        // kill branch fires before their ceiling can reach the floor.
+        let floor = ctx.p("PHIE_FLOOR", i);
+        let pe_l = limit(pe, floor, phie_lim.max(floor));
         if pe_l != pe {
             record_bound_limit("PHIE");
         }
@@ -7701,6 +7845,130 @@ mod tests {
             run_bk(0.001)["PHIE_DNBK"][0].to_bits(),
             run_bk(0.005)["PHIE_DNBK"][0].to_bits()
         );
+    }
+
+    /// SB-POR-044 (DEC-066, RULED 2026-08-18): the smooth high-shale roll-off is the third
+    /// limiting mode. Its PhiMax IS the existing PHIE_MAX (Jauhar: "its 0.3 as default
+    /// value as PHIE_MAX ... refer to porosity limit in IP2025 help"); the shape follows
+    /// the IP 2025 image form embim71 (D-11 adopted): (PhiMax + DeltaPhiMax)(1 - Vcl) x
+    /// 10^(-10 (Vcl - VclCutoff)^1.6), the exponential acting only PAST the cutoff (below
+    /// it a negative base under a non-integer power is undefined - the limit is the linear
+    /// envelope). DPHIMAX and VCL_CUTOFF ship ABSENT - IP publishes no default for either
+    /// (F21, confirmed by the full IP 2025 ingest) - and the smooth branch REFUSES
+    /// unsupplied, naming the parameter. The roll-off replaces the high-shale STEP: the
+    /// limited curve is continuous across VSH_SHALE and terminates AT the floor, never as
+    /// a MISSING sample from an inverted clamp.
+    #[test]
+    fn the_smooth_roll_off_reuses_phie_max_decays_past_the_cutoff_and_refuses_unsupplied_shape_parameters(
+    ) {
+        // A - manifest: all three limit-mode owners offer the mode, and both shape
+        // parameters ship ABSENT with the smooth-branch requirement declared and cited.
+        let modules = module_catalog();
+        for module in ["phi_den", "phi_dn", "phi_dnbk"] {
+            let spec = modules.iter().find(|candidate| candidate.name == module).unwrap();
+            let mode = spec.args.iter().find(|argument| argument.name == "OPT_PHIEMAX").unwrap();
+            assert!(
+                mode.choices.iter().any(|choice| choice == "SMOOTH_ROLLOFF"),
+                "{module} must offer the smooth mode"
+            );
+            for name in ["DPHIMAX", "VCL_CUTOFF"] {
+                let argument = spec.args.iter().find(|argument| argument.name == name).unwrap();
+                assert_eq!(argument.default_source, ABSENT_DEFAULT_SOURCE, "{module}.{name}");
+                assert!(argument.default.is_empty(), "{module}.{name} ships no value");
+                assert!(
+                    argument
+                        .validity_conditions
+                        .iter()
+                        .any(|condition| condition.statement.contains("SMOOTH_ROLLOFF")
+                            && condition.source.contains("D-11")
+                            && condition.source.contains("DEC-066")),
+                    "{module}.{name} declares the cited smooth-branch requirement"
+                );
+            }
+        }
+
+        // Fixture: the finding-16 density set. DPHIMAX 0.05 / VCL_CUTOFF 0.40 are TEST
+        // FIXTURE values (both ship ABSENT); VSH samples cover below-cutoff, mid roll-off
+        // and both sides of the step threshold.
+        let params = |phie_max: f64| -> Vec<(&'static str, f64)> {
+            vec![
+                ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("RHO_DSH", 2.65),
+                ("RHO_W", 1.0), ("PHIE_MAX", phie_max), ("VSH_SHALE", 0.95),
+                ("PHIE_FLOOR", 0.001), ("DPHIMAX", 0.05), ("VCL_CUTOFF", 0.40),
+            ]
+        };
+        let vsh = vec![0.30f32, 0.50, 0.94, 0.96];
+        let logs: Vec<(&str, Vec<f32>)> =
+            vec![("RHOB", vec![2.3; 4]), ("VSH", vsh.clone())];
+        let run = |mode: &str, phie_max: f64| {
+            run_module(
+                "phi_den",
+                &ctx_with(4, &logs, &params(phie_max), &[("OPT_PHIEMAX", mode)]),
+            )
+            .unwrap()
+        };
+
+        // B - hand-derived, independently of the code. pe(v) = 0.345/1.645 - v*0.145/1.645.
+        // v=0.30 (below cutoff): roll term is 1, ceiling (0.3+0.05)*0.70 = 0.245 does not
+        // bind, so limited == unlimited = 0.183283. v=0.50: past = 0.10, 0.10^1.6 =
+        // 0.0251189, 10^-0.251189 = 0.560818, ceiling 0.35*0.5*0.560818 = 0.0981431 binds.
+        let smooth = run("SMOOTH_ROLLOFF", 0.3);
+        assert!((smooth["PHIE"][0] as f64 - 0.183283).abs() < 2e-5, "{}", smooth["PHIE"][0]);
+        assert!((smooth["PHIE"][1] as f64 - 0.0981431).abs() < 2e-5, "{}", smooth["PHIE"][1]);
+        // B2 - PhiMax in the formula IS the PHIE_MAX parameter: at 0.25 the same sample's
+        // ceiling scales to (0.25+0.05)*0.5*0.560818 = 0.0841227.
+        let scaled = run("SMOOTH_ROLLOFF", 0.25);
+        assert!((scaled["PHIE"][1] as f64 - 0.0841227).abs() < 2e-5, "{}", scaled["PHIE"][1]);
+
+        // C - the step is GONE in smooth mode and PRESENT in the step mode. Across
+        // VSH_SHALE = 0.95 the smooth limited curve sits on the floor on both sides,
+        // while SHALE_REDUCED jumps from its ceiling 0.3*0.06 = 0.018 to the kill floor.
+        assert_eq!(smooth["PHIE"][2], 0.001, "just below the old step: floor-terminated");
+        assert_eq!(smooth["PHIE"][3], 0.001, "just above it: the same, no step");
+        let stepped = run("SHALE_REDUCED", 0.3);
+        assert!((stepped["PHIE"][2] as f64 - 0.018).abs() < 1e-6);
+        assert_eq!(stepped["PHIE"][3], 0.001, "the step mode still kills");
+        // The smooth v=0.96 sample is the ROLL-OFF at the floor, not the kill branch:
+        // PHIT rebuilds from the floored PHIE (0.001 + 0.96*0.0909091 = 0.0882727),
+        // where the kill would write the shale total 0.0909091.
+        assert!((smooth["PHIT"][3] as f64 - 0.0882727).abs() < 1e-5, "{}", smooth["PHIT"][3]);
+
+        // D - floor-terminal, never MISSING: an inverted clamp (ceiling below floor) must
+        // not blank the sample.
+        assert!(smooth["PHIE"][3].is_finite(), "the roll-off terminates AT the floor");
+
+        // E - the smooth branch refuses an unsupplied shape parameter BY NAME; the step
+        // branch runs without either (they are inert off-branch).
+        let without = |omit: &str| -> Vec<(&'static str, f64)> {
+            params(0.3)
+                .into_iter()
+                .filter(|(name, _)| *name != omit && !(omit == "BOTH" && (*name == "DPHIMAX" || *name == "VCL_CUTOFF")))
+                .collect()
+        };
+        let refused = run_module(
+            "phi_den",
+            &ctx_with(4, &logs, &without("DPHIMAX"), &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")]),
+        )
+        .expect_err("SMOOTH_ROLLOFF without DPHIMAX must refuse");
+        assert!(refused.contains("DPHIMAX") && refused.contains("SMOOTH_ROLLOFF"), "{refused}");
+        let refused = run_module(
+            "phi_den",
+            &ctx_with(4, &logs, &without("VCL_CUTOFF"), &[("OPT_PHIEMAX", "SMOOTH_ROLLOFF")]),
+        )
+        .expect_err("SMOOTH_ROLLOFF without VCL_CUTOFF must refuse");
+        assert!(refused.contains("VCL_CUTOFF"), "{refused}");
+        let step_without = run_module(
+            "phi_den",
+            &ctx_with(4, &logs, &without("BOTH"), &[("OPT_PHIEMAX", "SHALE_REDUCED")]),
+        )
+        .expect("the step mode never needed the shape parameters");
+        for i in 0..4 {
+            assert_eq!(
+                step_without["PHIE"][i].to_bits(),
+                stepped["PHIE"][i].to_bits(),
+                "the new parameters are inert off-branch"
+            );
+        }
     }
 
     /// SB-POR-055 (DEC-069, RULED 2026-08-18): every porosity parameter carries its source

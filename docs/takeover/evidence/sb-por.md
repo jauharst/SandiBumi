@@ -650,18 +650,12 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** none.
 - **Next action:** Jauhar field-verifies that the step is movable and that leaving it at 0.95 reports the honest disclosure rather than a silent default.
 
-## SB-POR-044 - Optional smooth roll-off with no defaults
+## SB-POR-044 - A smooth high-shale roll-off as an alternative to the step
 
-- **Specified contract:** a **smooth** high-shale roll-off **SHOULD** be offered as an alternative to the step, following IP's `(PhiMax + ΔPhiMax)(1 − Vcl)·10^(−10(Vcl − VclCutoff)^1.6)` shape. Its three parameters ship with **no defaults** — IP publishes none (F21).
-- **Current implementation:** none. `OPT_PHIEMAX` offers `SHALE_REDUCED` and `MAXIMUM` only; there is no smooth mode, no roll-off arithmetic and no defaultless parameter trio.
-- **Qualifying acceptance tests:** none. Test class `MISSING`.
-- **Supporting tests:** none.
-- **Manual evidence:** porosity 0/64.
-- **Source/parameter boundary:** the shape is fully cited and needs no invention. What is **not** cited is the identity of `PhiMax`. Two of the three parameters - `ΔPhiMax` and `VclCutoff` - are new and defaultless. The third collides with the shipped `PHIE_MAX`, which carries a Geolog-sourced default of 0.3. Reusing `PHIE_MAX` gives the smooth form a default the chapter says it must not have; adding a second defaultless `PhiMax` invents a parameter and leaves two porosity ceilings on one module that can silently disagree. Both readings are plausible, neither is cited, and the wrong one is **silently** wrong - the roll-off computes and plots either way.
-- **History/reachability:** searches confirm absence of any smooth-roll-off path.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `BLOCKED-CONTRACT`. The earlier *DEC-018 settles first-pilot inclusion* reading is **stale** - SB-POR-044 is in the approved 242-row manifest, verified against `pilot-scope.json` this session, so inclusion is already settled and cannot be the blocker. This is the same register-versus-chapter drift found in SB-POR-026, SB-POR-028 and SB-POR-043.
-- **Next action:** owner rules whether the smooth form's `PhiMax` **is** the existing `PHIE_MAX` - accepting that this mode then inherits a Geolog default IP does not publish - or is a separate defaultless parameter, stating how the two ceilings interact. Then add `SMOOTH_ROLLOFF` as a third `OPT_PHIEMAX` mode on `phi_den` and `phi_dn` using `param_open` parameters that refuse to run unsupplied, and pin the hard-branch path, the smooth path and the refusal.
+- **Specified contract:** offer IP's smooth roll-off `(PhiMax + DeltaPhiMax)(1 - Vcl) x 10^(-10(Vcl - VclCutoff)^1.6)` as an alternative to the high-shale step; its three parameters ship with no defaults (F21).
+- **Current implementation (2026-08-18):** DONE. **DEC-066** settled the PhiMax identity: it IS `PHIE_MAX` (0.3 default), per Jauhar with the IP 2025 help as the shape reference - and recorded his convention that clay + silt pool as shale, so the formula's Vcl is the module's VSH input. `SMOOTH_ROLLOFF` is the third `OPT_PHIEMAX` mode on all three limit-mode owners. The shape is the IP 2025 image form (embim71, D-11 adopted over the malformed ASCII); the exponential acts only past the cutoff - below it a negative base under a non-integer power is undefined, so the limit is the linear envelope. `DPHIMAX`/`VCL_CUTOFF` ship ABSENT (`param_open_when`) - the full IP 2025 ingest confirms no default is published - and the smooth branch refuses unsupplied by name. The mode bypasses the kill step: the limited curve is continuous across `VSH_SHALE` and terminates AT the POR-045 floor when the ceiling rolls under it - never a MISSING sample from an inverted clamp. Step modes are bit-identical and the shape parameters are inert off-branch.
+- **Qualifying test:** `the_smooth_roll_off_reuses_phie_max_decays_past_the_cutoff_and_refuses_unsupplied_shape_parameters` - manifest pins, hand-derived values (0.183283 / 0.0981431 / 0.0841227), continuity-vs-step with the PHIT rebuild separating roll-off from kill, floor-terminal finiteness, both refusals by name, off-branch inertness. Six mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-045 - The floor value is a documented user decision with a cited default
 
