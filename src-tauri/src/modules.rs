@@ -1000,8 +1000,10 @@ impl ModuleContext {
 pub type ModuleOutputs = HashMap<String, Vec<f32>>;
 
 /// Controlled, durable vocabulary for a calculation that returned usable curves but did not
-/// produce a clean result. These four members are the complete SB-DBM-039 vocabulary; adding a
-/// fifth is a contract change, not an ad-hoc message choice.
+/// produce a clean result. The first four members are the SB-DBM-039 vocabulary; adding a
+/// member is a contract change, not an ad-hoc message choice - `EndpointInvalid` is exactly
+/// such a documented change: SB-CLY-001's zone-bearing run-level message (DEC-036 constraint
+/// 4) rides this channel, because a per-sample token does not discharge it.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RunDegradationKind {
@@ -1009,6 +1011,7 @@ pub enum RunDegradationKind {
     Defaulted,
     Truncated,
     SubstitutedInput,
+    EndpointInvalid,
 }
 
 /// Universal run policy for a source-bearing precondition. The default stays refusal: callers
@@ -1104,6 +1107,7 @@ impl RunDegradationKind {
             Self::Defaulted => "DEFAULTED",
             Self::Truncated => "TRUNCATED",
             Self::SubstitutedInput => "SUBSTITUTED_INPUT",
+            Self::EndpointInvalid => "ENDPOINT_INVALID",
         }
     }
 
@@ -1113,6 +1117,7 @@ impl RunDegradationKind {
             "DEFAULTED" => Some(Self::Defaulted),
             "TRUNCATED" => Some(Self::Truncated),
             "SUBSTITUTED_INPUT" => Some(Self::SubstitutedInput),
+            "ENDPOINT_INVALID" => Some(Self::EndpointInvalid),
             _ => None,
         }
     }
@@ -1400,6 +1405,23 @@ pub(crate) fn class_outputs(module: &str) -> &'static [&'static str] {
         "electrofacies" => &["FACIES"],
         "gmm_facies" => &["FACIES_GMM"],
         "sw_arch" | "sw_indo" | "sw_sim" => &["SW_METHOD"],
+        // SB-CLY-001 (DEC-036): the provenance token curve is categorical - averaging codes
+        // 0 and 3 would invent a code no registry version defines.
+        "vsh_gr" => &["VSH_PROV"],
+        _ => &[],
+    }
+}
+
+/// SB-CLY-001 (DEC-036): condition ids whose enforcement is TOKENIZED by the module family
+/// instead of the generic refuse/flag machinery. The condition stays DECLARED - the dialog
+/// still shows it before the run (SB-ENV-008) - but a violation is answered PER SAMPLE by
+/// the CLY provenance registry: no computed value, a distinct ENDPOINT_INVALID token, and
+/// the runner's zone-bearing message. The chapter's own MUSTs specify that shape - a
+/// whole-run refusal could set no token at all and would discard every valid zone with the
+/// degenerate one.
+pub(crate) fn cly_tokenized_condition_ids(module: &str) -> &'static [&'static str] {
+    match module {
+        "vsh_gr" => &["vsh_gr.endpoint_order"],
         _ => &[],
     }
 }
@@ -2347,6 +2369,12 @@ fn collect_sample_precondition_violations(
             if !condition_is_active(spec, ctx, &condition.rule) {
                 continue;
             }
+            // SB-CLY-001 (DEC-036): tokenized conditions are enforced per sample by the CLY
+            // provenance registry, not by this machinery - sanitizing their samples here
+            // would blank the very tokens the chapter requires.
+            if cly_tokenized_condition_ids(&spec.name).contains(&condition.id.as_str()) {
+                continue;
+            }
             let (expected, unit, affected_samples) = match &condition.rule {
                 ValidityRule::NumericRange { min, max, unit, .. } => {
                     let affected = (0..ctx.n)
@@ -2511,6 +2539,12 @@ fn validate_declared_preconditions_ignoring(
                 ));
             }
             if !condition_is_active(spec, ctx, &condition.rule) {
+                continue;
+            }
+            // SB-CLY-001 (DEC-036): tokenized conditions are answered per sample by the CLY
+            // provenance registry (no computed value + ENDPOINT_INVALID + the runner's
+            // zone-bearing message), never by a whole-run refusal here.
+            if cly_tokenized_condition_ids(&spec.name).contains(&condition.id.as_str()) {
                 continue;
             }
 
@@ -2974,6 +3008,14 @@ fn vsh_gr_spec() -> ModuleSpec {
             ),
             log_out("VSH_GR", "VSH from gamma ray (unlimited)", "v/v"),
             log_out("VSH", "Limited volume of shale", "v/v"),
+            // SB-CLY-001 (DEC-036): the CLY provenance registry v1 token curve. Categorical,
+            // never a mask (0 = COMPUTED would invert under rule 11); codes are stable and
+            // extension is a version bump, never a renumbering.
+            log_out(
+                "VSH_PROV",
+                "CLY provenance registry v1 (SB-CLY-001, DEC-036): 0 COMPUTED, 1 MISSING_INPUT, 2 MASKED_INPUT, 3 ENDPOINT_INVALID, 4 COAL (reserved for the SB-CLY-036 coal branch); MISSING outside the run. Categorical - the reason, never a mask.",
+                "flag",
+            ),
         ],
     }
 }
@@ -2983,12 +3025,25 @@ fn vsh_gr(ctx: &ModuleContext) -> ModuleOutputs {
     let method = ctx.o("OPT_GR").to_string();
     let mut vsh_gr_out = vec![f32::NAN; ctx.n];
     let mut vsh_out = vec![f32::NAN; ctx.n];
+    // SB-CLY-001 (DEC-036): the registry v1 token curve. An absent input and a degenerate
+    // endpoint pair are DIFFERENT statements and each gets its own token - the two conditions
+    // the old single `continue` collapsed into one silent NaN. A degenerate pair emits NO
+    // computed value, ever. MASKED_INPUT (2) is written by the runner, which owns the mask;
+    // COAL (4) is reserved for the SB-CLY-036 coal branch.
+    let mut prov = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
         let g = gr[i] as f64;
         let gr_ma = ctx.p("GR_MA", i);
         let gr_sh = ctx.p("GR_SH", i);
-        if is_missing(g) || is_missing(gr_ma) || is_missing(gr_sh) || gr_ma >= gr_sh {
+        if !is_missing(gr_ma) && !is_missing(gr_sh) && gr_ma >= gr_sh {
+            // ENDPOINT_INVALID outranks missing input: the pair is a zone-level condition
+            // that forbids a value even where the log is present.
+            prov[i] = crate::param_sources::CLY_PROV_ENDPOINT_INVALID;
+            continue;
+        }
+        if is_missing(g) || is_missing(gr_ma) || is_missing(gr_sh) {
+            prov[i] = crate::param_sources::CLY_PROV_MISSING_INPUT;
             continue;
         }
         let mut v = (g - gr_ma) / (gr_sh - gr_ma);
@@ -3016,9 +3071,14 @@ fn vsh_gr(ctx: &ModuleContext) -> ModuleOutputs {
         };
         vsh_gr_out[i] = unlimited as f32;
         vsh_out[i] = limit(unlimited, 0.0, 1.0) as f32;
+        prov[i] = crate::param_sources::CLY_PROV_COMPUTED;
     }
 
-    HashMap::from([("VSH_GR".to_string(), vsh_gr_out), ("VSH".to_string(), vsh_out)])
+    HashMap::from([
+        ("VSH_GR".to_string(), vsh_gr_out),
+        ("VSH".to_string(), vsh_out),
+        ("VSH_PROV".to_string(), prov),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -7719,11 +7779,22 @@ mod tests {
         assert!(range_error.contains("0") && range_error.contains("200"), "range missing: {range_error}");
         assert!(range_error.contains("vsh_gr.info"), "range source missing: {range_error}");
 
-        let order_error = run_module("vsh_gr", &context(120.0, 20.0, "LINEAR", vec![70.0]))
-            .expect_err("inverted endpoints must be refused before the body can silently return NaN");
-        assert!(order_error.contains("vsh_gr.endpoint_order"), "relational condition missing: {order_error}");
-        assert!(order_error.contains("120") && order_error.contains("20"), "offending pair missing: {order_error}");
-        assert!(order_error.contains("SB-CLY-001"), "relational source missing: {order_error}");
+        // SB-CLY-001 (DEC-036): a degenerate endpoint pair no longer refuses the whole run -
+        // it is TOKENIZED, because a whole-run refusal could set no provenance token at all
+        // and would discard every valid zone with the degenerate one. The guard's substance
+        // is unchanged and pinned from both sides: no computed value can ever leave a
+        // degenerate pair, and the curve SAYS why instead of leaving a silent NaN.
+        let inverted = run_module("vsh_gr", &context(120.0, 20.0, "LINEAR", vec![70.0]))
+            .expect("a degenerate pair runs tokenized (SB-CLY-001/DEC-036)");
+        assert!(
+            inverted["VSH"][0].is_nan() && inverted["VSH_GR"][0].is_nan(),
+            "no computed value may leave a degenerate endpoint pair"
+        );
+        assert_eq!(
+            inverted["VSH_PROV"][0],
+            crate::param_sources::CLY_PROV_ENDPOINT_INVALID,
+            "the token curve says WHY the value is absent"
+        );
 
         let input_error = run_module("vsh_gr", &context(20.0, 120.0, "LINEAR", vec![f32::NAN]))
             .expect_err("a required curve with no finite sample must refuse instead of returning blank success");
@@ -11918,6 +11989,75 @@ mod tests {
         assert!(err.contains("set_curve_neutron_basis"), "the fix is named: {err}");
     }
 
+    /// SB-CLY-001 (DEC-036, confirmed by DEC-060(b)): the registry v1 token curve
+    /// distinguishes, IN THE OUTPUT, an endpoint failure from absent input - the two
+    /// conditions the old single `continue` collapsed into one silent NaN - and a degenerate
+    /// pair NEVER yields a computed value. The registry itself is pinned closed: v1, five
+    /// codes, COAL reserved for SB-CLY-036's branch, substitution a FIELD with no curve
+    /// because no substituting operation exists in the approved CLAY_LINEAR_GR group, and an
+    /// unknown code decodes to NOTHING (what the SB-CLY-055 re-import refusal reads).
+    #[test]
+    fn vsh_gr_distinguishes_endpoint_failure_from_absent_input_and_never_computes_on_a_degenerate_pair(
+    ) {
+        // A. Valid endpoints: COMPUTED where GR exists, MISSING_INPUT where it does not.
+        let ctx = ctx_with(
+            3,
+            &[("GR", vec![70.0, f32::NAN, 20.0])],
+            &[("GR_MA", 20.0), ("GR_SH", 120.0)],
+            &[("OPT_GR", "LINEAR")],
+        );
+        let out = run_module("vsh_gr", &ctx).expect("valid endpoints run");
+        assert_eq!(out["VSH_PROV"][0], crate::param_sources::CLY_PROV_COMPUTED);
+        assert!((out["VSH"][0] - 0.5).abs() < 1e-6);
+        assert_eq!(
+            out["VSH_PROV"][1],
+            crate::param_sources::CLY_PROV_MISSING_INPUT,
+            "absent input carries its OWN token"
+        );
+        assert!(out["VSH"][1].is_nan());
+        assert_eq!(out["VSH_PROV"][2], crate::param_sources::CLY_PROV_COMPUTED);
+
+        // B. Equal endpoints (the degenerate boundary): no computed value ANYWHERE, and the
+        //    token is a DIFFERENT number from A's missing input - the distinction the
+        //    chapter demands in the output itself.
+        let ctx = ctx_with(
+            2,
+            &[("GR", vec![70.0, f32::NAN])],
+            &[("GR_MA", 120.0), ("GR_SH", 120.0)],
+            &[("OPT_GR", "LINEAR")],
+        );
+        let out = run_module("vsh_gr", &ctx).expect("a degenerate pair runs tokenized");
+        assert!(
+            out["VSH"][0].is_nan() && out["VSH_GR"][0].is_nan(),
+            "MUST NOT emit a computed value on a degenerate pair"
+        );
+        assert_eq!(out["VSH_PROV"][0], crate::param_sources::CLY_PROV_ENDPOINT_INVALID);
+        assert_eq!(
+            out["VSH_PROV"][1],
+            crate::param_sources::CLY_PROV_ENDPOINT_INVALID,
+            "the pair is a zone-level condition - it outranks the missing sample"
+        );
+        assert_ne!(
+            crate::param_sources::CLY_PROV_ENDPOINT_INVALID,
+            crate::param_sources::CLY_PROV_MISSING_INPUT,
+            "never a null indistinguishable from missing input"
+        );
+
+        // C. The registry vocabulary is versioned and CLOSED.
+        assert_eq!(crate::param_sources::CLY_PROV_REGISTRY_VERSION, 1);
+        assert_eq!(crate::param_sources::CLY_PROV_V1.codes.len(), 5);
+        assert!(
+            crate::param_sources::CLY_PROV_V1.substitution_curve.is_none(),
+            "no substituting operation exists in the approved group - no dead all-zero curve"
+        );
+        assert_eq!(crate::param_sources::cly_prov_token(3.0), Some("ENDPOINT_INVALID"));
+        assert_eq!(
+            crate::param_sources::cly_prov_token(9.0),
+            None,
+            "an unknown code decodes to NOTHING - the CLY-055 refusal reads this"
+        );
+    }
+
     /// SB-ENV-007 (DEC-060(a), reversing DEC-031(a); parts (b) and (c) unchanged): the
     /// per-sample correction state is a ONE-HOT boolean flag group in SB-ENV-030's single
     /// 1 = true polarity - exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
@@ -12630,6 +12770,8 @@ mod tests {
                 ("vsh_gr.GR_SH".into(), "gAPI".into()),
                 ("vsh_gr.VSH".into(), "v/v".into()),
                 ("vsh_gr.VSH_GR".into(), "v/v".into()),
+                // SB-CLY-001 (DEC-036): the registry v1 token curve is categorical.
+                ("vsh_gr.VSH_PROV".into(), "flag".into()),
             ]),
             "every shipping CLY quantity must declare the chapter unit with no spelling drift"
         );

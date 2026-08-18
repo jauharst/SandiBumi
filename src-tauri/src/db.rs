@@ -404,7 +404,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             position    INTEGER NOT NULL,
             module      VARCHAR NOT NULL,
             kind        VARCHAR NOT NULL CHECK (
-                kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT')
+                kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT', 'ENDPOINT_INVALID')
             ),
             detail      VARCHAR NOT NULL,
             occurrences BIGINT NOT NULL CHECK (occurrences > 0),
@@ -1571,6 +1571,46 @@ pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
 /// in the marker document below, so a later reader sees the offset was declared by the
 /// product owner rather than inferred from the data. Idempotent: the marker gates the
 /// subtraction, because running it twice would move history by another seven hours.
+/// SB-CLY-001 (DEC-036): `run_degradations.kind` gained the documented fifth member
+/// `ENDPOINT_INVALID` - the zone-bearing run message rides the degradation channel. A
+/// pre-existing project carries the four-member CHECK, which would refuse the row at
+/// persist time, so the table is rebuilt in place with the extended CHECK and every row
+/// copied verbatim. Idempotent: a table whose CHECK already names the member is left alone.
+pub fn migrate_run_degradations_endpoint_invalid(conn: &Connection) -> DbResult<()> {
+    let outdated: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_constraints()
+         WHERE table_name = 'run_degradations' AND constraint_type = 'CHECK'
+           AND constraint_text LIKE '%kind IN%'
+           AND constraint_text NOT LIKE '%ENDPOINT_INVALID%'",
+        [],
+        |r| r.get(0),
+    )?;
+    if outdated == 0 {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE run_degradations_v2 (
+            set_id      UUID NOT NULL,
+            position    INTEGER NOT NULL,
+            module      VARCHAR NOT NULL,
+            kind        VARCHAR NOT NULL CHECK (
+                kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT', 'ENDPOINT_INVALID')
+            ),
+            detail      VARCHAR NOT NULL,
+            occurrences BIGINT NOT NULL CHECK (occurrences > 0),
+            PRIMARY KEY (set_id, position)
+         );
+         INSERT INTO run_degradations_v2
+             SELECT set_id, position, module, kind, detail, occurrences FROM run_degradations;
+         DROP TABLE run_degradations;
+         ALTER TABLE run_degradations_v2 RENAME TO run_degradations;
+         COMMIT;",
+    )?;
+    boot_note("One-time storage upgrade: run_degradations now accepts the ENDPOINT_INVALID kind (SB-CLY-001)".to_string());
+    Ok(())
+}
+
 pub fn migrate_log_set_timestamps_to_utc(conn: &Connection) -> DbResult<()> {
     let already: i64 = conn.query_row(
         "SELECT count(*) FROM documents WHERE doc_type = 'migration' AND name = 'DEC-022-created-at-utc'",
@@ -5870,6 +5910,60 @@ mod inspector_tests {
         //    the refusal comes from the zero-row guard, not from a cast error upstream of it.
         let absent = Uuid::new_v4().to_string();
         assert!(set_curve_neutron_basis(&conn, &absent, "SANDSTONE", "user").is_err());
+    }
+
+    /// SB-CLY-001 (DEC-036): a pre-existing project's four-member kind CHECK is rebuilt to
+    /// accept ENDPOINT_INVALID with every stored row copied verbatim - and the migration is
+    /// idempotent, so a project already carrying the member is left alone.
+    #[test]
+    fn an_old_degradation_table_accepts_the_endpoint_invalid_kind_after_migration_and_keeps_its_rows(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        // Recreate the PRE-migration shape: the four-member CHECK.
+        conn.execute_batch(
+            "DROP TABLE run_degradations;
+             CREATE TABLE run_degradations (
+                set_id      UUID NOT NULL,
+                position    INTEGER NOT NULL,
+                module      VARCHAR NOT NULL,
+                kind        VARCHAR NOT NULL CHECK (
+                    kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT')
+                ),
+                detail      VARCHAR NOT NULL,
+                occurrences BIGINT NOT NULL CHECK (occurrences > 0),
+                PRIMARY KEY (set_id, position)
+             );",
+        )
+        .unwrap();
+        let set_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO run_degradations VALUES (?1, 0, 'phi_den', 'CLAMPED', 'kept', 3)",
+            params![set_id],
+        )
+        .unwrap();
+        // The old CHECK refuses the fifth kind - the exact failure the migration removes.
+        assert!(conn
+            .execute(
+                "INSERT INTO run_degradations VALUES (?1, 1, 'vsh_gr', 'ENDPOINT_INVALID', 'x', 1)",
+                params![set_id],
+            )
+            .is_err());
+        migrate_run_degradations_endpoint_invalid(&conn).unwrap();
+        migrate_run_degradations_endpoint_invalid(&conn).unwrap(); // idempotent
+        conn.execute(
+            "INSERT INTO run_degradations VALUES (?1, 1, 'vsh_gr', 'ENDPOINT_INVALID', 'x', 1)",
+            params![set_id],
+        )
+        .expect("the rebuilt CHECK accepts the documented fifth member");
+        let kept: (String, i64) = conn
+            .query_row(
+                "SELECT kind, occurrences FROM run_degradations WHERE position = 0",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(kept, ("CLAMPED".to_string(), 3), "existing rows are copied verbatim");
     }
 
     #[test]

@@ -119,6 +119,95 @@ pub const PHIE_FLOOR: f64 = 0.001;
 /// `db::is_large_negative_null`'s computed screen bound (SB-DBM-030 / DEC-022 family).
 pub const GEOLOG_MISS_FLOAT: f32 = -1.0e30;
 
+// ---------------------------------------------------------------------------
+// SB-CLY-001 (DEC-036, confirmed unchanged by DEC-060(b)): the versioned CLY
+// provenance registry. v1 carries EXACTLY six things and no more: method
+// identity, missing input, masked/disabled input, ENDPOINT_INVALID, COAL, and
+// substitution - the last as its own field, independent of the token, because
+// "which method ran and why it could not" and "what was substituted in its
+// place" are different statements. Extension by the deferred SB-CLY-031/032 is
+// a MIGRATION with a version bump - never a silent re-use or renumbering of an
+// existing code.
+// ---------------------------------------------------------------------------
+
+pub const CLY_PROV_REGISTRY_VERSION: u32 = 1;
+
+/// One registry code: the number stored in the token curve, its stable name, and what it
+/// asserts about the sample.
+pub struct ClyProvEntry {
+    pub code: f32,
+    pub token: &'static str,
+    pub meaning: &'static str,
+}
+
+pub const CLY_PROV_COMPUTED: f32 = 0.0;
+pub const CLY_PROV_MISSING_INPUT: f32 = 1.0;
+pub const CLY_PROV_MASKED_INPUT: f32 = 2.0;
+pub const CLY_PROV_ENDPOINT_INVALID: f32 = 3.0;
+pub const CLY_PROV_COAL: f32 = 4.0;
+
+pub const CLY_PROV_CODES: [ClyProvEntry; 5] = [
+    ClyProvEntry {
+        code: CLY_PROV_COMPUTED,
+        token: "COMPUTED",
+        meaning: "a computed value was emitted at this sample",
+    },
+    ClyProvEntry {
+        code: CLY_PROV_MISSING_INPUT,
+        token: "MISSING_INPUT",
+        meaning: "an input the method needs is absent at this sample",
+    },
+    ClyProvEntry {
+        code: CLY_PROV_MASKED_INPUT,
+        token: "MASKED_INPUT",
+        meaning: "the sample was excluded by the run's mask (rule 11); written by the runner, which owns the mask",
+    },
+    ClyProvEntry {
+        code: CLY_PROV_ENDPOINT_INVALID,
+        token: "ENDPOINT_INVALID",
+        meaning: "the endpoint pair is degenerate (clean >= shale), so no computed value exists by SB-CLY-001's own MUST",
+    },
+    ClyProvEntry {
+        code: CLY_PROV_COAL,
+        token: "COAL",
+        meaning: "reserved for the SB-CLY-036 coal branch - defined in v1 so a later emitter cannot renumber, emitted by no shipped operation yet",
+    },
+];
+
+/// The registry itself. Method identity and substitution are REGISTRY-STRUCTURE FIELDS, not
+/// per-sample codes (DEC-036): "which method the token curve describes" is one statement per
+/// registry, and substitution is its own independent channel.
+pub struct ClyProvRegistry {
+    pub version: u32,
+    /// Method identity: the method family whose provenance the v1 token curve describes.
+    pub method: &'static str,
+    /// DEC-036 constraint 5 pins substitution independence from BOTH sides WHERE a
+    /// substitution happens. No substituting operation exists in the approved
+    /// CLAY_LINEAR_GR group, so v1 declares NO substitution curve rather than emitting a
+    /// dead all-zero channel - the curve ships with the first substituting operation,
+    /// carried in this field so its home is already decided.
+    pub substitution_curve: Option<&'static str>,
+    pub codes: &'static [ClyProvEntry],
+}
+
+pub const CLY_PROV_V1: ClyProvRegistry = ClyProvRegistry {
+    version: CLY_PROV_REGISTRY_VERSION,
+    method: "vsh_gr (the OPT_GR linear-GR transform group)",
+    substitution_curve: None,
+    codes: &CLY_PROV_CODES,
+};
+
+/// Decode one stored code against the registry. `None` is the whole point: an unknown code is
+/// NOT a token (DEC-036 constraint 3), and the re-import path refuses on it by name rather
+/// than passing a later vocabulary through as whatever v1 happens to assign.
+pub fn cly_prov_token(code: f32) -> Option<&'static str> {
+    CLY_PROV_V1
+        .codes
+        .iter()
+        .find(|entry| entry.code == code)
+        .map(|entry| entry.token)
+}
+
 /// One registered cross-module constant: its value lives in the consts above (re-exported by
 /// every consumer), and this row carries the audit trail - who reads it and on whose word.
 pub struct CrossModuleConstant {

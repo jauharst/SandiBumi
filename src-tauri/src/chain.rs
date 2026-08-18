@@ -854,36 +854,40 @@ mod tests {
         let batch_a = seed_well(&conn);
         let batch_b = seed_well(&conn);
         let zoned_well = seed_well(&conn);
-        db::upsert_md_zone(&conn, &zoned_well, "ENDPOINT-INVERSION", 1000.0, 1000.5).unwrap();
-        db::set_zone_param(&conn, &zoned_well, "ENDPOINT-INVERSION", "GR_MA", Some(120.0), None)
+        // SB-CLY-001 (DEC-036): an INVERTED pair no longer refuses - it is tokenized - so
+        // the shared-refusal fixture is a RANGE breach (GR_MA = -1 gAPI), which still
+        // refuses at the algorithm boundary with the same source-bearing shape. The route
+        // identity under test is unchanged.
+        db::upsert_md_zone(&conn, &zoned_well, "RANGE-BREACH", 1000.0, 1000.5).unwrap();
+        db::set_zone_param(&conn, &zoned_well, "RANGE-BREACH", "GR_MA", Some(-1.0), None)
             .unwrap();
-        db::set_zone_param(&conn, &zoned_well, "ENDPOINT-INVERSION", "GR_SH", Some(20.0), None)
+        db::set_zone_param(&conn, &zoned_well, "RANGE-BREACH", "GR_SH", Some(120.0), None)
             .unwrap();
         let database = Mutex::new(conn);
 
         let direct_context = modules::ModuleContext {
             n: 1,
             logs: HashMap::from([("GR".into(), vec![70.0])]),
-            params: HashMap::from([("GR_MA".into(), vec![120.0]), ("GR_SH".into(), vec![20.0])]),
+            params: HashMap::from([("GR_MA".into(), vec![-1.0]), ("GR_SH".into(), vec![120.0])]),
             opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
             depth_unit: Default::default(),
         };
         let expected = modules::run_module("vsh_gr", &direct_context)
-            .expect_err("the algorithm boundary must refuse inverted endpoints before its body");
-        assert!(expected.contains("vsh_gr.endpoint_order"), "condition id missing: {expected}");
-        assert!(expected.contains("value 120 at sample 0"), "offending sample missing: {expected}");
-        assert!(expected.contains("'GR_SH' value 20"), "comparison value missing: {expected}");
-        assert!(expected.contains("SB-CLY-001"), "condition source missing: {expected}");
+            .expect_err("the algorithm boundary must refuse a range breach before its body");
+        assert!(expected.contains("vsh_gr.gr_ma_range"), "condition id missing: {expected}");
+        assert!(expected.contains("value -1 gAPI at sample 0"), "offending sample missing: {expected}");
+        assert!(expected.contains("200"), "declared range missing: {expected}");
+        assert!(expected.contains("vsh_gr.info"), "condition source missing: {expected}");
 
         // Dialog/Tauri route: assert both the returned IPC payload and what Processing polls.
         let (dialog_results, dialog_job) =
-            run_with_processing_surface(&database, &vsh_request(vec![dialog_well], 120.0, 20.0));
+            run_with_processing_surface(&database, &vsh_request(vec![dialog_well], -1.0, 120.0));
         assert_processing_refusal(&dialog_results, &dialog_job, &expected);
 
         // Batch route: every well gets the same visible refusal; none is collapsed into summary Ok.
         let (batch_results, batch_job) = run_with_processing_surface(
             &database,
-            &vsh_request(vec![batch_a, batch_b], 120.0, 20.0),
+            &vsh_request(vec![batch_a, batch_b], -1.0, 120.0),
         );
         assert_processing_refusal(&batch_results, &batch_job, &expected);
 
@@ -913,7 +917,7 @@ mod tests {
         let invalid_step = ChainStep {
             module: "vsh_gr".into(),
             log_inputs: HashMap::new(),
-            params: HashMap::from([("GR_MA".into(), 120.0), ("GR_SH".into(), 20.0)]),
+            params: HashMap::from([("GR_MA".into(), -1.0), ("GR_SH".into(), 120.0)]),
             opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
         };
         run_chain(

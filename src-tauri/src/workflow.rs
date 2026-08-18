@@ -1874,6 +1874,18 @@ fn fetch_mask_aligned(
     if mask_name.is_empty() {
         return Ok(None);
     }
+    // SB-CLY-001 (DEC-036 constraint 2, kept where DEC-060 dropped the ENV guards): the CLY
+    // provenance token curve is categorical - 0 means COMPUTED, so rule 11's any-non-zero
+    // mask would blank every explained absence and pass exactly the computed samples,
+    // inverting the intent. Refused by name.
+    if mask_name.trim().eq_ignore_ascii_case("VSH_PROV") {
+        return Err(format!(
+            "{mask_name} is the CLY provenance token curve (registry v{}), not a flag: 0 means \
+             COMPUTED, so masking on it would invert the intent. Mask with BADHOLE or another \
+             binary flag instead.",
+            crate::param_sources::CLY_PROV_REGISTRY_VERSION
+        ));
+    }
     let (_, columns) = equations::fetch_curve_frame_from_set(
         conn,
         well_id,
@@ -2551,12 +2563,47 @@ fn run_workflow_module_into_with_parameter_serializer(
                     })
                     .flatten();
 
+                // SB-CLY-001 (DEC-036): resolve the CLY provenance output's STORED name
+                // (rename + prefix, exactly as the outputs map composed it) so the mask pass
+                // below can WRITE the masked/disabled token instead of blanking it, and the
+                // zone-bearing message can read the final tokens.
+                let cly_prov_output: Option<String> = (req.module == "vsh_gr")
+                    .then(|| {
+                        out_names
+                            .iter()
+                            .find(|(declared, _)| declared == "VSH_PROV")
+                            .map(|(_, resolved)| {
+                                match opts
+                                    .get(OUT_PREFIX_OPT)
+                                    .map(|value| value.trim())
+                                    .filter(|value| !value.is_empty())
+                                {
+                                    Some(prefix) => {
+                                        format!("{}{resolved}", prefix.to_uppercase())
+                                    }
+                                    None => resolved.clone(),
+                                }
+                            })
+                    })
+                    .flatten();
+
                 // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
                 // never trusted downstream - EXCEPT the one declared repair output, whose
                 // finite values at masked depths are the module's whole purpose.
                 if let Some(mask) = &mask {
                     for (name, values) in outputs.iter_mut() {
                         if repair_exempt_output.as_deref() == Some(name.as_str()) {
+                            continue;
+                        }
+                        if cly_prov_output.as_deref() == Some(name.as_str()) {
+                            // SB-CLY-001: a masked sample's token is the mask's own statement,
+                            // written HERE where the mask is known - blanking it would erase
+                            // the one record of WHY the sample has no computed value.
+                            for (value, flag) in values.iter_mut().zip(mask.iter()) {
+                                if modules::sample_is_flagged(*flag) {
+                                    *value = crate::param_sources::CLY_PROV_MASKED_INPUT;
+                                }
+                            }
                             continue;
                         }
                         for (v, m) in values.iter_mut().zip(mask.iter()) {
@@ -2587,6 +2634,68 @@ fn run_workflow_module_into_with_parameter_serializer(
                                 })
                                 .collect();
                             outputs.insert(format!("{name}_RECON_FLAG"), marker);
+                        }
+                    }
+                }
+
+                // SB-CLY-001 (DEC-036 constraint 4): the zone-bearing run-level message.
+                // The per-sample token does not discharge it - group the ENDPOINT_INVALID
+                // samples by zone and name the parameter pair, the zone and the offending
+                // values, on the same channel every other run degradation rides.
+                if let Some(prov_name) = cly_prov_output.as_ref() {
+                    if let Some(prov) = outputs.get(prov_name.as_str()) {
+                        let invalid: Vec<usize> = prov
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, value)| {
+                                **value == crate::param_sources::CLY_PROV_ENDPOINT_INVALID
+                            })
+                            .map(|(index, _)| index)
+                            .collect();
+                        if !invalid.is_empty() {
+                            let zones = {
+                                let conn = db.lock().map_err(|_| "database busy".to_string())?;
+                                db::list_zones(&conn, well_id).map_err(|e| e.to_string())?
+                            };
+                            let mut groups: Vec<(String, usize, f64, f64)> = Vec::new();
+                            for index in invalid {
+                                let sample_depth = depth[index];
+                                let zone = zones
+                                    .iter()
+                                    .find(|zone| {
+                                        sample_depth >= zone.top_depth
+                                            && sample_depth < zone.bottom_depth
+                                    })
+                                    .map(|zone| format!("zone '{}'", zone.zone_name))
+                                    .unwrap_or_else(|| "the well-wide parameter set".to_string());
+                                let value_at = |name: &str| {
+                                    ctx.params
+                                        .get(name)
+                                        .and_then(|values| values.get(index))
+                                        .copied()
+                                        .unwrap_or(f64::NAN)
+                                };
+                                let gr_ma = value_at("GR_MA");
+                                let gr_sh = value_at("GR_SH");
+                                match groups.iter_mut().find(|group| group.0 == zone) {
+                                    Some(group) => group.1 += 1,
+                                    None => groups.push((zone, 1, gr_ma, gr_sh)),
+                                }
+                            }
+                            for (zone, count, gr_ma, gr_sh) in groups {
+                                degradations.push(modules::RunDegradation {
+                                    kind: modules::RunDegradationKind::EndpointInvalid,
+                                    detail: format!(
+                                        "vsh_gr endpoint pair is degenerate in {zone}: GR_MA {gr_ma} >= GR_SH {gr_sh} - no computed value emitted; VSH_PROV carries the {} token (CLY provenance registry v{})",
+                                        crate::param_sources::cly_prov_token(
+                                            crate::param_sources::CLY_PROV_ENDPOINT_INVALID
+                                        )
+                                        .expect("the registry defines its own token"),
+                                        crate::param_sources::CLY_PROV_REGISTRY_VERSION
+                                    ),
+                                    occurrences: count,
+                                });
+                            }
                         }
                     }
                 }
@@ -7705,6 +7814,117 @@ mod tests {
         assert!(vsh[0].is_nan(), "flagged sample masked");
         assert!((vsh[1] - 0.4).abs() < 1e-4, "clean sample computes, got {}", vsh[1]);
         assert!(vsh[2].is_nan(), "flagged sample masked");
+    }
+
+    /// SB-CLY-001 (DEC-036 constraints 2 and 4): through the production runner, a degenerate
+    /// zone is NAMED in the run-level message with the parameter pair and the offending
+    /// values - the per-sample token does not discharge it - a masked sample carries the
+    /// runner-owned MASKED_INPUT token instead of a blank, and the token curve is refused as
+    /// a MASK by name (0 = COMPUTED would invert under rule 11).
+    #[test]
+    fn an_inverted_endpoint_zone_is_named_in_the_run_message_and_a_masked_sample_keeps_its_token(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-CLY", None, None, None).unwrap();
+        let n = 4usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![60.0; n], nan.clone(), nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        // Two zones; the deeper one carries an INVERTED override - the data-entry error the
+        // chapter names as the single most common in the domain.
+        db::upsert_md_zone(&conn, &id.to_string(), "MIOCENE_OK", 1000.0, 1002.0).unwrap();
+        db::upsert_md_zone(&conn, &id.to_string(), "MIOCENE_BAD", 1002.0, 1004.0).unwrap();
+        db::set_zone_param(&conn, &id.to_string(), "MIOCENE_BAD", "GR_MA", Some(150.0), None)
+            .unwrap();
+        db::set_zone_param(&conn, &id.to_string(), "MIOCENE_BAD", "GR_SH", Some(100.0), None)
+            .unwrap();
+        // A mask flagging the second sample (inside the VALID zone).
+        let mask_id = db::upsert_curve_meta(
+            &conn, &id.to_string(), "RAW", "MYFLAG", Some("flag"), None, None, None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &mask_id, &depth, &[0.0, 1.0, 0.0, 0.0]).unwrap();
+        let dbm = Mutex::new(conn);
+        let run = |mask: Option<&str>| -> Vec<ModuleRunResult> {
+            let mut opts: HashMap<String, String> = HashMap::new();
+            if let Some(mask) = mask {
+                opts.insert("MASK".to_string(), mask.to_string());
+            }
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "vsh_gr".into(),
+                    well_ids: vec![id.to_string()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::from([
+                        ("GR_MA".to_string(), 20.0_f64),
+                        ("GR_SH".to_string(), 120.0_f64),
+                    ]),
+                    opts,
+                    output_set: None,
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+        };
+        // A. The token curve is refused as a MASK by name, naming the registry version.
+        let refused = run(Some("VSH_PROV"));
+        let error = refused[0].error.clone().expect("the token curve must be refused as a mask");
+        assert!(error.contains("registry v1"), "the refusal names the vocabulary: {error}");
+        // B. The run succeeds, and the zone-bearing message names the zone, the pair and
+        //    the offending values.
+        let results = run(Some("MYFLAG"));
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+        let message = results[0]
+            .degradations
+            .iter()
+            .find(|d| d.kind == modules::RunDegradationKind::EndpointInvalid)
+            .map(|d| d.detail.clone())
+            .expect("the zone-bearing message is part of the contract, not the curve");
+        assert!(message.contains("MIOCENE_BAD"), "the ZONE is named: {message}");
+        assert!(
+            message.contains("GR_MA") && message.contains("GR_SH"),
+            "the parameter pair is named: {message}"
+        );
+        assert!(
+            message.contains("150") && message.contains("100"),
+            "the offending values are named: {message}"
+        );
+        // C. Stored tokens: computed / masked / endpoint-invalid, each its own statement,
+        //    and the masked sample keeps a TOKEN where every ordinary output is blanked.
+        let conn = dbm.lock().unwrap();
+        let read = |curve: &str| -> Vec<f32> {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT value FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2 \
+                     ORDER BY depth",
+                )
+                .unwrap();
+            stmt.query_map(duckdb::params![id.to_string(), curve], |row| {
+                Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+        };
+        let prov = read("VSH_PROV");
+        assert_eq!(prov[0], crate::param_sources::CLY_PROV_COMPUTED);
+        assert_eq!(
+            prov[1],
+            crate::param_sources::CLY_PROV_MASKED_INPUT,
+            "a masked sample's token is the mask's own statement, never a blank"
+        );
+        assert_eq!(prov[2], crate::param_sources::CLY_PROV_ENDPOINT_INVALID);
+        assert_eq!(prov[3], crate::param_sources::CLY_PROV_ENDPOINT_INVALID);
+        let vsh = read("VSH");
+        assert!((vsh[0] - 0.4).abs() < 1e-4, "the valid zone still computes: {}", vsh[0]);
+        assert!(vsh[1].is_nan() && vsh[2].is_nan() && vsh[3].is_nan());
     }
 
     /// SB-ENV-007 (DEC-060(a) + DEC-031(b)): the one-hot flag group survives the production
@@ -13772,6 +13992,10 @@ mod tests {
                 "VSH".to_string(),
                 "VSH_GR".to_string(),
                 "VSH_GR_PRECONDITION_FLAG".to_string(),
+                // SB-CLY-001 (DEC-036): the registry token curve rides every vsh_gr run. At
+                // framework-sanitized samples it is MISSING and the generic companion flag is
+                // the record - a framework exclusion is not one of registry v1's six things.
+                "VSH_PROV".to_string(),
             ]
         );
         assert!(flagged[0].error.is_none(), "the valid samples are a result, not a failed run");

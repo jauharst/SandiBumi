@@ -2499,6 +2499,29 @@ fn set_curve_neutron_basis(
     db::set_curve_neutron_basis(&conn, &curve_id, &basis, &source).map_err(|e| e.to_string())
 }
 
+/// SB-CLY-001 (DEC-036): the CLY provenance registry, readable by the UI so a stored token
+/// curve can be decoded against the exact versioned vocabulary that wrote it.
+#[tauri::command]
+fn cly_prov_registry() -> (u32, String, Option<String>, Vec<(f64, String, String)>) {
+    let registry = &param_sources::CLY_PROV_V1;
+    (
+        registry.version,
+        registry.method.to_string(),
+        registry.substitution_curve.map(|curve| curve.to_string()),
+        registry
+            .codes
+            .iter()
+            .map(|entry| {
+                (
+                    entry.code as f64,
+                    entry.token.to_string(),
+                    entry.meaning.to_string(),
+                )
+            })
+            .collect(),
+    )
+}
+
 #[tauri::command]
 fn cross_module_constants() -> Vec<(String, f64, String, String, String)> {
     param_sources::CROSS_MODULE_CONSTANTS
@@ -4362,6 +4385,7 @@ pub fn run() {
             curve_sampling,
             param_sources,
             cross_module_constants,
+            cly_prov_registry,
             set_curve_neutron_basis,
             rename_ml_model,
             delete_ml_model,

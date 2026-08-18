@@ -1348,7 +1348,7 @@ export interface ModuleRunResult {
 }
 
 export interface RunDegradation {
-  kind: "CLAMPED" | "DEFAULTED" | "TRUNCATED" | "SUBSTITUTED_INPUT";
+  kind: "CLAMPED" | "DEFAULTED" | "TRUNCATED" | "SUBSTITUTED_INPUT" | "ENDPOINT_INVALID";
   detail: string;
   occurrences: number;
 }

@@ -414,3 +414,6 @@
 "SB-ENV-007","CORRECTNESS","src-tauri/src/workflow.rs","the_correction_flag_group_is_one_hot_through_the_runner_and_the_manifest_rides_the_log_set"
 "SB-ENV-029","CORRECTNESS","src-tauri/src/modules.rs","nphimat_validates_matrix_in_against_the_declared_basis_and_never_guesses"
 "SB-ENV-029","CORRECTNESS","src-tauri/src/workflow.rs","a_declared_neutron_basis_reaches_nphimat_through_the_production_runner"
+"SB-CLY-001","CORRECTNESS","src-tauri/src/modules.rs","vsh_gr_distinguishes_endpoint_failure_from_absent_input_and_never_computes_on_a_degenerate_pair"
+"SB-CLY-001","CORRECTNESS","src-tauri/src/workflow.rs","an_inverted_endpoint_zone_is_named_in_the_run_message_and_a_masked_sample_keeps_its_token"
+"SB-CLY-001","CORRECTNESS","src-tauri/src/db.rs","an_old_degradation_table_accepts_the_endpoint_invalid_kind_after_migration_and_keeps_its_rows"
