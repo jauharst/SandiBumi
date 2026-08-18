@@ -4233,7 +4233,8 @@ fn badhole_spec() -> ModuleSpec {
               be evaluated. The flag is 0 in good hole and MISSING where no QC criterion can be \
               evaluated. The two \
               BADHOLE_*_EVALUATED companions record criterion availability with 1 = evaluated and \
-              0 = unavailable; they are not the separate cause/sign channels. Feed BADHOLE to any \
+              0 = unavailable; the BADHOLE_CALI / BADHOLE_DRHO_POS / BADHOLE_DRHO_NEG cause \
+              flags record which criterion fired, with the DRHO sign carried natively (DEC-060). Feed BADHOLE to any \
               module run as a mask so flagged intervals go missing instead of polluting results."
             .into(),
         args: vec![
@@ -4282,13 +4283,26 @@ fn badhole_spec() -> ModuleSpec {
                 "Bad-hole flag (1 = bad, 0 = good)",
                 FlagKind::ExclusionMask,
             ),
-            // SB-ENV-022/023 (DEC-032): the CODED companion - a categorical curve, explicitly
-            // not a binary flag, refused as a MASK by name (0 = not flagged, 6 = neither
-            // evaluable would invert under rule 11's any-non-zero mask reading).
-            log_out(
-                "BADHOLE_REASON",
-                "Coded bad-hole reason (0 not flagged, 1 caliper, 2 DRHO+, 3 DRHO-, 4 caliper+DRHO+, 5 caliper+DRHO-, 6 neither evaluable; MISSING where no sample). The reason, never the trigger - mask with BADHOLE.",
-                "",
+            // SB-ENV-022/023 (DEC-060, reversing DEC-032): the cause channel is a typed
+            // BOOLEAN GROUP - ordinary 1 = true flags, so "caliper and DRHO positive" is
+            // both flags true natively, and the DRHO sign survives every combination by
+            // construction rather than by enumeration. Per flag: 1 = the criterion FIRED,
+            // 0 = evaluated and did not fire, MISSING where the criterion could not be
+            // evaluated - so a sample where nothing was evaluable never reads as clean.
+            log_out_flag(
+                "BADHOLE_CALI",
+                "Caliper departure fired (DEC-060 bad-hole cause group; MISSING where the criterion was not evaluable)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "BADHOLE_DRHO_POS",
+                "Density correction fired with positive sign (DEC-060 bad-hole cause group; MISSING where DRHO was not evaluable)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "BADHOLE_DRHO_NEG",
+                "Density correction fired with negative sign (DEC-060 bad-hole cause group; MISSING where DRHO was not evaluable)",
+                FlagKind::DiagnosticIndicator,
             ),
             log_out_flag(
                 "BADHOLE_CALI_EVALUATED",
@@ -4343,15 +4357,14 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let mut flag = FlagCurve::missing(ctx.n);
     let mut cali_evaluated = FlagCurve::clear(ctx.n);
     let mut drho_evaluated = FlagCurve::clear(ctx.n);
-    // SB-ENV-022/023 (DEC-032): one coded reason curve, the DRHO sign retained in EVERY
-    // combination - a five-code table with one undifferentiated "both" discards the sign on
-    // exactly the samples where a reader most needs it. Table (stable, versioned with this
-    // comment): 0 = not flagged, 1 = caliper, 2 = DRHO positive, 3 = DRHO negative,
-    // 4 = caliper + DRHO positive, 5 = caliper + DRHO negative, 6 = neither evaluable,
-    // NaN = no sample at all. Causation is never inferred from availability: a code is
-    // written only where the criterion actually FIRED, and the sign is the DRHO reading's
-    // own, carried through rather than re-derived.
-    let mut reason = vec![f32::NAN; ctx.n];
+    // SB-ENV-022/023 (DEC-060, reversing DEC-032): boolean cause flags, the DRHO sign
+    // retained in EVERY combination by construction - both-and-positive is simply two flags
+    // true. Causation is never inferred from availability: a flag is Flagged only where the
+    // criterion actually FIRED, Clear where it was evaluated and did not fire, and Missing
+    // where it could not be evaluated at all.
+    let mut cause_cali = FlagCurve::missing(ctx.n);
+    let mut cause_drho_pos = FlagCurve::missing(ctx.n);
+    let mut cause_drho_neg = FlagCurve::missing(ctx.n);
 
     for i in 0..ctx.n {
         let dr = drho[i] as f64;
@@ -4374,6 +4387,16 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
                 bad = true;
                 drho_fired = true;
             }
+            // DEC-060: the sign is the DRHO reading's own, carried through rather than
+            // re-derived - a change to the DRHO convention cannot leave the two disagreeing.
+            cause_drho_pos.set(
+                i,
+                if drho_fired && dr > 0.0 { FlagValue::Flagged } else { FlagValue::Clear },
+            );
+            cause_drho_neg.set(
+                i,
+                if drho_fired && dr <= 0.0 { FlagValue::Flagged } else { FlagValue::Clear },
+            );
         }
         if !is_missing(cl) && !is_missing(bit) {
             any = true;
@@ -4382,6 +4405,10 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
                 bad = true;
                 cali_fired = true;
             }
+            cause_cali.set(
+                i,
+                if cali_fired { FlagValue::Flagged } else { FlagValue::Clear },
+            );
         }
         if any {
             flag.set(
@@ -4393,30 +4420,13 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
                 },
             );
         }
-        // DEC-032 code assignment. `6 = neither evaluable` is written where SOME input
-        // exists but no criterion could run; a depth with no sample at all stays NaN -
-        // otherwise it would assert a clean hole where nothing was measured.
-        reason[i] = if any {
-            match (cali_fired, drho_fired) {
-                (false, false) => 0.0,
-                (true, false) => 1.0,
-                (false, true) => {
-                    if dr > 0.0 { 2.0 } else { 3.0 }
-                }
-                (true, true) => {
-                    if dr > 0.0 { 4.0 } else { 5.0 }
-                }
-            }
-        } else if is_missing(dr) && is_missing(cl) && is_missing(bs[i] as f64) {
-            f32::NAN
-        } else {
-            6.0
-        };
     }
 
     Ok(HashMap::from([
         ("BADHOLE".to_string(), flag.into_f32()),
-        ("BADHOLE_REASON".to_string(), reason),
+        ("BADHOLE_CALI".to_string(), cause_cali.into_f32()),
+        ("BADHOLE_DRHO_POS".to_string(), cause_drho_pos.into_f32()),
+        ("BADHOLE_DRHO_NEG".to_string(), cause_drho_neg.into_f32()),
         (
             "BADHOLE_CALI_EVALUATED".to_string(),
             cali_evaluated.into_f32(),
@@ -7441,6 +7451,10 @@ mod tests {
             .collect();
         let expected = BTreeMap::from([
             ("badhole.BADHOLE".into(), FlagKind::ExclusionMask),
+            // SB-ENV-022/023 (DEC-060): the boolean cause group.
+            ("badhole.BADHOLE_CALI".into(), FlagKind::DiagnosticIndicator),
+            ("badhole.BADHOLE_DRHO_POS".into(), FlagKind::DiagnosticIndicator),
+            ("badhole.BADHOLE_DRHO_NEG".into(), FlagKind::DiagnosticIndicator),
             (
                 "badhole.BADHOLE_CALI_EVALUATED".into(),
                 FlagKind::DiagnosticIndicator,
@@ -11153,15 +11167,14 @@ mod tests {
         assert_eq!(s[2], 2.0);
     }
 
-    /// SB-ENV-022 + SB-ENV-023 (DEC-032): the coded reason names WHICH criterion fired, and
-    /// the DRHO sign is retained in EVERY combination - the ruling's substance is the two
-    /// combined codes, because one undifferentiated "both" would discard the sign on exactly
-    /// the samples where two criteria fired. Causation is never inferred from availability
-    /// (6 = neither evaluable is not 0 = not flagged), and a depth with no sample at all is
-    /// MISSING, never a code that asserts a clean hole nobody measured.
+    /// SB-ENV-022 + SB-ENV-023 (DEC-060, reversing DEC-032): the cause channel is a typed
+    /// boolean group, and the DRHO sign is retained in EVERY combination BY CONSTRUCTION -
+    /// "caliper and DRHO positive" is simply both flags true, no combined codes and no
+    /// decode table. Causation is never inferred from availability: a flag is 1 only where
+    /// its criterion FIRED, 0 where evaluated-and-clean, and MISSING where it could not be
+    /// evaluated - so a sample where nothing was evaluable never reads as a clean hole.
     #[test]
-    fn the_badhole_reason_names_which_criterion_fired_and_keeps_the_drho_sign_in_every_combination(
-    ) {
+    fn the_badhole_causes_are_boolean_flags_and_the_drho_sign_survives_every_combination() {
         let n = 8;
         let ctx = ctx_with(
             n,
@@ -11181,17 +11194,26 @@ mod tests {
             ],
         );
         let out = badhole(&ctx).expect("run");
-        let reason = &out["BADHOLE_REASON"];
-        assert_eq!(reason[0], 1.0, "caliper alone");
-        assert_eq!(reason[1], 2.0, "DRHO positive alone");
-        assert_eq!(reason[2], 3.0, "DRHO negative alone");
-        assert_eq!(reason[3], 4.0, "caliper + DRHO positive - the sign survives the combination");
-        assert_eq!(reason[4], 5.0, "caliper + DRHO negative - the sign survives the combination");
-        assert_eq!(reason[5], 0.0, "evaluated and clean is 0, a POSITIVE statement");
-        assert_eq!(reason[6], 6.0, "input present but neither criterion evaluable is 6, never 0");
-        assert!(reason[7].is_nan(), "no sample at all stays MISSING, got {}", reason[7]);
-        // The reason agrees with the binary flag it explains: flagged where a code fired,
-        // clear where 0, and the flag's own missing where 6/NaN (nothing was evaluated).
+        let cali_flag = &out["BADHOLE_CALI"];
+        let pos = &out["BADHOLE_DRHO_POS"];
+        let neg = &out["BADHOLE_DRHO_NEG"];
+        // Solo causes: exactly one flag fires, the DRHO sign on its own flag.
+        assert_eq!((cali_flag[0], pos[0], neg[0]), (1.0, 0.0, 0.0), "caliper alone");
+        assert_eq!((cali_flag[1], pos[1], neg[1]), (0.0, 1.0, 0.0), "DRHO positive alone");
+        assert_eq!((cali_flag[2], pos[2], neg[2]), (0.0, 0.0, 1.0), "DRHO negative alone");
+        // Combinations: both flags true NATIVELY - the sign survives by construction.
+        assert_eq!((cali_flag[3], pos[3], neg[3]), (1.0, 1.0, 0.0), "caliper + DRHO positive");
+        assert_eq!((cali_flag[4], pos[4], neg[4]), (1.0, 0.0, 1.0), "caliper + DRHO negative");
+        // Evaluated and clean is 0 on every flag - a POSITIVE statement.
+        assert_eq!((cali_flag[5], pos[5], neg[5]), (0.0, 0.0, 0.0), "evaluated clean");
+        // Neither criterion evaluable: MISSING on every cause flag, never 0 - a sample
+        // where nothing was evaluated must not read as a clean hole.
+        assert!(
+            cali_flag[6].is_nan() && pos[6].is_nan() && neg[6].is_nan(),
+            "not evaluable stays MISSING, never a clean-hole claim"
+        );
+        assert!(cali_flag[7].is_nan() && pos[7].is_nan() && neg[7].is_nan(), "no sample at all");
+        // The causes agree with the binary flag they explain.
         let flag = &out["BADHOLE"];
         for i in 0..5 {
             assert_eq!(flag[i], 1.0, "sample {i}");

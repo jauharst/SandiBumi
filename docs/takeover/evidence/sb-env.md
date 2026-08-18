@@ -285,16 +285,16 @@
 
 ## SB-ENV-022 - Bad-hole flag carries a reason channel
 
-- **Specified contract:** a companion channel identifying caliper, DRHO, both, evaluated-good and neither-evaluable; DEC-032 (RULED 2026-08-17) fixed one coded `BADHOLE_REASON` curve with the seven-code table and four constraints.
-- **Current implementation (2026-08-18):** DONE. The badhole module emits the exact table (0/1/2/3/4/5/6, MISSING for absence); causation never inferred from availability; refused as a MASK by name in `fetch_mask_aligned` with the fix stated. Categorical, not an SB-ENV-030 binary flag.
-- **Qualifying tests:** the seven-code table pinned on one fixture with the reason cross-checked against the flag it explains, plus the production runner's mask refusal. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Specified contract:** a companion channel identifying caliper, DRHO, both, evaluated-good and neither-evaluable. DEC-032 (2026-08-17) first ruled one coded curve; DEC-060 (same day, Jauhar's re-adjudication) REVERSED it to a typed boolean group.
+- **Current implementation (2026-08-18):** DONE, remediated same-day after the first implementation shipped the coded form against the already-reversed ruling. `BADHOLE_CALI` / `BADHOLE_DRHO_POS` / `BADHOLE_DRHO_NEG`, ordinary 1 = true flags in the typed inventory; per flag 1 = fired, 0 = evaluated-clean, MISSING = not evaluable (so nothing-evaluable never reads clean); both-fired is two flags true natively; causation never inferred from availability. The coded-form MASK-refusal guard was dropped per DEC-060's explicit instruction - an ordinary flag is safe in the mask machinery.
+- **Qualifying tests:** every cause combination, evaluated-clean, not-evaluable and BADHOLE agreement on one fixture; plus the runner-level pin that a stored cause flag is ACCEPTED as a MASK and blanks exactly the fired samples. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
 - **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-023 - The density correction's sign is preserved and reported
 
-- **Specified contract:** the DRHO cause retains its sign; DEC-032's substance is that it is retained in EVERY combination - codes 4/5 exist because one undifferentiated "both" discards the sign exactly where two criteria fired.
-- **Current implementation (2026-08-18):** DONE, in SB-ENV-022's `BADHOLE_REASON` channel; the sign is the DRHO reading's own, carried through, never re-derived.
-- **Qualifying test:** codes 2 vs 3 pin the solo sign and 4 vs 5 pin the sign surviving the combination, with the collapse and inversion mutations each firing their own assertion. Test class `CORRECTNESS`.
+- **Specified contract:** the DRHO cause retains its sign in every combination. Under DEC-060 (reversing DEC-032) the sign lives on its own flag, so it survives combination BY CONSTRUCTION rather than by enumerated combined codes.
+- **Current implementation (2026-08-18):** DONE, in SB-ENV-022's boolean cause group (`BADHOLE_DRHO_POS` / `BADHOLE_DRHO_NEG`); the sign is the DRHO reading's own, carried through, never re-derived.
+- **Qualifying test:** the solo POS/NEG samples pin the sign alone; caliper+POS and caliper+NEG pin the sign surviving the combination; the sign-inversion and sign-dropped mutations each fire their own assertion. Test class `CORRECTNESS`.
 - **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-024 - Bad-hole thresholds ship ABSENT with cited presets
