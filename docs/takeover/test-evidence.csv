@@ -402,3 +402,4 @@
 "SB-ENV-027","CORRECTNESS","src-tauri/src/workflow.rs","the_one_declared_repair_survives_the_mask_and_wears_its_marker_while_other_modes_stay_masked"
 "SB-ENV-027","CORRECTNESS","src-tauri/src/workflow.rs","the_masked_washout_is_now_repaired_by_the_declared_exemption_it_once_defeated"
 "SB-ENV-033","CORRECTNESS","src-tauri/src/condition.rs","the_four_sample_window_still_refuses_while_a_zero_mad_window_runs_and_reports_its_fallback_scale"
+"SB-DBM-009","CORRECTNESS","src-tauri/src/db.rs","legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source"

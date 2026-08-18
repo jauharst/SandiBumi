@@ -122,16 +122,10 @@
 
 ## SB-DBM-009 - Provenance timestamps are stored UTC and displayed local
 
-- **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T11`; sections 4.1, 5.5 and 6.2.
-- **Atomic obligations:** store UTC; render local only at the display edge; migrate or explicitly classify legacy local timestamps without guessing.
-- **Current source:** schema-v3 curve ancestry stores Unix-epoch milliseconds from `SystemTime`, but Inspector renders that instant with `toISOString()` rather than in the viewer's local zone. Process history stores `Date.now()` milliseconds and the History panel renders locally, while its text export emits zone-less UTC text. `log_sets.created_at` still uses DuckDB `TIMESTAMP DEFAULT now()` without a UTC contract or offset. No policy classifies its existing local/unspecified values.
-- **Qualifying acceptance tests:** none; T11's cross-zone UTC storage/local-display fixture is missing. Test class is `MISSING`.
-- **Supporting tests:** timestamp presence/order tests do not prove UTC semantics.
-- **Manual evidence:** `processing-history` 0/7 and `project-lifecycle` 3/24.
-- **Git evidence:** live re-verification on `codex/g2-program-plan` finds a UTC instant in current ancestry and process-history records, but local-display and legacy `log_sets` semantics remain divergent.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-022` must classify legacy local/unspecified values before any migration can avoid inventing their zone. The full T11 audit fixture also depends on SB-DBM-011's structured audit store.
-- **Next action:** after Jauhar settles DEC-022, introduce one unambiguous UTC representation, label legacy values without guessing, convert only at display, reuse that timestamp contract in SB-DBM-011's audit store and implement the time-zone arm of T11.
+- **Specified contract:** provenance timestamps are unambiguous UTC instants at the store, converted only at display; DEC-022 (RULED 2026-08-17) declared the legacy `log_sets.created_at` values WIB (UTC+7) and ordered their one-time conversion with the declaration recorded as the source.
+- **Current implementation (2026-08-18):** DONE. `db::migrate_log_set_timestamps_to_utc` (wired into project open) subtracts the declared seven hours exactly once, gated by the `DEC-022-created-at-utc` marker document that records the zone, the ruling and the rows converted - the accepted risk (a record written elsewhere lands hours off with nothing in the data to catch it) is thereby on the record as a DECLARATION, not a measurement. New rows default to `now() AT TIME ZONE 'UTC'` in both the CREATE and the migration's ALTER (deliberate redundancy: old-schema and fresh projects land on one meaning). Display: ancestry renders viewer-local in the inspector; the history text export says UTC by name.
+- **Qualifying test:** `db::inspector_tests::legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source` - the seven-hour conversion, the idempotency gate (a second run must not move history again), the recorded declaration, a fresh row within 60s of UTC under a Jakarta-pinned session, and the structural DEFAULT pin. Three mutations killed on distinct assertions (gate removed, offset re-typed to eight hours, both defaults removed); removing either single default alone survives because the other covers it - genuine redundancy, recorded as such. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-010 - Provenance travels into the deliverable
 

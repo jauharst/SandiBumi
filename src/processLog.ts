@@ -82,7 +82,9 @@ export async function loadProcessLog(): Promise<void> {
 
 /** Plain-text rendering of the whole log for export/copy. */
 export function processLogToText(): string {
-  const iso = (ts: number) => new Date(ts).toISOString().replace("T", " ").slice(0, 19);
+  // SB-DBM-009 / DEC-022: the exported record keeps UTC but SAYS so - a zone-less
+  // timestamp reads as local on whatever machine opens the file.
+  const iso = (ts: number) => new Date(ts).toISOString().replace("T", " ").slice(0, 19) + " UTC";
   const lines = entries.map(
     (e) => `${iso(e.ts)}  [${e.kind}]${e.well ? ` ${e.well}:` : ""} ${e.detail}`,
   );

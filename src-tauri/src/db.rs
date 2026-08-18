@@ -377,7 +377,9 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             module      VARCHAR NOT NULL,     -- module name, 'workflow (N steps)', 'equation:X', ...
             params_json VARCHAR,              -- parameters of the run
             inputs_json VARCHAR,              -- resolved input curve mnemonics
-            created_at  TIMESTAMP NOT NULL DEFAULT now(),
+            -- SB-DBM-009 / DEC-022: a provenance timestamp is an unambiguous UTC INSTANT,
+            -- converted only at display. now() alone lands the session's local wall clock.
+            created_at  TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
             -- 'STANDARD' = written on the well's own depth grid (every module).
             -- 'OWN'      = the set carries its own depth column (reframe.rs), and every read
             --              through it runs on that frame instead. Declared, never inferred.
@@ -1555,6 +1557,39 @@ pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
 /// nothing, while rewriting a field-scale project after the promised copy failed breaks the
 /// exact guarantee R-B exists to make. `path: None` is for in-memory test databases only —
 /// every real caller must pass the project-file path.
+/// SB-DBM-009 / DEC-022: converts every pre-migration `log_sets.created_at` from WIB
+/// (UTC+7) local wall time to a UTC instant, and re-points the column DEFAULT at UTC so new
+/// rows can never reintroduce the local meaning. The zone is DECLARED, not measured: Jauhar
+/// ruled (DEC-022, 2026-08-17) that every legacy record was written on a machine set to
+/// Western Indonesia time, and the ruling itself is recorded as the converted values' SOURCE
+/// in the marker document below, so a later reader sees the offset was declared by the
+/// product owner rather than inferred from the data. Idempotent: the marker gates the
+/// subtraction, because running it twice would move history by another seven hours.
+pub fn migrate_log_set_timestamps_to_utc(conn: &Connection) -> DbResult<()> {
+    let already: i64 = conn.query_row(
+        "SELECT count(*) FROM documents WHERE doc_type = 'migration' AND name = 'DEC-022-created-at-utc'",
+        [],
+        |r| r.get(0),
+    )?;
+    if already > 0 {
+        return Ok(());
+    }
+    let converted = conn.execute(
+        "UPDATE log_sets SET created_at = created_at - INTERVAL 7 HOUR",
+        [],
+    )?;
+    conn.execute_batch(
+        "ALTER TABLE log_sets ALTER COLUMN created_at SET DEFAULT (now() AT TIME ZONE 'UTC')",
+    )?;
+    conn.execute(
+        "INSERT INTO documents (doc_id, doc_type, name, json) VALUES (gen_random_uuid(), 'migration', 'DEC-022-created-at-utc', ?1)",
+        params![format!(
+            "{{\"declared_zone\":\"WIB (UTC+7)\",\"source\":\"DEC-022 (RULED 2026-08-17): every pre-migration log_sets.created_at was written on a machine set to Western Indonesia time; the offset is declared by the product owner, not measured from the data\",\"rows_converted\":{converted}}}"
+        )],
+    )?;
+    Ok(())
+}
+
 pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     migrate_drop_computed_curves_pk_with_backup(conn, path, backup_before_destructive_migration)
 }
@@ -5768,6 +5803,92 @@ mod inspector_tests {
     /// decade inside the cited constant, the screen is COUNTED (the flag channel - never
     /// silent), NaN binds SQL NULL so absence is not representable as a number at the store,
     /// and a value exactly ON the bound is DATA that survives bit for bit.
+    /// SB-DBM-009 / DEC-022: legacy `log_sets.created_at` values are WIB (UTC+7) wall time
+    /// and are converted to UTC instants EXACTLY ONCE, with the declared zone and the ruling
+    /// recorded as the converted values' SOURCE - so a later reader sees the offset was
+    /// declared by the product owner, never measured from the data - and new rows default to
+    /// UTC so the local meaning cannot creep back in.
+    #[test]
+    fn legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-TS", None, None, None).unwrap();
+        // A legacy row: written at 12:00 WIB wall time on the pre-migration schema.
+        conn.execute(
+            "INSERT INTO log_sets (set_id, well_id, set_name, version, module, created_at)
+             VALUES (gen_random_uuid(), ?1, 'RAW', 1, 'legacy', TIMESTAMP '2026-08-01 12:00:00')",
+            params![id.to_string()],
+        )
+        .unwrap();
+        migrate_log_set_timestamps_to_utc(&conn).unwrap();
+        let stored = || -> String {
+            conn.query_row(
+                "SELECT strftime(created_at, '%Y-%m-%d %H:%M:%S') FROM log_sets WHERE module = 'legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        // A. 12:00 WIB is 05:00 UTC - seven hours, the declared offset.
+        assert_eq!(stored(), "2026-08-01 05:00:00");
+        // B. Idempotent: running the migration again must NOT move history by another seven
+        //    hours - the marker document gates the subtraction.
+        migrate_log_set_timestamps_to_utc(&conn).unwrap();
+        assert_eq!(stored(), "2026-08-01 05:00:00", "a second run must not subtract again");
+        // C. The source is RECORDED: the marker names the declared zone and DEC-022, so the
+        //    conversion is traceable to the owner's declaration rather than to a guess.
+        let record: String = conn
+            .query_row(
+                "SELECT json FROM documents WHERE doc_type = 'migration' AND name = 'DEC-022-created-at-utc'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(record.contains("WIB (UTC+7)"), "the declared zone is recorded: {record}");
+        assert!(record.contains("DEC-022"), "the ruling is the recorded source: {record}");
+        assert!(record.contains("declared by the product owner"), "{record}");
+        // D. A row written AFTER the migration defaults to a UTC instant, not local wall
+        //    time - proven by pinning the SESSION zone to Jakarta first, so a default that
+        //    silently reverted to now() would land seven hours off.
+        conn.execute_batch("SET TimeZone = 'Asia/Jakarta'").unwrap();
+        conn.execute(
+            "INSERT INTO log_sets (set_id, well_id, set_name, version, module)
+             VALUES (gen_random_uuid(), ?1, 'RAW', 2, 'fresh')",
+            params![id.to_string()],
+        )
+        .unwrap();
+        let drift_seconds: f64 = conn
+            .query_row(
+                "SELECT abs(epoch(created_at) - epoch(now() AT TIME ZONE 'UTC'))
+                 FROM log_sets WHERE module = 'fresh'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            drift_seconds < 60.0,
+            "a fresh row must be a UTC instant; it is {drift_seconds}s from UTC now - a local              default on a UTC+7 machine would read ~25200s"
+        );
+        // E. The DEFAULT itself declares UTC. This bundled build's now() happens to sit on
+        //    UTC whatever the session zone is set to, so arm D alone cannot catch a default
+        //    quietly reverted to bare now() - but a build with ICU zone support would then
+        //    write local wall time again. The declaration is pinned structurally.
+        let default_expr: String = conn
+            .query_row(
+                "SELECT column_default FROM duckdb_columns()
+                 WHERE table_name = 'log_sets' AND column_name = 'created_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            default_expr.contains("UTC"),
+            "created_at's default must declare UTC, got: {default_expr}"
+        );
+    }
+
     #[test]
     fn an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data(
     ) {

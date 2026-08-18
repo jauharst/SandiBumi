@@ -39,7 +39,9 @@ function showCurveAncestry(label: string, ancestry: CurveAncestry): void {
   summary.className = "modal-hint";
   summary.textContent =
     `${ancestry.module} @ ${ancestry.module_version} · ${ancestry.actor.kind.toLowerCase()} ` +
-    `${ancestry.actor.identity} · ${new Date(ancestry.timestamp_utc_ms).toISOString()}`;
+    // SB-DBM-009 / DEC-022: stored as a UTC instant, DISPLAYED viewer-local - the zone
+    // conversion happens only here, at the screen.
+    `${ancestry.actor.identity} · ${new Date(ancestry.timestamp_utc_ms).toLocaleString()}`;
   const note = document.createElement("p");
   note.className = "modal-hint";
   note.textContent =
