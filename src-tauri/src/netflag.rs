@@ -419,7 +419,10 @@ mod tests {
         let mut stmt = conn
             .prepare("SELECT depth, value FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2 ORDER BY depth")
             .unwrap();
-        stmt.query_map(duckdb::params![well, name], |r| Ok((r.get(0)?, r.get(1)?)))
+        // SB-DBM-030: a missing sample is SQL NULL at the store; read it back as NaN.
+        stmt.query_map(duckdb::params![well, name], |r| {
+            Ok((r.get::<_, f32>(0)?, r.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
+        })
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap()

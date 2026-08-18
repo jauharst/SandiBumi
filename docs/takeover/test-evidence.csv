@@ -394,3 +394,6 @@
 "SB-POR-028","CORRECTNESS","src-tauri/src/workflow.rs","a_bound_shale_reduction_clamp_is_recorded_on_the_runs_version_comment"
 "SB-POR-003","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_run_records_the_branches_it_took_and_every_limit_that_bound_and_the_record_survives_export"
 "SB-POR-003","CORRECTNESS","src-tauri/src/ssc.rs","ssc_and_sspw_record_their_porosity_branches_and_binds_for_the_runs_custody_comment"
+"SB-DBM-030","CORRECTNESS","src-tauri/src/db.rs","an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data"
+"SB-DBM-030","CORRECTNESS","src-tauri/src/ingest.rs","a_screened_import_names_the_curve_and_count_in_its_own_warning_never_silently"
+"SB-DBM-030","CORRECTNESS","src-tauri/src/equations.rs","a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader"

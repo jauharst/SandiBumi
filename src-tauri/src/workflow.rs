@@ -13315,7 +13315,10 @@ mod tests {
                 )
                 .unwrap();
             statement
-                .query_map(duckdb::params![&well, name], |row| row.get(0))
+                // SB-DBM-030: a missing sample is SQL NULL at the store; read it back as NaN.
+                .query_map(duckdb::params![&well, name], |row| {
+                    Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+                })
                 .unwrap()
                 .collect::<duckdb::Result<Vec<_>>>()
                 .unwrap()

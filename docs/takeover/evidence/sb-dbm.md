@@ -400,7 +400,8 @@
 - **Qualifying tests (in code; register entry follows on promotion):** `db::inspector_tests::an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data` and `ingest::tests::a_screened_import_names_the_curve_and_count_in_its_own_warning_never_silently` (full production LAS import; warning names mnemonic and count; both projections agree).
 - **Mutation evidence:** six probes, six DISTINCT assertions fired - equality screen (misses -1.0D38), bound coerced (`<` to `<=`), NaN kept as a float, importer warning silenced, standard projection unscreened, migration dropping missing rows.
 - **Manual evidence:** none claimed. Automated only.
-- **Verdict:** `PARTIAL` - remainder narrowed to ONE writer: `equations::write_versioned_rows_raw` still appends NaN to `computed_curves`/archive as a float. Binding it requires a NULL-tolerance audit of ~135 computed_curves reader sites first. Engineering only; no input owed from Jauhar.
+- **Completed same day (2026-08-18):** the computed stores joined the discipline - all six `computed_curves`/archive appender loops bind SQL NULL for NaN (write_versioned_rows_raw, clearing and archive-only variants, the batched multi-well writer, reframe's archive writer); the ~135 reader sites were audited (most were counts/copies/already-tolerant; seven value readers fixed to `Option<f32>`), and `equations::tests::a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader` pins store, archive and reader with two further mutations killed (each store's loop reverted to float NaN).
+- **Verdict:** `PRESENT-OK`; test class `CORRECTNESS`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-031 - Every depth quantity declares its datum, and cross-datum comparison is refused
 

@@ -832,7 +832,13 @@ fn read_source(
                 )
                 .map_err(|e| e.to_string())?;
             let rows: Vec<(String, f32, f32)> = stmt
-                .query_map(params![set_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .query_map(params![set_id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, f32>(1)?,
+                        r.get::<_, Option<f32>>(2)?.unwrap_or(f32::NAN),
+                    ))
+                })
                 .map_err(|e| e.to_string())?
                 .collect::<duckdb::Result<_>>()
                 .map_err(|e| e.to_string())?;
@@ -1440,7 +1446,9 @@ fn write_own_frame(
         let mut app = conn.appender("computed_curves_archive")?;
         for (name, values) in curves {
             for (d, v) in depth.iter().zip(values.iter()) {
-                app.append_row(params![set_id, well_id, d, name, v])?;
+                // SB-DBM-030: a missing sample is SQL NULL at the store, never a float.
+                let stored: Option<f32> = (!v.is_nan()).then(|| *v);
+                app.append_row(params![set_id, well_id, d, name, stored])?;
             }
         }
         app.flush()?;

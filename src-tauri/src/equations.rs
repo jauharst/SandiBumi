@@ -581,7 +581,11 @@ fn fetch_computed_curves_batch(
     }
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(qp), |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?, row.get::<_, f32>(2)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, f32>(1)?,
+            row.get::<_, Option<f32>>(2)?.unwrap_or(f32::NAN),
+        ))
     })?;
     // name → (depth-bits → value); last row wins per depth, matching fetch_computed_curve_aligned.
     let mut by_name: HashMap<String, HashMap<u32, f32>> = HashMap::new();
@@ -609,7 +613,7 @@ fn fetch_computed_curve_aligned(
     let mut stmt = conn
         .prepare("SELECT depth, value FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = upper(?2)")?;
     let rows = stmt.query_map(params![well_id, curve_name], |row| {
-        Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+        Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
     })?;
 
     let mut by_depth: HashMap<u32, f32> = HashMap::new();
@@ -960,7 +964,7 @@ pub(crate) fn fetch_computed_only_aligned(
                     "SELECT depth, value FROM computed_curves_archive WHERE set_id = ?1 AND upper(curve_name) = ?2",
                 )?;
                 let rows = stmt.query_map(params![set_id, upper], |row| {
-                    Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+                    Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
                 })?;
                 let mut by_depth: HashMap<u32, f32> = HashMap::new();
                 for r in rows {
@@ -2335,7 +2339,9 @@ fn write_versioned_rows_raw(
         let mut current = conn.appender("computed_curves")?;
         for (name, values) in curves {
             for (d, v) in depth.iter().zip(values.iter()) {
-                current.append_row(params![well_id, d, name, v, set_id])?;
+                // SB-DBM-030: a missing sample is SQL NULL at the store, never a float a query could read.
+                let stored: Option<f32> = (!v.is_nan()).then(|| *v);
+                current.append_row(params![well_id, d, name, stored, set_id])?;
             }
         }
         current.flush()?;
@@ -2343,7 +2349,8 @@ fn write_versioned_rows_raw(
         let mut archive = conn.appender("computed_curves_archive")?;
         for (name, values) in curves {
             for (d, v) in depth.iter().zip(values.iter()) {
-                archive.append_row(params![set_id, well_id, d, name, v])?;
+                let stored: Option<f32> = (!v.is_nan()).then(|| *v);
+                archive.append_row(params![set_id, well_id, d, name, stored])?;
             }
         }
         archive.flush()?;
@@ -2446,14 +2453,17 @@ pub(crate) fn write_computed_curves_with_ancestry_clearing(
         let mut current = conn.appender("computed_curves")?;
         for (name, values) in curves {
             for (d, value) in depth.iter().zip(values.iter()) {
-                current.append_row(params![well_id, d, name, value, set_id.value])?;
+                // SB-DBM-030: a missing sample is SQL NULL at the store, never a float a query could read.
+                let stored: Option<f32> = (!value.is_nan()).then(|| *value);
+                current.append_row(params![well_id, d, name, stored, set_id.value])?;
             }
         }
         current.flush()?;
         let mut archive = conn.appender("computed_curves_archive")?;
         for (name, values) in curves {
             for (d, value) in depth.iter().zip(values.iter()) {
-                archive.append_row(params![set_id.value, well_id, d, name, value])?;
+                let stored: Option<f32> = (!value.is_nan()).then(|| *value);
+                archive.append_row(params![set_id.value, well_id, d, name, stored])?;
             }
         }
         archive.flush()?;
@@ -2507,7 +2517,9 @@ pub(crate) fn write_complete_own_frame(
         let mut archive = conn.appender("computed_curves_archive")?;
         for (name, values) in curves {
             for (d, value) in depth.iter().zip(values.iter()) {
-                archive.append_row(params![set_id, well_id, d, name, value])?;
+                // SB-DBM-030: a missing sample is SQL NULL at the store, never a float a query could read.
+                let stored: Option<f32> = (!value.is_nan()).then(|| *value);
+                archive.append_row(params![set_id, well_id, d, name, stored])?;
             }
         }
         archive.flush()?;
@@ -3171,7 +3183,9 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             for w in wells {
                 for (name, values) in &w.curves {
                     for (d, v) in w.depth.iter().zip(values.iter()) {
-                        current.append_row(params![w.well_id, d, name, v, w.set_id])?;
+                        // SB-DBM-030: a missing sample is SQL NULL at the store, never a float a query could read.
+                        let stored: Option<f32> = (!v.is_nan()).then(|| *v);
+                        current.append_row(params![w.well_id, d, name, stored, w.set_id])?;
                     }
                 }
             }
@@ -3184,7 +3198,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             for w in wells {
                 for (name, values) in &w.curves {
                     for (d, v) in w.depth.iter().zip(values.iter()) {
-                        archive.append_row(params![w.set_id, w.well_id, d, name, v])?;
+                        let stored: Option<f32> = (!v.is_nan()).then(|| *v);
+                        archive.append_row(params![w.set_id, w.well_id, d, name, stored])?;
                     }
                 }
             }
@@ -3547,7 +3562,7 @@ pub(crate) fn fetch_curve_frame_from_set(
             continue; // written by an earlier step of this very run — keep the fresh values
         }
         let rows = stmt.query_map(params![set_id, upper], |row| {
-            Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+            Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
         })?;
         let mut by_depth: HashMap<u32, f32> = HashMap::new();
         for r in rows {
@@ -4260,6 +4275,44 @@ mod tests {
     /// 047 and 048 were each blocked on ("there is nowhere to write it today"). Source: DEC-039
     /// (2026-08-16) records the branch-and-limit state as a COMMENT ON THE CURVE carried per
     /// curve version; DEC-045 authorizes exactly this column in `db.rs`.
+    /// SB-DBM-030's computed-store half: a module output's missing sample (f32::NAN in the
+    /// vector, per rule 2) binds SQL NULL in BOTH the current store and the archive - so at the
+    /// store "no value" is never representable as a number - and the reader hands back the NaN
+    /// convention with data surviving bit for bit.
+    #[test]
+    fn a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-CNULL", None, None, None).unwrap();
+        let well = id.to_string();
+        let depth = [1000.0f32, 1001.0, 1002.0];
+        let nan = vec![f32::NAN; 3];
+        crate::db::insert_standard_curves(
+            &conn, id, depth.to_vec(), vec![40.0; 3], vec![20.0; 3], vec![0.2; 3],
+            vec![2.35; 3], nan.clone(), nan,
+        )
+        .unwrap();
+        let values = [0.5f32, f32::NAN, 0.25];
+        write_computed_curves_batch(&conn, &well, &depth, &[("VSH", &values[..])]).unwrap();
+        for table in ["computed_curves", "computed_curves_archive"] {
+            let nulls: i64 = conn
+                .query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE well_id = ?1 AND value IS NULL"),
+                    duckdb::params![well],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(nulls, 1, "{table}: the NaN sample must bind SQL NULL");
+        }
+        let (_, columns) =
+            fetch_curve_frame(&conn, &well, &["VSH".to_string()]).unwrap();
+        let vsh = &columns["VSH"];
+        assert_eq!(vsh[0].to_bits(), 0.5f32.to_bits());
+        assert!(vsh[1].is_nan(), "the reader hands back the NaN missing convention");
+        assert_eq!(vsh[2].to_bits(), 0.25f32.to_bits());
+    }
+
     #[test]
     fn a_log_set_version_carries_its_own_comment_and_never_lends_it_to_another_version() {
         let conn = Connection::open_in_memory().unwrap();
