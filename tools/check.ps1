@@ -18,12 +18,19 @@
 #   -SkipRust       frontend-only (skips cargo test)
 #   -SkipFrontend   backend-only  (skips npm run build)
 #   -VcVarsVer      MSVC toolset pin (default 14.29)
+#   -Ignored        ALSO run the #[ignore]d shelf (optional-package + field-fixture
+#                   tests) after the normal suite. Not part of the green gate - the
+#                   gate must stay green on a fresh clone - but the shelf rots when
+#                   nothing runs it (five stale tests proved that on 2026-08-18), so
+#                   run this after any large stretch on a machine with the packages
+#                   and SANDIBUMI_FIELD_FIXTURES set.
 #
 # Windows PowerShell 5.1 compatible: no `&&`, no ternary.
 
 param(
     [switch]$SkipRust,
     [switch]$SkipFrontend,
+    [switch]$Ignored,
     [string]$VcVarsVer = "14.29"
 )
 
@@ -131,6 +138,21 @@ if (-not $SkipRust) {
     }
     if ($code -ne 0) { Fail "backend (cargo test)" $code }
     Write-Host ("[4/4] backend green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
+    if ($Ignored) {
+        Write-Host "[4b] ignored shelf: cargo test -- --ignored..." -ForegroundColor Cyan
+        $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+        if (Test-Path $vcvars) {
+            cmd /c "call `"$vcvars`" -vcvars_ver=$VcVarsVer && cd /d `"$repo\src-tauri`" && cargo test --lib -- --ignored"
+            $code = $LASTEXITCODE
+        } else {
+            Push-Location (Join-Path $repo "src-tauri")
+            & cargo test --lib -- --ignored
+            $code = $LASTEXITCODE
+            Pop-Location
+        }
+        if ($code -ne 0) { Fail "ignored shelf (cargo test -- --ignored)" $code }
+        Write-Host ("[4b] ignored shelf green in {0:n0}s" -f $sw2.Elapsed.TotalSeconds) -ForegroundColor Green
+    }
 } else {
     Write-Host "[4/4] backend gate SKIPPED (-SkipRust)" -ForegroundColor Yellow
 }

@@ -1883,7 +1883,11 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                 None,
             )?);
         }
-        let legacy_parameters = serde_json::json!({
+        // A migrated pre-source delivery has NULL here; the ancestry parameter contract
+        // refuses a null VALUE (rightly), so absence is stated as an explicit marker -
+        // the same shape as the "ABSENT" parameter markers elsewhere in the record.
+        let image_source = image_source.unwrap_or_else(|| "UNRECORDED".into());
+        let mut legacy_parameters = serde_json::json!({
                 "dataset": spec.dataset, "image_source": image_source,
             "axis": spec.axis, "reverse": spec.reverse,
                 "lanes": spec.lanes, "layouts": spec.layouts,
@@ -1897,6 +1901,16 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             "lith_min_bed": spec.lith_min_bed,
             "unfold_scan": spec.unfold_scan,
         });
+        // Optional spec fields are None when the run did not use them; the ancestry
+        // parameter contract refuses a null VALUE (rightly), so absence is stated as an
+        // explicit marker rather than dropped from the record.
+        if let Some(map) = legacy_parameters.as_object_mut() {
+            for value in map.values_mut() {
+                if value.is_null() {
+                    *value = serde_json::Value::String("UNSET".into());
+                }
+            }
+        }
         let parameters: Vec<_> = legacy_parameters
             .as_object()
             .expect("constructed as an object")
