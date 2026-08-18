@@ -1357,10 +1357,14 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
                     family.family
                 ],
             )?;
+            // SB-DBM-030: a data-bearing column migrates its FULL frame - a NULL sample is a
+            // measurement that is absent at that depth, and dropping the row would conflate
+            // "logged but missing" with "never sampled". The has_data gate above already skips
+            // columns that were never supplied at all.
             conn.execute(
                 &format!(
                     "INSERT INTO curve_samples (curve_id, depth, value)
-                     SELECT ?1, depth, {col} FROM standard_curves WHERE well_id = ?2 AND {col} IS NOT NULL"
+                     SELECT ?1, depth, {col} FROM standard_curves WHERE well_id = ?2"
                 ),
                 params![curve_id, well_id],
             )?;
@@ -2188,7 +2192,7 @@ pub fn insert_standard_curves(
     rhob: Vec<f32>,
     dt: Vec<f32>,
     sp: Vec<f32>,
-) -> DbResult<()> {
+) -> DbResult<Vec<(String, usize)>> {
     let n = depths.len();
     if gr.len() != n || res_deep.len() != n || nphi.len() != n || rhob.len() != n || dt.len() != n || sp.len() != n {
         return Err(DbError::LengthMismatch(format!(
@@ -2198,6 +2202,10 @@ pub fn insert_standard_curves(
 
     let well_id_str = well_id.to_string();
     let mut appender: Appender = conn.appender("standard_curves")?;
+    // SB-DBM-030: the standard projection screens and NULL-binds exactly as the generic store
+    // does - one delivery lands in both, and a value screened in one but kept in the other
+    // would be two truths about the same sample.
+    let mut screened: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for i in 0..n {
         let supplied = |mnemonic: &str| match mnemonic {
             "DEPTH" => Some(depths[i]),
@@ -2213,6 +2221,16 @@ pub fn insert_standard_curves(
         values.push(duckdb::types::Value::Text(well_id_str.clone()));
         for column in crate::schema_vocab::STANDARD_COLUMNS {
             match supplied(column.mnemonic) {
+                // The depth index is never screened: a NULL index row is not a missing
+                // measurement, it is a broken frame, and the parser already rejects one.
+                Some(value) if column.mnemonic == "DEPTH" => {
+                    values.push(duckdb::types::Value::Float(value))
+                }
+                Some(value) if value.is_nan() => values.push(duckdb::types::Value::Null),
+                Some(value) if is_large_negative_null(value) => {
+                    *screened.entry(column.mnemonic).or_insert(0) += 1;
+                    values.push(duckdb::types::Value::Null);
+                }
                 Some(value) => values.push(duckdb::types::Value::Float(value)),
                 None if column.required => {
                     return Err(DbError::Invalid(format!(
@@ -2226,7 +2244,7 @@ pub fn insert_standard_curves(
         appender.append_row(duckdb::appender_params_from_iter(values.iter()))?;
     }
     appender.flush()?;
-    Ok(())
+    Ok(screened.into_iter().map(|(mnemonic, count)| (mnemonic.to_string(), count)).collect())
 }
 
 /// Runs `f` inside a single transaction: BEGIN, then COMMIT on Ok / ROLLBACK on Err. Makes a
@@ -5744,6 +5762,58 @@ mod inspector_tests {
     /// Phase 6 foundation: standard_curves rows must land in the generic curve store as
     /// set RAW with the right family/unit, and the migration must be a no-op the second
     /// time (idempotent — it's called on every launch via lib.rs::run()).
+    /// SB-DBM-030. Source: Geolog `cgg.h` `MISS_FLOAT = -1.0e30` (and the manuals' `-1.0D38`),
+    /// DEC-027/DEC-061/DEC-062. The store's null discipline: an undeclared large-negative
+    /// sentinel is screened to SQL NULL by a strict inequality against a bound COMPUTED one
+    /// decade inside the cited constant, the screen is COUNTED (the flag channel - never
+    /// silent), NaN binds SQL NULL so absence is not representable as a number at the store,
+    /// and a value exactly ON the bound is DATA that survives bit for bit.
+    #[test]
+    fn an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-NULL", None, None, None).unwrap();
+        let well = id.to_string();
+        let curve =
+            upsert_curve_meta(&conn, &well, "RAW", "GR", Some("gapi"), Some("GR"), None, None)
+                .unwrap();
+        let bound = GEOLOG_MISS_FLOAT / 10.0;
+        let depths = [1000.0, 1001.0, 1002.0, 1003.0, 1004.0, 1005.0];
+        let values = [-999.25f32, GEOLOG_MISS_FLOAT, -1.0e38, bound, 3.5, f32::NAN];
+        let screened = insert_curve_samples(&conn, &curve, &depths, &values).unwrap();
+        let samples = get_curve_samples(&conn, &curve).unwrap();
+        // A. A value exactly ON the computed bound is DATA, bit for bit - a `<=` or a
+        //    hand-typed decimal would have coerced it. Asserted FIRST so a bound slip fires
+        //    here, distinctly, before the count can.
+        assert_eq!(
+            samples[3].value.to_bits(),
+            bound.to_bits(),
+            "a value exactly on the bound is DATA"
+        );
+        // B. cgg.h's MISS_FLOAT and the manual's -1.0D38 are BOTH caught - an equality against
+        //    either sentinel would miss the other - and the count is the flag channel.
+        assert_eq!(screened, 2);
+        // C. At the store, absence is SQL NULL: the two screened sentinels and the NaN all
+        //    bind NULL, and nothing else does - "no value" is never a number.
+        let nulls: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples WHERE curve_id = ?1 AND value IS NULL",
+                params![curve],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(nulls, 3);
+        // D. Reload: screened samples read back as the NaN missing convention, and the rest
+        //    of the DATA survives bit for bit - the declared-null lookalike -999.25 (declared
+        //    nulls are resolved at parse, never re-guessed here) and an ordinary reading.
+        assert!(samples[1].value.is_nan() && samples[2].value.is_nan());
+        assert!(samples[5].value.is_nan());
+        assert_eq!(samples[0].value.to_bits(), (-999.25f32).to_bits());
+        assert_eq!(samples[4].value.to_bits(), 3.5f32.to_bits());
+    }
+
     #[test]
     fn generic_store_migration_and_manual_curve() {
         let conn = mem_db();
@@ -9019,13 +9089,34 @@ pub fn upsert_curve_meta(
 
 /// Bulk-replaces the samples for one curve (delete-then-append, mirroring
 /// `insert_core_data`'s replace-on-reimport semantics).
-pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], values: &[f32]) -> DbResult<()> {
-    insert_curve_samples_batch(conn, depths, &[(curve_id, values)])
+/// SB-DBM-030: Geolog's null-sentinel family. `cgg.h` defines `MISS_FLOAT = -1.0e30` and the
+/// manuals also show `-1.0D38`; both are "large negative", and neither is guaranteed to arrive
+/// as an exact bit pattern after a unit conversion or a float round-trip. The screen is
+/// therefore a strict inequality against a bound COMPUTED one decade inside the cited
+/// constant - an equality against one sentinel misses the other entirely, and a hand-typed
+/// decimal could land on the wrong side of a boundary sample.
+pub const GEOLOG_MISS_FLOAT: f32 = -1.0e30;
+
+/// True when a value is in the undeclared large-negative null family: strictly below one tenth
+/// of `GEOLOG_MISS_FLOAT`. A value exactly ON the bound is DATA. NaN is not screened here - it
+/// is already the missing convention and binds SQL NULL at the writer.
+pub fn is_large_negative_null(value: f32) -> bool {
+    value < GEOLOG_MISS_FLOAT / 10.0
+}
+
+/// Returns how many samples the large-negative null screen bound to SQL NULL for this curve -
+/// the write path's flag channel. A caller importing external data must surface a non-zero
+/// count; screening is never silent.
+pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], values: &[f32]) -> DbResult<usize> {
+    let screened = insert_curve_samples_batch(conn, depths, &[(curve_id, values)])?;
+    Ok(screened.into_iter().map(|(_, count)| count).sum())
 }
 
 /// Atomically replaces every curve in one imported delivery using one transaction and one
-/// DuckDB appender. The complete batch is validated before any DELETE occurs.
-pub fn insert_curve_samples_batch(conn: &Connection, depths: &[f32], curves: &[(&str, &[f32])]) -> DbResult<()> {
+/// DuckDB appender. The complete batch is validated before any DELETE occurs. Returns the
+/// SB-DBM-030 flag channel: per curve id, how many samples the large-negative null screen
+/// bound to SQL NULL (only non-zero entries).
+pub fn insert_curve_samples_batch(conn: &Connection, depths: &[f32], curves: &[(&str, &[f32])]) -> DbResult<Vec<(String, usize)>> {
     with_txn(conn, |conn| insert_curve_samples_batch_in_transaction(conn, depths, curves))
 }
 
@@ -9035,7 +9126,7 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
     conn: &Connection,
     depths: &[f32],
     curves: &[(&str, &[f32])],
-) -> DbResult<()> {
+) -> DbResult<Vec<(String, usize)>> {
     for (curve_id, values) in curves {
         if depths.len() != values.len() {
             return Err(DbError::LengthMismatch(format!(
@@ -9069,17 +9160,40 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
     ]));
     let depth_array: ArrayRef = Arc::new(Float32Array::from_iter_values(depths.iter().copied()));
     let mut appender: Appender = conn.appender(&staging_table)?;
+    let mut screened: Vec<(String, usize)> = Vec::new();
     for (curve_id, values) in curves {
         let curve_id_array: ArrayRef = Arc::new(StringArray::from_iter_values(
             std::iter::repeat(*curve_id).take(depths.len()),
         ));
-        let value_array: ArrayRef = Arc::new(Float32Array::from_iter_values(values.iter().copied()));
+        // SB-DBM-030: the store's null discipline. A NaN is the missing convention and binds
+        // SQL NULL, so at the store absence is never representable as a number; a value in the
+        // large-negative family is an undeclared vendor null sentinel, screened to NULL and
+        // COUNTED - the count is the flag channel every importer surfaces. Never silent.
+        let mut screened_here = 0usize;
+        let value_array: ArrayRef = Arc::new(
+            values
+                .iter()
+                .map(|&value| {
+                    if value.is_nan() {
+                        None
+                    } else if is_large_negative_null(value) {
+                        screened_here += 1;
+                        None
+                    } else {
+                        Some(value)
+                    }
+                })
+                .collect::<Float32Array>(),
+        );
         let batch = RecordBatch::try_new(
             Arc::clone(&schema),
             vec![curve_id_array, Arc::clone(&depth_array), value_array],
         )
         .map_err(|err| DbError::ColumnarBatch(err.to_string()))?;
         appender.append_record_batch(batch)?;
+        if screened_here > 0 {
+            screened.push(((*curve_id).to_string(), screened_here));
+        }
     }
     appender.flush()?;
     drop(appender);
@@ -9088,7 +9202,7 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
          SELECT CAST(curve_id AS UUID), depth, value FROM {staging_table};
          DROP TABLE {staging_table};"
     ))?;
-    Ok(())
+    Ok(screened)
 }
 
 #[derive(Debug, Clone, Serialize)]

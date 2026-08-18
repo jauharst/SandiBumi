@@ -209,7 +209,7 @@ fn write_prepared_dlis(
     mappings: &[DlisWellMapping],
     curves: &[PreparedDlisCurve],
     stored_depth_unit: Option<crate::units::DepthUnit>,
-) -> db::DbResult<()> {
+) -> db::DbResult<Vec<DlisSkip>> {
     for mapping in mappings.iter().filter(|mapping| mapping.will_create) {
         let id = uuid::Uuid::parse_str(
             mapping
@@ -226,6 +226,7 @@ fn write_prepared_dlis(
             )?;
         }
     }
+    let mut screen_skips = Vec::new();
     for curve in curves {
         let curve_id = db::upsert_curve_meta(
             conn,
@@ -237,9 +238,21 @@ fn write_prepared_dlis(
             Some("DLIS import"),
             curve.run_no,
         )?;
-        db::insert_curve_samples(conn, &curve_id, &curve.depth, &curve.values)?;
+        // SB-DBM-030: the parser's own screen catches |v| > 1e30 before this point, but the
+        // store screen's bound is a decade tighter on the negative side (-1e29); anything it
+        // still binds is surfaced through the same skip channel, never silently.
+        let screened = db::insert_curve_samples(conn, &curve_id, &curve.depth, &curve.values)?;
+        if screened > 0 {
+            screen_skips.push(DlisSkip {
+                kind: "curve".into(),
+                name: curve.mnemonic.clone(),
+                count: screened,
+                rule: "large-negative undeclared null (Geolog MISS_FLOAT family) stored as missing".into(),
+                omitted: false,
+            });
+        }
     }
-    Ok(())
+    Ok(screen_skips)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1340,8 +1353,12 @@ pub fn import_dlis_file_with_unit_designation(
         &prepared_curves,
         project_unit.or(adopted_unit),
     );
-    if let Err(error) = write_result {
-        return failed(path, format!("storing DLIS curves: {error}"), skipped);
+    match write_result {
+        Err(error) => {
+            return failed(path, format!("storing DLIS curves: {error}"), skipped);
+        }
+        // SB-DBM-030: the store's null screen is a flag channel - surface it with the skips.
+        Ok(screen_skips) => skipped.extend(screen_skips),
     }
 
     if project_unit.is_none() {

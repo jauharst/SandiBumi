@@ -874,6 +874,7 @@ fn insert_parsed_well(
         }
     };
     unit_designations.extend(prepared.unit_designations.iter().cloned());
+    let mut null_screened: Vec<(String, usize)> = Vec::new();
     let result: db::DbResult<()> = db::with_txn(conn, |conn| {
         db::insert_well(conn, well_id, &well_name, None, None, None)?;
         // Record the unit the stored depths are actually in, alongside the data itself so
@@ -899,7 +900,10 @@ fn insert_parsed_well(
             &canonical_set_name(opts.set_name.as_deref()),
         );
         record_import_set_sampling(conn, &well_id.to_string(), &set, &sampling_verdict)?;
-        write_prepared_generic_curves_in_transaction(
+        // SB-DBM-030: the generic store carries every curve of this delivery (the standard
+        // projection holds the same columns), so its flag channel alone names every screened
+        // mnemonic exactly once.
+        null_screened = write_prepared_generic_curves_in_transaction(
             conn,
             &well_id.to_string(),
             &generic_depth,
@@ -925,6 +929,11 @@ fn insert_parsed_well(
             // this complete delivery.
             notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
+            for (mnemonic, count) in &null_screened {
+                notes.push(format!(
+                    "null screen: {count} large-negative sample(s) on {mnemonic} stored as missing (undeclared Geolog-family null sentinel)"
+                ));
+            }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
             ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), well_headers, rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
         }
@@ -977,6 +986,11 @@ fn attach_curves_to_existing_well(
             let mut notes = notes;
             notes.extend(report.unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(report.unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
+            for (mnemonic, count) in &report.null_screened {
+                notes.push(format!(
+                    "null screen: {count} large-negative sample(s) on {mnemonic} stored as missing (undeclared Geolog-family null sentinel)"
+                ));
+            }
             unit_designations.extend(report.unit_designations.iter().cloned());
             ImportResult {
                 path,
@@ -1057,6 +1071,8 @@ struct GenericCurveImportReport {
     unit_conversions: Vec<crate::curves::UnitConversion>,
     unconverted_units: Vec<crate::curves::UnconvertedUnit>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
+    /// SB-DBM-030 flag channel: per delivered mnemonic, samples screened to SQL NULL.
+    null_screened: Vec<(String, usize)>,
 }
 
 struct PreparedGenericCurve {
@@ -1094,6 +1110,7 @@ fn import_parsed_curves_into_generic_store(
             unit_conversions: Vec::new(),
             unconverted_units: Vec::new(),
             unit_designations: Vec::new(),
+            null_screened: Vec::new(),
         });
     }
 
@@ -1103,13 +1120,14 @@ fn import_parsed_curves_into_generic_store(
         ms_per_ft_meaning,
         undeclared_drho_unit,
     )?;
-    db::with_txn(conn, |conn| {
+    let null_screened = db::with_txn(conn, |conn| {
         if let Some(verdict) = sampling_verdict {
             record_import_set_sampling(conn, well_id, set_name, verdict)?;
         }
         write_prepared_generic_curves_in_transaction(conn, well_id, depth, set_name, &prepared.curves)
     })?;
     Ok(GenericCurveImportReport {
+        null_screened,
         curves_written: prepared.curves.len(),
         rows: depth.len(),
         unit_conversions: prepared.unit_conversions,
@@ -1247,7 +1265,7 @@ fn write_prepared_generic_curves_in_transaction(
     depth: &[f32],
     set_name: &str,
     prepared: &[PreparedGenericCurve],
-) -> db::DbResult<()> {
+) -> db::DbResult<Vec<(String, usize)>> {
     let mut curve_ids = Vec::with_capacity(prepared.len());
     for curve in prepared {
         curve_ids.push(db::upsert_curve_meta(
@@ -1266,7 +1284,20 @@ fn write_prepared_generic_curves_in_transaction(
         .zip(prepared.iter())
         .map(|(curve_id, curve)| (curve_id.as_str(), curve.values.as_slice()))
         .collect();
-    db::insert_curve_samples_batch_in_transaction(conn, depth, &batch)
+    // SB-DBM-030: map the store's flag channel back to the delivery's own mnemonics - the
+    // importer's warning must name the curve the user delivered, not an internal id.
+    let screened = db::insert_curve_samples_batch_in_transaction(conn, depth, &batch)?;
+    Ok(screened
+        .into_iter()
+        .map(|(curve_id, count)| {
+            let mnemonic = curve_ids
+                .iter()
+                .position(|id| *id == curve_id)
+                .map(|index| prepared[index].mnemonic.clone())
+                .unwrap_or(curve_id);
+            (mnemonic, count)
+        })
+        .collect())
 }
 
 /// Parses a deviation-survey CSV (columns MD/INC/AZI, alias-tolerant) and stores the
@@ -2637,7 +2668,7 @@ mod tests {
             .expect("the import result names even an unset source channel");
         assert_eq!(resolution.mode, parsers::ChannelNullResolutionMode::Unset);
         assert!(resolution.values.is_empty(), "unset cannot invent a per-channel sentinel list");
-        let stored: f32 = conn
+        let stored: Option<f32> = conn
             .query_row(
                 "SELECT s.value FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
                  WHERE m.mnemonic = 'PWF1' ORDER BY s.depth LIMIT 1",
@@ -2645,7 +2676,9 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(stored.is_nan(), "ordinary screening must write the internal f32::NAN marker");
+        // SB-DBM-030 strengthened this pin: the missing marker is SQL NULL at the store (the
+        // reader hands the frontend f32::NAN), never a float that a query could average.
+        assert!(stored.is_none(), "ordinary screening must bind SQL NULL at the store");
     }
 
     /// A normal LAS delivery is one commit boundary. Duplicate source mnemonics force the
@@ -3008,6 +3041,56 @@ mod tests {
 
     /// SB-DIO-009 / SB-DIO-T14. The ordered NPHI aliases and finite-coverage
     /// tie-break are specified in `docs/PRD_v2/21_data-io.md` §5.3.
+    /// SB-DBM-030's flag-channel half, through the production LAS import: a screened value is
+    /// named in the import's own warning by the DELIVERED mnemonic with its count, lands as
+    /// SQL NULL in BOTH projections of the delivery (standard and generic - one screened and
+    /// one kept would be two truths about the same sample), and the declared LAS NULL keeps
+    /// resolving through its own declared mechanism, not this screen.
+    #[test]
+    fn a_screened_import_names_the_curve_and_count_in_its_own_warning_never_silently() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi_null_screen_flag_channel.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. SANDI-SCREEN :\n\
+             ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n\
+             1000.0 50.0\n1000.5 -1.0E30\n1001.0 -999.25\n",
+        )
+        .unwrap();
+        let result =
+            import_las_files(&conn, &[path.to_str().unwrap().to_string()], None).remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(result.error.is_none(), "the fixture must import: {:?}", result.error);
+        // A. The flag channel: the warning names the delivered mnemonic and the count.
+        let warning = result.warning.clone().unwrap_or_default();
+        assert!(
+            warning.contains("null screen: 1 large-negative sample(s) on GR stored as missing"),
+            "got warning: {warning}"
+        );
+        // B. Both projections agree: the screened sample is SQL NULL in the standard
+        //    projection and in the generic store.
+        let well_id = result.well_id.clone().unwrap();
+        let std_nulls: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM standard_curves WHERE well_id = ?1 AND gr IS NULL",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // one screened sentinel + one declared null resolved at parse
+        assert_eq!(std_nulls, 2);
+        let generic_nulls: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.well_id = ?1 AND m.mnemonic = 'GR' AND s.value IS NULL",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(generic_nulls, 2);
+    }
+
     #[test]
     fn the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts() {
         let conn = Connection::open_in_memory().unwrap();
@@ -3862,14 +3945,15 @@ mod tests {
         );
 
         let well_id = result.well_id.unwrap();
-        let standard_rhob: f32 = conn
+        let standard_rhob: Option<f32> = conn
             .query_row(
                 "SELECT rhob FROM standard_curves WHERE well_id = ?1 ORDER BY depth LIMIT 1",
                 params![&well_id],
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(standard_rhob.is_nan(), "PPG data must not populate the standard RHOB channel");
+        // SB-DBM-030: absence is SQL NULL at the store, not a float NaN.
+        assert!(standard_rhob.is_none(), "PPG data must not populate the standard RHOB channel");
         let raw = db::list_generic_curve_catalog(&conn, &well_id)
             .unwrap()
             .into_iter()
@@ -4014,14 +4098,15 @@ mod tests {
             conductivity_result.warning
         );
         let conductivity_well = conductivity_result.well_id.as_deref().unwrap();
-        let standard_dt: f32 = designated
+        let standard_dt: Option<f32> = designated
             .query_row(
                 "SELECT dt FROM standard_curves WHERE well_id = ?1 ORDER BY depth LIMIT 1",
                 params![conductivity_well],
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(standard_dt.is_nan(), "a conductivity designation must not populate standard DT");
+        // SB-DBM-030: absence is SQL NULL at the store, not a float NaN.
+        assert!(standard_dt.is_none(), "a conductivity designation must not populate standard DT");
         let conductivity_curve = db::list_generic_curve_catalog(&designated, conductivity_well)
             .unwrap()
             .into_iter()

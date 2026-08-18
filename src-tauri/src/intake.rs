@@ -1668,7 +1668,14 @@ pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportRes
                         None,
                     ) {
                         Ok(id) => match db::insert_curve_samples(conn, &id, &depths, &values) {
-                            Ok(()) => {
+                            Ok(screened) => {
+                                // SB-DBM-030: the store's null screen is a flag channel -
+                                // a screened delivery says so in this import's own notes.
+                                if screened > 0 {
+                                    res.notes.push(format!(
+                                        "null screen: {screened} large-negative sample(s) on {mnemonic} stored as missing (undeclared Geolog-family null sentinel)"
+                                    ));
+                                }
                                 res.samples += values.iter().filter(|v| v.is_finite()).count();
                                 wrote_any = true;
                                 if !res.curves.contains(&mnemonic) {

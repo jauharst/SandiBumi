@@ -879,7 +879,7 @@ fn fetch_generic_curve_aligned(
 
     let mut stmt = conn.prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1")?;
     let rows = stmt.query_map(params![curve_id], |row| {
-        Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+        Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
     })?;
     let mut by_depth: HashMap<u32, f32> = HashMap::new();
     for r in rows {
@@ -3419,7 +3419,7 @@ fn fetch_verified_import_set_frame(
         let mut sample_statement =
             conn.prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1")?;
         let rows = sample_statement.query_map(params![curve_id], |row| {
-            Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+            Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
         })?;
         let mut by_depth = HashMap::new();
         for row in rows {
