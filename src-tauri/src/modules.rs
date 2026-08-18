@@ -1711,15 +1711,29 @@ const PHI_DNBK_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
     ),
 ];
 
+/// SB-POR-002 sonic half (DEC-063, RULED 2026-08-18): with `DT_MA < DT_SH` enforced as a
+/// declared validity condition, the bare sonic pair satisfies `PHIT >= PHIE` by
+/// construction, so the method now declares its full unlimited/limited pair like the
+/// density family.
 const PHI_SON_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
     porosity_output(
-        "PHIT_SON",
-        PorosityOutputRole::LimitedTotal,
+        "PHIE_SON",
+        PorosityOutputRole::UnlimitedEffective,
         "CURRENT_MIXED_SONIC_PENDING_SB_POR_013",
     ),
     porosity_output(
-        "PHIE_SON",
+        "PHIT_SON",
+        PorosityOutputRole::UnlimitedTotal,
+        "CURRENT_MIXED_SONIC_PENDING_SB_POR_013",
+    ),
+    porosity_output(
+        "PHIE",
         PorosityOutputRole::LimitedEffective,
+        "CURRENT_MIXED_SONIC_PENDING_SB_POR_013",
+    ),
+    porosity_output(
+        "PHIT",
+        PorosityOutputRole::LimitedTotal,
         "CURRENT_MIXED_SONIC_PENDING_SB_POR_013",
     ),
 ];
@@ -1867,13 +1881,14 @@ fn porosity_parameter_inventory_failures(modules: &[ModuleSpec]) -> Vec<String> 
 /// registered WORKFLOW is not required to declare one - so the workflow role can never
 /// become a way for a genuine method to skip the twin requirement.
 ///
-/// `phi_son` is the ONE named pending exemption: its unlimited twin is blocked on open
-/// DEC-063 (SB-POR-002's bare unlimited pair and SB-POR-009's every-sample `PHIT >= PHIE`
-/// ordering are jointly unsatisfiable for the current sonic transform at in-range
-/// endpoints - `DT_SH < DT_MA` turns the shale subtraction into an addition). A second
-/// name appearing here without a ruling is a defect, and the qualifying test pins the
-/// list's exact content.
-const POROSITY_PAIR_PENDING: &[&str] = &["phi_son"];
+/// EMPTY since DEC-063 (RULED 2026-08-18: "DT MA should always lower than DT SH") closed
+/// the one exemption `phi_son` ever held: the joint block was that the bare unlimited
+/// sonic pair and SB-POR-009's every-sample `PHIT >= PHIE` ordering were unsatisfiable at
+/// in-range endpoints with `DT_SH < DT_MA`. The ruling made the ordering a declared
+/// cross-parameter validity condition (the `vsh_gr.endpoint_order` shape), under which the
+/// bare pair is ordered by construction. A name appearing here without its own ruling is a
+/// defect, and the qualifying test pins the list's exact content.
+const POROSITY_PAIR_PENDING: &[&str] = &[];
 
 fn porosity_pair_declaration_failures(
     registrations: &[PorosityModuleRegistration],
@@ -4220,7 +4235,10 @@ fn phi_son_spec() -> ModuleSpec {
               OPT_CP=ON applies the Wyllie lack-of-compaction correction (Cp = DT_SH/100): \
               undercompacted shaly sands (e.g. shallow Mahakam delta) read porosity high on \
               the straight time-average, so the WYLLIE porosity is divided by Cp. RHG is \
-              self-compacting and is never Cp-corrected."
+              self-compacting and is never Cp-corrected. DT_MA must be strictly below DT_SH \
+              (DEC-063) - an inverted pair turns the shale subtraction into an addition and \
+              is refused before the run. PHIT_SON/PHIE_SON are the bare unlimited \
+              expressions; PHIT/PHIE carry the unit-interval and ordering clamps."
             .into(),
         args: vec![
             opt("OPT_SON", "Sonic porosity method", "WYLLIE", &["WYLLIE", "RHG"]),
@@ -4229,7 +4247,15 @@ fn phi_son_spec() -> ModuleSpec {
                 crate::param_sources::SONIC_COMPACTION_CORRECTION,
             ),
             with_sources(
-                param_open("DT_MA", "Matrix transit time", "us/ft", 40.0, 70.0, true),
+                with_validity(
+                    param_open("DT_MA", "Matrix transit time", "us/ft", 40.0, 70.0, true),
+                    vec![validity(
+                        "phi_son.endpoint_order",
+                        "The matrix transit time must be strictly below the shale transit time.",
+                        "Jauhar ruling DEC-063 (2026-08-18): DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)",
+                        ValidityRule::LessThan { other: "DT_SH".into() },
+                    )],
+                ),
                 crate::param_sources::MATRIX_TRANSIT_TIME,
             ),
             with_sources(
@@ -4254,8 +4280,10 @@ fn phi_son_spec() -> ModuleSpec {
             log_in("COND_FLAG", "Conditioning flag from condflag (indicator only - never alters an output)", "", "COND_FLAG", false),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
-            log_out("PHIT_SON", "Total porosity from sonic", "v/v"),
-            log_out("PHIE_SON", "Effective porosity from sonic", "v/v"),
+            log_out("PHIT_SON", "Total porosity from sonic (unlimited)", "v/v"),
+            log_out("PHIE_SON", "Effective porosity from sonic (unlimited)", "v/v"),
+            log_out("PHIE", "Limited effective porosity", "v/v"),
+            log_out("PHIT", "Limited total porosity", "v/v"),
         ],
     }
 }
@@ -4269,6 +4297,8 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
     let cp_on = ctx.o("OPT_CP") == "ON";
     let mut phit_son = vec![f32::NAN; ctx.n];
     let mut phie_son = vec![f32::NAN; ctx.n];
+    let mut phit_lim = vec![f32::NAN; ctx.n];
+    let mut phie_lim = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
         // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
@@ -4307,33 +4337,44 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
         } else {
             two_endpoint_fraction(d, dt_ma, dt_fl) / cp
         };
+        // SB-POR-002 (DEC-063): PHIT_SON is the bare transform - the unlimited diagnostic
+        // keeps an off-scale reading (DT past the fluid line pushes PHIT above 1) visible
+        // instead of silently absorbing it into the clamp.
+        phit_son[i] = pt as f32;
         let pt_l = limit(pt, 0.0, 1.0);
         if pt_l != pt {
             record_bound_limit("PHIT");
         }
-        phit_son[i] = pt_l as f32;
+        phit_lim[i] = pt_l as f32;
         if !is_missing(v) {
             // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
             // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand form.
             let pe = pt - v * two_endpoint_fraction(dt_sh, dt_ma, dt_fl) / cp;
+            phie_son[i] = pe as f32;
             // SB-POR-009 / F21: effective porosity can never exceed total porosity. Density and
             // D-N get this free because they rebuild PHIT from the limited PHIE, but sonic
-            // computes the two independently, so the ordering has to be imposed here — bounding
-            // PHIE by the already-limited PHIT, exactly as `ssc`/`sspw` do.
+            // computes the two independently, so the ordering is imposed here — bounding PHIE
+            // by the already-limited PHIT, exactly as `ssc`/`sspw` do.
             //
-            // This binds only where the shale term is NEGATIVE, i.e. DT_SH < DT_MA. That is not a
-            // hypothetical: DT_MA 70 and DT_SH 60 are both inside the shipped declared ranges, and
-            // there the subtraction becomes an addition and effective porosity overtakes total.
-            // No new bound is introduced — the ceiling is the sample's own total porosity.
-            let pe_l = limit(pe, 0.0, phit_son[i] as f64);
+            // Since DEC-063 (2026-08-18) the inverted case that once made this clamp the ONLY
+            // guard — DT_MA >= DT_SH, where the subtraction becomes an addition — is REFUSED at
+            // the module boundary by the declared `phi_son.endpoint_order` condition, so the
+            // shale term is positive and the bare pair is ordered by construction. The ceiling
+            // stays as the belt for the clamp edges (a PHIT capped at 1 must still cap PHIE).
+            let pe_l = limit(pe, 0.0, pt_l);
             if pe_l != pe {
                 record_bound_limit("PHIE");
             }
-            phie_son[i] = pe_l as f32;
+            phie_lim[i] = pe_l as f32;
         }
     }
 
-    HashMap::from([("PHIT_SON".to_string(), phit_son), ("PHIE_SON".to_string(), phie_son)])
+    HashMap::from([
+        ("PHIT_SON".to_string(), phit_son),
+        ("PHIE_SON".to_string(), phie_son),
+        ("PHIE".to_string(), phie_lim),
+        ("PHIT".to_string(), phit_lim),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -7232,6 +7273,86 @@ mod tests {
         );
     }
 
+    /// SB-POR-002 sonic half (DEC-063, RULED 2026-08-18: "DT MA should always lower than
+    /// DT SH"). The ordering is a DECLARED cross-parameter validity condition - the
+    /// `vsh_gr.endpoint_order` shape - so an inverted endpoint pair is refused before the
+    /// run, and under it the bare sonic pair satisfies `PHIT >= PHIE` by construction,
+    /// which is what dissolved the SB-POR-002 x SB-POR-009 joint block. `PHIT_SON` /
+    /// `PHIE_SON` are the bare expressions (an off-scale reading stays visible); `PHIT` /
+    /// `PHIE` carry the exact clamped arithmetic the module always shipped.
+    #[test]
+    fn the_sonic_pair_is_bare_beside_the_limited_pair_and_a_matrix_slower_than_shale_is_refused_by_name(
+    ) {
+        // A - the manifest declares the DEC-063 condition on DT_MA, cited.
+        let modules = module_catalog();
+        let spec = modules.iter().find(|module| module.name == "phi_son").unwrap();
+        let dt_ma = spec.args.iter().find(|argument| argument.name == "DT_MA").unwrap();
+        assert!(
+            dt_ma.validity_conditions.iter().any(|condition| {
+                condition.id == "phi_son.endpoint_order"
+                    && matches!(&condition.rule, ValidityRule::LessThan { other } if other == "DT_SH")
+                    && condition.source.contains("DEC-063")
+            }),
+            "DT_MA must declare the cited strict ordering against DT_SH"
+        );
+
+        // Fixture: DT_MA 55.5 / DT_FL 189 / DT_SH 100 - a valid order inside the declared
+        // ranges. Sample 1 reads DT 200, past the 189 fluid line, so the bare total
+        // exceeds 1 - the case the unlimited diagnostic exists to keep visible.
+        let logs: Vec<(&str, Vec<f32>)> =
+            vec![("DT", vec![80.0, 200.0]), ("VSH", vec![0.3, 0.2])];
+        let run = |dt_ma: f64, dt_sh: f64| {
+            run_module(
+                "phi_son",
+                &ctx_with(
+                    2,
+                    &logs,
+                    &[("DT_MA", dt_ma), ("DT_FL", 189.0), ("DT_SH", dt_sh)],
+                    &[],
+                ),
+            )
+        };
+
+        // B - hand-derived independently of the code. Denominator 189 - 55.5 = 133.5;
+        // shale fraction (100 - 55.5)/133.5 = 0.3333333.
+        // s0: pt = 24.5/133.5 = 0.1835206; pe = pt - 0.3 x 0.3333333 = 0.0835206. No
+        // clamp binds, so limited == unlimited bit for bit.
+        // s1: pt = 144.5/133.5 = 1.0823970 -> limited 1.0; pe = 1.0823970 - 0.2 x
+        // 0.3333333 = 1.0157303 -> limited 1.0 (the PHIT cap must still cap PHIE).
+        let out = run(55.5, 100.0).expect("a valid ordered pair runs");
+        assert!((out["PHIT_SON"][0] as f64 - 0.1835206).abs() < 1e-5, "{}", out["PHIT_SON"][0]);
+        assert!((out["PHIE_SON"][0] as f64 - 0.0835206).abs() < 1e-5, "{}", out["PHIE_SON"][0]);
+        assert_eq!(out["PHIT"][0].to_bits(), out["PHIT_SON"][0].to_bits());
+        assert_eq!(out["PHIE"][0].to_bits(), out["PHIE_SON"][0].to_bits());
+        assert!(
+            (out["PHIT_SON"][1] as f64 - 1.0823970).abs() < 1e-5,
+            "the off-scale artefact stays visible on the bare curve: {}",
+            out["PHIT_SON"][1]
+        );
+        assert!((out["PHIE_SON"][1] as f64 - 1.0157303).abs() < 1e-5, "{}", out["PHIE_SON"][1]);
+        assert_eq!(out["PHIT"][1], 1.0, "the limited total caps at the unit interval");
+        assert_eq!(out["PHIE"][1], 1.0, "and the limited effective caps at that capped total");
+        // SB-POR-009 holds on BOTH pairs: the bare pair by the enforced endpoint order,
+        // the limited pair by its clamps.
+        for i in 0..2 {
+            assert!(out["PHIT_SON"][i] >= out["PHIE_SON"][i], "bare pair ordered at {i}");
+            assert!(out["PHIT"][i] >= out["PHIE"][i], "limited pair ordered at {i}");
+        }
+
+        // C - the inverted pair (each endpoint inside its own declared range) is REFUSED
+        // by name, and so is EQUALITY - "always lower" is strict.
+        let refused = run(70.0, 60.0).expect_err("DT_MA 70 / DT_SH 60 must refuse");
+        assert!(
+            refused.contains("phi_son.endpoint_order")
+                && refused.contains("DT_MA")
+                && refused.contains("DT_SH")
+                && refused.contains("DEC-063"),
+            "{refused}"
+        );
+        let equal = run(65.0, 65.0).expect_err("equality is not lower");
+        assert!(equal.contains("phi_son.endpoint_order"), "{equal}");
+    }
+
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-009 and F21. `PHIT >= PHIE` must hold at
     /// every sample by construction, and the requirement's own words are that the invariant "MUST
     /// additionally be asserted, not merely relied on".
@@ -7240,8 +7361,10 @@ mod tests {
     /// shipped `phi_son` declared ranges (`DT_MA` 40..70, `DT_SH` 60..150). There the shale term
     /// `(DT_SH - DT_MA)` goes NEGATIVE, so the effective porosity is built by ADDING to the total —
     /// which is how a sonic sample can report more effective than total porosity while every input
-    /// is nominally in range. Arm B proves the case really is adversarial, so this cannot pass by
-    /// picking inputs that never stress the ordering.
+    /// is nominally in range. Since DEC-063 (RULED 2026-08-18: "DT MA should always lower than
+    /// DT SH") that pair is a REFUSED parameter set: arm B proves both that it would break the
+    /// ordering unguarded AND that the declared `phi_son.endpoint_order` condition refuses it,
+    /// so this cannot pass by picking inputs that never stress the ordering.
     ///
     /// `ssc`/`sspw` are proved structurally rather than executed: both bound effective porosity with
     /// total porosity as the upper limit, so the invariant holds by construction there. Their file
@@ -7257,8 +7380,9 @@ mod tests {
             ("NPHI".into(), vec![0.25, 0.35, 0.15]),
             ("VSH".into(), vec![0.20, 0.60, 0.90]),
         ]);
-        // Section 5.1 / 5.2 cited values, except the sonic pair, which is deliberately the
-        // in-range-but-inverted case described above.
+        // Section 5.1 / 5.2 cited values. The sonic pair is a FIXTURE in the declared
+        // ranges satisfying DEC-063's ordering (the inverted case is exercised - and
+        // refused - in arm B).
         let base: &[(&str, f64)] = &[
             ("RHO_MA", 2.65),
             ("RHO_SH", 2.50),
@@ -7274,19 +7398,40 @@ mod tests {
             ("VSH_SHALE", 0.95),
             ("PHIE_FLOOR", 0.001),
             ("DT_FL", 189.0),
-            ("DT_MA", 70.0),
-            ("DT_SH", 60.0),
+            ("DT_MA", 55.5),
+            ("DT_SH", 100.0),
         ];
         let params: HashMap<String, Vec<f64>> =
             base.iter().map(|(k, v)| ((*k).to_string(), vec![*v; n])).collect();
 
-        // B — the witness must actually be able to break the ordering, or arm A proves nothing.
+        // B — the witness must actually be able to break the ordering, or the refusal below
+        // guards nothing.
         let (dt, vsh) = (120.0_f64, 0.90_f64);
         let raw_total = (dt - 70.0) / (189.0 - 70.0);
         let raw_effective = raw_total - vsh * (60.0 - 70.0) / (189.0 - 70.0);
         assert!(
             raw_effective > raw_total,
             "the chosen in-range sonic parameters must make the unguarded effective porosity exceed the total"
+        );
+        // ... and since DEC-063 that pair never reaches the arithmetic: the declared
+        // strict-ordering condition refuses the run by name.
+        let mut inverted = params.clone();
+        inverted.insert("DT_MA".into(), vec![70.0; n]);
+        inverted.insert("DT_SH".into(), vec![60.0; n]);
+        let refused = run_module(
+            "phi_son",
+            &ModuleContext {
+                n,
+                logs: logs.clone(),
+                params: inverted,
+                opts: HashMap::new(),
+                depth_unit: DepthUnit::Metres,
+            },
+        )
+        .expect_err("DT_MA 70 / DT_SH 60 must refuse under DEC-063");
+        assert!(
+            refused.contains("phi_son.endpoint_order") && refused.contains("DEC-063"),
+            "{refused}"
         );
 
         // A — execute every porosity module that can be driven from these inputs and pair its
@@ -8079,8 +8224,8 @@ mod tests {
     /// change, not a capability change - their outputs are pinned numerically unchanged.
     /// The gate is pinned from BOTH sides: a registered METHOD that fails to declare its
     /// unlimited/limited pair is refused BY NAME, while the SAME output set under a
-    /// registered WORKFLOW passes - and the one live pending exemption is exactly
-    /// `phi_son`, tied to open DEC-063, so a second name cannot ride in silently.
+    /// registered WORKFLOW passes - and the live pending list is EMPTY since DEC-063
+    /// (RULED 2026-08-18) closed the sonic exemption, so a name cannot ride in silently.
     #[test]
     fn ssc_and_sspw_are_typed_workflows_and_a_method_cannot_use_that_role_to_skip_its_twin_pair() {
         // A - the registry types both as workflows with their method identities unchanged.
@@ -8257,12 +8402,13 @@ mod tests {
             "a typed workflow is not required to declare the pair"
         );
 
-        // E - the live pending list is exactly `phi_son` (open DEC-063); a name that no
-        // registration carries, or one whose role never needed a pair, is refused as stale.
-        assert_eq!(
-            POROSITY_PAIR_PENDING,
-            &["phi_son"],
-            "a second pending exemption requires its own ruling"
+        // E - the live pending list is EMPTY: DEC-063 (RULED 2026-08-18) closed the one
+        // sonic exemption, so `phi_son` now declares its pair like every other method. A
+        // name that no registration carries, or one whose role never needed a pair, is
+        // refused as stale.
+        assert!(
+            POROSITY_PAIR_PENDING.is_empty(),
+            "a pending exemption requires its own ruling; DEC-063 closed the last one"
         );
         let stale = porosity_pair_declaration_failures(&[as_workflow], &["phi_son"]);
         assert!(
@@ -8330,9 +8476,13 @@ mod tests {
             ),
             (
                 "phi_son",
+                // DEC-063 (2026-08-18): the declared endpoint ordering made the bare pair
+                // safe to emit, so the sonic method carries the full four like density.
                 BTreeMap::from([
-                    ("PHIE_SON", PorosityOutputRole::LimitedEffective),
-                    ("PHIT_SON", PorosityOutputRole::LimitedTotal),
+                    ("PHIE_SON", PorosityOutputRole::UnlimitedEffective),
+                    ("PHIT_SON", PorosityOutputRole::UnlimitedTotal),
+                    ("PHIE", PorosityOutputRole::LimitedEffective),
+                    ("PHIT", PorosityOutputRole::LimitedTotal),
                 ]),
             ),
             (
