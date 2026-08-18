@@ -29,18 +29,12 @@
 - **Blocker or decision:** no numerical source or product decision is missing. Visual/manual/field review remains open and cannot be inferred from the automated proof.
 - **Next action:** retain T03 and the production-writer inventory; continue with SB-DBM-002. Do not infer a `MODULE_VERSION_SOURCE` while that chapter parameter remains ABSENT.
 
-## SB-DBM-002 - The run record pins module identity by version, not by name
+## SB-DBM-002 - Module identity is build-derived, not hand-maintained
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T04`, `SB-DBM-T15`; sections 4.1 and 6.2-6.3.
-- **Atomic obligations:** persist a build-derived module identity that changes when the compiled module changes; include it in the re-run manifest and refuse a mismatch.
-- **Current source:** `CurveAncestry` now carries `module` plus `module_version`, and every current complete-run builder fills the latter with `env!("CARGO_PKG_VERSION")`. That value is hand-maintained and shared by every built-in module, so it can remain unchanged when one module's compiled artefact changes. No build-derived identity or re-run manifest comparator exists.
-- **Qualifying acceptance tests:** none; T04 and the module-version arm of T15 are missing. Test class is `MISSING`.
-- **Supporting tests:** version-number tests cover log-set generations, not module binary identity.
-- **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** Gate 2 live-source re-verification supersedes the accepted-anchor absence: SB-CORE-010 added the populated field, but its package-version source violates SB-DBM-002's explicit no-hand-maintained-version clause.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `BLOCKED` — §5 deliberately leaves `MODULE_VERSION_SOURCE` absent. Choosing a whole-binary digest, per-module source digest, build id, algorithm, encoding or stability rule here would be an unapproved architecture decision. `DEC-021` records the exact decision boundary.
-- **Next action:** decide `DEC-021`, replace every hand-maintained producer with the adopted build-derived identity, then implement T04 and the module-version mismatch arm of T15. No fake acceptance test is added while its expected identity transition is unspecified.
+- **Specified contract:** the identity recorded for the code that produced a curve must move when the code does; DEC-021 (RULED 2026-08-17) chose a per-module SOURCE DIGEST computed at build time, replacing CARGO_PKG_VERSION.
+- **Current implementation (2026-08-18):** DONE. build.rs emits SHA-256 (16 hex) of CR-normalized bytes per module-bearing file (the stated cross-machine rule; nothing path/timestamp-dependent); `modules::module_source_digest` maps every dispatched module and `equation:*` to its home file (the stated artefact boundary); production ancestry stores `src:<hex16>`. Accepted cost recorded per the ruling: comment edits move the digest - over-reporting, never under-reporting.
+- **Qualifying tests:** `a_modules_identity_is_the_normalized_digest_of_its_own_source_file_not_the_package_version` (recomputes the digest from the checked-out CRLF files - a raw-bytes build could not match; per-file mapping; shared-home identity; never the package version) and `a_runs_recorded_module_version_is_the_producing_files_digest` (production runner, stored ancestry). Three mutations killed: normalization dropped, writer reverted to the package version, mapping arm mis-pointed. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-003 - Every petrophysical parameter in a run record carries a source string
 

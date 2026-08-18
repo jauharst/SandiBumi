@@ -2757,6 +2757,37 @@ fn validate_declared_preconditions_ignoring(
 }
 
 /// Dispatches a module run by name.
+/// SB-DBM-002 (DEC-021): the build-derived identity of the code that produced a curve. The
+/// boundary is the FILE holding the module body (several modules share one file, and they
+/// share its identity - editing the file changes all of them, honestly), the digest is
+/// SHA-256 over CR-normalized source bytes truncated to 16 hex, and the stored form is
+/// "src:<hex16>". This REPLACES CARGO_PKG_VERSION, which does not move when a module's
+/// arithmetic does - two curves computed by different code could claim the same producer.
+pub(crate) fn module_source_digest(module: &str) -> &'static str {
+    let name = module.trim();
+    if name.starts_with("equation:") {
+        return env!("SB_MODULE_DIGEST_EQUATIONS");
+    }
+    match name {
+        "ssc" | "sspw" => env!("SB_MODULE_DIGEST_SSC"),
+        "sw_rtc" | "sw_imts" => env!("SB_MODULE_DIGEST_LRLC"),
+        "sw_height" => env!("SB_MODULE_DIGEST_SATHEIGHT"),
+        "midplot" => env!("SB_MODULE_DIGEST_LITHOLOGY"),
+        "rocktyping" | "lucia_rfn" | "pittman_rx" | "rt_cutoff" => {
+            env!("SB_MODULE_DIGEST_ROCKTYPING")
+        }
+        "electrofacies" | "gmm_facies" => env!("SB_MODULE_DIGEST_FACIES"),
+        "despike" | "smooth" | "clip" | "fill_gaps" | "flip" | "normalize" => {
+            env!("SB_MODULE_DIGEST_CONDITION")
+        }
+        "block" | "bed_detect" => env!("SB_MODULE_DIGEST_FRAME"),
+        "toc_passey" | "kerogen" | "gip" | "brittleness" => {
+            env!("SB_MODULE_DIGEST_UNCONVENTIONAL")
+        }
+        _ => env!("SB_MODULE_DIGEST_MODULES"),
+    }
+}
+
 pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // Retired modules resolve by name (their spec stays in the catalog) but must not run — a
     // saved chain step that reaches one fails loudly and actionably rather than silently
@@ -9721,6 +9752,40 @@ mod tests {
     /// L292-295 for the chart pair, `phi_dnbk.lls` for the neutron-only Bateman-Konen clamp).
     /// Pinned just-inside vs just-outside on BOTH axes, and from the other side: the parameter
     /// must actually MOVE the clamp, or it is a re-spelled literal wearing a manifest entry.
+    /// SB-DBM-002 (DEC-021): a module's identity is a build-derived digest of its OWN source
+    /// file - normalized so a CRLF and an LF checkout of identical text agree - never the
+    /// hand-maintained package version, which does not move when a module's arithmetic does.
+    /// The pin recomputes the digest from the checked-out file: on this CRLF working copy,
+    /// a build that hashed raw bytes could not match.
+    #[test]
+    fn a_modules_identity_is_the_normalized_digest_of_its_own_source_file_not_the_package_version(
+    ) {
+        use sha2::Digest;
+        let recompute = |file: &str| -> String {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(file);
+            let bytes = std::fs::read(&path).unwrap();
+            let normalized: Vec<u8> = bytes.into_iter().filter(|b| *b != b'\r').collect();
+            let hex: String =
+                sha2::Sha256::digest(&normalized).iter().map(|b| format!("{b:02x}")).collect();
+            hex[..16].to_string()
+        };
+        // A. The digest is the normalized-source hash of the module's OWN home file.
+        assert_eq!(module_source_digest("phi_dn"), recompute("modules.rs"));
+        assert_eq!(module_source_digest("ssc"), recompute("ssc.rs"));
+        assert_eq!(module_source_digest("despike"), recompute("condition.rs"));
+        assert_eq!(module_source_digest("equation:anything"), recompute("equations.rs"));
+        // B. Modules sharing a home share its identity; different homes differ.
+        assert_eq!(module_source_digest("ssc"), module_source_digest("sspw"));
+        assert_ne!(module_source_digest("ssc"), module_source_digest("phi_dn"));
+        // C. It is not, and can never silently revert to, the package version.
+        for module in ["phi_dn", "ssc", "despike"] {
+            let digest = module_source_digest(module);
+            assert_eq!(digest.len(), 16, "{module}: 16 hex chars, got {digest}");
+            assert!(digest.chars().all(|c| c.is_ascii_hexdigit()), "{module}: {digest}");
+            assert_ne!(digest, env!("CARGO_PKG_VERSION"));
+        }
+    }
+
     #[test]
     fn the_shale_reduction_clamps_are_cited_mode_aware_parameters_that_actually_move() {
         let run = |rhob: f32, nphi: f32, extra: &[(&str, f64)]| -> f32 {

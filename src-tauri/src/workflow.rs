@@ -1274,7 +1274,9 @@ fn complete_module_log_spec(
     let ancestry = equations::CurveAncestry {
         schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
         module: req.module.clone(),
-        module_version: env!("CARGO_PKG_VERSION").into(),
+        // SB-DBM-002 (DEC-021): the producing code's own digest, not the hand-maintained
+        // package version that does not move when a module's arithmetic does.
+        module_version: format!("src:{}", modules::module_source_digest(&req.module)),
         inputs,
         parameters,
         parameter_state,
@@ -7539,6 +7541,55 @@ mod tests {
         assert_eq!(marker[14].to_bits(), 1.0f32.to_bits());
         assert_eq!(marker[5].to_bits(), 0.0f32.to_bits());
         assert!(marker[19].is_nan(), "no output, no marker - got {}", marker[19]);
+    }
+
+    /// SB-DBM-002 (DEC-021): what a run RECORDS as its module version is the producing
+    /// file's own source digest ("src:<hex16>"), never the hand-maintained package version -
+    /// two curves computed by different code must never claim the same producer.
+    #[test]
+    fn a_runs_recorded_module_version_is_the_producing_files_digest() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-VER", None, None, None).unwrap();
+        let n = 5usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth, vec![60.0; n], nan.clone(), nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![id.to_string()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".to_string(), 20.0_f64), ("GR_SH".to_string(), 120.0_f64)]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
+            results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+        let conn = dbm.lock().unwrap();
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE module = 'vsh_gr'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let expected = format!(
+            "\"module_version\":\"src:{}\"",
+            modules::module_source_digest("vsh_gr")
+        );
+        assert!(
+            params_json.contains(&expected),
+            "the stored ancestry must carry the producing file's digest; wanted {expected} in {params_json}"
+        );
     }
 
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —

@@ -1951,7 +1951,8 @@ pub(crate) fn complete_curve_run_spec(
     let ancestry = CurveAncestry {
         schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
         module: module.trim().to_string(),
-        module_version: env!("CARGO_PKG_VERSION").to_string(),
+        // SB-DBM-002 (DEC-021): equation runs carry the equation engine's own source digest.
+        module_version: format!("src:{}", crate::modules::module_source_digest("equation:run")),
         inputs: resolved_inputs,
         parameters,
         parameter_state,

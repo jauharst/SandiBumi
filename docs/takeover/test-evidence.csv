@@ -405,3 +405,5 @@
 "SB-DBM-009","CORRECTNESS","src-tauri/src/db.rs","legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source"
 "SB-DBM-025","CORRECTNESS","src-tauri/src/param_sources.rs","every_cross_module_constant_is_registered_with_its_source_and_the_registry_is_what_runs"
 "SB-DBM-017","CORRECTNESS","src-tauri/src/db.rs","the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent"
+"SB-DBM-002","CORRECTNESS","src-tauri/src/modules.rs","a_modules_identity_is_the_normalized_digest_of_its_own_source_file_not_the_package_version"
+"SB-DBM-002","CORRECTNESS","src-tauri/src/workflow.rs","a_runs_recorded_module_version_is_the_producing_files_digest"
