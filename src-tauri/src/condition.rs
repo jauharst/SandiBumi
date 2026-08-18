@@ -361,6 +361,19 @@ fn out_args(
     ]
 }
 
+/// SB-ENV-033 (DEC-034 constraint 1): the Hampel fallback-used diagnostic is its OWN typed
+/// channel and is never `OUT_FLAG` - a sample whose value was replaced and a sample judged on a
+/// fallback scale are different statements, and one channel cannot carry both.
+fn fallback_scale_arg() -> crate::modules::ArgSpec {
+    log_out_flag_as(
+        "OUT_FBSCALE",
+        "{CURVE}_FBSCALE",
+        "Hampel scale diagnostic: 1 = judged on the mean-deviation fallback scale (zero-MAD \
+         window), 0 = judged on the true MAD, MISSING where no judgement was made",
+        FlagKind::DiagnosticIndicator,
+    )
+}
+
 /// `SB-ENV-037`: the bit-exact recovery record for one conditioning operation.
 ///
 /// Carries the ORIGINAL value at every sample the operation changed, and `MISSING` everywhere
@@ -491,6 +504,7 @@ pub fn despike_spec() -> ModuleSpec {
                 Some(FlagKind::DiagnosticIndicator),
             ));
             a.push(recovery_arg());
+            a.push(fallback_scale_arg());
             a
         },
     }
@@ -550,6 +564,9 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let mut out = vals.clone();
     let mut flag = FlagCurve::clear(ctx.n);
+    // SB-ENV-033 (DEC-034): per-sample record of WHICH scale judged a Hampel sample. MISSING
+    // until a judgement happens, so a refused or non-Hampel run claims nothing.
+    let mut fbscale = FlagCurve::missing(ctx.n);
     let mut buf: Vec<f32> = Vec::new();
 
     // RATE walks the frame in order and needs the PREVIOUS live sample, which is not the previous
@@ -587,6 +604,19 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
             // silent copy.
             _ => {
                 let spread = window_spread(&vals, &frame.idx, lo, hi, med, &mut buf);
+                // DEC-034: a zero-MAD window RUNS - all samples identical means there is no
+                // scale to judge against, not too little evidence to judge with - and its use
+                // of the declared fallback is reported per sample on the separate diagnostic.
+                if spread.value.is_finite() {
+                    fbscale.set(
+                        i,
+                        if matches!(spread.estimator, DespikeEstimator::MeanDeviationFallback) {
+                            FlagValue::Flagged
+                        } else {
+                            FlagValue::Clear
+                        },
+                    );
+                }
                 // A window that is constant INCLUDING this sample has zero spread and nothing to
                 // reject — every sample in it is the median. Guarded rather than left to
                 // `0.0 * K = 0.0`, which would flag every sample differing by a rounding step.
@@ -603,6 +633,11 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     }
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
+    // SB-ENV-033 (DEC-034): the diagnostic ships on every Hampel run, NOT behind OPT_FLAG -
+    // it is the disclosure that a fallback scale judged a sample, not the replaced-sample flag.
+    if !matches!(method.as_str(), "MEDIAN" | "ABS" | "RATE") {
+        res.insert("OUT_FBSCALE".to_string(), fbscale.into_f32());
+    }
     if yes(ctx, "OPT_FLAG", true) {
         // SB-ENV-037: record built BEFORE the flag is consumed; both are written or neither.
         res.insert("OUT_ORIG".to_string(), recovery_record(&vals, &flag));
@@ -1752,6 +1787,73 @@ mod tests {
     /// The control matters as much as the case: a window that really is constant must reject
     /// NOTHING, or the fall-back has simply moved the failure to the other extreme and would flag
     /// every sample of a flag curve or a zone constant.
+    /// SB-ENV-033 (DEC-034), pinned from BOTH sides: the four-sample window REFUSES with the
+    /// shipped named guard (the floor holds - at four samples the spike contributes a quarter
+    /// of the scale used to condemn it), while a zero-MAD window RUNS on the declared
+    /// mean-deviation fallback and reports that per sample on its OWN typed diagnostic -
+    /// never on OUT_FLAG, because a replaced sample and a fallback-judged sample are
+    /// different statements.
+    #[test]
+    fn the_four_sample_window_still_refuses_while_a_zero_mad_window_runs_and_reports_its_fallback_scale(
+    ) {
+        // A. The undersized window returns the structured refusal - no run, no channel claimed.
+        let depth = regular(41, 0.1, 1000.0);
+        let noisy: Vec<f32> = (0..41).map(|i| 50.0 + ((i * 7) % 5) as f32).collect();
+        let err = despike(&ctx_for(
+            &depth,
+            &noisy,
+            &[("WINDOW", 0.3), ("K", 3.0)],
+            &[("OPT_METHOD", "HAMPEL")],
+        ))
+        .expect_err("a four-sample window must refuse, not run degraded");
+        assert!(err.contains("at least 5"), "the refusal names the floor: {err}");
+
+        // B. The zero-MAD window RUNS: a quiet interval with one spike - the MAD is zero, the
+        //    mean-deviation fallback finds the spike, and the diagnostic says which scale
+        //    judged each sample.
+        let mut quiet = vec![50.0f32; 41];
+        quiet[20] = 300.0;
+        quiet[40] = f32::NAN;
+        let out = despike(&ctx_for(
+            &depth,
+            &quiet,
+            &[("WINDOW", 0.5), ("K", 3.0)],
+            &[("OPT_METHOD", "HAMPEL")],
+        ))
+        .expect("a zero-MAD window is a different situation and DOES run");
+        assert_eq!(out["OUT_CURVE"][20].to_bits(), 50.0f32.to_bits(), "the spike is repaired");
+        let fb = &out["OUT_FBSCALE"];
+        assert_eq!(fb[20].to_bits(), 1.0f32.to_bits(), "the spike was judged on the fallback scale");
+        assert!(fb[40].is_nan(), "no judgement, no claim - got {}", fb[40]);
+        assert!(
+            out["OUT_FLAG"].iter().zip(fb.iter()).any(|(flag, fb)| *flag == 0.0 && *fb == 1.0),
+            "the diagnostic is its own channel, not a copy of the replaced-sample flag"
+        );
+
+        // C. A window with real spread is judged on the TRUE MAD and the diagnostic says so.
+        let out = despike(&ctx_for(
+            &depth,
+            &noisy,
+            &[("WINDOW", 0.9), ("K", 8.0)],
+            &[("OPT_METHOD", "HAMPEL")],
+        ))
+        .expect("run");
+        assert!(
+            out["OUT_FBSCALE"].iter().filter(|v| v.is_finite()).all(|v| *v == 0.0),
+            "a true-MAD judgement must read 0 on the diagnostic"
+        );
+
+        // D. A non-Hampel method makes no scale judgement and carries no diagnostic at all.
+        let out = despike(&ctx_for(
+            &depth,
+            &noisy,
+            &[("WINDOW", 0.9), ("THRESH", 100.0)],
+            &[("OPT_METHOD", "ABS")],
+        ))
+        .expect("run");
+        assert!(!out.contains_key("OUT_FBSCALE"), "ABS makes no scale judgement");
+    }
+
     #[test]
     fn a_spike_in_a_quiet_interval_is_still_a_spike() {
         let n = 41;

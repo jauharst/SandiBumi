@@ -7194,6 +7194,9 @@ mod tests {
             ),
             ("condflag.COND_FLAG".into(), FlagKind::ExclusionMask),
             ("despike.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
+            // SB-ENV-033 (DEC-034): the Hampel fallback-scale diagnostic - its own typed
+            // channel, never OUT_FLAG.
+            ("despike.OUT_FBSCALE".into(), FlagKind::DiagnosticIndicator),
             ("smooth.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
             ("clip.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
             ("fill_gaps.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),

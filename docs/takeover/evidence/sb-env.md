@@ -427,18 +427,13 @@
 - **Blocker or decision:** none; the chapter supplies the mathematical derivation and value, so this increment makes no petrophysical choice.
 - **Next action:** preserve the single source and execute the manual result-regression review separately; continue SB-ENV-033. One constant prevents implementation drift but does not validate Hampel for a delivered curve.
 
-## SB-ENV-033 - A degenerate window is declared, not silently substituted
+## SB-ENV-033 - Four-sample Hampel fallback versus the shipped refusal
 
-- **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; T42; sections 4.4, 6.4 and 8.
-- **Atomic obligations:** declare zero-spread and too-small-window behavior in output/provenance; never silently substitute an estimator.
-- **Current source:** `validate_hampel_window` refuses windows below five before module execution, while zero MAD silently falls back to mean absolute deviation. `OUT_FLAG` records replaced samples only; a refused `Result` has no `ModuleOutputs` channel.
-- **Qualifying acceptance tests:** none. Exact T42 requires a four-sample window to emit a per-sample fallback declaration, which cannot coexist with the shipped under-five refusal. The existing zero-MAD characterization and narrow-window refusal do not prove that exact contract.
-- **Supporting tests:** `condition::tests::a_spike_in_a_quiet_interval_is_still_a_spike` characterizes today's silent zero-MAD fallback; `condition::tests::a_hampel_window_too_narrow_to_measure_a_spread_is_refused` pins the opposing safety refusal. Neither is counted as SB-ENV-T42.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** mixed refusal/fallback behavior is integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`; `BLOCKED-SPEC/DECISION`.
-- **Blocker or decision:** DEC-034 must reconcile exact T42's four-sample fallback output with the existing refusal and must define a non-conflating reporting surface.
-- **Next action:** after DEC-034, either retain the safety refusal and re-adjudicate T42 to separate a typed zero-MAD fallback diagnostic from a structured undersized-window refusal, or explicitly authorize the riskier four-sample fallback contract. Do not weaken the guard or reuse the replaced-sample flag without that decision.
+- **Specified contract:** exact T42 asked a four-sample window to emit fallback output; DEC-034 (RULED 2026-08-17) separated T42's two situations - the under-five refusal STANDS (at four samples the spike contributes a quarter of the scale used to condemn it), and a zero-MAD window is a DIFFERENT situation that runs on the declared fallback with per-sample disclosure. T42 was corrected citing the ruling.
+- **Current implementation (2026-08-18):** DONE. The MIN_HAMPEL_SAMPLES guard and its regression are untouched. The Hampel arm records per sample WHICH scale judged it on `OUT_FBSCALE` (`{CURVE}_FBSCALE`, FlagKind::DiagnosticIndicator, registered in the typed ENV/Condition flag inventory): 1 = mean-deviation fallback (zero-MAD window), 0 = true MAD, MISSING = no judgement. Its own channel, never OUT_FLAG (constraint 1); ships on every Hampel run regardless of OPT_FLAG - disclosure, not the replaced-sample flag. A refusal claims no per-sample channel (constraint 2).
+- **Qualifying test:** `condition::tests::the_four_sample_window_still_refuses_while_a_zero_mad_window_runs_and_reports_its_fallback_scale` - both sides in one test (constraint 3): refusal naming the floor; zero-MAD run repairing the spike with the diagnostic 1 exactly there; MISSING claims nothing; diagnostic provably differs from OUT_FLAG on the same run; true-MAD reads 0; ABS carries none. Three mutations killed: floor removed, diagnostic not emitted, estimator record inverted. Test class `CORRECTNESS`.
+- **Named cost (recorded, not softened):** despike still will not run where a window cannot reach five samples.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-034 - Every window, gap and thickness parameter is a thickness in the project's depth unit
 
