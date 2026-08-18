@@ -5127,6 +5127,9 @@ fn sw_arch_spec() -> ModuleSpec {
         log_in("PHIT", "Limited total porosity", "v/v", "PHIT", true),
         log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
         log_out("SWT_ARCH", "SWT from Archie (unlimited)", "v/v"),
+        // SB-SAT-025: the effective result gets its own unclipped diagnostic — a clipped-only
+        // curve cannot distinguish "the rock is wet" from "the model went out of range".
+        log_out("SWE_ARCH", "SWE from Archie (unlimited)", "v/v"),
         log_out("SWT", "Limited total water saturation", "v/v"),
         log_out("SWE", "Limited effective water saturation", "v/v"),
         log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
@@ -5156,6 +5159,7 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
     // SB-SAT-002: which Archie this run IS. Total stays the default so no saved run changes.
     let effective_eqn = ctx.o("OPT_EQN") == "archie_effective";
     let mut swt_arch = vec![f32::NAN; ctx.n];
+    let mut swe_arch = vec![f32::NAN; ctx.n];
     let mut swt_out = vec![f32::NAN; ctx.n];
     let mut swe_out = vec![f32::NAN; ctx.n];
     let mut vol_uwat = vec![f32::NAN; ctx.n];
@@ -5171,6 +5175,7 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         // otherwise SWT_ARCH stores +Infinity and poisons catalog stats/autoscale.
         if pt == 0.0 {
             swt_arch[i] = 1.0;
+            swe_arch[i] = 1.0;
             swt_out[i] = 1.0;
             swe_out[i] = 1.0;
             vol_uwat[i] = 0.0;
@@ -5205,12 +5210,15 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
                 // Swb = 1 yields SWE = 1, never a divide-by-zero - SB-SAT-023's own clause,
                 // coinciding with this module's standing low-porosity all-water convention.
                 swt_arch[i] = 1.0;
+                swe_arch[i] = 1.0;
                 swt_out[i] = 1.0;
                 swe_out[i] = 1.0;
                 vol_uwat[i] = 0.0;
                 continue;
             }
             let swe = (a * rw / (pe.powf(m) * r)).powf(1.0 / n_exp);
+            // SB-SAT-025: the unclipped effective diagnostic IS the raw equation value.
+            swe_arch[i] = swe as f32;
             // The irreducible bound is declared in TOTAL space; carry it into effective space
             // by the same back-out the total branch uses, so one SWT_IRR means one thing.
             let swe_irr =
@@ -5231,6 +5239,14 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
 
         if !is_missing(pe) {
             let swtsh = 1.0 - pe / pt;
+            // SB-SAT-025: the diagnostic backs the UNCLIPPED SWT out and keeps the sign — a
+            // negative value here is exactly the "model went out of range" evidence the clipped
+            // curve erases. Swb = 1 still yields 1 (SB-SAT-023).
+            swe_arch[i] = if swtsh >= 1.0 {
+                1.0
+            } else {
+                ((swt - swtsh) / (1.0 - swtsh)) as f32
+            };
             let swe = if swtsh >= 1.0 {
                 1.0
             } else {
@@ -5259,6 +5275,7 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         .collect();
     HashMap::from([
         ("SWT_ARCH".to_string(), swt_arch),
+        ("SWE_ARCH".to_string(), swe_arch),
         ("SWT".to_string(), swt_out),
         ("SWE".to_string(), swe_out),
         ("VOL_UWAT".to_string(), vol_uwat),
@@ -9273,6 +9290,149 @@ mod tests {
         );
         let solver = crate::multimin2::sw_archie(8.0, 0.20, 0.25, 2.0, 2.0, 1.0);
         assert!((solver - 0.883883476).abs() < 2e-3, "the shared kernel on φe gives 0.884, got {solver}");
+    }
+
+    /// SB-SAT-025 / SB-SAT-T38. Source: `12_saturation.md:1385-1401` — every saturation method
+    /// emits both a clipped curve (plain `SWE`/`SWT`) and an unclipped diagnostic
+    /// (`SWE_<METHOD>`/`SWT_<METHOD>`), because a clipped-only curve cannot distinguish "the rock
+    /// is wet" from "the model went out of range" (dossier §2.9 — Geolog and Techlog ship the
+    /// diagnostics, IP does not and its comparison-curve caveat exists for that reason). The
+    /// mnemonic pattern is the requirement's own text and the family's shipped convention
+    /// (`SWT_ARCH`, `SWE_INDO`, `SWE_SIM`); §7.2 item 11's `_UNCL` respelling stays with
+    /// SB-SAT-026, deliberately undecided here.
+    ///
+    /// Pinned from BOTH sides per the register: the clipped curve must sit at its bound AND the
+    /// diagnostic must lie beyond it — one arm alone would pass a module that copies the clipped
+    /// value into the diagnostic.
+    #[test]
+    fn every_saturation_method_emits_a_clipped_curve_and_an_unclipped_diagnostic_that_exceeds_the_bounds(
+    ) {
+        let assert_pair = |label: &str, clipped: f32, diagnostic: f32, bound: f32, above: bool| {
+            if above {
+                assert_eq!(clipped, bound, "{label}: the clipped curve must sit at its bound");
+                assert!(
+                    diagnostic > bound + 0.05,
+                    "{label}: the diagnostic must exceed the bound the model crossed, got {diagnostic}"
+                );
+            } else {
+                assert_eq!(clipped, bound, "{label}: the clipped curve must sit at its floor");
+                assert!(
+                    diagnostic < bound - 0.01,
+                    "{label}: the diagnostic must fall below the floor, got {diagnostic}"
+                );
+            }
+        };
+
+        // A. sw_arch, total equation. RT 0.5 drives SWT to sqrt(8) ≈ 2.83.
+        let params: &[(&str, f64)] =
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.25), ("SWT_IRR", 0.0)];
+        let hot = sw_arch(&ctx_with(
+            1,
+            &[("RT", vec![0.5]), ("PHIT", vec![0.25]), ("PHIE", vec![0.20])],
+            params,
+            &[("OPT_RW", "CONSTANT")],
+        ));
+        assert_pair("sw_arch SWT", hot["SWT"][0], hot["SWT_ARCH"][0], 1.0, true);
+        assert_pair("sw_arch SWE", hot["SWE"][0], hot["SWE_ARCH"][0], 1.0, true);
+
+        //    Below the irreducible floor: RT 50 gives SWT 0.283 under SWT_IRR 0.3.
+        let dry = sw_arch(&ctx_with(
+            1,
+            &[("RT", vec![50.0]), ("PHIT", vec![0.25]), ("PHIE", vec![0.20])],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.25), ("SWT_IRR", 0.3)],
+            &[("OPT_RW", "CONSTANT")],
+        ));
+        assert_pair("sw_arch SWT floor", dry["SWT"][0], dry["SWT_ARCH"][0], 0.3, false);
+
+        // B. sw_arch, effective equation — the branch SB-SAT-002 added must carry its own twin.
+        let eff = sw_arch(&ctx_with(
+            1,
+            &[("RT", vec![0.5]), ("PHIT", vec![0.25]), ("PHIE", vec![0.20])],
+            params,
+            &[("OPT_RW", "CONSTANT"), ("OPT_EQN", "archie_effective")],
+        ));
+        assert_pair("archie_effective SWE", eff["SWE"][0], eff["SWE_ARCH"][0], 1.0, true);
+        assert_pair("archie_effective SWT", eff["SWT"][0], eff["SWT_ARCH"][0], 1.0, true);
+
+        // C. sw_rtc. Zeroed excess-conductivity coefficients reduce it to Archie on PHIT, so the
+        //    same RT 0.5 drives the model out of range; CBW 0.05 gives Swb 0.2 for the SWE pair.
+        let rtc = crate::lrlc::sw_rtc(&ctx_with(
+            1,
+            &[
+                ("RT", vec![0.5]),
+                ("PHIT", vec![0.25]),
+                ("CAPBW", vec![f32::NAN]),
+                ("QV", vec![0.0]),
+                ("CBW", vec![0.05]),
+                ("PHIT_SSPW", vec![f32::NAN]),
+                ("CAPBW_SSPW", vec![f32::NAN]),
+                ("CBW_SSPW", vec![f32::NAN]),
+            ],
+            &[
+                ("RW", 0.25), ("M", 2.0), ("N", 2.0), ("A_CAP", 0.0), ("B_QV", 0.0),
+                ("C0", 0.0), ("RSF", 1.0), ("CEC", 0.0), ("RHOG", 2.65),
+            ],
+            &[],
+        ));
+        assert_pair("sw_rtc SWT", rtc["SWT"][0], rtc["SWT_RTC"][0], 1.0, true);
+        assert_pair("sw_rtc SWE", rtc["SWE"][0], rtc["SWE_RTC"][0], 1.0, true);
+
+        // D. sw_imts. Zero clay collapses the iteration to the Archie-like seed, which converges
+        //    AT the bound in one step — the diagnostic is the converged evaluation unprojected.
+        let imts = crate::lrlc::sw_imts(&ctx_with(
+            1,
+            &[
+                ("RT", vec![0.5]),
+                ("PHIT", vec![0.25]),
+                ("VKAOL", vec![0.0]),
+                ("VILL", vec![0.0]),
+                ("SWIRR", vec![f32::NAN]),
+                ("CBW", vec![0.05]),
+                ("PHIT_SSPW", vec![f32::NAN]),
+                ("CBW_SSPW", vec![f32::NAN]),
+            ],
+            &[
+                ("RW", 0.25), ("TEMP_C", 80.0), ("A", 1.0), ("MSTAR", 2.0), ("NSTAR", 2.0),
+                ("S_FACTOR", 1.0), ("CEC_KAOL", 3.0), ("CEC_ILL", 20.0), ("RHOG", 2.65),
+                ("SWIRR_DEF", 0.1),
+            ],
+            &[],
+        ));
+        assert_pair("sw_imts SWT", imts["SWT"][0], imts["SWT_IMTS"][0], 1.0, true);
+        assert_pair("sw_imts SWE", imts["SWE"][0], imts["SWE_IMTS"][0], 1.0, true);
+
+        // E. The whole-family inventory the register names as missing: zero LIVE saturation
+        //    methods emit clipped values only. Both directions — every plain curve has a
+        //    method-named diagnostic sibling, and every diagnostic has its plain clipped twin —
+        //    so neither a clipped-only module nor a diagnostic-only module can register.
+        let mut swept = 0usize;
+        for spec in list_modules() {
+            if spec.category != "Saturation" || retired_module(&spec.name).is_some() {
+                continue;
+            }
+            let outs: Vec<&str> = spec
+                .args
+                .iter()
+                .filter(|arg| arg.kind == ArgKind::LogOut)
+                .map(|arg| arg.name.as_str())
+                .collect();
+            for plain in ["SWE", "SWT"] {
+                let prefix = format!("{plain}_");
+                let has_diag = outs.iter().any(|name| name.starts_with(&prefix));
+                if outs.contains(&plain) {
+                    assert!(has_diag, "{}: {plain} has no unclipped diagnostic", spec.name);
+                    swept += 1;
+                }
+                if has_diag {
+                    assert!(
+                        outs.contains(&plain),
+                        "{}: a {plain}_* diagnostic has no clipped {plain} twin",
+                        spec.name
+                    );
+                }
+            }
+        }
+        assert!(swept >= 7, "the sweep must cover the live family, saw {swept} pairs");
     }
 
     #[test]

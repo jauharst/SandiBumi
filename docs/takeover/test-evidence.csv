@@ -387,3 +387,4 @@
 "SB-DBM-032","CORRECTNESS","src-tauri/src/parameter_pack.rs","a_stored_parameter_carries_its_unit_and_source_and_a_tilted_value_never_interpolates_across_a_zone_boundary"
 "SB-DBM-032","CORRECTNESS","src-tauri/src/parameter_pack.rs","a_parameter_row_carrying_only_one_of_its_two_handles_is_refused_by_name"
 "SB-SAT-002","CORRECTNESS","src-tauri/src/modules.rs","effective_and_total_archie_are_two_separately_named_methods_that_disagree_on_the_reference_case"
+"SB-SAT-025","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_method_emits_a_clipped_curve_and_an_unclipped_diagnostic_that_exceeds_the_bounds"

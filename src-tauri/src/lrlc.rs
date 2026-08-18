@@ -129,8 +129,13 @@ pub fn sw_rtc_spec() -> ModuleSpec {
             log_in("PHIT_SSPW", "Total porosity — SSPW fallback (used where PHIT is absent)", "v/v", "PHIT_SSPW", false),
             log_in("CAPBW_SSPW", "Capillary water — SSPW fallback", "v/v", "CAPBW_SSPW", false),
             log_in("CBW_SSPW", "Clay-bound water — SSPW fallback", "v/v", "CBW_SSPW", false),
-            log_out("SWT_RTC", "Total water saturation, RtC", "v/v"),
-            log_out("SWE_RTC", "Effective water saturation, RtC", "v/v"),
+            // SB-SAT-025: the method-named curves are the UNCLIPPED diagnostics, per the
+            // family convention (SWT_ARCH, SWE_INDO, SWE_SIM); the plain pair is clipped and
+            // carries exactly the values this module always emitted under the method names.
+            log_out("SWT_RTC", "SWT from RtC (unlimited)", "v/v"),
+            log_out("SWE_RTC", "SWE from RtC (unlimited)", "v/v"),
+            log_out("SWT", "Limited total water saturation", "v/v"),
+            log_out("SWE", "Limited effective water saturation", "v/v"),
             log_out("RT_CORR", "Clay/capillary-corrected resistivity", "ohm.m"),
             log_out("CEX_RTC", "Excess conductivity removed", "mho/m"),
         ],
@@ -149,6 +154,8 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
+    let mut swt_raw_o = vec![f32::NAN; ctx.n];
+    let mut swe_raw_o = vec![f32::NAN; ctx.n];
     let mut rtc_o = vec![f32::NAN; ctx.n];
     let mut cex_o = vec![f32::NAN; ctx.n];
 
@@ -172,7 +179,11 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         let ct_corr = ct - cex_applied;
         let rt_corr = 1.0 / ct_corr;
 
-        let swt = limit((rw * ct_corr / pt.powf(m)).powf(1.0 / n_exp), 0.0, 1.0);
+        // SB-SAT-025: raw first, clip second. The clipped pair carries exactly the values
+        // this module always produced; the diagnostics keep what the model actually said.
+        let swt_raw = (rw * ct_corr / pt.powf(m)).powf(1.0 / n_exp);
+        let swt = limit(swt_raw, 0.0, 1.0);
+        swt_raw_o[i] = swt_raw as f32;
         swt_o[i] = swt as f32;
         rtc_o[i] = rt_corr as f32;
         cex_o[i] = cex_applied as f32;
@@ -180,15 +191,19 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         let cb = cbw[i] as f64;
         if !cb.is_nan() && pt > cb {
             let swb = limit(cb / pt, 0.0, 0.99);
+            swe_raw_o[i] = ((swt_raw - swb) / (1.0 - swb)) as f32;
             swe_o[i] = limit((swt - swb) / (1.0 - swb), 0.0, 1.0) as f32;
         } else {
+            swe_raw_o[i] = swt_raw as f32;
             swe_o[i] = swt as f32;
         }
     }
 
     HashMap::from([
-        ("SWT_RTC".to_string(), swt_o),
-        ("SWE_RTC".to_string(), swe_o),
+        ("SWT_RTC".to_string(), swt_raw_o),
+        ("SWE_RTC".to_string(), swe_raw_o),
+        ("SWT".to_string(), swt_o),
+        ("SWE".to_string(), swe_o),
         ("RT_CORR".to_string(), rtc_o),
         ("CEX_RTC".to_string(), cex_o),
     ])
@@ -284,8 +299,12 @@ pub fn sw_imts_spec() -> ModuleSpec {
             log_in("CBW", "Clay-bound water (for SWE), optional", "v/v", "CBW", false),
             log_in("PHIT_SSPW", "Total porosity — SSPW fallback (used where PHIT is absent)", "v/v", "PHIT_SSPW", false),
             log_in("CBW_SSPW", "Clay-bound water — SSPW fallback", "v/v", "CBW_SSPW", false),
-            log_out("SWT_IMTS", "Total water saturation, IMTS", "v/v"),
-            log_out("SWE_IMTS", "Effective water saturation, IMTS", "v/v"),
+            // SB-SAT-025: method-named = unclipped diagnostic, plain pair = clipped, as
+            // across the whole saturation family.
+            log_out("SWT_IMTS", "SWT from IMTS (unlimited)", "v/v"),
+            log_out("SWE_IMTS", "SWE from IMTS (unlimited)", "v/v"),
+            log_out("SWT", "Limited total water saturation", "v/v"),
+            log_out("SWE", "Limited effective water saturation", "v/v"),
             log_out("QVEFF", "Effective Qv (meq/cm3)", "meq/cm3"),
         ],
     }
@@ -302,6 +321,8 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
+    let mut swt_raw_o = vec![f32::NAN; ctx.n];
+    let mut swe_raw_o = vec![f32::NAN; ctx.n];
     let mut qveff_o = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
@@ -366,20 +387,30 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         if sw.is_nan() || !converged {
             continue;
         }
+        // SB-SAT-025: the diagnostic is the converged evaluation UNPROJECTED — the fixed point
+        // the iteration landed on, without the final [0,1] clamp. Interior fixed points are
+        // unchanged; a solve that converged AT the bound shows how far past it the model reads.
+        let denom = cw + b * qv_eff / sw.max(1e-6);
+        let sw_raw = (fstar * ct / denom).powf(1.0 / nstar);
+        swt_raw_o[i] = sw_raw as f32;
         swt_o[i] = sw as f32;
 
         let cb = cbw[i] as f64;
         if !cb.is_nan() && pt > cb {
             let swb = limit(cb / pt, 0.0, 0.99);
+            swe_raw_o[i] = ((sw_raw - swb) / (1.0 - swb)) as f32;
             swe_o[i] = limit((sw - swb) / (1.0 - swb), 0.0, 1.0) as f32;
         } else {
+            swe_raw_o[i] = sw_raw as f32;
             swe_o[i] = sw as f32;
         }
     }
 
     HashMap::from([
-        ("SWT_IMTS".to_string(), swt_o),
-        ("SWE_IMTS".to_string(), swe_o),
+        ("SWT_IMTS".to_string(), swt_raw_o),
+        ("SWE_IMTS".to_string(), swe_raw_o),
+        ("SWT".to_string(), swt_o),
+        ("SWE".to_string(), swe_o),
         ("QVEFF".to_string(), qveff_o),
     ])
 }
@@ -1391,7 +1422,10 @@ mod tests {
         let archie = (0.3 * (1.0 / 4.0) / 0.25_f64.powf(2.0)).powf(0.5);
         assert!(swt < archie, "RtC must lower Sw vs Archie: {swt} vs {archie}");
         assert!(out["RT_CORR"][0] > 4.0, "corrected Rt must rise");
-        assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
+        // SB-SAT-025 moved the clipped values to the plain pair (bit-identical); the method-
+        // named curves are now unclipped diagnostics, which legitimately break this inequality
+        // above 1 - that is exactly the out-of-range evidence they exist to carry.
+        assert!(out["SWE"][0] <= out["SWT"][0], "SWE <= SWT");
         assert!(out["CEX_RTC"][0] > 0.0);
     }
 
@@ -1418,7 +1452,10 @@ mod tests {
             "SWT_RTC must be computed from the SSPW fallback curves, got NaN"
         );
         assert!(out["RT_CORR"][0] > 4.0, "capillary correction (via CAPBW_SSPW) must raise Rt");
-        assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
+        // SB-SAT-025 moved the clipped values to the plain pair (bit-identical); the method-
+        // named curves are now unclipped diagnostics, which legitimately break this inequality
+        // above 1 - that is exactly the out-of-range evidence they exist to carry.
+        assert!(out["SWE"][0] <= out["SWT"][0], "SWE <= SWT");
     }
 
     /// T-ADV-10 — the SSPW fallback, for **sw_imts** and applied per SAMPLE.
