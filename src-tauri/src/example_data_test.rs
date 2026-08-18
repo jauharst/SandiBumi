@@ -335,6 +335,7 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "parsers::parse_las_2_with_channel_nulls",
     "parsers::parse_las_2_with_null_rules",
     "parsers::parse_las_2_with_unit_designation",
+    "parsers::parse_las_2_import",
     "parsers::parse_las_directory",
     "parsers::parse_locations_file",
     "parsers::parse_scal_centrifuge_csv",
@@ -363,6 +364,7 @@ const REGISTERED_SAMPLED_READERS: &[&str] = &[
     "parsers::parse_las_2_with_channel_nulls",
     "parsers::parse_las_2_with_null_rules",
     "parsers::parse_las_2_with_unit_designation",
+    "parsers::parse_las_2_import",
     "parsers::parse_las_directory",
     "parsers::parse_tops_file",
 ];
@@ -463,6 +465,11 @@ impl NativeSpacingFixtures {
             }
             "parsers::parse_las_2_with_unit_designation" => {
                 parsers::parse_las_2_with_unit_designation(&self.las, &channel_nulls, &[], None)
+                    .unwrap()
+                    .depth
+            }
+            "parsers::parse_las_2_import" => {
+                parsers::parse_las_2_import(&self.las, &channel_nulls, &[], None, false)
                     .unwrap()
                     .depth
             }
@@ -683,6 +690,17 @@ fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<()
                 &parsers::ChannelNullValues::new(),
                 &[],
                 None,
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_import" => {
+            parsers::parse_las_2_import(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+                None,
+                false,
             )
             .map(|_| ())
             .map_err(|e| e.to_string())

@@ -39,12 +39,40 @@ pub struct ImportResult {
     pub unit_tokens: Vec<crate::curves::UnitTokenObservation>,
     /// Look-alike spellings that remain distinct because no explicit alias joins them.
     pub unit_token_warnings: Vec<String>,
+    /// SB-CLY-034 (DEC-037): present when the import BLOCKED on undeclared vendor-sentinel
+    /// values - the structured question (value, every affected curve, sample count) the
+    /// dialog must put to the user. Nothing from this file was written.
+    pub sentinel_question: Option<UndeclaredSentinelQuestion>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NonMonotonicIndexDecision {
     AcceptAsDelivered,
+}
+
+/// SB-CLY-034 (DEC-037): the user's answer to the undeclared-sentinel question. There is
+/// deliberately no default - conversion on magnitude alone is the forbidden path, so an
+/// absent decision while candidates exist BLOCKS the import with the question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SentinelDecision {
+    Convert,
+    Keep,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SentinelCurveCount {
+    pub mnemonic: String,
+    pub samples: usize,
+}
+
+/// SB-CLY-034 (DEC-037): the blocking question - the value, every affected curve and the
+/// sample count, exactly what the ruling says the question must name.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UndeclaredSentinelQuestion {
+    pub value: f32,
+    pub curves: Vec<SentinelCurveCount>,
 }
 
 /// Options for a LAS import batch (the Import LAS dialog's choices).
@@ -95,6 +123,10 @@ pub struct LasImportOptions {
     /// verification cannot silently borrow the project's unit or an unrelated snap tolerance.
     #[serde(default, alias = "samplingStyleVerifyTolerance")]
     pub sampling_style_verify_tolerance: Option<crate::units::DepthTolerance>,
+    /// SB-CLY-034 (DEC-037): the user's decision on undeclared vendor-sentinel values.
+    /// Absent while candidates exist means the import BLOCKS with the question.
+    #[serde(default, alias = "undeclaredSentinelDecision")]
+    pub undeclared_sentinel_decision: Option<SentinelDecision>,
 }
 
 #[cfg(test)]
@@ -115,6 +147,7 @@ impl Default for LasImportOptions {
             confirmed_well_names: Default::default(),
             sampling_style: Some(crate::schema_vocab::SamplingStyle::ContinuousIrregular),
             sampling_style_verify_tolerance: None,
+            undeclared_sentinel_decision: None,
         }
     }
 }
@@ -313,7 +346,7 @@ fn cancelled_las_import(path: &str) -> ImportResult {
         unconverted_units: Vec::new(),
         unit_designations: Vec::new(),
         unit_tokens: Vec::new(),
-        unit_token_warnings: Vec::new(),
+        unit_token_warnings: Vec::new(), sentinel_question: None
     }
 }
 
@@ -344,11 +377,17 @@ pub fn import_las_files_with(
             .par_iter()
             .map(|path| {
                 let result = (|| {
-                    let columns = parsers::parse_las_2_with_unit_designation(
+                    let columns = parsers::parse_las_2_import(
                         path,
                         &opts.channel_nulls,
                         &opts.null_rules,
                         opts.ms_per_ft_meanings.get(path).copied(),
+                        // SB-CLY-034 (DEC-037): conversion happens only on the user's
+                        // explicit confirmation - never on magnitude alone.
+                        matches!(
+                            opts.undeclared_sentinel_decision,
+                            Some(SentinelDecision::Convert)
+                        ),
                     )?;
                     let identity = parsers::las_well_identity_from_container(
                         std::path::Path::new(path),
@@ -400,7 +439,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, well_headers: Vec::new(), rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(), section_handling: Vec::new(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, well_headers: Vec::new(), rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(), section_handling: Vec::new(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() , sentinel_question: None},
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -458,6 +497,76 @@ fn insert_parsed_well(
         .collect::<Vec<_>>();
     let (unit_tokens, unit_token_warnings) = crate::curves::observe_unit_tokens(&observed_units);
 
+    // SB-CLY-034 (DEC-037): quarantine and ASK. The parser detected undeclared values equal
+    // to the known vendor bad-hole sentinel; without the user's decision the import BLOCKS
+    // here - before any write - with a question naming the value, every affected curve and
+    // the sample count. BOTH answers are recorded (a kept sentinel is itself a finding about
+    // the delivery), and an explicit NoNull channel never reaches this point at all.
+    let sentinel_candidates = columns.undeclared_sentinel_candidates.clone();
+    let mut sentinel_note: Option<String> = None;
+    if !sentinel_candidates.is_empty() {
+        let listing = sentinel_candidates
+            .iter()
+            .map(|(mnemonic, samples)| format!("{mnemonic} ({samples} sample(s))"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        match opts.undeclared_sentinel_decision {
+            None => {
+                return ImportResult {
+                    path,
+                    well_id: None,
+                    well_name: Some(well_name),
+                    well_headers,
+                    rows: 0,
+                    text_encoding: Some(columns.text_encoding),
+                    warning: None,
+                    error: Some(format!(
+                        "import blocked: value {} matches the known vendor bad-hole sentinel \
+                         but this file does not declare it as null - affected: {listing}. \
+                         Decide whether these cells are absent values or measurements; \
+                         nothing was imported.",
+                        parsers::VENDOR_BADHOLE_SENTINEL
+                    )),
+                    attached_set: None,
+                    alias_decisions,
+                    null_resolutions,
+                    index_resolution,
+                    section_policy,
+                    section_handling,
+                    unit_conversions: Vec::new(),
+                    unconverted_units: Vec::new(),
+                    unit_designations,
+                    unit_tokens,
+                    unit_token_warnings,
+                    sentinel_question: Some(UndeclaredSentinelQuestion {
+                        value: parsers::VENDOR_BADHOLE_SENTINEL,
+                        curves: sentinel_candidates
+                            .iter()
+                            .map(|(mnemonic, samples)| SentinelCurveCount {
+                                mnemonic: mnemonic.clone(),
+                                samples: *samples,
+                            })
+                            .collect(),
+                    }),
+                };
+            }
+            Some(SentinelDecision::Convert) => {
+                sentinel_note = Some(format!(
+                    "undeclared {} vendor bad-hole sentinel converted to absent on user \
+                     confirmation (DEC-037): {listing}",
+                    parsers::VENDOR_BADHOLE_SENTINEL
+                ));
+            }
+            Some(SentinelDecision::Keep) => {
+                sentinel_note = Some(format!(
+                    "undeclared {} sentinel-shaped values KEPT as measurements on user \
+                     decision (DEC-037): {listing}",
+                    parsers::VENDOR_BADHOLE_SENTINEL
+                ));
+            }
+        }
+    }
+
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
     // foot-indexed LAS landing its raw numbers in a metric project used to be
@@ -488,7 +597,7 @@ fn insert_parsed_well(
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
                 }
             }
         },
@@ -517,7 +626,7 @@ fn insert_parsed_well(
                 unconverted_units: Vec::new(),
                 unit_designations: unit_designations.clone(),
                 unit_tokens: unit_tokens.clone(),
-                unit_token_warnings: unit_token_warnings.clone(),
+                unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
             }
         }
     };
@@ -562,7 +671,7 @@ fn insert_parsed_well(
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
                 }
             }
         }
@@ -595,7 +704,7 @@ fn insert_parsed_well(
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
                 }
             }
             Some(parsers::DuplicateDepthPolicy::Refuse) => {
@@ -620,7 +729,7 @@ fn insert_parsed_well(
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
                 }
             }
             Some(policy) => {
@@ -666,7 +775,7 @@ fn insert_parsed_well(
             unconverted_units: Vec::new(),
             unit_designations: unit_designations.clone(),
             unit_tokens: unit_tokens.clone(),
-            unit_token_warnings: unit_token_warnings.clone(),
+            unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
         };
     }
 
@@ -701,6 +810,10 @@ fn insert_parsed_well(
         }
     }
     notes.extend(unit_designations.iter().map(crate::curves::UnitDesignation::note));
+    // SB-CLY-034 (DEC-037) constraint 2: the answer is recorded either way - in the import
+    // warning (which the shell writes into the durable process history) and per curve in
+    // `curve_meta.source` below.
+    notes.extend(sentinel_note.iter().cloned());
     notes.extend(unit_token_warnings.iter().cloned());
     notes.extend(alias_decisions.iter().filter_map(|decision| {
         decision.table_entry.as_ref().map(|entry| {
@@ -761,7 +874,7 @@ fn insert_parsed_well(
                 unconverted_units: Vec::new(),
                 unit_designations,
                 unit_tokens,
-                unit_token_warnings,
+                unit_token_warnings, sentinel_question: None
             };
         }
     };
@@ -782,7 +895,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() , sentinel_question: None}
             }
         };
         match stmt
@@ -791,7 +904,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() , sentinel_question: None}
             }
         }
     };
@@ -818,6 +931,7 @@ fn insert_parsed_well(
             &columns.raw_curves,
             ms_per_ft_meaning,
             &sampling_verdict,
+            &sentinel_candidates,
         );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
@@ -848,7 +962,16 @@ fn insert_parsed_well(
         opts.ms_per_ft_meanings.get(&path).copied(),
         opts.undeclared_drho_unit.as_deref(),
     ) {
-        Ok(prepared) => prepared,
+        Ok(mut prepared) => {
+            // SB-CLY-034 (DEC-037) constraint 2: the sentinel answer travels on the
+            // affected curves' own provenance in the create path too.
+            apply_sentinel_source_notes(
+                &mut prepared.curves,
+                &sentinel_candidates,
+                opts.undeclared_sentinel_decision,
+            );
+            prepared
+        }
         Err(error) => {
             return ImportResult {
                 path,
@@ -869,7 +992,7 @@ fn insert_parsed_well(
                 unconverted_units: Vec::new(),
                 unit_designations,
                 unit_tokens,
-                unit_token_warnings,
+                unit_token_warnings, sentinel_question: None
             };
         }
     };
@@ -935,9 +1058,9 @@ fn insert_parsed_well(
                 ));
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), well_headers, rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), well_headers, rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings, sentinel_question: None }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings, sentinel_question: None },
     }
 }
 
@@ -967,6 +1090,7 @@ fn attach_curves_to_existing_well(
     curves: &[parsers::RawLasCurve],
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
     sampling_verdict: &ImportSetSamplingVerdict,
+    sentinel_candidates: &[(String, usize)],
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
     match import_parsed_curves_into_generic_store(
@@ -978,6 +1102,8 @@ fn attach_curves_to_existing_well(
         ms_per_ft_meaning,
         opts.undeclared_drho_unit.as_deref(),
         Some(sampling_verdict),
+        sentinel_candidates,
+        opts.undeclared_sentinel_decision,
     ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
@@ -1011,12 +1137,12 @@ fn attach_curves_to_existing_well(
                 unconverted_units: report.unconverted_units,
                 unit_designations,
                 unit_tokens,
-                unit_token_warnings,
+                unit_token_warnings, sentinel_question: None
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings, sentinel_question: None },
     }
 }
 
@@ -1052,6 +1178,8 @@ pub fn import_all_curves_into_generic_store(
         )));
     }
     parsers::sanitize_las_frame(&mut frame);
+    // Legacy generic-store backfill for wells imported before this feature existed - no
+    // sentinel question was ever asked for them, so there is no answer to stamp.
     import_parsed_curves_into_generic_store(
         conn,
         well_id,
@@ -1060,6 +1188,8 @@ pub fn import_all_curves_into_generic_store(
         set_name,
         None,
         None,
+        None,
+        &[],
         None,
     )
     .map(|report| (report.curves_written, report.rows))
@@ -1080,6 +1210,39 @@ struct PreparedGenericCurve {
     unit: Option<String>,
     family: Option<&'static str>,
     values: Vec<f32>,
+    /// SB-CLY-034 (DEC-037) constraint 2: the per-curve provenance record of the
+    /// undeclared-sentinel answer. `None` writes the ordinary "LAS import" source.
+    source_note: Option<String>,
+}
+
+/// SB-CLY-034 (DEC-037): stamp the user's sentinel answer onto the affected curves'
+/// provenance, so a later reader of `curve_meta.source` can tell the question was asked
+/// and what was decided - for a KEEP as much as for a conversion.
+fn apply_sentinel_source_notes(
+    prepared: &mut [PreparedGenericCurve],
+    candidates: &[(String, usize)],
+    decision: Option<SentinelDecision>,
+) {
+    let Some(decision) = decision else { return };
+    for (mnemonic, samples) in candidates {
+        if let Some(curve) = prepared
+            .iter_mut()
+            .find(|curve| curve.mnemonic.eq_ignore_ascii_case(mnemonic))
+        {
+            curve.source_note = Some(match decision {
+                SentinelDecision::Convert => format!(
+                    "LAS import; undeclared {} vendor sentinel ({samples} sample(s)) \
+                     converted to absent on user confirmation (DEC-037)",
+                    parsers::VENDOR_BADHOLE_SENTINEL
+                ),
+                SentinelDecision::Keep => format!(
+                    "LAS import; undeclared {} sentinel-shaped values ({samples} sample(s)) \
+                     kept as measurements on user decision (DEC-037)",
+                    parsers::VENDOR_BADHOLE_SENTINEL
+                ),
+            });
+        }
+    }
 }
 
 struct PreparedGenericImport {
@@ -1098,6 +1261,8 @@ fn import_parsed_curves_into_generic_store(
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
     undeclared_drho_unit: Option<&str>,
     sampling_verdict: Option<&ImportSetSamplingVerdict>,
+    sentinel_candidates: &[(String, usize)],
+    sentinel_decision: Option<SentinelDecision>,
 ) -> db::DbResult<GenericCurveImportReport> {
     // `depth` and `curves` came from the same primary parse and passed one shared unit,
     // duplicate-depth, and sanitation decision. Keep that exact row alignment here: the
@@ -1114,12 +1279,13 @@ fn import_parsed_curves_into_generic_store(
         });
     }
 
-    let prepared = prepare_generic_curves(
+    let mut prepared = prepare_generic_curves(
         depth,
         curves,
         ms_per_ft_meaning,
         undeclared_drho_unit,
     )?;
+    apply_sentinel_source_notes(&mut prepared.curves, sentinel_candidates, sentinel_decision);
     let null_screened = db::with_txn(conn, |conn| {
         if let Some(verdict) = sampling_verdict {
             record_import_set_sampling(conn, well_id, set_name, verdict)?;
@@ -1252,6 +1418,7 @@ fn prepare_generic_curves(
             unconverted_units.push(unconverted);
         }
         prepared.push(PreparedGenericCurve {
+            source_note: None,
             mnemonic: raw.mnemonic.clone(),
             unit,
             family,
@@ -1296,7 +1463,8 @@ fn write_prepared_generic_curves_in_transaction(
             &curve.mnemonic,
             curve.unit.as_deref(),
             curve.family,
-            Some("LAS import"),
+            // SB-CLY-034 (DEC-037): the sentinel answer travels on the curve's own source.
+            Some(curve.source_note.as_deref().unwrap_or("LAS import")),
             None,
         )?);
     }
@@ -2743,6 +2911,7 @@ mod tests {
             null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
+            undeclared_sentinel_candidates: Vec::new(),
         };
 
         let result = insert_parsed_well(
@@ -2892,6 +3061,7 @@ mod tests {
             null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
+            undeclared_sentinel_candidates: Vec::new(),
         };
 
         // A later vocabulary's code: refused by name, and NOTHING is written.
@@ -2950,6 +3120,7 @@ mod tests {
             null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
+            undeclared_sentinel_candidates: Vec::new(),
         };
 
         // First import: a fresh well, no duplicate warning.
@@ -3173,6 +3344,148 @@ mod tests {
             )
             .unwrap();
         assert_eq!(generic_nulls, 2);
+    }
+
+    /// SB-CLY-034 (DEC-037): quarantine and ASK. An undeclared value equal to the known
+    /// vendor bad-hole sentinel BLOCKS the import with a question naming the value, every
+    /// affected curve and the sample count - nothing is written until a human answers.
+    /// Conversion happens only on confirmation; KEEPING the values is recorded too (a kept
+    /// sentinel is a finding about the delivery); and an explicit NoNull channel carrying
+    /// the same value is NEVER offered - the DIO preserved-amplitude contract untouched.
+    /// Precedence pinned from BOTH sides per constraint 3.
+    #[test]
+    fn an_undeclared_vendor_sentinel_blocks_the_import_and_converts_only_on_the_users_word() {
+        let path = std::env::temp_dir().join("sandibumi_undeclared_sentinel.las");
+        std::fs::write(
+            &path,
+            "~VERSION
+VERS. 2.0 :
+~WELL
+NULL. -999.25 :
+WELL. SANDI-SNT :
+             ~CURVE
+DEPT.M :
+GR.API :
+~ASCII
+             1000.0 50.0
+1000.5 -999.0
+1001.0 60.0
+",
+        )
+        .unwrap();
+        let paths = [path.to_str().unwrap().to_string()];
+
+        // A. No decision: the import BLOCKS with the structured question; nothing written.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let result = import_las_files(&conn, &paths, None).remove(0);
+        let question = result.sentinel_question.clone().expect("the question is asked");
+        assert_eq!(question.value, -999.0);
+        assert_eq!(question.curves.len(), 1);
+        assert_eq!(question.curves[0].mnemonic, "GR");
+        assert_eq!(question.curves[0].samples, 1, "the sample count is named");
+        let error = result.error.clone().expect("a blocked file reads as not imported");
+        assert!(error.contains("-999"), "the value is named: {error}");
+        let wells: i64 =
+            conn.query_row("SELECT count(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(wells, 0, "nothing was imported before the answer");
+
+        // B. CONVERT on confirmation: the cell becomes absent, and the answer is recorded
+        //    in the import warning AND on the curve's own provenance.
+        let convert = LasImportOptions {
+            undeclared_sentinel_decision: Some(SentinelDecision::Convert),
+            ..LasImportOptions::default()
+        };
+        let result = import_las_files_with(&conn, &paths, None, &convert).remove(0);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert!(result.sentinel_question.is_none());
+        let warning = result.warning.clone().unwrap_or_default();
+        assert!(
+            warning.contains("converted to absent") && warning.contains("DEC-037"),
+            "the answer is recorded: {warning}"
+        );
+        let well_id = result.well_id.clone().unwrap();
+        let absent: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM standard_curves WHERE well_id = ?1 AND gr IS NULL",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(absent, 1, "the confirmed sentinel is absent, not a shale volume");
+        let source: String = conn
+            .query_row(
+                "SELECT source FROM curve_meta WHERE well_id = ?1 AND mnemonic = 'GR'",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            source.contains("converted to absent") && source.contains("DEC-037"),
+            "the answer travels on the curve's provenance: {source}"
+        );
+
+        // C. KEEP on a fresh project: the values stay measurements, and THAT answer is
+        //    recorded the same two ways.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let keep = LasImportOptions {
+            undeclared_sentinel_decision: Some(SentinelDecision::Keep),
+            ..LasImportOptions::default()
+        };
+        let result = import_las_files_with(&conn, &paths, None, &keep).remove(0);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let warning = result.warning.clone().unwrap_or_default();
+        assert!(warning.contains("KEPT"), "the keep is recorded: {warning}");
+        let well_id = result.well_id.clone().unwrap();
+        let kept: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM standard_curves WHERE well_id = ?1 AND gr = -999.0",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 1, "a kept value stays a measurement");
+        let source: String = conn
+            .query_row(
+                "SELECT source FROM curve_meta WHERE well_id = ?1 AND mnemonic = 'GR'",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(source.contains("kept as measurements"), "{source}");
+
+        // D. The OTHER side of precedence: the same value on a channel DECLARED NoNull is
+        //    never offered - no question, no note, the amplitude preserved as delivered.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let mut channel_nulls = parsers::ChannelNullValues::new();
+        channel_nulls.insert(
+            "GR".to_string(),
+            parsers::ChannelNullMode::NoNull(parsers::NoNullMarker::NoNull),
+        );
+        let no_null = LasImportOptions { channel_nulls, ..LasImportOptions::default() };
+        let result = import_las_files_with(&conn, &paths, None, &no_null).remove(0);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert!(
+            result.sentinel_question.is_none(),
+            "a NoNull channel is never offered for conversion"
+        );
+        assert!(
+            !result.warning.clone().unwrap_or_default().contains("DEC-037"),
+            "no sentinel note on a NoNull delivery: {:?}",
+            result.warning
+        );
+        let well_id = result.well_id.clone().unwrap();
+        let preserved: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM standard_curves WHERE well_id = ?1 AND gr = -999.0",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(preserved, 1, "the declared-NoNull amplitude is untouched");
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -3661,6 +3974,7 @@ mod tests {
             null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
+            undeclared_sentinel_candidates: Vec::new(),
         };
         let mut last = make_columns();
         assert_eq!(

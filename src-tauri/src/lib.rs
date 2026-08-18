@@ -415,6 +415,7 @@ async fn import_las_files(
     confirmed_well_names: Option<std::collections::HashMap<String, String>>,
     sampling_style: Option<schema_vocab::SamplingStyle>,
     sampling_style_verify_tolerance: Option<units::DepthTolerance>,
+    undeclared_sentinel_decision: Option<ingest::SentinelDecision>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
@@ -431,6 +432,7 @@ async fn import_las_files(
         confirmed_well_names: confirmed_well_names.unwrap_or_default(),
         sampling_style,
         sampling_style_verify_tolerance,
+        undeclared_sentinel_decision,
     };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths

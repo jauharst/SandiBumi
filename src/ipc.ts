@@ -230,6 +230,12 @@ export interface ImportResult {
   }>;
   /** Look-alike spellings kept distinct because the registry declares no alias. */
   unit_token_warnings: string[];
+  /** SB-CLY-034 (DEC-037): set when the import BLOCKED on undeclared vendor-sentinel values.
+   *  Nothing from this file was written; re-invoke with `undeclaredSentinelDecision`. */
+  sentinel_question: {
+    value: number;
+    curves: Array<{ mnemonic: string; samples: number }>;
+  } | null;
 }
 
 /** Container-owned identity plus a filename proposal that is never silently selected. */
@@ -271,6 +277,10 @@ export interface LasImportOptions {
   samplingStyle?: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR" | null;
   /** Required only for regular sets. No production default ships. */
   samplingStyleVerifyTolerance?: { value: number; unit: "M" | "FT" } | null;
+  /** SB-CLY-034 (DEC-037): the user's answer to the undeclared-sentinel question. Absent
+   *  while candidates exist blocks the import with the question; nothing converts on
+   *  magnitude alone. */
+  undeclaredSentinelDecision?: "convert" | "keep" | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -288,6 +298,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     confirmedWellNames: opts?.confirmedWellNames ?? null,
     samplingStyle: opts?.samplingStyle ?? null,
     samplingStyleVerifyTolerance: opts?.samplingStyleVerifyTolerance ?? null,
+    undeclaredSentinelDecision: opts?.undeclaredSentinelDecision ?? null,
   });
 }
 

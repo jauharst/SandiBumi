@@ -29,6 +29,7 @@ import {
   type ModuleSpec,
   type RecentProject,
 } from "../ipc";
+import type { ImportResult } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { syncWellGroups } from "./wellGroups";
@@ -109,6 +110,61 @@ function buildRibbonDropdown(label: string, iconPath: string, items: RibbonMenuI
 /** The main ribbon (Project | Data | Petrophysics | Plot | View). Talks to the docking
  *  workspace directly: panel-opening actions create dock panels, view actions target the
  *  active log view. */
+/** SB-CLY-034 (DEC-037): the blocking undeclared-sentinel question. Names the value,
+ *  every affected curve and the sample count; resolves with the user's decision, or null
+ *  when dismissed (the files stay unimported - nothing converts on magnitude alone). */
+function askUndeclaredSentinelDecision(
+  blocked: ImportResult[],
+): Promise<"convert" | "keep" | null> {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    const value = blocked[0].sentinel_question?.value ?? -999;
+    const intro = document.createElement("p");
+    intro.textContent =
+      `These files carry the value ${value} - a known vendor bad-hole sentinel - on curves ` +
+      `whose null convention does not declare it. Nothing from them has been imported yet. ` +
+      `Are these cells absent values, or measurements?`;
+    wrap.appendChild(intro);
+    const list = document.createElement("ul");
+    for (const r of blocked) {
+      const q = r.sentinel_question;
+      if (!q) continue;
+      const li = document.createElement("li");
+      const file = r.path.split(/[\/]/).pop() ?? r.path;
+      li.textContent = `${file}: ${q.curves
+        .map((c) => `${c.mnemonic} (${c.samples} sample(s))`)
+        .join(", ")}`;
+      list.appendChild(li);
+    }
+    wrap.appendChild(list);
+    const row = document.createElement("div");
+    row.className = "modal-actions";
+    const convert = document.createElement("button");
+    convert.className = "btn btn-accent";
+    convert.textContent = `Treat ${value} as absent`;
+    const keep = document.createElement("button");
+    keep.className = "btn";
+    keep.textContent = "Keep as measurements";
+    row.appendChild(convert);
+    row.appendChild(keep);
+    wrap.appendChild(row);
+    let answered = false;
+    const close = openModal("Undeclared null sentinel", wrap, 520, () => {
+      if (!answered) resolve(null);
+    });
+    convert.addEventListener("click", () => {
+      answered = true;
+      close();
+      resolve("convert");
+    });
+    keep.addEventListener("click", () => {
+      answered = true;
+      close();
+      resolve("keep");
+    });
+  });
+}
+
 export class Ribbon {
   private layouts: Layout[] = [];
   /** Name of the session last saved or opened, so Ctrl+S can re-save it in place without a
@@ -1209,7 +1265,24 @@ export class Ribbon {
     const setLabel = choice.setName ? choice.setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
     setStatus(`Importing ${paths.length} LAS file(s) as set ${setLabel}...`);
     try {
-      const results = await importLasFiles(paths, choice);
+      let results = await importLasFiles(paths, choice);
+      // SB-CLY-034 (DEC-037): an undeclared vendor-sentinel value BLOCKS its file with a
+      // question - nothing from that file was imported. Ask ONCE for the batch (the import
+      // wizard is modal by design), then re-run just the blocked files with the decision;
+      // the backend records the answer either way, in the import warning and per curve.
+      const blocked = results.filter((r) => r.sentinel_question);
+      if (blocked.length) {
+        const decision = await askUndeclaredSentinelDecision(blocked);
+        if (decision) {
+          const redo = await importLasFiles(
+            blocked.map((r) => r.path),
+            { ...choice, undeclaredSentinelDecision: decision },
+          );
+          results = results.map(
+            (r) => (r.sentinel_question && redo.find((n) => n.path === r.path)) || r,
+          );
+        }
+      }
       // Partition on `well_id`, which is set only when a well row was actually committed.
       // `!r.error` used to stand in for "imported", but cancelling an import now returns an entry
       // with neither a well nor an error — so every cancelled file counted as imported, and

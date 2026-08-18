@@ -451,16 +451,10 @@
 
 ## SB-CLY-034 - No magic sentinel for a rejected sample
 
-- **Chapter evidence:** P0; historical status `PARTIAL`; T35/T44; sections 4.2, 6 and 8.
-- **Atomic obligations:** rejected numeric sample is NaN plus provenance; export only the declared writer sentinel; warn and treat a known undeclared vendor sentinel as absent.
-- **Current source:** workflow masks use `f32::NAN` and every registered exporter receives the project-declared sentinel. Import honours file-declared nulls, the two standard conventions and explicit per-channel plural/`NoNull` rules; an undeclared bare `-999` remains finite unless a channel rule names it. No CLY-scoped warning/quarantine exists, and CLY provenance is absent.
-- **Qualifying acceptance tests:** none; exact T35's provenance-export arm depends on DEC-036 and exact T44 conflicts with the adopted explicit-`NoNull` control until precedence and identifier scope are adjudicated. Test class `MISSING`.
-- **Supporting tests:** the registered-writer sentinel controls, declared-null recognition, plural per-channel screening and explicit `NoNull` survival establish the current safe boundary. They expose the undeclared CLY gap while preventing a global `-999` rewrite from being called correct.
-- **Manual evidence:** shale-volume 0/17; las-export 0/2; processing-history 0/7.
-- **Git evidence:** current source was reverified at parent `41e603cbdd60736f79e5fb8e95f0500ee868fb89`; no production code or test assertion changed in this blocker increment.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY` on DEC-036 and DEC-037; no false closure.
-- **Blocker or decision:** DEC-036 owns the missing provenance curve/export representation. DEC-037 owns the exact CLY `-999` identification and precedence contract versus SB-DIO's explicit `NoNull`; the number alone is not sufficient evidence of absence.
-- **Next action:** settle DEC-037's exact source-controlled identifiers, `NoNull` precedence and blocking-versus-automatic UX, plus DEC-036's categorical export representation; then implement exact T35/T44 with declared-null, standard-sentinel, unrelated-curve and `NoNull` controls from both sides.
+- **Specified contract:** never write a numeric sentinel to mean rejected; on import a value equal to a known vendor sentinel is handled even when undeclared. DEC-037 (RULED 2026-08-17) fixed the shape: QUARANTINE AND ASK - detection, a blocking import question naming value/curves/counts, conversion only on confirmation, both answers recorded, explicit `NoNull` always wins, `-999` on no global null list, the detector never decides.
+- **Current implementation (2026-08-18):** DONE. `parsers::VENDOR_BADHOLE_SENTINEL` detection runs before standard-column selection (a confirmed conversion reaches every view); an unanswered question BLOCKS pre-write with `ImportResult.sentinel_question` (zero rows, not even the well); the ribbon's modal asks once per batch and re-runs only blocked files; both answers land in the import warning (-> durable process history) and on each affected curve's `curve_meta.source`; a NoNull channel is never offered and its amplitude imports untouched. Export already never writes an undeclared sentinel - a rejected sample is absent and explained by SB-CLY-001's `VSH_PROV`.
+- **Qualifying test:** the four constraint surfaces on one real LAS delivery (block/convert/keep/NoNull), six mutations killed on distinct assertions, and the new reader wired into the malformed-corpus gate. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-CLY-035 - Discriminator tests are two-sided by default
 

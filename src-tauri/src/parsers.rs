@@ -272,6 +272,10 @@ pub struct CurveColumns {
     pub index_resolution: Option<IndexResolution>,
     /// Per-file answers to unit symbols that have more than one legitimate quantity.
     pub unit_designations: Vec<crate::curves::UnitDesignation>,
+    /// SB-CLY-034 (DEC-037): channels carrying the known vendor bad-hole sentinel WITHOUT a
+    /// declaration, with the matching sample count. The detector reports, it never decides -
+    /// the import layer owns the blocking question and the user owns the answer.
+    pub undeclared_sentinel_candidates: Vec<(String, usize)>,
 }
 
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
@@ -294,6 +298,24 @@ pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
         cols.sp.push(row.sp.unwrap_or(f32::NAN));
     }
     Ok(cols)
+}
+
+/// SB-CLY-034 (DEC-037): the known vendor bad-hole sentinel one vendor writes into
+/// double-indicator curves over bad hole WITHOUT declaring it (dossier F8). Detection only:
+/// this value deliberately joins NO null list, and no code path converts on magnitude alone -
+/// conversion happens only on the user's explicit confirmation at import.
+pub const VENDOR_BADHOLE_SENTINEL: f32 = -999.0;
+
+fn channel_is_no_null(channel: &str, nulls: &ChannelNullValues) -> bool {
+    nulls
+        .get(channel)
+        .or_else(|| {
+            nulls
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(channel))
+                .map(|(_, mode)| mode)
+        })
+        .is_some_and(|mode| matches!(mode, ChannelNullMode::NoNull(_)))
 }
 
 /// Standard LAS null value sentinels, mapped strictly to `f32::NAN`.
@@ -973,6 +995,19 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     null_rules: &[NullExceptionRule],
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
 ) -> ParseResult<CurveColumns> {
+    parse_las_2_import(path, channel_nulls, null_rules, ms_per_ft_meaning, false)
+}
+
+/// The primary import parse. `convert_undeclared_sentinels` carries the USER'S confirmed
+/// decision from the SB-CLY-034 (DEC-037) blocking question - the parser itself only
+/// detects; with the flag false every sentinel-shaped value is preserved and reported.
+pub fn parse_las_2_import<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    convert_undeclared_sentinels: bool,
+) -> ParseResult<CurveColumns> {
     let source = path.as_ref().display().to_string();
     let decoded = read_text_file_with_encoding(path.as_ref())?;
     let text = decoded.text;
@@ -1253,6 +1288,36 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
             token_buffer.len(),
             curve_names.len()
         )));
+    }
+
+    // SB-CLY-034 (DEC-037): detect undeclared vendor bad-hole sentinels BEFORE the standard
+    // columns are selected, so a confirmed conversion reaches every view of the data. An
+    // explicit NoNull channel is never a candidate - its sentinel-shaped values are
+    // measurements by declaration (SB-DIO-003/005) - and a declared ~W NULL or per-channel
+    // value list equal to -999 was already screened above, so any surviving match is
+    // undeclared by construction. Cells convert ONLY when the caller carries the user's
+    // explicit decision; the detector itself never decides.
+    for index in 0..curve_names.len() {
+        if Some(index) == idx_depth
+            || channel_is_no_null(&curve_names[index], &resolved_channel_nulls)
+        {
+            continue;
+        }
+        let matching = all_curve_buf[index]
+            .iter()
+            .filter(|value| matches_null(**value, VENDOR_BADHOLE_SENTINEL))
+            .count();
+        if matching > 0 {
+            cols.undeclared_sentinel_candidates
+                .push((curve_names[index].clone(), matching));
+            if convert_undeclared_sentinels {
+                for value in all_curve_buf[index].iter_mut() {
+                    if matches_null(*value, VENDOR_BADHOLE_SENTINEL) {
+                        *value = f32::NAN;
+                    }
+                }
+            }
+        }
     }
 
     // Choose, per standard curve, the candidate column with the most finite samples (ties
@@ -3959,6 +4024,7 @@ mod las_depth_tests {
             null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
+            undeclared_sentinel_candidates: Vec::new(),
         }
     }
 
