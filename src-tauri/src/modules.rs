@@ -1150,6 +1150,10 @@ struct DegradationCapture {
     /// SB-POR-028: per-run count of samples each named numerical limit BOUND — drained into the
     /// run's DEC-039 version comment, the same channel `record_defaulted_parameter` rides.
     bound_limits: BTreeMap<String, usize>,
+    /// SB-POR-003: per-run count of samples each named BRANCH produced. Free text per DEC-039 —
+    /// the per-sample categorical stream the chapter originally sketched was replaced by the
+    /// ruling with a statement on the run's version comment.
+    branches: BTreeMap<String, usize>,
 }
 
 thread_local! {
@@ -1210,15 +1214,30 @@ pub(crate) fn record_bound_limit(name: &str) {
     });
 }
 
-/// SB-POR-028: drain the bound-limit counts for the finished run. Called by the runner right
-/// after the module returns, before the capture guard finishes.
-pub(crate) fn take_bound_limits() -> Vec<(String, usize)> {
+/// SB-POR-028 + SB-POR-003: drain the bound-limit and branch counts for the finished run.
+/// Called by the runner right after the module returns, before the capture guard finishes.
+pub(crate) fn take_run_custody_counts() -> (Vec<(String, usize)>, Vec<(String, usize)>) {
     DEGRADATION_CAPTURE.with(|slot| {
         slot.borrow_mut()
             .as_mut()
-            .map(|capture| std::mem::take(&mut capture.bound_limits).into_iter().collect())
+            .map(|capture| {
+                (
+                    std::mem::take(&mut capture.bound_limits).into_iter().collect(),
+                    std::mem::take(&mut capture.branches).into_iter().collect(),
+                )
+            })
             .unwrap_or_default()
     })
+}
+
+/// SB-POR-003: one sample produced by the named branch. Counted into the run's DEC-039
+/// version comment so a reader learns WHICH physics answered, not merely that something did.
+pub(crate) fn record_branch(name: &str) {
+    DEGRADATION_CAPTURE.with(|slot| {
+        if let Some(capture) = slot.borrow_mut().as_mut() {
+            *capture.branches.entry(name.to_string()).or_insert(0) += 1;
+        }
+    });
 }
 
 fn record_degradation(kind: RunDegradationKind, detail: impl Into<String>) {
@@ -1286,7 +1305,7 @@ pub(crate) fn run_module_with_degradations(
         Vec<RunDegradation>,
         Vec<PreconditionViolation>,
         Option<Vec<f32>>,
-        Vec<(String, usize)>,
+        (Vec<(String, usize)>, Vec<(String, usize)>),
     ),
     String,
 > {
@@ -1360,9 +1379,9 @@ pub(crate) fn run_module_with_degradations(
     })();
     // SB-POR-028: drain the bound-limit counts BEFORE the guard finishes - the capture is what
     // holds them, and the runner folds them into the run's DEC-039 version comment.
-    let bound_limits = take_bound_limits();
+    let custody_counts = take_run_custody_counts();
     let degradations = capture.finish();
-    output.map(|(outputs, violations, flag)| (outputs, degradations, violations, flag, bound_limits))
+    output.map(|(outputs, violations, flag)| (outputs, degradations, violations, flag, custody_counts))
 }
 
 /// The DECLARED output keys of `module` whose values are class identifiers rather than quantities
@@ -3271,6 +3290,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let phit_sh = phit_sh_at(ctx, i);
 
         if v >= ctx.p("VSH_SHALE", i) {
+            record_branch("high-shale kill");
             phie_den[i] = 0.0;
             phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_den[i] = phit_sh as f32;
@@ -3278,11 +3298,15 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
 
+        record_branch("density");
         let pe = two_endpoint_fraction(r, rho_ma, rho_fl)
             - v * two_endpoint_fraction(rho_sh, rho_ma, rho_fl);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
         let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        if pe_l != pe {
+            record_bound_limit("PHIE");
+        }
         phie_den[i] = pe as f32;
         phit_den[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -3436,6 +3460,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let phit_sh = phit_sh_at(ctx, i);
 
         if v >= ctx.p("VSH_SHALE", i) {
+            record_branch("high-shale kill");
             phie_dn[i] = 0.0;
             phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_dn[i] = phit_sh as f32;
@@ -3457,6 +3482,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
             record_bound_limit("NPHISR");
         }
 
+        record_branch(if gas_rms { "gas-rms comparison" } else { "average comparison" });
         let phid = two_endpoint_fraction(rhosr, rho_ma, rho_fl);
         let phix = if gas_rms {
             ((phid * phid + nphisr * nphisr) / 2.0).sqrt()
@@ -3468,6 +3494,9 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
         let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        if pe_l != pe {
+            record_bound_limit("PHIE");
+        }
         phie_dn[i] = pe as f32;
         phit_dn[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -3626,6 +3655,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         let phit_sh = phit_sh_at(ctx, i);
 
         if v >= ctx.p("VSH_SHALE", i) {
+            record_branch("high-shale kill");
             phie_bk[i] = 0.0;
             phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_bk[i] = phit_sh as f32;
@@ -3647,6 +3677,13 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
 
         // B-5: density porosity in LIMESTONE units - the frame the crossplot is defined in.
         let phid = two_endpoint_fraction(rhosr, BK_RHO_1, rho_fl);
+        // SB-POR-003: the pseudo-mineral choice is a genuine per-sample branch identity - the
+        // two branches are different EQUATIONS, and which one answered belongs in the record.
+        record_branch(if nphisr >= phid {
+            "pseudo-mineral upper (B-11/B-12)"
+        } else {
+            "pseudo-mineral lower (B-9/B-10)"
+        });
         let (pda, pna) = bk_pseudo_mineral(nphisr, phid, rho_fl);
         // B-6: solve the two-pseudo-mineral system for crossplot porosity.
         let phix = (pda * nphisr - phid * pna) / (pda - pna);
@@ -3657,6 +3694,9 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
         let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        if pe_l != pe {
+            record_bound_limit("PHIE");
+        }
         phie_bk[i] = pe as f32;
         phit_bk[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -3746,13 +3786,25 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
         // porosity is scaled by 1/Cp in undercompacted section. RHG is self-compacting, so Cp
         // never applies to it (and a non-positive DT_SH degenerates to no correction).
         let cp = if cp_on && !rhg && dt_sh > 0.0 { dt_sh / 100.0 } else { 1.0 };
+        // SB-POR-003: which sonic transform answered, per sample, for the custody comment.
+        record_branch(if rhg {
+            "rhg"
+        } else if cp != 1.0 {
+            "wyllie 1/Cp"
+        } else {
+            "wyllie"
+        });
 
         let pt = if rhg {
             0.625 * (d - dt_ma) / d
         } else {
             two_endpoint_fraction(d, dt_ma, dt_fl) / cp
         };
-        phit_son[i] = limit(pt, 0.0, 1.0) as f32;
+        let pt_l = limit(pt, 0.0, 1.0);
+        if pt_l != pt {
+            record_bound_limit("PHIT");
+        }
+        phit_son[i] = pt_l as f32;
         if !is_missing(v) {
             // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
             // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand form.
@@ -3766,7 +3818,11 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
             // hypothetical: DT_MA 70 and DT_SH 60 are both inside the shipped declared ranges, and
             // there the subtraction becomes an addition and effective porosity overtakes total.
             // No new bound is introduced — the ceiling is the sample's own total porosity.
-            phie_son[i] = limit(pe, 0.0, phit_son[i] as f64) as f32;
+            let pe_l = limit(pe, 0.0, phit_son[i] as f64);
+            if pe_l != pe {
+                record_bound_limit("PHIE");
+            }
+            phie_son[i] = pe_l as f32;
         }
     }
 

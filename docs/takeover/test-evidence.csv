@@ -392,3 +392,5 @@
 "SB-POR-026","CORRECTNESS","src-tauri/src/workflow.rs","gas_crossover_provenance_rides_the_porosity_runs_version_comment_and_never_moves_a_number"
 "SB-POR-028","CORRECTNESS","src-tauri/src/modules.rs","the_shale_reduction_clamps_are_cited_mode_aware_parameters_that_actually_move"
 "SB-POR-028","CORRECTNESS","src-tauri/src/workflow.rs","a_bound_shale_reduction_clamp_is_recorded_on_the_runs_version_comment"
+"SB-POR-003","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_run_records_the_branches_it_took_and_every_limit_that_bound_and_the_record_survives_export"
+"SB-POR-003","CORRECTNESS","src-tauri/src/ssc.rs","ssc_and_sspw_record_their_porosity_branches_and_binds_for_the_runs_custody_comment"

@@ -8,7 +8,7 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `222 / 222 handled — 174 DONE, 48 BLOCKED, 0 remaining`
+- Gate 2 requirement progress: `222 / 222 handled — 175 DONE, 47 BLOCKED, 0 remaining`
 - Baseline foundation: `COMPLETE`
 - Active increment: G2-T08 / SB-POR-011 - `DONE`; `phi_den`, `phi_dn`, `condflag` and `gascorr` - the chain `gascorr`'s own doc instructs - now read one shared matrix density. Jauhar selected **2.65** on 2026-08-16, the section 5.1 three-way agreement, over Geolog's shipped 2.645; the unchosen position stays visible as evidence rather than being deleted. Density porosity moves by roughly 0.3 p.u. on defaults.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`

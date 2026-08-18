@@ -2380,15 +2380,30 @@ fn run_workflow_module_into_with_parameter_serializer(
                     mut degradations,
                     mut precondition_violations,
                     precondition_flag,
-                    bound_limits,
+                    (bound_limits, branch_counts),
                 ) =
                     modules::run_module_with_degradations(&req.module, &ctx, default_usage)?;
                 // SB-POR-028: the limits this run actually bound join the custody comment; a
                 // module carrying clamp parameters that bound nothing says so, because "no
                 // clamp bit" and "nobody would have told you" must not read the same.
                 let mut custody_lines = badhole_record_base;
-                if !bound_limits.is_empty() {
-                    let detail = bound_limits
+                // SB-POR-003: which physics answered, per branch, before the limit lines.
+                if !branch_counts.is_empty() {
+                    let detail = branch_counts
+                        .iter()
+                        .map(|(name, count)| format!("{name} {count} samples"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    custody_lines.push(format!("branches: {detail}"));
+                }
+                // SB-POR-028 keeps its own line for the input-conditioning clamps; every other
+                // bound limit is an OUTPUT limit and gets the SB-POR-003 line below.
+                let (clamps, output_limits): (Vec<(String, usize)>, Vec<(String, usize)>) =
+                    bound_limits
+                        .into_iter()
+                        .partition(|(name, _)| name == "RHOSR" || name == "NPHISR");
+                if !clamps.is_empty() {
+                    let detail = clamps
                         .iter()
                         .map(|(name, count)| format!("{name} bound at {count} samples"))
                         .collect::<Vec<_>>()
@@ -2396,6 +2411,19 @@ fn run_workflow_module_into_with_parameter_serializer(
                     custody_lines.push(format!("shale-reduction clamps: {detail}"));
                 } else if spec.args.iter().any(|argument| argument.name == "NPHISR_MIN") {
                     custody_lines.push("shale-reduction clamps bound nothing".to_string());
+                }
+                // SB-POR-003: "every limit that bound" is DEC-039's own text - and a run whose
+                // output limits bound nothing says so (the SB-POR-028 principle: no-limit-bit
+                // and nobody-would-have-told-you must never read the same).
+                if !output_limits.is_empty() {
+                    let detail = output_limits
+                        .iter()
+                        .map(|(name, count)| format!("{name} at {count} samples"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    custody_lines.push(format!("output limits: {detail}"));
+                } else if !branch_counts.is_empty() {
+                    custody_lines.push("output limits: none bound".to_string());
                 }
                 let badhole_record =
                     (!custody_lines.is_empty()).then(|| custody_lines.join("; "));
@@ -7044,14 +7072,14 @@ mod tests {
         }
         assert_eq!(
             comment("FLAGGED"),
-            "BADHOLE consumed: 3 flagged samples excluded; crossover flag not supplied - gas effect not evaluated"
+            "BADHOLE consumed: 3 flagged samples excluded; crossover flag not supplied - gas effect not evaluated; branches: density 9 samples; output limits: none bound"
         );
 
         // B. CLEAN: the flag was looked at and bound nothing.
         assert!(clean.iter().all(|v| v.is_finite()));
         assert_eq!(
             comment("CLEAN"),
-            "BADHOLE consumed: 0 flagged samples excluded; crossover flag not supplied - gas effect not evaluated"
+            "BADHOLE consumed: 0 flagged samples excluded; crossover flag not supplied - gas effect not evaluated; branches: density 12 samples; output limits: none bound"
         );
 
         // C. ABSENT: the numbers equal CLEAN bit for bit — an absent flag must not invent an
@@ -7063,7 +7091,7 @@ mod tests {
         }
         assert_eq!(
             comment("ABSENT"),
-            "BADHOLE not supplied - hole quality not evaluated; crossover flag not supplied - gas effect not evaluated"
+            "BADHOLE not supplied - hole quality not evaluated; crossover flag not supplied - gas effect not evaluated; branches: density 12 samples; output limits: none bound"
         );
     }
 
@@ -7241,6 +7269,116 @@ mod tests {
             comment("UNBOUND").contains("shale-reduction clamps bound nothing"),
             "got: {}",
             comment("UNBOUND")
+        );
+    }
+
+    /// SB-POR-003 (DEC-039 form). Source: `docs/PRD_v2/11_porosity.md` §7's PHIFLAG stream,
+    /// re-ruled by DEC-039 (2026-08-16) as free text carried per curve version: every porosity
+    /// run records the branch it took and every limit that bound as that version's comment.
+    /// Write and reload are the stored `log_sets` row read back through `list_log_sets`; export
+    /// is the LAS `~O` provenance line, which carries the custody record beside the parameters.
+    #[test]
+    fn a_porosity_run_records_the_branches_it_took_and_every_limit_that_bound_and_the_record_survives_export(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let n = 10usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let mut wells = HashMap::new();
+        // MIX drives phi_den down BOTH branches (2 high-shale samples, 8 density samples), and
+        // RHOB 1.8 puts pe ~0.51 over the 0.3*(1-VSH) ceiling so PHIE binds on all 8.
+        // SPLIT drives phi_dnbk down BOTH pseudo-mineral equations: 6 samples with
+        // NPHI 0.30 > PHID 0.152 (upper, B-11/B-12) and 4 with NPHI 0.10 < PHID 0.298 (lower).
+        // The split is deliberately ASYMMETRIC so a record that claims the wrong branch
+        // cannot survive by symmetry - swapped labels swap the counts and both lines fail.
+        let mix_vsh = {
+            let mut v = vec![0.10f32; n];
+            v[0] = 0.96;
+            v[1] = 0.96;
+            v
+        };
+        let split_rhob: Vec<f32> = (0..n).map(|i| if i < 6 { 2.45 } else { 2.20 }).collect();
+        let split_nphi: Vec<f32> = (0..n).map(|i| if i < 6 { 0.30 } else { 0.10 }).collect();
+        for (name, rhob, nphi, vsh) in [
+            ("MIX", vec![1.8f32; n], vec![0.2f32; n], mix_vsh),
+            ("SPLIT", split_rhob, split_nphi, vec![0.0f32; n]),
+        ] {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], nphi, rhob,
+                nan.clone(), nan,
+            )
+            .unwrap();
+            let well = id.to_string();
+            let curve = db::upsert_curve_meta(
+                &conn, &well, "RAW", "VSH", Some("v/v"), Some("VSH"),
+                Some("SB-POR-003 fixture"), None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, &vsh).unwrap();
+            wells.insert(name, well);
+        }
+        let dbm = Mutex::new(conn);
+        for (module, well) in [("phi_den", "MIX"), ("phi_dnbk", "SPLIT")] {
+            let req = RunModuleRequest {
+                module: module.into(),
+                well_ids: vec![wells[well].clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([
+                    ("RHO_SH".to_string(), 2.5_f64),
+                    ("RHO_DSH".to_string(), 2.65_f64),
+                    ("RHO_W".to_string(), 1.0_f64),
+                    ("NPHI_SH".to_string(), 0.35_f64),
+                ]),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+                custody: test_run_custody(),
+            };
+            let results = run_workflow_module_into(&dbm, &req, None, None, None);
+            assert!(results.iter().all(|r| r.error.is_none()), "{module}: {:?}",
+                results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+        }
+        let conn = dbm.lock().unwrap();
+        let comment = |well: &str, module: &str| -> String {
+            equations::list_log_sets(&conn, &wells[well])
+                .unwrap()
+                .into_iter()
+                .find(|set| set.module == module)
+                .unwrap()
+                .comment
+                .expect("a POR run records its custody")
+        };
+        let mix = comment("MIX", "phi_den");
+        let split = comment("SPLIT", "phi_dnbk");
+        // A. Both branches are counted by name, and the counts are the fixture's own arithmetic.
+        assert!(
+            mix.contains("branches: density 8 samples, high-shale kill 2 samples"),
+            "got: {mix}"
+        );
+        // B. The limit that bound is NAMED with its count - "every limit that bound" is the
+        //    ruling's own text.
+        assert!(mix.contains("output limits: PHIE at 8 samples"), "got: {mix}");
+        // C. The pseudo-mineral split is a per-sample branch identity: both equations answered
+        //    and the record says how often each did.
+        assert!(split.contains("pseudo-mineral lower (B-9/B-10) 4 samples"), "got: {split}");
+        assert!(split.contains("pseudo-mineral upper (B-11/B-12) 6 samples"), "got: {split}");
+        // D. A run whose output limits bound NOTHING says so - silence and nothing-bound must
+        //    never read the same (the SB-POR-028 principle, applied to the output side).
+        assert!(split.contains("output limits: none bound"), "got: {split}");
+        // E. Export: the LAS ~O provenance line carries the custody record, so the statement
+        //    survives leaving the project file.
+        let dest = std::env::temp_dir()
+            .join(format!("sb_por003_{}.las", uuid::Uuid::new_v4()));
+        crate::export::export_las(&conn, &wells["MIX"], dest.to_str().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        assert!(
+            text.contains("branches: density 8 samples"),
+            "the exported ~O line must carry the custody record"
         );
     }
 

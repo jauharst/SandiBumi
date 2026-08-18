@@ -271,16 +271,17 @@ fn provenance_lines(
             }
 
             let set_id = group.set_id.as_deref().expect("recorded groups carry a set id");
-            let (set_name, version, module, params_json, inputs_json, created_at): (
+            let (set_name, version, module, params_json, inputs_json, custody, created_at): (
                 String,
                 i64,
                 String,
                 Option<String>,
                 Option<String>,
+                Option<String>,
                 String,
             ) = conn
                 .query_row(
-                    "SELECT set_name, version, module, params_json, inputs_json,
+                    "SELECT set_name, version, module, params_json, inputs_json, comment,
                             strftime(created_at, '%Y-%m-%d %H:%M')
                      FROM log_sets WHERE set_id = ?1",
                     params![set_id],
@@ -292,6 +293,7 @@ fn provenance_lines(
                             row.get(3)?,
                             row.get(4)?,
                             row.get(5)?,
+                            row.get(6)?,
                         ))
                     },
                 )
@@ -320,23 +322,27 @@ fn provenance_lines(
                 )
             })?;
             let state = curve_state_for_set(&set_name);
-            lines.push(format!(
-                "{PROVENANCE_PREFIX}{}",
-                serde_json::json!({
-                    "curve": upper,
-                    "origin": "computed",
-                    "provenance_class": "RECORDED",
-                    "row_count": group.row_count,
-                    "method": module,
-                    "parameters": parameters,
-                    "inputs": inputs,
-                    "log_set": set_name,
-                    "version": version,
-                    "run_date": created_at,
-                    "state": state,
-                    "ancestry": ancestry,
-                })
-            ));
+            let mut record = serde_json::json!({
+                "curve": upper,
+                "origin": "computed",
+                "provenance_class": "RECORDED",
+                "row_count": group.row_count,
+                "method": module,
+                "parameters": parameters,
+                "inputs": inputs,
+                "log_set": set_name,
+                "version": version,
+                "run_date": created_at,
+                "state": state,
+                "ancestry": ancestry,
+            });
+            // SB-POR-003: the run's custody comment (branches taken, limits bound) survives
+            // export on the same `~O` line as the parameters it qualifies.
+            if let Some(text) = custody.as_deref().map(str::trim).filter(|text| !text.is_empty())
+            {
+                record["custody"] = serde_json::json!(text);
+            }
+            lines.push(format!("{PROVENANCE_PREFIX}{record}"));
 
             if module.starts_with("ml:") {
                 let mut model_ids = Vec::new();

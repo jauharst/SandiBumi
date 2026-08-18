@@ -188,7 +188,14 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // base line as the comment always claimed. NPHI enters squared, so a negative
         // neutron loses its sign here — the Loglan squares it identically.
         let phidi = (rhob_ma - r) / (rhob_ma - rhob_fl);
-        let (rhob_cor, nphi_cor) = if np <= 1.05 * phidi {
+        let gas_pull = np <= 1.05 * phidi;
+        // SB-POR-003: the gas branch is a per-sample identity for the run's custody comment.
+        crate::modules::record_branch(if gas_pull {
+            "gas-conditioned (pulled onto the sand base line)"
+        } else {
+            "no gas conditioning"
+        });
+        let (rhob_cor, nphi_cor) = if gas_pull {
             let mid = ((phidi * phidi + np * np) / 2.0).max(0.0).sqrt();
             (rhob_ma - (rhob_ma - rhob_fl) * mid, mid)
         } else {
@@ -218,6 +225,13 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         let nphi_proj = (c4 - c5) / (m5 - m4);
 
         // Sand-silt-clay fractions from the projection position.
+        // SB-POR-003: which side of the dry-silt point the projection landed on - the two
+        // sides are different fraction systems, not one equation with a different constant.
+        crate::modules::record_branch(if nphi_proj < nphi_dsi {
+            "left of the dry-silt point (clay-sand-silt)"
+        } else {
+            "right of the dry-silt point (clay-silt)"
+        });
         let (dclf, dsaf, dsif) = if nphi_proj < nphi_dsi {
             let m6 = dclf_si / (nphi_dsi - nphi_ma);
             let m7 = (1.0 - dclf_si) / (nphi_dsi - nphi_ma);
@@ -234,7 +248,11 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // Total porosity from the fraction-mixed matrix density.
         let rhoma = limit(dsaf * rhob_ma + dsif * rhob_dsi + dclf * rhob_dcl, 0.5, 5.0);
         let nphima = limit(dsaf * nphi_ma + dsif * nphi_dsi + dclf * nphi_dcl, 0.0, 1.0);
-        let phit = limit((rhoma - rhob_cor) / (rhoma - rhob_fl), 0.001, 0.75);
+        let phit_raw = (rhoma - rhob_cor) / (rhoma - rhob_fl);
+        let phit = limit(phit_raw, 0.001, 0.75);
+        if !phit_raw.is_nan() && phit != phit_raw {
+            crate::modules::record_bound_limit("PHIT");
+        }
 
         // Shale volumes from GR and N-D for the GR-equivalent rescaling.
         let vshgr = if g.is_nan() || gr_ma >= gr_sh {
@@ -254,7 +272,11 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // Effective porosity and the bound-water split.
         let vwcl = vdcl / (1.0 - phit_cl);
         let vsh = vwcl + vsilt;
-        let phie = limit(phit - vwcl * phit_cl, 0.0, phit);
+        let phie_raw = phit - vwcl * phit_cl;
+        let phie = limit(phie_raw, 0.0, phit);
+        if !phie_raw.is_nan() && phie != phie_raw {
+            crate::modules::record_bound_limit("PHIE");
+        }
         let cbw = phit - phie;
         // SB-POR-008 / F16: this is NOT the clay-bound-water PHIT_SH and must not carry that name.
         // `rhob_dsi` is the intersection of the fluid-anchored line m3 with the dry-clay line m4,
@@ -465,7 +487,14 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Same gas conditioning as SSC when a neutron log is available.
         let phidi = (rhob_mat - r) / (rhob_mat - rhob_fl);
-        let rhob_cor = if !np.is_nan() && np <= 1.05 * phidi {
+        let gas_pull = !np.is_nan() && np <= 1.05 * phidi;
+        // SB-POR-003: same custody identity as SSC's gas branch.
+        crate::modules::record_branch(if gas_pull {
+            "gas-conditioned (pulled onto the sand base line)"
+        } else {
+            "no gas conditioning"
+        });
+        let rhob_cor = if gas_pull {
             let phid = (phidi * phidi - 1.6 * (phidi * phidi - np * np).abs() / 2.0).max(0.0).sqrt();
             rhob_mat - (rhob_mat - rhob_fl) * phid
         } else {
@@ -474,7 +503,11 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Dry-matrix mix and total (density) porosity.
         let rhoma = (1.0 - vsh) * rhob_mat + vsh * rhob_dsh;
-        let phit = limit((rhoma - rhob_cor) / (rhoma - rhob_fl), 0.0, 0.75);
+        let phit_raw = (rhoma - rhob_cor) / (rhoma - rhob_fl);
+        let phit = limit(phit_raw, 0.0, 0.75);
+        if !phit_raw.is_nan() && phit != phit_raw {
+            crate::modules::record_bound_limit("PHIT");
+        }
 
         // Wet-shale total porosity and the bound-water split. SB-POR-008: this is the product's
         // one clay-bound-water porosity, so it comes from the shared definition and is anchored on
@@ -488,7 +521,11 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
         let cbw = limit(vsh * vol_cbw_sh, 0.0, phit);
         let capbw_raw = vsh * (phit_sh - vol_cbw_sh).max(0.0);
         let capbw = limit(capbw_raw, 0.0, phit - cbw);
-        let phie = limit(phit - cbw, 0.0, phit);
+        let phie_raw = phit - cbw;
+        let phie = limit(phie_raw, 0.0, phit);
+        if !phie_raw.is_nan() && phie != phie_raw {
+            crate::modules::record_bound_limit("PHIE");
+        }
         let mut bw = cbw + capbw;
 
         // SWIRR floor: pad capillary water up to SWIRR_MIN·PHIT if needed.
@@ -734,5 +771,74 @@ mod tests {
         assert!((out["PHIT_SSPW"][0] - out["PHIFF_SSPW"][0]).abs() < 1e-6);
         // Pure density porosity: (2.65-2.40)/(2.65-1.0) = 0.1515
         assert!((out["PHIT_SSPW"][0] - 0.1515).abs() < 0.002);
+    }
+
+    /// SB-POR-003's SSC/SSPW half (DEC-039 form): the two flagship porosity methods record
+    /// their POROSITY branches and binds through the same capture channel the phi_* family
+    /// uses - the gas-conditioning branch, SSC's dry-silt-point split, and a PHIT that hit
+    /// its published ceiling - so the workflow runner can write them into the run's version
+    /// comment. Scope is the chapter's own: porosity branches and porosity limits; the
+    /// saturation machinery is not part of SB-POR-003.
+    #[test]
+    fn ssc_and_sspw_record_their_porosity_branches_and_binds_for_the_runs_custody_comment() {
+        let spec = ssc_spec();
+        // Three samples: no-gas sand (NPHI 0.30 > 1.05*PHID 0.16), gas sand (NPHI 0.10 under
+        // the line at PHID 0.273), and an off-scale washout reading whose raw PHIT ~0.88
+        // hits the 0.75 ceiling (NPHI 0.95 keeps it off the gas branch: 0.95 > 1.05*0.879).
+        let ctx = ctx_with(
+            vec![
+                ("GR", vec![15.0, 15.0, 15.0]),
+                ("RHOB", vec![2.40, 2.20, 1.20]),
+                ("NPHI", vec![0.30, 0.10, 0.95]),
+            ],
+            &spec,
+            3,
+        );
+        let (_, _, _, _, (bound, branches)) = crate::modules::run_module_with_degradations(
+            "ssc",
+            &ctx,
+            crate::modules::DefaultUsage::default(),
+        )
+        .unwrap();
+        let count = |list: &[(String, usize)], name: &str| {
+            list.iter().find(|(n, _)| n == name).map(|(_, c)| *c).unwrap_or(0)
+        };
+        assert_eq!(
+            count(&branches, "gas-conditioned (pulled onto the sand base line)"),
+            1,
+            "branches: {branches:?}"
+        );
+        assert_eq!(count(&branches, "no gas conditioning"), 2, "branches: {branches:?}");
+        // Every computed sample lands on exactly one side of the dry-silt point.
+        assert_eq!(
+            count(&branches, "left of the dry-silt point (clay-sand-silt)")
+                + count(&branches, "right of the dry-silt point (clay-silt)"),
+            3,
+            "branches: {branches:?}"
+        );
+        assert_eq!(count(&bound, "PHIT"), 1, "the washout sample's PHIT ceiling must be counted, got {bound:?}");
+
+        let spec = sspw_spec();
+        let ctx = ctx_with(
+            vec![
+                ("RHOB", vec![2.40, 2.20]),
+                ("NPHI", vec![0.35, 0.10]),
+                ("VSH", vec![0.10, 0.10]),
+            ],
+            &spec,
+            2,
+        );
+        let (_, _, _, _, (_, branches)) = crate::modules::run_module_with_degradations(
+            "sspw",
+            &ctx,
+            crate::modules::DefaultUsage::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            count(&branches, "gas-conditioned (pulled onto the sand base line)"),
+            1,
+            "branches: {branches:?}"
+        );
+        assert_eq!(count(&branches, "no gas conditioning"), 1, "branches: {branches:?}");
     }
 }
