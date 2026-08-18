@@ -190,6 +190,22 @@ fn locate_curve(conn: &Connection, well_id: &str, curve: &str) -> Result<CurveSt
         return Ok(CurveStore::Computed(name));
     }
 
+    // SB-DIO-031 (DEC-030): an EDIT addressed to a name must land on exactly that curve
+    // wherever the mnemonic exists - the typed EXACT request resolves first and never falls
+    // back, so a write can never land on a family relative while the named curve exists.
+    // Only an ABSENT mnemonic falls through to the family query below, which serves the
+    // track-header path that edits a family-resolved display curve under its family name.
+    let exact = crate::equations::resolve_generic_curve_id(
+        conn,
+        well_id,
+        &upper,
+        crate::equations::CurveRequest::ExactMnemonic,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(curve_id) = exact {
+        return Ok(CurveStore::Generic(curve_id));
+    }
+
     let generic: Option<String> = conn
         .query_row(
             // pinned is scoped per mnemonic (db::promote_generic_curve), so gate it behind an
@@ -1232,6 +1248,41 @@ mod tests {
     /// CORRECTNESS — an undo is valid only against the complete curve identity returned by the
     /// edit it reverses. Both same-grid recomputation and a changed depth frame must refuse before
     /// any old sample is written; otherwise one curve silently becomes a splice of two vintages.
+    /// SB-DIO-031's edit-path half: an edit addressed to an exact name lands on THAT curve -
+    /// even outside the RAW working set - and never on a family relative while the named
+    /// curve exists; only an absent mnemonic falls through to the family display path.
+    #[test]
+    fn an_edit_addressed_to_an_exact_name_never_lands_on_a_family_relative() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-EDIT", None, None, None).unwrap();
+        let well = id.to_string();
+        let grn = db::upsert_curve_meta(
+            &conn, &well, "RAW", "GRN", Some("gAPI"), Some("GR"), None, None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &grn, &[1000.0], &[50.0]).unwrap();
+        // Only GRN exists: the family fallback still serves the display path.
+        let by_family = locate_curve(&conn, &well, "GR").unwrap();
+        match by_family {
+            CurveStore::Generic(ref curve_id) if *curve_id == grn => {}
+            _ => panic!("the family fallback must still serve the display path"),
+        }
+        // GR itself arrives in an ATTACHED set: the exact request finds it there, and the
+        // family relative in RAW no longer stands in for it.
+        let gr = db::upsert_curve_meta(
+            &conn, &well, "WIRE", "GR", Some("gAPI"), Some("GR"), None, None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &gr, &[1000.0], &[40.0]).unwrap();
+        let by_exact = locate_curve(&conn, &well, "GR").unwrap();
+        match by_exact {
+            CurveStore::Generic(ref curve_id) if *curve_id == gr => {}
+            _ => panic!("an edit addressed to GR must land on GR, never on GRN"),
+        }
+    }
+
     #[test]
     fn an_undo_replayed_after_the_curve_was_rewritten_is_refused_without_splicing_stale_values() {
         let conn = open_db();

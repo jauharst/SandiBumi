@@ -1756,7 +1756,15 @@ fn resolve_one_curve(
         }));
     }
 
-    let generic = crate::equations::resolve_generic_curve_id(conn, well_id, &request)
+    // SB-DIO-034: a track request is a SEMANTIC request (a GR track shows the well's GRN
+    // where that is what was delivered) - and the concrete mnemonic travels back to the
+    // header via resolution_reason, so the substitution is visible, never silent.
+    let generic = crate::equations::resolve_generic_curve_id(
+        conn,
+        well_id,
+        &request,
+        crate::equations::CurveRequest::SemanticFamily,
+    )
         .map_err(|error| error.to_string())?
         .and_then(|curve_id| conn
         .query_row(
@@ -1842,6 +1850,42 @@ pub fn resolve_plot_bindings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SB-DIO-034 (DEC-030): the plot surface's family selection is a TYPED semantic request
+    /// whose answer NAMES the concrete curve it chose - a GR track showing the well's GRN says
+    /// so in its resolution reason, never a silent stand-in - and an exact-mnemonic hit says
+    /// that instead, so the two cases can never be confused on a header.
+    #[test]
+    fn a_family_resolved_track_names_the_concrete_curve_it_chose_never_a_silent_stand_in() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-TRACK", None, None, None).unwrap();
+        let well = id.to_string();
+        let curve = crate::db::upsert_curve_meta(
+            &conn, &well, "RAW", "GRN", Some("gAPI"), Some("GR"), None, None,
+        )
+        .unwrap();
+        crate::db::insert_curve_samples(&conn, &curve, &[1000.0, 1001.0], &[50.0, 60.0])
+            .unwrap();
+        let resolved = resolve_one_curve(&conn, &well, "GR")
+            .unwrap()
+            .expect("the family request resolves");
+        assert_eq!(resolved.mnemonic, "GRN", "the concrete identity travels to the header");
+        assert!(
+            resolved.resolution_reason.contains("typed family"),
+            "the substitution is visible: {}",
+            resolved.resolution_reason
+        );
+        let exact = resolve_one_curve(&conn, &well, "GRN")
+            .unwrap()
+            .expect("the exact request resolves");
+        assert!(
+            exact.resolution_reason.contains("exact mnemonic"),
+            "an exact hit says so: {}",
+            exact.resolution_reason
+        );
+    }
 
     #[test]
     fn a_plot_binding_keeps_the_request_and_each_wells_concrete_resolution() {

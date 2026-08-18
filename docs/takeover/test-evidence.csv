@@ -397,3 +397,6 @@
 "SB-DBM-030","CORRECTNESS","src-tauri/src/db.rs","an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data"
 "SB-DBM-030","CORRECTNESS","src-tauri/src/ingest.rs","a_screened_import_names_the_curve_and_count_in_its_own_warning_never_silently"
 "SB-DBM-030","CORRECTNESS","src-tauri/src/equations.rs","a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader"
+"SB-DIO-031","CORRECTNESS","src-tauri/src/equations.rs","an_exact_request_never_falls_back_to_family_while_a_semantic_request_names_the_curve_it_chose"
+"SB-DIO-034","CORRECTNESS","src-tauri/src/plotting.rs","a_family_resolved_track_names_the_concrete_curve_it_chose_never_a_silent_stand_in"
+"SB-DIO-031","CORRECTNESS","src-tauri/src/curve_edit.rs","an_edit_addressed_to_an_exact_name_never_lands_on_a_family_relative"

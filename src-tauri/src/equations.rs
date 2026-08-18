@@ -748,6 +748,16 @@ struct GenericCurveCandidate {
     modified_seq: Option<i64>,
 }
 
+/// SB-DIO-031/034 (DEC-030): a resolver request is TYPED. `ExactMnemonic` never falls back -
+/// a different curve's data must not be supplied under a requested name - while
+/// `SemanticFamily` is the rule-11 alias feature: it may resolve by family, and it always
+/// returns the CONCRETE curve identity and the rule that chose it, never a silent stand-in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CurveRequest {
+    ExactMnemonic,
+    SemanticFamily,
+}
+
 #[derive(Debug, Clone)]
 struct GenericCurveDecision {
     chosen: GenericCurveCandidate,
@@ -768,21 +778,28 @@ fn resolve_generic_curve_decision(
     conn: &Connection,
     well_id: &str,
     curve_name: &str,
+    request: CurveRequest,
 ) -> duckdb::Result<Option<GenericCurveDecision>> {
     let upper = curve_name.trim().to_uppercase();
-    let mut stmt = conn.prepare(
+    // SB-DIO-031: the exact request drops the family arm AT THE SQL, so no later stage can
+    // reintroduce a stand-in - an absent mnemonic resolves to nothing, never to a relative.
+    let name_filter = match request {
+        CurveRequest::ExactMnemonic => "upper(mnemonic) = ?2",
+        CurveRequest::SemanticFamily => "(upper(mnemonic) = ?2 OR upper(family) = ?2)",
+    };
+    let mut stmt = conn.prepare(&format!(
         "SELECT curve_id, set_name, set_version, mnemonic, COALESCE(pinned, 0),
                 COALESCE(final_flag, 0), modified_seq
          FROM curve_meta
          WHERE well_id = ?1
-           AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
+           AND {name_filter}
          ORDER BY (set_name = 'RAW') DESC,
                   (upper(mnemonic) = ?2) DESC,
                   (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
                   COALESCE(final_flag, 0) DESC,
                   modified_seq DESC NULLS LAST,
                   curve_id",
-    )?;
+    ))?;
     let candidates = stmt
         .query_map(params![well_id, upper], |row| {
             Ok(GenericCurveCandidate {
@@ -863,8 +880,9 @@ pub(crate) fn resolve_generic_curve_id(
     conn: &Connection,
     well_id: &str,
     curve_name: &str,
+    request: CurveRequest,
 ) -> duckdb::Result<Option<String>> {
-    Ok(resolve_generic_curve_decision(conn, well_id, curve_name)?
+    Ok(resolve_generic_curve_decision(conn, well_id, curve_name, request)?
         .map(|decision| decision.chosen.curve_id))
 }
 
@@ -876,7 +894,12 @@ fn fetch_generic_curve_aligned(
     curve_name: &str,
     depth_grid: &[f32],
 ) -> duckdb::Result<Vec<f32>> {
-    let Some(decision) = resolve_generic_curve_decision(conn, well_id, curve_name)? else {
+    // SB-DIO-034: module/equation input fetch is the rule-11 SEMANTIC request by design -
+    // mnemonic first, family only where the mnemonic is absent - and the concrete identity it
+    // chose travels into the run's ancestry record, never a silent substitution.
+    let Some(decision) =
+        resolve_generic_curve_decision(conn, well_id, curve_name, CurveRequest::SemanticFamily)?
+    else {
         return Ok(vec![f32::NAN; depth_grid.len()]);
     };
     let curve_id = decision.chosen.curve_id;
@@ -914,7 +937,11 @@ fn overlay_resolved_native_standard_inputs(
         {
             continue;
         }
-        if resolve_generic_curve_decision(conn, well_id, &upper)?.is_some() {
+        // SB-DIO-034: the standard-column backfill is a SEMANTIC request - a well delivering
+        // GRN under family GR must still fill the GR column, and the decision records which.
+        if resolve_generic_curve_decision(conn, well_id, &upper, CurveRequest::SemanticFamily)?
+            .is_some()
+        {
             columns.insert(
                 upper.clone(),
                 fetch_generic_curve_aligned(conn, well_id, &upper, depth)?,
@@ -1675,13 +1702,17 @@ pub(crate) fn try_resolve_ancestry_input(
         .map(Some);
     }
 
-    let mut imported = resolve_generic_curve_decision(conn, well_id, &upper)
-        .map_err(|error| error.to_string())?;
+    // SB-DIO-034: provenance must resolve with the SAME request type the reader used
+    // (SemanticFamily), or a run could record one curve while calculating from another.
+    let mut imported =
+        resolve_generic_curve_decision(conn, well_id, &upper, CurveRequest::SemanticFamily)
+            .map_err(|error| error.to_string())?;
     if imported.is_none() {
         crate::db::migrate_standard_curves_to_generic_store(conn)
             .map_err(|error| error.to_string())?;
-        imported = resolve_generic_curve_decision(conn, well_id, &upper)
-            .map_err(|error| error.to_string())?;
+        imported =
+            resolve_generic_curve_decision(conn, well_id, &upper, CurveRequest::SemanticFamily)
+                .map_err(|error| error.to_string())?;
     }
     let Some(GenericCurveDecision {
         chosen,
@@ -4279,6 +4310,56 @@ mod tests {
     /// vector, per rule 2) binds SQL NULL in BOTH the current store and the archive - so at the
     /// store "no value" is never representable as a number - and the reader hands back the NaN
     /// convention with data surviving bit for bit.
+    /// SB-DIO-031 (DEC-030): an EXACT request never falls back - a different curve's data
+    /// must not be supplied under a requested name - while the SEMANTIC request resolves the
+    /// same name by family and returns the CONCRETE identity and rule that chose it.
+    #[test]
+    fn an_exact_request_never_falls_back_to_family_while_a_semantic_request_names_the_curve_it_chose(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-TYPED", None, None, None).unwrap();
+        let well = id.to_string();
+        // The well delivered GRN (family GR). Nothing carries the mnemonic GR itself.
+        let curve = crate::db::upsert_curve_meta(
+            &conn, &well, "RAW", "GRN", Some("gapi"), Some("GR"), None, None,
+        )
+        .unwrap();
+        crate::db::insert_curve_samples(&conn, &curve, &[1000.0, 1001.0], &[50.0, 60.0])
+            .unwrap();
+        // A. ExactMnemonic: the requested name is absent, and NOTHING stands in for it.
+        let exact =
+            resolve_generic_curve_decision(&conn, &well, "GR", CurveRequest::ExactMnemonic)
+                .unwrap();
+        assert!(
+            exact.is_none(),
+            "an exact request for an absent mnemonic must resolve to nothing, never a relative"
+        );
+        // B. SemanticFamily: the same name resolves by family - and the decision names the
+        //    CONCRETE curve it chose and the rule, never a silent stand-in.
+        let semantic =
+            resolve_generic_curve_decision(&conn, &well, "GR", CurveRequest::SemanticFamily)
+                .unwrap()
+                .expect("the family request is the rule-11 alias feature");
+        assert_eq!(semantic.chosen.mnemonic, "GRN", "the concrete identity travels back");
+        assert_eq!(semantic.rule, Some(CurveResolutionRule::AliasAutomatic));
+        // C. Both request types agree wherever the exact mnemonic EXISTS: the semantic
+        //    request prefers it over any family relative (mnemonic first, family only for
+        //    what the mnemonic cannot answer).
+        let gr = crate::db::upsert_curve_meta(
+            &conn, &well, "RAW", "GR", Some("gapi"), Some("GR"), None, None,
+        )
+        .unwrap();
+        crate::db::insert_curve_samples(&conn, &gr, &[1000.0, 1001.0], &[40.0, 41.0]).unwrap();
+        for request in [CurveRequest::ExactMnemonic, CurveRequest::SemanticFamily] {
+            let decision = resolve_generic_curve_decision(&conn, &well, "GR", request)
+                .unwrap()
+                .expect("GR now exists");
+            assert_eq!(decision.chosen.mnemonic, "GR", "{request:?} must pick the exact curve");
+        }
+    }
+
     #[test]
     fn a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -5171,7 +5252,7 @@ mod tests {
         .unwrap();
         db::insert_curve_samples(&conn, &attached_exact, &depths, &[12.0, 12.0, 12.0]).unwrap();
 
-        let first = resolve_generic_curve_decision(&conn, &well_id, "CALI")
+        let first = resolve_generic_curve_decision(&conn, &well_id, "CALI", CurveRequest::SemanticFamily)
             .unwrap()
             .expect("the family is present");
         assert_eq!(first.chosen.curve_id, raw_family);
@@ -5182,7 +5263,7 @@ mod tests {
         assert_eq!(columns["CALI"], [8.0, 8.0, 8.0]);
 
         db::delete_generic_curve(&conn, &raw_family).unwrap();
-        let fallback = resolve_generic_curve_decision(&conn, &well_id, "CALI")
+        let fallback = resolve_generic_curve_decision(&conn, &well_id, "CALI", CurveRequest::SemanticFamily)
             .unwrap()
             .expect("the attached exact curve remains");
         assert_eq!(fallback.chosen.curve_id, attached_exact);

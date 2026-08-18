@@ -403,18 +403,13 @@
 - **Blocker or decision:** none.
 - **Next action:** require every future rename mechanism to preserve source identity while emitting the same source-target-table-entry record on its public result.
 
-## SB-DIO-031 - A different curve's data MUST NOT be supplied under a requested name.
+## SB-DIO-031 - A different curve's data MUST NOT be supplied under a requested name
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DIO-T47`.
-- **Atomic obligations:** return unavailable for an absent exact request; never return another curve's samples keyed as the request under any configuration.
-- **Current source:** the explicit Reframe substitution path is safe, but `equations.rs::resolve_generic_curve_decision` and `curve_sampling` match `upper(mnemonic) = request OR upper(family) = request`; numeric callers then store the returned values under the requested key. Workflow tests deliberately rely on `HDRA -> DRHO` and `HCAL -> CALI` family fallback. `plotting.rs` also resolves a typed-family match, although it calls the input semantic and returns the concrete mnemonic plus resolution reason. The universal MUST NOT therefore remains violated because exact and semantic intent share one string API.
-- **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** `an_accepted_named_substitute_is_recorded_on_the_resulting_curve_as_provenance` proves one explicit path and explicitly keeps the substitute's own name; it cannot prove the general resolver.
-- **Manual evidence:** `generic-curve-store` 0/36, `workflow` 0/26, `log-view` 5/40 and `security-integrity` 3/104; the blocker review adds no checked operator or representative-delivery evidence.
-- **Git evidence:** the family-fallback behavior is integrated at the accepted anchor; current source was reverified on the Gate 2 head, and no universal closing commit or T47 mapping exists.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `BLOCKED` on DEC-030. Jauhar must approve a non-overlapping exact-mnemonic versus semantic-family request contract; no silent fallback can remain under an exact-request key, and engineering will not break intentional family workflows by guessing every caller's intent.
-- **Next action:** after DEC-030, implement the typed request split, make exact-mnemonic absence explicit, return concrete identity for semantic-family resolution, and implement T47 across every resolver.
+- **Specified contract:** an exact-name read must never silently return a different curve; DEC-030 (2026-08-16) ruled the typed request split: `EXACT_MNEMONIC` never falls back, `SEMANTIC_FAMILY` may resolve by family but returns the concrete identity and rule.
+- **Current implementation (2026-08-18):** DONE. `equations::CurveRequest { ExactMnemonic, SemanticFamily }` parameterizes the one structured resolver; the exact arm drops the family branch AT THE SQL so no later stage can reintroduce a stand-in. The semantic arm is rule 11's alias feature unchanged, returning `GenericCurveDecision.chosen` + `rule`.
+- **Qualifying test:** `equations::tests::an_exact_request_never_falls_back_to_family_while_a_semantic_request_names_the_curve_it_chose` - exact GR over a GRN-only well returns None; semantic returns GRN + AliasAutomatic; with GR present both types pick GR (mnemonic-first pinned from both sides). Two mutations killed on distinct assertions (exact regaining the family arm; the ORDER BY inverting exact preference). Test class `CORRECTNESS`.
+- **Edit path (same day):** `curve_edit::locate_curve` resolves EXACT-first - a write addressed to a name never lands on a family relative while the named curve exists - pinned by `an_edit_addressed_to_an_exact_name_never_lands_on_a_family_relative` with the exact-first block's removal killed as a third mutation.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DIO-032 - A substitution offered to the user MUST be explicit and recorded.
 
@@ -442,18 +437,12 @@
 - **Blocker or decision:** none for automated Gate 2 closure; immutable DEC-018 includes the exact Reframe derivation-set contract and T49 is green at 1 passed / 0 failed / 0 ignored.
 - **Next action:** preserve T49 and field-exercise save, project reload, inspection and consumption of the named selection in Gate 4.
 
-## SB-DIO-034 - Curves MUST NOT be auto-selected by curve type on read.
+## SB-DIO-034 - Curves MUST NOT be auto-selected by curve type on read
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T50`.
-- **Atomic obligations:** no read API may choose a concrete curve from a type/family classification without stating that concrete choice.
-- **Current source:** `equations.rs::fetch_generic_curve_aligned` silently widens an exact-looking request to `family = request` and returns only values, not the chosen curve identity. `plotting.rs` performs a similar typed-family resolution but records its reason and mnemonic. The unreported workflow/read path violates the universal contract.
-- **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** current workflow tests characterize family fallback as useful behavior but do not expose the chosen identity, so they defend neither the specified reporting contract nor an exact-name refusal.
-- **Manual evidence:** `generic-curve-store` 0/39, `workflow` 0/29, `log-view` 5/43 and `security-integrity` 3/107; this T50 scenario is unavailable and unchecked.
-- **Git evidence:** family-based read resolution is integrated at the accepted anchor; no T50 closure exists.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `BLOCKED` on DEC-030, shared with SB-DIO-031. Jauhar must approve non-overlapping exact-mnemonic and semantic-family requests before callers can be classified without silently breaking or preserving family fallback.
-- **Next action:** after DEC-030, make family resolution an explicit semantic request returning concrete identity/reason, keep exact requests exact, and add T50 across every read resolver.
+- **Specified contract:** no reader silently picks a curve by type; DEC-030 ruled family selection legitimate ONLY as a typed semantic request whose answer names the concrete curve.
+- **Current implementation (2026-08-18):** DONE. Every resolver caller is classified with a per-site comment: module/equation input fetch, standard-column backfill, provenance resolution (deliberately the reader's own type, so a run can never record one curve while calculating from another) and the plot surface - all `SemanticFamily`, all returning the chosen identity; the plot header distinguishes "exact mnemonic" from "typed family" in `resolution_reason`.
+- **Qualifying test:** `plotting::tests::a_family_resolved_track_names_the_concrete_curve_it_chose_never_a_silent_stand_in` - a GR request over a GRN-only well returns mnemonic GRN + "typed family"; an exact hit says "exact mnemonic". Mutation killed: the header claiming the requested name instead of the chosen curve. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DIO-035 - An import MUST NOT extend an existing object's declared interval.
 
