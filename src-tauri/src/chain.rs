@@ -699,7 +699,21 @@ mod tests {
         let dt: Vec<f32> = vec![90.0; n];
         let sp: Vec<f32> = vec![f32::NAN; n];
         db::insert_standard_curves(conn, id, depth, gr, res, nphi, rhob, dt, sp).unwrap();
-        id.to_string()
+        // SB-POR-024 (DEC-025): declare the fixture neutron's basis the way an import
+        // would, so the N-D boundary refusal does not fire on tests about chain order.
+        db::migrate_standard_curves_to_generic_store(conn).unwrap();
+        let well = id.to_string();
+        if let Some(entry) = db::list_generic_curve_catalog(conn, &well)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.mnemonic == "NPHI")
+        {
+            db::set_curve_neutron_basis(
+                conn, &entry.curve_id, "SANDSTONE", "test fixture declaration (DEC-025)",
+            )
+            .unwrap();
+        }
+        well
     }
 
     fn finite(conn: &Connection, well: &str, curve: &str) -> i64 {

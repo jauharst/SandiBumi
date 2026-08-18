@@ -2042,6 +2042,56 @@ fn validate_shale_clay_input_quantities(
     Ok(())
 }
 
+/// SB-POR-024 (DEC-025): the N-D porosity boundary. The resolved NPHI curve must carry
+/// a DECLARED neutron matrix basis, and the Bateman-Konen crossplot additionally requires
+/// the LIMESTONE entry its own arithmetic assumes. The refusal names the module, the
+/// curve, the physics and the fix - never a guess: DEC-025 forbids inferring the basis
+/// from contractor, tool, salinity or a matrix default.
+fn validate_neutron_basis_input(
+    conn: &Connection,
+    well_id: &str,
+    spec: &modules::ModuleSpec,
+    log_args: &[(String, String)],
+) -> Result<(), String> {
+    let Some(required_entry) = modules::required_neutron_basis(&spec.name) else {
+        return Ok(());
+    };
+    let curve = log_args
+        .iter()
+        .find(|(argument, _)| argument == "NPHI")
+        .map(|(_, curve)| curve.clone())
+        .unwrap_or_else(|| "NPHI".to_string());
+    // A curve that does not RESOLVE is the ordinary missing-input machinery's refusal,
+    // with its own honest message; this boundary judges only a curve that exists.
+    if equations::resolve_generic_curve_id(
+        conn,
+        well_id,
+        &curve,
+        equations::CurveRequest::SemanticFamily,
+    )
+    .ok()
+    .flatten()
+    .is_none()
+    {
+        return Ok(());
+    }
+    let Some(declared) = nphimat_declared_basis(conn, well_id, log_args) else {
+        return Err(format!(
+            "module '{}' refuses: neutron curve '{curve}' has no DECLARED matrix basis. A              limestone-unit neutron read against a sandstone matrix is ~0.04 v/v low in clean              water sand, and an undeclared basis cannot be checked - declare it              (set_curve_neutron_basis) or convert with nphimat first. DEC-025 / SB-POR-024",
+            spec.name
+        ));
+    };
+    if let Some(entry) = required_entry {
+        if !declared.eq_ignore_ascii_case(entry) {
+            return Err(format!(
+                "module '{}' refuses: its crossplot is entered in {entry} units, but neutron                  curve '{curve}' declares basis {declared} - convert with nphimat first.                  DEC-025 / SB-POR-024",
+                spec.name
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Resolve the selected input mnemonics into manifest argument names using the same input-set,
 /// native-curve and computed-only rules as a real module run. This is shared with the dialog
 /// preflight so “available before run” cannot be answered by a cheaper but different resolver.
@@ -2564,6 +2614,9 @@ fn run_workflow_module_into_with_parameter_serializer(
                         req.input_set.as_deref(),
                         own_set,
                     )?;
+                    // SB-POR-024 (DEC-025): the N-D methods refuse an undeclared or
+                    // wrong-basis neutron before anything computes.
+                    validate_neutron_basis_input(&conn, well_id, &spec, &log_args)?;
                     let (depth, logs, input_units) = fetch_module_input_logs(
                         &conn,
                         well_id,
@@ -3120,7 +3173,9 @@ fn run_workflow_module_into_with_parameter_serializer(
                         base: depth[depth.len() - 1],
                         samples: depth.len(),
                     });
-                    let physics = if req.module == "nphimat" {
+                    let physics = if req.module == "nphimat"
+                        || modules::required_neutron_basis(&req.module).is_some()
+                    {
                         nphimat_declared_basis(&conn, well_id, log_args)
                             .map(|value| {
                                 vec![equations::PhysicsAttribute {
@@ -7934,6 +7989,9 @@ mod tests {
             db::insert_curve_samples(&conn, &curve, &depth, &vec![0.0; n]).unwrap();
             wells.insert(name, well);
         }
+        for well in wells.values() {
+            declare_nphi_basis(&conn, well, "NPHI", "SANDSTONE");
+        }
         let dbm = Mutex::new(conn);
         let req = RunModuleRequest {
             module: "phi_dn".into(),
@@ -8026,6 +8084,7 @@ mod tests {
             db::insert_curve_samples(&conn, &curve, &depth, &vsh).unwrap();
             wells.insert(name, well);
         }
+        declare_nphi_basis(&conn, &wells["SPLIT"], "NPHI", "LIMESTONE");
         let dbm = Mutex::new(conn);
         for (module, well) in [("phi_den", "MIX"), ("phi_dnbk", "SPLIT")] {
             let req = RunModuleRequest {
@@ -10884,6 +10943,150 @@ mod tests {
     /// a shale volume rather than by mnemonic. Producing it through `vsh_gr` is the honest way to
     /// get that: it is how a real well acquires one, and it exercises the same custody the run
     /// will check.
+    /// SB-POR-024 (DEC-025, RULED 2026-08-17): the N-D porosity methods refuse a neutron
+    /// curve whose matrix basis is not DECLARED - a limestone-unit neutron read against a
+    /// sandstone matrix is ~0.04 v/v low in clean water sand, and an undeclared basis
+    /// cannot be checked. The basis is declared curve metadata, never inferred (DEC-025's
+    /// constraint); the Bateman-Konen crossplot additionally requires the LIMESTONE entry
+    /// its own source assumes, naming nphimat as the converter; and the declared basis
+    /// rides the run's stored manifest as a physics attribute, so the output provenance
+    /// states what the arithmetic consumed. A curve that does not resolve at all keeps
+    /// the ordinary missing-input refusal - absence of a curve is not absence of a basis.
+    #[test]
+    fn the_neutron_density_methods_refuse_an_undeclared_or_wrong_basis_and_record_the_declared_one(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-NB24", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let well = id.to_string();
+        let n = 3usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth, vec![50.0; n], nan.clone(), vec![0.21; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        db::migrate_standard_curves_to_generic_store(&conn).unwrap();
+        let nphi_curve = db::list_generic_curve_catalog(&conn, &well)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.mnemonic == "NPHI")
+            .expect("NPHI migrated")
+            .curve_id;
+        let dbm = Mutex::new(conn);
+        seed_typed_vsh(&dbm, &well);
+        let run = |module: &str| -> ModuleRunResult {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: module.into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::from([
+                        ("RHO_MA".to_string(), 2.645_f64),
+                        ("RHO_SH".to_string(), 2.50_f64),
+                        ("RHO_FL".to_string(), 1.0_f64),
+                        ("RHO_DSH".to_string(), 2.70_f64),
+                        ("RHO_W".to_string(), 1.0_f64),
+                        ("NPHI_SH".to_string(), 0.35_f64),
+                        ("PHIE_MAX".to_string(), 0.3_f64),
+                    ]),
+                    opts: HashMap::new(),
+                    output_set: None,
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+            .remove(0)
+        };
+
+        // A - undeclared: both N-D methods refuse BY NAME, stating the physics, the fix
+        // and the ruling; the density method never needed a neutron and still runs.
+        for module in ["phi_dn", "phi_dnbk"] {
+            let refused = run(module).error.expect("an undeclared basis must refuse");
+            assert!(
+                refused.contains("DECLARED matrix basis")
+                    && refused.contains("set_curve_neutron_basis")
+                    && refused.contains("DEC-025"),
+                "{module}: {refused}"
+            );
+        }
+        assert!(run("phi_den").error.is_none(), "phi_den has no neutron input to gate");
+
+        // B - declared SANDSTONE: the quick-look runs (any declared basis is admissible -
+        // its average reads against the interpreter's own RHO_MA), and the stored manifest
+        // records the declared basis as a physics attribute.
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_curve_neutron_basis(
+                &conn, &nphi_curve, "SANDSTONE", "declared at import by the user (DEC-025)",
+            )
+            .unwrap();
+        }
+        let quick = run("phi_dn");
+        assert!(quick.error.is_none(), "{:?}", quick.error);
+        let recorded_basis = |module: &str| -> Option<String> {
+            let conn = dbm.lock().unwrap();
+            equations::list_log_sets(&conn, &well)
+                .unwrap()
+                .into_iter()
+                .filter(|entry| entry.module == module)
+                .last()
+                .and_then(|entry| entry.ancestry)
+                .and_then(|ancestry| {
+                    ancestry
+                        .physics_attributes
+                        .iter()
+                        .find(|attribute| attribute.name == "neutron_basis")
+                        .map(|attribute| attribute.value.clone())
+                })
+        };
+        assert_eq!(
+            recorded_basis("phi_dn").as_deref(),
+            Some("SANDSTONE"),
+            "the output provenance states the declared basis"
+        );
+
+        // C - the crossplot is entered in LIMESTONE units: a declared SANDSTONE basis is
+        // refused naming the entry units and the converter.
+        let wrong = run("phi_dnbk").error.expect("a wrong basis must refuse");
+        assert!(
+            wrong.contains("LIMESTONE") && wrong.contains("nphimat") && wrong.contains("DEC-025"),
+            "{wrong}"
+        );
+
+        // D - redeclared LIMESTONE: the crossplot runs and its provenance says so.
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_curve_neutron_basis(
+                &conn, &nphi_curve, "LIMESTONE", "nphimat conversion record (DEC-025)",
+            )
+            .unwrap();
+        }
+        let crossplot = run("phi_dnbk");
+        assert!(crossplot.error.is_none(), "{:?}", crossplot.error);
+        assert_eq!(recorded_basis("phi_dnbk").as_deref(), Some("LIMESTONE"));
+    }
+
+    /// SB-POR-024 fixture side: declare the neutron basis the way an import would, so the
+    /// DEC-025 boundary refusal does not fire on a fixture that is not about it. Finds the
+    /// named mnemonic in the generic catalog (migrating the standard columns first, the
+    /// same route an old project takes).
+    fn declare_nphi_basis(conn: &duckdb::Connection, well: &str, mnemonic: &str, basis: &str) {
+        db::migrate_standard_curves_to_generic_store(conn).unwrap();
+        let curve = db::list_generic_curve_catalog(conn, well)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.mnemonic == mnemonic)
+            .unwrap_or_else(|| panic!("{mnemonic} in the catalog"))
+            .curve_id;
+        db::set_curve_neutron_basis(conn, &curve, basis, "test fixture declaration (DEC-025)")
+            .unwrap();
+    }
+
     fn seed_typed_vsh(dbm: &Mutex<duckdb::Connection>, well: &str) {
         let results = run_workflow_module_into(
             dbm,
@@ -12895,6 +13098,7 @@ mod tests {
             ("NPHI_SH".into(), 0.40),
             ("PHIE_MAX".into(), 0.30),
         ]);
+        declare_nphi_basis(&conn, &well_id, "NPHI", "SANDSTONE");
         let dbm = Mutex::new(conn);
         let run = |module: &str, output_set: &str, explicit_current: bool| {
             let mut opts = HashMap::new();
@@ -14722,6 +14926,25 @@ mod tests {
             .map(|r| r.well_id.clone().unwrap_or_else(|| panic!("import failed: {:?}", r.error)))
             .collect();
 
+        {
+            // SB-POR-024 (DEC-025): a real delivery does not declare its neutron basis, so
+            // the fixture declares one per well the way an importing user would; a well
+            // without the conditioned channel is skipped and keeps its own missing-input
+            // refusal downstream.
+            for well in &well_ids {
+                if let Some(entry) = db::list_generic_curve_catalog(&conn, well)
+                    .unwrap()
+                    .into_iter()
+                    .find(|entry| entry.mnemonic == "NPHI_COR")
+                {
+                    db::set_curve_neutron_basis(
+                        &conn, &entry.curve_id, "LIMESTONE",
+                        "test fixture declaration (DEC-025)",
+                    )
+                    .unwrap();
+                }
+            }
+        }
         let db = Mutex::new(conn);
         let run = |module: &str,
                    log_inputs: &[(&str, &str)],
@@ -14761,11 +14984,19 @@ mod tests {
             &[("GR_MA", 25.0), ("GR_SH", 130.0)],
             &[("OPT_GR", "LINEAR")],
         );
+        // phi_dnbk, not phi_dn: DEC-070 (2026-08-18) made the quick-look curves
+        // visual-only, so a chain that ends in a pay summary interprets porosity with the
+        // authoritative crossplot; its fixture basis declaration above is LIMESTONE, the
+        // entry units the method's own source assumes (SB-POR-024 / DEC-025).
+        // The interpreter's election: the crossplot's limited pair becomes the current
+        // PHIE/PHIT by the explicit output-name mechanism, which is how an authoritative
+        // method's answer reaches saturation and pay (the custody default keeps method-
+        // qualified names precisely so this promotion is a stated decision).
         run(
-            "phi_dn",
+            "phi_dnbk",
             &[("NPHI", "NPHI_COR")],
-            &[("RHO_MA", 2.645), ("RHO_SH", 2.5), ("NPHI_SH", 0.35), ("RHO_DSH", 2.65), ("PHIE_MAX", 0.35)],
-            &[("OPT_XPLOT", "AVERAGE")],
+            &[("RHO_SH", 2.5), ("NPHI_SH", 0.35), ("RHO_DSH", 2.65), ("PHIE_MAX", 0.35)],
+            &[("__OUT_PHIE", "PHIE"), ("__OUT_PHIT", "PHIT")],
         );
         run(
             "sw_indo",
@@ -14781,9 +15012,10 @@ mod tests {
         // well has a meaningful number of valid samples.
         {
             let conn = db.lock().unwrap();
-            // SB-POR-004 collision custody: the D-N comparison producer's limited pair
-            // carries its method-suffixed name; nothing writes bare PHIE in this chain.
-            for (curve, lo, hi) in [("VSH", 0.0, 1.0), ("PHIE_DN_LIM", 0.0, 0.5), ("SWE", 0.0, 1.0), ("PERM", 0.0, f64::MAX)] {
+            // The chain interprets with the authoritative crossplot (DEC-070 keeps the
+            // quick-look out of pay) and ELECTS its limited pair as the current PHIE via
+            // the explicit output-name mechanism, so bare PHIE is the summary's subject.
+            for (curve, lo, hi) in [("VSH", 0.0, 1.0), ("PHIE", 0.0, 0.5), ("SWE", 0.0, 1.0), ("PERM", 0.0, f64::MAX)] {
                 let (count, min, max): (i64, Option<f64>, Option<f64>) = conn
                     .query_row(
                         "SELECT count(value), min(value), max(value) FROM computed_curves

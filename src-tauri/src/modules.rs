@@ -1711,6 +1711,28 @@ const PHI_DNBK_POROSITY_OUTPUTS: &[PorosityOutputRegistration] = &[
     ),
 ];
 
+/// SB-POR-024 (DEC-025, RULED 2026-08-17): the neutron-density porosity boundary. The
+/// returned value is `Some(required_entry_basis)` for a module whose NPHI input must
+/// carry a DECLARED matrix basis - a limestone-unit neutron read against a sandstone
+/// matrix is ~0.04 v/v low in clean water sand, and nothing can refuse a wrong basis
+/// that was never recorded. The basis is DECLARED curve metadata
+/// (`curve_meta.neutron_basis`, set at import or by `set_curve_neutron_basis`), never
+/// inferred from contractor, tool, salinity or a matrix default (DEC-025's constraint).
+///
+/// The inner value pins the entry units the method's own arithmetic assumes:
+/// `Some("LIMESTONE")` for the Bateman-Konen crossplot, which is entered in limestone
+/// units by its own source (Appendix B); `None` for the quick-look comparison, whose
+/// average is read against a density porosity on the interpreter's own RHO_MA - any
+/// DECLARED basis is admissible there, and the declaration plus per-output provenance
+/// is the contract.
+pub(crate) fn required_neutron_basis(module: &str) -> Option<Option<&'static str>> {
+    match module {
+        "phi_dn" => Some(None),
+        "phi_dnbk" => Some(Some("LIMESTONE")),
+        _ => None,
+    }
+}
+
 /// SB-POR-002 sonic half (DEC-063, RULED 2026-08-18): with `DT_MA < DT_SH` enforced as a
 /// declared validity condition, the bare sonic pair satisfies `PHIT >= PHIE` by
 /// construction, so the method now declares its full unlimited/limited pair like the

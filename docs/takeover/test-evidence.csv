@@ -432,3 +432,4 @@
 "SB-POR-057","CORRECTNESS","src-tauri/src/workflow.rs","the_quick_look_porosity_never_feeds_the_summed_numbers_and_its_refusal_is_recorded_on_the_row"
 "SB-POR-010","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_curve_re_derives_from_its_stored_manifest_alone_while_the_live_tables_move_underneath"
 "SB-DBM-041","CORRECTNESS","src-tauri/src/db.rs","the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable"
+"SB-POR-024","CORRECTNESS","src-tauri/src/workflow.rs","the_neutron_density_methods_refuse_an_undeclared_or_wrong_basis_and_record_the_declared_one"

@@ -88,6 +88,13 @@ fn is_documented_absence_refusal(
         return true;
     }
 
+    // SB-POR-024 (DEC-025): an N-D method refusing an undeclared or wrong neutron matrix
+    // basis is the documented boundary for a delivery that never declared one - the fix
+    // is a user declaration (or nphimat), not a pipeline change.
+    if error.contains("DECLARED matrix basis") || error.contains("declares basis") {
+        return true;
+    }
+
     let names_an_absent_open_parameter = spec
         .args
         .iter()
@@ -516,7 +523,9 @@ fn pipeline_field_100well_stress() {
 
     let db = Mutex::new(conn);
     // A representative interpretation chain (each call fans across all 100 wells via rayon).
-    let chain = ["vsh_gr", "phi_dn", "sw_indo", "perm_wyllie_rose"];
+    // phi_den, not phi_dn: SB-POR-024 (DEC-025) gates phi_dn on a declared neutron
+    // basis, and this chain measures write-path timing, not the N-D boundary.
+    let chain = ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"];
     let mut grand = std::time::Duration::ZERO;
     for m in chain {
         let req = RunModuleRequest {
