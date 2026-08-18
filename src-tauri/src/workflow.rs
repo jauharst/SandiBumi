@@ -8316,6 +8316,282 @@ mod tests {
         assert!(vsh[2].is_nan(), "flagged sample masked");
     }
 
+    /// SB-POR-010 (SHOULD): a porosity curve's audit trail - method name, the FULL
+    /// effective parameter set including zone overrides, and the resolved input curve
+    /// identities - is sufficient to RE-DERIVE the curve without the session. The proof
+    /// reconstructs the run from the STORED record alone and reproduces the stored bytes
+    /// bit for bit; then the live zone table moves underneath and the record still
+    /// reproduces the ORIGINAL bytes, while the live re-run honestly reports non-identity
+    /// (the SB-DBM-015 arm E contract, deliberately unchanged - a re-run executes under
+    /// today's interpretation, a re-derivation replays the recorded one). A record
+    /// stripped of its zone entry fails to reproduce, so the `PARAM@ZONE` entries are
+    /// load-bearing, not decorative.
+    #[test]
+    fn a_porosity_curve_re_derives_from_its_stored_manifest_alone_while_the_live_tables_move_underneath(
+    ) {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-POR010", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let well = id.to_string();
+        let n = 4usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![50.0; n], nan.clone(),
+            vec![0.20, 0.22, 0.24, 0.26], vec![2.30, 2.35, 2.40, 2.45], nan.clone(), nan,
+        )
+        .unwrap();
+        db::upsert_md_zone(&conn, &well, "ZONE_A", 1000.0, 1002.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "ZONE_B", 1002.0, 1004.0).unwrap();
+        // The override the record must carry: shale density differs in ZONE_A.
+        db::set_zone_param(&conn, &well, "ZONE_A", "RHO_SH", Some(2.40), None).unwrap();
+        let dbm = Mutex::new(conn);
+        // phi_den requires a TYPED shale-volume input (SB-CLY-043), so VSH comes from a
+        // real vsh_gr run: GR 50 against 20/120 endpoints is a constant 0.30.
+        seed_typed_vsh(&dbm, &well);
+
+        let results = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "phi_den".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([
+                    ("RHO_MA".to_string(), 2.645_f64),
+                    ("RHO_SH".to_string(), 2.50_f64),
+                    ("RHO_FL".to_string(), 1.0_f64),
+                    ("RHO_DSH".to_string(), 2.70_f64),
+                    ("RHO_W".to_string(), 1.0_f64),
+                    ("PHIE_MAX".to_string(), 0.3_f64),
+                ]),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+
+        let (set_id, ancestry) = {
+            let conn = dbm.lock().unwrap();
+            let entry = equations::list_log_sets(&conn, &well)
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.module == "phi_den")
+                .expect("the run recorded its set");
+            (entry.set_id.clone(), entry.ancestry.clone().expect("complete ancestry"))
+        };
+
+        // A - the record is COMPLETE: method name, every declared parameter with a value,
+        // the zone override under its own PARAM@ZONE name, and both input identities.
+        assert_eq!(ancestry.module, "phi_den", "the method name is the record's spine");
+        let value_of = |name: &str| -> Option<f64> {
+            ancestry
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == name)
+                .and_then(|parameter| parameter.value.as_f64())
+        };
+        for declared in [
+            "RHO_MA", "RHO_SH", "RHO_FL", "RHO_DSH", "RHO_W", "PHIE_MAX", "VSH_SHALE",
+            "PHIE_FLOOR",
+        ] {
+            assert!(
+                value_of(declared).is_some(),
+                "the record must carry the effective value of {declared}"
+            );
+        }
+        assert_eq!(
+            value_of("RHO_SH@ZONE_A"),
+            Some(2.40_f32 as f64),
+            "the zone override is part of the full parameter set"
+        );
+        for input in ["RHOB", "VSH"] {
+            assert!(
+                ancestry
+                    .inputs
+                    .iter()
+                    .any(|entry| entry.curve == input && !entry.set_id.is_empty()),
+                "the record must carry the resolved identity of input {input}"
+            );
+        }
+
+        // The stored bytes this proof must reproduce.
+        let stored: Vec<(String, Vec<u32>)> = {
+            let conn = dbm.lock().unwrap();
+            ancestry
+                .outputs
+                .iter()
+                .map(|output| {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT value FROM computed_curves WHERE well_id = ?1 AND \
+                             curve_name = ?2 AND set_id = ?3 ORDER BY depth",
+                        )
+                        .unwrap();
+                    let bits: Vec<u32> = stmt
+                        .query_map(duckdb::params![well, output.curve, set_id], |row| {
+                            Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN).to_bits())
+                        })
+                        .unwrap()
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap();
+                    assert_eq!(bits.len(), n, "{} stored on the full frame", output.curve);
+                    (output.curve.clone(), bits)
+                })
+                .collect()
+        };
+
+        // Re-derivation FROM THE RECORD: base values and options from the ancestry
+        // parameter entries, zone overrides from the PARAM@ZONE entries laid over the
+        // digest-verified zone geometry, inputs fetched by the recorded curve names.
+        // Nothing reads the live zone_params table.
+        let rebuild = |include_zone_entries: bool| -> HashMap<String, Vec<f32>> {
+            let conn = dbm.lock().unwrap();
+            let (_, recorded_digest) = {
+                let recorded = ancestry.zone_set.as_ref().expect("zoned run records its set");
+                let (version, digest) = db::current_zone_set(&conn, &well).unwrap();
+                assert_eq!(
+                    digest, recorded.digest,
+                    "the zone geometry is digest-pinned; a moved top refuses upstream"
+                );
+                (version, digest)
+            };
+            let _ = recorded_digest;
+            let zones = db::list_zones(&conn, &well).unwrap();
+            let input_names: Vec<String> =
+                ancestry.inputs.iter().map(|entry| entry.curve.clone()).collect();
+            let (frame_depth, columns) =
+                equations::fetch_curve_frame_from_set(&conn, &well, &input_names, None, None)
+                    .unwrap();
+            assert_eq!(frame_depth.len(), n);
+            let spec = modules::list_modules()
+                .into_iter()
+                .find(|module| module.name == "phi_den")
+                .unwrap();
+            let mut params: HashMap<String, Vec<f64>> = HashMap::new();
+            let mut opts: HashMap<String, String> = HashMap::new();
+            for argument in &spec.args {
+                match argument.kind {
+                    modules::ArgKind::Param => {
+                        let Some(base) = value_of(&argument.name) else { continue };
+                        let mut array = vec![base; n];
+                        if include_zone_entries {
+                            for parameter in &ancestry.parameters {
+                                let Some((name, zone)) = parameter.name.split_once('@') else {
+                                    continue;
+                                };
+                                if name != argument.name || zone == "unit_custody" {
+                                    continue;
+                                }
+                                let Some(value) = parameter.value.as_f64() else { continue };
+                                if zone == "*" {
+                                    array.fill(value);
+                                }
+                            }
+                            for parameter in &ancestry.parameters {
+                                let Some((name, zone)) = parameter.name.split_once('@') else {
+                                    continue;
+                                };
+                                if name != argument.name || zone == "unit_custody" || zone == "*" {
+                                    continue;
+                                }
+                                let Some(value) = parameter.value.as_f64() else { continue };
+                                let Some(range) =
+                                    zones.iter().find(|candidate| candidate.zone_name == zone)
+                                else {
+                                    continue;
+                                };
+                                for (i, d) in frame_depth.iter().enumerate() {
+                                    if *d >= range.top_depth && *d < range.bottom_depth {
+                                        array[i] = value;
+                                    }
+                                }
+                            }
+                        }
+                        params.insert(argument.name.clone(), array);
+                    }
+                    modules::ArgKind::Option => {
+                        if let Some(value) = ancestry
+                            .parameters
+                            .iter()
+                            .find(|parameter| parameter.name == argument.name)
+                            .and_then(|parameter| parameter.value.as_str())
+                        {
+                            opts.insert(argument.name.clone(), value.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let ctx = modules::ModuleContext {
+                n,
+                logs: columns.into_iter().collect(),
+                params,
+                opts,
+                depth_unit: crate::units::DepthUnit::Metres,
+            };
+            modules::run_module("phi_den", &ctx)
+                .expect("the recorded run re-derives")
+                .into_iter()
+                .collect()
+        };
+
+        // B - the record alone reproduces the stored bytes, zone override included.
+        let rebuilt = rebuild(true);
+        for (curve, bits) in &stored {
+            let values = rebuilt.get(curve).unwrap_or_else(|| panic!("{curve} re-derived"));
+            for i in 0..n {
+                assert_eq!(
+                    values[i].to_bits(),
+                    bits[i],
+                    "{curve} sample {i}: the record must reproduce the stored byte"
+                );
+            }
+        }
+
+        // C - the live zone table moves; the RECORD still reproduces the ORIGINAL bytes,
+        // while the live re-run honestly reports non-identity (SB-DBM-015 arm E).
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_zone_param(&conn, &well, "ZONE_A", "RHO_SH", Some(2.30), None).unwrap();
+        }
+        let after_move = rebuild(true);
+        for (curve, bits) in &stored {
+            for i in 0..n {
+                assert_eq!(
+                    after_move[curve][i].to_bits(),
+                    bits[i],
+                    "{curve} sample {i}: re-derivation reads the record, never the live table"
+                );
+            }
+        }
+        let live = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect("a changed parameter is not a broken manifest");
+        assert!(
+            !live.bit_identical,
+            "the live re-run under a moved zone parameter must not claim bit-identity"
+        );
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_zone_param(&conn, &well, "ZONE_A", "RHO_SH", Some(2.40), None).unwrap();
+        }
+
+        // D - the zone entry is LOAD-BEARING: a record stripped of its PARAM@ZONE entries
+        // fails to reproduce the zoned samples.
+        let stripped = rebuild(false);
+        let phie_stored = &stored.iter().find(|(curve, _)| curve == "PHIE").unwrap().1;
+        let mut differs = false;
+        for i in 0..n {
+            if stripped["PHIE"][i].to_bits() != phie_stored[i] {
+                differs = true;
+            }
+        }
+        assert!(differs, "without the zone entry the re-derivation must NOT reproduce ZONE_A");
+    }
+
     /// SB-DBM-015 / exact SB-DBM-T15 (DEC-021/023/024): the re-run manifest is complete and
     /// CHECKED. The unmutated project replays bit-identically; a differing module version, a
     /// re-versioned input curve, an edited zone set and a deleted applied model are each

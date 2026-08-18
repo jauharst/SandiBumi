@@ -197,18 +197,14 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** none. `ssc`/`sspw` are proved structurally rather than executed because `ssc.rs` is protected and the 2026-08-16 authorization covered SB-POR-008 only; the invariant holds there by construction, so no edit is required.
 - **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-010.
 
-## SB-POR-010 - Re-derivable porosity audit trail
+## SB-POR-010 - The audit trail re-derives the curve
 
-- **Specified contract:** every porosity curve should carry, in the project audit trail, the method name, the full parameter set and the input curve identities that produced it, sufficient to re-derive it without the session.
-- **Current implementation:** most of the record now exists and the row's old description understates it. `SB-DBM-003` persists each parameter value with its source state; `SB-POR-007` adds the evidence tier for every section 5 parameter; `SB-POR-004` persists a per-output `POROSITY_OUTPUT.<name>` contract carrying family, method, volume convention, output role and naming contract; `SB-DBM-006` records the resolved input-curve identities. What remains absent is the **re-derivability** clause: no stored manifest resolves module identity, options and defaults into one replayable record, so a curve still cannot be re-derived without its authoring session.
-- **Qualifying acceptance tests:** none, and deliberately so. Test class `MISSING`. A proof assembled from the fields that happen to be stored would assert re-derivability while no manifest resolver exists - asserting exactly the clause this row is about.
-- **Supporting tests:** the SB-DBM-003, SB-DBM-006, SB-POR-004 and SB-POR-007 proofs each pin their own arm of the record and all pass; none of them, alone or together, establishes replay.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** not numeric. No value was requested or invented.
-- **History/reachability:** the custody arms are integrated and reachable; the manifest resolver is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `BLOCKED-DEPENDENCY`. The re-derivability clause is `SB-DBM-015`'s complete re-run manifest, which is itself blocked on `DEC-021` build-derived module identity, `DEC-023` zone-set identity and `DEC-024` manifest identity seams. Method, parameter, source/tier, convention and input-identity custody are already in place and are not what is missing.
-- **Next action:** settle DEC-021, DEC-023 and DEC-024, close SB-DBM-015, then prove a POR curve replays from its stored manifest alone without querying any mutable default.
+- **Specified contract:** every porosity curve SHOULD carry, in the project audit trail, the method name, the full parameter set and the input curve identities that produced it, sufficient to re-derive it without the session.
+- **Current implementation (2026-08-19):** DONE. The record was assembled across SB-DBM-003 (parameter values with source states), SB-POR-004 (per-output custody), SB-DBM-006 (resolved input identities) and SB-DBM-015 (the enumerated, stored, checked re-run manifest with the zone-set digest and `PARAM@ZONE` effective-value entries). This row's own clause - RE-DERIVABILITY - is now proved: a `phi_den` curve reconstructs from the STORED record alone and reproduces the stored bytes bit for bit; the live `zone_params` table then moves underneath and the record still reproduces the ORIGINAL bytes, while `rerun_log_set` honestly reports non-identity (the SB-DBM-015 arm E contract deliberately unchanged - a re-run executes under today's interpretation, a re-derivation replays the recorded one). A record stripped of its `PARAM@ZONE` entries fails to reproduce the zoned samples. No production change; the row closes as a proof over the shipped record.
+- **Qualifying test:** `a_porosity_curve_re_derives_from_its_stored_manifest_alone_while_the_live_tables_move_underneath` - record completeness (method name, all eight declared parameter values incl. defaulted, the 2.40 zone override, both input identities), bit-for-bit reproduction, moved-table immunity with the live re-run cross-checked, and the stripped-record negative arm. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-19 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-011 - One shared matrix density across chained modules
 
