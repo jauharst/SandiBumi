@@ -2334,9 +2334,15 @@ mod tests {
         assert!(mc.errors.is_empty(), "unexpected errors: {:?}", mc.errors);
         let mc_net = mc.zones[0].net.mid;
 
+        // SB-POR-047 CLOSED this observable for chains carrying a porosity module: hole quality
+        // is a DECLARED input now, and `build_plans` assembles its fetch list from LogIn
+        // mnemonics — so the flag curve rides into the realization and phi_dn excludes the
+        // washout natively, mask or no mask. The MASK-ignoring MECHANISM this test's doc block
+        // describes still exists (`run_realization` still never blanks on MASK); it simply no
+        // longer has anything left to inflate here, and the equality is the proof.
         assert!(
-            mc_net > chain_net,
-            "MC counted the washout as rock: MC net {mc_net} vs the same chain's {chain_net}"
+            (mc_net - chain_net).abs() < 1e-3,
+            "the declared BADHOLE input must exclude the washout in BOTH engines: MC net {mc_net} vs chain {chain_net}"
         );
 
         // The mask is inert, not partially applied: dropping it changes nothing.
@@ -2348,16 +2354,19 @@ mod tests {
             "setting a MASK on the step made no difference to the Monte Carlo answer"
         );
 
-        // Cause two: the flag curve never even enters the pool the realizations run on, though
-        // the option itself is carried all the way into the plan.
+        // Cause two WAS "the flag curve never enters the pool". SB-POR-047 closed it from the
+        // module side: BADHOLE is a declared LogIn on the porosity methods, and build_plans
+        // assembles its fetch from LogIn mnemonics, so the flag now rides into every
+        // realization. The MASK option itself is still carried and still never read - the
+        // remaining half of the original finding, kept pinned below.
         {
             let conn = dbm.lock().unwrap();
             let specs: HashMap<String, modules::ModuleSpec> =
                 modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
             let wp = build_plans(&conn, &well, &req.steps, &specs).expect("plans build");
             assert!(
-                !wp.raw_pool.contains_key("BADHOLE"),
-                "the flag curve is never fetched: {:?}",
+                wp.raw_pool.contains_key("BADHOLE"),
+                "the declared flag input must enter the realization pool: {:?}",
                 wp.raw_pool.keys().collect::<Vec<_>>()
             );
             assert_eq!(

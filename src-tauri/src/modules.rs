@@ -3175,6 +3175,8 @@ fn phi_den_spec() -> ModuleSpec {
                 crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
                 "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
             ),
+            // SB-POR-047: hole quality is a DECLARED input, never a generic Mask.
+            log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIE_DEN", "PHIE from density (unlimited)", "v/v"),
@@ -3213,6 +3215,7 @@ fn phit_sh_at(ctx: &ModuleContext, i: usize) -> f64 {
 fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
     let rho = ctx.log("RHOB");
     let vsh = ctx.log("VSH");
+    let badhole = ctx.log("BADHOLE");
     let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
     let mut phie_den = vec![f32::NAN; ctx.n];
     let mut phit_den = vec![f32::NAN; ctx.n];
@@ -3220,6 +3223,11 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
     let mut phit_lim_out = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
+        // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
+        // analyst remembered to set; the run's log-set comment records the exclusion.
+        if badhole[i] == 1.0 {
+            continue;
+        }
         let (r, v) = (rho[i] as f64, vsh[i] as f64);
         if is_missing(r) || is_missing(v) {
             continue;
@@ -3320,6 +3328,7 @@ fn phi_dn_spec() -> ModuleSpec {
                 crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
                 "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
             ),
+            log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3345,6 +3354,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
     let rho = ctx.log("RHOB");
     let nphi = ctx.log("NPHI");
     let vsh = ctx.log("VSH");
+    let badhole = ctx.log("BADHOLE");
     let gas_rms = ctx.o("OPT_XPLOT") == "GAS_RMS";
     let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
     let mut phie_dn = vec![f32::NAN; ctx.n];
@@ -3353,6 +3363,11 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
     let mut phit_lim_out = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
+        // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
+        // analyst remembered to set; the run's log-set comment records the exclusion.
+        if badhole[i] == 1.0 {
+            continue;
+        }
         let (r, np, v) = (rho[i] as f64, nphi[i] as f64, vsh[i] as f64);
         if is_missing(r) || is_missing(np) || is_missing(v) {
             continue;
@@ -3489,6 +3504,7 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
                 "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
             ),
+            log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3505,6 +3521,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
     let rho = ctx.log("RHOB");
     let nphi = ctx.log("NPHI");
     let vsh = ctx.log("VSH");
+    let badhole = ctx.log("BADHOLE");
     let shale_reduced = ctx.o("OPT_PHIEMAX") != "MAXIMUM";
     let mut phie_bk = vec![f32::NAN; ctx.n];
     let mut phit_bk = vec![f32::NAN; ctx.n];
@@ -3513,6 +3530,11 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
     let mut phit_lim_out = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
+        // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
+        // analyst remembered to set; the run's log-set comment records the exclusion.
+        if badhole[i] == 1.0 {
+            continue;
+        }
         let (r, np, v) = (rho[i] as f64, nphi[i] as f64, vsh[i] as f64);
         if is_missing(r) || is_missing(np) || is_missing(v) {
             continue;
@@ -3603,6 +3625,7 @@ fn phi_son_spec() -> ModuleSpec {
                 param_open("DT_SH", "Shale transit time", "us/ft", 60.0, 150.0, true),
                 crate::param_sources::SHALE_TRANSIT_TIME,
             ),
+            log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIT_SON", "Total porosity from sonic", "v/v"),
@@ -3614,12 +3637,18 @@ fn phi_son_spec() -> ModuleSpec {
 fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
     let dt = ctx.log("DT");
     let vsh = ctx.log("VSH");
+    let badhole = ctx.log("BADHOLE");
     let rhg = ctx.o("OPT_SON") == "RHG";
     let cp_on = ctx.o("OPT_CP") == "ON";
     let mut phit_son = vec![f32::NAN; ctx.n];
     let mut phie_son = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
+        // SB-POR-047: a flagged sample is excluded by the METHOD, not by a Mask the
+        // analyst remembered to set; the run's log-set comment records the exclusion.
+        if badhole[i] == 1.0 {
+            continue;
+        }
         let (d, v) = (dt[i] as f64, vsh[i] as f64);
         if is_missing(d) {
             continue;

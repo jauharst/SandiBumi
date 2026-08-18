@@ -389,3 +389,4 @@
 "SB-SAT-025","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_method_emits_a_clipped_curve_and_an_unclipped_diagnostic_that_exceeds_the_bounds"
 "SB-SAT-023","CORRECTNESS","src-tauri/src/multimin2.rs","the_effective_backout_swb_is_per_model_and_the_inverse_pair_round_trips_as_the_identity"
 "SB-CUT-002","CORRECTNESS","src-tauri/src/workflow.rs","every_thickness_bearing_result_names_its_discretisation_model_and_the_step_it_ran_on"
+"SB-POR-047","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_method_consumes_the_declared_badhole_flag_and_its_run_records_who_looked"

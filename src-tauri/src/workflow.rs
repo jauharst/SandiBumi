@@ -2190,6 +2190,10 @@ fn run_workflow_module_into_with_parameter_serializer(
             degradations: Vec<modules::RunDegradation>,
             precondition_violations: Vec<modules::PreconditionViolation>,
             scientific_answered: bool,
+            /// SB-POR-047: the hole-quality custody line for this run's log-set comment —
+            /// present only for modules that declare BADHOLE. "Nobody looked" is a value here,
+            /// never silence.
+            badhole_record: Option<String>,
         },
     }
 
@@ -2251,6 +2255,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                     Vec<modules::RunDegradation>,
                     Vec<modules::PreconditionViolation>,
                     bool,
+                    Option<String>,
                 ),
                 String,
             > {
@@ -2334,6 +2339,26 @@ fn run_workflow_module_into_with_parameter_serializer(
                     well_opts.insert(modules::CLASS_CURVES_OPT.to_string(), cls.clone());
                 }
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: well_opts, depth_unit };
+                // SB-POR-047: hole-quality custody, composed where the inputs exist. Supplied
+                // means the resolved column has ANY finite sample; a curve that resolved but is
+                // all-NaN over this frame was never evaluated here, and saying "nobody looked"
+                // is the honest record for it too.
+                let badhole_record = spec
+                    .args
+                    .iter()
+                    .any(|argument| {
+                        argument.kind == modules::ArgKind::LogIn && argument.name == "BADHOLE"
+                    })
+                    .then(|| {
+                        let column = ctx.log("BADHOLE");
+                        if column.iter().any(|value| value.is_finite()) {
+                            let flagged =
+                                column.iter().filter(|value| **value == 1.0).count();
+                            format!("BADHOLE consumed: {flagged} flagged samples excluded")
+                        } else {
+                            "BADHOLE not supplied - hole quality not evaluated".to_string()
+                        }
+                    });
                 let default_usage = modules::DefaultUsage {
                     parameter_samples: defaulted_parameters,
                     options: defaulted_options.clone(),
@@ -2453,6 +2478,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                     degradations,
                     precondition_violations,
                     scientific_answered,
+                    badhole_record,
                 ))
             };
 
@@ -2464,6 +2490,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                     degradations,
                     precondition_violations,
                     scientific_answered,
+                    badhole_record,
                 )) => Outcome::Computed {
                     depth,
                     outputs,
@@ -2471,6 +2498,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                     degradations,
                     precondition_violations,
                     scientific_answered,
+                    badhole_record,
                 },
                 Err(e) => Outcome::Failed(e),
             };
@@ -2613,6 +2641,12 @@ fn run_workflow_module_into_with_parameter_serializer(
                     degradation_module: req.module.clone(),
                     degradations: degradations.clone(),
                 });
+                // SB-POR-047 / DEC-039: the hole-quality custody line goes on THIS version's
+                // comment. A failure to record it degrades the run's record, not the run.
+                if let Outcome::Computed { badhole_record: Some(record), .. } = o {
+                    let conn = db.lock().unwrap();
+                    let _ = equations::set_log_set_comment(&conn, set_id.as_str(), record);
+                }
             }
         }
     }
@@ -6890,6 +6924,109 @@ mod tests {
             m.hpv,
             mc_rebuilt
         );
+    }
+
+    /// SB-POR-047 / SB-POR-T41. Source: `11_porosity.md` §3.7 — porosity methods accept the
+    /// existing `BADHOLE` flag as a DECLARED input (per `gascorr`'s optional-flag idiom) rather
+    /// than depending on the analyst remembering a generic Mask, and record its effect through
+    /// the DEC-039 per-version comment. Three states, and the third is the point: **flag-absent
+    /// records that nobody looked — never a silent zero and never silence.**
+    #[test]
+    fn a_porosity_method_consumes_the_declared_badhole_flag_and_its_run_records_who_looked() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 12usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let mut wells = HashMap::new();
+        for name in ["CLEAN", "FLAGGED", "ABSENT"] {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
+                vec![2.35; n], nan.clone(), nan,
+            )
+            .unwrap();
+            let well = id.to_string();
+            // Typed VSH through the generic store, satisfying the SB-POR-006 quantity gate.
+            let curve = db::upsert_curve_meta(
+                &conn, &well, "RAW", "VSH", Some("v/v"), Some("VSH"),
+                Some("SB-POR-047 fixture"), None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, &vec![0.2; n]).unwrap();
+            match name {
+                "CLEAN" => equations::write_computed_curve(&conn, &well, &depth, "BADHOLE", &vec![0.0; n]).unwrap(),
+                "FLAGGED" => {
+                    let flag: Vec<f32> = (0..n).map(|i| if (4..7).contains(&i) { 1.0 } else { 0.0 }).collect();
+                    equations::write_computed_curve(&conn, &well, &depth, "BADHOLE", &flag).unwrap();
+                }
+                _ => {} // ABSENT: no hole-quality curve exists on this well at all.
+            }
+            wells.insert(name, well);
+        }
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "phi_den".into(),
+            well_ids: ["CLEAN", "FLAGGED", "ABSENT"].iter().map(|w| wells[*w].clone()).collect(),
+            log_inputs: HashMap::new(),
+            // Fixture values declared in the owning test — not shipping defaults.
+            params: HashMap::from([
+                ("RHO_SH".to_string(), 2.5_f64),
+                ("RHO_DSH".to_string(), 2.65_f64),
+            ]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
+            results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+
+        let conn = dbm.lock().unwrap();
+        let phie = |name: &str| -> Vec<f32> {
+            equations::fetch_curve_frame(&conn, &wells[name], &["PHIE_DEN".into()])
+                .unwrap()
+                .1
+                .remove("PHIE_DEN")
+                .unwrap()
+        };
+        let comment = |name: &str| -> String {
+            equations::list_log_sets(&conn, &wells[name])
+                .unwrap()
+                .into_iter()
+                .find(|s| s.module == "phi_den")
+                .expect("the run versioned a set")
+                .comment
+                .expect("a POR run must record its hole-quality custody")
+        };
+
+        // A. FLAGGED: excluded exactly where flagged, equal to CLEAN everywhere else — the
+        //    method itself consumed the flag; nobody set a Mask.
+        let (clean, flagged) = (phie("CLEAN"), phie("FLAGGED"));
+        for i in 0..n {
+            if (4..7).contains(&i) {
+                assert!(flagged[i].is_nan(), "sample {i} is flagged and must be excluded");
+            } else {
+                assert_eq!(flagged[i].to_bits(), clean[i].to_bits(), "unflagged sample {i} must be untouched");
+            }
+        }
+        assert_eq!(comment("FLAGGED"), "BADHOLE consumed: 3 flagged samples excluded");
+
+        // B. CLEAN: the flag was looked at and bound nothing.
+        assert!(clean.iter().all(|v| v.is_finite()));
+        assert_eq!(comment("CLEAN"), "BADHOLE consumed: 0 flagged samples excluded");
+
+        // C. ABSENT: the numbers equal CLEAN bit for bit — an absent flag must not invent an
+        //    exclusion — and the RECORD says nobody looked, rather than a zero that reads as
+        //    "checked and fine" or a silence that reads as anything at all.
+        let absent = phie("ABSENT");
+        for i in 0..n {
+            assert_eq!(absent[i].to_bits(), clean[i].to_bits());
+        }
+        assert_eq!(comment("ABSENT"), "BADHOLE not supplied - hole quality not evaluated");
     }
 
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
