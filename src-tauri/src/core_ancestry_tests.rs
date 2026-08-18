@@ -45,6 +45,11 @@ fn complete_record() -> equations::CurveAncestry {
             curve: "OUTPUT".into(),
             derivation: "acceptance_identity(INPUT, REFERENCE_VALUE)".into(),
         }],
+        depth_frame: None,
+        zone_set: None,
+        stochastic: None,
+        applied_model: None,
+        physics_attributes: Vec::new(),
     }
 }
 

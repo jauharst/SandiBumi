@@ -1064,7 +1064,9 @@ impl Default for SetWriteDiscipline {
 /// remain readable; the complete record travels with the same log-set row every current/archive
 /// curve already cites.
 pub(crate) const CURVE_ANCESTRY_KEY: &str = "_sandibumi_curve_ancestry_v1";
-pub(crate) const CURVE_ANCESTRY_SCHEMA_VERSION: u32 = 3;
+// Schema v4 (SB-DBM-015): the re-run manifest arms - depth frame, zone set, stochastic
+// identity, applied model, physics attributes - all serde-defaulted so v1..v3 history reads.
+pub(crate) const CURVE_ANCESTRY_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -1347,6 +1349,59 @@ pub struct CurveAncestry {
     pub actor: AncestryActor,
     pub timestamp_utc_ms: u64,
     pub outputs: Vec<AncestryOutput>,
+    /// SB-DBM-015: the run's depth frame and its sampling - part of what must be pinned
+    /// for a byte-identical replay. Absent only on pre-manifest (schema <= 3) records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth_frame: Option<ManifestDepthFrame>,
+    /// SB-DBM-015 (DEC-023): the zone-set identity the run saw, where zone-scoped
+    /// parameters could apply. A renamed or moved top changes this, and a re-run must say
+    /// so rather than silently meaning something different.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zone_set: Option<ManifestZoneSet>,
+    /// SB-DBM-015 (DEC-024): the stochastic-draw identity - what actually determines a
+    /// draw, never a run label. None on deterministic runs; SB-DBM-014 inherits this field
+    /// when scheduled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stochastic: Option<StochasticIdentity>,
+    /// SB-DBM-015 (DEC-024): the `ml_models` identity of any learned model applied. None
+    /// for ordinary module runs; SB-DBM-020 inherits this field when scheduled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_model: Option<String>,
+    /// SB-DBM-015 (SB-DBM-017): run-time values of attributes that drive physics - e.g.
+    /// the declared neutron matrix basis the runner injected. Empty when none applied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub physics_attributes: Vec<PhysicsAttribute>,
+}
+
+/// SB-DBM-015: the depth frame arm of the re-run manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ManifestDepthFrame {
+    pub top: f32,
+    pub base: f32,
+    pub samples: usize,
+}
+
+/// SB-DBM-015 (DEC-023): the zone-set arm - identity and version from `db::current_zone_set`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ManifestZoneSet {
+    pub version: i64,
+    pub digest: String,
+}
+
+/// SB-DBM-015 (DEC-024): the stochastic arm - the facts that determine a draw.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StochasticIdentity {
+    pub seed: u64,
+    pub scheme: String,
+    pub correlations: String,
+    pub iterations: u64,
+}
+
+/// SB-DBM-015 (SB-DBM-017): one physics-driving attribute value at run time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhysicsAttribute {
+    pub name: String,
+    pub value: String,
 }
 
 impl CurveAncestry {
@@ -1846,6 +1901,37 @@ impl CompleteLogSetSpec {
     /// serialized ancestry in the storage payload. This keeps specialized producers such as the
     /// pay-summary engine on the same whitelisted complete-record path; it does not create a second
     /// writer or any duplicate-tolerant database behavior.
+    /// SB-DBM-015: record the manifest arms the spec builder cannot know - the depth frame
+    /// exists only once the runner has fetched the well, and the physics-driving attribute
+    /// values are the ones the runner actually injected. Mutates the ancestry AND
+    /// re-serializes the stored record, exactly as `record_parameter_decisions` does, so the
+    /// stored manifest and the validated ancestry cannot drift.
+    pub(crate) fn record_run_manifest(
+        &mut self,
+        depth_frame: Option<ManifestDepthFrame>,
+        physics_attributes: Vec<PhysicsAttribute>,
+    ) -> Result<(), String> {
+        if depth_frame.is_some() {
+            self.ancestry.depth_frame = depth_frame;
+        }
+        if !physics_attributes.is_empty() {
+            self.ancestry.physics_attributes = physics_attributes;
+        }
+        self.ancestry.validate()?;
+        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
+            .map_err(|error| format!("cannot refresh curve ancestry manifest JSON: {error}"))?;
+        let object = stored
+            .as_object_mut()
+            .ok_or_else(|| "cannot refresh curve ancestry in a non-object parameter record".to_string())?;
+        object.insert(
+            CURVE_ANCESTRY_KEY.into(),
+            serde_json::to_value(&self.ancestry)
+                .map_err(|error| format!("cannot serialize curve ancestry manifest: {error}"))?,
+        );
+        self.storage.params_json = stored.to_string();
+        Ok(())
+    }
+
     pub(crate) fn record_parameter_decisions(
         &mut self,
         topics: &[(&str, &str)],
@@ -1966,6 +2052,14 @@ pub(crate) fn complete_curve_run_spec(
                 derivation: format!("{}:{}", module.trim(), curve),
             })
             .collect(),
+        // SB-DBM-015: the frame is recorded by the runner once the depth exists (see
+        // CompleteLogSetSpec::record_run_manifest); the seams stay None until the deferred
+        // rows that own them are scheduled (DEC-024).
+        depth_frame: None,
+        zone_set: None,
+        stochastic: None,
+        applied_model: None,
+        physics_attributes: Vec::new(),
     };
     let legacy_inputs =
         serde_json::to_string(&inputs.iter().map(|(_, _, curve)| curve).collect::<Vec<_>>())
@@ -4004,6 +4098,12 @@ pub(crate) fn write_computed_curves_batch(
                 derivation: format!("test_fixture:{name}"),
             })
             .collect(),
+
+        depth_frame: None,
+        zone_set: None,
+        stochastic: None,
+        applied_model: None,
+        physics_attributes: Vec::new(),
     };
     let spec = CompleteLogSetSpec::try_new("TEST_FIXTURE", ancestry)
         .expect("complete test fixture ancestry");
@@ -4604,6 +4704,12 @@ mod tests {
                         curve: curve.into(),
                         derivation: "SB-DBM-T25 fixture".into(),
                     }],
+
+                    depth_frame: None,
+                    zone_set: None,
+                    stochastic: None,
+                    applied_model: None,
+                    physics_attributes: Vec::new(),
                 },
             )
             .unwrap()
@@ -5650,6 +5756,12 @@ mod tests {
                 curve: "SOURCE_STATE_RESULT".into(),
                 derivation: "SB-DBM-T05 fixture".into(),
             }],
+
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
         };
         let spec = CompleteLogSetSpec::try_new("SOURCE_STATE", ancestry).unwrap();
         let (set_id, _) = create_complete_log_set(&conn, &well_id.to_string(), &spec).unwrap();

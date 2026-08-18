@@ -1681,6 +1681,11 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
                 derivation: format!("{module}:{curve}"),
             })
             .collect(),
+        depth_frame: None,
+        zone_set: None,
+        stochastic: None,
+        applied_model: None,
+        physics_attributes: Vec::new(),
     };
     let log_spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
         "DEVIATION",

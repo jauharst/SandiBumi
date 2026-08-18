@@ -182,16 +182,10 @@
 
 ## SB-DBM-015 - The re-run manifest is enumerated, stored, and checkable
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T15`, `SB-DBM-T16`; sections 4.2 and 6.3.
-- **Atomic obligations:** one manifest enumerates module, effective parameters/sources, resolved inputs/frames, zone set, seeds, models and physics-driving attributes; a rerun command resolves every element or refuses it by name.
-- **Current source:** those elements exist only as incomplete fragments across `log_sets`, ancestry JSON and model metadata. No complete manifest schema, resolver or "re-run this set" command exists. The approved pilot manifest excludes SB-DBM-008, SB-DBM-014 and the model-custody rows rather than supplying their identities implicitly.
-- **Qualifying acceptance tests:** none; all mutated-project arms of T15 and manifest-driven T16 are missing. Test class is `MISSING`.
-- **Supporting tests:** log-set restore feeding a later run and model drift warnings do not enumerate or enforce the complete manifest.
-- **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** live re-verification on `codex/g2-program-plan` confirms `UNIMPLEMENTED`; no complete manifest/re-run feature exists, and SB-DBM-014 is not among the immutable pilot IDs.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** T15 depends on DEC-021/SB-DBM-002 for build-derived module identity; DEC-023/SB-DBM-008 for versioned zone-set identity; DEC-024 for the conditional stochastic/model identity seam owned by SB-DBM-014 and SB-DBM-019/020; and SB-DBM-017 for physics-driving attributes. Those identity owners are outside DEC-018's immutable first-pilot scope, so they cannot be imported silently and none may be omitted from the exact test.
-- **Next action:** settle DEC-021, DEC-023 and DEC-024, explicitly re-approving any required scope change. Only then add one stored resolver-backed manifest, an unmutated byte-identical replay and all four element-naming refusals.
+- **Specified contract:** per run, the complete pinned-fact set - module identity/version, effective parameters with sources, resolved input identities with set versions, depth frame and sampling, zone-set identity, stochastic seed identity, applied-model identity, run-time physics-driving attributes - plus a "re-run this set" operation that verifies every element and refuses NAMING the one that no longer resolves. Blocked on DEC-021/023/024 - all now ruled (024: identity FIELDS only; 014/019/020 stay deferred and inherit them).
+- **Current implementation (2026-08-18):** DONE. Curve ancestry schema v4 carries all eight arms (new fields serde-defaulted so old history reads); the runner records the depth frame and the injected neutron basis via `record_run_manifest` (same resolver as the injection, so record and behavior cannot drift); zone_set from the DEC-023 digest seam. `workflow::rerun_log_set` verifies module digest, every input identity via the same resolver, the zone-set digest and the applied model - refusing by name with stored-vs-current stated - then replays into a RERUN set and byte-compares against the manifest's own version (archive-backed snapshot). A changed zone parameter resolves and reports `bit_identical=false` honestly. Command `rerun_log_set`.
+- **Qualifying test:** exact T15 - unmutated bit-identical replay plus all four named refusals plus the honest not-identical arm; five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-016 - Re-run output does not depend on iteration order
 

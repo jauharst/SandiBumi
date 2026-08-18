@@ -868,6 +868,11 @@ mod tests {
                     derivation: format!("structural report fixture:{curve}"),
                 })
                 .collect(),
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
         };
         let spec = equations::CompleteLogSetSpec::try_new("REPORT_INPUTS", ancestry).unwrap();
         let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec).unwrap();

@@ -495,6 +495,11 @@ fn complete_chain_sets(
             actor: custody.actor.clone(),
             timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()?,
             outputs,
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
         };
         let spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
             set_name,

@@ -1271,6 +1271,16 @@ fn complete_module_log_spec(
         })
         .collect();
     let parameter_state = equations::parameter_state_for(&parameters);
+    // SB-DBM-015 (DEC-023): the zone-set identity the run sees, recorded whenever zones
+    // exist - a renamed or moved top changes it, and the re-run resolver refuses by name.
+    let zone_set = match &zone_scope {
+        equations::AncestryZoneScope::WholeWell => None,
+        _ => {
+            let (version, digest) =
+                db::current_zone_set(conn, well_id).map_err(|error| error.to_string())?;
+            Some(equations::ManifestZoneSet { version, digest })
+        }
+    };
     let ancestry = equations::CurveAncestry {
         schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
         module: req.module.clone(),
@@ -1284,6 +1294,11 @@ fn complete_module_log_spec(
         actor: req.custody.actor.clone(),
         timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
         outputs,
+        depth_frame: None,
+        zone_set,
+        stochastic: None,
+        applied_model: None,
+        physics_attributes: Vec::new(),
     };
     let validity_manifest = serde_json::to_value(modules::module_validity_manifest(spec))
         .map_err(|error| format!("cannot serialize module validity manifest: {error}"))?;
@@ -1410,6 +1425,232 @@ fn expand_out_pattern(
 /// pass a job handle + cancel flag), so this no-progress convenience wrapper is used only by the
 /// test suite — hence `allow(dead_code)` for the lib-proper build.
 #[allow(dead_code)]
+/// SB-DBM-015: the outcome of "re-run this set" - the replay happened only because every
+/// manifest element resolved, and the byte comparison is reported rather than assumed.
+#[derive(Debug, Clone, Serialize)]
+pub struct RerunReport {
+    pub set_id: String,
+    pub module: String,
+    pub output_set: String,
+    pub compared_curves: usize,
+    pub bit_identical: bool,
+}
+
+/// SB-DBM-015: "re-run this set". Every manifest element is verified to STILL RESOLVE
+/// before anything runs, and a failed element refuses BY NAME - a re-run that silently
+/// substituted a moved curve, a changed zone set, a different implementation or a deleted
+/// model would be F-18's failure at the scale of a whole run. Only when the whole manifest
+/// resolves is the run replayed (into its own RERUN output set, so the original version is
+/// never disturbed), and the outputs are compared byte for byte against the stored
+/// originals of the manifest's own set version.
+pub fn rerun_log_set(
+    db: &Mutex<Connection>,
+    well_id: &str,
+    set_id: &str,
+    custody: &equations::RunCustody,
+) -> Result<RerunReport, String> {
+    let (module, ancestry, stored_params) = {
+        let conn = db.lock().map_err(|_| "database busy".to_string())?;
+        let entry = equations::list_log_sets(&conn, well_id)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|entry| entry.set_id == set_id)
+            .ok_or_else(|| format!("re-run refused: no stored run with set id {set_id}"))?;
+        let ancestry = entry.ancestry.clone().ok_or_else(|| {
+            format!(
+                "re-run refused: manifest element 'run record' does not resolve - set {set_id} \
+                 predates complete ancestry and carries no manifest"
+            )
+        })?;
+        let params: serde_json::Value = entry
+            .params_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| format!("stored run parameters are unreadable: {error}"))?
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        // (a) Module identity and version - the producing code's own digest (DEC-021).
+        let current = format!("src:{}", modules::module_source_digest(&entry.module));
+        if ancestry.module_version != current {
+            return Err(format!(
+                "re-run refused: manifest element 'module version' no longer resolves - the run \
+                 was produced by {} '{}' but the current build is '{current}'",
+                entry.module, ancestry.module_version
+            ));
+        }
+
+        // (b) Every input curve identity, re-resolved by the SAME resolver the run used: a
+        // different chosen identity or set version means the input has moved.
+        for input in &ancestry.inputs {
+            let now = equations::resolve_ancestry_input(
+                &conn,
+                &input.well_id,
+                &input.argument,
+                &input.curve,
+                None,
+                None,
+            )
+            .map_err(|error| {
+                format!(
+                    "re-run refused: manifest element 'input curve {}' ({}) no longer \
+                     resolves: {error}",
+                    input.curve, input.argument
+                )
+            })?;
+            if now.set_id != input.set_id || now.set_version != input.set_version {
+                return Err(format!(
+                    "re-run refused: manifest element 'input curve {}' ({}) no longer resolves \
+                     to the recorded identity - stored set {} v{:?}, current set {} v{:?}",
+                    input.curve,
+                    input.argument,
+                    input.set_id,
+                    input.set_version,
+                    now.set_id,
+                    now.set_version
+                ));
+            }
+        }
+
+        // (c) The zone-set identity (DEC-023): a renamed or moved top means the same run
+        // over the same well would mean something different.
+        if let Some(recorded) = &ancestry.zone_set {
+            let (_, digest) =
+                db::current_zone_set(&conn, well_id).map_err(|error| error.to_string())?;
+            if digest != recorded.digest {
+                return Err(format!(
+                    "re-run refused: manifest element 'zone set' no longer resolves - the run \
+                     saw zone-set digest {} (v{}) but the well now has {digest}",
+                    recorded.digest, recorded.version
+                ));
+            }
+        }
+
+        // (d) The applied learned model (DEC-024): a deleted model cannot be re-applied.
+        if let Some(model_id) = &ancestry.applied_model {
+            let present: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM ml_models WHERE model_id = ?1",
+                    duckdb::params![model_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if present == 0 {
+                return Err(format!(
+                    "re-run refused: manifest element 'applied model' no longer resolves - \
+                     model {model_id} is not in ml_models"
+                ));
+            }
+        }
+        (entry.module.clone(), ancestry, params)
+    };
+
+    // Rebuild the request from the stored record: numeric parameters and string options
+    // come from the saved params (reserved provenance keys stripped), inputs from the
+    // manifest's own resolved argument -> curve pairs.
+    let mut params: HashMap<String, f64> = HashMap::new();
+    let mut opts: HashMap<String, String> = HashMap::new();
+    if let serde_json::Value::Object(map) = &stored_params {
+        for (name, value) in map {
+            if name == equations::CURVE_ANCESTRY_KEY
+                || name == modules::MODULE_VALIDITY_MANIFEST_KEY
+            {
+                continue;
+            }
+            match value {
+                serde_json::Value::Number(number) => {
+                    if let Some(number) = number.as_f64() {
+                        params.insert(name.clone(), number);
+                    }
+                }
+                serde_json::Value::String(text) => {
+                    opts.insert(name.clone(), text.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    let log_inputs: HashMap<String, String> = ancestry
+        .inputs
+        .iter()
+        .map(|input| (input.argument.clone(), input.curve.clone()))
+        .collect();
+    let request = RunModuleRequest {
+        module: module.clone(),
+        well_ids: vec![well_id.to_string()],
+        log_inputs,
+        params,
+        opts,
+        output_set: Some("RERUN".to_string()),
+        input_set: None,
+        custody: custody.clone(),
+    };
+    // Snapshot the ORIGINAL version's stored values before the replay touches anything:
+    // the archive holds the manifest's own set version even when a later run superseded it.
+    let read_version = |conn: &Connection, set: &str, curve: &str| -> Result<Vec<(u32, Option<u32>)>, String> {
+        let read = |table: &str| -> Result<Vec<(u32, Option<u32>)>, String> {
+            let mut stmt = conn
+                .prepare(&format!(
+                    "SELECT depth, value FROM {table} WHERE set_id = ?1 AND curve_name = ?2 \
+                     ORDER BY depth"
+                ))
+                .map_err(|error| error.to_string())?;
+            stmt.query_map(duckdb::params![set, curve], |row| {
+                Ok((
+                    row.get::<_, f32>(0)?.to_bits(),
+                    row.get::<_, Option<f32>>(1)?.map(f32::to_bits),
+                ))
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
+        };
+        let current = read("computed_curves")?;
+        if current.is_empty() { read("computed_curves_archive") } else { Ok(current) }
+    };
+    let originals: Vec<(String, Vec<(u32, Option<u32>)>)> = {
+        let conn = db.lock().map_err(|_| "database busy".to_string())?;
+        ancestry
+            .outputs
+            .iter()
+            .map(|output| {
+                read_version(&conn, set_id, &output.curve).map(|rows| (output.curve.clone(), rows))
+            })
+            .collect::<Result<_, _>>()?
+    };
+
+    let results = run_workflow_module(db, &request);
+    let result = results
+        .first()
+        .ok_or_else(|| "re-run produced no result".to_string())?;
+    if let Some(error) = &result.error {
+        return Err(format!("re-run failed: {error}"));
+    }
+
+    // Byte comparison against the replay's own new version.
+    let conn = db.lock().map_err(|_| "database busy".to_string())?;
+    let rerun_set = equations::list_log_sets(&conn, well_id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|entry| entry.set_name == "RERUN" && entry.module == module)
+        .max_by_key(|entry| entry.version)
+        .ok_or_else(|| "re-run recorded no RERUN log set".to_string())?;
+    let mut bit_identical = true;
+    for (curve, original) in &originals {
+        let replay = read_version(&conn, &rerun_set.set_id, curve)?;
+        if &replay != original {
+            bit_identical = false;
+        }
+    }
+    Ok(RerunReport {
+        set_id: set_id.to_string(),
+        module,
+        output_set: "RERUN".to_string(),
+        compared_curves: originals.len(),
+        bit_identical,
+    })
+}
+
 pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Vec<ModuleRunResult> {
     run_workflow_module_into(db, req, None, None, None)
 }
@@ -1862,6 +2103,35 @@ fn fetch_module_input_logs(
         logs.insert(argument.name.clone(), values);
     }
     Ok((depth, logs, units))
+}
+
+/// SB-ENV-029 + SB-DBM-015: the declared neutron basis the runner injects for nphimat -
+/// ONE resolution shared by the injection and the stored manifest, so they cannot drift.
+fn nphimat_declared_basis(
+    conn: &Connection,
+    well_id: &str,
+    log_args: &[(String, String)],
+) -> Option<String> {
+    let curve_name = log_args
+        .iter()
+        .find(|(argument, _)| argument == "NPHI")
+        .map(|(_, curve)| curve.clone())
+        .unwrap_or_else(|| "NPHI".to_string());
+    let curve_id = equations::resolve_generic_curve_id(
+        conn,
+        well_id,
+        &curve_name,
+        equations::CurveRequest::SemanticFamily,
+    )
+    .ok()
+    .flatten()?;
+    conn.query_row(
+        "SELECT neutron_basis FROM curve_meta WHERE curve_id = ?1",
+        duckdb::params![curve_id],
+        |row| row.get(0),
+    )
+    .ok()
+    .flatten()
 }
 
 fn fetch_mask_aligned(
@@ -2371,29 +2641,9 @@ fn run_workflow_module_into_with_parameter_serializer(
                 // DECLARED neutron matrix basis, so the runner resolves the same curve the
                 // fetch used and injects its declaration - never inferring one.
                 if req.module == "nphimat" {
-                    let curve_name = log_args
-                        .iter()
-                        .find(|(argument, _)| argument == "NPHI")
-                        .map(|(_, curve)| curve.clone())
-                        .unwrap_or_else(|| "NPHI".to_string());
                     let conn = db.lock().unwrap();
-                    if let Ok(Some(curve_id)) = equations::resolve_generic_curve_id(
-                        &conn,
-                        well_id,
-                        &curve_name,
-                        equations::CurveRequest::SemanticFamily,
-                    ) {
-                        let declared: Option<String> = conn
-                            .query_row(
-                                "SELECT neutron_basis FROM curve_meta WHERE curve_id = ?1",
-                                duckdb::params![curve_id],
-                                |row| row.get(0),
-                            )
-                            .ok()
-                            .flatten();
-                        if let Some(basis) = declared {
-                            well_opts.insert(modules::NEUTRON_BASIS_OPT.to_string(), basis);
-                        }
+                    if let Some(basis) = nphimat_declared_basis(&conn, well_id, &log_args) {
+                        well_opts.insert(modules::NEUTRON_BASIS_OPT.to_string(), basis);
                     }
                 }
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: well_opts, depth_unit };
@@ -2859,10 +3109,38 @@ fn run_workflow_module_into_with_parameter_serializer(
                 precondition_violations,
                 parameter_serializer,
             ) {
-                Ok(spec) => complete.push(equations::CompleteWellLogSet {
-                    well_id: well_id.clone(),
-                    spec,
-                }),
+                Ok(mut spec) => {
+                    // SB-DBM-015: the arms the spec builder cannot know - the depth frame
+                    // exists only after the fetch, and the physics-driving attribute value
+                    // is the one the runner injected (same helper, so record and injection
+                    // cannot drift).
+                    let Outcome::Computed { depth, .. } = outcome else { unreachable!() };
+                    let frame = (!depth.is_empty()).then(|| equations::ManifestDepthFrame {
+                        top: depth[0],
+                        base: depth[depth.len() - 1],
+                        samples: depth.len(),
+                    });
+                    let physics = if req.module == "nphimat" {
+                        nphimat_declared_basis(&conn, well_id, log_args)
+                            .map(|value| {
+                                vec![equations::PhysicsAttribute {
+                                    name: "neutron_basis".into(),
+                                    value,
+                                }]
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+                    if let Err(error) = spec.record_run_manifest(frame, physics) {
+                        build_error = Some(error);
+                        break;
+                    }
+                    complete.push(equations::CompleteWellLogSet {
+                        well_id: well_id.clone(),
+                        spec,
+                    });
+                }
                 Err(error) => {
                     build_error = Some(error);
                     break;
@@ -7814,6 +8092,185 @@ mod tests {
         assert!(vsh[0].is_nan(), "flagged sample masked");
         assert!((vsh[1] - 0.4).abs() < 1e-4, "clean sample computes, got {}", vsh[1]);
         assert!(vsh[2].is_nan(), "flagged sample masked");
+    }
+
+    /// SB-DBM-015 / exact SB-DBM-T15 (DEC-021/023/024): the re-run manifest is complete and
+    /// CHECKED. The unmutated project replays bit-identically; a differing module version, a
+    /// re-versioned input curve, an edited zone set and a deleted applied model are each
+    /// REFUSED with the refusal NAMING the element - a refusal that names no element fails
+    /// this test. A changed zone parameter, by contrast, still resolves and replays - and
+    /// the report says the result is NOT bit-identical rather than pretending.
+    #[test]
+    fn the_rerun_manifest_resolves_or_refuses_naming_the_element_and_replays_bit_identically() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-RRM", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let well = id.to_string();
+        let n = 4usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth, vec![60.0, 70.0, 80.0, 90.0], nan.clone(), nan.clone(),
+            nan.clone(), nan.clone(), nan,
+        )
+        .unwrap();
+        db::upsert_md_zone(&conn, &well, "MIOCENE_A", 1000.0, 1002.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "MIOCENE_B", 1002.0, 1004.0).unwrap();
+        db::set_zone_param(&conn, &well, "MIOCENE_A", "GR_MA", Some(10.0), None).unwrap();
+        let dbm = Mutex::new(conn);
+        // Producer: a smoothed GR the consumer resolves as its input, so a later
+        // re-version of the producer is exactly T15's moved-input case.
+        let smooth = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "smooth".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("WINDOW".to_string(), 1.0_f64)]),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert!(smooth[0].error.is_none(), "{:?}", smooth[0].error);
+        let smoothed = smooth[0]
+            .output_curves
+            .iter()
+            .find(|curve| !curve.ends_with("_SPK"))
+            .expect("smooth writes its smoothed curve")
+            .clone();
+        let vsh_request = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![well.clone()],
+            log_inputs: HashMap::from([("GR".to_string(), smoothed.clone())]),
+            params: HashMap::from([
+                ("GR_MA".to_string(), 20.0_f64),
+                ("GR_SH".to_string(), 120.0_f64),
+            ]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let results = run_workflow_module(&dbm, &vsh_request);
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+        let set_id = {
+            let conn = dbm.lock().unwrap();
+            equations::list_log_sets(&conn, &well)
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.module == "vsh_gr")
+                .expect("the run recorded its set")
+                .set_id
+        };
+
+        // A. Unmutated: every element resolves, and the replay is bit-identical.
+        let report = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect("an unmutated manifest resolves");
+        assert!(report.bit_identical, "the unmutated replay must reproduce byte for byte");
+        assert!(report.compared_curves >= 3, "{}", report.compared_curves);
+
+        // B. Module version differs: refused, NAMING the element.
+        {
+            let conn = dbm.lock().unwrap();
+            conn.execute(
+                "UPDATE log_sets SET params_json = REPLACE(params_json, 'src:', 'src:dead') WHERE set_id = ?1",
+                duckdb::params![set_id],
+            )
+            .unwrap();
+        }
+        let error = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect_err("a different implementation must refuse");
+        assert!(error.contains("module version"), "the element is named: {error}");
+        {
+            let conn = dbm.lock().unwrap();
+            conn.execute(
+                "UPDATE log_sets SET params_json = REPLACE(params_json, 'src:dead', 'src:') WHERE set_id = ?1",
+                duckdb::params![set_id],
+            )
+            .unwrap();
+        }
+
+        // C. Applied model deleted: the manifest names a model that is not in ml_models.
+        {
+            let conn = dbm.lock().unwrap();
+            conn.execute(
+                "UPDATE log_sets SET params_json = REPLACE(params_json, '\"module_version\"', '\"applied_model\":\"11111111-2222-3333-4444-555555555555\",\"module_version\"') WHERE set_id = ?1",
+                duckdb::params![set_id],
+            )
+            .unwrap();
+        }
+        let error = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect_err("a deleted applied model must refuse");
+        assert!(
+            error.contains("applied model") && error.contains("11111111"),
+            "the element is named: {error}"
+        );
+        {
+            let conn = dbm.lock().unwrap();
+            conn.execute(
+                "UPDATE log_sets SET params_json = REPLACE(params_json, '\"applied_model\":\"11111111-2222-3333-4444-555555555555\",', '') WHERE set_id = ?1",
+                duckdb::params![set_id],
+            )
+            .unwrap();
+        }
+
+        // D. Zone set edited: a moved top changes the zone-set identity; restoring the
+        //    geometry restores it (the digest is content identity, not a counter).
+        {
+            let conn = dbm.lock().unwrap();
+            db::upsert_md_zone(&conn, &well, "MIOCENE_B", 1002.5, 1004.0).unwrap();
+        }
+        let error = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect_err("an edited zone set must refuse");
+        assert!(error.contains("zone set"), "the element is named: {error}");
+        {
+            let conn = dbm.lock().unwrap();
+            db::upsert_md_zone(&conn, &well, "MIOCENE_B", 1002.0, 1004.0).unwrap();
+        }
+
+        // E. A changed zone PARAMETER still resolves - the honest report is a replay that
+        //    is NOT bit-identical, never a silent claim of reproduction.
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_zone_param(&conn, &well, "MIOCENE_A", "GR_MA", Some(15.0), None).unwrap();
+        }
+        let report = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect("a changed parameter is not a broken manifest");
+        assert!(
+            !report.bit_identical,
+            "a replay under a changed zone parameter must not claim bit-identity"
+        );
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_zone_param(&conn, &well, "MIOCENE_A", "GR_MA", Some(10.0), None).unwrap();
+        }
+
+        // F. Input curve re-versioned: re-running the producer moves the input's resolved
+        //    identity, and the consumer's re-run refuses NAMING the curve.
+        let smooth = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "smooth".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("WINDOW".to_string(), 1.0_f64)]),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert!(smooth[0].error.is_none(), "{:?}", smooth[0].error);
+        let error = rerun_log_set(&dbm, &well, &set_id, &test_run_custody())
+            .expect_err("a re-versioned input must refuse");
+        assert!(
+            error.contains(&smoothed),
+            "the element is named ({smoothed}): {error}"
+        );
     }
 
     /// SB-CLY-001 (DEC-036 constraints 2 and 4): through the production runner, a degenerate
@@ -13039,6 +13496,12 @@ mod tests {
                         curve: "VSH".into(),
                         derivation: "SB-CLY-043 typed restore fixture".into(),
                     }],
+
+                    depth_frame: None,
+                    zone_set: None,
+                    stochastic: None,
+                    applied_model: None,
+                    physics_attributes: Vec::new(),
                 },
             )
             .unwrap()

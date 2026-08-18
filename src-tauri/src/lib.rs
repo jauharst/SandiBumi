@@ -3062,6 +3062,17 @@ fn set_zone_param(
     .map_err(|e| e.to_string())
 }
 
+/// SB-DBM-015: "re-run this set" - verify the manifest, replay, compare byte for byte.
+#[tauri::command]
+fn rerun_log_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    set_id: String,
+    custody: equations::RunCustody,
+) -> Result<workflow::RerunReport, String> {
+    workflow::rerun_log_set(&db.0, &well_id, &set_id, &custody)
+}
+
 /// SB-DBM-011: the structured audit, newest first, on demand.
 #[tauri::command]
 fn list_audit_entries(
@@ -4360,6 +4371,7 @@ pub fn run() {
             list_zone_params,
             set_zone_param,
             list_audit_entries,
+            rerun_log_set,
             list_well_param_overrides,
             set_well_param_overrides,
             set_zone_param_batch,

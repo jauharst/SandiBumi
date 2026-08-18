@@ -1925,6 +1925,11 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                     curve: curve.name.clone(),
                     derivation: format!("{module}:{}", curve.name),
                 }).collect(),
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
         };
         let log_spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
             set_name,
