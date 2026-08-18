@@ -3177,6 +3177,10 @@ fn phi_den_spec() -> ModuleSpec {
             ),
             // SB-POR-047: hole quality is a DECLARED input, never a generic Mask.
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
+            // SB-POR-026: condflag's crossover flag is CONSUMED for provenance, never
+            // recomputed - condflag's coal and washout exclusions survive that way - and it
+            // never alters an output; the record is the DEC-039 version comment.
+            log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIE_DEN", "PHIE from density (unlimited)", "v/v"),
@@ -3329,6 +3333,7 @@ fn phi_dn_spec() -> ModuleSpec {
                 "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
+            log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3505,6 +3510,7 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
+            log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3626,6 +3632,7 @@ fn phi_son_spec() -> ModuleSpec {
                 crate::param_sources::SHALE_TRANSIT_TIME,
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
+            log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIT_SON", "Total porosity from sonic", "v/v"),

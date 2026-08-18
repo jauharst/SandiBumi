@@ -2339,26 +2339,37 @@ fn run_workflow_module_into_with_parameter_serializer(
                     well_opts.insert(modules::CLASS_CURVES_OPT.to_string(), cls.clone());
                 }
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: well_opts, depth_unit };
-                // SB-POR-047: hole-quality custody, composed where the inputs exist. Supplied
-                // means the resolved column has ANY finite sample; a curve that resolved but is
-                // all-NaN over this frame was never evaluated here, and saying "nobody looked"
-                // is the honest record for it too.
-                let badhole_record = spec
-                    .args
-                    .iter()
-                    .any(|argument| {
-                        argument.kind == modules::ArgKind::LogIn && argument.name == "BADHOLE"
-                    })
-                    .then(|| {
-                        let column = ctx.log("BADHOLE");
-                        if column.iter().any(|value| value.is_finite()) {
-                            let flagged =
-                                column.iter().filter(|value| **value == 1.0).count();
-                            format!("BADHOLE consumed: {flagged} flagged samples excluded")
-                        } else {
-                            "BADHOLE not supplied - hole quality not evaluated".to_string()
-                        }
+                // SB-POR-047 + SB-POR-026: run custody, composed where the inputs exist.
+                // Supplied means the resolved column has ANY finite sample; a curve that
+                // resolved but is all-NaN over this frame was never evaluated here, and saying
+                // "nobody looked" is the honest record for it too. One line per declared flag,
+                // joined into the run's DEC-039 version comment.
+                let declares = |name: &str| {
+                    spec.args
+                        .iter()
+                        .any(|argument| argument.kind == modules::ArgKind::LogIn && argument.name == name)
+                };
+                let mut custody_lines: Vec<String> = Vec::new();
+                if declares("BADHOLE") {
+                    let column = ctx.log("BADHOLE");
+                    custody_lines.push(if column.iter().any(|value| value.is_finite()) {
+                        let flagged = column.iter().filter(|value| **value == 1.0).count();
+                        format!("BADHOLE consumed: {flagged} flagged samples excluded")
+                    } else {
+                        "BADHOLE not supplied - hole quality not evaluated".to_string()
                     });
+                }
+                if declares("GAS_FLAG") {
+                    let column = ctx.log("GAS_FLAG");
+                    custody_lines.push(if column.iter().any(|value| value.is_finite()) {
+                        let flagged = column.iter().filter(|value| **value == 1.0).count();
+                        format!("gas crossover flagged at {flagged} samples (condflag XOVER_FLAG consumed)")
+                    } else {
+                        "crossover flag not supplied - gas effect not evaluated".to_string()
+                    });
+                }
+                let badhole_record =
+                    (!custody_lines.is_empty()).then(|| custody_lines.join("; "));
                 let default_usage = modules::DefaultUsage {
                     parameter_samples: defaulted_parameters,
                     options: defaulted_options.clone(),
@@ -7013,11 +7024,17 @@ mod tests {
                 assert_eq!(flagged[i].to_bits(), clean[i].to_bits(), "unflagged sample {i} must be untouched");
             }
         }
-        assert_eq!(comment("FLAGGED"), "BADHOLE consumed: 3 flagged samples excluded");
+        assert_eq!(
+            comment("FLAGGED"),
+            "BADHOLE consumed: 3 flagged samples excluded; crossover flag not supplied - gas effect not evaluated"
+        );
 
         // B. CLEAN: the flag was looked at and bound nothing.
         assert!(clean.iter().all(|v| v.is_finite()));
-        assert_eq!(comment("CLEAN"), "BADHOLE consumed: 0 flagged samples excluded");
+        assert_eq!(
+            comment("CLEAN"),
+            "BADHOLE consumed: 0 flagged samples excluded; crossover flag not supplied - gas effect not evaluated"
+        );
 
         // C. ABSENT: the numbers equal CLEAN bit for bit — an absent flag must not invent an
         //    exclusion — and the RECORD says nobody looked, rather than a zero that reads as
@@ -7026,7 +7043,113 @@ mod tests {
         for i in 0..n {
             assert_eq!(absent[i].to_bits(), clean[i].to_bits());
         }
-        assert_eq!(comment("ABSENT"), "BADHOLE not supplied - hole quality not evaluated");
+        assert_eq!(
+            comment("ABSENT"),
+            "BADHOLE not supplied - hole quality not evaluated; crossover flag not supplied - gas effect not evaluated"
+        );
+    }
+
+    /// SB-POR-026. Source: `11_porosity.md:951-952` — gas crossover is detected by `condflag`
+    /// (`XOVER_FLAG` already ships) and SURFACED on the porosity output; Jauhar ruled 2026-08-16
+    /// the surfacing is a PROVENANCE RECORD (the DEC-039 version comment), not a flag curve or a
+    /// flag-shaped key. The flag is CONSUMED from `condflag` rather than recomputed, so the coal
+    /// and washout exclusions its detection already applies survive into the record.
+    ///
+    /// Pinned from both sides: the record states crossover extent or that nobody looked — and
+    /// **the numbers must not move**, because a provenance record that corrects is `gascorr`'s
+    /// job, not this row's.
+    #[test]
+    fn gas_crossover_provenance_rides_the_porosity_runs_version_comment_and_never_moves_a_number()
+    {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 10usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let mut wells = HashMap::new();
+        for name in ["SCREENED", "UNSCREENED"] {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
+                vec![2.35; n], nan.clone(), nan,
+            )
+            .unwrap();
+            let well = id.to_string();
+            let curve = db::upsert_curve_meta(
+                &conn, &well, "RAW", "VSH", Some("v/v"), Some("VSH"),
+                Some("SB-POR-026 fixture"), None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, &vec![0.2; n]).unwrap();
+            if name == "SCREENED" {
+                // condflag's own output shape: 0/1, crossover over four samples.
+                let xover: Vec<f32> =
+                    (0..n).map(|i| if (2..6).contains(&i) { 1.0 } else { 0.0 }).collect();
+                equations::write_computed_curve(&conn, &well, &depth, "XOVER_FLAG", &xover)
+                    .unwrap();
+            }
+            wells.insert(name, well);
+        }
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "phi_den".into(),
+            well_ids: ["SCREENED", "UNSCREENED"].iter().map(|w| wells[*w].clone()).collect(),
+            log_inputs: HashMap::new(),
+            params: HashMap::from([
+                ("RHO_SH".to_string(), 2.5_f64),
+                ("RHO_DSH".to_string(), 2.65_f64),
+            ]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
+            results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+
+        let conn = dbm.lock().unwrap();
+        let comment = |name: &str| -> String {
+            equations::list_log_sets(&conn, &wells[name])
+                .unwrap()
+                .into_iter()
+                .find(|s| s.module == "phi_den")
+                .unwrap()
+                .comment
+                .expect("a POR run records its custody")
+        };
+        // A. Screened: the record states the extent, naming the flag it consumed.
+        assert!(
+            comment("SCREENED")
+                .contains("gas crossover flagged at 4 samples (condflag XOVER_FLAG consumed)"),
+            "got: {}",
+            comment("SCREENED")
+        );
+        // B. Unscreened: nobody looked, and the record SAYS so — never a 0, never silence.
+        assert!(
+            comment("UNSCREENED").contains("crossover flag not supplied - gas effect not evaluated"),
+            "got: {}",
+            comment("UNSCREENED")
+        );
+        // C. The other side: provenance never corrects. The two wells' porosities are
+        //    bit-identical — a crossover record that moved a number would be gascorr's job
+        //    smuggled in without its physics.
+        let phie = |name: &str| -> Vec<f32> {
+            equations::fetch_curve_frame(&conn, &wells[name], &["PHIE_DEN".into()])
+                .unwrap()
+                .1
+                .remove("PHIE_DEN")
+                .unwrap()
+        };
+        let (screened, unscreened) = (phie("SCREENED"), phie("UNSCREENED"));
+        for i in 0..n {
+            assert_eq!(
+                screened[i].to_bits(),
+                unscreened[i].to_bits(),
+                "sample {i}: a provenance record must never move a number"
+            );
+        }
     }
 
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
