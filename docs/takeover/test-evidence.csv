@@ -277,7 +277,6 @@
 "SB-PLT-035","CHARACTERIZATION","src-tauri/src/modules.rs","characterizes_the_interactive_clay_overlay_as_a_duplicate_formula_matching_batch_endpoints"
 "SB-POR-014","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
 "SB-POR-017","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
-"SB-POR-045","CHARACTERIZATION","src-tauri/src/modules.rs","a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin"
 "SB-RPH-042","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/coreimage.rs","a_picked_grey_a_crop_and_a_way_back"
 "SB-RPH-043","CHARACTERIZATION","src-tauri/src/coreimage.rs","the_light_warning_and_the_detail_warning_watch_different_settings"
 "SB-RPH-044","CHARACTERIZATION","src-tauri/src/coreimage.rs","a_half_labelled_plate_is_refused_rather_than_guessed"
@@ -424,3 +423,4 @@
 "SB-DBM-015","CORRECTNESS","src-tauri/src/workflow.rs","the_rerun_manifest_resolves_or_refuses_naming_the_element_and_replays_bit_identically"
 "SB-SAT-027","CORRECTNESS","src-tauri/src/modules.rs","the_n_equals_two_closed_form_agrees_with_the_general_root_finder_on_the_same_inputs"
 "SB-POR-055","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_parameter_carries_a_source_or_is_honestly_absent_and_rho_dsh_ships_the_adjudicated_2_70"
+"SB-POR-045","CORRECTNESS","src-tauri/src/modules.rs","the_phie_floor_is_a_cited_default_the_user_can_move_and_only_the_limited_curve_moves_with_it"

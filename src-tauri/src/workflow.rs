@@ -12488,6 +12488,7 @@ mod tests {
                     ("RHO_DSH".into(), 2.78),
                     ("RHO_W".into(), 1.0),
                     ("PHIE_MAX".into(), 0.30),
+                    ("PHIE_FLOOR".into(), 0.001),
                     ("VSH_SHALE".into(), 0.95),
                 ]),
                 // Stated explicitly so the accepted control is Clean rather than Degraded by the

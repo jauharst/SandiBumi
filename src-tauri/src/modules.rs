@@ -3472,6 +3472,19 @@ fn phi_den_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
+            // SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a
+            // USER DECISION with a cited default - IP's own manual states 0.001 and 0.0001
+            // for the same quantity (F17), which is exactly why this is a parameter rather
+            // than a constant. The unlimited twin is never floored.
+            param(
+                "PHIE_FLOOR",
+                "Floor applied to limited PHIE where the limit binds",
+                "v/v",
+                crate::param_sources::PHIE_FLOOR,
+                0.0001,
+                0.01,
+                "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
+            ),
             param_sourced(
                 "VSH_SHALE",
                 "High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)",
@@ -3552,7 +3565,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         if v >= ctx.p("VSH_SHALE", i) {
             record_branch("high-shale kill");
             phie_den[i] = 0.0;
-            phie_lim_out[i] = PHIE_FLOOR as f32;
+            phie_lim_out[i] = ctx.p("PHIE_FLOOR", i) as f32;
             phit_den[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -3563,7 +3576,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
             - v * two_endpoint_fraction(rho_sh, rho_ma, rho_fl);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        let pe_l = limit(pe, ctx.p("PHIE_FLOOR", i), phie_lim);
         if pe_l != pe {
             record_bound_limit("PHIE");
         }
@@ -3639,6 +3652,19 @@ fn phi_dn_spec() -> ModuleSpec {
                     "Geolog V14 phi_dn.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
+            ),
+            // SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a
+            // USER DECISION with a cited default - IP's own manual states 0.001 and 0.0001
+            // for the same quantity (F17), which is exactly why this is a parameter rather
+            // than a constant. The unlimited twin is never floored.
+            param(
+                "PHIE_FLOOR",
+                "Floor applied to limited PHIE where the limit binds",
+                "v/v",
+                crate::param_sources::PHIE_FLOOR,
+                0.0001,
+                0.01,
+                "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
             ),
             param_sourced(
                 "VSH_SHALE",
@@ -3728,7 +3754,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         if v >= ctx.p("VSH_SHALE", i) {
             record_branch("high-shale kill");
             phie_dn[i] = 0.0;
-            phie_lim_out[i] = PHIE_FLOOR as f32;
+            phie_lim_out[i] = ctx.p("PHIE_FLOOR", i) as f32;
             phit_dn[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -3759,7 +3785,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        let pe_l = limit(pe, ctx.p("PHIE_FLOOR", i), phie_lim);
         if pe_l != pe {
             record_bound_limit("PHIE");
         }
@@ -3861,6 +3887,19 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
+            // SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a
+            // USER DECISION with a cited default - IP's own manual states 0.001 and 0.0001
+            // for the same quantity (F17), which is exactly why this is a parameter rather
+            // than a constant. The unlimited twin is never floored.
+            param(
+                "PHIE_FLOOR",
+                "Floor applied to limited PHIE where the limit binds",
+                "v/v",
+                crate::param_sources::PHIE_FLOOR,
+                0.0001,
+                0.01,
+                "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
+            ),
             param_sourced(
                 "VSH_SHALE",
                 "High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)",
@@ -3929,7 +3968,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         if v >= ctx.p("VSH_SHALE", i) {
             record_branch("high-shale kill");
             phie_bk[i] = 0.0;
-            phie_lim_out[i] = PHIE_FLOOR as f32;
+            phie_lim_out[i] = ctx.p("PHIE_FLOOR", i) as f32;
             phit_bk[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -3965,7 +4004,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
+        let pe_l = limit(pe, ctx.p("PHIE_FLOOR", i), phie_lim);
         if pe_l != pe {
             record_bound_limit("PHIE");
         }
@@ -7037,6 +7076,7 @@ mod tests {
             ("NPHISR_MIN", -0.015),
             ("NPHISR_MAX", 0.40),
             ("VSH_SHALE", 0.95),
+            ("PHIE_FLOOR", 0.001),
             ("DT_FL", 189.0),
             ("DT_MA", 70.0),
             ("DT_SH", 60.0),
@@ -7420,6 +7460,113 @@ mod tests {
         assert!(
             decision.alternatives.iter().all(|position| !position.tier.is_empty()),
             "a position with no tier is an unranked claim, not evidence"
+        );
+    }
+
+    /// SB-POR-045 (DEC-043 ruled 0.001, DEC-067 ships it as the cited DEFAULT): the value
+    /// limited PHIE takes when the floor binds is a user-settable PARAMETER, not a
+    /// compile-time constant - IP's own manual states 0.001 and 0.0001 for the same
+    /// quantity (F17), which is why the user must be able to move it. Two explicit floor
+    /// values produce DISTINCT limited outputs in every consumer and on the high-shale kill
+    /// branch, while the UNLIMITED twin is bit-identical across both runs - flooring the
+    /// twin would hide the evidence the floor exists to preserve.
+    #[test]
+    fn the_phie_floor_is_a_cited_default_the_user_can_move_and_only_the_limited_curve_moves_with_it(
+    ) {
+        // A - the default is the registered DEC-043/DEC-067 value, cited, in every consumer.
+        let modules = module_catalog();
+        for module in ["phi_den", "phi_dn", "phi_dnbk"] {
+            let spec = modules
+                .iter()
+                .find(|candidate| candidate.name == module)
+                .unwrap()
+                .args
+                .iter()
+                .find(|argument| argument.name == "PHIE_FLOOR")
+                .expect("the floor is a declared parameter");
+            assert_eq!(
+                spec.default.parse::<f64>().unwrap(),
+                crate::param_sources::PHIE_FLOOR,
+                "{module}.PHIE_FLOOR default must be the registered constant"
+            );
+            assert!(
+                spec.default_source.contains("DEC-067") && spec.default_source.contains("DEC-043"),
+                "{module}.PHIE_FLOOR cites both rulings: {}",
+                spec.default_source
+            );
+        }
+
+        // B - a tight stringer (finding 16 fixture: RHOB above matrix, clean) under two
+        // explicit floors: the limited curve lands on EACH floor; the unlimited twin is
+        // bit-identical and still negative.
+        let run_den = |floor: f64| {
+            phi_den(&ctx_with(
+                2,
+                &[("RHOB", vec![2.75, 2.40]), ("VSH", vec![0.0, 0.97])],
+                &[
+                    ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+                    ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+                    ("VSH_SHALE", 0.95), ("PHIE_FLOOR", floor),
+                ],
+                &[],
+            ))
+        };
+        let (low, high) = (run_den(0.001), run_den(0.005));
+        assert_eq!(low["PHIE"][0], 0.001, "the limited curve lands on the first floor");
+        assert_eq!(high["PHIE"][0], 0.005, "and moves with the user's second floor");
+        // The high-shale kill branch writes the floor too - both floors, distinctly.
+        assert_eq!(low["PHIE"][1], 0.001, "the kill branch writes the first floor");
+        assert_eq!(high["PHIE"][1], 0.005, "and the second");
+        for i in 0..2 {
+            assert_eq!(
+                low["PHIE_DEN"][i].to_bits(),
+                high["PHIE_DEN"][i].to_bits(),
+                "the unlimited twin must not move with the floor"
+            );
+        }
+        assert!(low["PHIE_DEN"][0] < 0.0, "and it still shows the artefact");
+
+        // C - the density-neutron and Bateman-Konen consumers honour the parameter the
+        // same way on their own floored fixtures.
+        let dn_params = |floor: f64| {
+            vec![
+                ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+                ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015),
+                ("NPHISR_MAX", 0.40), ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+                ("VSH_SHALE", 0.95), ("PHIE_FLOOR", floor),
+            ]
+        };
+        let run_dn = |floor: f64| {
+            phi_dn(&ctx_with(
+                1,
+                &[("RHOB", vec![2.75]), ("NPHI", vec![-0.01]), ("VSH", vec![0.0])],
+                &dn_params(floor),
+                &[],
+            ))
+        };
+        assert_eq!(run_dn(0.001)["PHIE"][0], 0.001);
+        assert_eq!(run_dn(0.005)["PHIE"][0], 0.005);
+        assert_eq!(
+            run_dn(0.001)["PHIE_DN"][0].to_bits(),
+            run_dn(0.005)["PHIE_DN"][0].to_bits()
+        );
+        let run_bk = |floor: f64| {
+            run_module(
+                "phi_dnbk",
+                &ctx_with(
+                    1,
+                    &[("RHOB", vec![2.75]), ("NPHI", vec![-0.01]), ("VSH", vec![0.0])],
+                    &dn_params(floor),
+                    &[],
+                ),
+            )
+            .unwrap()
+        };
+        assert_eq!(run_bk(0.001)["PHIE"][0], 0.001);
+        assert_eq!(run_bk(0.005)["PHIE"][0], 0.005);
+        assert_eq!(
+            run_bk(0.001)["PHIE_DNBK"][0].to_bits(),
+            run_bk(0.005)["PHIE_DNBK"][0].to_bits()
         );
     }
 
@@ -9380,7 +9527,7 @@ mod tests {
     fn phi_den_shale_branch_limits_and_missing() {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
         ];
         let phit_sh = 0.15 / 1.65; // (RHO_DSH-RHO_SH)/(RHO_DSH-RHO_W) = (2.65-2.5)/(2.65-1.0)
 
@@ -9680,7 +9827,7 @@ mod tests {
         // answer. Without it the conversion could be correct and still never be applied.
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
         ];
         let logs_native = [("RHOB", vec![2.3f32]), ("VSH", vec![0.2f32])];
         let logs_converted = [("RHOB", vec![rhob[0]]), ("VSH", vec![0.2f32])];
@@ -9809,7 +9956,7 @@ mod tests {
     fn a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin() {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
         ];
         // RHOB 2.75 on a 2.645 matrix, clean: pe = (2.645−2.75)/1.645 ≈ −0.0638.
         let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.75]), ("VSH", vec![0.0])], &params, &[]));
@@ -9821,7 +9968,7 @@ mod tests {
         let dn_params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
             ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 0.40),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
         ];
         let dn = phi_dn(&ctx_with(
             1,
@@ -9842,7 +9989,7 @@ mod tests {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
             ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 0.40),
-            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
         ];
         let phit_sh = 0.15 / 1.65;
 
@@ -10610,7 +10757,7 @@ mod tests {
         let run = |rhob: f32, nphi: f32, extra: &[(&str, f64)]| -> f32 {
             let mut params = vec![
                 ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
-                ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+                ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95), ("PHIE_FLOOR", 0.001),
                 ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015),
                 ("NPHISR_MAX", 0.40),
             ];
