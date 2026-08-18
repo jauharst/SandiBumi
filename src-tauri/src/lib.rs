@@ -2483,6 +2483,24 @@ fn param_sources(topic: String) -> Vec<param_sources::ParamSource> {
     param_sources::sources_for(&topic).to_vec()
 }
 
+/// SB-DBM-025: the cross-module constant registry, inspectable from the UI - a registry
+/// nobody can read is a comment. Serialized as (name, value, unit, consumers, source) rows.
+#[tauri::command]
+fn cross_module_constants() -> Vec<(String, f64, String, String, String)> {
+    param_sources::CROSS_MODULE_CONSTANTS
+        .iter()
+        .map(|constant| {
+            (
+                constant.name.to_string(),
+                constant.value,
+                constant.unit.to_string(),
+                constant.consumers.to_string(),
+                constant.source.to_string(),
+            )
+        })
+        .collect()
+}
+
 #[tauri::command]
 async fn curve_sampling(
     db: tauri::State<'_, DbState>,
@@ -4329,6 +4347,7 @@ pub fn run() {
             ml_determinism_note,
             curve_sampling,
             param_sources,
+            cross_module_constants,
             rename_ml_model,
             delete_ml_model,
             ml_model_citations,

@@ -9216,7 +9216,9 @@ pub fn upsert_curve_meta(
 /// therefore a strict inequality against a bound COMPUTED one decade inside the cited
 /// constant - an equality against one sentinel misses the other entirely, and a hand-typed
 /// decimal could land on the wrong side of a boundary sample.
-pub const GEOLOG_MISS_FLOAT: f32 = -1.0e30;
+// SB-DBM-025: the value is registered in `param_sources::CROSS_MODULE_CONSTANTS` with its
+// citation; this re-export keeps the screen and the registry one object.
+pub const GEOLOG_MISS_FLOAT: f32 = crate::param_sources::GEOLOG_MISS_FLOAT;
 
 /// True when a value is in the undeclared large-negative null family: strictly below one tenth
 /// of `GEOLOG_MISS_FLOAT`. A value exactly ON the bound is DATA. NaN is not screened here - it

@@ -1448,7 +1448,9 @@ const MISSING: f64 = f64::NAN;
 /// stay unclamped, so the negative excursion is still there to be plotted when the question is
 /// whether the matrix density is right. Clamping those too would hide the evidence for the very
 /// judgement the curve exists to support.
-pub(crate) const PHIE_FLOOR: f64 = 0.001;
+// SB-DBM-025: defined ONCE in the cross-module constant registry with its DEC-043 source;
+// this is a re-export, so the registered value and the running value cannot drift.
+pub(crate) const PHIE_FLOOR: f64 = crate::param_sources::PHIE_FLOOR;
 
 /// The ONE two-endpoint porosity identity: how far a log reading has moved from its matrix
 /// endpoint toward its fluid endpoint. `SB-POR-054`.

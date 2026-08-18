@@ -101,6 +101,61 @@ pub const CUTOFF_SWE_MAX: &str = "cutoff_swe_max";
 /// Bateman-Konen clamps the neutron side only, wider).
 pub const SHALE_REDUCTION_CLAMP: &str = "shale_reduction_clamp";
 
+// ---------------------------------------------------------------------------
+// SB-DBM-025 (DEC-026, answered by DEC-043): a constant that crosses a module
+// boundary is REGISTERED with its source, and this registry is the DEFINITION
+// point - every consumer re-exports from here, so the registered value and the
+// value the physics runs on are the same object by construction, not by test.
+// ---------------------------------------------------------------------------
+
+/// The pilot's cross-module PHIE floor. DEC-043 (2026-08-16) ruled 0.001 over
+/// `11_porosity.md` SB-POR-045's ship-absent position - the later direct product record
+/// supersedes the chapter's unresolved one - and DEC-047 fixed the shape as a cited value
+/// with the ruling as its source; the deviation from the chapter's literal MUST is logged
+/// at DEC-047, not buried.
+pub const PHIE_FLOOR: f64 = 0.001;
+
+/// Geolog's `cgg.h` `MISS_FLOAT` null sentinel, the cited magnitude behind
+/// `db::is_large_negative_null`'s computed screen bound (SB-DBM-030 / DEC-022 family).
+pub const GEOLOG_MISS_FLOAT: f32 = -1.0e30;
+
+/// One registered cross-module constant: its value lives in the consts above (re-exported by
+/// every consumer), and this row carries the audit trail - who reads it and on whose word.
+pub struct CrossModuleConstant {
+    pub name: &'static str,
+    pub value: f64,
+    pub unit: &'static str,
+    pub consumers: &'static str,
+    pub source: &'static str,
+}
+
+/// SB-DBM-025: the complete selected-pilot inventory of petrophysical constants that cross a
+/// module boundary. Adding a shared constant means adding a row HERE with its citation -
+/// an uncited entry has no business crossing a boundary.
+pub const CROSS_MODULE_CONSTANTS: &[CrossModuleConstant] = &[
+    CrossModuleConstant {
+        name: "PHIE_FLOOR",
+        value: PHIE_FLOOR,
+        unit: "v/v",
+        consumers: "modules.rs porosity limiting (phi_den/phi_dn/phi_dnbk high-shale kill and PHIE limit); workflow.rs pay paths",
+        source: "DEC-043 (2026-08-16), shape per DEC-047; supersedes 11_porosity.md SB-POR-045's ship-absent position",
+    },
+    CrossModuleConstant {
+        name: "GEOLOG_MISS_FLOAT",
+        value: GEOLOG_MISS_FLOAT as f64,
+        unit: "sentinel",
+        consumers: "db.rs large-negative null screen; ingest/dlis/intake flag channels (SB-DBM-030)",
+        source: "Geolog cgg.h MISS_FLOAT = -1.0e30; conversion ruling DEC-022 (2026-08-17)",
+    },
+    CrossModuleConstant {
+        name: "C_MAD",
+        value: crate::robust::C_MAD,
+        unit: "dimensionless",
+        consumers: "robust.rs scale estimate; condition.rs Hampel despike; distribution statistics",
+        source: crate::robust::C_MAD_SOURCE,
+    },
+];
+
 /// The cut-off engine is not a module-manifest run, so its ancestry attaches these explicit topic
 /// identities after the generic complete-run record is constructed.
 pub const PAY_PARAMETER_TOPICS: &[(&str, &str)] = &[
@@ -1580,5 +1635,42 @@ mod tests {
         let nine = decision_note(CLUSTER_COUNT, 9.0).unwrap();
         assert!(nine.contains("interpreter decision"));
         assert!(!nine.contains("Geolog (none stated)"));
+    }
+
+    /// SB-DBM-025 (DEC-026 via DEC-043): a constant that crosses a module boundary is
+    /// registered with its source, the registry is the DEFINITION its consumers re-export,
+    /// and the inventory is COMPLETE - exactly the pilot's three, each carrying the authority
+    /// it stands on. Pinned from both sides: the values are pinned absolutely (a drifted
+    /// registry cannot hide behind its own re-exports), and the consumer consts are pinned
+    /// bit-equal to the registry (a consumer re-literalled away from it cannot hide either).
+    #[test]
+    fn every_cross_module_constant_is_registered_with_its_source_and_the_registry_is_what_runs() {
+        assert_eq!(CROSS_MODULE_CONSTANTS.len(), 3, "the inventory is complete and exact");
+        let entry = |name: &str| {
+            CROSS_MODULE_CONSTANTS
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap_or_else(|| panic!("{name} must be registered"))
+        };
+        // PHIE_FLOOR: DEC-043's 0.001, and the modules const IS the registry value.
+        let floor = entry("PHIE_FLOOR");
+        assert_eq!(floor.value.to_bits(), 0.001f64.to_bits());
+        assert_eq!(crate::modules::PHIE_FLOOR.to_bits(), floor.value.to_bits());
+        assert!(floor.source.contains("DEC-043"), "the ruling is the source: {}", floor.source);
+        // GEOLOG_MISS_FLOAT: cgg.h's sentinel, one object with the db screen's constant.
+        let miss = entry("GEOLOG_MISS_FLOAT");
+        // the registry row widens the f32 sentinel to f64, so the pin compares the same cast
+        assert_eq!(miss.value.to_bits(), ((-1.0e30f32) as f64).to_bits());
+        assert_eq!(crate::db::GEOLOG_MISS_FLOAT.to_bits(), (-1.0e30f32).to_bits());
+        assert!(miss.source.contains("cgg.h"), "{}", miss.source);
+        // C_MAD: the robust scale constant rides its own long-standing source record.
+        let cmad = entry("C_MAD");
+        assert_eq!(cmad.value.to_bits(), crate::robust::C_MAD.to_bits());
+        assert_eq!(cmad.source, crate::robust::C_MAD_SOURCE);
+        // No entry crosses a boundary uncited or unclaimed.
+        for constant in CROSS_MODULE_CONSTANTS {
+            assert!(!constant.source.trim().is_empty(), "{} is uncited", constant.name);
+            assert!(!constant.consumers.trim().is_empty(), "{} names no consumer", constant.name);
+        }
     }
 }

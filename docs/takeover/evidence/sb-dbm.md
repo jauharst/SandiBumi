@@ -324,16 +324,10 @@
 
 ## SB-DBM-025 - A constant that crosses a module boundary is registered with its source
 
-- **Chapter evidence:** P2; chapter status `ABSENT`; owned tests `SB-DBM-T23`, `SB-DBM-T24`; sections 4.4 and 6.5.
-- **Atomic obligations:** every cross-module petrophysical constant resolves through one source-carrying registry; modules may not duplicate or privately default it.
-- **Current source:** there is no central source-bearing petrophysical constant registry or build-time duplicate guard. The selected pilot inventory found a decisive counterexample: `modules::PHIE_FLOOR = 0.001` crosses density, analytic D-N and downstream pay paths. `CLAUDE.md` requires that value, while immutable `11_porosity.md` SB-POR-045 and §5 require the floor to ship `ABSENT` because one held source attests both `0.001` and `0.0001`.
-- **Qualifying acceptance tests:** none; T23 proves schema vocabulary ownership, not physical-constant value/source custody, and T24's whole limits registry remains absent. A test that registered only the non-conflicting subset would weaken this contract. Test class is `MISSING`.
-- **Supporting tests:** module numerical tests verify individual formulae and the current floor behavior, not cross-module identity/source custody or the required source-precedence decision.
-- **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** live re-verification on `codex/g2-program-plan` confirms `UNIMPLEMENTED`; no qualifying registry exists and the contradictory floor contracts remain live.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** DEC-003 now identifies the pilot methods, but DEC-026 must decide whether the binding 0.001 product rule or SB-POR-045's no-default contract governs. Registering either cited candidate without that decision would manufacture authority; making the value absent now would violate the current binding rule.
-- **Next action:** settle DEC-026, then inventory every selected cross-module value, register only the explicitly authorized cited/default state with unit and source, route every consumer through it and add a two-sided duplicate-declaration/default-absence proof.
+- **Specified contract:** cross-module petrophysical constants carry a registered source; DEC-026's PHIE-floor precedence question was answered by DEC-043 (0.001, the later direct product record superseding the chapter's unresolved position; shape per DEC-047).
+- **Current implementation (2026-08-18):** DONE. `param_sources::CROSS_MODULE_CONSTANTS` is the registry AND the definition point - `modules::PHIE_FLOOR` and `db::GEOLOG_MISS_FLOAT` re-export the registry consts, so the registered and running values are one object by construction. Complete selected-pilot inventory of three: PHIE_FLOOR (DEC-043/DEC-047), GEOLOG_MISS_FLOAT (Geolog cgg.h), C_MAD (robust.rs's own `C_MAD_SOURCE`), each naming its consumers.
+- **Qualifying test:** `param_sources::tests::every_cross_module_constant_is_registered_with_its_source_and_the_registry_is_what_runs` - absolute value pins plus bit-equal consumer pins (each side catches what the other cannot), the exact inventory, named authorities, no uncited row. Three mutations killed: value drifted, source blanked, entry dropped. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-026 - Two samples may not share a depth in one curve, and the resolution is declared
 
