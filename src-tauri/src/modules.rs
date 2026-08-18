@@ -11096,13 +11096,12 @@ mod tests {
     /// by straddling that guard: `n = 2.0` takes the fast path and `n = 2.0 + 2e-9` — physically the
     /// same exponent — takes the general one.
     ///
-    /// **This pins the clause the chapter can close, and deliberately not the whole requirement.**
     /// The chapter also specifies Geolog's guards (seed 0.5, maximum 20 iterations, tolerance
     /// `|delta| < 1e-5`, `sat = MAX(0, sat)` each step); the shipped solver instead uses 60-step
     /// bisection on `[0, 1]` with a clamp. Bisection on a monotone function is unconditionally
-    /// convergent where Newton from a fixed seed is not, so the divergence is arguably an
-    /// improvement — but substituting it is a method decision and is recorded as an open blocker,
-    /// not settled by this test.
+    /// convergent where Newton from a fixed seed is not, and **Jauhar accepted the substitution
+    /// (DEC-065, RULED 2026-08-18)** - the chapter's guard clause is amended by that ruling, so
+    /// this test is SB-SAT-027's qualifying proof rather than a partial one.
     ///
     /// The chapter's other as-built claim is stale and worth recording: it says `modules.rs`
     /// transcribes `CALC_SW` while `multimin2.rs` is *"a second, different solver"*. It is not.
