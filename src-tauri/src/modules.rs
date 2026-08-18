@@ -1806,6 +1806,62 @@ const POROSITY_MODULE_REGISTRATIONS: &[PorosityModuleRegistration] = &[
     },
 ];
 
+/// SB-POR-055 (last value closed by DEC-069): the UNIVERSAL porosity parameter inventory
+/// gate. Every `Param` argument of every registered Porosity module must state its default
+/// honestly: a citation with a shipped default, or exactly [`ABSENT_DEFAULT_SOURCE`] with
+/// NO default - both directions, so an absent parameter can never silently acquire a
+/// number and a shipped number can never claim absence. A registered sources topic must
+/// resolve to at least one position and every position must carry an evidence tier.
+/// Coverage is the CATALOG, not the set somebody remembered.
+fn porosity_parameter_inventory_failures(modules: &[ModuleSpec]) -> Vec<String> {
+    let mut failures = Vec::new();
+    let registered: HashSet<&str> = POROSITY_MODULE_REGISTRATIONS
+        .iter()
+        .map(|registration| registration.module)
+        .collect();
+    for module in modules
+        .iter()
+        .filter(|module| registered.contains(module.name.as_str()))
+    {
+        for argument in module
+            .args
+            .iter()
+            .filter(|argument| argument.kind == ArgKind::Param)
+        {
+            let identity = format!("{}.{}", module.name, argument.name);
+            if argument.default_source.trim().is_empty() {
+                failures.push(format!("{identity} carries no default source (SB-POR-055)"));
+            } else if argument.default_source == ABSENT_DEFAULT_SOURCE {
+                if !argument.default.is_empty() {
+                    failures.push(format!(
+                        "{identity} is declared ABSENT but acquired default '{}' (SB-POR-055)",
+                        argument.default
+                    ));
+                }
+            } else if argument.default.is_empty() {
+                failures.push(format!(
+                    "{identity} cites a default source but ships no default (SB-POR-055)"
+                ));
+            }
+            if !argument.sources_topic.is_empty() {
+                let positions = crate::param_sources::sources_for(&argument.sources_topic);
+                if positions.is_empty() {
+                    failures.push(format!(
+                        "{identity} names unregistered source topic '{}' (SB-POR-055)",
+                        argument.sources_topic
+                    ));
+                } else if positions.iter().any(|position| position.tier.trim().is_empty()) {
+                    failures.push(format!(
+                        "{identity} topic '{}' carries a position with no evidence tier (SB-POR-055)",
+                        argument.sources_topic
+                    ));
+                }
+            }
+        }
+    }
+    failures
+}
+
 /// SB-POR-002 / DEC-038 (2026-08-17) constraint 2, enforced from BOTH sides: a registered
 /// porosity METHOD is refused unless it declares its unlimited/limited pair, while a
 /// registered WORKFLOW is not required to declare one - so the workflow role can never
@@ -1971,6 +2027,9 @@ fn validate_porosity_contracts(modules: &[ModuleSpec]) -> Result<(), String> {
         POROSITY_MODULE_REGISTRATIONS,
         POROSITY_PAIR_PENDING,
     ));
+    // SB-POR-055 (DEC-069): every porosity parameter carries its source and an honest
+    // default state; an ABSENT parameter can never silently acquire a number.
+    failures.extend(porosity_parameter_inventory_failures(modules));
 
     let mut actual_method_policies = HashSet::new();
     for module in modules {
@@ -3388,7 +3447,13 @@ fn phi_den_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::FLUID_DENSITY,
             ),
-            with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
+            with_sources(
+                param(
+                    "RHO_DSH", "Dry shale density", "g/cc", 2.70, 2.0, 3.2,
+                    "Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
+                ),
+                crate::param_sources::DRY_SHALE_DENSITY,
+            ),
             with_sources(
                 param(
                     "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
@@ -3550,7 +3615,13 @@ fn phi_dn_spec() -> ModuleSpec {
                 crate::param_sources::FLUID_DENSITY,
             ),
             with_sources(param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true), crate::param_sources::SHALE_NEUTRON_ENDPOINT),
-            with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
+            with_sources(
+                param(
+                    "RHO_DSH", "Dry shale density", "g/cc", 2.70, 2.0, 3.2,
+                    "Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
+                ),
+                crate::param_sources::DRY_SHALE_DENSITY,
+            ),
             with_sources(
                 param(
                     "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
@@ -3765,7 +3836,13 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 crate::param_sources::FLUID_DENSITY,
             ),
             with_sources(param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true), crate::param_sources::SHALE_NEUTRON_ENDPOINT),
-            with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
+            with_sources(
+                param(
+                    "RHO_DSH", "Dry shale density", "g/cc", 2.70, 2.0, 3.2,
+                    "Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
+                ),
+                crate::param_sources::DRY_SHALE_DENSITY,
+            ),
             with_sources(
                 param(
                     "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
@@ -7271,9 +7348,13 @@ mod tests {
         // C — the whole point of `with_sources`. Registering an attested vendor value must never
         // give a deliberately absent parameter a number to fall back on. Each of these ships
         // ABSENT per section 5, and each now also ships its competing evidence.
+        // DEC-069 (2026-08-18) moved RHO_DSH OUT of this absent set: Jauhar adjudicated a
+        // 2.70 shipping default (clay-mineral bracket kaolinite 2.62 - smectite 2.68;
+        // multi-basin Indonesian experience; 2.65 rejected as matching no held source). The
+        // manifest carries the ruling as its citation; the registry keeps the competing
+        // vendor evidence visible. The SB-POR-055 qualifying test pins the new state.
         for (module, argument) in [
             ("phi_den", "RHO_SH"),
-            ("phi_den", "RHO_DSH"),
             ("phi_dn", "NPHI_SH"),
             ("phi_son", "DT_MA"),
             ("phi_son", "DT_SH"),
@@ -7340,6 +7421,109 @@ mod tests {
             decision.alternatives.iter().all(|position| !position.tier.is_empty()),
             "a position with no tier is an unranked claim, not evidence"
         );
+    }
+
+    /// SB-POR-055 (DEC-069, RULED 2026-08-18): every porosity parameter carries its source
+    /// and an honest default state - a citation with its default, or ABSENT with none - and
+    /// `RHO_DSH` ships Jauhar's adjudicated 2.70 g/cc with the ruling as its citation while
+    /// the registry keeps the competing vendor evidence (IP 2.78, Techlog 2.85, Geolog
+    /// none) visible. The inventory is the CATALOG: the gate enumerates every live Param,
+    /// refuses a missing source, an ABSENT parameter that acquired a default, a cited
+    /// parameter shipping none, and an unregistered topic - each BY NAME - and runs on
+    /// every catalog build, not only in this test.
+    #[test]
+    fn every_porosity_parameter_carries_a_source_or_is_honestly_absent_and_rho_dsh_ships_the_adjudicated_2_70(
+    ) {
+        let modules = module_catalog();
+
+        // A - the live catalog passes, and the sweep is real (not an empty filter).
+        let failures = porosity_parameter_inventory_failures(&modules);
+        assert!(failures.is_empty(), "{failures:?}");
+        let swept = modules
+            .iter()
+            .filter(|module| {
+                POROSITY_MODULE_REGISTRATIONS
+                    .iter()
+                    .any(|registration| registration.module == module.name)
+            })
+            .flat_map(|module| &module.args)
+            .filter(|argument| argument.kind == ArgKind::Param)
+            .count();
+        assert!(swept >= 40, "the inventory must cover the family, swept only {swept}");
+
+        // B - RHO_DSH ships the adjudicated default in every consumer, cited to the ruling,
+        // with the vendor evidence still registered beside it.
+        for module in ["phi_den", "phi_dn", "phi_dnbk"] {
+            let spec = modules
+                .iter()
+                .find(|candidate| candidate.name == module)
+                .unwrap()
+                .args
+                .iter()
+                .find(|argument| argument.name == "RHO_DSH")
+                .unwrap();
+            assert_eq!(spec.default, "2.7", "{module}.RHO_DSH ships DEC-069's 2.70");
+            assert!(
+                spec.default_source.contains("DEC-069"),
+                "{module}.RHO_DSH cites the adjudication: {}",
+                spec.default_source
+            );
+            assert_eq!(spec.sources_topic, crate::param_sources::DRY_SHALE_DENSITY);
+        }
+
+        // C - each rule refuses BY NAME on a mutated catalog copy.
+        let mutate = |edit: &dyn Fn(&mut ArgSpec)| {
+            let mut copy = modules.to_vec();
+            let argument = copy
+                .iter_mut()
+                .find(|module| module.name == "phi_den")
+                .unwrap()
+                .args
+                .iter_mut()
+                .find(|argument| argument.name == "RHO_MA")
+                .unwrap();
+            edit(argument);
+            copy
+        };
+        let no_source = mutate(&|argument| argument.default_source = String::new());
+        assert!(
+            porosity_parameter_inventory_failures(&no_source)
+                .iter()
+                .any(|failure| failure.contains("phi_den.RHO_MA")
+                    && failure.contains("no default source")),
+            "a sourceless parameter is refused by name"
+        );
+        let acquired = mutate(&|argument| {
+            argument.default_source = ABSENT_DEFAULT_SOURCE.into();
+        });
+        assert!(
+            porosity_parameter_inventory_failures(&acquired)
+                .iter()
+                .any(|failure| failure.contains("phi_den.RHO_MA")
+                    && failure.contains("acquired default")),
+            "an ABSENT parameter that acquired a default is refused by name"
+        );
+        let cited_but_empty = mutate(&|argument| argument.default = String::new());
+        assert!(
+            porosity_parameter_inventory_failures(&cited_but_empty)
+                .iter()
+                .any(|failure| failure.contains("phi_den.RHO_MA")
+                    && failure.contains("ships no default")),
+            "a cited parameter shipping no default is refused by name"
+        );
+        let bad_topic = mutate(&|argument| argument.sources_topic = "no_such_topic".into());
+        assert!(
+            porosity_parameter_inventory_failures(&bad_topic)
+                .iter()
+                .any(|failure| failure.contains("phi_den.RHO_MA")
+                    && failure.contains("unregistered source topic")),
+            "an unregistered topic is refused by name"
+        );
+
+        // D - the gate is WIRED into the catalog build, not only callable from this test.
+        let error = validate_porosity_contracts(&acquired)
+            .expect_err("the catalog build must refuse the acquired default");
+        assert!(error.contains("acquired default"), "{error}");
     }
 
     /// SB-POR-002 / DEC-038 (2026-08-17): `ssc` and `sspw` are separately typed WORKFLOWS

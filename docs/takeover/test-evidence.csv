@@ -423,3 +423,4 @@
 "SB-DBM-011","CORRECTNESS","src-tauri/src/db.rs","the_audit_is_structured_collapses_uninterrupted_repeats_and_carries_operator_utc_and_zone_set"
 "SB-DBM-015","CORRECTNESS","src-tauri/src/workflow.rs","the_rerun_manifest_resolves_or_refuses_naming_the_element_and_replays_bit_identically"
 "SB-SAT-027","CORRECTNESS","src-tauri/src/modules.rs","the_n_equals_two_closed_form_agrees_with_the_general_root_finder_on_the_same_inputs"
+"SB-POR-055","CORRECTNESS","src-tauri/src/modules.rs","every_porosity_parameter_carries_a_source_or_is_honestly_absent_and_rho_dsh_ships_the_adjudicated_2_70"
