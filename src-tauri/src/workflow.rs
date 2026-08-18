@@ -2368,8 +2368,9 @@ fn run_workflow_module_into_with_parameter_serializer(
                         "crossover flag not supplied - gas effect not evaluated".to_string()
                     });
                 }
-                let badhole_record =
-                    (!custody_lines.is_empty()).then(|| custody_lines.join("; "));
+                // SB-POR-028: the limits the run actually BOUND, drained from the module's
+                // own capture right after it returns (see below) and appended here.
+                let badhole_record_base = custody_lines;
                 let default_usage = modules::DefaultUsage {
                     parameter_samples: defaulted_parameters,
                     options: defaulted_options.clone(),
@@ -2379,8 +2380,25 @@ fn run_workflow_module_into_with_parameter_serializer(
                     mut degradations,
                     mut precondition_violations,
                     precondition_flag,
+                    bound_limits,
                 ) =
                     modules::run_module_with_degradations(&req.module, &ctx, default_usage)?;
+                // SB-POR-028: the limits this run actually bound join the custody comment; a
+                // module carrying clamp parameters that bound nothing says so, because "no
+                // clamp bit" and "nobody would have told you" must not read the same.
+                let mut custody_lines = badhole_record_base;
+                if !bound_limits.is_empty() {
+                    let detail = bound_limits
+                        .iter()
+                        .map(|(name, count)| format!("{name} bound at {count} samples"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    custody_lines.push(format!("shale-reduction clamps: {detail}"));
+                } else if spec.args.iter().any(|argument| argument.name == "NPHISR_MIN") {
+                    custody_lines.push("shale-reduction clamps bound nothing".to_string());
+                }
+                let badhole_record =
+                    (!custody_lines.is_empty()).then(|| custody_lines.join("; "));
 
                 // A module returning a vector shorter OR longer than its depth frame is still
                 // written by the established zip discipline, but only the common prefix survives.
@@ -7150,6 +7168,80 @@ mod tests {
                 "sample {i}: a provenance record must never move a number"
             );
         }
+    }
+
+    /// SB-POR-028, the record half. `11_porosity.md:946-947`: hitting a clamp raises
+    /// SB-POR-003's flag — which DEC-039 ruled is the per-version comment. A silently clamped
+    /// reading is a model-out-of-range fact erased from the one place an analyst reads.
+    #[test]
+    fn a_bound_shale_reduction_clamp_is_recorded_on_the_runs_version_comment() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 10usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let mut wells = HashMap::new();
+        for (name, low_rhob) in [("BOUND", 3usize), ("UNBOUND", 0usize)] {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
+            // RHOB 1.5 on the first `low_rhob` samples drives rhosr under the 1.95 floor.
+            let rhob: Vec<f32> =
+                (0..n).map(|i| if i < low_rhob { 1.5 } else { 2.35 }).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
+                rhob, nan.clone(), nan,
+            )
+            .unwrap();
+            let well = id.to_string();
+            let curve = db::upsert_curve_meta(
+                &conn, &well, "RAW", "VSH", Some("v/v"), Some("VSH"),
+                Some("SB-POR-028 fixture"), None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, &vec![0.0; n]).unwrap();
+            wells.insert(name, well);
+        }
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "phi_dn".into(),
+            well_ids: ["BOUND", "UNBOUND"].iter().map(|w| wells[*w].clone()).collect(),
+            log_inputs: HashMap::new(),
+            params: HashMap::from([
+                ("RHO_SH".to_string(), 2.5_f64),
+                ("RHO_DSH".to_string(), 2.65_f64),
+                ("NPHI_SH".to_string(), 0.35_f64),
+            ]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
+            results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
+        let conn = dbm.lock().unwrap();
+        let comment = |name: &str| -> String {
+            equations::list_log_sets(&conn, &wells[name])
+                .unwrap()
+                .into_iter()
+                .find(|set| set.module == "phi_dn")
+                .unwrap()
+                .comment
+                .expect("a POR run records its custody")
+        };
+        // A. Three low readings bound the density floor, and the record says which and how often.
+        assert!(
+            comment("BOUND").contains("shale-reduction clamps: RHOSR bound at 3 samples"),
+            "got: {}",
+            comment("BOUND")
+        );
+        // B. A run whose clamps bound NOTHING says so — "no clamp bit" and "nobody would have
+        //    told you" must never read the same.
+        assert!(
+            comment("UNBOUND").contains("shale-reduction clamps bound nothing"),
+            "got: {}",
+            comment("UNBOUND")
+        );
     }
 
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —

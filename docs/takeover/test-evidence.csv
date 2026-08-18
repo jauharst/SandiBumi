@@ -278,7 +278,6 @@
 "SB-PLT-035","CHARACTERIZATION","src-tauri/src/modules.rs","characterizes_the_interactive_clay_overlay_as_a_duplicate_formula_matching_batch_endpoints"
 "SB-POR-014","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
 "SB-POR-017","CHARACTERIZATION","src-tauri/src/modules.rs","phi_son_wyllie_cp_opt_in_only_scales_wyllie"
-"SB-POR-028","CHARACTERIZATION","src-tauri/src/modules.rs","phi_dn_crossplot_shale_reduction_and_branches"
 "SB-POR-045","CHARACTERIZATION","src-tauri/src/modules.rs","a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin"
 "SB-RPH-042","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/coreimage.rs","a_picked_grey_a_crop_and_a_way_back"
 "SB-RPH-043","CHARACTERIZATION","src-tauri/src/coreimage.rs","the_light_warning_and_the_detail_warning_watch_different_settings"
@@ -391,3 +390,5 @@
 "SB-CUT-002","CORRECTNESS","src-tauri/src/workflow.rs","every_thickness_bearing_result_names_its_discretisation_model_and_the_step_it_ran_on"
 "SB-POR-047","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_method_consumes_the_declared_badhole_flag_and_its_run_records_who_looked"
 "SB-POR-026","CORRECTNESS","src-tauri/src/workflow.rs","gas_crossover_provenance_rides_the_porosity_runs_version_comment_and_never_moves_a_number"
+"SB-POR-028","CORRECTNESS","src-tauri/src/modules.rs","the_shale_reduction_clamps_are_cited_mode_aware_parameters_that_actually_move"
+"SB-POR-028","CORRECTNESS","src-tauri/src/workflow.rs","a_bound_shale_reduction_clamp_is_recorded_on_the_runs_version_comment"

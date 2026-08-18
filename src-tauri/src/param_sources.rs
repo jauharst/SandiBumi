@@ -96,6 +96,10 @@ pub const SHALE_RESISTIVITY: &str = "shale_resistivity";
 pub const CUTOFF_VSH_MAX: &str = "cutoff_vsh_max";
 pub const CUTOFF_PHIE_MIN: &str = "cutoff_phie_min";
 pub const CUTOFF_SWE_MAX: &str = "cutoff_swe_max";
+/// SB-POR-028: the shale-reduction clamp bounds — MODE-SPECIFIC per
+/// `docs/PRD_v2/11_porosity.md` §5 lines 1231-1232 (chart mode clamps both axes,
+/// Bateman-Konen clamps the neutron side only, wider).
+pub const SHALE_REDUCTION_CLAMP: &str = "shale_reduction_clamp";
 
 /// The cut-off engine is not a module-manifest run, so its ancestry attaches these explicit topic
 /// identities after the generic complete-run record is constructed.
@@ -309,6 +313,23 @@ const MATRIX_NEUTRON_ENDPOINT_SOURCES: &[ParamSource] = &[
         "none stated",
         "well constant with validation but no numeric default",
         "Geolog vsh_dn.info NPHI_MA validation -0.2:0.5",
+        "T1"
+    ),
+];
+
+const SHALE_REDUCTION_CLAMP_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "[1.950, 3.000] g/cc and [-0.015, 0.40] v/v",
+        "chart-mode shale-reduced clamps, density and neutron",
+        "Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md section 5 line 1231-1232",
+        "T1"
+    ),
+    claim!(
+        "Geolog",
+        "[-0.015, 1.0] v/v, no density clamp",
+        "Bateman-Konen-mode shale-reduced clamp, neutron side only",
+        "Geolog V14 phi_dnbk.lls; docs/PRD_v2/11_porosity.md section 5 line 1231-1232",
         "T1"
     ),
 ];
@@ -714,6 +735,7 @@ pub fn sources_for(topic: &str) -> &'static [ParamSource] {
         CUTOFF_VSH_MAX => CUTOFF_VSH_MAX_SOURCES,
         CUTOFF_PHIE_MIN => CUTOFF_PHIE_MIN_SOURCES,
         CUTOFF_SWE_MAX => CUTOFF_SWE_MAX_SOURCES,
+        SHALE_REDUCTION_CLAMP => SHALE_REDUCTION_CLAMP_SOURCES,
         _ => &[],
     }
 }

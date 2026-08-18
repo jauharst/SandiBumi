@@ -1147,6 +1147,9 @@ struct DegradationCapture {
     default_usage: DefaultUsage,
     defaulted_parameter_samples: HashSet<(String, usize)>,
     defaulted_options: HashSet<String>,
+    /// SB-POR-028: per-run count of samples each named numerical limit BOUND — drained into the
+    /// run's DEC-039 version comment, the same channel `record_defaulted_parameter` rides.
+    bound_limits: BTreeMap<String, usize>,
 }
 
 thread_local! {
@@ -1195,6 +1198,27 @@ impl Drop for DegradationCaptureGuard {
             });
         }
     }
+}
+
+/// SB-POR-028: a numerical limit BOUND at one sample. Counted, never silently clamped away —
+/// the run's version comment states which limits bit and how often.
+pub(crate) fn record_bound_limit(name: &str) {
+    DEGRADATION_CAPTURE.with(|slot| {
+        if let Some(capture) = slot.borrow_mut().as_mut() {
+            *capture.bound_limits.entry(name.to_string()).or_insert(0) += 1;
+        }
+    });
+}
+
+/// SB-POR-028: drain the bound-limit counts for the finished run. Called by the runner right
+/// after the module returns, before the capture guard finishes.
+pub(crate) fn take_bound_limits() -> Vec<(String, usize)> {
+    DEGRADATION_CAPTURE.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .map(|capture| std::mem::take(&mut capture.bound_limits).into_iter().collect())
+            .unwrap_or_default()
+    })
 }
 
 fn record_degradation(kind: RunDegradationKind, detail: impl Into<String>) {
@@ -1262,6 +1286,7 @@ pub(crate) fn run_module_with_degradations(
         Vec<RunDegradation>,
         Vec<PreconditionViolation>,
         Option<Vec<f32>>,
+        Vec<(String, usize)>,
     ),
     String,
 > {
@@ -1333,8 +1358,11 @@ pub(crate) fn run_module_with_degradations(
         }
         Ok((outputs, violations, Some(flag.into_f32())))
     })();
+    // SB-POR-028: drain the bound-limit counts BEFORE the guard finishes - the capture is what
+    // holds them, and the runner folds them into the run's DEC-039 version comment.
+    let bound_limits = take_bound_limits();
     let degradations = capture.finish();
-    output.map(|(outputs, violations, flag)| (outputs, degradations, violations, flag))
+    output.map(|(outputs, violations, flag)| (outputs, degradations, violations, flag, bound_limits))
 }
 
 /// The DECLARED output keys of `module` whose values are class identifiers rather than quantities
@@ -3332,6 +3360,29 @@ fn phi_dn_spec() -> ModuleSpec {
                 crate::param_sources::HIGH_SHALE_BRANCH_THRESHOLD,
                 "Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source",
             ),
+            // SB-POR-028: the shale-reduction clamps are CITED PARAMETERS now, not hidden
+            // literals, and a bound clamp is recorded on the run's version comment. These are
+            // the CHART-mode pair; the Bateman-Konen mode carries its own (phi_dnbk).
+            param_sourced(
+                "RHOSR_MIN", "Shale-reduced density clamp, lower", "g/cc", 1.95, 1.0, 3.0,
+                crate::param_sources::SHALE_REDUCTION_CLAMP,
+                "Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1232",
+            ),
+            param_sourced(
+                "RHOSR_MAX", "Shale-reduced density clamp, upper", "g/cc", 3.0, 2.0, 4.0,
+                crate::param_sources::SHALE_REDUCTION_CLAMP,
+                "Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1232",
+            ),
+            param_sourced(
+                "NPHISR_MIN", "Shale-reduced neutron clamp, lower", "v/v", -0.015, -0.1, 0.0,
+                crate::param_sources::SHALE_REDUCTION_CLAMP,
+                "Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1231",
+            ),
+            param_sourced(
+                "NPHISR_MAX", "Shale-reduced neutron clamp, upper", "v/v", 0.40, 0.1, 1.0,
+                crate::param_sources::SHALE_REDUCTION_CLAMP,
+                "Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1231",
+            ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
@@ -3392,9 +3443,19 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
 
-        // Shale-reduce the input logs (same limits as the Loglan source, in g/cc).
-        let rhosr = limit((r - v * rho_sh) / (1.0 - v), 1.95, 3.0);
-        let nphisr = limit((np - v * nphi_sh) / (1.0 - v), -0.015, 0.40);
+        // Shale-reduce the input logs. SB-POR-028: the clamps are the cited parameters
+        // above, and a clamp that BINDS is recorded on the run's version comment - a silently
+        // clamped reading is exactly the "model went out of range" evidence a reader needs.
+        let rhosr_raw = (r - v * rho_sh) / (1.0 - v);
+        let nphisr_raw = (np - v * nphi_sh) / (1.0 - v);
+        let rhosr = limit(rhosr_raw, ctx.p("RHOSR_MIN", i), ctx.p("RHOSR_MAX", i));
+        let nphisr = limit(nphisr_raw, ctx.p("NPHISR_MIN", i), ctx.p("NPHISR_MAX", i));
+        if rhosr != rhosr_raw {
+            record_bound_limit("RHOSR");
+        }
+        if nphisr != nphisr_raw {
+            record_bound_limit("NPHISR");
+        }
 
         let phid = two_endpoint_fraction(rhosr, rho_ma, rho_fl);
         let phix = if gas_rms {
@@ -3511,6 +3572,19 @@ fn phi_dnbk_spec() -> ModuleSpec {
             ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
+            // SB-POR-028: the Bateman-Konen mode's OWN clamp - neutron side only, wider,
+            // and deliberately no density pair, because this mode has no density clamp and
+            // shipping a disabled one would misstate the method.
+            param_sourced(
+                "NPHISR_MIN", "Shale-reduced neutron clamp, lower", "v/v", -0.015, -0.1, 0.0,
+                crate::param_sources::SHALE_REDUCTION_CLAMP,
+                "Geolog V14 phi_dnbk.lls; docs/PRD_v2/11_porosity.md §5 line 1231",
+            ),
+            param_sourced(
+                "NPHISR_MAX", "Shale-reduced neutron clamp, upper", "v/v", 1.0, 0.5, 1.0,
+                crate::param_sources::SHALE_REDUCTION_CLAMP,
+                "Geolog V14 phi_dnbk.lls; docs/PRD_v2/11_porosity.md §5 line 1231",
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -3565,7 +3639,11 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         // chart mode's tighter pair here would silently truncate the very readings the analytic
         // form exists to solve.
         let rhosr = (r - v * rho_sh) / (1.0 - v);
-        let nphisr = limit((np - v * nphi_sh) / (1.0 - v), -0.015, 1.0);
+        let nphisr_raw = (np - v * nphi_sh) / (1.0 - v);
+        let nphisr = limit(nphisr_raw, ctx.p("NPHISR_MIN", i), ctx.p("NPHISR_MAX", i));
+        if nphisr != nphisr_raw {
+            record_bound_limit("NPHISR");
+        }
 
         // B-5: density porosity in LIMESTONE units - the frame the crossplot is defined in.
         let phid = two_endpoint_fraction(rhosr, BK_RHO_1, rho_fl);
@@ -6398,6 +6476,10 @@ mod tests {
             ("RHO_W", 1.00),
             ("NPHI_SH", 0.40),
             ("PHIE_MAX", 0.30),
+            ("RHOSR_MIN", 1.95),
+            ("RHOSR_MAX", 3.0),
+            ("NPHISR_MIN", -0.015),
+            ("NPHISR_MAX", 0.40),
             ("VSH_SHALE", 0.95),
             ("DT_FL", 189.0),
             ("DT_MA", 70.0),
@@ -8497,6 +8579,7 @@ mod tests {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
             ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("NPHI_SH", 0.35),
+            ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 0.40),
         ];
         let phit_sh = 0.15 / 1.65; // (RHO_DSH-RHO_SH)/(RHO_DSH-RHO_W)
         // `ctx_with` is a bare harness and does NOT materialise manifest defaults, so both arms
@@ -8736,6 +8819,7 @@ mod tests {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
             ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("NPHI_SH", 0.35),
+            ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 0.40),
             ("VSH_SHALE", 0.95),
         ];
         let logs = [
@@ -8825,6 +8909,7 @@ mod tests {
         // Same rock through the density-neutron route, which is the commoner one.
         let dn_params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+            ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 0.40),
             ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
         ];
         let dn = phi_dn(&ctx_with(
@@ -8845,6 +8930,7 @@ mod tests {
     fn phi_dn_crossplot_shale_reduction_and_branches() {
         let params = [
             ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+            ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 0.40),
             ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
         ];
         let phit_sh = 0.15 / 1.65;
@@ -8917,7 +9003,8 @@ mod tests {
         //    units gives phi_D 0.2397661, phi_Na 0.6610955, phi_Da -0.7543860 and phi_x 0.245219.
         //    VSH is zero so PHIE is phi_x itself and the witness is read without a shale model.
         let clean = [("RHOB", vec![2.30f32]), ("NPHI", vec![0.25f32]), ("VSH", vec![0.0f32])];
-        let endpoints = [("RHO_FL", 1.00), ("RHO_SH", 2.50), ("NPHI_SH", 0.35), ("PHIE_MAX", 0.5)];
+        let endpoints = [("RHO_FL", 1.00), ("RHO_SH", 2.50), ("NPHI_SH", 0.35), ("PHIE_MAX", 0.5),
+            ("NPHISR_MIN", -0.015), ("NPHISR_MAX", 1.0)];
         let up = phi_dnbk(&ctx_with(1, &clean, &endpoints, &[]));
         // The expectation is B-6 evaluated on the SOURCE'S OWN intermediates, typed here as the
         // literals the register records, rather than a single magic answer. That pins the code's
@@ -8968,6 +9055,10 @@ mod tests {
         let mut shortcut = endpoints.to_vec();
         shortcut.push(("RHO_MA", 2.645));
         shortcut.push(("VSH_SHALE", 0.95));
+        shortcut.push(("RHOSR_MIN", 1.95));
+        shortcut.push(("RHOSR_MAX", 3.0));
+        shortcut.push(("NPHISR_MIN", -0.015));
+        shortcut.push(("NPHISR_MAX", 0.40));
         let avg = phi_dn(&ctx_with(1, &shaly, &shortcut, &[("OPT_XPLOT", "AVERAGE")]));
         assert!(
             (avg["PHIE_DN"][0] as f64 - 0.2414438).abs() < 1e-6,
@@ -9563,6 +9654,83 @@ mod tests {
         );
     }
 
+    /// SB-POR-028, the parameter half. Source: `11_porosity.md:945-947` — the shale-reduction
+    /// clamps hard-coded at the chapter's `modules.rs:826-827` MUST become cited parameters —
+    /// and §5 lines 1231-1232, which carry BOTH modes' values at T1 (Geolog `phi_dn.lls`
+    /// L292-295 for the chart pair, `phi_dnbk.lls` for the neutron-only Bateman-Konen clamp).
+    /// Pinned just-inside vs just-outside on BOTH axes, and from the other side: the parameter
+    /// must actually MOVE the clamp, or it is a re-spelled literal wearing a manifest entry.
+    #[test]
+    fn the_shale_reduction_clamps_are_cited_mode_aware_parameters_that_actually_move() {
+        let run = |rhob: f32, nphi: f32, extra: &[(&str, f64)]| -> f32 {
+            let mut params = vec![
+                ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+                ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3), ("VSH_SHALE", 0.95),
+                ("RHOSR_MIN", 1.95), ("RHOSR_MAX", 3.0), ("NPHISR_MIN", -0.015),
+                ("NPHISR_MAX", 0.40),
+            ];
+            params.extend_from_slice(extra);
+            // VSH 0 so the shale-reduced pair IS the raw pair and the clamp is the only actor.
+            let out = phi_dn(&ctx_with(
+                1,
+                &[("RHOB", vec![rhob]), ("NPHI", vec![nphi]), ("VSH", vec![0.0])],
+                &params,
+                &[],
+            ));
+            out["PHIE_DN"][0]
+        };
+
+        // A. Density axis, lower bound: a just-outside reading lands EXACTLY on the answer the
+        //    clamp bound itself computes; just inside computes its own. The probe bounds are
+        //    binary-exact (1.9375 = 1+15/16, 3.0) so f32 quantisation of the INPUT cannot smear
+        //    the comparison - the cited 1.95 default itself is pinned by arm D's manifests.
+        let dn = &[("RHOSR_MIN", 1.9375)];
+        assert_eq!(run(1.90, 0.20, dn).to_bits(), run(1.9375, 0.20, dn).to_bits());
+        assert_ne!(run(1.95, 0.20, dn).to_bits(), run(1.9375, 0.20, dn).to_bits());
+        //    Upper bound too — a one-sided pin would pass a clamp that lost its ceiling.
+        assert_eq!(run(3.25, 0.20, &[]).to_bits(), run(3.00, 0.20, &[]).to_bits());
+
+        // B. Neutron axis, both sides, on the binary-exact probe bound 0.375.
+        let np = &[("NPHISR_MAX", 0.375)];
+        assert_eq!(run(2.30, 0.45, np).to_bits(), run(2.30, 0.375, np).to_bits());
+        assert_ne!(run(2.30, 0.25, np).to_bits(), run(2.30, 0.375, np).to_bits());
+
+        // C. The parameter MOVES the clamp: lowering RHOSR_MIN to 1.5 frees the 1.90 reading.
+        assert_ne!(
+            run(1.90, 0.20, &[("RHOSR_MIN", 1.5)]).to_bits(),
+            run(1.90, 0.20, &[]).to_bits(),
+            "a cited parameter must move the clamp, or it is a literal wearing a manifest entry"
+        );
+
+        // D. MODE-AWARE by each spec's own cited default: chart mode caps neutron at 0.40,
+        //    Bateman-Konen at 1.0 — and the Bateman-Konen spec carries NO density clamp at all,
+        //    because shipping a disabled one would misstate the method.
+        let default_of = |module: &str, name: &str| -> String {
+            module_catalog()
+                .iter()
+                .find(|m| m.name == module)
+                .unwrap()
+                .args
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap_or_else(|| panic!("{module} must declare {name}"))
+                .default
+                .clone()
+        };
+        assert_eq!(default_of("phi_dn", "NPHISR_MAX"), "0.4");
+        assert_eq!(default_of("phi_dnbk", "NPHISR_MAX"), "1");
+        assert!(
+            !module_catalog()
+                .iter()
+                .find(|m| m.name == "phi_dnbk")
+                .unwrap()
+                .args
+                .iter()
+                .any(|a| a.name == "RHOSR_MIN"),
+            "the Bateman-Konen mode has no density clamp and must not ship a disabled one"
+        );
+    }
+
     #[test]
     fn sw_arch_zero_porosity_missing_phie_is_all_water_not_inf() {
         // PHIT=0 (coal/tight) with PHIE absent (NaN): the formation factor a/pt^m blows up.
@@ -9879,7 +10047,7 @@ mod tests {
                 ("VSH", vec![1.0f32]),
             ];
             let ctx = ctx_with(1, &logs, &params, &opts);
-            let (out, degradations, _, _) =
+            let (out, degradations, _, _, _) =
                 run_module_with_degradations(module, &ctx, DefaultUsage::default())
                     .unwrap_or_else(|e| panic!("{module} failed to run: {e}"));
 
@@ -9908,7 +10076,7 @@ mod tests {
             &params,
             &[("OPT_RW", "CONSTANT"), ("OPT_SIM", "simandoux_modified_slb")],
         );
-        let (_, degradations, _, _) =
+        let (_, degradations, _, _, _) =
             run_module_with_degradations("sw_sim", &clean, DefaultUsage::default())
                 .expect("clean sand runs");
         assert!(
