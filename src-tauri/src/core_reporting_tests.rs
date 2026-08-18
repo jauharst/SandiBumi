@@ -33,6 +33,7 @@ fn seed_gas_correction_inputs(conn: &Connection) -> String {
 
 fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
     McRequest {
+        discretisation: crate::workflow::DiscretisationModel::Forward,
         well_ids: vec![well_id.to_string()],
         steps: vec![ChainStep {
             module: "gascorr".to_string(),

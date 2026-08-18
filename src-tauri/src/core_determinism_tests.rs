@@ -300,6 +300,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
     let pay = workflow::run_pay_summary(
         &db,
         &workflow::PaySummaryRequest {
+            discretisation: crate::workflow::DiscretisationModel::Forward,
             well_ids: ids.clone(),
             vsh_max: Some(crate::workflow::CutoffEntry { value: 0.55, unit: "v/v".into() }.into()),
             phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),

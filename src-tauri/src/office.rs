@@ -773,6 +773,8 @@ pub fn export_workbook(
         run_pay_summary(
             db_lock,
             &PaySummaryRequest {
+                // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+                discretisation: Default::default(),
                 well_ids: spec.well_ids.clone(),
                 vsh_max: spec.vsh_max.clone(),
                 phie_min: spec.phie_min.clone(),
@@ -1120,6 +1122,8 @@ pub fn build_report_blocks(
     let pay_rows = run_pay_summary(
         db_lock,
         &PaySummaryRequest {
+                // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+                discretisation: Default::default(),
             well_ids: vec![well_id.clone()],
             vsh_max: spec.vsh_max.clone(),
             phie_min: spec.phie_min.clone(),
@@ -1899,6 +1903,8 @@ pub fn export_deck(
     let rows = run_pay_summary(
         db_lock,
         &PaySummaryRequest {
+                // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+                discretisation: Default::default(),
             well_ids: spec.well_ids.clone(),
             vsh_max: spec.vsh_max.clone(),
             phie_min: spec.phie_min.clone(),
@@ -1971,7 +1977,7 @@ mod tests {
     fn row(well: &str, zone: &str, flag: &str, net: f32, phie: f32, n: usize) -> PaySummaryRow {
         PaySummaryRow {
             well_id: format!("id-{well}"),
-            discretisation_model: crate::workflow::DISCRETISATION_MODEL.to_string(),
+            discretisation_model: crate::workflow::DiscretisationModel::default().token().to_string(),
             sample_interval: 0.5,
             well_name: well.into(),
             zone: zone.into(),

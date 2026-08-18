@@ -399,6 +399,8 @@ fn report_pages_with_degradations(
     let pay_result = run_pay_summary(
         db,
         &PaySummaryRequest {
+            // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+            discretisation: Default::default(),
             well_ids: vec![spec.composite.well_id.clone()],
             vsh_max: spec.vsh_max.clone(),
             phie_min: spec.phie_min.clone(),
@@ -583,7 +585,12 @@ fn report_pages_with_degradations(
             crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
             crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
             crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-            crate::workflow::DISCRETISATION_MODEL,
+            pay_result
+                .as_ref()
+                .ok()
+                .and_then(|rows| rows.first())
+                .map(|row| row.discretisation_model.clone())
+                .unwrap_or_else(|| crate::workflow::DiscretisationModel::default().token().to_string()),
             match pay_result.as_ref().ok().and_then(|rows| {
                 let mut steps: Vec<f32> =
                     rows.iter().map(|r| r.sample_interval).filter(|s| s.is_finite()).collect();
@@ -1415,6 +1422,8 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+            // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+            discretisation: Default::default(),
                 well_ids: vec![w.clone()],
                 vsh_max: spec.vsh_max.clone(),
                 phie_min: spec.phie_min.clone(),
@@ -1484,7 +1493,7 @@ mod tests {
         // SB-CUT-019 tightened this: the deliverable names the UNIT beside every cut-off, so a
         // client PDF can never say "PHIE ≥ 0.10" without saying in what.
         let pay_section =
-            "Pay Summary  (VSH \u{2264} 0.50 v/v, PHIE \u{2265} 0.10 v/v, SWE \u{2264} 0.60 v/v, TOPS model, step 0.5000)";
+            "Pay Summary  (VSH \u{2264} 0.50 v/v, PHIE \u{2265} 0.10 v/v, SWE \u{2264} 0.60 v/v, CENTRED model, step 0.5000)";
         let (m, z, p) = (first_with("Methodology"), first_with("Zone Parameters"), first_with(pay_section));
         assert!(0 < m && m < z && z < p, "page order was cover {m} methodology, {z} zones, {p} pay");
 
@@ -1571,6 +1580,8 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+            // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+            discretisation: Default::default(),
                     input_set: None,
                     well_ids: vec![w],
                     vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),

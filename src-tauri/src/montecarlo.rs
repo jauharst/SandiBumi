@@ -178,6 +178,10 @@ fn default_converge_tol() -> f64 {
 #[derive(Debug, Clone, Deserialize)]
 pub struct McRequest {
     pub well_ids: Vec<String>,
+    /// SB-CUT-001 (DEC-071): the thickness discretisation model, shared with the
+    /// deterministic pay summary so an MC net can never disagree with it for this reason.
+    #[serde(default)]
+    pub discretisation: crate::workflow::DiscretisationModel,
     /// The deterministic chain to run each realization (same shape as a workflow chain).
     pub steps: Vec<ChainStep>,
     pub mc_params: Vec<McParam>,
@@ -770,6 +774,7 @@ fn resolve_zone_param(
 /// asserted against THIS function, because it is a statement about one realization and
 /// percentiles do not commute with a product - the P10/P50/P90 bundle cannot carry it.
 pub(crate) fn zone_metrics(
+    model: crate::workflow::DiscretisationModel,
     vsh: &[f32],
     phie: &[f32],
     swe: &[f32],
@@ -794,9 +799,11 @@ pub(crate) fn zone_metrics(
         // third inline copy; three copies of a net-pay clamp is three places for it to drift,
         // and a Monte Carlo P50 disagreeing with the deterministic pay summary for that
         // reason would look like uncertainty rather than a bug. Narrow edit under DEC-048.
+        let (s_top, s_bot) =
+            crate::workflow::sample_slab(depth[i] as f64, step[i] as f64, model);
         let h = crate::workflow::sample_incl_thickness(
-            depth[i] as f64,
-            (depth[i] + step[i]) as f64,
+            s_top,
+            s_bot,
             zone.top_depth as f64,
             zone.bottom_depth as f64,
             None,
@@ -977,6 +984,7 @@ fn spearman(x: &[f64], y: &[f32]) -> f32 {
 /// like `mc_params` (zone scopes respected via `spans`).
 #[allow(clippy::too_many_arguments)]
 fn metrics_for_values(
+    model: crate::workflow::DiscretisationModel,
     plans: &[StepPlan],
     raw_pool: &HashMap<String, Vec<f32>>,
     depth: &[f32],
@@ -999,7 +1007,7 @@ fn metrics_for_values(
     zones
         .iter()
         .map(|z| {
-            let m = zone_metrics(vsh, phie, swe, perm, depth, step_thick, z, cut, has_perm_cut);
+            let m = zone_metrics(model, vsh, phie, swe, perm, depth, step_thick, z, cut, has_perm_cut);
             MetricSet { net: m.net, ntg: m.ntg, avg_phie: m.avg_phie, avg_swe: m.avg_swe, hpv: m.hpv }
         })
         .collect()
@@ -1581,7 +1589,7 @@ pub fn run_monte_carlo(
             let perm = pool.get("PERM").unwrap_or(&nanv);
             let zm = zones
                 .iter()
-                .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
+                .map(|z| zone_metrics(req.discretisation, vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
                 .collect();
             // Physical-plausibility tally: distinct in-zone samples whose porosity or saturation
             // leaves [0,1] on the chain's curves. The unlimited companions (PHIE_DN, SWT_ARCH, …)
@@ -1705,6 +1713,7 @@ pub fn run_monte_carlo(
             if req.tornado && !req.mc_params.is_empty() {
                 let base_vals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
                 let base = metrics_for_values(
+                    req.discretisation,
                     &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
                     &req.mc_params, &spans, &base_vals, n, &step_err,
                 );
@@ -1716,10 +1725,12 @@ pub fn run_monte_carlo(
                     let mut hv = base_vals.clone();
                     hv[pj] = p.dist.quantile(hi_p);
                     low.push(metrics_for_values(
+                    req.discretisation,
                         &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
                         &req.mc_params, &spans, &lv, n, &step_err,
                     ));
                     high.push(metrics_for_values(
+                    req.discretisation,
                         &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
                         &req.mc_params, &spans, &hv, n, &step_err,
                     ));
@@ -1787,7 +1798,7 @@ pub fn run_monte_carlo(
                 top: zone.top_depth,
                 bottom: zone.bottom_depth,
                 gross: zone.bottom_depth - zone.top_depth,
-                discretisation_model: crate::workflow::DISCRETISATION_MODEL.to_string(),
+                discretisation_model: req.discretisation.token().to_string(),
                 sample_interval: crate::workflow::median_sample_interval(&step_thick),
                 iterations: used_iterations,
                 net: summarize(&net, lo_p, hi_p),
@@ -2139,6 +2150,8 @@ mod tests {
     fn base_request(well: &str, mc: Vec<McParam>, iterations: usize, seed: u64) -> McRequest {
         McRequest {
             well_ids: vec![well.into()],
+            // DEC-071: MC fixtures keep their hand-derived FORWARD expectations.
+            discretisation: crate::workflow::DiscretisationModel::Forward,
             steps: vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")],
             mc_params: mc,
             iterations,
@@ -2299,6 +2312,8 @@ mod tests {
         let chain_rows = crate::workflow::run_pay_summary(
             &dbm,
             &crate::workflow::PaySummaryRequest {
+                // DEC-071: compared against the FORWARD MC fixture above.
+                discretisation: crate::workflow::DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well.clone()],
                 vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),

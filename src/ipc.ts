@@ -1596,6 +1596,8 @@ export interface McParam {
 }
 
 export interface McRequest {
+  /** SB-CUT-001 (DEC-071): "CENTRED" (default) or "TOPS" (the legacy forward rule). */
+  discretisation?: "CENTRED" | "TOPS";
   well_ids: string[];
   steps: ChainStep[];
   mc_params: McParam[];
@@ -3066,6 +3068,8 @@ export interface CutoffUse {
 }
 
 export interface PaySummaryRequest {
+  /** SB-CUT-001 (DEC-071): "CENTRED" (default) or "TOPS" (the legacy forward rule). */
+  discretisation?: "CENTRED" | "TOPS";
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
@@ -3188,6 +3192,8 @@ export async function runPaySummary(
 /** Cutoff-sensitivity sweep (Method 1 of the cutoff study): sweep one cutoff over a range,
  *  holding the other two fixed, and report the pay metric per well at each step. */
 export interface CutoffSweepRequest {
+  /** SB-CUT-001 (DEC-071): "CENTRED" (default) or "TOPS" (the legacy forward rule). */
+  discretisation?: "CENTRED" | "TOPS";
   /** Sweep against this log set's stored curves; omit for the current values. */
   input_set?: string;
   well_ids: string[];

@@ -426,3 +426,4 @@
 "SB-POR-045","CORRECTNESS","src-tauri/src/modules.rs","the_phie_floor_is_a_cited_default_the_user_can_move_and_only_the_limited_curve_moves_with_it"
 "SB-POR-048","CORRECTNESS","src-tauri/src/modules.rs","a_coal_sample_is_blanked_while_tight_and_cond_only_annotate_and_the_unflagged_control_computes"
 "SB-SAT-026","CORRECTNESS","src-tauri/src/export.rs","the_sw_method_flag_survives_write_reload_and_las_export_as_the_categorical_it_is"
+"SB-CUT-001","CORRECTNESS","src-tauri/src/workflow.rs","the_discretisation_model_defaults_to_centred_and_forward_reproduces_the_shipped_numbers"

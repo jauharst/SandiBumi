@@ -3313,6 +3313,10 @@ fn run_workflow_module_into_with_parameter_serializer(
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaySummaryRequest {
     pub well_ids: Vec<String>,
+    /// SB-CUT-001 (DEC-071): the thickness discretisation model. Defaults to CENTRED per
+    /// the ruling; FORWARD ("TOPS") stays selectable to reproduce a legacy run's numbers.
+    #[serde(default)]
+    pub discretisation: DiscretisationModel,
     /// SB-CUT-016. VSH <= vsh_max counts as sand. **`None` means UNFILTERED** — the property is
     /// not used to exclude anything, and the result says so. There is deliberately no default:
     /// four shipped vendor sets disagree, two of them from one vendor, and Jauhar's own delivered
@@ -4617,9 +4621,11 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     // SB-CUT-001: ONE discretisation rule, shared. This site used to inline
                     // its own copy of the clamp; a second copy is a second thing to keep in
                     // step, and net pay is where a silent divergence costs most.
+                    let (s_top, s_bot) =
+                        sample_slab(depth[i] as f64, step[i] as f64, req.discretisation);
                     let h = sample_incl_thickness(
-                        depth[i] as f64,
-                        (depth[i] + step[i]) as f64,
+                        s_top,
+                        s_bot,
                         zone.top_depth as f64,
                         zone.bottom_depth as f64,
                         None,
@@ -4690,7 +4696,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     well_name: well_name.clone(),
                     zone: zone.zone_name.clone(),
                     flag: flag_name.to_string(),
-                    discretisation_model: DISCRETISATION_MODEL.to_string(),
+                    discretisation_model: req.discretisation.token().to_string(),
                     sample_interval,
                     top: zone.top_depth,
                     bottom: zone.bottom_depth,
@@ -4951,6 +4957,11 @@ pub struct CutoffSweepRequest {
     #[serde(default)]
     pub input_set: Option<String>,
     pub well_ids: Vec<String>,
+    /// SB-CUT-001 (DEC-071): the discretisation model, shared with the pay summary the
+    /// sweep informs - a sweep read against one model and a summary run under another
+    /// would put the elbow in the wrong place.
+    #[serde(default)]
+    pub discretisation: DiscretisationModel,
     /// Which cutoff to sweep: "VSH" | "PHIE" | "SWE".
     pub property: String,
     /// Fixed values for the two cutoffs NOT being swept (the swept one's field is ignored).
@@ -5025,11 +5036,47 @@ fn aux_intervals(rows: &[db::AuxRow]) -> Vec<(f32, f32)> {
 /// zone `[ztop, zbot)`, further intersected with the (merged, non-overlapping) DST intervals
 /// when present. Mirrors run_pay_summary's zone clamp so a sample straddling the zone/DST
 /// boundary contributes only its in-interval part and net can never exceed gross.
-/// SB-CUT-002: the discretisation model `sample_incl_thickness` IS — the forward-interval,
-/// zone-clipped rule the chapter's T02 hand-traces from Techlog's computeGross and names TOPS.
-/// A summation number without its model is not reproducible: IP ships two different "Net"
-/// definitions under one column heading and labels neither. SB-CUT-001's CENTRED-default ruling
-/// is still Jauhar's; when it lands, the records already say which model each number came from.
+/// SB-CUT-001 (DEC-071, RULED 2026-08-18): the thickness discretisation model is a
+/// PARAMETER of the one shared rule, defaulting to CENTRED per the requirement text - a
+/// sample's slab straddles its depth, representing the rock AROUND the measurement.
+/// FORWARD (the chapter's TOPS rule, Techlog computeGross) stays selectable so a legacy
+/// run's numbers can be reproduced bit-for-bit. Jauhar accepted that the CENTRED default
+/// moves every existing net-pay and NTG number by up to half a sample step at each
+/// pay/zone edge ("3, centred", after the difference was explained in thickness terms).
+/// ONE vocabulary everywhere: the serde wire form IS the record token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DiscretisationModel {
+    #[default]
+    #[serde(rename = "CENTRED")]
+    Centred,
+    #[serde(rename = "TOPS")]
+    Forward,
+}
+
+impl DiscretisationModel {
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Centred => "CENTRED",
+            Self::Forward => DISCRETISATION_MODEL,
+        }
+    }
+}
+
+/// SB-CUT-001: the ONE place a sample's slab is derived from its depth and step - the
+/// model choice can never again be inlined divergently at a call site.
+pub(crate) fn sample_slab(depth: f64, step: f64, model: DiscretisationModel) -> (f64, f64) {
+    match model {
+        DiscretisationModel::Forward => (depth, depth + step),
+        DiscretisationModel::Centred => (depth - step / 2.0, depth + step / 2.0),
+    }
+}
+
+/// SB-CUT-002: the record token of the FORWARD rule - the forward-interval, zone-clipped
+/// rule the chapter's T02 hand-traces from Techlog's computeGross and names TOPS. A
+/// summation number without its model is not reproducible: IP ships two different "Net"
+/// definitions under one column heading and labels neither. Since DEC-071 the model is a
+/// request parameter defaulting to CENTRED; every record carries the token of the model
+/// that actually produced it.
 pub const DISCRETISATION_MODEL: &str = "TOPS";
 
 /// SB-CUT-002: the sample interval a summation was computed on — the median forward step, the
@@ -5213,8 +5260,7 @@ pub fn run_cutoff_sweep(
         let mut incl_h = vec![0.0f64; n];
         let mut n_incl = 0usize;
         for i in 0..n {
-            let s_top = depth[i] as f64;
-            let s_bot = (depth[i] + step[i]) as f64;
+            let (s_top, s_bot) = sample_slab(depth[i] as f64, step[i] as f64, req.discretisation);
             let h = sample_incl_thickness(s_top, s_bot, ztop as f64, zbot as f64, dst.as_deref());
             incl_h[i] = h;
             if h > 0.0 {
@@ -5638,6 +5684,7 @@ mod tests {
         let refusal = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 well_ids: vec![skip_candidate.clone()],
                 vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
                 phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
@@ -6786,6 +6833,7 @@ mod tests {
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec![well.clone()],
             vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -6888,6 +6936,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone()],
                 vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -7005,6 +7054,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![tiled.clone(), overhang.clone(), blank.clone()],
                 vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -7134,6 +7184,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well],
                 vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -7228,6 +7279,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: wells,
                     // Permissive on purpose: every sample must pass, so the only thing that can
@@ -7356,6 +7408,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
@@ -7432,6 +7485,7 @@ mod tests {
             (0..n).map(|i| if i < 5 { lo } else { hi }).collect()
         };
         let m = crate::montecarlo::zone_metrics(
+            DiscretisationModel::Forward, // DEC-071: fixture derived under FORWARD
             &half(0.10, 0.40),
             &half(0.30, 0.10),
             &half(0.20, 0.60),
@@ -8525,6 +8579,147 @@ mod tests {
         assert!(matched[0].error.is_none(), "{:?}", matched[0].error);
     }
 
+    /// SB-CUT-001 (DEC-071, RULED 2026-08-18: "centred"): the thickness discretisation
+    /// model is a request parameter DEFAULTING TO CENTRED - a sample's slab straddles its
+    /// depth - while FORWARD (the chapter's TOPS rule) stays selectable and reproduces the
+    /// shipped numbers. The two models are proven DISTINCT on a data-edge zone, hand-derived
+    /// both ways; every record names the model that produced it; and the Monte Carlo engine
+    /// agrees with the deterministic summary under BOTH models, so an MC P50 can never
+    /// disagree with the pay summary for this reason.
+    #[test]
+    fn the_discretisation_model_defaults_to_centred_and_forward_reproduces_the_shipped_numbers() {
+        // A - the default is CENTRED, on the enum and over the wire: a request that never
+        // mentions the field deserializes to the ruled default, so every pre-ruling caller
+        // gets CENTRED rather than silently keeping the old rule.
+        assert_eq!(DiscretisationModel::default(), DiscretisationModel::Centred);
+        assert_eq!(DiscretisationModel::Centred.token(), "CENTRED");
+        assert_eq!(DiscretisationModel::Forward.token(), "TOPS");
+        let wire: PaySummaryRequest = serde_json::from_value(serde_json::json!({
+            "well_ids": [],
+            "vsh_max": null,
+            "phie_min": null,
+            "swe_max": null,
+            "perm_min": null,
+        }))
+        .expect("a pre-ruling request still deserializes");
+        assert_eq!(wire.discretisation, DiscretisationModel::Centred);
+
+        // B - the ONE slab derivation: centred straddles, forward hangs down.
+        assert_eq!(
+            sample_slab(1000.0, 1.0, DiscretisationModel::Centred),
+            (999.5, 1000.5)
+        );
+        assert_eq!(
+            sample_slab(1000.0, 1.0, DiscretisationModel::Forward),
+            (1000.0, 1001.0)
+        );
+
+        // C - hand-derived, both ways, on a zone straddling the data edge. Samples at
+        // 1000..=1003 m, step 1 m, all-pay curves; zone [999, 1001). FORWARD: only the
+        // 1000 m slab [1000, 1001) overlaps -> net 1.0. CENTRED: the 1000 m slab
+        // [999.5, 1000.5) contributes 1.0 and the 1001 m slab [1000.5, 1001.5) contributes
+        // 0.5 -> net 1.5. Jauhar accepted exactly this kind of movement.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-CENTRED", None, None, None).unwrap();
+        let well = id.to_string();
+        let n = 4usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
+            vec![2.35; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for (curve, value) in [("VSH", 0.10), ("PHIE", 0.30), ("SWE", 0.20)] {
+            equations::write_computed_curve(&conn, &well, &depth, curve, &vec![value; n])
+                .unwrap();
+        }
+        db::upsert_zone_with_datum(
+            &conn, &well, "EDGE", 999.0, 1001.0, crate::schema_vocab::DepthDatum::Md,
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+        let run = |model: DiscretisationModel| -> PaySummaryRow {
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    discretisation: model,
+                    input_set: None,
+                    well_ids: vec![well.clone()],
+                    vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                    phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                    swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                    perm_min: None,
+                    enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
+                    skip_version: false,
+                    stats_only: true,
+                    custody: None,
+                    frame: Default::default(),
+                    weighting: Default::default(),
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .find(|row| row.flag == "PAY")
+            .expect("a PAY row")
+        };
+        let forward = run(DiscretisationModel::Forward);
+        let centred = run(DiscretisationModel::Centred);
+        assert!(
+            (forward.net - 1.0).abs() < 1e-6,
+            "FORWARD reproduces the shipped number 1.0, got {}",
+            forward.net
+        );
+        assert!(
+            (centred.net - 1.5).abs() < 1e-6,
+            "CENTRED counts the straddling halves: expected 1.5, got {}",
+            centred.net
+        );
+        assert_eq!(forward.discretisation_model, "TOPS");
+        assert_eq!(centred.discretisation_model, "CENTRED");
+
+        // D - the DEC-071-noted contract: the Monte Carlo engine's net agrees with the
+        // deterministic pay summary for the same inputs, under BOTH models.
+        let step = vec![1.0f32; n];
+        for (model, expected) in [
+            (DiscretisationModel::Forward, forward.net),
+            (DiscretisationModel::Centred, centred.net),
+        ] {
+            let m = crate::montecarlo::zone_metrics(
+                model,
+                &vec![0.10f32; n],
+                &vec![0.30f32; n],
+                &vec![0.20f32; n],
+                &vec![f32::NAN; n],
+                &depth,
+                &step,
+                &db::ZoneEntry {
+                    zone_name: "EDGE".into(),
+                    top_depth: 999.0,
+                    bottom_depth: 1001.0,
+                    depth_datum: crate::schema_vocab::DepthDatum::Md,
+                },
+                &crate::montecarlo::Cutoffs {
+                    vsh_max: at_most(0.9),
+                    phie_min: at_least(0.05),
+                    swe_max: at_most(0.9),
+                    perm_min: None,
+                },
+                false,
+            );
+            assert!(
+                (m.net - expected).abs() < 1e-6,
+                "Monte Carlo net {} must agree with the pay summary {} under {:?}",
+                m.net,
+                expected,
+                model
+            );
+        }
+    }
+
     /// SB-CUT-002 / SB-CUT-T02b's identity half. Source: `14_cutoffs-summation-mc.md:927-942` —
     /// every record carrying a thickness, a net, a net-to-gross or a thickness-weighted average
     /// MUST carry the discretisation model that produced it and the sample interval it was
@@ -8563,6 +8758,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: wells.iter().map(|(w, _)| w.clone()).collect(),
                 vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
@@ -8700,6 +8896,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well.clone()],
                 vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
@@ -8763,6 +8960,7 @@ mod tests {
         let sweep = run_cutoff_sweep(
             &dbm,
             &CutoffSweepRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well.clone()],
                 property: "VSH".into(),
@@ -8796,6 +8994,7 @@ mod tests {
         // Path 3 — MONTE CARLO's per-realization zone metrics on the same arrays.
         let step = vec![1.0f32; n];
         let m = crate::montecarlo::zone_metrics(
+            DiscretisationModel::Forward, // DEC-071: fixture derived under FORWARD
             &band(0.10, 0.40, 0.80),
             &band(0.30, 0.10, 0.50),
             &band(0.20, 0.60, 0.85),
@@ -8858,6 +9057,7 @@ mod tests {
         let well = seed_partition_well(&conn, "FRAME-1");
         let dbm = Mutex::new(conn);
         let req = |frame: SummationFrame| PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec![well.clone()],
             vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -8952,6 +9152,7 @@ mod tests {
         let vv = |v: Option<f64>| v.map(|x| CutoffSpec::from(CutoffEntry { value: x, unit: "v/v".into() }));
         let req = |vsh: Option<f64>, phie: Option<f64>, swe: Option<f64>, blank: Vec<String>| {
             PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well.clone()],
                 vsh_max: vv(vsh),
@@ -9119,6 +9320,7 @@ mod tests {
         let err = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well],
                 vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -9237,6 +9439,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well],
                 vsh_max: None,
@@ -9291,6 +9494,7 @@ mod tests {
         let flagged = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![impossible],
                 vsh_max: None,
@@ -9424,6 +9628,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well],
                 vsh_max: None,
@@ -9546,6 +9751,7 @@ mod tests {
         // C — a CUT-OFF RECORD. What is persisted with the run has to name the flavour, because
         // that record is read years later by somebody who cannot ask which Sw was meant.
         let request = PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec!["w".into()],
             vsh_max: None,
@@ -9657,6 +9863,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: vsh,
@@ -9759,6 +9966,7 @@ mod tests {
             let rows = run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: vv(0.50),
@@ -9813,6 +10021,7 @@ mod tests {
             let rows = run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: vv(0.05),
@@ -9910,6 +10119,7 @@ mod tests {
             let rows = run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: None,
@@ -10000,6 +10210,7 @@ mod tests {
             let rows = run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: None,
@@ -10167,6 +10378,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![well.clone()],
                     vsh_max: None,
@@ -10546,6 +10758,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    discretisation: DiscretisationModel::Forward,
                     input_set: None,
                     well_ids: vec![no_perm.clone(), low_perm.clone()],
                     vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -10814,6 +11027,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![bare.clone(), good.clone()],
                 vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -11384,6 +11598,7 @@ mod tests {
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -11456,6 +11671,7 @@ mod tests {
 
         // Explicit run: versions the pay flags with the cutoffs recorded in provenance.
         let req = PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -11501,6 +11717,7 @@ mod tests {
         // `skip_version` is retained only so an older caller receives an explicit refusal instead
         // of silently writing ancestry-free curves.
         let req_skip = PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -11581,6 +11798,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let base = PaySummaryRequest {
+            discretisation: DiscretisationModel::Forward,
             input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
@@ -14124,6 +14342,7 @@ mod tests {
         let rows = run_pay_summary(
             &db,
             &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+                discretisation: DiscretisationModel::Forward,
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),
                 custody: Some(test_run_custody()),
