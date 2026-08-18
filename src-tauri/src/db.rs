@@ -4923,6 +4923,88 @@ fn table_specs() -> Vec<TableSpec> {
             well_scoped: true,
             order: "dataset, depth_top, item",
         },
+        // SB-DBM-041 T42 (2026-08-19): the provenance and audit registry is BROWSABLE.
+        // These grids are read-only by construction - inspector writes go through the
+        // explicit per-table commands (rule 6) and none exists for any of them: an audit
+        // or provenance row edited in a grid is a falsified record. `ml_models`
+        // deliberately omits `data` - the joblib blob follows the same never-select rule
+        // as `list_ml_models`.
+        TableSpec {
+            table: "log_sets",
+            columns: vec![
+                "set_id", "well_id", "set_name", "version", "module", "params_json",
+                "inputs_json", "created_at", "frame", "sampling_style",
+                "duplicate_resolution", "outcome_state", "comment",
+            ],
+            well_scoped: true,
+            order: "set_name, version",
+        },
+        TableSpec {
+            table: "audit_entry",
+            // NOT well-scoped: well_id is nullable and project-level gestures carry none,
+            // so a mandatory well filter would hide exactly the entries it exists to show.
+            columns: vec![
+                "entry_id", "entry_seq", "well_id", "ts_utc", "operator", "operator_kind",
+                "view", "source", "comment", "zone_set_version", "zone_set_digest",
+                "repeat_count",
+            ],
+            well_scoped: false,
+            order: "entry_seq",
+        },
+        TableSpec {
+            table: "audit_detail",
+            columns: vec!["entry_id", "seq", "location", "mode", "unit", "name", "value"],
+            well_scoped: false,
+            order: "entry_id, seq",
+        },
+        TableSpec {
+            table: "zone_set_versions",
+            columns: vec!["well_id", "version", "digest", "created_at"],
+            well_scoped: true,
+            order: "version",
+        },
+        TableSpec {
+            table: "run_parameters",
+            columns: vec![
+                "set_id", "position", "name", "value_json", "source", "state", "resolution",
+                "manifest_version",
+            ],
+            well_scoped: false,
+            order: "set_id, position",
+        },
+        TableSpec {
+            table: "run_degradations",
+            columns: vec!["set_id", "position", "module", "kind", "detail", "occurrences"],
+            well_scoped: false,
+            order: "set_id, position",
+        },
+        TableSpec {
+            table: "computed_curves_archive",
+            columns: vec!["set_id", "well_id", "depth", "curve_name", "value"],
+            well_scoped: true,
+            order: "set_id, curve_name, depth",
+        },
+        TableSpec {
+            table: "curve_meta",
+            columns: vec![
+                "curve_id", "well_id", "set_name", "mnemonic", "unit", "family", "source",
+                "run_no", "pinned", "set_version", "final_flag", "neutron_basis",
+                "neutron_basis_source",
+            ],
+            well_scoped: true,
+            order: "set_name, mnemonic, set_version",
+        },
+        TableSpec {
+            table: "ml_models",
+            columns: vec![
+                "model_id", "name", "task", "algorithm", "feature_curves", "target_curve",
+                "params_json", "metrics_json", "trained_on", "n_train", "standardize",
+                "sklearn_version", "note", "created_at", "train_hash", "training_json",
+                "runtime_json",
+            ],
+            well_scoped: false,
+            order: "name",
+        },
     ]
 }
 
@@ -6893,6 +6975,149 @@ mod inspector_tests {
                     spec.table
                 );
             }
+        }
+    }
+
+
+    /// SB-DBM-041 exact T42 (`22_database-model.md` section 6), unblocked by SB-DBM-011's
+    /// audit tables (DEC-020/022/023, landed 2026-08-18): the inspector exposes the
+    /// COMPLETE provenance and audit registry - log sets, structured audit, zone-set
+    /// versions, run parameters and degradations, the curve archive, the curve catalog and
+    /// the model registry - and none of it is editable. The audit rows come through the
+    /// REAL writer (`record_audit_entry`); `ml_models` is pinned to omit the joblib blob,
+    /// and the frontend catalog is pinned read-only with matching well scoping, so the
+    /// grid cannot grow an edit affordance the backend never offered. T41's true-total
+    /// contract is untouched - these pages report `total_rows` through the same path.
+    #[test]
+    fn the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable(
+    ) {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-T42", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // A - the registry is complete, and the blob column is NOT offered.
+        let specs = table_specs();
+        let registry = [
+            "log_sets", "audit_entry", "audit_detail", "zone_set_versions", "run_parameters",
+            "run_degradations", "computed_curves_archive", "curve_meta", "ml_models",
+        ];
+        for table in registry {
+            assert!(
+                specs.iter().any(|spec| spec.table == table),
+                "the inspector must expose provenance table '{table}'"
+            );
+        }
+        let models = specs.iter().find(|spec| spec.table == "ml_models").unwrap();
+        assert!(
+            !models.columns.contains(&"data"),
+            "the joblib blob is never selected - the list_ml_models rule"
+        );
+
+        // B - the audit half browses REAL rows written by the real writer.
+        record_audit_entry(
+            &conn,
+            Some(&w),
+            "jauhar",
+            "HUMAN",
+            "ZONES",
+            "zone_params",
+            Some("T42 fixture"),
+            None,
+            &[AuditDetail {
+                location: "PARAMETER".into(),
+                mode: "INPUT".into(),
+                unit: Some("gAPI".into()),
+                name: "GR_MA".into(),
+                value: Some("25".into()),
+            }],
+        )
+        .unwrap();
+        let entries = get_table_page(&conn, "audit_entry", None, 0, 50).unwrap();
+        assert_eq!(entries.total_rows, 1, "T41 unchanged: the count is the true total");
+        let operator_column =
+            entries.columns.iter().position(|column| column == "operator").unwrap();
+        assert_eq!(entries.rows[0][operator_column].as_deref(), Some("jauhar"));
+        let details = get_table_page(&conn, "audit_detail", None, 0, 50).unwrap();
+        let name_column = details.columns.iter().position(|column| column == "name").unwrap();
+        assert_eq!(details.rows[0][name_column].as_deref(), Some("GR_MA"));
+
+        // C - the run-provenance half: seed one row per table and read it back through the
+        // declared columns (each table's WRITER is pinned by its own suite; this pins the
+        // read path and the declared column lists against the live schema).
+        let set = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO log_sets (set_id, well_id, set_name, version, module) VALUES (?1, ?2, 'INTERP', 1, 'phi_den')",
+            params![set, w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO run_parameters (set_id, position, name, value_json, source) VALUES (?1, 0, 'RHO_SH', '2.5', 'T42 fixture source')",
+            params![set],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO run_degradations (set_id, position, module, kind, detail, occurrences) VALUES (?1, 0, 'phi_den', 'DEFAULTED', 'T42 fixture', 3)",
+            params![set],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value) VALUES (?1, ?2, 1000.0, 'PHIE', 0.21)",
+            params![set, w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO zone_set_versions (well_id, version, digest) VALUES (?1, 1, 'sha:fixture')",
+            params![w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit) VALUES (?1, ?2, 'RAW', 'GR', 'gAPI')",
+            params![Uuid::new_v4().to_string(), w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, params_json, metrics_json, trained_on, n_train, standardize, data) \
+             VALUES (?1, 'PERM_RF', 'regression', 'rf', '[]', '{}', '{}', '[]', 10, 1, ?2)",
+            params![Uuid::new_v4().to_string(), vec![0u8; 4]],
+        )
+        .unwrap();
+        let expect = |table: &str, well: Option<&str>, column: &str, value: &str| {
+            let page = get_table_page(&conn, table, well, 0, 50)
+                .unwrap_or_else(|error| panic!("{table}: {error}"));
+            assert_eq!(page.total_rows, 1, "{table} true total");
+            let position = page.columns.iter().position(|name| name == column).unwrap();
+            assert_eq!(page.rows[0][position].as_deref(), Some(value), "{table}.{column}");
+        };
+        expect("log_sets", Some(&w), "module", "phi_den");
+        expect("run_parameters", None, "source", "T42 fixture source");
+        expect("run_degradations", None, "kind", "DEFAULTED");
+        expect("computed_curves_archive", Some(&w), "curve_name", "PHIE");
+        expect("zone_set_versions", Some(&w), "digest", "sha:fixture");
+        expect("curve_meta", Some(&w), "mnemonic", "GR");
+        expect("ml_models", None, "name", "PERM_RF");
+
+        // D - READ-ONLY, both sides. The backend offers no update command for any of these
+        // (writes are the explicit rule-6 commands, none of which names a registry table),
+        // and the frontend catalog is pinned: every registry entry exists with an EMPTY
+        // editable list and the SAME well scoping the backend enforces.
+        let frontend = include_str!("../../src/ui/dbInspectorPanel.ts");
+        for table in registry {
+            let spec = specs.iter().find(|spec| spec.table == table).unwrap();
+            let entry_start = frontend
+                .find(&format!("key: \"{table}\""))
+                .unwrap_or_else(|| panic!("the inspector UI must offer '{table}'"));
+            // One catalog entry is one source line; taking the line avoids an unbalanced
+            // brace literal, which would derail the cfg-test stripper's brace counting.
+            let entry = frontend[entry_start..].lines().next().expect("the entry is one line");
+            assert!(
+                entry.contains("editable: []"),
+                "'{table}' must be read-only in the grid"
+            );
+            assert!(
+                entry.contains(&format!("wellScoped: {}", spec.well_scoped)),
+                "'{table}' well scoping must match the backend"
+            );
         }
     }
 

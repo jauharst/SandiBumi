@@ -2250,7 +2250,10 @@ mod tests {
         // D - the old ids survive ONLY inside the migration map, each mapping to its own
         // palette, and getTheme actually consults the map.
         let map_start = theme.find("legacy_theme_ids").expect("the migration map exists");
-        let map_end = map_start + theme[map_start..].find("};").expect("the map closes");
+        // Bounded by the next declaration rather than the closing brace: an unbalanced
+        // brace literal here would derail the ancestry scanner's cfg-test stripper.
+        let map_end = map_start
+            + theme[map_start..].find("const storage_key").expect("the map closes");
         let map = &theme[map_start..map_end];
         for (old, new) in [
             ("pertamina", "color-1"),

@@ -431,3 +431,4 @@
 "SB-POR-002","CORRECTNESS","src-tauri/src/modules.rs","the_sonic_pair_is_bare_beside_the_limited_pair_and_a_matrix_slower_than_shale_is_refused_by_name"
 "SB-POR-057","CORRECTNESS","src-tauri/src/workflow.rs","the_quick_look_porosity_never_feeds_the_summed_numbers_and_its_refusal_is_recorded_on_the_row"
 "SB-POR-010","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_curve_re_derives_from_its_stored_manifest_alone_while_the_live_tables_move_underneath"
+"SB-DBM-041","CORRECTNESS","src-tauri/src/db.rs","the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable"

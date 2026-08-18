@@ -503,18 +503,14 @@
 - **Blocker or decision:** none for automated characterization. Source-level UI inventory is not a rendered click-through, so Visual and Manual evidence remain open.
 - **Next action:** retain exact T40 and the cancellation-registration inventory; Jauhar visually and manually verifies the live Processing controls.
 
-## SB-DBM-041 - A count presented as a total is a total; the inspector exposes the provenance tables
+## SB-DBM-041 - True totals, and the inspector exposes the provenance tables
 
-- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DBM-T41`, `SB-DBM-T42`; sections 4.6 and 6.7.
-- **Atomic obligations:** `total_rows` has one meaning across inspector and SQL console or the capped count uses a different field; inspector whitelist includes all provenance/model/audit tables and can trace a curve without leaving it.
-- **Current source:** T41 is integrated: paginated `get_table_page` computes the true count, while `run_readonly_query` exposes `returned_rows` plus `count_is_total = false`. `TABLE_SPECS` still omits `log_sets`, `run_parameters`, `run_degradations`, `computed_curves_archive`, `curve_meta`, `ml_models` and the absent `audit_entry`/`audit_detail` tables required by T42.
-- **Qualifying acceptance tests:** exact T42 cannot be written because its required SB-DBM-011 audit tables do not exist, so the requirement remains test class `MISSING`.
-- **Supporting tests:** `the_inspector_reports_the_true_ten_thousand_row_total_while_the_hundred_row_console_page_names_its_count_as_returned_not_total` proves T41's count-meaning half. `every_inspector_table_returns_the_columns_it_declares` checks only the incomplete whitelist and cannot prove the required trace.
-- **Manual evidence:** `database-tools` 0/2, `processing-history` 0/7 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** `5527c8c` closes T41 on `codex/g2-program-plan`; live schema and whitelist inspection confirms T42 remains unavailable. The accepted baseline remains unchanged until review and merge.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-DBM-011 is blocked on DEC-022's legacy timestamp classification and DEC-023's zone-set scope. T42 explicitly requires its structured `audit_entry`/`audit_detail` tables; placeholder tables or a reduced whitelist would weaken the exact contract.
-- **Next action:** after DEC-022/023 unblock SB-DBM-011, implement its controlled audit tables first; then derive the inspector inventory from the complete provenance/audit registry and write exact T42 without weakening T41.
+- **Specified contract:** a count presented as a total is a total (T41); the inspector exposes the provenance tables (T42).
+- **Current implementation (2026-08-19):** DONE. T41 was already integrated (inspector `total_rows` exact; SQL console `returned_rows` with `count_is_total=false`). T42 landed once SB-DBM-011's audit tables existed: `table_specs()` exposes the complete provenance/audit registry - `log_sets`, `audit_entry`, `audit_detail`, `zone_set_versions`, `run_parameters`, `run_degradations`, `computed_curves_archive`, `curve_meta`, `ml_models` - each with its declared column list, well-scoped where the table carries a well (`audit_entry` deliberately unscoped: nullable well_id, and a mandatory filter would hide project-level gestures). `ml_models` omits the joblib blob. All nine are READ-ONLY by construction (rule 6: no update command names a registry table) and the frontend catalog offers them with empty editable lists and backend-matching scoping.
+- **Qualifying test:** `db::inspector_tests::the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable` - nine-table inventory, blob omission, audit rows through the REAL writer, one seeded row per table read back through declared columns with the true total, frontend read-only/scoping agreement with a per-entry bounded scan. Five mutations killed on distinct assertions. The generic column sweep now also exercises the nine. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-19 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-042 - The format-version gate and the pre-migration backup are contractual, and the backup names the format it can restore
 

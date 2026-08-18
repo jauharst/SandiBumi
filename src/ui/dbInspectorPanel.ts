@@ -43,6 +43,18 @@ const TABLES: TableDef[] = [
   // Tops-style auxiliary datasets (petrography / XRD / perforations) — read-only view;
   // re-import the file to change values.
   { key: "aux_data", label: "Aux Data", wellScoped: true, editable: [] },
+  // SB-DBM-041 T42: the provenance/audit registry, browsable and READ-ONLY - there is no
+  // update command for any of these on the backend, and an audit row edited in a grid
+  // would be a falsified record.
+  { key: "log_sets", label: "Log Sets (runs)", wellScoped: true, editable: [] },
+  { key: "audit_entry", label: "Audit Entries", wellScoped: false, editable: [] },
+  { key: "audit_detail", label: "Audit Details", wellScoped: false, editable: [] },
+  { key: "zone_set_versions", label: "Zone Set Versions", wellScoped: true, editable: [] },
+  { key: "run_parameters", label: "Run Parameters", wellScoped: false, editable: [] },
+  { key: "run_degradations", label: "Run Degradations", wellScoped: false, editable: [] },
+  { key: "computed_curves_archive", label: "Curve Archive", wellScoped: true, editable: [] },
+  { key: "curve_meta", label: "Curve Catalog", wellScoped: true, editable: [] },
+  { key: "ml_models", label: "ML Models", wellScoped: false, editable: [] },
 ];
 
 /** A rendered page together with the exact scope it was fetched under. Threading this into the grid
