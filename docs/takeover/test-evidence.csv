@@ -407,3 +407,6 @@
 "SB-DBM-017","CORRECTNESS","src-tauri/src/db.rs","the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent"
 "SB-DBM-002","CORRECTNESS","src-tauri/src/modules.rs","a_modules_identity_is_the_normalized_digest_of_its_own_source_file_not_the_package_version"
 "SB-DBM-002","CORRECTNESS","src-tauri/src/workflow.rs","a_runs_recorded_module_version_is_the_producing_files_digest"
+"SB-ENV-022","CORRECTNESS","src-tauri/src/modules.rs","the_badhole_reason_names_which_criterion_fired_and_keeps_the_drho_sign_in_every_combination"
+"SB-ENV-022","CORRECTNESS","src-tauri/src/workflow.rs","the_coded_badhole_reason_is_refused_as_a_mask_by_name"
+"SB-ENV-023","CORRECTNESS","src-tauri/src/modules.rs","the_badhole_reason_names_which_criterion_fired_and_keeps_the_drho_sign_in_every_combination"

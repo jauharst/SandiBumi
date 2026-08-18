@@ -1874,6 +1874,17 @@ fn fetch_mask_aligned(
     if mask_name.is_empty() {
         return Ok(None);
     }
+    // SB-ENV-022 (DEC-032 constraint 1): the coded reason curve is refused as a MASK by
+    // name. Rule 11's mask reads any non-zero sample as flagged, and here 0 means NOT
+    // flagged while 6 = neither evaluable would read as a bad-hole flag - the exact
+    // inversion. Mask with the binary BADHOLE channel; this curve is the reason, never
+    // the trigger.
+    if mask_name.eq_ignore_ascii_case("BADHOLE_REASON") {
+        return Err(
+            "BADHOLE_REASON is a coded reason curve, not a flag: 0 means NOT flagged and 6              means neither criterion was evaluable, so masking on it would invert the intent.              Mask with BADHOLE instead."
+                .to_string(),
+        );
+    }
     let (_, columns) = equations::fetch_curve_frame_from_set(
         conn,
         well_id,
@@ -7589,6 +7600,42 @@ mod tests {
         assert!(
             params_json.contains(&expected),
             "the stored ancestry must carry the producing file's digest; wanted {expected} in {params_json}"
+        );
+    }
+
+    /// SB-ENV-022 (DEC-032 constraint 1): the coded reason curve is refused as a MASK by
+    /// name - 0 means NOT flagged and 6 means neither evaluable, so rule 11's any-non-zero
+    /// mask reading would invert the intent exactly.
+    #[test]
+    fn the_coded_badhole_reason_is_refused_as_a_mask_by_name() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-RSN", None, None, None).unwrap();
+        let n = 5usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth, vec![60.0; n], nan.clone(), nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![id.to_string()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".to_string(), 20.0_f64), ("GR_SH".to_string(), 120.0_f64)]),
+            opts: HashMap::from([("MASK".to_string(), "BADHOLE_REASON".to_string())]),
+            output_set: None,
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        let error = results[0].error.clone().expect("the reason curve must be refused as a mask");
+        assert!(
+            error.contains("Mask with BADHOLE instead"),
+            "the refusal names the fix: {error}"
         );
     }
 

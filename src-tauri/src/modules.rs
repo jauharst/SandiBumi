@@ -4278,6 +4278,14 @@ fn badhole_spec() -> ModuleSpec {
                 "Bad-hole flag (1 = bad, 0 = good)",
                 FlagKind::ExclusionMask,
             ),
+            // SB-ENV-022/023 (DEC-032): the CODED companion - a categorical curve, explicitly
+            // not a binary flag, refused as a MASK by name (0 = not flagged, 6 = neither
+            // evaluable would invert under rule 11's any-non-zero mask reading).
+            log_out(
+                "BADHOLE_REASON",
+                "Coded bad-hole reason (0 not flagged, 1 caliper, 2 DRHO+, 3 DRHO-, 4 caliper+DRHO+, 5 caliper+DRHO-, 6 neither evaluable; MISSING where no sample). The reason, never the trigger - mask with BADHOLE.",
+                "",
+            ),
             log_out_flag(
                 "BADHOLE_CALI_EVALUATED",
                 "Caliper criterion availability (1 = evaluated, 0 = unavailable)",
@@ -4331,6 +4339,15 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let mut flag = FlagCurve::missing(ctx.n);
     let mut cali_evaluated = FlagCurve::clear(ctx.n);
     let mut drho_evaluated = FlagCurve::clear(ctx.n);
+    // SB-ENV-022/023 (DEC-032): one coded reason curve, the DRHO sign retained in EVERY
+    // combination - a five-code table with one undifferentiated "both" discards the sign on
+    // exactly the samples where a reader most needs it. Table (stable, versioned with this
+    // comment): 0 = not flagged, 1 = caliper, 2 = DRHO positive, 3 = DRHO negative,
+    // 4 = caliper + DRHO positive, 5 = caliper + DRHO negative, 6 = neither evaluable,
+    // NaN = no sample at all. Causation is never inferred from availability: a code is
+    // written only where the criterion actually FIRED, and the sign is the DRHO reading's
+    // own, carried through rather than re-derived.
+    let mut reason = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
         let dr = drho[i] as f64;
@@ -4344,11 +4361,14 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
         let mut any = false;
         let mut bad = false;
+        let mut drho_fired = false;
+        let mut cali_fired = false;
         if !is_missing(dr) {
             any = true;
             drho_evaluated.set(i, FlagValue::Flagged);
             if dr.abs() > drho_max {
                 bad = true;
+                drho_fired = true;
             }
         }
         if !is_missing(cl) && !is_missing(bit) {
@@ -4356,6 +4376,7 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
             cali_evaluated.set(i, FlagValue::Flagged);
             if (cl - bit).abs() > dcal_max {
                 bad = true;
+                cali_fired = true;
             }
         }
         if any {
@@ -4368,10 +4389,30 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
                 },
             );
         }
+        // DEC-032 code assignment. `6 = neither evaluable` is written where SOME input
+        // exists but no criterion could run; a depth with no sample at all stays NaN -
+        // otherwise it would assert a clean hole where nothing was measured.
+        reason[i] = if any {
+            match (cali_fired, drho_fired) {
+                (false, false) => 0.0,
+                (true, false) => 1.0,
+                (false, true) => {
+                    if dr > 0.0 { 2.0 } else { 3.0 }
+                }
+                (true, true) => {
+                    if dr > 0.0 { 4.0 } else { 5.0 }
+                }
+            }
+        } else if is_missing(dr) && is_missing(cl) && is_missing(bs[i] as f64) {
+            f32::NAN
+        } else {
+            6.0
+        };
     }
 
     Ok(HashMap::from([
         ("BADHOLE".to_string(), flag.into_f32()),
+        ("BADHOLE_REASON".to_string(), reason),
         (
             "BADHOLE_CALI_EVALUATED".to_string(),
             cali_evaluated.into_f32(),
@@ -10906,6 +10947,53 @@ mod tests {
         assert_eq!(s[0], 1.0);
         assert!(s[1].is_nan(), "a sample with no depth is on neither side of the splice");
         assert_eq!(s[2], 2.0);
+    }
+
+    /// SB-ENV-022 + SB-ENV-023 (DEC-032): the coded reason names WHICH criterion fired, and
+    /// the DRHO sign is retained in EVERY combination - the ruling's substance is the two
+    /// combined codes, because one undifferentiated "both" would discard the sign on exactly
+    /// the samples where two criteria fired. Causation is never inferred from availability
+    /// (6 = neither evaluable is not 0 = not flagged), and a depth with no sample at all is
+    /// MISSING, never a code that asserts a clean hole nobody measured.
+    #[test]
+    fn the_badhole_reason_names_which_criterion_fired_and_keeps_the_drho_sign_in_every_combination(
+    ) {
+        let n = 8;
+        let ctx = ctx_with(
+            n,
+            &[
+                // i0 caliper alone; i1 DRHO+ alone; i2 DRHO- alone; i3 both with DRHO+;
+                // i4 both with DRHO-; i5 evaluated clean; i6 CALI present but BS missing and
+                // DRHO missing (neither evaluable); i7 nothing at all.
+                ("DRHO", vec![0.01, 0.30, -0.30, 0.30, -0.30, 0.01, f32::NAN, f32::NAN]),
+                ("CALI", vec![9.0, 6.2, 6.2, 9.0, 9.0, 6.2, 6.2, f32::NAN]),
+                ("BS", vec![6.0, 6.0, 6.0, 6.0, 6.0, 6.0, f32::NAN, f32::NAN]),
+            ],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
+            &[
+                ("__IN_DRHO", "DRHO"),
+                ("__UNIT_DRHO", "g/cc"),
+                ("DRHO_MAX_UNIT", "g/cc"),
+            ],
+        );
+        let out = badhole(&ctx).expect("run");
+        let reason = &out["BADHOLE_REASON"];
+        assert_eq!(reason[0], 1.0, "caliper alone");
+        assert_eq!(reason[1], 2.0, "DRHO positive alone");
+        assert_eq!(reason[2], 3.0, "DRHO negative alone");
+        assert_eq!(reason[3], 4.0, "caliper + DRHO positive - the sign survives the combination");
+        assert_eq!(reason[4], 5.0, "caliper + DRHO negative - the sign survives the combination");
+        assert_eq!(reason[5], 0.0, "evaluated and clean is 0, a POSITIVE statement");
+        assert_eq!(reason[6], 6.0, "input present but neither criterion evaluable is 6, never 0");
+        assert!(reason[7].is_nan(), "no sample at all stays MISSING, got {}", reason[7]);
+        // The reason agrees with the binary flag it explains: flagged where a code fired,
+        // clear where 0, and the flag's own missing where 6/NaN (nothing was evaluated).
+        let flag = &out["BADHOLE"];
+        for i in 0..5 {
+            assert_eq!(flag[i], 1.0, "sample {i}");
+        }
+        assert_eq!(flag[5], 0.0);
+        assert!(flag[6].is_nan() && flag[7].is_nan());
     }
 
     #[test]

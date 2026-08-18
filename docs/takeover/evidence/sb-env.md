@@ -291,29 +291,17 @@
 
 ## SB-ENV-022 - Bad-hole flag carries a reason channel
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T31; sections 4.3, 6.3, 7.1 OI-7 and 8.
-- **Atomic obligations:** identify caliper, density correction, both or neither-evaluable per sample.
-- **Current source:** `badhole` emits the numeric `BADHOLE` mask plus the SB-ENV-021 `BADHOLE_CALI_EVALUATED` and `BADHOLE_DRHO_EVALUATED` availability companions. It still discards whether each evaluated criterion actually fired; availability cannot distinguish caliper-only, DRHO-only or both causes.
-- **Qualifying acceptance tests:** none. Exact T31 has no executable body, and no passing availability/arithmetic test is counted as cause-channel proof. Test class `MISSING`.
-- **Supporting tests:** SB-ENV-021 proves both availability sides and the neither-evaluable MISSING distinction; nominal arithmetic proves the combined mask. Neither can recover the firing criterion from persisted outputs.
-- **Manual evidence:** conditioning 1/58; workflow 0/41; processing-history 0/7; all four SB-ENV-022 blocker-review scenarios remain unchecked.
-- **Git evidence:** current topic branch after SB-ENV-021; exact source/spec audit found no reason output or T31. TypeScript and cargo check are green; the fresh full gate is 1049 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
-- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION`; Visual/Manual/Field review open.
-- **Blocker or decision:** OI-7 requires the same encoded-curve-versus-boolean-group choice as SB-ENV-007, while DEC-031 remains open and SB-ENV-030 defines only binary `1 = true`. DEC-032 records the bad-hole-specific cause/sign state matrix. Inventing numeric reason codes or silently treating two new curves as one singular channel would create an unapproved storage/IPC/export contract.
-- **Next action:** Jauhar settles DEC-031/DEC-032 by approving the typed binary group or every exact categorical wire value; then implement T31 from caliper-only, positive/negative DRHO-only, both, evaluated-good and neither-evaluable sides and prove persistence/export preserves it.
+- **Specified contract:** a companion channel identifying caliper, DRHO, both, evaluated-good and neither-evaluable; DEC-032 (RULED 2026-08-17) fixed one coded `BADHOLE_REASON` curve with the seven-code table and four constraints.
+- **Current implementation (2026-08-18):** DONE. The badhole module emits the exact table (0/1/2/3/4/5/6, MISSING for absence); causation never inferred from availability; refused as a MASK by name in `fetch_mask_aligned` with the fix stated. Categorical, not an SB-ENV-030 binary flag.
+- **Qualifying tests:** the seven-code table pinned on one fixture with the reason cross-checked against the flag it explains, plus the production runner's mask refusal. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-023 - The density correction's sign is preserved and reported
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T31; sections 4.3, 6.3 and 8.
-- **Atomic obligations:** preserve the sign of each density-correction exceedance in the reason output.
-- **Current source:** `badhole` compares `abs(DRHO)` against the supplied threshold and collapses either sign into the same combined BADHOLE bit. The SB-ENV-021 DRHO availability companion is also 1 for either sign and cannot preserve the cause direction.
-- **Qualifying acceptance tests:** none. Exact T31 has no executable equal-magnitude opposite-sign control and no signed reason output to assert. Test class `MISSING`.
-- **Supporting tests:** nominal bad-hole arithmetic and SB-ENV-021 availability prove only magnitude-based alarm and criterion availability; the raw input DRHO curve is not output reason custody and cannot close this contract.
-- **Manual evidence:** conditioning 1/62; workflow 0/41; processing-history 0/7; all four SB-ENV-023 blocker-review scenarios remain unchecked.
-- **Git evidence:** current topic branch after blocker commit SB-ENV-022; exact source/spec audit found no signed reason representation or T31. The blocker-only candidate retains the measured 1049 passed / 0 failed / 37 ignored baseline and is re-gated before commit.
-- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY`; Visual/Manual/Field review open.
-- **Blocker or decision:** SB-ENV-023 is an arm of DEC-032: `-1/0/+1`, a signed raw exceedance and separate positive/negative booleans are different public contracts. OI-7/DEC-031 also require the reason representation family to remain shared with SB-ENV-007. Engineering cannot choose one by implementation convenience.
-- **Next action:** Jauhar settles DEC-032 together with DEC-031; then add exact T31 with equal-magnitude positive and negative DRHO-only samples, both caliper combinations, evaluated-good and neither-evaluable controls, plus persistence/export proof.
+- **Specified contract:** the DRHO cause retains its sign; DEC-032's substance is that it is retained in EVERY combination - codes 4/5 exist because one undifferentiated "both" discards the sign exactly where two criteria fired.
+- **Current implementation (2026-08-18):** DONE, in SB-ENV-022's `BADHOLE_REASON` channel; the sign is the DRHO reading's own, carried through, never re-derived.
+- **Qualifying test:** codes 2 vs 3 pin the solo sign and 4 vs 5 pin the sign surviving the combination, with the collapse and inversion mutations each firing their own assertion. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-024 - Bad-hole thresholds ship ABSENT with cited presets
 
