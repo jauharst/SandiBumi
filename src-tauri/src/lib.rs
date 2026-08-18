@@ -2789,7 +2789,9 @@ fn multimin_library() -> Vec<multimin2::Component> {
 /// catalog so the UI cannot silently rename an equation while the solver persists a different id.
 #[tauri::command]
 fn multimin_sw_models() -> Vec<multimin2::SwModelChoice> {
-    multimin2::sw_model_catalog()
+    // SB-SAT-026: the DIALOG sees only what the solver implements; the full catalog is the
+    // flag registry every saturation module resolves through.
+    multimin2::solver_selectable_models()
 }
 
 /// Derived fluid quantities (Cw, Cmf, Cbw, α, w, CT/CXO auto-uncertainties) for the

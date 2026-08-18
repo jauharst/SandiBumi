@@ -156,6 +156,7 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
             log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", "m", "TVD", false),
             log_out("SWH", "Water saturation from height function", "v/v"),
+            log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("HAFWL", "Height above free-water level", "m"),
         ],
     }
@@ -234,7 +235,16 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         swh_out[i] = sw.clamp(swt_irr.max(0.0), 1.0) as f32;
     }
 
-    HashMap::from([("SWH".to_string(), swh_out), ("HAFWL".to_string(), hafwl_out)])
+    // SB-SAT-026: a finite result names its producer; a missing one claims none.
+    let method_flag = swh_out
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwHeight.flag_code() } else { f32::NAN })
+        .collect();
+    HashMap::from([
+        ("SWH".to_string(), swh_out),
+        ("SW_METHOD".to_string(), method_flag),
+        ("HAFWL".to_string(), hafwl_out),
+    ])
 }
 
 #[cfg(test)]

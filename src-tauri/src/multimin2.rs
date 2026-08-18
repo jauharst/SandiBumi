@@ -130,6 +130,16 @@ pub enum SwModel {
     /// Qv from the solved clay volumes (Qv = Σ v_clay·CEC·ρ / φt) and B from the Juhász B(T,Rw) fit
     /// (`waxman_b`) unless overridden by FluidProps.ws_b.
     WaxmanSmits,
+    /// SB-SAT-026: RtC excess-conductivity (docs/method_lrlc_rtc_imts.md), Jauhar's own method,
+    /// computed by `lrlc::sw_rtc` — NOT a SandiMin solver model. It lives in this registry only so
+    /// its `SW_METHOD` flag code resolves through the one shared vocabulary.
+    SwRtc,
+    /// SB-SAT-026: iterative mineral-textural-scaled Waxman-Smits (docs/method_lrlc_rtc_imts.md),
+    /// computed by `lrlc::sw_imts` — registry identity only, never solver-selectable.
+    SwImts,
+    /// SB-SAT-026: saturation-height function (Leverett-J / Skelt-Harrison, `satheight::sw_height`)
+    /// — registry identity only, never solver-selectable.
+    SwHeight,
 }
 
 impl SwModel {
@@ -144,7 +154,18 @@ impl SwModel {
             SwModel::SimandouxModifiedSlb => "simandoux_modified_slb",
             SwModel::Juhasz => "juhasz",
             SwModel::WaxmanSmits => "waxman_smits",
+            SwModel::SwRtc => "sw_rtc",
+            SwModel::SwImts => "sw_imts",
+            SwModel::SwHeight => "sw_height",
         }
+    }
+
+    /// SB-SAT-026: whether the SandiMin solver implements this model. The registry deliberately
+    /// carries MORE identities than the solver — every saturation method's `SW_METHOD` flag
+    /// resolves through one vocabulary — so the solver must refuse the ones it does not compute
+    /// rather than let a deserialized request reach a post-solve branch that does not exist.
+    pub fn solver_selectable(self) -> bool {
+        !matches!(self, SwModel::SwRtc | SwModel::SwImts | SwModel::SwHeight)
     }
 
     /// Stable numeric encoding used only because computed curve samples are `f32`. These are
@@ -161,6 +182,9 @@ impl SwModel {
             SwModel::Juhasz => 7.0,
             SwModel::WaxmanSmits => 8.0,
             SwModel::ArchieEffective => 9.0,
+            SwModel::SwRtc => 10.0,
+            SwModel::SwImts => 11.0,
+            SwModel::SwHeight => 12.0,
         }
     }
 
@@ -230,7 +254,47 @@ pub fn sw_model_catalog() -> Vec<SwModelChoice> {
             label: "waxman_smits — B·Qv",
             flag_code: SwModel::WaxmanSmits.flag_code(),
         },
+        SwModelChoice {
+            id: SwModel::SwRtc.id(),
+            label: "sw_rtc — RtC excess-conductivity (LRLC)",
+            flag_code: SwModel::SwRtc.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SwImts.id(),
+            label: "sw_imts — iterative mineral-textural-scaled Waxman-Smits (LRLC)",
+            flag_code: SwModel::SwImts.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SwHeight.id(),
+            label: "sw_height — saturation-height function",
+            flag_code: SwModel::SwHeight.flag_code(),
+        },
     ]
+}
+
+/// The models the SandiMin dialog may OFFER — the registry minus the identities other modules own.
+/// The one wording of the SB-SAT-026 refusal, shared by the solver and its test probe so the
+/// message the user reads is the message the proof pins.
+fn solver_refusal(model: SwModel) -> String {
+    format!("'{}' is another module's method identity, not a SandiMin solver model", model.id())
+}
+
+/// Test seam: the refusal `run_multimin` issues for a registry-only identity, without a database.
+#[cfg(test)]
+pub(crate) fn run_multimin_selectability_probe(model: SwModel) -> String {
+    if model.solver_selectable() {
+        return String::new();
+    }
+    solver_refusal(model)
+}
+
+pub fn solver_selectable_models() -> Vec<SwModelChoice> {
+    sw_model_catalog()
+        .into_iter()
+        .filter(|choice| {
+            !matches!(choice.id, "sw_rtc" | "sw_imts" | "sw_height")
+        })
+        .collect()
 }
 
 /// Resolve a stored method-flag sample to the canonical equation identifier. Exact equality is
@@ -1209,6 +1273,11 @@ pub fn run_multimin(
         return fail("select at least two components");
     }
     let model = req.sw_model;
+    // SB-SAT-026: the registry carries identities the solver does not implement; refuse them by
+    // name instead of reaching a post-solve branch that cannot exist.
+    if !model.solver_selectable() {
+        return fail(&solver_refusal(model));
+    }
     let post_solve = model.is_post_solve();
     let tools: Vec<&ToolSpec> = req.tools.iter().filter(|t| !t.curve.trim().is_empty()).collect();
     if tools.is_empty() {
@@ -1719,6 +1788,7 @@ pub fn run_multimin(
                             }
                             swe.clamp(0.0, 1.0)
                         }
+                        SwModel::SwRtc | SwModel::SwImts | SwModel::SwHeight => f64::NAN,
                         SwModel::Juhasz => {
                             // Normalized Waxman-Smits on total porosity: excess conductivity from the
                             // shale point (Cwsh, QVN=Vsh·φ_sh/φt), then free-water/φe (same split as dual

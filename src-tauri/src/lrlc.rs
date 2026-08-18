@@ -136,6 +136,7 @@ pub fn sw_rtc_spec() -> ModuleSpec {
             log_out("SWE_RTC", "SWE from RtC (unlimited)", "v/v"),
             log_out("SWT", "Limited total water saturation", "v/v"),
             log_out("SWE", "Limited effective water saturation", "v/v"),
+            log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("RT_CORR", "Clay/capillary-corrected resistivity", "ohm.m"),
             log_out("CEX_RTC", "Excess conductivity removed", "mho/m"),
         ],
@@ -199,11 +200,17 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
+    // SB-SAT-026: a finite result names its producer; a missing one claims none.
+    let method_flag = swt_o
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwRtc.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
         ("SWT_RTC".to_string(), swt_raw_o),
         ("SWE_RTC".to_string(), swe_raw_o),
         ("SWT".to_string(), swt_o),
         ("SWE".to_string(), swe_o),
+        ("SW_METHOD".to_string(), method_flag),
         ("RT_CORR".to_string(), rtc_o),
         ("CEX_RTC".to_string(), cex_o),
     ])
@@ -305,6 +312,7 @@ pub fn sw_imts_spec() -> ModuleSpec {
             log_out("SWE_IMTS", "SWE from IMTS (unlimited)", "v/v"),
             log_out("SWT", "Limited total water saturation", "v/v"),
             log_out("SWE", "Limited effective water saturation", "v/v"),
+            log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("QVEFF", "Effective Qv (meq/cm3)", "meq/cm3"),
         ],
     }
@@ -406,11 +414,16 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
+    let method_flag = swt_o
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwImts.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
         ("SWT_IMTS".to_string(), swt_raw_o),
         ("SWE_IMTS".to_string(), swe_raw_o),
         ("SWT".to_string(), swt_o),
         ("SWE".to_string(), swe_o),
+        ("SW_METHOD".to_string(), method_flag),
         ("QVEFF".to_string(), qveff_o),
     ])
 }

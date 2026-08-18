@@ -9435,6 +9435,97 @@ mod tests {
         assert!(swept >= 7, "the sweep must cover the live family, saw {swept} pairs");
     }
 
+    /// SB-SAT-026 / SB-SAT-T39's universal clauses, engineering half. Source:
+    /// `12_saturation.md:2364-2368` — no mnemonic equals bare `SW` or `SXO`, and every live
+    /// saturation module declares a method-flag output, in the UNIVERSAL form so a future module
+    /// cannot ship without one. The flag identities live in the ONE shared registry
+    /// (`sw_model_catalog`), which SB-SAT-026 splits from the SandiMin selector: the registry
+    /// carries every method's identity, the dialog offers only what the solver implements, and
+    /// the solver REFUSES a registry-only identity by name rather than reaching a post-solve
+    /// branch that does not exist.
+    #[test]
+    fn no_saturation_module_ships_without_declaring_its_producing_method_and_none_emits_a_bare_sw() {
+        // A. Universal, both clauses, over the live catalog.
+        let mut flagged = 0usize;
+        for spec in list_modules() {
+            for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::LogOut) {
+                assert!(
+                    arg.name != "SW" && arg.name != "SXO",
+                    "{}.{} is a bare saturation mnemonic with an undeclared porosity system",
+                    spec.name,
+                    arg.name
+                );
+            }
+            if spec.category == "Saturation" && retired_module(&spec.name).is_none() {
+                assert!(
+                    spec.args.iter().any(|arg| arg.kind == ArgKind::LogOut && arg.name == "SW_METHOD"),
+                    "{} ships no SW_METHOD flag; its output cannot name its producer",
+                    spec.name
+                );
+                flagged += 1;
+            }
+        }
+        assert!(flagged >= 6, "the sweep must cover the live saturation family, saw {flagged}");
+
+        // B. The three modules this row wired emit their OWN identities, resolvable through the
+        //    shared registry, finite exactly where the saturation is.
+        let rtc = crate::lrlc::sw_rtc(&ctx_with(
+            2,
+            &[
+                ("RT", vec![4.0, f32::NAN]),
+                ("PHIT", vec![0.25, 0.25]),
+                ("CAPBW", vec![f32::NAN, f32::NAN]),
+                ("QV", vec![0.0, 0.0]),
+                ("CBW", vec![0.05, 0.05]),
+                ("PHIT_SSPW", vec![f32::NAN, f32::NAN]),
+                ("CAPBW_SSPW", vec![f32::NAN, f32::NAN]),
+                ("CBW_SSPW", vec![f32::NAN, f32::NAN]),
+            ],
+            &[
+                ("RW", 0.25), ("M", 2.0), ("N", 2.0), ("A_CAP", 0.0), ("B_QV", 0.0),
+                ("C0", 0.0), ("RSF", 1.0), ("CEC", 0.0), ("RHOG", 2.65),
+            ],
+            &[],
+        ));
+        assert_eq!(crate::multimin2::sw_model_id_from_flag(rtc["SW_METHOD"][0]), Some("sw_rtc"));
+        assert!(rtc["SW_METHOD"][1].is_nan(), "a missing result must claim no producer");
+
+        let swh = crate::satheight::sw_height(&ctx_with(
+            1,
+            &[
+                ("DEPTH", vec![1000.0]),
+                ("TVD", vec![f32::NAN]),
+                ("PHIE", vec![0.2]),
+                ("PERM", vec![100.0]),
+            ],
+            &[
+                ("FWL", 1050.0), ("RHO_W", 1.0), ("RHO_HC", 0.8), ("IFT_RES", 26.0),
+                ("SWH_A", 1.0), ("SWH_B", -0.5), ("SWT_IRR", 0.1),
+            ],
+            &[("OPT_SWH", "LEVERETT")],
+        ));
+        assert_eq!(crate::multimin2::sw_model_id_from_flag(swh["SW_METHOD"][0]), Some("sw_height"));
+
+        // C. The registry/selector split. The registry resolves every identity; the dialog list
+        //    excludes the three module-owned ones; and the solver refuses them BY NAME — pinned on
+        //    the id in the message, so the refusal cannot degrade into a generic failure.
+        for id in ["sw_rtc", "sw_imts", "sw_height"] {
+            assert!(
+                crate::multimin2::sw_model_catalog().iter().any(|entry| entry.id == id),
+                "the shared registry must carry {id}"
+            );
+            assert!(
+                !crate::multimin2::solver_selectable_models().iter().any(|entry| entry.id == id),
+                "the SandiMin dialog must not offer {id}"
+            );
+        }
+        let refused = crate::multimin2::run_multimin_selectability_probe(crate::multimin2::SwModel::SwRtc);
+        assert!(
+            refused.contains("sw_rtc") && refused.contains("not a SandiMin solver model"),
+            "the solver must refuse a registry-only identity by name: {refused}"
+        );
+    }
+
     #[test]
     fn sw_arch_zero_porosity_missing_phie_is_all_water_not_inf() {
         // PHIT=0 (coal/tight) with PHIE absent (NaN): the formation factor a/pt^m blows up.
