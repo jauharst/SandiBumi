@@ -10,6 +10,7 @@ import { bumpDataVersion } from "../state";
 import { pushUndo } from "../undo";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
+import { ensureSessionOperator } from "./runCustody";
 
 /** Edit one imported curve's identity — name, unit, family — from the Wells pane.
  *
@@ -165,11 +166,15 @@ export function openCurveMetaDialog(
       return;
     }
     save.disabled = true;
-    const apply = (name: string, u: string | null, f: string | null): Promise<unknown> =>
-      updateCurveMeta(curve.curve_id, name, u, f).then(() => {
+    const apply = async (name: string, u: string | null, f: string | null): Promise<unknown> => {
+      // SB-DBM-011: a rename/attribute edit is audited with the explicit session operator.
+      const op = await ensureSessionOperator("Edit curve identity");
+      if (!op) throw new Error("edit cancelled: no session operator entered");
+      return updateCurveMeta(curve.curve_id, name, u, f, op, "Curve Catalog").then(() => {
         bumpDataVersion(); // log views, plots and module pickers re-resolve by name
         onChanged();
       });
+    };
 
     apply(nextName, unit.value.trim() || null, family.value.trim() || null)
       .then(() => {

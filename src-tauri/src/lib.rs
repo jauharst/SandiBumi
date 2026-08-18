@@ -1549,10 +1549,24 @@ fn update_curve_meta(
     mnemonic: String,
     unit: Option<String>,
     family: Option<String>,
+    operator: String,
+    operator_kind: String,
+    view: Option<String>,
 ) -> Result<db::CurveMetaEdit, String> {
     let conn = db.0.lock().unwrap();
-    db::update_curve_meta_fields(&conn, &curve_id, &mnemonic, unit.as_deref(), family.as_deref())
-        .map_err(|e| e.to_string())
+    // SB-DBM-011: a mnemonic change audits as RENAME; unit/family edits audit as the
+    // dotted-name ATTRIBUTE case.
+    db::update_curve_meta_audited(
+        &conn,
+        &curve_id,
+        &mnemonic,
+        unit.as_deref(),
+        family.as_deref(),
+        &operator,
+        &operator_kind,
+        view.as_deref().unwrap_or("Curve Catalog"),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Phase 6: imports a deviation-survey CSV for one well, computing minimum-curvature
@@ -3019,6 +3033,8 @@ fn list_zone_params(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db
 }
 
 /// Sets (or clears, when both values are null) one per-zone parameter value.
+/// SB-DBM-011: an AUDITED surface - the write and its structured audit entry are one
+/// gesture record, with DEC-020's explicit operator and DEC-023's zone-set identity.
 #[tauri::command]
 fn set_zone_param(
     db: tauri::State<DbState>,
@@ -3027,9 +3043,33 @@ fn set_zone_param(
     param_name: String,
     value_num: Option<f32>,
     value_text: Option<String>,
+    operator: String,
+    operator_kind: String,
+    view: Option<String>,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::set_zone_param(&conn, &well_id, &zone_name, &param_name, value_num, value_text.as_deref()).map_err(|e| e.to_string())
+    db::set_zone_param_audited(
+        &conn,
+        &well_id,
+        &zone_name,
+        &param_name,
+        value_num,
+        value_text.as_deref(),
+        &operator,
+        &operator_kind,
+        view.as_deref().unwrap_or("Zones"),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// SB-DBM-011: the structured audit, newest first, on demand.
+#[tauri::command]
+fn list_audit_entries(
+    db: tauri::State<DbState>,
+    limit: Option<usize>,
+) -> Result<Vec<db::AuditEntryView>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_audit_entries(&conn, limit.unwrap_or(200)).map_err(|e| e.to_string())
 }
 
 /// Every whole-well parameter override in the project, for the per-well parameter grid.
@@ -4319,6 +4359,7 @@ pub fn run() {
             zones_from_tops,
             list_zone_params,
             set_zone_param,
+            list_audit_entries,
             list_well_param_overrides,
             set_well_param_overrides,
             set_zone_param_batch,

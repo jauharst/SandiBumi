@@ -11,6 +11,7 @@ import {
 } from "../ipc";
 import { recordProcess } from "../processLog";
 import { escapeHtml } from "./safeDom";
+import { ensureSessionOperator } from "./runCustody";
 
 /** Zone manager for the selected well: build zones from tops, add/edit/delete zones,
  *  and set per-zone interval parameter overrides (interval-parameter model —
@@ -77,7 +78,9 @@ export async function buildZonesContent(
         del.textContent = "✕";
         del.title = "Remove override";
         del.addEventListener("click", async () => {
-          await setZoneParam(well.well_id, p.zone_name, p.param_name, null, null);
+          const op = await ensureSessionOperator("Remove zone override");
+          if (!op) return;
+          await setZoneParam(well.well_id, p.zone_name, p.param_name, null, null, op, "Zones");
           recordProcess("Zone", `Removed ${p.param_name} override on zone ${p.zone_name}`, well.well_name);
           await refresh();
         });
@@ -179,7 +182,9 @@ export async function buildZonesContent(
     const param = paramIn.value.trim().toUpperCase();
     const value = parseFloat(valueIn.value);
     if (!zone || !param || Number.isNaN(value)) return;
-    await setZoneParam(well.well_id, zone, param, value, null);
+    const op = await ensureSessionOperator("Set zone parameter");
+    if (!op) return;
+    await setZoneParam(well.well_id, zone, param, value, null, op, "Zones");
     recordProcess("Zone", `Set ${param} = ${value} on zone ${zone}`, well.well_name);
     await refresh();
   });

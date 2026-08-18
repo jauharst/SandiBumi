@@ -78,6 +78,21 @@ export function buildRunCustodyControls(): RunCustodyControls {
 /** Requests one run's explicit custody without using browser prompts. The operator identity may be
  * remembered for this app session; the source/reference never is. Closing or cancelling resolves
  * `null`, so a write action cannot continue behind a dismissed dialog. */
+/** SB-DBM-011: the session operator for AUDITED edit surfaces (zone parameters, curve
+ *  identity). Reuses the identity/kind already entered for a run this session; prompts a
+ *  minimal dialog once when none exists yet. Returns null when dismissed - the edit does
+ *  not proceed, because DEC-020 forbids inferring an operator. */
+export function ensureSessionOperator(
+  action: string,
+): Promise<{ identity: string; kind: AncestryActorKind } | null> {
+  const stored = sessionStorage.getItem(SESSION_OPERATOR_KEY)?.trim();
+  const kind = (sessionStorage.getItem(SESSION_ACTOR_KIND_KEY) as AncestryActorKind) || "HUMAN";
+  if (stored) return Promise.resolve({ identity: stored, kind });
+  return requestRunCustody(action).then((custody) =>
+    custody ? { identity: custody.actor.identity, kind: custody.actor.kind } : null,
+  );
+}
+
 export function requestRunCustody(action: string): Promise<RunCustody | null> {
   return new Promise((resolve) => {
     const content = document.createElement("div");

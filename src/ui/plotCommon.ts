@@ -41,6 +41,7 @@ import {
   reducePlotLabel,
 } from "./plotLimits";
 
+import { ensureSessionOperator } from "./runCustody";
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
 
@@ -984,20 +985,34 @@ export async function writePlotParameter(args: {
   ]);
   const before = current.find((entry) =>
     entry.zone_name === args.zone.zoneName && entry.param_name === parameter);
-  const applyNew = () => setZoneParam(
-    args.well.well_id,
-    args.zone.zoneName,
-    parameter,
-    args.value,
-    sourceNote,
-  );
-  const applyOld = () => setZoneParam(
-    args.well.well_id,
-    args.zone.zoneName,
-    parameter,
-    before?.value_num ?? null,
-    before?.value_text ?? null,
-  );
+  // SB-DBM-011: an audited surface. Uninterrupted drags of the same handle collapse into
+  // ONE audit entry backend-side, so this can fire per gesture without flooding the audit.
+  const applyNew = async () => {
+    const op = await ensureSessionOperator("Crossplot parameter pick");
+    if (!op) throw new Error("edit cancelled: no session operator entered");
+    return setZoneParam(
+      args.well.well_id,
+      args.zone.zoneName,
+      parameter,
+      args.value,
+      sourceNote,
+      op,
+      "Crossplot",
+    );
+  };
+  const applyOld = async () => {
+    const op = await ensureSessionOperator("Crossplot parameter undo");
+    if (!op) throw new Error("edit cancelled: no session operator entered");
+    return setZoneParam(
+      args.well.well_id,
+      args.zone.zoneName,
+      parameter,
+      before?.value_num ?? null,
+      before?.value_text ?? null,
+      op,
+      "Crossplot",
+    );
+  };
   await applyNew();
   pushUndo({
     label: `set ${parameter} from ${args.source.plot_type}`,

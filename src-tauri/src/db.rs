@@ -397,6 +397,58 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             comment VARCHAR
         );
 
+        -- SB-DBM-011 (DEC-020/022/023): the STRUCTURED audit - Geolog's taxonomy adopted
+        -- wholesale (T2 AuditTrail). This sits BESIDE log_sets ("how was this curve made")
+        -- and beside the legacy processLog text history, which stays visible and is not
+        -- relabelled: the audit answers "what did someone do to this project" as queryable
+        -- rows. The chapter's `user` field is stored as operator + operator_kind because
+        -- DEC-020 requires the explicit HUMAN/AUTOMATED classification (never inferred from
+        -- the Windows account). entry_seq makes "uninterrupted" decidable by ORDER, not by
+        -- an invented elapsed-time window - AUDIT_ENTRY_COLLAPSE_WINDOW ships ABSENT by
+        -- design because Geolog's rule is uninterruptedness, not time.
+        CREATE SEQUENCE IF NOT EXISTS audit_entry_counter;
+        CREATE TABLE IF NOT EXISTS audit_entry (
+            entry_id      UUID PRIMARY KEY,
+            entry_seq     BIGINT NOT NULL DEFAULT nextval('audit_entry_counter'),
+            well_id       UUID,
+            ts_utc        TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+            operator      VARCHAR NOT NULL,
+            operator_kind VARCHAR NOT NULL CHECK (operator_kind IN ('HUMAN', 'AUTOMATED')),
+            view          VARCHAR NOT NULL,
+            source        VARCHAR NOT NULL,
+            comment       VARCHAR,
+            -- DEC-023's narrow seam: rename or move a top and the same run means something
+            -- different, so a zone-scoped entry names the zone-set identity it saw.
+            zone_set_version INTEGER,
+            zone_set_digest  VARCHAR,
+            -- Geolog collapses uninterrupted repeats into ONE entry; the count keeps the
+            -- collapse honest about how many gestures it absorbed.
+            repeat_count  INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS audit_detail (
+            entry_id UUID NOT NULL,
+            seq      INTEGER NOT NULL,
+            location VARCHAR NOT NULL CHECK (
+                location IN ('PARAMETER', 'COMMENT', 'SET', 'CONSTANT', 'INTERVAL', 'LOG', 'ATTRIBUTE')
+            ),
+            mode     VARCHAR NOT NULL CHECK (
+                mode IN ('INPUT', 'OUTPUT', 'DELETE', 'RENAME', 'SAVE', 'SAVE_AS', 'SAVE_CANCEL')
+            ),
+            unit     VARCHAR,
+            name     VARCHAR NOT NULL,
+            value    VARCHAR,
+            PRIMARY KEY (entry_id, seq)
+        );
+        -- DEC-023: the zone-set identity/version seam. A digest of the well's zones in
+        -- depth order; a new version row appears only when the zones actually change.
+        CREATE TABLE IF NOT EXISTS zone_set_versions (
+            well_id    UUID NOT NULL,
+            version    INTEGER NOT NULL,
+            digest     VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+            PRIMARY KEY (well_id, version)
+        );
+
         -- Structured reasons a durable run is DEGRADED. Multiple workflow steps may append to one
         -- set_id, so position is monotone per run rather than keyed by a message someone might edit.
         CREATE TABLE IF NOT EXISTS run_degradations (
@@ -5912,6 +5964,180 @@ mod inspector_tests {
         assert!(set_curve_neutron_basis(&conn, &absent, "SANDSTONE", "user").is_err());
     }
 
+    /// SB-DBM-011 / exact SB-DBM-T11 (DEC-020, DEC-022, DEC-023): the audit is STRUCTURED
+    /// rows with the controlled vocabulary, uninterrupted repeats of the same type collapse
+    /// into ONE entry (an interruption breaks the chain - both sides pinned), the timestamp
+    /// column's own default is UTC, the operator is explicit and refused when absent, and a
+    /// zone-scoped entry names the zone-set identity, whose version moves when a zone moves.
+    #[test]
+    fn the_audit_is_structured_collapses_uninterrupted_repeats_and_carries_operator_utc_and_zone_set(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-AUD", None, None, None).unwrap();
+        let well = id.to_string();
+        upsert_md_zone(&conn, &well, "MIOCENE_A", 1000.0, 1100.0).unwrap();
+        upsert_md_zone(&conn, &well, "MIOCENE_B", 1100.0, 1200.0).unwrap();
+        let entries = |conn: &Connection| -> i64 {
+            conn.query_row("SELECT count(*) FROM audit_entry", [], |r| r.get(0)).unwrap()
+        };
+
+        // (i) three zone-parameter changes: one entry each, PARAMETER/INPUT rows with unit,
+        // name and value, the zone riding as an INTERVAL row, the zone set at version 1.
+        for (param, value) in [("GR_MA", 20.0_f32), ("GR_SH", 120.0), ("RHO_MA", 2.65)] {
+            set_zone_param_audited(
+                &conn, &well, "MIOCENE_A", param, Some(value), None, "Jauhar-QC", "HUMAN",
+                "Zones",
+            )
+            .unwrap();
+        }
+        assert_eq!(entries(&conn), 3, "three distinct changes are three entries");
+        let listed = list_audit_entries(&conn, 10).unwrap();
+        let newest = &listed[0];
+        assert_eq!(newest.operator, "Jauhar-QC");
+        assert_eq!(newest.operator_kind, "HUMAN");
+        assert_eq!(newest.zone_set_version, Some(1), "zone-scoped entries carry the zone set");
+        assert!(newest.zone_set_digest.is_some());
+        assert_eq!(newest.details.len(), 2);
+        assert_eq!(
+            (newest.details[0].location.as_str(), newest.details[0].mode.as_str()),
+            ("INTERVAL", "INPUT")
+        );
+        assert_eq!(newest.details[0].name, "MIOCENE_A");
+        let parameter = &newest.details[1];
+        assert_eq!((parameter.location.as_str(), parameter.mode.as_str()), ("PARAMETER", "INPUT"));
+        assert_eq!(parameter.name, "RHO_MA");
+        assert_eq!(parameter.unit.as_deref(), Some("g/cc"), "the manifest unit rides the row");
+        assert_eq!(parameter.value.as_deref(), Some("2.65"));
+        let gr_ma_entry = &listed[2];
+        assert_eq!(gr_ma_entry.details[1].unit.as_deref(), Some("gAPI"));
+
+        // (iii) forty uninterrupted drags of the same handle: ONE entry, not forty - with
+        // the count honest and the value the LAST gesture's.
+        for step in 0..40 {
+            set_zone_param_audited(
+                &conn, &well, "MIOCENE_A", "GR_MA", Some(20.0 + step as f32), None,
+                "Jauhar-QC", "HUMAN", "Crossplot",
+            )
+            .unwrap();
+        }
+        assert_eq!(entries(&conn), 4, "forty uninterrupted repeats collapse to ONE entry");
+        let collapsed = &list_audit_entries(&conn, 1).unwrap()[0];
+        assert_eq!(collapsed.repeat_count, 40);
+        assert_eq!(collapsed.details[1].value.as_deref(), Some("59"));
+
+        // The other side: an INTERRUPTION breaks the chain, so the same action again is a
+        // NEW entry rather than a late collapse into the old one.
+        set_zone_param_audited(
+            &conn, &well, "MIOCENE_B", "GR_MA", Some(30.0), None, "Jauhar-QC", "HUMAN",
+            "Crossplot",
+        )
+        .unwrap();
+        set_zone_param_audited(
+            &conn, &well, "MIOCENE_A", "GR_MA", Some(25.0), None, "Jauhar-QC", "HUMAN",
+            "Crossplot",
+        )
+        .unwrap();
+        assert_eq!(entries(&conn), 6, "an interrupted repeat is a new entry, never a merge");
+
+        // (ii) a curve rename is mode RENAME on the LOG, and a unit change is the
+        // dotted-name ATTRIBUTE case.
+        let curve_id =
+            upsert_curve_meta(&conn, &well, "RAW", "GRX", Some("gAPI"), Some("GR"), None, None)
+                .unwrap();
+        update_curve_meta_audited(
+            &conn, &curve_id, "GRY", Some("api"), Some("GR"), "Jauhar-QC", "HUMAN",
+            "Curve Catalog",
+        )
+        .unwrap();
+        let renamed = &list_audit_entries(&conn, 1).unwrap()[0];
+        let rename_row = renamed
+            .details
+            .iter()
+            .find(|detail| detail.mode == "RENAME")
+            .expect("a mnemonic change audits as RENAME");
+        assert_eq!(rename_row.location, "LOG");
+        assert_eq!(rename_row.name, "GRX");
+        assert_eq!(rename_row.value.as_deref(), Some("GRY"));
+        let attribute_row = renamed
+            .details
+            .iter()
+            .find(|detail| detail.location == "ATTRIBUTE")
+            .expect("a unit change audits as the dotted-name ATTRIBUTE case");
+        assert!(attribute_row.name.contains('.'), "{}", attribute_row.name);
+
+        // (iv) UTC by the column's own default - structural, not a wall-clock race.
+        let default_expr: String = conn
+            .query_row(
+                "SELECT column_default FROM duckdb_columns()
+                 WHERE table_name = 'audit_entry' AND column_name = 'ts_utc'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(default_expr.to_uppercase().contains("UTC"), "{default_expr}");
+
+        // DEC-023: moving a zone changes the zone-set identity, and the next zone-scoped
+        // entry says so with a bumped version and a different digest.
+        let digest_before = collapsed.zone_set_digest.clone().unwrap();
+        upsert_md_zone(&conn, &well, "MIOCENE_B", 1105.0, 1200.0).unwrap();
+        set_zone_param_audited(
+            &conn, &well, "MIOCENE_A", "GR_SH", Some(110.0), None, "Jauhar-QC", "HUMAN",
+            "Zones",
+        )
+        .unwrap();
+        let moved = &list_audit_entries(&conn, 1).unwrap()[0];
+        assert_eq!(moved.zone_set_version, Some(2), "a moved top is a NEW zone-set version");
+        assert_ne!(moved.zone_set_digest.as_deref(), Some(digest_before.as_str()));
+
+        // DEC-020: the operator is explicit or the audit refuses - never inferred - and the
+        // controlled vocabularies refuse by name.
+        let refusal = record_audit_entry(
+            &conn, Some(&well), "  ", "HUMAN", "Zones", "test", None, None,
+            &[AuditDetail {
+                location: "PARAMETER".into(),
+                mode: "INPUT".into(),
+                unit: None,
+                name: "GR_MA".into(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(refusal.to_string().contains("DEC-020"), "{refusal}");
+        let refusal = record_audit_entry(
+            &conn, Some(&well), "Jauhar-QC", "HUMAN", "Zones", "test", None, None,
+            &[AuditDetail {
+                location: "GESTURE".into(),
+                mode: "INPUT".into(),
+                unit: None,
+                name: "GR_MA".into(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            refusal.to_string().contains("GESTURE")
+                && refusal.to_string().contains("PARAMETER"),
+            "the refusal names the offending value and the permitted set: {refusal}"
+        );
+        let refusal = record_audit_entry(
+            &conn, Some(&well), "Jauhar-QC", "HUMAN", "Zones", "test", None, None,
+            &[AuditDetail {
+                location: "ATTRIBUTE".into(),
+                mode: "INPUT".into(),
+                unit: None,
+                name: "GRX".into(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            refusal.to_string().contains("dotted"),
+            "ATTRIBUTE without a dotted name breaks the chapter's rule: {refusal}"
+        );
+    }
+
     /// SB-CLY-001 (DEC-036): a pre-existing project's four-member kind CHECK is rebuilt to
     /// accept ENDPOINT_INVALID with every stored row copied verbatim - and the migration is
     /// idempotent, so a project already carrying the member is left alone.
@@ -9718,6 +9944,427 @@ pub fn get_well_path(conn: &Connection, well_id: &str) -> DbResult<Vec<WellPathS
         out.push(r?);
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// SB-DBM-011 - the structured audit writer (DEC-020 operator, DEC-022 UTC,
+// DEC-023 zone-set seam). ONE backend-owned atomic writer: entry + details in
+// one transaction, with Geolog's uninterrupted-collapse rule applied here so
+// no caller can produce forty entries for one crossplot drag.
+// ---------------------------------------------------------------------------
+
+pub const AUDIT_LOCATIONS: [&str; 7] =
+    ["PARAMETER", "COMMENT", "SET", "CONSTANT", "INTERVAL", "LOG", "ATTRIBUTE"];
+pub const AUDIT_MODES: [&str; 7] =
+    ["INPUT", "OUTPUT", "DELETE", "RENAME", "SAVE", "SAVE_AS", "SAVE_CANCEL"];
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AuditDetail {
+    pub location: String,
+    pub mode: String,
+    pub unit: Option<String>,
+    pub name: String,
+    pub value: Option<String>,
+}
+
+/// DEC-023's seam: the current zone-set identity and version for one well. The digest is a
+/// stable SHA-256 over the zones in depth order (name, top, bottom); a version row is
+/// appended only when the digest changes, so the version is monotone and an audit entry can
+/// name exactly which zone configuration it saw. SB-DBM-008, when scheduled, inherits this
+/// rather than designing freely - the accepted cost of the narrow route.
+pub fn current_zone_set(conn: &Connection, well_id: &str) -> DbResult<(i64, String)> {
+    use sha2::{Digest, Sha256};
+    let zones = list_zones(conn, well_id)?;
+    let mut hasher = Sha256::new();
+    for zone in &zones {
+        hasher.update(zone.zone_name.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(zone.top_depth.to_le_bytes());
+        hasher.update(zone.bottom_depth.to_le_bytes());
+        hasher.update([1u8]);
+    }
+    let digest = hasher.finalize()[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let latest: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT version, digest FROM zone_set_versions WHERE well_id = ?1
+             ORDER BY version DESC LIMIT 1",
+            params![well_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    match latest {
+        Some((version, stored)) if stored == digest => Ok((version, digest)),
+        other => {
+            let version = other.map(|(version, _)| version + 1).unwrap_or(1);
+            conn.execute(
+                "INSERT INTO zone_set_versions (well_id, version, digest) VALUES (?1, ?2, ?3)",
+                params![well_id, version, digest],
+            )?;
+            Ok((version, digest))
+        }
+    }
+}
+
+/// The one audit writer. Refusals are BY NAME with the permitted vocabulary stated: an
+/// empty operator (DEC-020 forbids inferring one), an empty detail list, a location or
+/// mode outside the controlled sets, and the dotted-name rule both ways - a dotted name
+/// MUST denote an attribute change on the named object, so ATTRIBUTE requires a dot and a
+/// dot requires ATTRIBUTE. Uninterrupted repeats of the same type (identical well, actor,
+/// view, source and detail signature) COLLAPSE into the latest entry: its values and
+/// timestamp advance and repeat_count counts the gestures. Any different action between
+/// two repeats breaks the chain by construction, because "latest entry" is decided by
+/// entry_seq order - never by an invented time window.
+pub fn record_audit_entry(
+    conn: &Connection,
+    well_id: Option<&str>,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+    source: &str,
+    comment: Option<&str>,
+    zone_set: Option<(i64, &str)>,
+    details: &[AuditDetail],
+) -> DbResult<String> {
+    if operator.trim().is_empty() {
+        return Err(DbError::Invalid(
+            "audit refused: the session operator is explicit and never inferred (DEC-020) - enter an operator identity".into(),
+        ));
+    }
+    if !matches!(operator_kind, "HUMAN" | "AUTOMATED") {
+        return Err(DbError::Invalid(format!(
+            "audit refused: operator kind '{operator_kind}' is not in the controlled set HUMAN/AUTOMATED (DEC-020)"
+        )));
+    }
+    if details.is_empty() {
+        return Err(DbError::Invalid("audit refused: an entry needs at least one detail row".into()));
+    }
+    for detail in details {
+        if !AUDIT_LOCATIONS.contains(&detail.location.as_str()) {
+            return Err(DbError::Invalid(format!(
+                "audit refused: location '{}' is not in the controlled vocabulary {}",
+                detail.location,
+                AUDIT_LOCATIONS.join("/")
+            )));
+        }
+        if !AUDIT_MODES.contains(&detail.mode.as_str()) {
+            return Err(DbError::Invalid(format!(
+                "audit refused: mode '{}' is not in the controlled vocabulary {}",
+                detail.mode,
+                AUDIT_MODES.join("/")
+            )));
+        }
+        let dotted = detail.name.contains('.');
+        let attribute = detail.location == "ATTRIBUTE";
+        if attribute != dotted {
+            return Err(DbError::Invalid(format!(
+                "audit refused: a dotted name denotes an attribute change on the named object and nothing else - '{}' with location {} breaks that both-ways rule",
+                detail.name, detail.location
+            )));
+        }
+    }
+
+    // The collapse check: the LATEST entry, by sequence - uninterruptedness is order.
+    let latest: Option<(String, String, Option<String>, String, String, String, String)> = conn
+        .query_row(
+            "SELECT entry_id, COALESCE(well_id::VARCHAR, ''), NULL, operator, operator_kind, view, source
+             FROM audit_entry ORDER BY entry_seq DESC LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .ok();
+    if let Some((entry_id, latest_well, _, latest_op, latest_kind, latest_view, latest_source)) =
+        latest
+    {
+        let same_head = latest_well == well_id.unwrap_or("")
+            && latest_op == operator
+            && latest_kind == operator_kind
+            && latest_view == view
+            && latest_source == source;
+        if same_head {
+            let mut stmt = conn.prepare(
+                "SELECT location, mode, name, COALESCE(unit, '') FROM audit_detail
+                 WHERE entry_id = ?1 ORDER BY seq",
+            )?;
+            let signature: Vec<(String, String, String, String)> = stmt
+                .query_map(params![entry_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })?
+                .collect::<Result<_, _>>()?;
+            let incoming: Vec<(String, String, String, String)> = details
+                .iter()
+                .map(|detail| {
+                    (
+                        detail.location.clone(),
+                        detail.mode.clone(),
+                        detail.name.clone(),
+                        detail.unit.clone().unwrap_or_default(),
+                    )
+                })
+                .collect();
+            if signature == incoming {
+                with_txn(conn, |conn| {
+                    conn.execute(
+                        "UPDATE audit_entry SET ts_utc = (now() AT TIME ZONE 'UTC'),
+                             repeat_count = repeat_count + 1, comment = ?2,
+                             zone_set_version = ?3, zone_set_digest = ?4
+                         WHERE entry_id = ?1",
+                        params![
+                            entry_id,
+                            comment,
+                            zone_set.map(|(version, _)| version),
+                            zone_set.map(|(_, digest)| digest)
+                        ],
+                    )?;
+                    for (seq, detail) in details.iter().enumerate() {
+                        conn.execute(
+                            "UPDATE audit_detail SET value = ?3 WHERE entry_id = ?1 AND seq = ?2",
+                            params![entry_id, seq as i64, detail.value],
+                        )?;
+                    }
+                    Ok::<(), DbError>(())
+                })?;
+                return Ok(entry_id);
+            }
+        }
+    }
+
+    let entry_id = uuid::Uuid::new_v4().to_string();
+    with_txn(conn, |conn| {
+        conn.execute(
+            "INSERT INTO audit_entry
+                (entry_id, well_id, operator, operator_kind, view, source, comment,
+                 zone_set_version, zone_set_digest)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                entry_id,
+                well_id,
+                operator,
+                operator_kind,
+                view,
+                source,
+                comment,
+                zone_set.map(|(version, _)| version),
+                zone_set.map(|(_, digest)| digest)
+            ],
+        )?;
+        for (seq, detail) in details.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO audit_detail (entry_id, seq, location, mode, unit, name, value)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    entry_id,
+                    seq as i64,
+                    detail.location,
+                    detail.mode,
+                    detail.unit,
+                    detail.name,
+                    detail.value
+                ],
+            )?;
+        }
+        Ok::<(), DbError>(())
+    })?;
+    Ok(entry_id)
+}
+
+/// The zone-parameter surface, audited: the write and its audit entry are ONE atomic
+/// gesture record. A cleared row is mode DELETE, an applied value mode INPUT; the zone
+/// itself rides as an INTERVAL row so the same parameter dragged in two different zones
+/// can never collapse into one entry. The parameter's unit comes from the first module
+/// manifest that declares it - the same declaration the dialog shows.
+pub fn set_zone_param_audited(
+    conn: &Connection,
+    well_id: &str,
+    zone_name: &str,
+    param_name: &str,
+    value_num: Option<f32>,
+    value_text: Option<&str>,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+) -> DbResult<()> {
+    set_zone_param(conn, well_id, zone_name, param_name, value_num, value_text)?;
+    let zone_set = current_zone_set(conn, well_id)?;
+    let unit = crate::modules::list_modules()
+        .iter()
+        .flat_map(|module| module.args.iter())
+        .find(|argument| {
+            argument.kind == crate::modules::ArgKind::Param
+                && argument.name == param_name
+                && !argument.unit.is_empty()
+        })
+        .map(|argument| argument.unit.clone());
+    let cleared = value_num.is_none() && value_text.is_none();
+    let details = [
+        AuditDetail {
+            location: "INTERVAL".into(),
+            mode: if cleared { "DELETE" } else { "INPUT" }.into(),
+            unit: None,
+            name: zone_name.into(),
+            value: None,
+        },
+        AuditDetail {
+            location: "PARAMETER".into(),
+            mode: if cleared { "DELETE" } else { "INPUT" }.into(),
+            unit,
+            name: param_name.into(),
+            value: value_num
+                .map(|value| value.to_string())
+                .or_else(|| value_text.map(str::to_string)),
+        },
+    ];
+    record_audit_entry(
+        conn,
+        Some(well_id),
+        operator,
+        operator_kind,
+        view,
+        "set_zone_param",
+        None,
+        Some((zone_set.0, zone_set.1.as_str())),
+        &details,
+    )?;
+    Ok(())
+}
+
+/// The curve-identity surface, audited: a mnemonic change is mode RENAME on the LOG, and a
+/// unit or family change is the dotted-name ATTRIBUTE case the chapter defines.
+pub fn update_curve_meta_audited(
+    conn: &Connection,
+    curve_id: &str,
+    mnemonic: &str,
+    unit: Option<&str>,
+    family: Option<&str>,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+) -> DbResult<CurveMetaEdit> {
+    let well_id: Option<String> = conn
+        .query_row(
+            "SELECT well_id::VARCHAR FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |row| row.get(0),
+        )
+        .ok();
+    let before = update_curve_meta_fields(conn, curve_id, mnemonic, unit, family)?;
+    let mut details = Vec::new();
+    let renamed = !before.mnemonic.eq_ignore_ascii_case(mnemonic.trim());
+    if renamed {
+        details.push(AuditDetail {
+            location: "LOG".into(),
+            mode: "RENAME".into(),
+            unit: None,
+            name: before.mnemonic.clone(),
+            value: Some(mnemonic.trim().to_uppercase()),
+        });
+    }
+    if before.unit.as_deref() != unit {
+        details.push(AuditDetail {
+            location: "ATTRIBUTE".into(),
+            mode: "INPUT".into(),
+            unit: None,
+            name: format!("{}.unit", before.mnemonic),
+            value: unit.map(str::to_string),
+        });
+    }
+    if before.family.as_deref() != family {
+        details.push(AuditDetail {
+            location: "ATTRIBUTE".into(),
+            mode: "INPUT".into(),
+            unit: None,
+            name: format!("{}.family", before.mnemonic),
+            value: family.map(str::to_string),
+        });
+    }
+    if !details.is_empty() {
+        record_audit_entry(
+            conn,
+            well_id.as_deref(),
+            operator,
+            operator_kind,
+            view,
+            "update_curve_meta",
+            None,
+            None,
+            &details,
+        )?;
+    }
+    Ok(before)
+}
+
+/// SB-DBM-011: the structured audit, newest first, visible on demand. `details` rides along
+/// so the panel needs one call, not one per entry.
+#[derive(serde::Serialize)]
+pub struct AuditEntryView {
+    pub entry_id: String,
+    pub well_id: Option<String>,
+    pub ts_utc: String,
+    pub operator: String,
+    pub operator_kind: String,
+    pub view: String,
+    pub source: String,
+    pub comment: Option<String>,
+    pub zone_set_version: Option<i64>,
+    pub zone_set_digest: Option<String>,
+    pub repeat_count: i64,
+    pub details: Vec<AuditDetail>,
+}
+
+pub fn list_audit_entries(conn: &Connection, limit: usize) -> DbResult<Vec<AuditEntryView>> {
+    let mut stmt = conn.prepare(
+        "SELECT entry_id, well_id::VARCHAR, ts_utc::VARCHAR, operator, operator_kind, view,
+                source, comment, zone_set_version, zone_set_digest, repeat_count
+         FROM audit_entry ORDER BY entry_seq DESC LIMIT ?1",
+    )?;
+    let mut entries: Vec<AuditEntryView> = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok(AuditEntryView {
+                entry_id: row.get(0)?,
+                well_id: row.get(1)?,
+                ts_utc: row.get(2)?,
+                operator: row.get(3)?,
+                operator_kind: row.get(4)?,
+                view: row.get(5)?,
+                source: row.get(6)?,
+                comment: row.get(7)?,
+                zone_set_version: row.get(8)?,
+                zone_set_digest: row.get(9)?,
+                repeat_count: row.get(10)?,
+                details: Vec::new(),
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    for entry in &mut entries {
+        let mut stmt = conn.prepare(
+            "SELECT location, mode, unit, name, value FROM audit_detail
+             WHERE entry_id = ?1 ORDER BY seq",
+        )?;
+        entry.details = stmt
+            .query_map(params![entry.entry_id], |row| {
+                Ok(AuditDetail {
+                    location: row.get(0)?,
+                    mode: row.get(1)?,
+                    unit: row.get(2)?,
+                    name: row.get(3)?,
+                    value: row.get(4)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+    }
+    Ok(entries)
 }
 
 pub fn set_zone_param(

@@ -20,6 +20,7 @@ import { appState, bumpDataVersion, setStatus } from "../state";
 import { messageNode } from "./safeDom";
 import { pushUndo } from "../undo";
 import { requestRunCustody } from "./runCustody";
+import { ensureSessionOperator } from "./runCustody";
 
 const PAGE_SIZE = 200;
 
@@ -478,10 +479,13 @@ export class DbInspectorPanel {
       case "zone_params": {
         const zoneName = cell("zone_name");
         const paramName = cell("param_name");
-        apply = (v) => {
+        apply = async (v) => {
           const valueNum = column === "value_num" ? (v === "" ? null : num(v)) : cell("value_num") === "" ? null : num(cell("value_num"));
           const valueText = column === "value_text" ? (v === "" ? null : v) : cell("value_text") || null;
-          return setZoneParam(wellId, zoneName, paramName, valueNum, valueText);
+          // SB-DBM-011: an audited surface - the edit carries the explicit session operator.
+          const op = await ensureSessionOperator("Edit zone parameter");
+          if (!op) throw new Error("edit cancelled: no session operator entered");
+          return setZoneParam(wellId, zoneName, paramName, valueNum, valueText, op, "DB Inspector");
         };
         break;
       }

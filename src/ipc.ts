@@ -2953,14 +2953,27 @@ export async function listZoneParams(wellId: string): Promise<ZoneParamEntry[]> 
   return invoke<ZoneParamEntry[]>("list_zone_params", { wellId });
 }
 
+/** SB-DBM-011: an audited surface - the backend writes the value and its structured audit
+ *  entry as one gesture record, so the operator is part of the call, never inferred. */
 export async function setZoneParam(
   wellId: string,
   zoneName: string,
   paramName: string,
   valueNum: number | null,
   valueText: string | null,
+  operator: { identity: string; kind: AncestryActorKind },
+  view?: string,
 ): Promise<void> {
-  return invoke("set_zone_param", { wellId, zoneName, paramName, valueNum, valueText });
+  return invoke("set_zone_param", {
+    wellId,
+    zoneName,
+    paramName,
+    valueNum,
+    valueText,
+    operator: operator.identity,
+    operatorKind: operator.kind,
+    view: view ?? null,
+  });
 }
 
 /** A whole-well override of a module parameter: a `zone_params` row whose zone is `*`.
@@ -5348,8 +5361,18 @@ export function updateCurveMeta(
   mnemonic: string,
   unit: string | null,
   family: string | null,
+  operator: { identity: string; kind: AncestryActorKind },
+  view?: string,
 ): Promise<CurveMetaEdit> {
-  return invoke<CurveMetaEdit>("update_curve_meta", { curveId, mnemonic, unit, family });
+  return invoke<CurveMetaEdit>("update_curve_meta", {
+    curveId,
+    mnemonic,
+    unit,
+    family,
+    operator: operator.identity,
+    operatorKind: operator.kind,
+    view: view ?? null,
+  });
 }
 
 export interface CurveSamplePoint {

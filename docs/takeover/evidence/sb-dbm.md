@@ -136,16 +136,10 @@
 
 ## SB-DBM-011 - Structured audit entries, as name-value pairs with a controlled vocabulary
 
-- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DBM-T11`, `SB-DBM-T12`; sections 4.1, 5.5 and 6.2.
-- **Atomic obligations:** store relational audit entry/detail rows using controlled location/mode vocabulary, typed values/units, coalescing and UTC/operator/zone-set fields.
-- **Current source:** `src/processLog.ts` persists `{ts, kind, detail, well}` as one capped JSON document and more than 70 UI call sites emit free-text details. It survives Save Project As because it lives in the project database, but there are no relational `audit_entry`/`audit_detail` tables, controlled location/mode types, typed value/unit rows or explicit gesture boundary for uninterrupted coalescing.
-- **Qualifying acceptance tests:** none; T11 and the structured-diff setup of T12 are missing. Test class is `MISSING`.
-- **Supporting tests:** process-log rendering and Save Project As coverage prove visible history is retained in the copied project, not that entries are relational, controlled, coalesced or complete.
-- **Manual evidence:** `processing-history` 0/7, `security-integrity` 0/63 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** live re-verification on `codex/g2-program-plan` confirms the divergent JSON history and its broad call-site inventory; no structured audit store is integrated.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** DEC-022 must settle UTC legacy classification. DEC-023 must reconcile exact T11's required zone-set identity with DEC-018 excluding SB-DBM-008. DEC-020 already settles the operator source. No time-based coalescing window is needed or allowed: the cited rule is explicit gesture uninterruptedness.
-- **Next action:** after DEC-022 and DEC-023, add controlled relational entry/detail types and one backend-owned atomic writer, retain visible legacy history without pretending it is structured, migrate selected action surfaces using explicit gesture boundaries, and implement T11 without importing SB-DBM-012's deferred diff contract.
+- **Specified contract:** Geolog's audit taxonomy adopted wholesale - `audit_entry`/`audit_detail` relations with controlled location/mode vocabularies, uninterrupted repeats collapsing to one entry, the dotted-name attribute rule, project-resident and Save-As-surviving. Blocked on DEC-020 (operator), DEC-022 (UTC) and DEC-023 (zone-set seam) - all now ruled.
+- **Current implementation (2026-08-18):** DONE. Relational store with CHECKed vocabularies and writer-side named refusals; one atomic backend writer with the vendor's own collapse rule (uninterruptedness by entry order, never an invented time window - `AUDIT_ENTRY_COLLAPSE_WINDOW` stays ABSENT); `repeat_count` keeps the collapse honest; the dotted-name rule enforced both ways; DEC-023's `zone_set_versions` digest seam (SB-DBM-008 inherits it); DEC-020 operator explicit with the frontend prompting once per session and refusing the edit when dismissed. Migrated surfaces: zone-parameter writes (Zones dialog, DB Inspector, crossplot drag - the forty-gesture case) and curve identity edits (RENAME + dotted ATTRIBUTE). Legacy processLog stays visible, unrelabelled. Read on demand via `list_audit_entries`. SB-DBM-012's diff not imported.
+- **Qualifying test:** exact T11 pinned end to end with seven mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-012 - A parameter-state diff is a database join, not an external differ
 

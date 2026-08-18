@@ -420,3 +420,4 @@
 "SB-CLY-055","CORRECTNESS","src-tauri/src/export.rs","the_cly_token_curve_round_trips_las_with_absences_preserved_and_codes_bit_exact"
 "SB-CLY-055","CORRECTNESS","src-tauri/src/ingest.rs","an_unknown_provenance_code_refuses_the_import_naming_the_code_and_the_registry_version"
 "SB-CLY-034","CORRECTNESS","src-tauri/src/ingest.rs","an_undeclared_vendor_sentinel_blocks_the_import_and_converts_only_on_the_users_word"
+"SB-DBM-011","CORRECTNESS","src-tauri/src/db.rs","the_audit_is_structured_collapses_uninterrupted_repeats_and_carries_operator_utc_and_zone_set"
