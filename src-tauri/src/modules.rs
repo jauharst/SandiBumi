@@ -246,6 +246,12 @@ pub const POROSITY_OUTPUT_NAMING_CONTRACT: &str = "workflow_resolved_output_name
 pub enum PorosityModuleRole {
     DeterministicMethod,
     ComparisonProducer,
+    /// DEC-038 (2026-08-17): a separately typed WORKFLOW - a multi-stage interpretation
+    /// chain that clamps at several internal stages (component volumes, projections,
+    /// fractions), so SB-POR-002's unlimited/limited twin requirement deliberately does
+    /// not apply: a companion built by bypassing only the LAST clamp would be labelled
+    /// unlimited while still bound upstream, a worse statement than no companion at all.
+    TypedWorkflow,
     LimitProducer,
 }
 
@@ -1781,7 +1787,9 @@ const POROSITY_MODULE_REGISTRATIONS: &[PorosityModuleRegistration] = &[
     },
     PorosityModuleRegistration {
         module: "ssc",
-        role: PorosityModuleRole::DeterministicMethod,
+        // DEC-038 (2026-08-17): re-typed from DeterministicMethod - a registry change,
+        // not a capability change; outputs, names and numbers are pinned unchanged.
+        role: PorosityModuleRole::TypedWorkflow,
         method: "SAND_SILT_CLAY",
         limiting_policy: "ssc_component_and_total_bounds",
         limiting_policy_source: "docs/PRD_v2/11_porosity.md §3.8 and DEC-015",
@@ -1789,13 +1797,97 @@ const POROSITY_MODULE_REGISTRATIONS: &[PorosityModuleRegistration] = &[
     },
     PorosityModuleRegistration {
         module: "sspw",
-        role: PorosityModuleRole::DeterministicMethod,
+        // DEC-038 (2026-08-17): re-typed from DeterministicMethod, same terms as `ssc`.
+        role: PorosityModuleRole::TypedWorkflow,
         method: "SANDSTONE_WORKFLOW_RECONSTRUCTION",
         limiting_policy: "sspw_component_and_total_bounds",
         limiting_policy_source: "docs/PRD_v2/11_porosity.md §3.8 and DEC-015",
         outputs: SSPW_POROSITY_OUTPUTS,
     },
 ];
+
+/// SB-POR-002 / DEC-038 (2026-08-17) constraint 2, enforced from BOTH sides: a registered
+/// porosity METHOD is refused unless it declares its unlimited/limited pair, while a
+/// registered WORKFLOW is not required to declare one - so the workflow role can never
+/// become a way for a genuine method to skip the twin requirement.
+///
+/// `phi_son` is the ONE named pending exemption: its unlimited twin is blocked on open
+/// DEC-063 (SB-POR-002's bare unlimited pair and SB-POR-009's every-sample `PHIT >= PHIE`
+/// ordering are jointly unsatisfiable for the current sonic transform at in-range
+/// endpoints - `DT_SH < DT_MA` turns the shale subtraction into an addition). A second
+/// name appearing here without a ruling is a defect, and the qualifying test pins the
+/// list's exact content.
+const POROSITY_PAIR_PENDING: &[&str] = &["phi_son"];
+
+fn porosity_pair_declaration_failures(
+    registrations: &[PorosityModuleRegistration],
+    pending: &[&str],
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    for name in pending {
+        let registered = registrations
+            .iter()
+            .find(|registration| registration.module == *name);
+        match registered {
+            None => failures.push(format!(
+                "porosity pair exemption names '{name}', which is not a registered porosity module - stale exemption"
+            )),
+            Some(registration)
+                if !matches!(
+                    registration.role,
+                    PorosityModuleRole::DeterministicMethod
+                        | PorosityModuleRole::ComparisonProducer
+                ) =>
+            {
+                failures.push(format!(
+                    "porosity pair exemption names '{name}', whose role never required a pair - stale exemption"
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    for registration in registrations {
+        let required: &[(PorosityOutputRole, &str)] = match registration.role {
+            PorosityModuleRole::DeterministicMethod => &[
+                (PorosityOutputRole::UnlimitedEffective, "unlimited effective"),
+                (PorosityOutputRole::UnlimitedTotal, "unlimited total"),
+                (PorosityOutputRole::LimitedEffective, "limited effective"),
+                (PorosityOutputRole::LimitedTotal, "limited total"),
+            ],
+            PorosityModuleRole::ComparisonProducer => &[
+                (
+                    PorosityOutputRole::ComparisonUnlimitedEffective,
+                    "comparison unlimited effective",
+                ),
+                (
+                    PorosityOutputRole::ComparisonUnlimitedTotal,
+                    "comparison unlimited total",
+                ),
+                (
+                    PorosityOutputRole::ComparisonLimitedEffective,
+                    "comparison limited effective",
+                ),
+                (
+                    PorosityOutputRole::ComparisonLimitedTotal,
+                    "comparison limited total",
+                ),
+            ],
+            PorosityModuleRole::TypedWorkflow | PorosityModuleRole::LimitProducer => continue,
+        };
+        if pending.contains(&registration.module) {
+            continue;
+        }
+        for (role, label) in required {
+            if !registration.outputs.iter().any(|output| output.role == *role) {
+                failures.push(format!(
+                    "porosity method '{}' does not declare its {label} output (SB-POR-002, DEC-038)",
+                    registration.module
+                ));
+            }
+        }
+    }
+    failures
+}
 
 fn porosity_contract(
     registration: PorosityModuleRegistration,
@@ -1873,6 +1965,12 @@ fn validate_porosity_contracts(modules: &[ModuleSpec]) -> Result<(), String> {
             actual_modules, expected_modules
         ));
     }
+    // SB-POR-002 / DEC-038: a METHOD must declare its unlimited/limited pair; a WORKFLOW
+    // is exempt. Runs against the shipping registry on every catalog build.
+    failures.extend(porosity_pair_declaration_failures(
+        POROSITY_MODULE_REGISTRATIONS,
+        POROSITY_PAIR_PENDING,
+    ));
 
     let mut actual_method_policies = HashSet::new();
     for module in modules {
@@ -7244,6 +7342,210 @@ mod tests {
         );
     }
 
+    /// SB-POR-002 / DEC-038 (2026-08-17): `ssc` and `sspw` are separately typed WORKFLOWS
+    /// outside the unlimited/limited twin requirement, and the re-typing is a REGISTRY
+    /// change, not a capability change - their outputs are pinned numerically unchanged.
+    /// The gate is pinned from BOTH sides: a registered METHOD that fails to declare its
+    /// unlimited/limited pair is refused BY NAME, while the SAME output set under a
+    /// registered WORKFLOW passes - and the one live pending exemption is exactly
+    /// `phi_son`, tied to open DEC-063, so a second name cannot ride in silently.
+    #[test]
+    fn ssc_and_sspw_are_typed_workflows_and_a_method_cannot_use_that_role_to_skip_its_twin_pair() {
+        // A - the registry types both as workflows with their method identities unchanged.
+        let modules = module_catalog();
+        for (name, method) in [
+            ("ssc", "SAND_SILT_CLAY"),
+            ("sspw", "SANDSTONE_WORKFLOW_RECONSTRUCTION"),
+        ] {
+            let module = modules.iter().find(|module| module.name == name).unwrap();
+            let contract = module
+                .args
+                .iter()
+                .find_map(|argument| argument.porosity_output.as_ref())
+                .expect("the workflow keeps its POR output custody");
+            assert_eq!(
+                contract.module_role,
+                PorosityModuleRole::TypedWorkflow,
+                "{name} must be typed as a workflow per DEC-038"
+            );
+            assert_eq!(
+                contract.method, method,
+                "the re-typing must not move {name}'s method identity"
+            );
+        }
+
+        // B - registry change only: the workflows' registered porosity outputs are pinned
+        // to the exact values the DeterministicMethod-typed build produced. Endpoints are
+        // the characterization fixtures from `ssc.rs`'s own tests (pre-SB-CORE-004
+        // manifests in git); the two samples exercise the clean-sand and clay-point
+        // branches. A re-typing that quietly altered the arithmetic fails here.
+        let build_ctx = |spec: &ModuleSpec,
+                         logs: &[(&str, Vec<f32>)],
+                         fixtures: &[(&str, f64)]|
+         -> ModuleContext {
+            let params = spec
+                .args
+                .iter()
+                .filter(|argument| argument.kind == ArgKind::Param)
+                .map(|argument| {
+                    let value = fixtures
+                        .iter()
+                        .find(|(name, _)| *name == argument.name)
+                        .map(|(_, value)| *value)
+                        .unwrap_or_else(|| {
+                            argument.default.parse::<f64>().unwrap_or_else(|_| {
+                                panic!("no fixture for {}.{}", spec.name, argument.name)
+                            })
+                        });
+                    (argument.name.clone(), vec![value; 2])
+                })
+                .collect();
+            let opts = spec
+                .args
+                .iter()
+                .filter(|argument| argument.kind == ArgKind::Option)
+                .map(|argument| (argument.name.clone(), argument.default.clone()))
+                .collect();
+            ModuleContext {
+                n: 2,
+                logs: logs.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect(),
+                params,
+                opts,
+                depth_unit: crate::units::DepthUnit::Metres,
+            }
+        };
+        let ssc_ctx = build_ctx(
+            &crate::ssc::ssc_spec(),
+            &[
+                ("GR", vec![15.0, 150.0]),
+                ("RHOB", vec![2.40, 2.30]),
+                ("NPHI", vec![0.15, 0.60]),
+            ],
+            &[
+                ("GR_MA", 10.0),
+                ("GR_SH", 150.0),
+                ("NPHI_MA", 0.0),
+                ("RHOB_WCL", 2.3),
+                ("NPHI_WCL", 0.6),
+                ("RHOB_DCL", 2.71),
+                ("NPHI_WSI", 0.3),
+                ("DCLF_SI", 0.1),
+                ("PHIT_CL", 0.24),
+                ("SWIRR_MIN", 0.0),
+            ],
+        );
+        let ssc_out = run_module("ssc", &ssc_ctx).expect("ssc runs");
+        let sspw_ctx = build_ctx(
+            &crate::ssc::sspw_spec(),
+            &[
+                ("RHOB", vec![2.40, 2.30]),
+                ("NPHI", vec![0.15, 0.60]),
+                ("VSH", vec![0.20, 0.90]),
+            ],
+            &[
+                ("NPHI_MAT", 0.0),
+                ("RHOB_SH", 2.4),
+                ("NPHI_SH", 0.55),
+                ("RHOB_DSH", 2.71),
+                ("VOL_CBW_SH", 0.1),
+                ("SWIRR_MIN", 0.0),
+            ],
+        );
+        let sspw_out = run_module("sspw", &sspw_ctx).expect("sspw runs");
+        // Pinned 2026-08-18 from the DeterministicMethod-typed build (same commit, pre-
+        // re-typing): the registered porosity outputs, both samples, exact f32.
+        let pinned: &[(&HashMap<String, Vec<f32>>, &str, [f32; 2])] = &[
+            (&ssc_out, "PHIT_SSC", [0.15075946, 0.2397661]),
+            (&ssc_out, "PHIE_SSC", [0.15075946, 0.0]),
+            (&ssc_out, "PHIFF_SSC", [0.15075946, 0.0]),
+            (&sspw_out, "PHIT_SSPW", [0.15643923, 0.23708923]),
+            (&sspw_out, "PHIE_SSPW", [0.13643923, 0.14708923]),
+            (&sspw_out, "PHIFF_SSPW", [0.120181926, 0.07393134]),
+        ];
+        // The GR-equivalent family is MISSING at both fixtures (degenerate VWSH at the
+        // clean-sand and clay-point samples) - pinned as NaN so a re-typing that started
+        // answering where the method declined would also fail.
+        for curve in ["PHIT_GR", "PHIE_GR", "PHIFF_GR"] {
+            for i in 0..2 {
+                assert!(
+                    ssc_out[curve][i].is_nan(),
+                    "{curve}[{i}] must stay MISSING at a degenerate VWSH"
+                );
+            }
+        }
+        for (outputs, curve, expected) in pinned {
+            let got = &outputs[*curve];
+            for i in 0..2 {
+                assert!(
+                    (got[i] - expected[i]).abs() < 5e-7,
+                    "{curve}[{i}] moved: expected {} got {}",
+                    expected[i],
+                    got[i]
+                );
+            }
+        }
+
+        // C - side one: the SAME registered outputs under a METHOD role are refused, and
+        // the refusal names the module and the missing halves.
+        let as_method = PorosityModuleRegistration {
+            module: "ssc",
+            role: PorosityModuleRole::DeterministicMethod,
+            method: "SAND_SILT_CLAY",
+            limiting_policy: "ssc_component_and_total_bounds",
+            limiting_policy_source: "docs/PRD_v2/11_porosity.md \u{a7}3.8 and DEC-015",
+            outputs: SSC_POROSITY_OUTPUTS,
+        };
+        let failures = porosity_pair_declaration_failures(&[as_method], &[]);
+        assert_eq!(
+            failures.len(),
+            4,
+            "a method with generic Total/Effective outputs is missing all four declared halves: {failures:?}"
+        );
+        for label in [
+            "unlimited effective",
+            "unlimited total",
+            "limited effective",
+            "limited total",
+        ] {
+            assert!(
+                failures.iter().any(|failure| failure.contains("'ssc'")
+                    && failure.contains(label)),
+                "the refusal must name the module and the missing {label} output: {failures:?}"
+            );
+        }
+
+        // D - side two: the SAME output set under the workflow role passes - the exemption
+        // mechanism is the ROLE, not a name on a list.
+        let as_workflow = PorosityModuleRegistration {
+            role: PorosityModuleRole::TypedWorkflow,
+            ..as_method
+        };
+        assert!(
+            porosity_pair_declaration_failures(&[as_workflow], &[]).is_empty(),
+            "a typed workflow is not required to declare the pair"
+        );
+
+        // E - the live pending list is exactly `phi_son` (open DEC-063); a name that no
+        // registration carries, or one whose role never needed a pair, is refused as stale.
+        assert_eq!(
+            POROSITY_PAIR_PENDING,
+            &["phi_son"],
+            "a second pending exemption requires its own ruling"
+        );
+        let stale = porosity_pair_declaration_failures(&[as_workflow], &["phi_son"]);
+        assert!(
+            stale.iter().any(|failure| failure.contains("'phi_son'")
+                && failure.contains("stale exemption")),
+            "an exemption naming an absent module must be refused: {stale:?}"
+        );
+        let never_needed = porosity_pair_declaration_failures(&[as_workflow], &["ssc"]);
+        assert!(
+            never_needed.iter().any(|failure| failure.contains("'ssc'")
+                && failure.contains("stale exemption")),
+            "an exemption on a workflow that never needed a pair must be refused: {never_needed:?}"
+        );
+    }
+
     /// CORRECTNESS — `docs/PRD_v2/11_porosity.md` SB-POR-001 and SB-POR-T39, adjudicated by
     /// `docs/takeover/DECISIONS.md` DEC-015. The common contract owns family, custody shape,
     /// observable reason schema and output naming; each method retains its own source-bound
@@ -7377,6 +7679,9 @@ mod tests {
             let expected_role = match module.name.as_str() {
                 "phimax" => PorosityModuleRole::LimitProducer,
                 "phi_dn" => PorosityModuleRole::ComparisonProducer,
+                // DEC-038 (2026-08-17): separately typed workflows, outside the twin
+                // requirement - see the SB-POR-002 qualifying test for the both-sides pin.
+                "ssc" | "sspw" => PorosityModuleRole::TypedWorkflow,
                 _ => PorosityModuleRole::DeterministicMethod,
             };
             assert!(

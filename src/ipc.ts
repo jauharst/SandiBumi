@@ -989,7 +989,12 @@ export async function getTrackData(
 export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
 export type FlagKind = "EXCLUSION_MASK" | "DIAGNOSTIC_INDICATOR";
 
-export type PorosityModuleRole = "DETERMINISTIC_METHOD" | "COMPARISON_PRODUCER" | "LIMIT_PRODUCER";
+export type PorosityModuleRole =
+  | "DETERMINISTIC_METHOD"
+  | "COMPARISON_PRODUCER"
+  // DEC-038 (2026-08-17): ssc/sspw are separately typed workflows.
+  | "TYPED_WORKFLOW"
+  | "LIMIT_PRODUCER";
 export type PorosityOutputRole =
   | "UNLIMITED_EFFECTIVE"
   | "UNLIMITED_TOTAL"
