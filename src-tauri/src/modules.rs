@@ -5136,21 +5136,46 @@ fn gr_hole_corr_spec() -> ModuleSpec {
                 true,
             ),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
-            // SB-ENV-007 (DEC-031 part c): partial correction is AUTHORIZED - the run covers
-            // what the caliper covers and the state channel records the rest - so SB-ENV-006's
-            // refusal is NARROWED to its stated case: an input with no finite caliper anywhere.
+            // SB-ENV-007 (DEC-031 part c, unchanged by DEC-060): partial correction is
+            // AUTHORIZED - the run covers what the caliper covers and the flag group records
+            // the rest - so SB-ENV-006's refusal is NARROWED to its stated case: an input
+            // with no finite caliper anywhere.
             with_validity(
                 log_in("CALI", "Caliper log", "in", "CALI", false),
                 vec![validity(
                     "gr_hole_corr.caliper_coverage",
-                    "At least one finite caliper sample is required; with none anywhere the correction-named output would be an unmarked input copy (SB-ENV-006, narrowed to this case by DEC-031 part c - a partially covered caliper now runs, with the uncovered gap recorded on the state channel).",
+                    "At least one finite caliper sample is required; with none anywhere the correction-named output would be an unmarked input copy (SB-ENV-006, narrowed to this case by DEC-031 part c - a partially covered caliper now runs, with the uncovered gap recorded on the correction flag group).",
                     "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T11/T12; DEC-031 (2026-08-17)",
                     ValidityRule::RequiredCompanion { any_of: vec!["CALI".into()], when: None },
                 )],
             ),
             log_in("BS", "Bit size log", "in", "BS", false),
             log_out("GR_EC", "Environmentally corrected gamma ray", "gapi"),
-            log_out("GR_EC_CSTATE", "Coded correction state (0 corrected in full, 1 partial, 2 not applied at this sample, 3 reserved: refused; MISSING where the input is). Categorical - the state, never a mask; DEC-031's stable table.", ""),
+            // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the per-sample correction state
+            // is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single
+            // polarity, exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
+            // MISSING where the input is. DEC-060 names the group ENVCORR_*; it is namespaced
+            // by the corrected output here because three correction modules write one store.
+            log_out_flag(
+                "GR_EC_FULL",
+                "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "GR_EC_PARTIAL",
+                "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "GR_EC_NONE",
+                "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "GR_EC_REFUSED",
+                "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
+                FlagKind::DiagnosticIndicator,
+            ),
         ],
     }
 }
@@ -5160,20 +5185,28 @@ fn gr_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
     let cali = ctx.log("CALI");
     let bs = ctx.log("BS");
     let mut out = vec![f32::NAN; ctx.n];
-    // SB-ENV-007 (DEC-031): the per-sample state channel, emitted on EVERY run - part (c)
-    // lets a raw value pass through under a corrected name, and the state channel is the only
-    // thing that records it. 0 = corrected in full, 2 = not applied (no caliper at the
-    // sample), NaN = no input sample. Codes are stable; a renumbering is a migration.
-    let mut state = vec![f32::NAN; ctx.n];
+    // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the state is a one-hot boolean flag
+    // group, emitted on EVERY run - part (c) still lets a raw value pass through under a
+    // corrected name, and the NONE flag is the only thing that records it. MISSING where
+    // there is no input sample, never a flag value.
+    let mut full = FlagCurve::missing(ctx.n);
+    let mut partial = FlagCurve::missing(ctx.n);
+    let mut none = FlagCurve::missing(ctx.n);
+    let mut refused = FlagCurve::missing(ctx.n);
     for i in 0..ctx.n {
         let g = gr[i] as f64;
         if is_missing(g) {
             continue;
         }
+        // The sample exists: the group is one-hot from here (exactly one Flagged below).
+        full.set(i, FlagValue::Clear);
+        partial.set(i, FlagValue::Clear);
+        none.set(i, FlagValue::Clear);
+        refused.set(i, FlagValue::Clear);
         let cl = cali[i] as f64;
         if is_missing(cl) {
-            out[i] = g as f32; // no caliper: pass through - and the state channel SAYS so
-            state[i] = 2.0;
+            out[i] = g as f32; // no caliper: pass through - and the NONE flag SAYS so
+            none.set(i, FlagValue::Flagged);
             record_branch("not applied (no caliper)");
             continue;
         }
@@ -5183,10 +5216,16 @@ fn gr_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
         };
         let enlargement = (cl - bit).max(0.0); // undersize holes get no correction
         out[i] = (g * (1.0 + ctx.p("K_GR", i) * enlargement)) as f32;
-        state[i] = 0.0;
+        full.set(i, FlagValue::Flagged);
         record_branch("corrected in full");
     }
-    HashMap::from([("GR_EC".to_string(), out), ("GR_EC_CSTATE".to_string(), state)])
+    HashMap::from([
+        ("GR_EC".to_string(), out),
+        ("GR_EC_FULL".to_string(), full.into_f32()),
+        ("GR_EC_PARTIAL".to_string(), partial.into_f32()),
+        ("GR_EC_NONE".to_string(), none.into_f32()),
+        ("GR_EC_REFUSED".to_string(), refused.into_f32()),
+    ])
 }
 
 fn nphi_env_corr_spec() -> ModuleSpec {
@@ -5209,7 +5248,31 @@ fn nphi_env_corr_spec() -> ModuleSpec {
             // degF FTEMP would otherwise be silently applied as degC. Mirrors gascorr's contract.
             log_in_computed("FTEMP", "Formation temperature (precalc)", "degC", "FTEMP", false),
             log_out("NPHI_EC", "Environmentally corrected neutron porosity", "v/v"),
-            log_out("NPHI_EC_CSTATE", "Coded correction state (0 corrected in full, 1 partial, 2 not applied at this sample, 3 reserved: refused; MISSING where the input is). Categorical - the state, never a mask; DEC-031's stable table.", ""),
+            // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the per-sample correction state
+            // is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single
+            // polarity, exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
+            // MISSING where the input is. DEC-060 names the group ENVCORR_*; it is namespaced
+            // by the corrected output here because three correction modules write one store.
+            log_out_flag(
+                "NPHI_EC_FULL",
+                "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "NPHI_EC_PARTIAL",
+                "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "NPHI_EC_NONE",
+                "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "NPHI_EC_REFUSED",
+                "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
+                FlagKind::DiagnosticIndicator,
+            ),
         ],
     }
 }
@@ -5218,28 +5281,41 @@ fn nphi_env_corr(ctx: &ModuleContext) -> ModuleOutputs {
     let nphi = ctx.log("NPHI");
     let ftemp = ctx.log("FTEMP");
     let mut out = vec![f32::NAN; ctx.n];
-    // SB-ENV-007 (DEC-031): this correction has TWO steps (salinity, temperature), so a
-    // sample where only the salinity step could run is 1 = PARTIAL - the step set that
+    // SB-ENV-007 (DEC-060(a)): this correction has TWO steps (salinity, temperature), so a
+    // sample where only the salinity step could run raises PARTIAL - the step set that
     // identifies which part travels in the run's log-set manifest via the branch record.
-    let mut state = vec![f32::NAN; ctx.n];
+    let mut full = FlagCurve::missing(ctx.n);
+    let mut partial = FlagCurve::missing(ctx.n);
+    let mut none = FlagCurve::missing(ctx.n);
+    let mut refused = FlagCurve::missing(ctx.n);
     for i in 0..ctx.n {
         let np = nphi[i] as f64;
         if is_missing(np) {
             continue;
         }
+        full.set(i, FlagValue::Clear);
+        partial.set(i, FlagValue::Clear);
+        none.set(i, FlagValue::Clear);
+        refused.set(i, FlagValue::Clear);
         let mut corr = ctx.p("K_SAL", i) * ctx.p("SALW", i) / 100000.0;
         let ft = ftemp[i] as f64;
         if !is_missing(ft) {
             corr += ctx.p("K_TEMP", i) * (ft - ctx.p("T_REF", i));
-            state[i] = 0.0;
+            full.set(i, FlagValue::Flagged);
             record_branch("corrected in full (salinity + temperature)");
         } else {
-            state[i] = 1.0;
+            partial.set(i, FlagValue::Flagged);
             record_branch("partial: salinity only (temperature step skipped, FTEMP missing)");
         }
         out[i] = (np + corr) as f32;
     }
-    HashMap::from([("NPHI_EC".to_string(), out), ("NPHI_EC_CSTATE".to_string(), state)])
+    HashMap::from([
+        ("NPHI_EC".to_string(), out),
+        ("NPHI_EC_FULL".to_string(), full.into_f32()),
+        ("NPHI_EC_PARTIAL".to_string(), partial.into_f32()),
+        ("NPHI_EC_NONE".to_string(), none.into_f32()),
+        ("NPHI_EC_REFUSED".to_string(), refused.into_f32()),
+    ])
 }
 
 fn rhob_hole_corr_spec() -> ModuleSpec {
@@ -5281,7 +5357,31 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
                 )],
             ),
             log_out("RHOB_EC", "Environmentally corrected density", "g/cc"),
-            log_out("RHOB_EC_CSTATE", "Coded correction state (0 corrected in full, 1 partial, 2 not applied at this sample, 3 reserved: refused; MISSING where the input is). Categorical - the state, never a mask; DEC-031's stable table.", ""),
+            // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the per-sample correction state
+            // is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single
+            // polarity, exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
+            // MISSING where the input is. DEC-060 names the group ENVCORR_*; it is namespaced
+            // by the corrected output here because three correction modules write one store.
+            log_out_flag(
+                "RHOB_EC_FULL",
+                "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "RHOB_EC_PARTIAL",
+                "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "RHOB_EC_NONE",
+                "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "RHOB_EC_REFUSED",
+                "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
+                FlagKind::DiagnosticIndicator,
+            ),
         ],
     }
 }
@@ -5290,26 +5390,39 @@ fn rhob_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
     let rhob = ctx.log("RHOB");
     let cali = ctx.log("CALI");
     let mut out = vec![f32::NAN; ctx.n];
-    // SB-ENV-007 (DEC-031): the per-sample state channel - see gr_hole_corr.
-    let mut state = vec![f32::NAN; ctx.n];
+    // SB-ENV-007 (DEC-060(a)): the one-hot flag group - see gr_hole_corr.
+    let mut full = FlagCurve::missing(ctx.n);
+    let mut partial = FlagCurve::missing(ctx.n);
+    let mut none = FlagCurve::missing(ctx.n);
+    let mut refused = FlagCurve::missing(ctx.n);
     for i in 0..ctx.n {
         let r = rhob[i] as f64;
         if is_missing(r) {
             continue;
         }
+        full.set(i, FlagValue::Clear);
+        partial.set(i, FlagValue::Clear);
+        none.set(i, FlagValue::Clear);
+        refused.set(i, FlagValue::Clear);
         let cl = cali[i] as f64;
         let corr = if is_missing(cl) {
-            state[i] = 2.0;
+            none.set(i, FlagValue::Flagged);
             record_branch("not applied (no caliper)");
             0.0
         } else {
-            state[i] = 0.0;
+            full.set(i, FlagValue::Flagged);
             record_branch("corrected in full");
             ctx.p("K_RHO", i) * (cl - ctx.p("HD_REF", i)).max(0.0)
         };
         out[i] = (r + corr) as f32;
     }
-    HashMap::from([("RHOB_EC".to_string(), out), ("RHOB_EC_CSTATE".to_string(), state)])
+    HashMap::from([
+        ("RHOB_EC".to_string(), out),
+        ("RHOB_EC_FULL".to_string(), full.into_f32()),
+        ("RHOB_EC_PARTIAL".to_string(), partial.into_f32()),
+        ("RHOB_EC_NONE".to_string(), none.into_f32()),
+        ("RHOB_EC_REFUSED".to_string(), refused.into_f32()),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -7306,7 +7419,16 @@ mod tests {
             .filter(|module| {
                 matches!(
                     module.name.as_str(),
-                    "badhole" | "condflag" | "despike" | "smooth" | "clip" | "fill_gaps" | "flip"
+                    "badhole"
+                        | "condflag"
+                        | "despike"
+                        | "smooth"
+                        | "clip"
+                        | "fill_gaps"
+                        | "flip"
+                        | "gr_hole_corr"
+                        | "rhob_hole_corr"
+                        | "nphi_env_corr"
                 )
             })
             .flat_map(|module| {
@@ -7340,6 +7462,20 @@ mod tests {
             // channel, never OUT_FLAG.
             ("despike.OUT_FBSCALE".into(), FlagKind::DiagnosticIndicator),
             ("smooth.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
+            // SB-ENV-007 (DEC-060(a)): the correction-state one-hot groups are ordinary
+            // typed flags now, so they belong in this closed inventory.
+            ("gr_hole_corr.GR_EC_FULL".into(), FlagKind::DiagnosticIndicator),
+            ("gr_hole_corr.GR_EC_PARTIAL".into(), FlagKind::DiagnosticIndicator),
+            ("gr_hole_corr.GR_EC_NONE".into(), FlagKind::DiagnosticIndicator),
+            ("gr_hole_corr.GR_EC_REFUSED".into(), FlagKind::DiagnosticIndicator),
+            ("rhob_hole_corr.RHOB_EC_FULL".into(), FlagKind::DiagnosticIndicator),
+            ("rhob_hole_corr.RHOB_EC_PARTIAL".into(), FlagKind::DiagnosticIndicator),
+            ("rhob_hole_corr.RHOB_EC_NONE".into(), FlagKind::DiagnosticIndicator),
+            ("rhob_hole_corr.RHOB_EC_REFUSED".into(), FlagKind::DiagnosticIndicator),
+            ("nphi_env_corr.NPHI_EC_FULL".into(), FlagKind::DiagnosticIndicator),
+            ("nphi_env_corr.NPHI_EC_PARTIAL".into(), FlagKind::DiagnosticIndicator),
+            ("nphi_env_corr.NPHI_EC_NONE".into(), FlagKind::DiagnosticIndicator),
+            ("nphi_env_corr.NPHI_EC_REFUSED".into(), FlagKind::DiagnosticIndicator),
             ("clip.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
             ("fill_gaps.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
         ]);
@@ -11760,8 +11896,14 @@ mod tests {
         assert!(err.contains("set_curve_neutron_basis"), "the fix is named: {err}");
     }
 
+    /// SB-ENV-007 (DEC-060(a), reversing DEC-031(a); parts (b) and (c) unchanged): the
+    /// per-sample correction state is a ONE-HOT boolean flag group in SB-ENV-030's single
+    /// 1 = true polarity - exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
+    /// all four MISSING where the input is. Part (c) still authorizes the partial run, and
+    /// the NONE flag is the only thing that records the raw pass-through; no finite caliper
+    /// anywhere is still SB-ENV-006's whole-run refusal.
     #[test]
-    fn a_partially_covered_correction_runs_and_the_state_channel_records_what_was_not_applied() {
+    fn a_partially_covered_correction_runs_and_the_flag_group_records_what_was_not_applied() {
         // A. gr_hole_corr, caliper over half the interval: RUNS under DEC-031 part (c).
         let ctx = ctx_with(
             4,
@@ -11775,17 +11917,34 @@ mod tests {
         let out = run_module("gr_hole_corr", &ctx)
             .expect("a partially covered caliper runs - DEC-031 part (c)");
         let ec = &out["GR_EC"];
-        let state = &out["GR_EC_CSTATE"];
-        // covered: corrected, state 0
         assert!((ec[0] - 80.0 * (1.0 + 0.01 * 2.0)).abs() < 1e-4);
-        assert_eq!(state[0], 0.0);
         // uncovered: the RAW value passes through under the corrected name - authorized, and
-        // the state channel is the only thing that records it.
+        // the NONE flag is the only thing that records it.
         assert_eq!(ec[1].to_bits(), 90.0f32.to_bits());
-        assert_eq!(state[1], 2.0, "not applied must be RECORDED, never silent");
-        assert_eq!(state[2], 0.0);
-        // no input sample: MISSING, never a code that asserts a correction nobody ran.
-        assert!(ec[3].is_nan() && state[3].is_nan());
+        let group = ["GR_EC_FULL", "GR_EC_PARTIAL", "GR_EC_NONE", "GR_EC_REFUSED"];
+        let winners = |i: usize| -> Vec<&str> {
+            group.iter().filter(|k| out[**k][i] == 1.0).copied().collect::<Vec<_>>()
+        };
+        assert_eq!(winners(0), ["GR_EC_FULL"], "covered: corrected in full");
+        assert_eq!(
+            winners(1),
+            ["GR_EC_NONE"],
+            "the pass-through must be RECORDED, never silent - and by exactly one flag"
+        );
+        assert_eq!(winners(2), ["GR_EC_FULL"]);
+        for key in group {
+            assert!(
+                out[key][3].is_nan(),
+                "{key}: no input sample stays MISSING, never a flag value"
+            );
+            for i in 0..3 {
+                assert!(
+                    out[key][i] == 0.0 || out[key][i] == 1.0,
+                    "{key}[{i}]: single 1 = true polarity, {}",
+                    out[key][i]
+                );
+            }
+        }
 
         // B. The other side: no finite caliper anywhere STILL refuses, naming the ruling.
         let uncovered = ctx_with(
@@ -11798,8 +11957,8 @@ mod tests {
             .expect_err("no caliper anywhere is still SB-ENV-006's refusal");
         assert!(error.contains("DEC-031"), "{error}");
 
-        // C. nphi_env_corr: two steps, so a missing FTEMP sample is 1 = PARTIAL (salinity
-        //    only), not 0 and not 2 - the step set travels in the run manifest.
+        // C. nphi_env_corr: two steps, so a missing FTEMP sample raises PARTIAL (salinity
+        //    only) - its own flag, never FULL - and the step set travels in the run manifest.
         let ctx = ctx_with(
             3,
             &[
@@ -11810,10 +11969,11 @@ mod tests {
             &[],
         );
         let out = run_module("nphi_env_corr", &ctx).expect("run");
-        let state = &out["NPHI_EC_CSTATE"];
-        assert_eq!(state[0], 0.0, "both steps applied");
-        assert_eq!(state[1], 1.0, "salinity applied, temperature step skipped = PARTIAL");
-        assert!(state[2].is_nan());
+        assert_eq!(out["NPHI_EC_FULL"][0], 1.0, "both steps applied");
+        assert_eq!(out["NPHI_EC_PARTIAL"][0], 0.0);
+        assert_eq!(out["NPHI_EC_PARTIAL"][1], 1.0, "salinity only = PARTIAL, its own flag");
+        assert_eq!(out["NPHI_EC_FULL"][1], 0.0, "a partial sample never reads as full");
+        assert!(out["NPHI_EC_PARTIAL"][2].is_nan());
     }
 
     #[test]

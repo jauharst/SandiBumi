@@ -1879,16 +1879,6 @@ fn fetch_mask_aligned(
     // flagged while 6 = neither evaluable would read as a bad-hole flag - the exact
     // inversion. Mask with the binary BADHOLE channel; this curve is the reason, never
     // the trigger.
-    // SB-ENV-007 (DEC-031 constraint 1): the coded correction-state curves are refused the
-    // same way - 0 = corrected-in-full would read clean and 2 = not-applied would read
-    // flagged under rule 11's any-non-zero mask, inverting the best state exactly.
-    if mask_name.trim().to_uppercase().ends_with("_CSTATE") {
-        return Err(format!(
-            "{mask_name} is a coded correction-state curve, not a flag: 0 means corrected in \
-             full and 2 means not applied, so masking on it would invert the intent. Mask with \
-             a binary flag such as BADHOLE instead."
-        ));
-    }
     if mask_name.eq_ignore_ascii_case("BADHOLE_REASON") {
         return Err(
             "BADHOLE_REASON is a coded reason curve, not a flag: 0 means NOT flagged and 6              means neither criterion was evaluable, so masking on it would invert the intent.              Mask with BADHOLE instead."
@@ -7678,12 +7668,14 @@ mod tests {
         );
     }
 
-    /// SB-ENV-007 (DEC-031 constraints 1 and b): the coded state curve is refused as a MASK
-    /// by name, and the applied-step manifest rides the run's LOG-SET record - the branch
+    /// SB-ENV-007 (DEC-060(a) + DEC-031(b)): the one-hot flag group survives the production
+    /// runner as ordinary stored flags - safe in the mask machinery, the reversal's stated
+    /// reason - and the applied-step manifest rides the run's LOG-SET record: the branch
     /// record composes "corrected in full N, not applied M" into the version comment, which
-    /// is the per-run manifest the per-sample channel complements.
+    /// is the per-run manifest the per-sample group complements.
     #[test]
-    fn the_correction_state_is_refused_as_a_mask_and_the_step_manifest_rides_the_log_set() {
+    fn the_correction_flag_group_is_one_hot_through_the_runner_and_the_manifest_rides_the_log_set()
+    {
         let conn = duckdb::Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let id = uuid::Uuid::new_v4();
@@ -7726,11 +7718,6 @@ mod tests {
                 },
             )
         };
-        // A. The state curve is the reason, never the trigger.
-        let refused = run(Some("GR_EC_CSTATE"));
-        let error = refused[0].error.clone().expect("a state curve must be refused as a mask");
-        assert!(error.contains("Mask with"), "the refusal names the fix: {error}");
-        // B. The partial run's applied-step manifest rides the log-set record.
         let results = run(None);
         assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
@@ -7747,6 +7734,24 @@ mod tests {
                 && comment.contains("not applied (no caliper) 2 samples"),
             "the manifest states what was and was not applied: {comment}"
         );
+        // The stored group is one-hot at every sampled depth: FULL where the caliper covered,
+        // NONE where the raw value passed through - written as ordinary 1 = true flags.
+        let read = |curve: &str| -> Vec<f32> {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT value FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2 \
+                     ORDER BY depth",
+                )
+                .unwrap();
+            stmt.query_map(duckdb::params![id.to_string(), curve], |row| {
+                Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+        };
+        assert_eq!(read("GR_EC_FULL"), [1.0, 0.0, 1.0, 0.0]);
+        assert_eq!(read("GR_EC_NONE"), [0.0, 1.0, 0.0, 1.0]);
     }
 
     /// SB-ENV-029 (DEC-025): the runner carries the input curve's DECLARED neutron basis to
