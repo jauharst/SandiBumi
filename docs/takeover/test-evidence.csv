@@ -429,3 +429,4 @@
 "SB-CUT-001","CORRECTNESS","src-tauri/src/workflow.rs","the_discretisation_model_defaults_to_centred_and_forward_reproduces_the_shipped_numbers"
 "SB-POR-044","CORRECTNESS","src-tauri/src/modules.rs","the_smooth_roll_off_reuses_phie_max_decays_past_the_cutoff_and_refuses_unsupplied_shape_parameters"
 "SB-POR-002","CORRECTNESS","src-tauri/src/modules.rs","the_sonic_pair_is_bare_beside_the_limited_pair_and_a_matrix_slower_than_shale_is_refused_by_name"
+"SB-POR-057","CORRECTNESS","src-tauri/src/workflow.rs","the_quick_look_porosity_never_feeds_the_summed_numbers_and_its_refusal_is_recorded_on_the_row"

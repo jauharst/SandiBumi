@@ -3180,6 +3180,9 @@ export interface PaySummaryRow {
    *  It means "a cutoff was requested and this well has nothing to answer it with", never "this
    *  well has no permeability" — with no cutoff asked for there is nothing to report. */
   perm_cutoff_no_data: boolean;
+  /** SB-POR-057 / DEC-070: this well's only porosity is the quick-look comparison curve,
+   *  deliberately not summed - render the zeros as "not interpreted", never as wet. */
+  quicklook_phie_excluded: boolean;
 }
 
 export async function runPaySummary(

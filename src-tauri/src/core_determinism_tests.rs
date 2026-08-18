@@ -192,14 +192,15 @@ fn representative_steps(rw: f64) -> Vec<chain::ChainStep> {
             opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
         },
         chain::ChainStep {
-            module: "phi_dn".into(),
+            // phi_den, not phi_dn: DEC-070 (2026-08-18) made the D-N quick-look curve
+            // visual-only, and this chain's product feeds a pay summary.
+            module: "phi_den".into(),
             log_inputs: HashMap::new(),
             params: HashMap::from([
                 ("RHO_SH".into(), 2.45),
-                ("NPHI_SH".into(), 0.35),
                 ("RHO_DSH".into(), 2.70),
             ]),
-            opts: HashMap::from([("OPT_XPLOT".into(), "AVERAGE".into())]),
+            opts: HashMap::new(),
         },
         chain::ChainStep {
             module: "sw_indo".into(),
@@ -349,7 +350,7 @@ fn run_dbm016_child() {
         !result.curve_blobs.is_empty(),
         "the process proof cannot compare an empty output"
     );
-    for required in ["VSH", "PHIE_DN_LIM", "SWE"] {
+    for required in ["VSH", "PHIE", "SWE"] {
         assert!(
             result
                 .curve_blobs
@@ -455,7 +456,7 @@ fn a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blob
         !first.curve_blobs.is_empty(),
         "an empty output cannot prove determinism"
     );
-    for required in ["VSH", "PHIE_DN_LIM", "SWE"] {
+    for required in ["VSH", "PHIE", "SWE"] {
         assert!(
             first.curve_blobs.keys().any(|(_, curve)| curve == required),
             "the representative chain must actually write {required}"

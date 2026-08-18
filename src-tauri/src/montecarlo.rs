@@ -2099,11 +2099,13 @@ mod tests {
         // of them is restored as a shipping default.
         let params = match module {
             "vsh_gr" => HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
-            "phi_dn" => HashMap::from([
+            // phi_den, not phi_dn: DEC-070 (2026-08-18) made the D-N quick-look curve
+            // visual-only, so a chain that feeds pay uses the authoritative density
+            // method - these fixtures are about sampling/masking/cutoffs, not the ruling.
+            "phi_den" => HashMap::from([
                 ("RHO_MA".into(), 2.645),
                 ("RHO_SH".into(), 2.5),
                 ("RHO_FL".into(), 1.0),
-                ("NPHI_SH".into(), 0.35),
                 ("RHO_DSH".into(), 2.65),
                 ("RHO_W".into(), 1.0),
                 ("PHIE_MAX".into(), 0.3),
@@ -2130,7 +2132,7 @@ mod tests {
         }
     }
 
-    /// A clean-ish sand: low GR, moderate porosity, low water saturation, so vsh_gr → phi_dn →
+    /// A clean-ish sand: low GR, moderate porosity, low water saturation, so vsh_gr → phi_den →
     /// sw_indo yields real pay and a positive HPV.
     fn seed_well(conn: &Connection) -> String {
         let id = Uuid::new_v4();
@@ -2152,7 +2154,7 @@ mod tests {
             well_ids: vec![well.into()],
             // DEC-071: MC fixtures keep their hand-derived FORWARD expectations.
             discretisation: crate::workflow::DiscretisationModel::Forward,
-            steps: vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")],
+            steps: vec![step("vsh_gr"), step("phi_den"), step("sw_indo")],
             mc_params: mc,
             iterations,
             seed,
@@ -2226,7 +2228,7 @@ mod tests {
         // Chain A — reads permeability from the project (rocktyping consumes PERM, nothing
         // produces it). This is the case where the cutoff works, and it is the control: without
         // it, the equality below would prove only that the cutoff is broken everywhere.
-        let reads_perm = || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("rocktyping")];
+        let reads_perm = || vec![step("vsh_gr"), step("phi_den"), step("sw_indo"), step("rocktyping")];
         let a_open = run(reads_perm(), None);
         let a_cut = run(reads_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         assert!(a_open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
@@ -2236,7 +2238,7 @@ mod tests {
         // PRODUCED curve, so it never enters the external pool at all; the cutoff has to find it
         // in `produced` instead.
         let makes_perm =
-            || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
+            || vec![step("vsh_gr"), step("phi_den"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
         let b_open = run(makes_perm(), None);
         let b_cut = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
@@ -2288,7 +2290,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let masked = || HashMap::from([("MASK".to_string(), "BADHOLE".to_string())]);
-        let modules_in_chain = ["vsh_gr", "phi_dn", "sw_indo"];
+        let modules_in_chain = ["vsh_gr", "phi_den", "sw_indo"];
 
         // The real chain, one masked step at a time, then the pay summary over what it wrote.
         for m in modules_in_chain {
@@ -2351,7 +2353,7 @@ mod tests {
 
         // SB-POR-047 CLOSED this observable for chains carrying a porosity module: hole quality
         // is a DECLARED input now, and `build_plans` assembles its fetch list from LogIn
-        // mnemonics — so the flag curve rides into the realization and phi_dn excludes the
+        // mnemonics — so the flag curve rides into the realization and phi_den excludes the
         // washout natively, mask or no mask. The MASK-ignoring MECHANISM this test's doc block
         // describes still exists (`run_realization` still never blanks on MASK); it simply no
         // longer has anything left to inflate here, and the equality is the proof.
@@ -2916,7 +2918,7 @@ mod tests {
         req.persist = true;
         let res = run_monte_carlo(&dbm, &req, None);
         assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
-        // The chain (vsh_gr → phi_dn → sw_indo) produces VSH/PHIE/SWE but no PERM.
+        // The chain (vsh_gr → phi_den → sw_indo) produces VSH/PHIE/SWE but no PERM.
         assert!(res.persisted.contains(&"MC_PHIE_LOW".to_string()), "persisted: {:?}", res.persisted);
         assert!(res.persisted.contains(&"MC_PHIE_BASE".to_string()));
         assert!(!res.persisted.iter().any(|c| c.contains("PERM")), "no PERM in this chain");

@@ -2005,6 +2005,7 @@ mod tests {
             hpv: net * phie * 0.6,
             n_classified: n,
             perm_cutoff_no_data: false,
+            quicklook_phie_excluded: false,
         }
     }
 

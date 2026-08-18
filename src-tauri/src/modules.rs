@@ -7194,8 +7194,8 @@ mod tests {
     /// chart lookups **MUST** be removed. They **MAY** ship as explicitly labelled quick-look
     /// comparison curves, which is what this pins.
     ///
-    /// This covers the presentation arm only. The pay-eligibility arm is recorded as a live
-    /// contract conflict rather than silently resolved here - see the SB-POR-023 evidence row.
+    /// This covers the presentation arm; the pay-eligibility arm below is pinned to DEC-070
+    /// (2026-08-18), which superseded the DEC-042 fallback and made the shortcuts visual-only.
     #[test]
     fn the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method(
     ) {
@@ -7234,15 +7234,18 @@ mod tests {
             dn.doc
         );
 
-        // C — pay eligibility, settled by Jauhar on 2026-08-16 as option (b): the D-N limited output
-        // IS admitted to pay, so the canonical-first fallback reaching it is the approved contract
-        // rather than the leak it looked like. The pay path must therefore consult exactly the
-        // closed two-name pair and nothing wider — a family scan here would let any porosity-shaped
-        // curve into a reserves number, which is the failure the closed list exists to prevent.
+        // C — pay eligibility, re-ruled by Jauhar on 2026-08-18 as DEC-070 ("quick look only
+        // shows pay summation as visual not pay curves"), superseding the DEC-042 option (b)
+        // this arm previously pinned: the quick-look limited curve may be OVERLAID as a
+        // visual comparison but never feeds the summed numbers. The pay path therefore
+        // consults exactly the ONE canonical name — the quick-look custody mnemonic must not
+        // appear among the candidates, and the list must not widen into a family scan, which
+        // would let any porosity-shaped curve into a reserves number.
         //
-        // `PILOT_SCOPE.md` item 6 still reads "excluded from pay by default" and contradicts this
-        // ruling. That file is outside this program's allowed paths and is hash-bound to DEC-018,
-        // so the correction is recorded in the SB-POR-023 evidence row rather than made here.
+        // `PILOT_SCOPE.md` item 6 ("excluded from pay by default") is now superseded in the
+        // OTHER direction: exclusion from summation is back, while display overlay stays
+        // allowed. That file is outside this program's allowed paths and hash-bound to
+        // DEC-018, so the reconciliation stays recorded in evidence rather than made here.
         let pay = include_str!("workflow.rs");
         let candidates = pay
             .split("let phie_candidates = vec![")
@@ -7250,13 +7253,13 @@ mod tests {
             .and_then(|tail| tail.split("];").next())
             .expect("run_pay_summary must declare its PHIE candidate list");
         assert!(
-            candidates.contains("\"PHIE\"") && candidates.contains("PHIE_DN_LIMITED_DEFAULT"),
-            "pay must reach the D-N limited output through the canonical-first pair: {candidates}"
+            candidates.contains("\"PHIE\"") && !candidates.contains("PHIE_DN_LIMITED_DEFAULT"),
+            "DEC-070: the quick-look custody mnemonic must not be a pay candidate: {candidates}"
         );
         assert_eq!(
             candidates.matches(',').count(),
-            2,
-            "the pay fallback must stay a closed two-name pair, not a widening list: {candidates}"
+            0,
+            "the pay candidate list is the one canonical name, not a widening list: {candidates}"
         );
 
         // D — the registry identity from SB-POR-001 must still type this producer as a comparison,

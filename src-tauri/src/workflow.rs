@@ -3492,6 +3492,18 @@ pub struct PaySummaryRow {
     /// to report, and a flag that fired anyway would appear on every report anyone ever ran.
     #[serde(default)]
     pub perm_cutoff_no_data: bool,
+    /// SB-POR-057 (DEC-070, RULED 2026-08-18: "quick look only shows pay summation as
+    /// visual not pay curves"). **This well's porosity exists ONLY as the quick-look D-N
+    /// comparison curve (`PHIE_DN_LIM`), and it was deliberately not summed** - the
+    /// quick-look shortcuts may be OVERLAID on a display as a visual comparison, but never
+    /// feed net/NTG/HPV. Without this mark the zeros on such a well read exactly like a
+    /// wet well; with it a reader sees the curve existed and why it was refused. Supersedes
+    /// the pay-eligible fallback DEC-042 shipped. Per well, like
+    /// [`Self::perm_cutoff_no_data`]; false both when an authoritative `PHIE` was summed
+    /// and when the well simply has no porosity at all - the flag means "present and
+    /// excluded", never "absent".
+    #[serde(default)]
+    pub quicklook_phie_excluded: bool,
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
@@ -4406,11 +4418,13 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| well_id.clone());
-        let phie_candidates = vec![
-            "PHIE".to_string(),
-            modules::PHIE_DN_LIMITED_DEFAULT.to_string(),
-        ];
-        let phie_curve = match first_available_input_alias(
+        // SB-POR-057 (DEC-070, RULED 2026-08-18): the candidate list is the ONE canonical
+        // name. The quick-look D-N limited curve is no longer a fallback - "quick look only
+        // shows pay summation as visual not pay curves" - superseding the DEC-042 two-name
+        // pair this list used to carry. Displays may overlay PHIE_DN_LIM; the summed
+        // numbers never read it.
+        let phie_candidates = vec!["PHIE".to_string()];
+        let (phie_curve, phie_resolved) = match first_available_input_alias(
             &conn,
             well_id,
             "PHIE",
@@ -4419,10 +4433,27 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             None,
             &HashSet::new(),
         ) {
-            Ok(Some(curve)) => curve,
-            Ok(None) => "PHIE".into(),
+            Ok(Some(curve)) => (curve, true),
+            Ok(None) => ("PHIE".into(), false),
             Err(_) => continue,
         };
+        // DEC-070's observable half: when the ONLY porosity here is the quick-look curve,
+        // the row says so - the zeros below mean "not interpreted for pay", never "wet".
+        // Deliberately NOT set when the well has no porosity at all: the flag means
+        // "present and excluded", and conflating it with absence would erase the reason
+        // the mark exists.
+        let quicklook_phie_excluded = !phie_resolved
+            && equations::try_resolve_ancestry_input(
+                &conn,
+                well_id,
+                "PHIE",
+                modules::PHIE_DN_LIMITED_DEFAULT,
+                req.input_set.as_deref(),
+                None,
+            )
+            .ok()
+            .flatten()
+            .is_some();
         let curve_names: Vec<String> =
             vec!["VSH".into(), phie_curve.clone(), "SWE".into(), "PERM".into()];
 
@@ -4741,6 +4772,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     ),
                     n_classified,
                     perm_cutoff_no_data,
+                    quicklook_phie_excluded,
                 });
             }
         }
@@ -7250,6 +7282,136 @@ mod tests {
         well
     }
 
+    /// SB-POR-057 (DEC-070, RULED 2026-08-18: "quick look only shows pay summation as
+    /// visual not pay curves", confirmed "8, correct"). The D-N quick-look shortcuts are
+    /// structurally a comparison-only class (Comparison* roles, custody mnemonics distinct
+    /// from the shared PHIE/PHIT, ancestry module identity as provenance) and the pay
+    /// engine never reads them: the candidate list is the one canonical name, a well whose
+    /// only porosity is the quick-look curve is reported NOT INTERPRETED with the refusal
+    /// recorded on the row, and absence of any porosity is deliberately NOT marked - the
+    /// flag means "present and excluded". Supersedes the DEC-042 pay-eligible fallback.
+    /// Display overlay needs no gate here: plot layers read curves by mnemonic and nothing
+    /// added excludes PHIE_DN_LIM from them.
+    #[test]
+    fn the_quick_look_porosity_never_feeds_the_summed_numbers_and_its_refusal_is_recorded_on_the_row(
+    ) {
+        // A - the comparison-only class is structural: every registered phi_dn porosity
+        // output carries a Comparison* role, and the limited pair lands under its own
+        // custody mnemonics, never the shared authoritative names.
+        let dn = modules::list_modules()
+            .into_iter()
+            .find(|spec| spec.name == "phi_dn")
+            .expect("phi_dn ships");
+        let mut classified = 0usize;
+        for argument in &dn.args {
+            let Some(contract) = argument.porosity_output.as_ref() else { continue };
+            classified += 1;
+            assert!(
+                format!("{:?}", contract.output_role).starts_with("Comparison"),
+                "phi_dn.{} must stay comparison-typed, got {:?}",
+                argument.name,
+                contract.output_role
+            );
+        }
+        assert_eq!(classified, 4, "the whole quick-look output set is comparison-typed");
+        let limited = dn
+            .args
+            .iter()
+            .find(|argument| argument.name == "PHIE")
+            .expect("the limited effective output exists");
+        // `log_out_as` records the custody rename in the argument's default pattern.
+        assert_eq!(
+            limited.default,
+            modules::PHIE_DN_LIMITED_DEFAULT,
+            "the limited quick-look curve writes under its own custody mnemonic, not PHIE"
+        );
+
+        // Fixture wells share seed_weighting_well's rock (avg_swe 0.30 phi-weighted,
+        // avg_phie 0.20 thickness-weighted over 10 net units when summed).
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let auth = seed_weighting_well(&conn, "QL-AUTH", "PHIE");
+        let ql_only = seed_weighting_well(&conn, "QL-ONLY", modules::PHIE_DN_LIMITED_DEFAULT);
+        // A well carrying BOTH: the quick-look curve holds DIFFERENT numbers (0.05
+        // everywhere), so a leak into the summation would move avg_phie visibly.
+        let both_well = seed_weighting_well(&conn, "QL-BOTH", "PHIE");
+        let depth: Vec<f32> = (0..11).map(|i| 1000.0 + i as f32).collect();
+        equations::write_computed_curve(
+            &conn, &both_well, &depth, modules::PHIE_DN_LIMITED_DEFAULT, &vec![0.05f32; 11],
+        )
+        .unwrap();
+        // A well with NO porosity of any kind (the seeded curve lands under an alien name
+        // nothing resolves), to prove absence is not marked as exclusion.
+        let none = seed_weighting_well(&conn, "QL-NONE", "PHIX_UNRESOLVED");
+        let dbm = Mutex::new(conn);
+
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                discretisation: DiscretisationModel::Forward,
+                input_set: None,
+                well_ids: vec![auth.clone(), ql_only.clone(), both_well.clone(), none.clone()],
+                vsh_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                phie_min: Some(CutoffEntry { value: 0.05, unit: "v/v".into() }.into()),
+                swe_max: Some(CutoffEntry { value: 0.9, unit: "v/v".into() }.into()),
+                perm_min: None,
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+                skip_version: false,
+                stats_only: true,
+                custody: None,
+                frame: Default::default(),
+                weighting: Default::default(),
+            },
+        )
+        .expect("the summary runs");
+        let pay = |well: &str| -> &PaySummaryRow {
+            rows.iter()
+                .find(|row| row.well_id == well && row.flag == "PAY")
+                .expect("a PAY row")
+        };
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+
+        // B - the authoritative well sums exactly as before, unmarked.
+        let a = pay(&auth);
+        assert!(near(a.avg_phie, 0.20) && near(a.avg_swe, 0.30) && near(a.net, 10.0));
+        assert!(!a.quicklook_phie_excluded);
+
+        // C - the quick-look-only well is NOT summed: not interpreted for pay, with the
+        // refusal recorded. Its curve held real numbers; none of them reached a sum.
+        let q = pay(&ql_only);
+        assert_eq!(q.n_classified, 0, "the quick-look curve never feeds classification");
+        assert!(near(q.net, 0.0) && near(q.unknown, q.gross), "unjudged, not wet");
+        assert!(q.quicklook_phie_excluded, "the row records the DEC-070 refusal");
+        assert!(
+            rows.iter()
+                .filter(|row| row.well_id == ql_only)
+                .all(|row| row.quicklook_phie_excluded),
+            "per well: every flag row of the well carries the mark"
+        );
+
+        // D - beside an authoritative PHIE the quick-look curve neither leaks nor marks:
+        // identical averages to the plain well, flag false.
+        let b = pay(&both_well);
+        assert!(
+            near(b.avg_phie, 0.20) && near(b.avg_swe, 0.30),
+            "the 0.05 quick-look values must not move a summed average: {} {}",
+            b.avg_phie,
+            b.avg_swe
+        );
+        assert!(!b.quicklook_phie_excluded, "nothing was excluded - PHIE answered");
+
+        // E - a well with no porosity AT ALL is not marked: the flag means "present and
+        // excluded", never "absent".
+        let n = pay(&none);
+        assert_eq!(n.n_classified, 0);
+        assert!(!n.quicklook_phie_excluded, "absence is not exclusion");
+
+        // F - the refusal crosses the wire as a typed boolean, like its precedent.
+        let wire = serde_json::to_value(q).expect("a row serializes");
+        assert!(wire["quicklook_phie_excluded"].is_boolean());
+    }
+
     /// SB-CUT-009 (P1, SILENT-WRONGNESS). `14_cutoffs-summation-mc.md:1033-1048` — porosity
     /// weighting of an averaged curve **MUST** be controlled by an explicit per-curve flag stored
     /// with the curve's averaging configuration, and SandiBumi **MUST NOT** infer it from the
@@ -7340,13 +7502,19 @@ mod tests {
             "and declaring one curve must not disturb another"
         );
 
-        // D — THE NAME HAS NO INFLUENCE. The same rock with its porosity curve stored under a
-        // different mnemonic averages identically, under the default and under an override.
+        // D — updated under DEC-070 (RULED 2026-08-18), which removed the DEC-042 fallback
+        // this arm rode on: a well whose porosity exists ONLY under the quick-look custody
+        // mnemonic is no longer summed AT ALL, so the name cannot influence a weighting
+        // decision because the curve never reaches the averaging - the strongest form of
+        // "never inferred from the name". The refusal is observable on the row rather than
+        // silent, and the anti-inference contract stays behaviourally pinned by arms A-C
+        // and structurally by the scan below.
         let both = run(vec![plain.clone(), aliased.clone()], BTreeMap::new());
         let (p, a) = (pay(&both, &plain), pay(&both, &aliased));
-        assert!(near(p.avg_swe, a.avg_swe) && near(p.avg_vsh, a.avg_vsh) && near(p.avg_phie, a.avg_phie),
-            "renaming the porosity curve changed an average: {:?} vs {:?}",
-            (p.avg_swe, p.avg_vsh, p.avg_phie), (a.avg_swe, a.avg_vsh, a.avg_phie));
+        assert!(near(p.avg_swe, 0.30), "the authoritative well still sums");
+        assert_eq!(a.n_classified, 0, "the quick-look-only well is not interpreted for pay");
+        assert!(a.quicklook_phie_excluded, "and the row records why");
+        assert!(!p.quicklook_phie_excluded, "a well summed from PHIE carries no such mark");
 
         // ...and structurally, so a future edit cannot quietly reintroduce the inference. The
         // resolver is keyed on the SLOT a curve fills — a role, fixed at compile time — and the
@@ -9560,6 +9728,7 @@ mod tests {
             hpv: 0.0,
             n_classified,
             perm_cutoff_no_data: perm_no_data,
+            quicklook_phie_excluded: false,
             residual_absorbed: 0.0,
             out_of_range: false,
             unfiltered: vec!["PERM".into()],
@@ -9727,6 +9896,7 @@ mod tests {
             hpv: 0.14,
             n_classified: 1,
             perm_cutoff_no_data: false,
+            quicklook_phie_excluded: false,
             residual_absorbed: 0.0,
             out_of_range: false,
             unfiltered: Vec::new(),
