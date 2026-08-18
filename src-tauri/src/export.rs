@@ -1066,6 +1066,72 @@ mod tests {
     /// and the column exports as ALL NULL — a full-length curve of nothing, in a file that looks
     /// perfectly well formed. The exporter uppercases the key for exactly this reason; this test
     /// is what stops that line being "tidied" away.
+    /// SB-CLY-055 (DEC-036): the domain's curves round-trip LAS - the declared null is in
+    /// the header, an absence comes back MISSING on both the volume and the token curve,
+    /// and every registry v1 provenance code survives as a curve bit-exact, ready for the
+    /// registry that decodes it.
+    #[test]
+    fn the_cly_token_curve_round_trips_las_with_absences_preserved_and_codes_bit_exact() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, vsh) = seed(&conn);
+        let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        // Every registry v1 code once; depth[5] deliberately has NO row - an absence.
+        for (i, code) in [0.0f32, 1.0, 2.0, 3.0, 4.0].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+                 VALUES (?1, ?2, 'VSH_PROV', ?3, NULL)",
+                params![id.to_string(), depth[i], code],
+            )
+            .unwrap();
+        }
+        let dest = tmp_path("cly-roundtrip");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&dest).unwrap();
+        assert!(text.contains("NULL."), "the declared null is in the header");
+        assert!(text.contains("VSH_PROV"), "the token curve survives as a curve");
+
+        // Re-import into a FRESH project: codes bit-exact, absences MISSING.
+        let conn2 = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn2).unwrap();
+        let results = crate::ingest::import_las_files(
+            &conn2,
+            &[dest.to_str().unwrap().to_string()],
+            None,
+        );
+        let _ = std::fs::remove_file(&dest);
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+        let well2 = results[0].well_id.clone().expect("well imported");
+        let catalog = db::list_generic_curve_catalog(&conn2, &well2).unwrap();
+        let read = |curve_id: &str| -> Vec<f32> {
+            let mut stmt = conn2
+                .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+                .unwrap();
+            stmt.query_map(params![curve_id], |row| {
+                Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+        };
+        let prov = catalog
+            .iter()
+            .find(|curve| curve.mnemonic == "VSH_PROV")
+            .expect("the token curve is present after re-import");
+        let values = read(&prov.curve_id);
+        assert_eq!(&values[..5], &[0.0, 1.0, 2.0, 3.0, 4.0], "codes are bit-exact");
+        assert!(values[5].is_nan(), "the absence comes back MISSING, never a code");
+        let volume = catalog
+            .iter()
+            .find(|curve| curve.mnemonic.eq_ignore_ascii_case("VSH_FINAL"))
+            .expect("the volume curve is present after re-import");
+        let volume_values = read(&volume.curve_id);
+        assert!(
+            volume_values[3].is_nan(),
+            "the volume curve's absence survives the declared null: {volume_values:?}"
+        );
+        assert!((volume_values[0] - vsh[0]).abs() < 5e-4);
+    }
+
     #[test]
     fn export_writes_missing_as_null_and_carries_mixed_case_computed_curves() {
         let conn = Connection::open_in_memory().unwrap();

@@ -1147,6 +1147,27 @@ fn prepare_generic_curves(
     let mut unconverted_units = Vec::new();
     let mut unit_designations = Vec::new();
     for raw in curves {
+        // SB-CLY-055 (DEC-036 constraint 3): a CLY provenance token curve is validated
+        // against the registry BEFORE anything is written - an unknown code REFUSES the
+        // import, naming the code and the registry version it could not resolve. A token
+        // whose meaning is not in the reader's table is not a token, and silently passing
+        // it through would let a later vocabulary's code be read as whatever this version
+        // happens to assign. Runs pre-transaction in both LAS paths, so a refused delivery
+        // writes nothing at all.
+        if raw.mnemonic.trim().eq_ignore_ascii_case("VSH_PROV") {
+            if let Some(unknown) = raw.values.iter().find(|value| {
+                value.is_finite() && crate::param_sources::cly_prov_token(**value).is_none()
+            }) {
+                return Err(db::DbError::Invalid(format!(
+                    "curve {} carries code {unknown}, which CLY provenance registry v{} does \
+                     not define - the import is refused rather than reading an unknown token \
+                     as something this version happens to assign. Re-import with a build that \
+                     knows the writing registry's version, or correct the curve.",
+                    raw.mnemonic,
+                    crate::param_sources::CLY_PROV_REGISTRY_VERSION
+                )));
+            }
+        }
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
         if values.len() != depth.len() {
@@ -2834,6 +2855,69 @@ mod tests {
         assert!(sets[0].active && sets[0].set_name == "CORE_1");
         assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2);
         std::fs::remove_file(&path).ok();
+    }
+
+    /// SB-CLY-055 (DEC-036 constraint 3): an unknown code on RE-IMPORT refuses the whole
+    /// delivery BEFORE anything is written, naming the code and the registry version it
+    /// could not resolve - a token whose meaning is not in the reader's table is not a
+    /// token. Registry codes and the MISSING absences import untouched.
+    #[test]
+    fn an_unknown_provenance_code_refuses_the_import_naming_the_code_and_the_registry_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let cols = |prov: Vec<f32>| CurveColumns {
+            well_name: None,
+            well_headers: Vec::new(),
+            las_version: None,
+            unread_sections: Vec::new(),
+            section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
+            section_handling: Vec::new(),
+            text_encoding: "test fixture".into(),
+            depth_unit: Some("M".into()),
+            declared_step: None,
+            declared_step_mismatch_note: None,
+            depth: vec![1000.0, 1000.5, 1001.0],
+            gr: vec![40.0, 45.0, 50.0],
+            res: vec![f32::NAN; 3],
+            nphi: vec![f32::NAN; 3],
+            rhob: vec![f32::NAN; 3],
+            dt: vec![f32::NAN; 3],
+            sp: vec![f32::NAN; 3],
+            raw_curves: vec![parsers::RawLasCurve {
+                mnemonic: "VSH_PROV".into(),
+                unit: Some("flag".into()),
+                values: prov,
+            }],
+            alias_decisions: Vec::new(),
+            null_resolutions: Vec::new(),
+            index_resolution: None,
+            unit_designations: Vec::new(),
+        };
+
+        // A later vocabulary's code: refused by name, and NOTHING is written.
+        let refused = insert_parsed_well(
+            &conn,
+            "bad.las".into(),
+            "CLY-RT-BAD".into(),
+            cols(vec![0.0, 7.0, 1.0]),
+            &LasImportOptions::default(),
+        );
+        let error = refused.error.expect("an unknown token code must refuse the import");
+        assert!(error.contains('7'), "the code is named: {error}");
+        assert!(error.contains("registry v1"), "the registry version is named: {error}");
+        let wells: i64 =
+            conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(wells, 0, "a refused delivery writes nothing at all");
+
+        // Every registry code plus a MISSING absence imports untouched.
+        let ok = insert_parsed_well(
+            &conn,
+            "good.las".into(),
+            "CLY-RT-OK".into(),
+            cols(vec![3.0, f32::NAN, 4.0]),
+            &LasImportOptions::default(),
+        );
+        assert!(ok.error.is_none(), "{:?}", ok.error);
     }
 
     /// A second LAS import of a well whose name already exists still creates a separate record

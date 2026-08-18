@@ -417,3 +417,5 @@
 "SB-CLY-001","CORRECTNESS","src-tauri/src/modules.rs","vsh_gr_distinguishes_endpoint_failure_from_absent_input_and_never_computes_on_a_degenerate_pair"
 "SB-CLY-001","CORRECTNESS","src-tauri/src/workflow.rs","an_inverted_endpoint_zone_is_named_in_the_run_message_and_a_masked_sample_keeps_its_token"
 "SB-CLY-001","CORRECTNESS","src-tauri/src/db.rs","an_old_degradation_table_accepts_the_endpoint_invalid_kind_after_migration_and_keeps_its_rows"
+"SB-CLY-055","CORRECTNESS","src-tauri/src/export.rs","the_cly_token_curve_round_trips_las_with_absences_preserved_and_codes_bit_exact"
+"SB-CLY-055","CORRECTNESS","src-tauri/src/ingest.rs","an_unknown_provenance_code_refuses_the_import_naming_the_code_and_the_registry_version"
