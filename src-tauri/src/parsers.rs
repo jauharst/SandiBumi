@@ -3197,6 +3197,14 @@ pub struct DeviationSurvey {
     pub azi: Vec<f32>,
 }
 
+// Source: `docs/takeover/DRAFT_DIO011_dev_md_aliases.md`, SIGNED per DEC-076 (2026-08-19).
+// Per-value bases as signed: DEPTH = the IP ASCII loader's mandated literal (T2) plus real
+// Geolog `alias.alias:14`'s head symbol (T1); DEPT = the LAS 2.0 index convention the
+// chapter already adjudicated (`21_data-io.md:669`); MEASURED_DEPTH = IP's tops column
+// literal through header normalization (T2); MD = the chapter's CORE_DEPTH context rule
+// (`21_data-io.md:686`) extended by signed analogy. TVD is deliberately EXCLUDED — a survey
+// file routinely carries both MD and TVD columns, and the chapter records TOPS admitting
+// TVD as a defect (`21_data-io.md:690`).
 const DEV_MD_ALIASES: [&str; 4] = ["MD", "DEPTH", "DEPT", "MEASURED_DEPTH"];
 const DEV_INC_ALIASES: [&str; 4] = ["INC", "INCL", "INCLINATION", "DEVI"];
 const DEV_AZI_ALIASES: [&str; 5] = ["AZI", "AZIM", "AZIMUTH", "HAZI", "AZM"];
@@ -3515,6 +3523,12 @@ pub struct IntervalData {
     pub has_well_column: bool,
 }
 
+// Source: aux point-data interval labels (T-IMP-10/-11 import path). The depth-bearing
+// members (MD/DEPT/DEPTH/TOP_MD) follow the same non-LAS-context rule the chapter
+// adjudicated for CORE_DEPTH_ALIASES (`21_data-io.md:686`) and DEC-076 signed for
+// DEV_MD_ALIASES: a delimited table with no ambient index convention. TVD is excluded here
+// for the same `21_data-io.md:690` reason. Surfaced by the mechanical index-alias
+// discovery below — these two lists are exactly the kind the old three-list test missed.
 const AUX_TOP_ALIASES: [&str; 7] = ["TOP", "DEPTH", "TOP_MD", "FROM", "TOP_DEPTH", "MD", "DEPT"];
 const AUX_BASE_ALIASES: [&str; 6] = ["BASE", "BOTTOM", "TO", "BASE_MD", "BOT", "BOTTOM_DEPTH"];
 
@@ -4539,9 +4553,10 @@ mod las_depth_tests {
     }
 
     /// Supporting evidence for SB-DIO-011. The three index lists documented in chapter §5.3
-    /// cite that source and preserve Geolog's separate reference/welltie namespaces. This is not
-    /// the whole T17 contract: `DEV_MD_ALIASES` is a fourth index-bearing path with no cited
-    /// definition in §5.3, so the requirement remains blocked rather than hidden by this test.
+    /// cite that source and preserve Geolog's separate reference/welltie namespaces. The
+    /// deviation list's citation gap this docstring once recorded is closed: DEC-076 signed
+    /// the DRAFT_DIO011 attributions, and the mechanical discovery test below now finds
+    /// EVERY index-bearing list rather than enumerating three by name.
     #[test]
     fn the_three_documented_index_alias_lists_cite_their_sources_and_tvd_is_not_in_an_md_namespace() {
         let source = include_str!("parsers.rs");
@@ -4556,6 +4571,84 @@ mod las_depth_tests {
         assert!(!CORE_DEPTH_ALIASES.contains(&"TVD"));
         assert!(!TOPS_MD_ALIASES.contains(&"TVD"));
         assert_eq!(TOPS_TVD_ALIASES, ["TVD"], "TVD stays supported in its own namespace");
+    }
+
+    /// CORRECTNESS — SB-DIO-011 / T17 in its DEC-076 form. Index-bearing alias lists are
+    /// DISCOVERED from the source, never enumerated by name: any `*_ALIASES` constant whose
+    /// members include a depth-bearing token must carry a `Source:` comment, so a new list
+    /// cannot ship uncited the way `DEV_MD_ALIASES` once did — and the discovery is pinned
+    /// from both sides by asserting it actually finds the seven known lists. The TVD
+    /// negative controls above are untouched: `DEV_MD_ALIASES` and the aux interval lists
+    /// must never admit TVD (`21_data-io.md:690` records TOPS admitting it as a defect).
+    #[test]
+    fn every_index_bearing_alias_list_is_discovered_mechanically_and_cites_its_source() {
+        // The whole file is scanned: `#[cfg(test)]` modules are interleaved through this
+        // file, and no test declares a `const *_ALIASES`, so a whole-file scan discovers
+        // every production list without an early cut at the first test module.
+        let production = include_str!("parsers.rs");
+        let depth_tokens = [
+            "\"DEPT\"",
+            "\"DEPTH\"",
+            "\"MD\"",
+            "\"MEASURED_DEPTH\"",
+            "\"TOP_MD\"",
+            "\"BASE_MD\"",
+            "\"TVD\"",
+        ];
+        let lines: Vec<&str> = production.lines().collect();
+        let mut discovered: Vec<String> = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with("const ") || !trimmed.contains("_ALIASES") {
+                continue;
+            }
+            let name = trimmed
+                .trim_start_matches("const ")
+                .split(':')
+                .next()
+                .expect("a const declaration names its constant")
+                .trim()
+                .to_string();
+            // A declaration's member list may wrap onto the next line.
+            let mut declaration = (*line).to_string();
+            if let Some(next) = lines.get(index + 1) {
+                declaration.push_str(next);
+            }
+            if !depth_tokens.iter().any(|token| declaration.contains(token)) {
+                continue;
+            }
+            let lookback_start = index.saturating_sub(9);
+            let has_source = lines[lookback_start..index]
+                .iter()
+                .any(|preceding| preceding.trim_start().starts_with("// Source:"));
+            assert!(
+                has_source,
+                "index-bearing alias list {name} has no Source: comment — a depth-resolving \
+                 list cannot ship uncited (SB-DIO-011/DEC-076)"
+            );
+            discovered.push(name);
+        }
+        // The discovery itself is proven, not assumed: it must find every known
+        // index-bearing list, including the two aux interval lists the old three-list
+        // enumeration missed entirely.
+        for expected in [
+            "DEPTH_ALIASES",
+            "CORE_DEPTH_ALIASES",
+            "TOPS_MD_ALIASES",
+            "TOPS_TVD_ALIASES",
+            "DEV_MD_ALIASES",
+            "AUX_TOP_ALIASES",
+            "AUX_BASE_ALIASES",
+        ] {
+            assert!(
+                discovered.iter().any(|name| name == expected),
+                "the mechanical discovery must find {expected}; found {discovered:?}"
+            );
+        }
+        assert!(
+            !DEV_MD_ALIASES.contains(&"TVD") && !AUX_TOP_ALIASES.contains(&"TVD"),
+            "the TVD exclusion holds on the newly cited lists too"
+        );
     }
 
     #[test]

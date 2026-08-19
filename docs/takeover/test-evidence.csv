@@ -432,3 +432,4 @@
 "SB-DBM-031","CORRECTNESS","src-tauri/src/db.rs","a_delivery_declares_its_datum_once_and_a_known_non_md_set_refuses_log_depth_pairing_naming_both"
 "SB-CORE-015","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/export.rs","a_dlis_export_round_trips_through_sandibumis_own_reader_with_every_curve_and_sample_intact"
 "SB-DIO-061","CORRECTNESS","src-tauri/src/example_data_test.rs","every_delimited_reader_failure_names_the_fixture_it_came_from"
+"SB-DIO-011","CORRECTNESS","src-tauri/src/parsers.rs","every_index_bearing_alias_list_is_discovered_mechanically_and_cites_its_source"
