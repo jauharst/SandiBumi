@@ -1,5 +1,9 @@
 import {
+  checkReferentialIntegrity,
   getTablePage,
+  pruneReferentialIntegrity,
+  reapplyReferentialIntegrityPrune,
+  restoreReferentialIntegrityPrune,
   setZoneParam,
   updateComputedSample,
   updateCoreSample,
@@ -7,12 +11,16 @@ import {
   updateWellField,
   upsertTop,
   upsertZone,
+  type DepthDatum,
+  type IntegrityReport,
   type TablePage,
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { messageNode } from "./safeDom";
 import { pushUndo } from "../undo";
+import { requestRunCustody } from "./runCustody";
+import { ensureSessionOperator } from "./runCustody";
 
 const PAGE_SIZE = 200;
 
@@ -29,12 +37,24 @@ const TABLES: TableDef[] = [
   { key: "standard_curves", label: "Standard Curves", wellScoped: true, editable: ["gr", "res_deep", "nphi", "rhob", "dt", "sp"] },
   { key: "computed_curves", label: "Computed Curves", wellScoped: true, editable: ["value"] },
   { key: "tops", label: "Tops", wellScoped: true, editable: ["depth", "color"] },
-  { key: "zones", label: "Zones", wellScoped: true, editable: ["top_depth", "bottom_depth"] },
+  { key: "zones", label: "Zones", wellScoped: true, editable: ["top_depth", "bottom_depth", "depth_datum"] },
   { key: "zone_params", label: "Zone Parameters", wellScoped: true, editable: ["value_num", "value_text"] },
   { key: "core_data", label: "Core Data", wellScoped: true, editable: ["cpor", "cperm", "cgd", "csw"] },
   // Tops-style auxiliary datasets (petrography / XRD / perforations) — read-only view;
   // re-import the file to change values.
   { key: "aux_data", label: "Aux Data", wellScoped: true, editable: [] },
+  // SB-DBM-041 T42: the provenance/audit registry, browsable and READ-ONLY - there is no
+  // update command for any of these on the backend, and an audit row edited in a grid
+  // would be a falsified record.
+  { key: "log_sets", label: "Log Sets (runs)", wellScoped: true, editable: [] },
+  { key: "audit_entry", label: "Audit Entries", wellScoped: false, editable: [] },
+  { key: "audit_detail", label: "Audit Details", wellScoped: false, editable: [] },
+  { key: "zone_set_versions", label: "Zone Set Versions", wellScoped: true, editable: [] },
+  { key: "run_parameters", label: "Run Parameters", wellScoped: false, editable: [] },
+  { key: "run_degradations", label: "Run Degradations", wellScoped: false, editable: [] },
+  { key: "computed_curves_archive", label: "Curve Archive", wellScoped: true, editable: [] },
+  { key: "curve_meta", label: "Curve Catalog", wellScoped: true, editable: [] },
+  { key: "ml_models", label: "ML Models", wellScoped: false, editable: [] },
 ];
 
 /** A rendered page together with the exact scope it was fetched under. Threading this into the grid
@@ -58,6 +78,8 @@ export class DbInspectorPanel {
   private pageInfo!: HTMLElement;
   private prevBtn!: HTMLButtonElement;
   private nextBtn!: HTMLButtonElement;
+  private integrityHost!: HTMLElement;
+  private checkIntegrityBtn!: HTMLButtonElement;
 
   private offset = 0;
   /** The currently displayed page bundled with the (def, well, offset) it was fetched for, so a
@@ -82,6 +104,16 @@ export class DbInspectorPanel {
         <span class="dbi-pageinfo"></span>
         <button class="lp-btn dbi-next">▶</button>
       </div>
+      <section class="dbi-integrity" aria-label="Project integrity">
+        <div class="dbi-integrity-head">
+          <div>
+            <strong>Project integrity</strong>
+            <span class="dbi-integrity-note">Read-only check first; repair uses recoverable quarantine.</span>
+          </div>
+          <button class="lp-btn dbi-check-integrity">Check all classes</button>
+        </div>
+        <div class="dbi-integrity-results placeholder-note">Not checked yet â€” no clean claim has been made.</div>
+      </section>
       <div class="dbi-grid"></div>
       <p class="modal-hint">Double-click a cell to edit; Enter commits, Esc cancels. Edits are undoable (Ctrl+Z).</p>`;
     host.appendChild(this.root);
@@ -92,6 +124,8 @@ export class DbInspectorPanel {
     this.pageInfo = this.root.querySelector<HTMLElement>(".dbi-pageinfo")!;
     this.prevBtn = this.root.querySelector<HTMLButtonElement>(".dbi-prev")!;
     this.nextBtn = this.root.querySelector<HTMLButtonElement>(".dbi-next")!;
+    this.integrityHost = this.root.querySelector<HTMLElement>(".dbi-integrity-results")!;
+    this.checkIntegrityBtn = this.root.querySelector<HTMLButtonElement>(".dbi-check-integrity")!;
 
     for (const t of TABLES) {
       const option = document.createElement("option");
@@ -115,6 +149,7 @@ export class DbInspectorPanel {
         void this.reload();
       }
     });
+    this.checkIntegrityBtn.addEventListener("click", () => void this.runIntegrityCheck());
 
     this.unsub.push(
       appState.selectedWell.subscribe(() => {
@@ -132,6 +167,144 @@ export class DbInspectorPanel {
 
   private tableDef(): TableDef {
     return TABLES.find((t) => t.key === this.tableSel.value)!;
+  }
+
+  private async runIntegrityCheck(): Promise<void> {
+    this.checkIntegrityBtn.disabled = true;
+    this.integrityHost.replaceChildren(messageNode("placeholder-note", "Checking every integrity classâ€¦"));
+    try {
+      this.renderIntegrity(await checkReferentialIntegrity());
+    } catch (err) {
+      this.integrityHost.replaceChildren(messageNode("placeholder-note", `Integrity check failed: ${err}`));
+      setStatus(`Integrity check failed: ${err}`);
+    } finally {
+      this.checkIntegrityBtn.disabled = false;
+    }
+  }
+
+  private renderIntegrity(report: IntegrityReport): void {
+    const summary = document.createElement("div");
+    summary.className = report.finding_count === 0 ? "dbi-integrity-summary ok" : "dbi-integrity-summary warned";
+    summary.textContent = `${report.scope.replace("_", " ")} — ${report.wells_touched.toLocaleString()} wells examined. ${report.summary}`;
+
+    const table = document.createElement("table");
+    table.className = "dbgrid dbi-integrity-table";
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["Class", "Count", "Repair", "Required action"]) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.appendChild(th);
+    }
+    head.appendChild(headRow);
+    table.appendChild(head);
+    const body = document.createElement("tbody");
+    for (const finding of report.classes) {
+      const row = document.createElement("tr");
+      const name = document.createElement("td");
+      name.textContent = finding.name;
+      const count = document.createElement("td");
+      count.textContent = finding.count.toLocaleString();
+      const repair = document.createElement("td");
+      repair.textContent = finding.can_prune
+        ? finding.prunable_count === finding.count
+          ? `${finding.prunable_count.toLocaleString()} quarantinable`
+          : `${finding.prunable_count.toLocaleString()} quarantinable; remainder retained`
+        : "Review only";
+      const action = document.createElement("td");
+      action.textContent = finding.action;
+      row.append(name, count, repair, action);
+      body.appendChild(row);
+    }
+    table.appendChild(body);
+
+    const controls = document.createElement("div");
+    controls.className = "dbi-integrity-controls";
+    const selected = new Map<string, HTMLInputElement>();
+    for (const finding of report.classes.filter((item) => item.can_prune && item.prunable_count > 0)) {
+      const label = document.createElement("label");
+      label.className = "chk-field";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = true;
+      selected.set(finding.class_id, box);
+      label.append(box, document.createTextNode(` ${finding.name}: ${finding.prunable_count.toLocaleString()}`));
+      controls.appendChild(label);
+    }
+    const prune = document.createElement("button");
+    prune.type = "button";
+    prune.className = "lp-btn danger";
+    prune.textContent = `Quarantine selected (${report.prune.prunable_findings.toLocaleString()})`;
+    prune.disabled = selected.size === 0;
+    prune.title = report.prune.recovery;
+    prune.addEventListener("click", async () => {
+      const classIds = [...selected].filter(([, box]) => box.checked).map(([classId]) => classId);
+      if (classIds.length === 0) {
+        setStatus("Select at least one quarantinable integrity class");
+        return;
+      }
+      if (!window.confirm(`Move the selected ${classIds.length} integrity class(es) into recoverable project quarantine?`)) return;
+      prune.disabled = true;
+      try {
+        const receipt = await pruneReferentialIntegrity(classIds);
+        pushUndo({
+          label: `quarantine ${receipt.pruned_findings} integrity finding(s)`,
+          undo: async () => {
+            await restoreReferentialIntegrityPrune(receipt.batch_id);
+            bumpDataVersion();
+            await this.runIntegrityCheck();
+          },
+          redo: async () => {
+            await reapplyReferentialIntegrityPrune(receipt.batch_id);
+            bumpDataVersion();
+            await this.runIntegrityCheck();
+          },
+        });
+        setStatus(`${receipt.pruned_findings} integrity finding(s) moved to recoverable quarantine`);
+        bumpDataVersion();
+        await this.runIntegrityCheck();
+      } catch (err) {
+        setStatus(`Integrity quarantine failed: ${err}`);
+        prune.disabled = false;
+      }
+    });
+    controls.appendChild(prune);
+
+    const recovery = document.createElement("div");
+    recovery.className = "dbi-integrity-recovery";
+    for (const batch of report.recoverable_prunes) {
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "lp-btn";
+      restore.textContent = `Restore quarantine ${batch.created_at} (${batch.pruned_findings})`;
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        try {
+          await restoreReferentialIntegrityPrune(batch.batch_id);
+          pushUndo({
+            label: `restore integrity quarantine ${batch.created_at}`,
+            undo: async () => {
+              await reapplyReferentialIntegrityPrune(batch.batch_id);
+              bumpDataVersion();
+              await this.runIntegrityCheck();
+            },
+            redo: async () => {
+              await restoreReferentialIntegrityPrune(batch.batch_id);
+              bumpDataVersion();
+              await this.runIntegrityCheck();
+            },
+          });
+          bumpDataVersion();
+          await this.runIntegrityCheck();
+        } catch (err) {
+          setStatus(`Quarantine restore failed: ${err}`);
+          restore.disabled = false;
+        }
+      });
+      recovery.appendChild(restore);
+    }
+    this.integrityHost.classList.remove("placeholder-note");
+    this.integrityHost.replaceChildren(summary, table, controls, recovery);
   }
 
   private async reload(): Promise<void> {
@@ -268,6 +441,7 @@ export class DbInspectorPanel {
 
     // apply(value) writes one value; called with newValue now and oldValue on undo.
     let apply: (value: string) => Promise<void>;
+    let undoApply: ((value: string) => Promise<void>) | null = null;
     switch (def.key) {
       case "wells":
         apply = (v) => updateWellField(wellId, column, v === "" ? null : v);
@@ -280,7 +454,14 @@ export class DbInspectorPanel {
       case "computed_curves": {
         const depth = num(cell("depth"));
         const curve = cell("curve_name");
-        apply = (v) => updateComputedSample(wellId, depth, curve, v === "" ? NaN : num(v));
+        const custody = await requestRunCustody(`Edit ${curve} sample`);
+        if (!custody) throw new Error("computed curve edit cancelled — nothing was written");
+        const undoCustody = {
+          actor: custody.actor,
+          source_note: `Undo of prior computed-sample edit; original source/reference: ${custody.source_note}`,
+        };
+        apply = (v) => updateComputedSample(wellId, depth, curve, v === "" ? NaN : num(v), custody);
+        undoApply = (v) => updateComputedSample(wellId, depth, curve, v === "" ? NaN : num(v), undoCustody);
         break;
       }
       case "tops": {
@@ -297,17 +478,26 @@ export class DbInspectorPanel {
         apply = (v) => {
           const top = column === "top_depth" ? num(v) : num(cell("top_depth"));
           const bottom = column === "bottom_depth" ? num(v) : num(cell("bottom_depth"));
-          return upsertZone(wellId, zoneName, top, bottom);
+          const rawDatum = (column === "depth_datum" ? v : cell("depth_datum")).trim().toUpperCase();
+          if (!["MD", "TVD", "TVDSS", "TVDKB", "TWT", "OWT", "CDEPTH"].includes(rawDatum)) {
+            throw new Error(
+              `zone ${zoneName} needs a declared depth datum: MD, TVD, TVDSS, TVDKB, TWT, OWT, or CDEPTH`,
+            );
+          }
+          return upsertZone(wellId, zoneName, top, bottom, rawDatum as DepthDatum);
         };
         break;
       }
       case "zone_params": {
         const zoneName = cell("zone_name");
         const paramName = cell("param_name");
-        apply = (v) => {
+        apply = async (v) => {
           const valueNum = column === "value_num" ? (v === "" ? null : num(v)) : cell("value_num") === "" ? null : num(cell("value_num"));
           const valueText = column === "value_text" ? (v === "" ? null : v) : cell("value_text") || null;
-          return setZoneParam(wellId, zoneName, paramName, valueNum, valueText);
+          // SB-DBM-011: an audited surface - the edit carries the explicit session operator.
+          const op = await ensureSessionOperator("Edit zone parameter");
+          if (!op) throw new Error("edit cancelled: no session operator entered");
+          return setZoneParam(wellId, zoneName, paramName, valueNum, valueText, op, "DB Inspector");
         };
         break;
       }
@@ -325,7 +515,7 @@ export class DbInspectorPanel {
     pushUndo({
       label,
       undo: async () => {
-        await apply(oldValue);
+        await (undoApply ?? apply)(oldValue);
         bumpDataVersion();
       },
       redo: async () => {
@@ -337,4 +527,3 @@ export class DbInspectorPanel {
     bumpDataVersion();
   }
 }
-

@@ -1,11 +1,3396 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-POR-024: D-N accepts a neutron curve without knowing its matrix units
+
+- [ ] **Decision dependency — DEC-025.** The crossplot must refuse an NPHI curve whose matrix units
+      are undeclared, and state the basis in provenance. `nphimat` already does the conversion; what
+      is missing is that **nothing stores the delivered basis**. The `nphimat` choices are module
+      parameters you type in, not curve metadata, so a D-N run has nothing to check against. Settling
+      DEC-025 (the narrow SB-ENV-012 neutron-scale metadata seam) unblocks this together with
+      SB-DBM-017.
+- [ ] **Why it matters in numbers:** a limestone-unit neutron run against a sandstone matrix reads
+      **~0.04 v/v low in clean water sand**. `condflag`'s own doc string already says this verbatim.
+      `phi_dn` neither says it nor checks it — so today the wrong basis simply computes.
+- [ ] **Automated correctness:** none, deliberately. I did not infer a basis from the mnemonic, and
+      did not promote the `nphimat` parameter into a hidden header default — that is precisely the
+      silent-default failure SB-DBM-017 exists to forbid. Gate unchanged at
+      `1044 passed / 0 failed / 37 ignored`.
+- [ ] **Field and harsh critique:** worth checking whether your deliveries actually arrive in mixed
+      bases. If they always arrive limestone-unit and you always set `nphimat` accordingly, the
+      exposure is small and this row is mostly hygiene. If bases vary between vendors or vintages,
+      this is a live 4-porosity-unit error with no warning. You know which it is; I do not. No box is
+      pre-checked.
+
+## 2026-08-16 — G2 SB-POR-023: the D-N shortcut no longer claims to be a chart lookup
+
+- [ ] **Automated correctness:** `phi_dn`'s doc string told users the arithmetic average and RMS were
+      "the standard analytic equivalent" of service-company chart lookups. SB-POR-023 orders that
+      claim removed, and F14 records that **no vendor ships either as a porosity method**. It is
+      gone. `phi_dn` now says plainly that neither is a crossplot porosity method, is labelled
+      `QUICK-LOOK COMPARISON ONLY`, and points at SB-POR-021 as the real analytic contract.
+- [ ] **Your ruling (b) is implemented as approved, not as a workaround.** You admitted the D-N
+      limited output to pay, so the canonical-first fallback reaching `PHIE_DN_LIM` on a D-N-only
+      well is now the intended contract. The test additionally pins that the pay path consults
+      **exactly the closed two-name pair** — widening it to a family scan fails, because that would
+      let any porosity-shaped curve into a reserves number. Three mutations produced RED at three
+      different assertions.
+- [ ] **Two document corrections owed by you** — both outside my allowed paths, so I recorded rather
+      than made them. **`PILOT_SCOPE.md` item 6** still says these comparisons are "excluded from pay
+      by default", which your ruling reverses; that file is hash-bound to DEC-018, so amending it is
+      yours. And `DECISIONS.md` needs a `DEC` row recording ruling (b). Until both land, the shipped
+      behaviour and the scope document disagree **in writing**, even though the behaviour is the one
+      you approved.
+- [ ] **Manual:** open Density-Neutron Porosity and read the description — confirm it no longer
+      suggests parity with a chart lookup. Then run a well with only D-N and confirm the pay summary
+      produces numbers, on `PHIE_DN_LIM`, as you intended.
+- [ ] **Field and harsh critique:** worth being clear-eyed about what (b) costs. Pay on a D-N-only
+      well now rests on a shortcut §3.2 measures at 1.64–1.79 p.u. against the real method. That is
+      acceptable while the real method does not exist — and thanks to the paper you supplied, it now
+      can. SB-POR-021 is the row that retires this compromise. No box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-021: you supplied the paper, and it closes ESC-POR-8
+
+- [ ] **Source resolved — thank you, this was the blocking item.** The PDF you attached is Bateman &
+      Konen, *Wellsite Log Analysis and the Programmable Pocket Calculator*, **SPWLA Eighteenth
+      Annual Logging Symposium, June 5–8 1977** — the symposium paper published as the Nov–Dec 1977
+      *Log Analyst* article ESC-POR-8 names. **Appendix B (pp. 19–21) contains the full derivation
+      and all nine constants verbatim.** `2.71` and `4.0` are the limestone and pseudo-mineral
+      densities in B-5/B-11; `0.7 / −5 / −0.16` are B-12; `−1.17 / −2.06 / −0.4 / −16` are B-10.
+- [ ] **The important correction:** §5.6 shipped those constants `NON-ADOPTABLE` on the grounds they
+      were "Geolog's rendering, not the paper's". **They are the paper's.** Geolog transcribed it
+      faithfully. So they are primary-sourced (T1p), not vendor-derived, and the provenance exposure
+      that worried ESC-POR-8 does not apply.
+- [ ] **What is still outstanding:** the evaluator itself is unwritten — this row moves from
+      *blocked on a source* to *implementation pending*. One design constraint recorded for whoever
+      builds it: it must be its **own typed method**, not another `OPT_XPLOT` mode on the comparison
+      producer, or SB-POR-023's quick-look boundary collapses the moment the real method lands
+      beside the shortcut. A hand-derived witness is banked in the evidence file so the next session
+      does not re-derive it: at ρb 2.30, ρmf 1.00, φN 0.25 → **φx = 0.245219**.
+- [ ] **Field and harsh critique:** this is the 1.64–1.79 p.u. gap. Closing it is now engineering
+      rather than intake. No box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-011: one matrix density, and you picked 2.65
+
+- [ ] **Automated correctness:** `phi_den`, `phi_dn` and `condflag` shipped `RHO_MA` **2.645** while
+      `gascorr` — which their own documentation tells you to chain with them — shipped **2.65**. All
+      four now read one shared value: **2.65**, your choice of 2026-08-16, the §5.1 three-way
+      agreement across IP MINDEF, Techlog `QM_MineralTable` and SandiMin. The test pins one default,
+      one range and one evidence set across all four, and refuses any porosity module that
+      reintroduces a second value. Two mutations produced RED at two different assertions.
+- [ ] **What was deliberately kept:** Geolog's 2.645 is **not deleted**. It stays as a visible cited
+      position beside the field, so you can still see it exists and who ships it. Choosing a value
+      must not erase the one it was chosen over — the test enforces that from the other side.
+- [ ] **Manual — please check this one, it moves numbers.** Density porosity shifts by roughly
+      **0.3 p.u.** on defaults. Open Density Porosity and confirm `RHO_MA` now reads 2.65 with both
+      positions listed beneath it; do the same in Density-Neutron, Conditioning Flags and Gas
+      Correction. Then re-run one well you know well and confirm the shift is the ~0.3 p.u. you
+      expect and nothing larger.
+- [ ] **Field and harsh critique:** any saved workflow that relied on the old 2.645 default will now
+      give a slightly different answer. That is the point of the row — but it means past results and
+      new results are not directly comparable unless the parameter was set explicitly. Worth a
+      deliberate re-run rather than an assumption. `condflag` and `gascorr` also gained the source
+      panel they never had. No box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-010: porosity audit trail blocked on the re-run manifest
+
+- [ ] **Decision dependency:** SB-POR-010 wants every porosity curve re-derivable from its audit
+      trail alone. Most of that record now exists — method identity, every parameter with its source
+      and evidence tier, the per-output volume convention, and the resolved input-curve identities.
+      What is missing is replay itself: no stored manifest resolves module identity, options and
+      defaults into one record you could re-run from. That is SB-DBM-015's contract, and it is
+      blocked on **DEC-021** (build-derived module identity), **DEC-023** (zone-set identity) and
+      **DEC-024** (manifest identity seams). Answering those three unblocks this row too.
+- [ ] **Automated correctness:** none, deliberately. Building a proof from the fields that happen to
+      be stored would assert re-derivability while nothing can actually replay — asserting the very
+      clause the row exists for. Gate unchanged at `1043 passed / 0 failed / 37 ignored`.
+- [ ] **Field and harsh critique:** the practical question is whether you would ever need to
+      reproduce a porosity curve months later without the project open — for an audit or a partner
+      challenge. If yes, DEC-021/023/024 are worth answering. If the current per-curve record is
+      enough for how you actually work, say so and this row should be re-adjudicated rather than
+      left waiting on a manifest nobody needs. No box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-009: sonic porosity could report more effective than total
+
+- [ ] **Automated correctness:** `every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample`
+      found a real defect, not just an unasserted invariant. `phi_son` builds effective porosity as
+      `PHIT − VSH·(DT_SH − DT_MA)/(DT_FL − DT_MA)/Cp`. When `DT_SH < DT_MA` that shale term is
+      **negative**, so the subtraction becomes an addition and effective porosity overtakes total.
+      `DT_MA` 70 with `DT_SH` 60 are **both inside the shipped declared ranges**, giving
+      `PHIT_SON 0.0840` against `PHIE_SON 0.1008` — effective 20% above total with every input
+      nominally valid. `phi_son` now bounds PHIE by that sample's own already-limited PHIT, the same
+      construction `ssc`/`sspw` already used. The test also proves the witness really does invert the
+      ordering before enforcement, so it cannot pass by never stressing it; removing the guard
+      reproduces the exact violation.
+- [ ] **Manual:** run Porosity from Sonic on a shaly interval with `DT_MA` 70 and `DT_SH` 60 and
+      confirm PHIE_SON never plots above PHIT_SON. Then use a normal pair (e.g. `DT_MA` 55.5,
+      `DT_SH` 100) and confirm your usual answers are **unchanged** — the guard must bind only in
+      the inverted case.
+- [ ] **Field and harsh critique:** worth deciding whether any past sonic work used a shale slowness
+      below the matrix slowness; if so, its PHIE was overstated. Note this is a **guard, not a
+      correction** — an inverted `DT_SH`/`DT_MA` pair is still very likely a parameter error worth
+      catching at entry, and this row does not refuse it. Say so if you want a refusal instead. No
+      new numeric bound was introduced: the ceiling is the sample's own total porosity. Sonic is a
+      first-pilot exclusion. No Visual, Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-008: one formation-water clay-bound-water porosity, now shared
+
+- [ ] **Automated correctness:** `one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities`
+      pins the quantity to exactly one definition, `modules::shale_total_porosity`, anchored on
+      **formation water** (`RHO_W`) rather than fluid density. It evaluates the chapter's own form
+      independently rather than calling the code twice, proves the two anchors are separable at the
+      cited salt-water density, requires the whole production tree to hold **one** definition — so a
+      module re-deriving it locally fails even though every other assertion would still pass — and
+      pins F16's naming rule from both sides. Two mutations produced RED at two different
+      assertions. All six existing SSC/SSPW behaviour tests pass with **unchanged expected values**,
+      which is the control proving the change is behaviour-neutral wherever `RHO_W` equals `RHOB_FL`.
+- [ ] **What your authorization actually bought, and where I narrowed it:** you approved option (a),
+      routing SSC and SSPW through the shared helper. SSPW was routed and is fixed. **SSC was not**,
+      and that is deliberate: its `(rhob_dsi − rhob_wsi)/(rhob_dsi − rhob_fl)` is the wet-silt point's
+      fractional distance along the fluid-anchored projection line `m3` that defines `rhob_dsi`.
+      Changing its denominator would stop it being a fraction along its own line — introducing a new
+      silent error while fixing another. Its arithmetic is untouched; only the colliding local name
+      was retired to `silt_water_fraction`, which is what F16 asks for. **Please sanity-check that
+      reading** — it is the one judgement call in this increment.
+- [ ] **Manual:** open Porosity from SSPW. Confirm a new **Formation water density** field appears,
+      defaulting to 1.0 with its Geolog source panel. Set it to 1.10 while leaving the invaded-zone
+      fluid density at 1.0 and confirm PHIE/bound-water change; set them equal again and confirm the
+      previous answer returns. Density and D-N porosity must be unaffected throughout.
+- [ ] **Field and harsh critique:** SSPW's clay-bound-water porosity was previously computed against
+      the invaded-zone fluid. Identical at defaults, so no past deliverable on fresh water is wrong;
+      any SSPW run using a saline formation-water density was overstating shale porosity. Judge
+      whether that matches anything you have shipped. A `DEC` row for this authorization still needs
+      adding to `DECISIONS.md` — outside my allowed paths. No Visual, Manual or Field box is
+      pre-checked.
+
+## 2026-08-16 — G2 SB-POR-007: every cited porosity parameter shows its source and tier
+
+- [ ] **Automated correctness:** `every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent`
+      pins SB-POR-007 from four sides. It fixes the exact section 5 topic map across `phi_den`,
+      `phi_dn` and `phi_son`; requires every named topic to resolve to completely attributed,
+      tiered positions; requires the five deliberately ABSENT parameters (`RHO_SH`, `RHO_DSH`,
+      `NPHI_SH`, `DT_MA`, `DT_SH`) to keep an empty default *after* being sourced; and requires the
+      parameters section 5 does not cover to stay untopiced. A fifth arm proves the tier survives
+      into the run record through the exact call the runner makes. Three mutations produced RED at
+      three different assertions: a dropped `phi_son` OPT_CP attachment, a sourced `DT_SH` given the
+      attested Techlog 100 as a default, and an invented citation on `OPT_XPLOT`. Two tracker claims
+      turned out stale and are corrected: `ParamSource` already had a `tier` field, and run
+      persistence already retained source and tier. TypeScript and cargo check are green.
+- [ ] **Visual:** open Density Porosity, then Density-Neutron Porosity, then Porosity from Sonic.
+      Beside `RHO_FL`, `RHO_W`, `PHIE_MAX`, the PHIE limiting method, and the three sonic transit
+      times, confirm a collapsed "Shipped values elsewhere (n)" panel appears; expand each and
+      confirm every row reads `tier · source`. Confirm the same panels appear in the Workflow
+      step editor, which uses the same control.
+- [ ] **Manual:** confirm the disclosure changed no value. `RHO_SH`, `RHO_DSH`, `NPHI_SH`, `DT_MA`
+      and `DT_SH` must still open **empty and required** even though they now list attested vendor
+      numbers beside them — that is the whole point, and a filled-in field here is the bug. Confirm
+      `RHO_FL` still opens at 1.0 and `PHIE_MAX` at 0.3. Then run one well and check the run record
+      shows the chosen `PHIE_MAX` alongside both the Geolog 0.30 and Techlog 0.35 positions.
+- [ ] **Field and harsh critique:** this increment adds no capability — it makes existing
+      disagreements visible at the point of entry. Judge it on whether the panel actually helps you
+      pick, or is noise you learn to collapse. Two residuals are named, not fixed: `ssc`/`sspw`
+      parameters live in prohibited `ssc.rs` and remain unsourced (both are first-pilot exclusions),
+      and the same primary tier is spelled `T1p` here, `T1′` in older registry rows and `T1-prime`
+      in a frontend fixture. `RHO_DSH` still ships 2.65, which matches neither attested value;
+      making it ABSENT is SB-POR-055 and was deliberately left alone. No Visual, Manual or Field box
+      is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-006: a porosity method refuses an untyped shale or clay volume
+
+- [ ] **Automated correctness:** `every_porosity_method_that_consumes_a_shale_or_clay_volume_declares_the_quantity_it_accepts_and_refuses_an_untyped_or_wrong_family_curve`
+      pins SB-POR-006 from three sides. It inventories every module that registers POR output
+      custody and requires `phi_den`, `phi_dn`, `phi_son` and `sspw` to declare the quantity their
+      VSH input accepts; separately it asks the generated curve registry which declared porosity
+      inputs are shale/clay volumes at all, so a future consumer that forgets its typing is caught
+      even though it would never appear in the first list. Then it runs `phi_den` over three wells
+      whose VSH curves are identical in mnemonic, unit and samples and differ only in declared
+      quantity: the typed shale volume runs clean, the untyped one is refused, and a clay volume
+      wearing a `VSH` mnemonic is refused — each refusal naming the method and both quantities,
+      writing no samples and versioning no interpretation. Three mutations were witnessed RED and
+      restored. **No porosity arithmetic changed and no parameter was invented**; the refusal seam
+      arrived with SB-CLY-043 and the POR family with SB-POR-004, and this increment supplies the
+      porosity-specific proof. Fresh full gate `1040 passed / 0 failed / 37 ignored`, 31 owned
+      warnings.
+- [ ] **Visual:** open Porosity from Density and point its VSH input at a curve whose family was
+      never assigned (an older project, or an import whose mnemonic matched no family). Confirm the
+      run refuses with a message naming `phi_den`, `VSH` and `VCL` and telling you to assign the
+      family — not a silent result, and not a bare "no data".
+- [ ] **Manual:** on one sanitized project, run density porosity three ways against the same well —
+      a VSH-family curve, the same curve with its family cleared, and a VCL-family curve renamed to
+      `VSH`. Only the first should produce PHIE/PHIT. Then confirm the two refused runs left no new
+      log-set version and no computed samples behind.
+- [ ] **Field and harsh critique:** `v/v` is the same unit for both volumes, so nothing downstream
+      can tell a shale volume from a clay volume by looking at it — F15 is that IP subtracts a
+      wet-clay endpoint where Geolog and Techlog subtract a shale endpoint, and the `CSR` parameter
+      that bridges them has no default anywhere. This increment refuses; it does **not** convert,
+      because the bridge is SB-POR-012 and outside the approved program. **Named residual:**
+      `montecarlo.rs` calls the module runner directly and never reaches this refusal, so an
+      in-memory Monte Carlo realization would still consume an untyped volume. That file is
+      protected and Monte Carlo is an explicit first-pilot exclusion, so no coverage is claimed for
+      it. No Visual, Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-004: typed POR custody and collision-safe replacement
+
+- [ ] **Automated correctness:** the SB-POR-004/T31/T32 proof was witnessed RED when `PHIE`,
+      `PHIT`, `PHIA` and `DPHI` had no quantity family, then GREEN after the generated unit registry
+      gained one canonical `POR` family. Density keeps the pilot-facing `PHIE`/`PHIT` defaults while
+      D-N comparison now defaults to `PHIE_DN_LIM`/`PHIT_DN_LIM`; sequential runs preserve both
+      pairs. A downstream logical PHIE/PHIT input and pay summary prefer the canonical curve when
+      present, otherwise follow the exact D-N limited name; explicit selections still win and no
+      generic family scan elects a method. Every emitted POR curve persists its resolved curve name, family, method, convention,
+      output role and limiting/naming contract. The same test proves an imported `PHIE` retains
+      source identity, an explicit D-N rename to `PHIE`/`PHIT` creates version 2 rather than a silent
+      overwrite, and restore appends version 3 with the density contract and values recovered. The
+      initial full gate exposed four old-`PHIE` couplings; the shared resolver/pay seam was repaired,
+      three stale physical-name assertions were updated without loosening their determinism/chain
+      subjects, and the fresh full gate is `1039 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Visual:** open Density Porosity and Density-Neutron Porosity together. Confirm the output
+      previews show `PHIE`/`PHIT` for density and `PHIE_DN_LIM`/`PHIT_DN_LIM` for D-N, then inspect
+      the resulting catalog/history metadata. The four curves must remain separately selectable and
+      their method/convention labels must not collapse into one generic “porosity” identity.
+- [ ] **Manual:** run both modules with their defaults on one sanitized project and verify all four
+      limited outputs survive. Then explicitly rename D-N outputs to `PHIE`/`PHIT`, confirm the UI
+      presents replacement rather than a parallel default, inspect both archived versions, restore
+      the density version and confirm the restored values and per-curve contract are visible.
+- [ ] **Field and harsh critique:** a `POR` family alone would still let two physically different
+      `PHIT` definitions masquerade as one curve, while provenance alone would still permit silent
+      current-name replacement. Both typed per-curve custody and collision-safe defaults are
+      required. This increment changes no porosity arithmetic and invents no parameter. No Visual,
+      Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-POR-003: POR branch/limit stream blocked on typed encoding
+
+- [ ] **Decision dependency:** answer DEC-039 and DEC-038. Choose the exact singular per-sample
+      representation, stable vocabulary, combination rule and unknown-code behavior; also settle
+      whether SSC/SSPW are governed methods and authorize their protected implementation boundary.
+- [ ] **Automated boundary:** no SB-POR-003 acceptance test was added. Existing binary flag tests
+      prove only `NaN/0/1` polarity, while saturation method codes prove only that a separately
+      registered class curve can survive. Neither defines POR branch-plus-limit combinations or
+      observes them through persistence/export.
+- [ ] **Recommended schema:** use one versioned categorical registry whose every stable class maps
+      to `{method, branch, binding_limits}`; declare the emitted curve categorical; reject unknown,
+      fractional and unregistered combinations; keep missing output as `f32::NAN`. Do not reuse a
+      binary diagnostic flag or expose a number without its token metadata.
+- [ ] **Field and harsh critique:** a single “clamped” bit is not enough—the analyst must know which
+      equation branch ran and which of several limits bound it. Conversely, an arbitrary integer
+      without a closed registry is just undocumented magic. No Visual, Manual or Field box is
+      pre-checked, and no production or protected file was changed.
+
+## 2026-08-16 — G2 SB-POR-002: unlimited/limited POR pairs blocked at workflow semantics
+
+- [ ] **Decision dependency:** answer DEC-038, then complete SB-POR-004's collision-safe curve
+      custody. Decide whether SSC and SSPW are methods governed by SB-POR-002 or separately typed
+      workflows; if governed, define whether “unlimited” bypasses only the final porosity clamp or
+      every upstream component/intermediate clamp that can bind the result.
+- [ ] **Automated boundary:** no SB-POR-002 acceptance test was added. Density and D-N still keep
+      their existing twins, but sonic still clamps in place and SSC/SSPW discard pre-limit values
+      inside protected `ssc.rs`. Generic manifest parity and LAS round trip cannot prove semantic
+      unlimited custody.
+- [ ] **Implementation boundary:** after DEC-038 and SB-POR-004, authorize one narrow edit to
+      `ssc.rs` if SSC/SSPW remain in scope. Preserve existing limited arithmetic and parameters;
+      add separately named unlimited outputs from the approved boundary, then prove write, reload,
+      export and both distinct-name and intentional-replacement behavior.
+- [ ] **Field and harsh critique:** renaming an already-limited curve “unlimited” would manufacture
+      false QC evidence. Capturing only the last unclamped expression can be equally misleading
+      when upstream geometry and component limits already bound it. No Visual, Manual or Field box
+      is pre-checked, and no protected production file was changed.
+
+## 2026-08-16 — G2 SB-POR-001: one POR envelope with method-specific policies
+
+- [ ] **Automated correctness:** the SB-POR-001/T39 contract was witnessed RED before the typed
+      envelope and registry existed and again when the proof assumed lowercase output names, then
+      GREEN. The Rust test independently inventories all six live POR modules and 21 porosity
+      outputs, verifies one family/limit-interface/reason-schema/naming envelope, rejects an
+      omitted sonic output and a borrowed density policy, and proves user renames still pass
+      through the backend's uppercase canonicalizer. TypeScript and cargo check are green; the
+      fresh full gate is `1038 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Visual:** open Density Porosity, Density-Neutron Porosity, Sonic Porosity, φmax, SSC and
+      SSPW. Confirm every actual porosity output visibly says `POR`, its semantic role and method;
+      D-N says comparison, φmax is not presented as a porosity method, and sonic's tooltip says its
+      convention remains mixed pending SB-POR-013. Confirm support volumes and saturations do not
+      receive POR labels.
+- [ ] **Manual:** rename one porosity output in each module and apply a bulk prefix. Confirm the
+      preview and written mnemonic use the same uppercase resolved name. Inspect each output's
+      tooltip: family, convention, method-specific limit policy/source, pending SB-POR-003 reason
+      emission and shared naming contract must remain distinguishable without reading source code.
+- [ ] **Field and harsh critique:** a common envelope is not common physics. Forcing density,
+      D-N, sonic, SSC and SSPW through one numerical clamp would make the code cleaner and the
+      interpretation wrong. This increment changes no arithmetic and invents no bound. It also
+      does not claim sonic has unlimited twins, POR reason samples are emitted, or method/family
+      provenance is persisted after reload; SB-POR-002/003/004 still own those gaps. No Visual,
+      Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-055: complete CLY LAS round trip blocked on provenance and sentinel policy
+
+- [ ] **Decision dependency:** answer DEC-036 and DEC-037. Exact T35 requires the still-absent
+      typed CLY provenance curve and its LAS representation; exact T44 requires a source-scoped
+      undeclared-`-999` rule that does not violate an explicit per-channel `NoNull` declaration.
+- [ ] **Automated boundary:** no SB-CLY-T35/T44 acceptance test was added. Generic LAS numeric
+      round trip, declared-sentinel export and parser-null controls remain green, but none can prove
+      an output that does not exist or authorize treating every bare `-999` as absent.
+- [ ] **Import/export UX:** after the decisions close, export every live CLY value, flag and
+      provenance channel with explicit writer settings; re-import it; disclose the declared null;
+      and make any undeclared-sentinel quarantine name the rule, sentinel and affected curves.
+- [ ] **Field and harsh critique:** a round trip of only the curves that happen to ship is not an
+      “every domain curve” proof when the required provenance curve is absent. Likewise, preserving
+      bytes is not preserving meaning unless categorical token metadata survives. No Visual,
+      Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-054: named CLY unit conversion and run custody
+
+- [ ] **Automated correctness:** the exact SB-CLY-T21 and physical-unit T42 limbs were witnessed
+      RED first on `gapi`/`API` spelling drift and missing UI custody, then GREEN. The Rust proof
+      inventories all 20 live CLY parameters/inputs/outputs, rejects a density-to-fraction bridge,
+      proves `2645 k/m3 -> 2.645 g/cc` within `1e-9`, compares the live f64 N-D rearrangement with
+      the independent bilinear form over 10,000 deterministic g/cc and k/m3 cases at `1e-12`, and
+      proves all three defaults plus explicit and ABSENT run-custody sides. The frontend renders
+      artefact/canonical values, units, identity and derivation without changing the value. Wrong
+      factor, one-default-only persistence and wrong algebra sign each produced RED before
+      restoration. TypeScript and cargo check are green; the fresh full gate is
+      `1037 passed / 0 failed / 37 ignored` with 31 owned warnings.
+- [ ] **Visual:** open VSH from Density-Neutron and inspect `RHO_FL`, `NPHI_FL` and `FLAG_TOL`.
+      Confirm each cited default shows its artefact value/unit, canonical value/unit, named
+      conversion and derivation legibly beside the input. Confirm the disputed `RHO_MA`, `RHO_SH`,
+      `NPHI_MA`, `NPHI_SH`, `GR_MA` and `GR_SH` fields remain empty rather than acquiring a value
+      through this unit work.
+- [ ] **Manual:** run `vsh_dn` once with the three cited defaults and explicitly supply the required
+      endpoints. Inspect History/run parameters: confirm exactly the three defaults and every
+      explicit numeric endpoint have separate `@unit_custody` objects, the source spelling
+      `k/m3` remains visible for `RHO_FL`, and an unsupplied/ABSENT parameter has no invented
+      custody record. Change only an explicit canonical value and confirm its identity remains
+      `g/cc->g/cc` while its source note changes to the interpreter's run note.
+- [ ] **Field and harsh critique:** unit labels are not semantic Vsh/Vcl typing, and a perfectly
+      recorded conversion cannot prove a protected vendor artefact was transcribed honestly. The
+      T42 `2645 k/m3` witness validates the central density identity but deliberately does not
+      restore the disputed matrix-density default removed by SB-CLY-050. SB-CLY-045's Vsh/Vcl
+      bridge and SB-CLY-031's categorical provenance curve remain absent; this increment does not
+      disguise either gap. No Visual, Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-051: checkable source locators survive into run provenance
+
+- [ ] **Automated correctness:** the exact SB-CLY-T33 source-string limb was witnessed RED on
+      the incomplete `NPHI_FL` locator and is GREEN at 1 / 0 / 0. It inventories both live CLY
+      modules and exactly the three numeric defaults (`RHO_FL`, `NPHI_FL`, `FLAG_TOL`), pins each
+      chapter-recorded artefact or project-record locator, rejects `Techlog` alone at both registry
+      and pre-run-record boundaries, and proves the accepted strings persist unchanged with
+      `DEFAULTED` resolution and manifest identity. The empty-source and disputed-endpoint
+      supporting contracts remain green. TypeScript and cargo check are green; the fresh full gate
+      passed 1035 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Density-Neutron and inspect the help/source text for `RHO_FL`,
+      `NPHI_FL` and `FLAG_TOL`. Confirm the exact `.info`, Techlog HTML or SandiBumi section
+      locator is legible and not collapsed to a product badge. Run with the cited defaults and
+      confirm History shows the same source strings rather than a generic vendor label.
+- [ ] **Manual:** run `vsh_dn` without overriding the three cited defaults and inspect the stored
+      effective parameters. Confirm exactly those three are `DEFAULTED` with a manifest identity
+      and their unchanged source string, while every disputed endpoint remains explicitly supplied
+      or `REQUIRED_UNSET`. In a development fixture, replace one default source with `Techlog` and
+      confirm the run refuses before producing curves or a success record.
+- [ ] **Field and harsh critique:** a locator-shaped string is not proof that the protected vendor
+      artefact says what the chapter records, and a syntactic validator cannot detect a stale or
+      dishonest citation. This increment proves a zero-exception live inventory, fail-closed
+      custody and persistence using the chapter's recorded evidence; it deliberately does not open
+      protected resources, implement SB-CLY-031's categorical provenance curve, or claim field
+      verification. No Visual, Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-050: disputed endpoints remain unset beside their evidence
+
+- [ ] **Automated correctness:** the exact Rust contract was witnessed RED first on the selected
+      `vsh_dn.RHO_MA`, then on a combined/wrong-tier source row, and is GREEN at 1 / 0 / 0. All
+      eight disputed live GR/density/neutron endpoint fields are empty, required and linked to
+      exact product/path/tier evidence; missing `RHO_MA` refuses as `ABSENT` before arithmetic;
+      and the two cited T18 sets remain distinct at 0.4239 and 0.6000 rather than being averaged.
+      The frontend contract was witnessed RED with no source rows and is GREEN at 1 / 0 / 0: the
+      input remains empty, every row expands beside it, and source-loading failure remains visible.
+      The shared persistence contract, prior guidance test, both `vsh_dn` guards and all 29
+      frontend tests are green. TypeScript and cargo check are green; the fresh full gate passed
+      1034 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray and VSH from Density-Neutron in both Module and Workflow
+      editors. Confirm every disputed endpoint starts blank with “set a value”, the collapsed
+      source count is visible beside the same field, and expansion shows each product, value or
+      explicit absence, note, tier and artefact locator without visually promoting one row.
+      Disconnect or otherwise make the source query fail in a controlled development run and
+      confirm the visible unavailable warning does not make the blank parameter appear settled.
+- [ ] **Manual:** attempt `vsh_dn` with one disputed endpoint unset and confirm the run refuses
+      before producing curves or a success record and names the missing parameter. Then run the
+      two cited T18 endpoint sets explicitly and inspect `VSH_DN`, the limited `VSH`, parameter
+      decisions and History: expect 0.4239 and 0.6000 at the synthetic sample, with each explicit
+      interpreter choice preserved. Confirm `RHO_FL = 1`, `NPHI_FL = 1` and `FLAG_TOL = 0.25`
+      remain available as their separately cited positive controls.
+- [ ] **Field and harsh critique:** a source browser is evidence disclosure, not scientific
+      adjudication. It can still mislead if two products are merged under one tier, if a stale
+      registry omits a witness, or if users mistake a vendor starting range for a project
+      endpoint. This increment pins separate product/path/tier rows and never fills the input, but
+      it has no field evidence that interpreters read or compare the panel correctly. T19/T20's
+      resistivity methods remain absent/deferred and were not pulled into this requirement merely
+      to make a test pass. No Visual, Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-046: four source-held VSH/VCL curve families
+
+- [ ] **Automated correctness:** exact SB-CLY-T43 was witnessed RED on the live `VSH_GR`
+      output and is GREEN at 1 / 0 / 0. It inventories every typed CLY output and the reviewed
+      Geolog V14, IP 2018 and Techlog 2018 names; requires clipped `VSH`, unlimited
+      `VSH_UNCLIPPED`, `VCL` and categorical `CLY_STATE` to remain distinct; proves exact aliases
+      beat patterns; and refuses the cited `VSHH*`/`VSHV*` shear-velocity and `VCLC*` calcite
+      collisions. The generated registry parity/drift test, TypeScript and cargo check are green;
+      the fresh full gate passed 1032 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open the import vocabulary details and confirm the four families, exact aliases,
+      vendor patterns and exclusions are legible rather than presented as one undifferentiated
+      mnemonic dump. Import representative reviewed names, then confirm the curve tree/plot uses
+      the intended family and the three collision controls remain family-less.
+- [ ] **Manual:** inspect one clipped VSH, one unlimited VSH, one VCL and one state/flag curve in
+      metadata and History. Confirm unlimited VSH remains typed as shale volume, VCL stays clay
+      volume, and `CLY_STATE` is not accepted as either numeric quantity. Confirm a renamed output
+      still follows the explicit quantity custody from SB-CLY-043 rather than its spelling alone.
+- [ ] **Field and harsh critique:** wildcard dictionaries are dangerous because a plausible prefix
+      match can silently turn shear velocity or calcite into shale/clay volume. This increment uses
+      source-held patterns, exact-first resolution, explicit exclusions and ambiguity refusal, but
+      the automated list cannot prove every future vendor mnemonic. New aliases require a named
+      source and a collision review. Family registration also does not implement the categorical
+      provenance vocabulary deferred to SB-CLY-031/032. No Visual, Manual or Field box is
+      pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-043: VSH and VCL are different typed quantities
+
+- [ ] **Automated correctness:** the two owned tests were witnessed RED before the quantity
+      contract existed and are GREEN at 1 / 0 / 0 each. A renamed VSH remains VSH; VCL metadata
+      under a curve named VSH refuses; the mineralogical VCL role accepts VCL, refuses VSH, and
+      records `INPUT_QUANTITY.VCLAY = VCL`; failed type checks create no interpretation record.
+      The existing three-step VSH → PHIE → SWE chain is also GREEN and now asserts VSH producer
+      and consumer metadata in its pre-created ancestry set. TypeScript and cargo check are green;
+      the fresh full gate passed 1031 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray, VSH from Density-Neutron, Density-Neutron Porosity,
+      Thomas-Stieber and Brittleness. Confirm VSH outputs/inputs and the VCL-only mineral input are
+      understandable at the point of selection; then rename a VSH output and confirm its next
+      consumer still runs. This checklist is not proof until Jauhar performs it in the desktop app.
+- [ ] **Manual:** inspect History for the renamed producer, a direct consumer and a saved chain.
+      Confirm `OUTPUT_QUANTITY.<resolved curve>` and `INPUT_QUANTITY.<role>` state VSH or VCL as
+      appropriate. Assign an imported curve's family explicitly, then confirm a wrong assignment
+      refuses before any new log set or computed curve appears.
+- [ ] **Field and harsh critique:** metadata-backed types stop a plausible VCL-for-VSH substitution
+      from silently computing. They do not prove the interpreter assigned an imported curve's
+      physical family correctly. SB-CLY-046 still owns the complete cited vendor/output family
+      inventory; until it lands, imported curves require explicit family assignment and no alias
+      may be guessed from spelling. No Visual, Manual or Field box is pre-checked.
+
+## 2026-08-16 — G2 blocker packet: one integrated decision and source intake view
+
+- [ ] **Automated correctness:** the Gate 2 program test was witnessed RED while the packet was
+      absent and is GREEN after creation. It compares the Markdown requirement rows with the
+      machine-owned `gate2-program.json` blocker set, refuses duplicates, omissions and invented
+      IDs, and requires the one-minute dashboard to link to the packet. The live equality is
+      39 documented / 39 blocked.
+- [ ] **Visual documentation review:** open `docs/takeover/STATUS.md`, follow the Gate 2 blocker
+      link and confirm the packet is scannable as one inventory plus product-decision, source/legal
+      and engineering-follow-through sections. This is documentation navigation, not evidence of
+      desktop UI behavior.
+- [ ] **Manual product review:** read DEC-021 through DEC-037 against the summarized recommendations
+      before approving any bundle. Provide named sources for scientific values and exact asset
+      routes for legal review; an approval alone does not convert a blocked requirement to done.
+- [ ] **Field and harsh critique:** consolidating blockers reduces omission risk but can create a
+      second stale truth source. The JSON/CSV remain authoritative and the automated equality test
+      protects only the ID inventory, not the accuracy of every prose summary or the validity of a
+      product/legal decision. No Manual or Field checkbox is pre-checked.
+
+## 2026-08-16 — G2 SB-CLY-042: Sourced picking guidance without invented values
+
+- [ ] **Automated correctness:** the owned Rust contract is GREEN after witnessed RED, a
+      missing-guidance mutation and a cited-default-erasure mutation. It inventories the shipping
+      GR endpoints, N-D crossplot endpoints and normalization reference pair; requires advice plus
+      source; keeps every uncited endpoint `ABSENT`; and preserves cited RHO_MA/RHO_FL/NPHI_FL and
+      P3/P97 controls. The rendered-help test is GREEN after witnessed RED and a renderer-removal
+      mutation. TypeScript and cargo check are green; the fresh full gate passed 1029 / 0 / 37
+      with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray, VSH from Density-Neutron and the saved Workflow editor.
+      Confirm each relevant parameter exposes readable `Guidance:` and `Source:` text, and that the
+      same field still says `Default: ABSENT` when no value is cited. Confirm the guidance does not
+      prefill the numeric control.
+- [ ] **Manual method review:** compare the visible text against the intended picking route: pooled
+      and pre-clipped percentiles for GR, the declared N-D clean-line construction, and one common
+      reference interval/pair for normalization. Enter an interpreter-owned endpoint and confirm
+      the typed value remains distinguishable from the advice and its source.
+- [ ] **Field and harsh critique:** showing a sourced convention prevents a hidden house number
+      from masquerading as authority. It does not prove that the selected interval, crossplot point
+      or endpoint is representative of a real delivery; that remains Jauhar's manual and field
+      decision, and no checklist box is pre-checked by automation.
+
+## 2026-08-16 — G2 SB-CLY-041: Corrected-first input aliases with exact custody
+
+- [ ] **Automated correctness:** exact T43 is GREEN after a witnessed RED and a raw-first mutation
+      check. Direct and saved-chain runs prefer `GR_COR`/`RHO_COR`/`NPHI_COR`, then SandiBumi's
+      native `GR_EC`/`RHOB_EC`/`NPHI_EC`, fall back to raw mnemonics, never treat `GRN` as a
+      corrected candidate, and record the exact per-well winners in ancestry. TypeScript and cargo
+      check are green; the fresh full gate passed 1027 / 0 / 37 with 31 owned warnings.
+- [ ] **Visual:** open VSH from Gamma Ray and VSH from Density-Neutron. Confirm each governed input
+      opens on an `Auto` choice showing its ordered aliases and the help says that the per-well
+      resolved curve is recorded; confirm an explicit curve can still be selected.
+- [ ] **Manual mixed-well review:** run one batch containing a corrected-delivery well, a native
+      SandiBumi-corrected well and a raw-only well. Confirm the output follows each well's expected
+      source and inspect History/ancestry for the exact chosen mnemonic on all three.
+- [ ] **Field and harsh critique:** a deterministic corrected-first order prevents raw data from
+      silently winning when a corrected channel exists. It does not prove that a curve labelled
+      corrected was produced by an appropriate environmental-correction workflow; the interpreter
+      still owns source QC, curve identity and representative-well acceptance.
+
+## 2026-08-16 — G2 SB-CLY-035: Two-sided differential-caliper bad-hole detection
+
+- [ ] **Automated correctness:** exact T36 is GREEN after a witnessed RED on the cited under-gauge
+      sample. The test also pins an equal over-gauge departure, both strict threshold boundaries,
+      zero departure and criterion availability; no threshold or default was added.
+- [ ] **Visual:** open Bad-Hole QC Flag and confirm `DCAL_MAX` is described as the maximum acceptable
+      **absolute** caliper departure from bit size, and the help equation displays
+      `|CALI - bit size| > DCAL_MAX`.
+- [ ] **Manual:** with an explicitly chosen bit size and differential-caliper threshold, preview one
+      under-gauge, one in-gauge and one over-gauge interval. Confirm both departures flag and the
+      in-gauge interval remains clear; do not count this checklist as completed until Jauhar runs it.
+- [ ] **Field and harsh critique:** automated symmetry is not evidence that a threshold is suitable
+      for a real tool string or interval. The interpreter still owns the value; a symmetric wrong
+      threshold would now reject bad data more consistently, not become correct.
+
+## 2026-08-16 — G2 SB-CLY-034: Undeclared sentinel handling blocked on scoped import policy
+
+- [ ] **Decision dependency:** answer DEC-037. Exact T44 says a bare undeclared `-999` becomes
+      absent, while the adopted SB-DIO contract says an explicit `NoNull` channel preserves a
+      genuine sentinel-shaped amplitude. The precedence and identification scope must be explicit.
+- [ ] **Automated boundary:** no SB-CLY-T35/T44 acceptance test was added. Current controls prove
+      declared-null export/import and `NoNull` preservation, but the provenance-export arm depends
+      on DEC-036 and the undeclared-`-999` warning path has no authorized family/vendor scope.
+- [ ] **Import UX:** decide whether a recognized vendor/curve signature blocks for confirmation or
+      auto-screens with an auditable warning. The warning must name `-999` and every affected curve;
+      a global replacement is forbidden because it would erase legitimate amplitudes.
+- [ ] **Field and harsh critique:** “known vendor sentinel” is not a safe implementation rule until
+      the product can prove what vendor/curve contract it recognized. Guessing from the number alone
+      would convert an anti-sentinel requirement into another magic-sentinel bug.
+
+## 2026-08-16 — G2 SB-CLY-001: Endpoint reporting blocked on provenance custody
+
+- [ ] **Decision dependency:** answer DEC-036. Exact T01 requires the categorical
+      `ENDPOINT_INVALID` token on a persisted/exportable per-sample provenance curve, but the
+      approved clay pilot includes SB-CLY-001 while excluding SB-CLY-031/032, which own that curve
+      and its closed vocabulary.
+- [ ] **Automated gap:** no SB-CLY-T01/T24/T32 acceptance test was added. The source-bearing
+      `vsh_gr` precondition can refuse or emit a generic binary precondition flag and message, but
+      it does not emit the required clay reason token, retain zone identity or fix `vsh_dn`'s
+      silent degenerate-geometry branch.
+- [ ] **Schema boundary:** choose a versioned CLY categorical representation with stable wire/LAS
+      encoding and a separate substitution field, or revise the pilot contract to a different
+      explicit representation. A generic `1 = precondition failed` is not the token
+      `ENDPOINT_INVALID` and cannot distinguish the three T32 absence reasons.
+- [ ] **Field and harsh critique:** the numerical guard prevents an inverted Vsh value, but a bare
+      gap still sends the interpreter hunting through inputs. Calling that safe because it no
+      longer computes would hide the exact operational failure this requirement was written to
+      expose.
+
+## 2026-08-16 — G2 SB-ENV-057: One project-depth-length token
+
+- [ ] **Automated correctness:** exact T67 is GREEN after a witnessed RED on
+      `condflag.MIN_THICK = m|ft`. The whole-registry test requires all nine current native-depth
+      parameters to use the one `depth` token, rejects the legacy `m|ft` token everywhere and pins
+      `SHIFT`/`SPLICE_DEPTH` as deliberately metre-qualified controls. Exact T43 and the NIST-backed
+      metre/foot equivalence regression are also GREEN.
+- [ ] **Visual:** open Despike, Smooth, Fill Gaps, Block, Bed Detect, Condition Flags and the
+      compaction-ceiling controls. Confirm every native-depth parameter shows the same `depth`
+      token, while Depth Shift and Splice still say `m` rather than pretending to be native-unit
+      quantities.
+- [ ] **Manual metric/foot review:** open one metre project and one foot project. Confirm native
+      thickness entries are interpreted in each project's declared unit, while a one-metre Shift
+      or Splice control lands at the same physical position in both projects.
+- [ ] **Field and harsh critique:** a truthful, uniform unit token prevents the UI from lying about
+      a value's dimension. It does not select a defensible thickness, gap, bed or shift magnitude;
+      those remain interpreter-owned, and all uncited numeric defaults remain absent.
+
+## 2026-08-16 — G2 SB-ENV-042: Durable interactive-edit provenance and stale-undo refusal
+
+- [ ] **Automated correctness:** exact T45 is GREEN after a witnessed RED on the absent restart
+      record. One named test executes all five interactive operations and exercises standard,
+      imported/raw and computed stores, closes/reopens the project, then requires operation,
+      inclusive/whole-curve interval, parameters, backend time, actor and before/after SHA-256
+      identities for every edit. A separate regression refuses both same-grid and changed-frame
+      stale undo without changing a sample.
+- [ ] **Visual:** open Processing History after a curve edit. Confirm the row appears as durable
+      curve-owned provenance with well, curve, operation, interval, parameters, store, actor and
+      source; confirm the count distinguishes durable curve edits from the general activity log.
+- [ ] **Manual persistence and refusal review:** edit, save, close and reopen the project; confirm
+      the durable row remains and appears in an exported history. Clear only the activity log and
+      confirm the durable row remains. Then edit a computed curve, rerun its producer and press
+      Ctrl+Z; confirm undo refuses that the curve changed and the recomputed curve is untouched.
+- [ ] **Field and harsh critique:** a complete audit record and content-identity guard prevent an
+      invisible mixed-vintage curve; they do not make a manual blank, shift, interpolation or
+      scale geologically defensible. Pre-SB-ENV-042 edits have no recoverable record and are not
+      backfilled or relabelled as complete history.
+
+## 2026-08-16 — G2 SB-ENV-041: Persisted smoothing-policy provenance
+
+- [ ] **Automated correctness:** exact T49 is GREEN after a witnessed RED. One real workflow test
+      runs MEAN, MEDIAN and SAVGOL with the same explicit physical window, closes and reopens the
+      project, then reads distinct kernel/normalisation records plus the end and gap-edge policy
+      from each output curve's ancestry.
+- [ ] **Visual:** run each Smooth method and inspect its Processing History/curve provenance. Confirm
+      the kernel, normalisation, truncated-end behaviour and MISSING-edge behaviour are readable
+      without decoding the implementation or assuming all three methods share one policy.
+- [ ] **Manual persistence review:** save, close and reopen the project after the three runs. Confirm
+      each curve retains its own policy record and that two runs with the same WINDOW remain
+      distinguishable by method and normalisation.
+- [ ] **Field and harsh critique:** the record truthfully declares that a live target may use finite
+      neighbours across an intervening MISSING interval while the MISSING target stays MISSING.
+      Provenance makes that choice auditable; it does not prove the choice is geologically suitable
+      for a pilot curve or authorize calling the smoothed result field-verified.
+
+## 2026-08-16 — G2 SB-ENV-040: Output-name shadowing refusal
+
+- [ ] **Automated correctness:** exact T48 is GREEN on the current head. The existing named test
+      refuses `GR` by name and explains shadowing, checks a second output against `RHOB`, refuses
+      two outputs resolving to `GR_C`, refuses a whitespace-bearing name and accepts `GR_ED`.
+- [ ] **Visual:** open any Condition module and set its output curve to the selected standard input
+      mnemonic. Confirm the dialog/run result names that mnemonic, explains that the raw standard
+      curve would shadow it and offers a distinct-name remedy before any per-well work starts.
+- [ ] **Manual write-safety review:** attempt a multi-well run with output `GR`; confirm one
+      preflight refusal, no new log-set version and no curve write. Rename it to `GR_ED`, rerun and
+      confirm the distinct output is created and readable.
+- [ ] **Field and harsh critique:** refusing shadowed identities prevents a successful-but-invisible
+      computed curve; it does not prove a safe name states the method, convention or provenance.
+      Those scientific identity obligations remain separate requirements and must not be inferred.
+
+## 2026-08-16 — G2 SB-ENV-039: Clip refuses ambiguous bounds
+
+- [ ] **Automated correctness:** exact T47 is GREEN on the current head. The existing named test
+      refuses no bounds and `MIN > MAX`, accepts a genuine lower-only bound, exercises a valid
+      pair under both BLANK and CLAMP, preserves in-range values and flags out-of-range samples.
+- [ ] **Visual:** open Condition ▸ Clip and confirm MIN and MAX may each be left empty, BLANK is
+      described as removing an invalid measurement, CLAMP is described as pulling an arithmetic
+      overshoot to a defensible bound, and neither action implies that reversed bounds are repaired.
+- [ ] **Manual refusal review:** run once with neither bound and once with MIN above MAX; confirm
+      both runs stop visibly and write no copied/repaired curve. Then run with only MIN and confirm
+      values above the undeclared side remain untouched.
+- [ ] **Field and harsh critique:** refusing an ambiguous pair prevents the software from guessing
+      user intent; it does not make a supplied bound scientifically valid. Every real-log bound
+      remains interpreter-owned and must carry its own source outside this algorithmic contract.
+
+## 2026-08-16 — G2 SB-ENV-038: Exact Fill Gaps boundary
+
+- [ ] **Automated correctness:** exact T46 is GREEN. One named test supplies a 1.000 m maximum
+      and independently exercises live-anchor spans of 0.875 m, exactly 1.000 m and 1.125 m; the
+      first two fill, the third stays missing, both open ends stay missing, measured values remain
+      unchanged and exactly the two invented samples are flagged.
+- [ ] **Visual:** open Condition ▸ Fill Gaps and confirm the dialog says the maximum is a physical
+      depth-unit thickness, a gap at the maximum is eligible, open-ended gaps are never filled and
+      the output flag identifies invented samples.
+- [ ] **Manual boundary review:** on a disposable copied curve, create one bounded gap exactly at
+      the chosen maximum, one just wider, and gaps open at the log top and bottom. Run LINEAR and
+      inspect the output plus `<OUT>_FILL`; confirm only the exact-boundary gap is bridged and every
+      inserted sample, and no measured sample, is flagged.
+- [ ] **Field and harsh critique:** inclusive arithmetic and honest flags prevent a hidden
+      off-by-one policy; they do not make interpolation geologically defensible. The interpreter
+      still owns the uncited, project-specific maximum and must inspect the invented-sample flag.
+
+## 2026-08-16 — G2 SB-ENV-037: Exact conditioning recovery blocked
+
+- [ ] **Decision dependency:** answer DEC-035. Exact T45 requires despike, cull, clip and gap fill
+      to restore from each operation's emitted record, but culling is the absent, deferred
+      SB-ENV-036 capability outside the immutable first-pilot manifest.
+- [ ] **Automated gap:** no SB-ENV-T45 acceptance test was added. Batch changed-sample flags do not
+      contain the original values needed for restoration, and the existing interactive shift undo
+      proves only one path rather than the required four-operation record family.
+- [ ] **Recovery boundary:** decide whether to add culling through an explicitly re-approved pilot
+      manifest or re-adjudicate first-pilot T45 to the shipped operation set. Then require a stable
+      persisted record that restores finite and MISSING values bit-exactly after restart.
+- [ ] **Field and harsh critique:** retaining the input curve is useful but is not the emitted
+      operation-specific recovery record the requirement promises. `BLOCKED` makes that gap visible;
+      it does not make conditioning recoverable or authorize reviewers to trust a changed-sample flag
+      as an undo payload.
+
+## 2026-08-16 — G2 SB-ENV-035: Smoothing preserves every missing sample
+
+- [ ] **Automated correctness:** exact T44 is GREEN. The retained named test runs MEAN, MEDIAN and
+      SAVGOL over the same curve with a three-sample MISSING interval, requires every missing centre
+      to remain MISSING and also requires a live control sample to remain finite. No production code
+      or scientific parameter changed in this re-verification increment.
+- [ ] **Visual:** open Condition > Smooth and inspect all three method choices. Confirm the help says
+      smoothing never fills a gap and routes intentional invention to Fill Gaps, where written samples
+      receive a companion flag.
+- [ ] **Manual gap review:** run each method on a representative raw curve containing a real delivery
+      gap. Compare input and output at every missing depth, then confirm live samples on both sides are
+      still conditioned without creating a continuous bridge through the unlogged interval.
+- [ ] **Field and harsh critique:** preserving NaN prevents invented rock; it does not prove the chosen
+      window or smoothing method preserves thin beds, tool response, or meaningful curve character.
+      A green missing-data test is not permission to accept a visually plausible over-smoothed log.
+
+## 2026-08-16 — G2 SB-ENV-034: Physical conditioning and framing distances
+
+- [ ] **Automated correctness:** exact T43 is GREEN. One named test inventories all eight current
+      `WINDOW`, `MAX_GAP`, `INTERVAL`, `MIN_BED`, `MIN_THICK` and `SHOULDER` declarations across
+      Condition, Frame and `condflag`; a 1.0 m centred window spans eleven 0.1 m samples and three
+      0.5 m samples, removes a 0.4 m feature, preserves a 2.0 m bed and agrees at every coarse depth.
+- [ ] **Visual:** open Despike, Smooth, Fill Gaps, Block, Bed Detect and Data Conditioning Flags.
+      Confirm every distance field is presented as a physical depth-unit quantity and never as a
+      sample count. The inconsistent `depth` versus `m|ft` wording is separately owned by SB-ENV-057.
+- [ ] **Manual two-sampling review:** reframe one controlled curve at 0.1 m and 0.5 m, use the same
+      1.0 m MEDIAN despike window and compare at shared depths. Confirm a narrow feature is removed,
+      a bed wider than the window remains and the original curves are still available for undo/QC.
+- [ ] **Field and harsh critique:** sampling invariance prevents the same typed number from covering
+      five times more rock after a reframe; it does not prove 1.0 m is a defensible window for any
+      real tool or bed. The interpreter still chooses the physical thickness from the actual log.
+
+## 2026-08-16 — G2 SB-ENV-033: Degenerate-window reporting contract blocked
+
+- [ ] **Decision dependency:** answer DEC-034. Exact T42 requires a four-sample Hampel
+      window to produce per-sample fallback declarations, while the shipped safety guard and its
+      regression test refuse that same under-minimum input before any module output exists.
+- [ ] **Automated gap:** no SB-ENV-T42 acceptance test was added. The existing zero-MAD
+      characterization and narrow-window refusal remain useful evidence, but neither can prove the
+      exact two-limb contract and they point to mutually exclusive outcomes for the four-sample arm.
+- [ ] **Boundary review:** confirm the existing `OUT_FLAG` remains a replaced-sample diagnostic.
+      Reusing it to mark estimator fallback would conflate “this value was replaced” with “this
+      window used another spread estimator,” while an error result cannot carry a per-sample flag.
+- [ ] **Field and harsh critique:** `BLOCKED` means the contradiction is visible; it does not mean
+      degenerate-window reporting is delivered. Until DEC-034 is settled, preserve the under-five
+      refusal and do not interpret a quiet flag curve as proof that no estimator fallback occurred.
+
+## 2026-08-16 — G2 SB-ENV-032: One cited MAD consistency constant
+
+- [ ] **Automated correctness:** exact T41 is GREEN: the Rust source tree has one `C_MAD`
+      definition, one executable source record and no second copy of the numeric literal; both the
+      Condition and Frame consumers are inventoried and must reference the shared constant.
+- [ ] **Structural review:** open `robust.rs` and confirm the value is explicitly derived as the
+      reciprocal of the standard-normal 75th percentile and cites `20_envcorr-qc.md` §5.3. Search
+      the Rust tree independently and confirm the only numeric occurrence is that definition.
+- [ ] **Manual result regression:** rerun a representative Hampel despike and Frame bed detection
+      before and after this increment. Confirm the same samples are selected and the tiny move from
+      the truncated literal to the chapter value does not change an interpreter-visible decision.
+- [ ] **Field and harsh critique:** one source of truth prevents drift; it does not prove MAD is the
+      right estimator for a particular tool artifact, window, sampling, or bed. A green structural
+      gate and unchanged-looking curves are not field validation.
+
+## 2026-08-16 — G2 SB-ENV-031: Live despike contamination ceiling
+
+- [ ] **Automated correctness:** exact T40/T69/T70 are GREEN from independent chapter arithmetic:
+      the zero-MAD fallback shows 33.33% at K=3 and stops at 50.00% for K=2 and K=1.5; a positive-
+      MAD window shows 50.00%, not 33.33%; and the unoffered population-σ contract remains distinct
+      at 20.00% for K=2. The read-path test resolves two selected curves through effective parameters
+      and mask handling and sends only branch counts over IPC; the frontend test keeps both branches
+      and the masking meaning visible.
+- [ ] **Visual:** open Condition > Despike, choose a finite curve, enter WINDOW and K, and confirm the
+      Live contamination ceiling card updates after each change. Switch between a scattered curve
+      and a locally flat/quantized curve; confirm True MAD and Mean-deviation fallback are named
+      separately, and a mixed run shows both rather than one blended percentage. Switch to ABS,
+      MEDIAN and RATE and confirm the card says K does not apply.
+- [ ] **Manual scope and mask:** repeat with one well, a multi-well scope, and an exclusion mask.
+      Confirm the evaluated-well/sample counts change, unavailable wells are named, and a window too
+      narrow for Hampel shows the same actionable refusal the run would produce. K must still open
+      empty and require an interpreter value; no new cutoff default was authorized.
+- [ ] **Field and harsh critique:** the displayed percentage is an estimator breakdown ceiling, not
+      evidence that WINDOW or K is physically right for the tool, sampling, or rock. A 50% card can
+      coexist with false positives, thin-bed destruction, a bad mask, or a wrong curve selection.
+      Compare the proposed despike against raw curve character and known beds before accepting it;
+      automated arithmetic and a polished card are not field validation.
+
+## 2026-08-16 — G2 SB-ENV-030: Typed flag polarity and semantic kind
+
+- [ ] **Automated correctness:** exact T38 and T39 were RED before the type/metadata path existed
+      and are GREEN now. T38 inventories every ENV/Condition flag output, excludes Flip's numeric
+      pivot, pins the single `FlagValue` definition and its cited `MISSING/0/1` mapping, and checks
+      the framework companion. T39 renames a real exclusion mask and diagnostic indicator, runs
+      both direct and saved-chain writers with only the chapter's cited 0.15 g/cc and 2 in presets,
+      closes/reopens the database and distinguishes their types without reading curve values.
+- [ ] **Visual:** open Bad-Hole QC Flag and the Condition modules. Confirm every binary output is
+      labelled either “exclusion mask” or “diagnostic indicator,” the labels survive output
+      renaming, and Flip's pivot output has neither label. Select the precondition flag policy and
+      confirm its companion is visibly a diagnostic indicator rather than a user mask.
+- [ ] **Manual restart:** run Bad-Hole QC Flag with reviewed, sourced thresholds; rename BADHOLE and
+      one availability indicator, save a one-step Workflow Builder chain, close the project and
+      reopen it. Inspect `run_parameters`: direct names must be `FLAG_KIND.<actual curve>` and the
+      chain names `step[1].FLAG_KIND.<actual curve>`, with the two distinct typed values intact.
+- [ ] **Field and harsh critique:** typed polarity prevents an inverted boolean convention and
+      typed kind prevents a diagnostic from masquerading as an exclusion mask. It does **not**
+      prove the threshold, source unit, cause channel or physical mask is correct. A clean, typed
+      BADHOLE curve can still be scientifically wrong; compare it against caliper, bit size, DRHO
+      and interval context before allowing it to suppress porosity or pay.
+
+## 2026-08-16 — G2 SB-ENV-029: Conditioning scale precondition blocked
+
+- [ ] **Decision dependency:** answer DEC-025. Authorize SB-ENV-012's typed neutron matrix-scale
+      metadata/persistence seam as required infrastructure while the whole consumer contract stays
+      deferred, or revise and re-approve the immutable pilot manifest to include SB-ENV-012.
+- [ ] **Automated gap:** exact T18 remains unwritten because neither `condflag` nor the neutron
+      correction can receive a curve-owned `LITHSCALE` today. T19 remains explicitly a
+      characterization of an uncited source-code statement and is not correctness evidence.
+- [ ] **Boundary review:** confirm that a local `condflag` string parameter would be a false fix: it
+      could agree with `RHO_MA` while disagreeing with the neutron curve's actual, undeclared scale,
+      and it would leave every other neutron consumer unguarded.
+- [ ] **Field and harsh critique:** until the typed seam exists, do not treat a clean crossover flag
+      as evidence that neutron and density were on compatible matrix bases. A plausible unflagged
+      interval is exactly the silent-wrongness failure this requirement is meant to stop.
+
+## 2026-08-16 — G2 SB-ENV-028: Workflow MASK provenance
+
+- [ ] **Automated correctness:** exact T28 was RED because direct run ancestry omitted MASK and
+      chain ancestry could not distinguish its steps' mask context. It is GREEN after database
+      close/reopen: otherwise identical direct versions retain `APPLIED/BADHOLE` versus explicit
+      `NONE`, a real curve named `NONE` remains `APPLIED/NONE`, and a two-step chain retains
+      `step[1].MASK`, `step[2].MASK` and both one-based output derivations.
+- [ ] **Visual:** run one module with BADHOLE selected and once with Mask blank. In Database
+      Inspector, read the two log-set versions and their `run_parameters` rows; MASK must be a
+      typed state object, not an empty string, and the blank run must say `NONE` rather than omit
+      the row. Repeat with two Workflow Builder steps and confirm their names remain indexed.
+- [ ] **Manual restart:** save and close the project, reopen it, then inspect the same direct and
+      chain records without rerunning. Confirm the mask identities and step positions survive and
+      that the corresponding output curves still cite those log-set records.
+- [ ] **Field and harsh critique:** a complete MASK record proves which exclusion context produced
+      the curve; it does not prove the mask was physically appropriate. Compare the selected mask
+      against caliper, bit size, DRHO and interval context before trusting a downstream result.
+      Reproducible wrong conditioning is still wrong conditioning.
+
+## 2026-08-16 — G2 SB-ENV-027: Workflow MASK repair exemption blocked
+
+- [ ] **Automated characterization:** the existing owned test stays GREEN only as a defect record:
+      unmasked `log_predict` MAX_RAW repairs the synthetic RHOB at the washout, the same masked run
+      writes MISSING there, and a direct module call proves input-side blanking alone already defeats
+      prediction. No assertion was inverted and no passing defect was relabelled correctness.
+- [ ] **Decision review:** answer DEC-033. Confirm whether the initial repair inventory is only
+      `log_predict.SYN` under `OPT_COMBINE = MAX_RAW`, as engineering recommends, or name every
+      additional output and mode. Do not approve a whole `Prep` category exemption: it would bypass
+      the safety mask for unrelated conditioning modules.
+- [ ] **Marker review:** define the reconstructed-sample companion's public identity, binary type and
+      export/report behavior. It must mark a finite result produced at a masked depth without calling
+      that result a measurement, and its resolved name must remain understandable if the output curve
+      is renamed.
+- [ ] **Field and harsh critique:** a repair exemption can restore the exact bad interval the mask was
+      designed to distrust. Even after T36/T37 become green, compare the reconstructed curve against
+      an independent truth/control and inspect every marker before allowing it into porosity or pay.
+      “Finite under the mask” proves the plumbing worked; it does not prove the prediction is right.
+
+## 2026-08-16 — G2 SB-ENV-026: BADHOLE DRHO unit custody
+
+- [ ] **Automated correctness:** exact T35 was RED because an empty LAS unit field (`DRHO. :`)
+      was parsed as the colon and then accepted as an unrecognized unit. It is GREEN with atomic
+      refusal until the user states `g/cc` or `kg/m3`; the cited 100 kg/m3 input becomes canonical
+      0.1 g/cc, missing consumer metadata refuses, both mismatch directions refuse, and matching
+      units still execute the below/above-threshold bad-hole comparison.
+- [ ] **Visual:** open a LAS or DLIS import and confirm “DRHO unit when undeclared” starts on the
+      refusal choice, not g/cc. Open Bad-Hole QC Flag and confirm DRHO_MAX has no unit hidden in its
+      numeric label and its separate unit selector starts blank. With a finite DRHO input, leaving
+      that selector blank must show a unit-specific refusal rather than save BADHOLE.
+- [ ] **Manual:** import one delivery whose DRHO declares a cited g/cc spelling and one controlled
+      copy with the declaration removed. Confirm the declared delivery needs no override, the
+      undeclared copy refuses, and an explicit reviewed kg/m3 statement produces a recorded
+      designation plus canonical g/cc values. Then run with matching and deliberately mismatched
+      threshold units and inspect the refusal text and run history.
+- [ ] **Field and harsh critique:** typed units prevent the 1000x comparison trap; they do not prove
+      the source header or the interpreter's declaration is true. Compare the source documentation,
+      curve magnitude and tool convention before stating a missing unit. Do not treat automatic
+      canonical conversion as evidence that the original delivery was labelled correctly.
+
+## 2026-08-16 — G2 SB-ENV-025: BADHOLE bit size is input, never fallback
+
+- [ ] **Automated correctness:** exact T34 was RED while BADHOLE still declared BS_DEF. It is GREEN
+      with no fallback argument: a missing BS curve and blank BS_INPUT mark the caliper criterion
+      unavailable while bad/good DRHO samples still produce 1/0 and neither-evaluable remains
+      MISSING. Measured-curve and explicit-entry controls both exercise the strict cited 2 in cutoff.
+- [ ] **Visual:** open Bad-Hole QC Flag and confirm the old BS_DEF field is absent. BS_INPUT must open
+      blank with “optional value,” not 8.5 in and not “no bound.” Run with CALI plus no bit size and
+      confirm the caliper-evaluated companion stays 0 while the DRHO-evaluated companion still moves.
+- [ ] **Manual:** run the same interval three ways: measured BS curve, a reviewed explicit BS_INPUT,
+      and neither. Confirm curve and explicit entry give reviewable caliper results, while neither
+      disables only caliper. If transcribing a well-header value, verify the unit and run custody.
+- [ ] **Field and harsh critique:** removing 8.5 in prevents fabricated hole geometry, but an
+      interpreter can still type the wrong value or unit. The chapter cites no physical min/max, so
+      the UI deliberately invents none; review CALI minus the actual bit size on the delivered hole
+      section before trusting the mask. The separate GR-correction BS_DEF path remains outside this
+      requirement and must not be mistaken for bad-hole closure.
+
+## 2026-08-16 — G2 SB-ENV-024: BADHOLE thresholds ship absent
+
+- [ ] **Automated correctness:** exact T07/T33 proves both DRHO_MAX and DCAL_MAX are required,
+      carry the exact `ABSENT` source token and conceal no numeric default. Omitting either one
+      produces an actionable refusal naming that threshold and ABSENT. A separate two-sample
+      DRHO control uses only the chapter-cited 0.02 g/cc and 2 in values as explicit inputs and
+      distinguishes below-threshold from above-threshold behavior.
+- [ ] **Visual:** open Bad-Hole QC Flag and confirm neither threshold field is pre-populated. Try
+      running once with DRHO_MAX blank and once with DCAL_MAX blank; each refusal must identify the
+      missing field, and neither path may silently substitute the old 0.05 g/cc or 1 in values.
+- [ ] **Manual:** explicitly enter reviewed thresholds for one delivery, run it, and verify the run
+      record shows the interpreter-supplied values. Do not describe that entry as a named preset;
+      SandiBumi currently offers none while ESC-1 remains unresolved.
+- [ ] **Field and harsh critique:** `ABSENT` prevents an arbitrary cutoff from silently masking
+      footage, but it does not make the interpreter's chosen values scientifically correct. Review
+      the resulting masked interval against the delivered caliper/bit-size and DRHO evidence before
+      using downstream porosity or pay; any future preset needs an approved name, source and
+      provenance path before it may appear in the product.
+
+## 2026-08-16 — G2 SB-ENV-023: BADHOLE signed DRHO reason blocked
+
+- [ ] **Automated audit:** exact T31 and current source confirm `badhole` evaluates
+      `abs(DRHO) > DRHO_MAX` and then keeps only the combined BADHOLE bit. Positive and negative
+      exceedances therefore become indistinguishable. No passing test currently observes a signed
+      reason output, and the raw DRHO input is not misrepresented as output custody.
+- [ ] **Visual:** no closure review is executable. A positive and a negative DRHO excursion of equal
+      magnitude currently render the same BADHOLE state; the availability companion is 1 for both
+      and supplies no diagnosis.
+- [ ] **Manual decision:** settle DEC-032. Choose the typed binary cause group or categorical reason
+      type, including the exact representation that preserves positive and negative DRHO causes and
+      every caliper-plus-DRHO combination after storage and export.
+- [ ] **Field and harsh critique:** preserving `abs(DRHO)` only preserves alarm magnitude, not the
+      physical direction that separates broadly washout-like and mudcake-like responses. Do not
+      infer the sign from a later curve that may have been renamed, reframed or omitted from a
+      deliverable; exercise equal-magnitude opposite-sign controls after the contract is approved.
+
+## 2026-08-16 — G2 SB-ENV-022: BADHOLE reason representation blocked
+
+- [ ] **Automated audit:** exact source/spec inventory confirms BADHOLE still exposes the mask and
+      the two SB-ENV-021 availability companions, but no output records whether caliper, DRHO or
+      both criteria fired. Exact T31 has no executable body. OI-7 explicitly leaves one encoded
+      curve versus several booleans open and ties the choice to SB-ENV-007; no current passing test
+      was relabelled as reason-channel proof.
+- [ ] **Visual:** no closure review is executable. The current three outputs can show a bad sample
+      and which criteria were available, but they cannot show which criterion caused the flag.
+      Treat any UI inference from BADHOLE plus availability as insufficient and potentially wrong.
+- [ ] **Manual decision:** settle DEC-032 together with DEC-031: approve a typed binary cause group
+      that preserves the one `1 = true` flag polarity, or define one categorical reason type with
+      exact stable wire values. The decision must also define how SB-ENV-023's positive and negative
+      DRHO causes remain distinguishable after storage and export.
+- [ ] **Field and harsh critique:** availability is not causation. An interpreter can have both
+      inputs available while only one fires, and an arbitrary numeric code would become an
+      undocumented interchange format. Do not present SB-ENV-022 as delivered until the selected
+      representation survives a real run, persistence and export review.
+
+## 2026-08-16 — G2 SB-ENV-021: BADHOLE detection records evaluated terms
+
+- [ ] **Automated correctness:** exact T32 was RED because BADHOLE returned only the mask. It is
+      GREEN across caliper-only bad/good, DRHO-only bad, both-available good and neither-evaluable
+      samples: the last remains `NaN`, a genuinely evaluated good sample is `0`, and two one-hot
+      companion outputs record caliper and DRHO availability. Existing nominal bad-hole arithmetic,
+      manifest/output parity, generic-store masking and complete curve ancestry remain green.
+- [ ] **Visual:** run Bad-Hole QC Flag and confirm the result lists BADHOLE plus the two clearly
+      labelled `*_EVALUATED` companions. At a caliper-only interval, verify the caliper channel is
+      1, the DRHO channel is 0, and BADHOLE remains reviewable as a separate mask.
+- [ ] **Manual:** exercise caliper-only, DRHO-only, both-present and neither-present intervals using
+      explicitly supplied thresholds. Confirm an evaluated good interval reads BADHOLE = 0 while a
+      neither-evaluable interval is blank/MISSING rather than falsely good.
+- [ ] **Field and harsh critique:** availability is not diagnosis. These companions say only which
+      criteria could run; they do not yet say which criterion fired or preserve DRHO sign. Do not
+      present them as closing SB-ENV-022/023, and verify the three-curve review on a real delivery
+      separately before Gate 4 acceptance.
+
+## 2026-08-16 — G2 SB-ENV-009: unknown selectors refuse before any chain step
+
+- [ ] **Automated correctness:** exact T03 names the invalid `OPT_GR=TYPO` value and the
+      complete source-owned VSH method set, retains a 0.5 LINEAR positive control, and inventories
+      every registered runnable Option from both accepted-default and rejected-unknown sides.
+      Exact T15 was RED with a completed saved chain and two curves from the valid first step;
+      whole-chain selector preflight is now GREEN with a failed poll payload and zero output sets,
+      current curves or archived curves. The repository-wide gate remains a commit precondition.
+- [ ] **Visual:** open Workflow Builder and Processing with a deliberately invalid saved selector
+      fixture. Confirm the selector name, rejected value and permitted set are visible, the run is
+      not styled as completed, and no output set appears in the Curve Catalog.
+- [ ] **Manual:** place a valid step before the invalid saved step and confirm the whole run stops
+      before versioning the valid step's output. Correct only the invalid selector and confirm the
+      same chain then runs normally.
+- [ ] **Field and harsh critique:** the automated inventory proves closed sets declared as current
+      `Option` arguments; it does not prove a future method field cannot be misdeclared as free
+      text, and it does not make data-dependent chain failures transactional. Exercise the visible
+      refusal on a real saved workflow separately before Gate 4 acceptance.
+
+## 2026-08-16 — G2 SB-ENV-008: sourced validity visible before launch
+
+- [ ] **Automated correctness:** exact T14 drives one declared CALI/GR condition through the
+      rendered field-adjacent surface. The missing-CALI scope visibly says it cannot be evaluated,
+      names the absent selected input and keeps the chapter-owned source; the finite-CALI control
+      says inputs are available and carries no refusal text. The production preflight returns only
+      argument-level metadata over IPC and uses the runner's input-set/computed-only resolver.
+- [ ] **Visual:** open GR Environmental Correction and confirm the CALI field shows a compact
+      condition card containing the stable id, full statement, source and current input-check state
+      without hover. Confirm the amber unavailable state remains readable in both wide and narrow
+      module panes and does not obscure the curve selector.
+- [ ] **Manual:** select a scope containing one finite-GR well without CALI and one with CALI; confirm
+      only the missing-input well is named before Run. Change the CALI mnemonic, well scope and input
+      log set in turn and confirm the card refreshes without losing any typed output name or field.
+- [ ] **Field and harsh critique:** a green DOM test proves the governed text/state transform, not
+      that a 2,000-well project preflights fast enough or that the wording changes an interpreter's
+      decision. Time the real pane and verify the selected log set against a real delivery separately.
+
+## 2026-08-16 — G2 SB-ENV-007: per-sample correction state blocked
+
+- [ ] **Automated audit:** exact source/spec inventory confirms `ModuleOutputs` carries only
+      `Vec<f32>`, declared outputs have no flag-type metadata, SB-ENV-030 defines only binary
+      `1 = true`, and no T13 or four-state correction channel exists. The passing SB-ENV-006 T11
+      refusal is supporting evidence only; it cannot prove a per-sample state channel or step set.
+      The unchanged last full gate is 1045 passed / 0 failed / 37 ignored with 31 separately owned
+      Rust warnings; no test was manufactured from the current refusal.
+- [ ] **Visual:** no closure review is executable. A failed correction can show a source-bearing
+      message and a successful correction can show `*_EC`, but neither surface currently shows
+      full/partial/not-applied/refused state at each depth or the steps used at a partial sample.
+- [ ] **Manual decision:** settle DEC-031: either approve a one-hot group of typed binary state
+      channels that preserves SB-ENV-030's `1 = true`, or define one categorical state channel with
+      exact stable wire codes. Also select OI-4's persistence owner and authorize the T13 partial-
+      coverage policy without weakening the all-uncovered SB-ENV-006 refusal.
+- [ ] **Field and harsh critique:** an unchanged input blocked by a whole-run error is safer than an
+      unmarked corrected curve, but it is not the interval-level QC T13 requires. A unit string is
+      not type metadata, and arbitrary float codes would become an undocumented file format.
+
+## 2026-08-16 — G2 SB-ENV-006: environmental correction workflow refusal
+
+- [ ] **Automated correctness:** exact T11 drives GR-without-caliper through the real workflow
+      runner, requires the source-bearing failed item and zero `GR_EC` rows, then adds CALI and
+      proves the same request writes a changed curve. Exact T12 discovers every registered `*_EC`
+      producer and proves missing-input refusal or a genuinely changed result plus a complete-input
+      runnable control. Fresh full gate: 1045 passed / 0 failed / 37 ignored with 31 separately
+      owned Rust warnings.
+- [ ] **Visual:** run GR Hole-Size Correction on a well whose GR is populated but CALI is absent.
+      Processing must name `gr_hole_corr.caliper_coverage` and no `GR_EC` may appear in the Curve
+      Catalog; after adding a finite CALI over every finite GR sample, the same pane must run.
+- [ ] **Manual workflow:** repeat the missing-CALI refusal for Density Hole-Size Correction and
+      inspect the Help/field condition text. Confirm Neutron Environmental Correction still permits
+      its documented salinity-only path and that the result is not an unchanged `NPHI` copy.
+- [ ] **Field and harsh critique:** an error from a private helper is not user evidence; confirm the
+      refusal in a real project and in a saved workflow. SB-ENV-006 closes the unmarked-copy defect
+      by refusing, but it does not manufacture SB-ENV-005's manifest or SB-ENV-007's per-sample
+      correction-state channel; those remain separate rows.
+
+## 2026-08-15 — G2 SB-ENV-005: environmental applied-step storage blocked
+
+- [ ] **Automated audit:** no applied-step schema, writer, reader or qualifying T08-T10 test exists.
+      The current log-set archive records a module, effective parameters and input ancestry, but it
+      does not distinguish applied, unavailable, user-disabled and refused correction steps or bind
+      each applied value to one step. The last exact-candidate gate remains 1043 passed / 0 failed /
+      37 ignored with 31 separately owned Rust warnings; no passing test was manufactured from the
+      generic run record.
+- [ ] **Visual:** no closure review is executable. A curve can still be displayed with a module name
+      and numeric parameters while omitting which correction terms actually ran; that is precisely
+      the plausible-looking but unauditable state this requirement rejects.
+- [ ] **Manual decision:** choose OI-4's one persistence owner for the shared applied-step, mask and
+      interactive-edit history problem: log-set archive, run record or per-curve metadata. The choice
+      must support restart retrieval and one-hop curve linkage without adding a second write path.
+- [ ] **Field and harsh critique:** a generic provenance blob is not a correction manifest. Until
+      the storage owner and source-complete correction chains are settled, a well review cannot
+      distinguish “step unavailable” from “step never modelled,” so this row remains BLOCKED.
+
+## 2026-08-15 — G2 SB-ENV-004: parameter-source contract blocked
+
+- [ ] **Automated audit:** current source has the universal `default_source`/`ABSENT` field, build
+      gate, dialog text and ancestry persistence established by SB-CORE-004, but that proof cannot
+      be relabelled as this domain's T06/T07. The exact §5 table contains 29 `SHIPPED-UNCITED` rows:
+      10 are authorized to become ABSENT and 19 explicitly require sources the chapter does not
+      supply. T07 separately names 31 ABSENT parameters while §5 calls its 32 count authoritative.
+      No production change or manufactured passing test was made; the unchanged full gate remains
+      1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- [ ] **Visual:** no closure review is executable yet. The existing dialog may correctly display a
+      source or ABSENT for registered parameters and still omit an ENV parameter entirely; a good-
+      looking field cannot prove the domain inventory is complete or that source and validity share
+      the same saved record.
+- [ ] **Manual decision:** provide or approve admissible named sources for the nineteen source-
+      required §5 rows, and adjudicate the exact T07 identity set: either name all 32 authoritative
+      ABSENT parameters or identify with evidence which one is excluded from the stated 31. Do not
+      use a neighbouring vendor value, code comment or current default as its own authority.
+- [ ] **Field and harsh critique:** a universal validator proves only what was registered. A missing
+      parameter never reaches that validator, an uncited number can still look plausible, and two
+      separate persisted records can drift while both remain schema-valid. Until the sources and
+      31/32 inventory are resolved, this row is BLOCKED rather than quietly partial-complete.
+
+## 2026-08-15 — G2 SB-ENV-003: partial precondition refusal or flagged workflow result
+
+- [ ] **Automated correctness:** the exact T05 test starts from refusal as the default and proves it
+      writes no curve. With the explicit partial-result policy, one of three source-backed endpoint
+      samples is invalid: both scientific outputs are missing only there, the companion curve is
+      exactly `[0, 1, 0]`, Processing is visibly Degraded and saved provenance retains the condition,
+      offending value, expected range, source and affected index. A separate negative-PHIE case makes
+      every scientific PERM sample missing and proves its finite all-zero flag cannot allocate a set,
+      write a curve or manufacture success. Changing answer detection to count the flag made the test
+      RED; restoration returned GREEN. TypeScript and `cargo check` are green; the fresh full gate is
+      1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- [ ] **Visual:** in the linear-GR module dialog, verify the “When only some samples violate a
+      condition” control defaults to “Refuse this well.” Select “Keep valid samples and write a flag
+      curve”; confirm the companion output name and `1 = violation` meaning appear before running.
+      Repeat in Workflow Builder and confirm the per-step policy is readable and batch-settable.
+- [ ] **Manual:** run the same three-sample endpoint fixture first under refusal and then under partial
+      retention. Confirm refusal produces no curve; partial retention shows a Degraded Processing
+      result, preserves both valid depths, gaps both scientific curves at the invalid depth, writes
+      one flag at that depth, and retains the same condition/value/range/source after project reopen.
+      Then run the all-invalid negative-PHIE control and confirm it is Failed with no output set.
+- [ ] **Field and harsh critique:** repeat on a representative native-depth curve with a genuinely
+      source-controlled condition. A finite flag is not a scientific answer, a flag nobody can find
+      is not usable QC, and one synthetic violation does not prove every module declares all required
+      conditions. Typed flag quantity/family metadata remains SB-ENV-030; exhaustive parameter-source
+      custody remains SB-ENV-004; visual comprehension and field fitness remain open for Jauhar.
+
+## 2026-08-15 — G2 SB-ENV-002: identical precondition refusal across workflow routes
+
+- [ ] **Automated correctness:** the existing T02 public-dispatch test proves an invalid selector
+      and source-backed endpoint violation stop before VSH arithmetic while the valid side still
+      computes. The new exact T04 test routes the same source-backed endpoint inversion through the
+      module dialog/Tauri/Processing path, a saved chain, a two-well batch and a named-zone override.
+      Every returned and pollable payload carries the identical source-bearing refusal, reports zero
+      rows/curves, and the database remains empty. The zone starts with a valid 20/120 gAPI base and
+      inverts only sample zero to 120/20, so scalar-only or pre-zone validation cannot pass. Bypassing
+      the central validator made the test RED by allowing the body to return blank VSH arrays; the
+      production call was restored and the focused test returned GREEN. TypeScript and `cargo check`
+      are green; the fresh full gate is 1042 passed / 0 failed / 37 ignored with 31 separately
+      owned Rust warnings.
+- [ ] **Visual:** from the linear-GR module dialog, submit the source-backed endpoint inversion and
+      open Processing → details. Confirm the well is visibly Failed, the message names the endpoint
+      condition, both values, the sample, the expected relation and the source, and no success toast
+      or output curve appears. Repeat from Workflow Builder and confirm the same human-readable text.
+- [ ] **Manual:** run the same invalid endpoint pair as a single-well dialog run, a saved chain and a
+      two-well batch. Then use valid whole-well endpoints with a one-sample named-zone inversion.
+      Compare the four visible refusals character for character, reopen the project and confirm no
+      VSH/VSH_GR curve or misleading successful run remains. Raw database queries may support this
+      review but do not replace the operator-visible Processing and Workflow Builder surfaces.
+- [ ] **Field and harsh critique:** repeat on representative native-depth curves and real zone
+      boundaries. One shared evaluator and a strong synthetic route test prove registered routing,
+      not that every shipping method has every scientifically required condition or that every
+      condition is sourced correctly. A future caller can still bypass the public dispatcher unless
+      its route inventory is maintained, and an identical technical message can still be unusable to
+      an interpreter. Source completeness, UI comprehension and field fitness remain separate work.
+
+## 2026-08-15 — G2 SB-ENV-001: source-bearing validity conditions survive saved runs
+
+- [ ] **Automated correctness:** one versioned validity manifest snapshots every declared condition
+      beside the saved run's effective parameters. Four exact correctness tests persist and reload an
+      enumeration, a per-sample numeric range with unit, two different ranges selected by branch,
+      and a required-companion condition, including each stable id, human statement and source.
+      The 8–13 and 8–18 lb/gal values are used only in the chapter-authorized synthetic
+      NON-ADOPTABLE fixture and are not registered on a shipping module. Temporarily retaining only
+      the first condition made the branch-pair test RED before restoration. The existing public-runner
+      proof still owns pre-dispatch enforcement and the existing module dialog owns condition display;
+      this increment does not claim SB-ENV-002, SB-ENV-004 or SB-ENV-008 closure. TypeScript and
+      `cargo check` are green; the fresh full gate is 1041 passed / 0 failed / 37 ignored with 31
+      separately owned Rust warnings.
+- [ ] **Visual:** open the linear-GR method dialog and inspect arguments carrying declared validity
+      conditions. Confirm the statement and source are readable beside the affected field and that
+      the content does not require an SB id, source code or terminal access to understand. This is a
+      review of the already-shipping dialog surface, not proof that every pilot method has been
+      populated with every source-owned condition.
+- [ ] **Manual:** run one valid linear-GR case and one invalid selector/range case, close and reopen
+      the project, and confirm the valid run remains usable while the invalid case leaves no output.
+      Inspect the saved run through the maintained provenance surface when that surface is available;
+      raw database inspection may verify persistence but cannot count as operator usability.
+- [ ] **Field and harsh critique:** repeat with representative source-controlled curves and compare
+      every displayed condition to its approved source. A serializable schema can faithfully preserve
+      an incomplete or wrongly populated manifest, so this increment proves representation and saved-
+      run survival only. It does not prove exhaustive method coverage, source authority, cross-route
+      enforcement, operator comprehension or field fitness; those remain separate Gate 2/Gate 4 work.
+
+## 2026-08-15 — G2 SB-PLT-031: registered plot limits report reduction or refuse
+
+- [ ] **Automated correctness:** the exact T40 test inventories the seven current plot limits and
+      their load, point, well, legend, visual and facet subjects. The cited 60,000-point budget and
+      eight-load concurrency remain chapter-owned; the five other existing maxima are explicitly
+      retained as-built rather than promoted into independently validated defaults. Exact-boundary
+      fixtures remain unreduced, prefix policies emit original/displayed counts and their algorithm,
+      Unicode labels retain a whole-code-point ellipsis and manifest item, and the Vega hard maximum
+      returns no plausible prefix plus an exportable refusal. The same test inventories every current
+      consumer and forbids local prefix slicing outside the registry. Temporarily returning a hard-
+      maximum prefix and temporarily omitting visual-label manifest items each made the test RED.
+      TypeScript, the complete 25-test frontend file and the focused Rust canonicalization test are
+      green; the first fresh full gate is 1037 passed / 0 failed / 37 ignored with 31 separately
+      owned Rust warnings.
+- [ ] **Visual:** use more than 40 scoped wells, more than 10 context wells and well names longer
+      than 18 characters in Crossplot, Histogram and Pickett. Confirm the scope preview and legend
+      visibly say displayed of original, shortened names end in an ellipsis, and `Manifest` remains
+      available. Open a fit scatter with more than 12 groups and confirm its legend reports both
+      counts. In Vega raincloud, select a grouping curve with more than 24 categories; confirm the
+      old chart is cleared, the refusal is visible, no first-24 prefix is drawn, and the refusal
+      manifest can still be exported.
+- [ ] **Manual:** exercise exactly-at and one-above boundaries for the scope preview, context
+      legend, visual label, fit-scatter legend and Vega group maximum. Inspect every exported JSON
+      record for `original_count`, `displayed_count`, the named algorithm, null non-applicable
+      stride/endpoint fields and the refusal text. For context point reduction, verify every
+      represented well retains its own count/stride/endpoint record and the on-screen reduction
+      sentence agrees with the exported manifest.
+- [ ] **Field and harsh critique:** repeat with representative multi-well volumes and hostile long
+      names. A seven-row registry and green source inventory prove the current registered consumers,
+      not that a future limit cannot bypass the registry. A visible ellipsis is not by itself a
+      before/after disclosure, so the export record and count-bearing remainder text must remain
+      reachable. The retained 40/10/18/12/24 maxima are not validated usability or performance
+      thresholds; only 60,000 and eight have chapter custody. Automated proof does not establish
+      visual legibility, operator comprehension, suitable limits, release-hardware performance or
+      representative field behavior; those evidence classes remain open for Jauhar.
+
+## 2026-08-15 — G2 SB-PLT-030: Accessibility for Histogram, Crossplot, Pickett, Correlation and Vega interaction
+
+- [ ] **Automated correctness:** the exact T39 test executes one shared accessibility contract,
+      changes the real X view with ArrowRight, refreshes a changed accessible label, opens the
+      Properties route with `P`, focuses export with `E`, and proves disposal removes the handler.
+      Its source inventory requires the same current-label, keyboard-view, non-pointer Properties,
+      export-focus and disposal boundaries in Histogram, Crossplot, Pickett, Correlation and Vega.
+      Correlation must mutate its depth viewport and use its existing zoom routine; Vega must mutate
+      runtime domains and repaint. Reversing ArrowRight and removing Vega's export route each made
+      the test RED. The generated Vega canvas also shares the existing visible focus-ring rule.
+      TypeScript and the complete 24-test frontend acceptance file are green; the fresh full gate is
+      1036 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- [ ] **Visual:** open Histogram, Crossplot, Pickett, Correlation and Vega, then use only Tab to
+      reach every canvas. Confirm each focused canvas has a visible ring and a current description
+      naming its selected curves and context. Exercise arrow pan, `+`/`-` zoom and `Home` fit; verify
+      the plotted viewport really changes. Press `P` and `E` and confirm Properties and export
+      controls receive visible focus without a pointer.
+- [ ] **Manual:** repeat the five-panel sequence with keyboard only and a Windows screen reader.
+      Confirm changed curve, well, interval, depth basis and Vega channel selections update the
+      announced label; no shortcut scrolls the page instead; focus never disappears into the
+      generated Vega subtree; and closing a panel removes its keyboard handler.
+- [ ] **Field and harsh critique:** repeat on the representative pilot workstation with real plot
+      sizes and selections. A `tabindex`, helper call and green synthetic event are not usable
+      accessibility if focus is invisible, a view does not move, the accessible name becomes stale,
+      or Properties/export still require a mouse. Automated source inventory cannot prove screen-
+      reader announcements, browser/renderer focus behavior, user comprehension or field usability;
+      those evidence classes remain open until Jauhar records them.
+
+## 2026-08-15 — G2 SB-PLT-029: generation-safe Histogram, Crossplot, Pickett, Correlation, Vega and log-view loads
+
+- [ ] **Automated correctness:** the exact T28/T33 test inventories all 15 asynchronous
+      build/refetch boundaries owned by the chapter's five plot surfaces plus the specified
+      log-view viewport refetch. It resolves two panel builds in reverse order, starts a new data
+      revision while an older refetch is in flight, and requires only the newest generation to
+      apply while both stale disposable results are torn down before active-panel mutation.
+      Workspace replacement, correlation's applied-only draw, detached Vega embed and live-host
+      commit order are pinned separately. Removing the generation comparison and embedding Vega
+      directly into the live host each made the same test RED. TypeScript and cargo check are
+      green; the fresh full gate is 1036 passed / 0 failed / 37 ignored with 31 separately owned
+      Rust warnings.
+- [ ] **Visual:** with Crossplot, Histogram, Pickett, Correlation and Vega open, switch curves,
+      zones, scoped wells and the selected well rapidly enough to overlap loads. Trigger a data
+      revision while each plot is still loading. Confirm the newest selection remains visible,
+      no older chart flashes back into the pane, and Correlation does not redraw an earlier well
+      inventory after the current one.
+- [ ] **Manual:** repeat reverse-order completion with developer throttling or a controllable test
+      backend. Close a plot while its build, context fetch, Vega editor import or Vega resize is
+      pending; confirm stale content is disposed, no detached Vega result re-enters the live host,
+      no stale failure message replaces a current chart, and the log viewport keeps the newest
+      generation-tagged half-open refetch.
+- [ ] **Field and harsh critique:** repeat with representative multi-well context scopes and data
+      volumes. A green deterministic race test proves ordering and disposal at registered
+      boundaries; it does not prove network/storage latency realism, visual stability on every
+      machine, or that a future unregistered asynchronous branch cannot be introduced. The
+      executable inventory is the tripwire for that future change, not permanent omniscience.
+
+## 2026-08-15 — G2 SB-PLT-026: measured paper export and honest raster print
+
+- [ ] **Automated correctness:** the exact T37/T38 test draws a long axis label beyond the source
+      canvas's left edge and an outside legend beyond its right edge, then proves SVG and PDF rerun
+      the supplied scientific draw, retain the axis/legend/annotation/footer as vector text and
+      expand their point-sized page around real TextMetrics glyph bounds. SVG measurement, PDF
+      preflight and the final PDF draw must consume the same text width; a declared content box
+      smaller than its source canvas is rejected. It also proves the shared print
+      control says `Print raster…`, embeds the same provenance/exclusion footer and records backing
+      pixels as pixels rather than falsely calling them physical points. A mutation that moved the
+      page edge inside its content and the former 0.6-em PDF width each made the test RED before
+      repair. A separate Rust test pins the independent write refusal, source-canvas inclusion,
+      vector metadata embedding and dishonest-raster-unit control. TypeScript and cargo check are
+      green; the fresh full gate is 1035 passed / 0 failed / 37 ignored. Cargo check reports the
+      separately owned 31 Rust warnings.
+- [ ] **Visual:** export Crossplot, Histogram, Pickett and Vega plots with the longest realistic axis
+      labels, context legends, annotations and statistics blocks. Open the SVG and PDF side by side;
+      confirm all marks remain readable, no label/footer is clipped, point sizing is useful on paper,
+      and the added physical margin does not make the plot implausibly small. Confirm Correlation and
+      every Canvas/Vega toolbar call the print route `Raster`, never an unqualified `Print`.
+- [ ] **Manual:** inspect SVG text elements and the embedded `sandibumi-paper-export` records, then
+      inspect PDF text selection and its embedded record. Verify recorded content bounds sit inside
+      page bounds and the visible footer counts match the plot's wells, bindings, axes, statistics,
+      exclusions and display-hidden samples. Print one raster route to paper/PDF and verify the title
+      explicitly says raster, the footer remains visible and full ancestry/binding records follow.
+- [ ] **Field and harsh critique:** repeat with representative long labels, many-well legends,
+      decimated plots, non-finite/validity exclusions and vendor-overlay refusals. Measured recorder
+      bounds do not prove typography is attractive or every printer driver preserves layout. Raster
+      pixels are deliberately not called paper points. Automated green proves custody and no-crop
+      geometry for recorded vector marks, not real-printer fidelity, visual legibility or field use.
+
+## 2026-08-15 — G2 SB-PLT-024: vendor chart payload remains a legal blocker
+
+- [ ] **Automated factual inventory:** the generated `src/ui/chartOverlays.ts` remains imported by
+      the crossplot surface and contains the 19 vendor-derived numeric definitions recorded by
+      `docs/IP_PROVENANCE.md` section 2.1 and CLAIM-013. SB-PLT-023 now blocks their screen and
+      deliverable rendering without an approved record, but a blocked renderer does not remove the
+      payload bytes from the repository or application bundle. No correctness test is claimed
+      because executable code cannot establish licence or redistribution rights. The fresh full
+      gate is 1034 passed / 0 failed / 37 ignored; cargo check reports the separately owned 31 Rust
+      warnings.
+- [ ] **Visual:** confirm the chart selector still labels every current chartbook overlay blocked and
+      that choosing one shows the provenance refusal rather than curves. This confirms fail-closed
+      behavior only; it is not legal clearance.
+- [ ] **Manual/legal:** counsel must select one O-5/CLAIM-013 route before first sale: document a
+      sufficient licence, replace the payload with an independently digitized published primary
+      source carrying full custody, or remove the payload from the paid build/repository while
+      retaining only lawful metadata and tooling.
+- [ ] **Field and harsh critique:** an unreachable or visually hidden payload can still be copied in
+      distributed source or binaries. Green builds, factual inventory, metadata, and blocked UI do
+      not prove ownership, permission, scientific correctness, or lawful redistribution.
+
+## 2026-08-15 — G2 SB-PLT-023: provenance-complete chart custody and refusal
+
+- [ ] **Automated correctness:** the exact SB-PLT-023/T35 test carries one complete metadata-only
+      fixture, sourced to Pittman (1992) as already classified in chapter 15, unchanged through
+      screen, saved state, template, SVG and PDF surfaces; removes the revision and proves every
+      surface refuses; and changes the chart identity to prove a different record cannot authorize
+      the selected payload. Removing the revision check made the test RED before restoration. The
+      Rust boundary independently validates the record and embeds it in SVG/PDF metadata. Existing
+      vendor-derived chartbook overlays remain blocked because no rights-approved source record was
+      added. The fresh full gate is 1034 passed / 0 failed / 37 ignored; cargo check reports the
+      separately owned 31 Rust warnings.
+- [ ] **Visual:** open a Crossplot whose axes match a chartbook overlay. Confirm each existing
+      unapproved overlay is labelled blocked in the selector and draws a readable refusal instead of
+      chart curves. At the smallest normal dock size, the refusal must not masquerade as a plotted
+      result or disappear beneath the axes.
+- [ ] **Manual:** with a test build containing one rights-approved record, confirm the same chart ID,
+      title/type, typed axes, citation, publisher, revision, digitizer, derivation path, checksum and
+      transform survive last-used state, named-template reload, SVG metadata and PDF metadata.
+      Remove only the revision and confirm screen, state/template save and both vector exports refuse.
+- [ ] **Field and harsh critique:** do not interpret populated metadata as lawful provenance. The
+      existing vendor-derived payloads remain unusable until rights and exact source custody are
+      independently approved. A green metadata fixture proves fail-closed plumbing, not content
+      rights, digitization correctness, scientific validity, visual readability or representative-
+      field behavior; those remain open until Jauhar records them.
+
+## 2026-08-15 — G2 SB-PLT-019: one invalidation and disposal contract for every plot
+
+- [ ] **Automated correctness:** the exact SB-PLT-019/T32 test executes one current-value event
+      source for each of theme, data revision, interval, selection and size across Crossplot,
+      Histogram, Pickett, Vega and Correlation; proves construction is not miscounted as a change;
+      proves one theme change reaches each panel exactly once without replacing its data or viewport;
+      exercises every other event; and proves idempotent disposal removes all subscriptions and
+      cancels pending work exactly once. Omitting the interval subscription made the test RED before
+      restoration. Live-source inventory rejects private governed subscription lists. The full gate
+      is green at 1033 passed / 0 failed / 37 ignored with 33 owned Rust warnings.
+- [ ] **Visual:** open Crossplot, Histogram, Pickett, Vega and Correlation together. Switch light/dark
+      theme and confirm all five repaint once without a flash, data reset or viewport jump. Select and
+      clear a top interval, brush exact depths, and resize each dock pane. Confirm the four
+      zone-windowed plots update, Correlation shows and clears its interval band and exact-depth
+      rings, and no label, toolbar or disclosure overlaps at the smallest normal pane size.
+- [ ] **Manual:** zoom/pan all five plots to recognisably different viewports, then change theme and
+      compare the same data and bounds before/after. Trigger a data revision, interval, selection and
+      resize separately; confirm each open panel responds once. Close every panel while a reload,
+      brush frame or delayed menu/timer is pending, then change every event again and confirm no
+      detached panel redraws, writes status, reopens a menu or replaces active content.
+- [ ] **Field and harsh critique:** repeat on representative long, sparse, multi-set and multi-well
+      logs. Five calls to one helper are not proof if one handler is visually inert, if Vega resets its
+      zoom, or if a closed panel still wins an async race. A green synthetic event test does not prove
+      real dock timing, renderer behavior, legibility, memory release or representative-field UX;
+      Visual, Manual and Field remain open until Jauhar records them.
+
+## 2026-08-15 — G2 SB-PLT-017: identified log-view viewport refetch
+
+- [ ] **Automated correctness:** the exact SB-PLT-017 T27/T28 test starts from a known loaded
+      interval, proves an equally dense contained view does not fetch, proves a crossed high bound
+      issues one `[low,high)` request with a generation token, collapses its duplicate, resolves two
+      requests in reverse order and renders only the newest, and surfaces both pending and failure
+      states in the panel. Inverting the generation guard made the test RED before restoration. The
+      Rust query proof excludes the high endpoint. The full gate is green at 1032 passed / 0 failed /
+      37 ignored with 33 owned Rust warnings.
+- [ ] **Visual:** open a log view on a dense curve, zoom in and pan past the currently loaded depth
+      interval. Confirm the track shows a readable provisional-data notice while detail loads, then
+      clears it when the denser trace arrives. At the smallest normal dock size, neither the notice
+      nor a refresh-failure message may cover the depth scale or curve headers.
+- [ ] **Manual:** pan and zoom rapidly enough to overlap two loads, finishing on a visibly different
+      interval. Confirm the final interval stays rendered after the older request completes, repeat
+      the same settled view and confirm it does not issue another fetch, and verify the query excludes
+      a sample exactly at the requested high bound. Confirm no source curve, sampling or Reframe
+      output is written.
+- [ ] **Field and harsh critique:** repeat on representative long, dense, sparse and multi-set logs.
+      If zoom merely enlarges a coarse whole-log trace, if an old response repaints a newer view, or
+      if a failed refresh leaves plausible-looking data without disclosure, this requirement fails.
+      Automation does not prove visual clarity, user comprehension, response time or field behavior;
+      those remain open until Jauhar records them.
+
+## 2026-08-15 — G2 SB-PLT-016: exact depth reconciliation and explicit Reframe handoff
+
+- [ ] **Automated correctness:** the exact SB-PLT-016 T23-T26 test executes equal regular grids,
+      exact 0.5/1.0 multiples, both irregular-identical and non-integer 0.5/0.8 refusals, and the
+      `[100,101)` half-open interval. It clicks the visible handoff, proves the shell opens Reframe
+      once, inventories Crossplot, Histogram, Pickett and shared context loading, and proves no plot
+      calls Reframe automatically. An event-name mutation made the test RED before restoration; the
+      Rust oracle also passes. The full gate is green at 1031 passed / 0 failed / 37 ignored with 34
+      owned Rust warnings.
+- [ ] **Visual:** load equal, exact-multiple and incompatible native-grid curves in Crossplot,
+      Histogram context and Pickett. Confirm compatible plots render normally; an incompatible plot
+      shows one readable warning card and `Open Reframe` button at the smallest normal dock size;
+      clicking it opens Reframe and the status explicitly says no plot data were resampled.
+- [ ] **Manual:** compare the equal and exact-multiple results against their native samples, confirm
+      the factor disclosure is correct, and verify `[lo,hi)` excludes the high endpoint. For both an
+      irregular grid and non-integer step ratio, snapshot the source curve bytes, exercise the
+      refusal and Reframe handoff without running Reframe, and confirm the source remains unchanged.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells containing equal,
+      unequal, sparse and irregular native grids. If incompatible logs merely look aligned, or if a
+      refusal gives no obvious next action, the UI is safer-looking rather than safe. This automated
+      proof does not establish visual placement, user comprehension, representative-field behavior
+      or SB-PLT-017 viewport refetching; those remain separate evidence.
+
+## 2026-08-15 — G2 SB-PLT-015: shared-index decimation and portable tail provenance
+
+- [ ] **Automated correctness:** the exact SB-PLT-015 T21/T22 test derives source indices
+      `0,4,8,10` from eligible `0..10` at stride 4, proves depth/X/Y/Z marks all use those same
+      indices, preserves the first and forced final sample, labels the view reduced rather than
+      complete, and carries counts, algorithm, stride and forced-endpoint state through the live
+      context-panel manifest and whitelisted Rust serializer. A deliberate true-to-false endpoint
+      mutation made the test RED before restoration. The exact full gate is green at 1030 passed /
+      0 failed / 37 ignored with 36 owned Rust warnings.
+- [ ] **Visual:** open Crossplot, Histogram and Pickett with enough context points to trigger
+      reduction. Confirm each scope row says reduced, shows original→displayed counts, stride and
+      whether a tail was forced, remains readable at the smallest normal dock size, and never says
+      the displayed view is complete. Export the JSON manifest and check the same fields are visible
+      to a human without reading source code.
+- [ ] **Manual:** compare the first and final eligible depth plus several interior X/Y/Z marks against
+      the unreduced source on all three panels. Export, close and reopen the panels, repeat with one
+      well not needing reduction and one requiring a forced tail, and confirm non-stride well/legend
+      reductions record null stride/endpoint fields rather than borrowed numbers.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells on native, unequal and
+      sparse grids. Decimation that keeps the right count but pairs one channel with another source
+      index fabricates rock; a manifest hidden behind a button or unreadable in normal work is weak
+      protection. Green arithmetic and serialization tests do not prove that rendered glyphs or a
+      delivered PDF look correct, and this increment does not claim the deferred SB-PLT-014
+      multi-well allocation or SB-PLT-016 depth-reconciliation contracts.
+
+## 2026-08-15 — G2 SB-PLT-013: channel-specific missing and overflow policy
+
+- [ ] **Automated correctness:** the exact SB-PLT-013 contract test exercises shared X/Y policy,
+      Crossplot/Pickett/Vega Z adapters, screen and composite spaghetti-waveform adapters, both
+      linear and logarithmic channels, low/high endpoint marks, separate exclusion/clamp counts and
+      bit-exact source preservation. The two Rust supporting tests execute the production composite
+      consumer and policy. A deliberate high-edge-to-low-edge mutation made the acceptance test RED
+      before restoration. The exact full gate is green at 1029 passed / 0 failed / 37 ignored with
+      38 owned Rust warnings.
+- [ ] **Visual:** open Crossplot, Pickett, generated Vega and a log/composite spaghetti array with
+      deliberately low, high, non-finite and non-positive-log samples. Confirm low/high Z overflow
+      uses distinguishable endpoint diamonds, every count is readable at the smallest normal dock
+      size, waveform disclosure does not cover traces, and composite disclosure remains legible on
+      paper/PDF. Automation proves content and call paths, not placement or legibility.
+- [ ] **Manual:** compare the same samples across linear and log axes; narrow only display limits;
+      confirm X/Y overflow hides without changing the analysis population, Z and waveform overflow
+      clamps only the display copy, log-invalid values leave plot and plot statistics, and all offered
+      SVG/PDF/PNG or composite routes report the same dispositions. Re-read the source curve before
+      and after every interaction and confirm no display operation created an edit or history entry.
+- [ ] **Field and harsh critique:** repeat with representative native-grid curves and real array logs,
+      including long outlier tails and sparse gaps. A polished plot with silent clipping is a
+      plausible lie; a tiny or overlapping disclosure is almost as bad because the operator will not
+      use information they cannot read. Green helper and source-inventory tests do not prove that
+      users notice or understand the marks, and this increment does not claim deferred multi-well
+      allocation, shared reduction or performance contracts.
+
+## 2026-08-15 — G2 SB-PLT-009: statistics carry population, estimator and exclusions
+
+- [ ] **Automated correctness:** the exact SB-PLT-009 T12/T13 test executes Histogram, Crossplot,
+      Pickett, Correlation and generated Vega adapters, including active versus pooled wells,
+      two-sided and one-sided intervals, sample versus population standard deviation, display-only
+      clipping and one record per raincloud group. The Rust boundary test preserves a reconciled
+      export record and refuses mismatched totals, foreign wells and channels absent from the plot
+      bindings. A deliberate P5-to-minimum whisker mutation made the T13 assertion RED before
+      restoration. The exact full gate is green at 1028 passed / 0 failed / 37 ignored with 42
+      owned Rust warnings.
+- [ ] **Visual:** open Histogram, Crossplot, Pickett, Correlation and Vega, including a grouped
+      raincloud. Confirm the disclosure remains readable without covering the plot, grouped details
+      collapse rather than forming a wall of text, and a top-to-TD interval is shown as
+      `[top,+inf)` rather than `all`. Automation proves content and custody, not visual legibility.
+- [ ] **Manual:** switch between active-well and pooled data; set, clear and reverse interval bounds;
+      apply and remove a selection; introduce non-finite, log-invalid and validity-excluded samples;
+      clip the display without changing analytical `n`; and switch sample/population standard
+      deviation. Inspect screen plus every SVG/PDF/PNG, clipboard and print route for identical
+      population, interval, estimator, selection, finite-pair and exclusion records.
+- [ ] **Field and harsh critique:** repeat on representative multi-set wells, mismatched native grids,
+      all-NaN deliveries and categorical groups. A correct numeric statistic is still a plausible lie
+      if its population, interval, exclusions or estimator drift; a green adapter/export test does not
+      prove the disclosure is readable or understood in real use. This increment does not claim the
+      deferred SB-PLT-010 regression record or SB-PLT-011 Pickett identifiability contracts.
+
+## 2026-08-15 — G2 SB-PLT-006: one canonical histogram-bin contract
+
+- [ ] **Automated correctness:** exact SB-PLT-006 is green at 1 passed / 0 failed / 0 ignored;
+      the full gate is green at 1027 passed / 0 failed / 37 ignored with 42 owned Rust warnings.
+      T06/T07 execute through canonical, primary Histogram, crossplot-marginal and pre-binned Vega
+      adapters; the inventory pins log-view glyphs plus Canvas and Vega export custody. A deliberate
+      final-upper-endpoint mutation returned `[1,1,1]` instead of `[1,1,2]` before restoration, and
+      the Rust supporting test executes the real distribution contract rather than a dead wrapper.
+- [ ] **Visual:** open the primary Histogram, enable crossplot marginal histograms and open a Vega
+      histogram for the same finite population and governed range. Confirm the primary axis says
+      `displayed n=X of analysis n=Y`, the crossplot footer shows both marginal displayed totals,
+      Vega says `histogram bins=50 · displayed total=X`, and the labels remain readable at the
+      smallest normal dock size. Automation proves strings and data rows, not legible placement.
+- [ ] **Manual:** exercise bin requests at 1, 50 and 200 plus out-of-range 0 and 201, then compare
+      the final-upper-endpoint fixture and a delivery containing NaN/infinity across the primary,
+      marginal and Vega surfaces. Zoom without re-binning, export every offered SVG/PDF/PNG route,
+      and confirm bar edges, counts, displayed totals and non-finite exclusions agree with screen.
+- [ ] **Field and harsh critique:** repeat on representative pilot deliveries with reversed axes,
+      logarithmic crossplot marginals, context wells and finite tails outside the displayed range.
+      A clean bar chart is dangerous if one surface shifts an endpoint or silently drops non-finite
+      samples; a green adapter/inventory test is not real-app visual proof. This increment does not
+      claim HFU, Monte-Carlo or other deferred scientific histograms, and it does not close Manual
+      or Field evidence.
+
+## 2026-08-15 — G2 SB-PLT-005: unit-limit content is audited before activation
+
+- [ ] **Automated correctness:** exact SB-PLT-005 is green at 1 passed / 0 failed / 0 ignored;
+      the full gate is green at 1026 passed / 0 failed / 37 ignored with 44 owned Rust warnings.
+      One exhaustive test inventories the nine source-owned family rows plus the audit-only
+      attenuation refusal, proves exact RHOB and screened rounded DT conversions, refuses the
+      documented 6.56× attenuation pair and an unknown density unit with reasons, and inventories
+      all five live panel consumers. A deliberate RHOB `2950 -> 3000` mutation returned the expected
+      RED before restoration; the Rust fixture independently derives the 6.56× result.
+- [ ] **Visual:** open Crossplot, Histogram, Pickett, Correlation and Vega with RHOB `kg/m3`, DT
+      `us/m` and an intentionally unknown RHOB unit. Confirm the registered rows use the audited
+      family display range, the unknown unit uses finite data, and its visible range label names the
+      disabled family limit instead of silently borrowing `g/cc`. Check that the reason remains
+      readable at each real dock size; automation proves text content, not layout.
+- [ ] **Manual:** set user and curve-header ranges above the same curves, then clear them in order.
+      Confirm precedence remains user → header → audited family → finite data, and inspect every
+      offered save/export record for the same tier, row ID, unit, source and enable/disable reason.
+      Verify `g/c3`, `gm/cc` and `us/f` no longer activate a familiar-looking family limit merely
+      because older code treated them as aliases.
+- [ ] **Field and harsh critique:** repeat on representative pilot deliveries containing observed
+      unit spellings. The shipped registry is the cited nine-row seed set, not authority for all 83
+      incumbent rows and not a physical-family range table. A schema-valid wider table remains
+      disabled until every row has its own source and dimensional audit; attractive axis defaults
+      are especially dangerous because a wrong range can hide valid rock while the chart still
+      looks polished.
+
+## 2026-08-15 — G2 SB-PLT-004: display clipping and analyst validity are separate populations
+
+- [ ] **Automated correctness:** exact SB-PLT-004 is green at 1 passed / 0 failed / 0 ignored;
+      the full gate is green at 1025 passed / 0 failed / 37 ignored with 47 owned Rust warnings.
+      Five unequal samples prove display clipping counts two hidden without changing `n=5`, while
+      explicit validity excludes two, changes `n` to 3, changes the independently derived mean
+      from 2 to 3 and reports the fit-input count. All five pilot panel adapters execute the same
+      policy; a deliberate Histogram mutation returned the expected `5 !== 3` RED before restore.
+- [ ] **Visual:** open Crossplot, Histogram, Pickett, Correlation and Vega. First zoom or narrow only
+      the display and confirm `display hidden` changes while analytical `n`, statistics and active
+      fit inputs do not. Then enter complete validity limits, explicitly enable them, and confirm
+      `validity excluded`, `n`, statistics and fit inputs change together. A fresh Tauri release was
+      built, but the sandbox capture failed before producing a frame, so no screenshot is claimed.
+- [ ] **Manual:** save and reopen each panel with validity disabled, enabled and later cleared. Confirm
+      incomplete/equal/non-finite pairs refuse or stay disabled, Pickett refuses an excluded anchor
+      and clears an invalidated two-anchor fit, Correlation breaks clipped traces instead of clamping
+      them to an edge, and a generated Vega regression uses the disclosed filtered population.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells, log axes, context wells
+      and reversed display axes. A green helper plus adapter inventory does not prove text remains
+      readable at real dock sizes; the current E2E harness is stale on scoped `list_wells`, workflow
+      custody and capture-only teardown, and must not be mistaken for product visual acceptance.
+
+## 2026-08-15 — G2 SB-PLT-002: Crossplot, Histogram, Pickett, Correlation and Vega governed axis custody
+
+- [ ] **Automated correctness:** the one owned T01/T02 contract test and full gate are green at
+      1024 passed / 0 failed / 37 ignored, with 49 owned Rust warnings. Unequal discriminator ranges prove user over header,
+      header after user removal, matching rendered/exported tier records and no validity promotion;
+      the same test inventories all five live quantitative panel adapters so an unused helper alone
+      cannot pass.
+- [ ] **Visual:** for each panel, first leave the range blank and confirm the visible label names
+      header display, audited family display or finite data as appropriate; then pan/zoom or enter a
+      complete user pair and confirm the label changes to `user`. Confirm a missing governed range
+      produces the explicit refusal instead of an invented frame, and a custom Vega spec says why
+      custody-dependent save/export is unavailable.
+- [ ] **Manual:** set and undo a curve-header display range in Curve metadata. Reopen the plot,
+      save project properties or a named session, and export every offered SVG/PNG/PDF path. Compare
+      the displayed limits and tier to the embedded binding record; also apply a very different
+      validity range and confirm it filters only when requested and never reframes the axes.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells, converted units and
+      reversed porosity axes. Automated precedence does not prove labels fit at real dock sizes,
+      Vega runtime scale names remain stable after interactive transforms, or the screened family
+      seed set covers every pilot delivery; record those observations rather than calling them done.
+
+## 2026-08-14 — G2 SB-PLT-001: Crossplot, histogram, Pickett, correlation, Vega and session binding custody
+
+- [ ] **Automated correctness:** the one owned contract test is green and the full gate is
+      1023 passed / 0 failed / 37 ignored. It saves and reloads one project plot state and one
+      named template with two wells resolving the same semantic request to different concrete
+      curve IDs, units, conversions, sample counts, reasons and source revisions. A missing
+      required well/channel refuses both save and export and writes no invalid plot document.
+- [ ] **Visual:** create multiwell crossplot, histogram, Pickett and correlation panels where one
+      semantic channel resolves to different concrete curves across two wells, plus a Vega panel.
+      Save project properties, a named template and a named session; reopen each; export SVG, PNG
+      and PDF where offered. Confirm the visible curves remain the intended ones and every action
+      either succeeds with exact binding custody or names the unresolved required channel.
+- [ ] **Manual:** inspect the reopened/exported artifact against the source curve inventory. A
+      similar-looking mnemonic is not enough: confirm well, curve ID, source/display unit,
+      conversion, sample count, resolution reason and revision. Record the outcome here; automated
+      JSON round trips do not close this checkbox.
+- [ ] **Field and harsh critique:** repeat the save/reopen/export path on the representative Gate 4
+      corpus. The implementation now refuses missing bindings, but a green serialization test does
+      not prove that every real imported alias, multi-set well or long-running context fetch resolves
+      to the geoscientist's intended curve.
+
+## 2026-08-14 — G2 SB-DIO-063: every Python sidecar now owns the same Unicode byte boundary
+
+- [ ] **Automated implementation:** exact SB-DIO-T96 was deliberately run and passed 1 / 0 / 0.
+      The production DLIS runner now receives its path as UTF-8 JSON over piped byte stdin, and
+      the one named test proves the path plus source-well payload through DLIS, Word and Pillow.
+- [ ] **Ignored-test custody:** the test remains `#[ignore]` because its subject needs numpy,
+      python-docx and Pillow. It is inventoried as `OPTIONAL-PACKAGE`, raises the default ignored
+      count to 37, and must never be described as a default-gate pass.
+- [ ] **Visual / Manual:** import or export one representative Unicode path through each enabled
+      DLIS, Word and image action. Confirm the displayed path, created artifact and source label
+      remain exact; a successful row or byte count alone does not expose mojibake.
+- [ ] **Gate 3 / Field and harsh critique:** qualify the complete offline Python pack on a clean
+      Windows machine and repeat the three actions. Passing on this development machine proves the
+      byte contract, not that every packaged interpreter and dependency combination is deployable.
+
+## 2026-08-14 — G2 SB-DIO-062: the named encodings pass but Windows code-page selection is undefined
+
+- [ ] **Automated correctness:** exact SB-DIO-T95 is green at 1 passed / 0 failed / 0 ignored.
+      It imports and reports UTF-8, UTF-16LE/BE with and without BOM, and one Windows-1252
+      adverse-byte control through the real LAS import result.
+- [ ] **Source decision:** publish the supported Windows single-byte code-page inventory and the
+      deterministic evidence or user-decision rule used to select among them. The current decoder
+      labels every non-UTF-8, non-UTF-16 byte stream `Windows-1252`; the chapter's plural
+      “code pages” contract does not authorize that assumption or name the other pages.
+- [ ] **Visual / Manual:** import the same representative text delivery in each approved encoding.
+      Confirm the visible result names the selected encoding and preserves a distinguishing
+      non-ASCII character; a successful row count alone cannot expose mojibake in descriptive text.
+- [ ] **Field and harsh critique:** Jauhar must confirm the supported pilot-origin tool/export
+      inventory before this closes. Calling all legacy Windows bytes CP1252 is convenient and often
+      plausible, which is exactly why it can ship silent character corruption without a red gate.
+
+## 2026-08-14 — G2 SB-DIO-061: malformed-corpus proof remains diagnostic, inventory and memory-bound blocked
+
+- [ ] **Automated implementation:** BLOCKED-SOURCE. A focused RED probe made the existing
+      cross-reader matrix inspect the errors it currently discards; 23 reader/fixture failures
+      omitted the fixture filename. T92 then checks only selected LAS and delimited paths, so the
+      combined green test does not prove the universal diagnostic contract in T91-T94.
+- [ ] **Inventory decision:** publish one authoritative full reader inventory covering the chapter's
+      LAS, delimited, DLIS, image and workbook boundaries. The current source-derived guard scans
+      only `parsers.rs` and `intake.rs`, so adding a reader in another owned module need not fail the
+      build until it is registered.
+- [ ] **Source decision:** supply a cited maximum import size, or approve a bounded streaming design
+      that preserves the mandatory universal encoding boundary. `read_text_file_with_encoding`
+      currently allocates the complete delivery, so T91's no-unbounded-allocation clause cannot be
+      proved truthfully by a timeout alone and no plausible byte cap may be invented.
+- [ ] **Visual / Manual / Field and harsh critique:** after both contracts exist, exercise one
+      malformed delivery from each pilot reader family and confirm the refusal names the artifact,
+      line or record, failed rule and affected count. A test that merely survives malformed bytes
+      while throwing away its errors is a false-green safety claim, not malformed-input custody.
+
+## 2026-08-14 — G2 SB-DIO-060: BIFF5 routing remains blocked by the deferred table reader
+
+- [ ] **Automated implementation:** BLOCKED-DEPENDENCY. T90 genuinely opens a delimited table
+      named `.las` through Intake and reports the disagreement. T89 only calls the signature
+      detector: it never reads the BIFF5 stream as chapter §6 requires, while the ordinary Intake
+      probe continues into the text-table reader after identifying binary BIFF5 content.
+- [ ] **Scope decision:** decide whether to promote deferred `SB-DIO-059` into the pilot. Its
+      published-specification cell-record reader is the missing route needed to make T89 truthful;
+      this increment does not silently pull that one row out of the 689-row post-pilot backlog.
+- [ ] **Visual / Manual:** after the reader is promoted and implemented, open one licence-safe
+      headerless BIFF5 table named `.xls` and one delimited table named `.las`. Confirm both are
+      read by content and each disagreement/structural choice is visible before commit.
+- [ ] **Field and harsh critique:** a detector that prints `BIFF5` while handing the bytes to a
+      text reader is more dangerous than an explicit unsupported-format refusal: its green unit
+      test can make a silent empty or corrupt import look like working format routing.
+
+## 2026-08-14 — G2 SB-DIO-057: log-scale zero handling remains family-registry blocked
+
+- [ ] **Automated implementation:** BLOCKED-SOURCE, so no SB-DIO-T84/T85 is written by treating
+      familiar gas, resistivity or permeability mnemonics as an authoritative family registry.
+      Current imports can commit exact zeros without a pre-commit logarithmic-family decision.
+- [ ] **Source decision:** publish the ENV-reviewed, versioned classification of which exact curve
+      families are logarithmic, including its source and alias-resolution boundary. Chapter §5.6
+      and §7.1 O-5 deliberately leave that classification ABSENT; UI log-axis choices and current
+      display defaults are not import semantics.
+- [ ] **Visual / Manual:** after the registry exists, import T84's gas control with 200 exact zeros
+      among 4,000 samples. Confirm the pre-commit surface reports 200 without rewriting any value,
+      and confirm declining conversion commits all zeros as values with a durable decision record.
+- [ ] **Field and harsh critique:** Jauhar must exercise one representative logarithmic pilot curve
+      and one genuinely linear zero-bearing control. Until family membership is sourced, either
+      test can be made green by a mnemonic guess that silently corrupts the other class.
+
+## 2026-08-14 — G2 SB-DIO-056: whole-index LAS STEP remains source-blocked
+
+- [ ] **Automated implementation:** BLOCKED-SOURCE, so no SB-DIO-T82/T83 is written against an
+      invented comparison tolerance. Current `export.rs` still declares the first adjacent
+      interval as `STEP` without checking the remainder; uniform export round trips do not expose
+      that silent misdeclaration.
+- [ ] **Source decision:** supply a cited whole-index STEP-agreement tolerance, or explicitly adopt
+      exact equality as the contract. T82's `0.1524 m` input and T83's `0.1 m` then `0.15 m` input
+      specify controls, not the boundary between them. Git history and a familiar floating-point
+      epsilon are not sources.
+- [ ] **Visual / Manual:** after the source contract exists and T82/T83 pass, export one uniform
+      and one deliberately irregular native-depth frame. Confirm the former declares its verified
+      step and the latter declares `STEP = 0` while preserving every explicit depth row.
+- [ ] **Field and harsh critique:** Jauhar must reopen both artifacts in a second LAS reader and
+      confirm it does not reconstruct an irregular index as uniform. Until the tolerance is
+      sourced, a green test would defend a number we guessed rather than prove the requirement.
+
+## 2026-08-14 — G2 SB-DIO-055: LAS export accounts for every held curve
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T80/T81 is green at
+      1 passed / 0 failed / 0 ignored. The test reopens the recipient-facing LAS, verifies all
+      forty imported curve columns and their own supplied samples, independently derives 46
+      written of 48 held, matches both omission records across the result and `~O`, and guards
+      the ribbon rendering of counts, identities and reasons.
+- [ ] **Many-curve completeness:** export a representative pilot well carrying substantially more
+      than the six standard curves. Compare Curve Catalog with the reopened LAS and confirm every
+      held identity is either a real column with the expected samples or appears in the omission
+      inventory. A mnemonic appearing only in provenance text is not a written curve.
+- [ ] **Same omission on both surfaces:** deliberately include one exact-mnemonic collision and
+      one curve on a different native depth frame. Confirm the status message and the LAS `~O`
+      records name the same set/run-qualified identities and the same reasons, and that the summary
+      reports the exact `written of held` counts.
+- [ ] **Visual / Manual / Field and harsh critique:** Jauhar still needs to inspect a real export
+      in SandiBumi and a second LAS reader. Forty synthetic curves prove enumeration and sample
+      custody; they do not prove that a pilot delivery's curve naming, omission explanation or
+      recipient workflow is intelligible and accepted.
+
+## 2026-08-14 — G2 SB-DIO-054: skipped import items are named, counted and refused when all are lost
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T77/T78/T79 is green at
+      1 passed / 0 failed / 0 ignored; the full DLIS module is green at 8 passed / 0 failed /
+      1 optional-package test ignored. The strengthened contract executes the production
+      row/curve accounting path, stores the readable control curve, inspects the failed result,
+      and drives both LAS readers. Source-text markers remain only for the optional Python runner.
+- [ ] **Partial DLIS outcome:** import a representative DLIS containing at least one readable
+      scalar channel and one unreadable frame or channel. Confirm the result says `partial`, the
+      readable curve and samples are present, and every omission displays its kind, source name,
+      count and rule. A success toast without the omission inventory is not acceptance.
+- [ ] **All-skipped refusal and first malformed LAS row:** exercise a DLIS whose candidate frames
+      all fail and confirm the import fails with the complete skip inventory and writes no curve.
+      Separately import an unwrapped LAS with several rows shorter than `~C`; confirm the first
+      offending source line is named. Re-run with a valid wrapped LAS so strictness does not erase
+      declared `WRAP.YES` support.
+- [ ] **Visual / Manual / Field and harsh critique:** Jauhar still needs to exercise representative
+      malformed pilot deliveries in the desktop application and compare every displayed omission
+      with the source artifact. Synthetic frames prove the automated boundary; they do not prove
+      that a vendor-specific DLIS failure is named intelligibly or accepted by an operator.
+
+## 2026-08-14 — G2 SB-DIO-053: LAS source-header mapping prevents silent identity invention
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T75 and SB-DIO-T76 are
+      independently green at 1 passed / 0 failed / 0 ignored each. T75 exercises both LAS reader
+      variants and the successful import result; T76 exercises the committed import path rather
+      than asserting only an internal parser value.
+- [ ] **Verbatim preservation and explicit mapping:** import a LAS carrying a documented `COUNT`
+      record plus an unfamiliar `~W` mnemonic with distinctive spacing, value and description.
+      Confirm Process History names `COUNT → country` and reproduces the unfamiliar source line
+      exactly. An unknown mnemonic must remain unmapped; a raw dump without the cited mapping is
+      also incomplete.
+- [ ] **No identity invention / harsh critique:** import a file whose name looks like it could be
+      a UWI, field, operator or country while its `~W` block states only `WELL` and `NULL`. Confirm
+      the returned header inventory contains exactly those source mnemonics and no filename-derived
+      record. Field and operator mnemonic mappings remain absent because the chapter cites none;
+      adding familiar aliases would be invented metadata, not helpful automation.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative pilot LAS with at
+      least one uncommon well-header record, inspect the visible Process History mapping and raw
+      line, and compare both with the source file. Synthetic headers prove the automated boundary;
+      they do not prove the pilot delivery's vendor vocabulary or operator acceptance.
+
+## 2026-08-14 — G2 SB-DIO-052: LAS export marks working and final curve identities
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T74 is green at
+      1 passed / 0 failed / 0 ignored. This is a RETAIN increment: the production path is
+      unchanged, while the existing proof now verifies the two parsed sample arrays as well as
+      the two in-file state records.
+- [ ] **Both identities and both datasets:** export a well holding working `PHIE` values and
+      different final `PHIE` values. Confirm both columns remain in the LAS, neither is listed as
+      omitted, and each parsed column contains its own source samples rather than a duplicated or
+      renamed copy of the other.
+- [ ] **In-file status / harsh critique:** inspect `SANDIBUMI_CURVE_STATE_V1` records in `~O` and
+      confirm the exported mnemonic, source mnemonic, set name and `working`/`final` state agree.
+      A `_FINAL` suffix alone is not proof if the data came from the working curve, and an internal
+      result object is not evidence for the recipient-facing file.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative pilot well with
+      deliberately different working and final curves, inspect both tracks after reopening the
+      LAS, and confirm a recipient can identify the intended final curve without SandiBumi open.
+      Synthetic paired values are not operator or field acceptance.
+
+## 2026-08-14 — G2 SB-DIO-051: LAS deliverables carry complete curve provenance
+
+- [ ] **Automated correctness — not manual evidence:** the one named SB-DIO-T71/T72/T73
+      contract is green at 1 passed / 0 failed / 0 ignored. It inspects the completed LAS text,
+      not an internal return value, and pins measured-only, computed, model-derived and refusal
+      paths from both sides.
+- [ ] **Measured and computed records:** export a measured-only well and confirm every written
+      curve is named `measured` inside `~O`. Export a computed curve and compare its method plus
+      the complete parameter/value object in `~O` with the stored run record; a selected subset
+      is not sufficient.
+- [ ] **Saved-model record and refusal:** export a model-derived curve and compare the complete
+      saved-model record plus artifact SHA-256 in `~O` with the stored model. Remove or otherwise
+      make that cited model unavailable in a controlled diagnostic; export must refuse, naming
+      both the curve and model, rather than emitting incomplete provenance.
+- [ ] **Identity-conflict refusal / harsh critique:** a stored computed curve that shadows a
+      measured standard mnemonic such as `GR` must refuse LAS export. Two same-name columns with
+      two origins are not provenance merely because both are parseable JSON; accepting them would
+      turn a contradictory audit trail into a successfully self-checked deliverable.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative measured,
+      deterministic-computed and saved-model-derived pilot deliverable, inspect `~O` in the real
+      file, and confirm a recipient can trace every delivered curve. Synthetic fixtures and a
+      green parser round trip are not operator or field acceptance.
+
+## 2026-08-14 — G2 SB-DIO-050: LAS import flags a declared STEP mismatch
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T70 is green at
+      1 passed / 0 failed / 0 ignored. This is a RETAIN increment: current production behavior
+      was reverified rather than rewritten.
+- [ ] **Mismatch and matching sides:** import a LAS declaring `STEP.M 0.5` with 1 m source-depth
+      intervals and confirm the warning says `possibly re-gridded`, names both intervals, and
+      locates the first row pair. Repeat with `STEP.M 1.0`; no re-grid warning may appear.
+- [ ] **False-positive guards:** a deep LAS whose original decimal tokens agree at 0.15240 m must
+      not be flagged merely because f32 storage rounds them differently, and a missing index row
+      must break adjacency rather than create a comparison between non-neighbours.
+- [ ] **Scope boundary / harsh critique:** no source supplies a universal suspicious-round-interval
+      threshold or the acquisition's expected step. Keep that detector absent; do not turn a neat
+      number into evidence of resampling, and do not upgrade `possibly re-gridded` into a factual
+      provenance claim.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative known re-gridded
+      delivery and its matching control, read the warning in the application, and independently
+      compare the file's `STEP` with adjacent source depths. Synthetic LAS fixtures are not field
+      acceptance.
+
+## 2026-08-14 — G2 SB-DIO-049: pilot LAS export must pass its own reader
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T68 and SB-DIO-T69 are
+      independently green at 1 passed / 0 failed / 0 ignored each. This is a RETAIN increment:
+      current production behavior was reverified rather than rewritten.
+- [ ] **Success and refusal:** export one representative LAS and confirm success says the registered
+      SandiBumi reader self-check passed. In a focused diagnostic, corrupt an ASCII row and then
+      misdeclare a feet index as metres; both must return an actionable `LAS self-check failed`
+      error before success, never a warning.
+- [ ] **Scope boundary / harsh critique:** this closes the only registered DIO data writer in the
+      approved LAS/delimited pilot surface. It does not prove Office, report, plot, browser-CSV,
+      model, backup, or other artifact writers; the chapter's product-wide E-3 remains open. Do not
+      market the registry proof as universal file-output qualification.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative feet-based pilot
+      LAS, inspect the visible self-check result, re-open the artifact independently, and compare
+      declared unit, row count, curve count, and values. Synthetic refusal controls are not operator
+      or field acceptance.
+
+## 2026-08-14 — G2 SB-DIO-048: LAS container identity outranks the filename
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T67 is green at
+      1 passed / 0 failed / 0 ignored. The full ingest module is green at 54 passed /
+      0 failed / 1 ignored, and the registered malformed-reader corpus is green at
+      1 passed / 0 failed / 0 ignored.
+- [ ] **Two-sided identity boundary:** a colonless container `WELL` value wins even when an
+      exact-path confirmation disagrees, and the filename proposal is suppressed. When the
+      container has no `WELL` value, preflight exposes the stem only as a proposal, import
+      refuses and writes no well until an explicit non-empty confirmation is supplied.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to open the LAS import dialog with one
+      container-identified file and one identity-absent file, confirm the former says the
+      filename is unused, edit and approve the latter's proposed identity, then inspect the
+      created records after reload. Compiled TypeScript and synthetic fixtures are not operator
+      or field acceptance.
+
+## 2026-08-14 — G2 SB-DIO-047: Precision reduction is stated at import and LAS export
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T66 is green at
+      1 passed / 0 failed / 0 ignored. This is a RETAIN increment: current production behavior
+      was reverified rather than rewritten.
+- [ ] **Both precision boundaries:** core-point import names `f64 numeric parse → f32 storage`,
+      counts the one value that genuinely changes, and does not falsely count exact values. LAS
+      export separately names `f32 storage → fixed-decimal-4 LAS text`, counts only the rounded
+      sample, returns the report, and embeds the declaration in the deliverable.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to run a representative high-precision core
+      import and LAS export, read both UI messages, compare source/stored/exported values, and
+      confirm the recipient-facing file declaration is understandable. Synthetic proof is not
+      operator or field acceptance.
+
+## 2026-08-14 — G2 SB-DIO-044: LAS section strictness is one reported policy
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T62 is green at
+      1 passed / 0 failed / 0 ignored. The same state machine handles both parser entry
+      points and the LAS 2.0 / 3.0 controls; a version-specific warning path cannot satisfy it.
+- [ ] **Accepted and refused sides:** unknown `~X`, malformed `~`, and an out-of-order
+      recognized `~WELL` are accepted only with ordered structured handling records and an
+      import warning. Missing or nonnumeric `~V`, and missing `~W` before `~A`, refuse in
+      both parser paths. Existing exporter self-check fixtures now declare `~W` while retaining
+      their original row-width and unit-lie assertions. No supported-version range or adjacent
+      LAS capability was invented.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative tolerated and
+      refused deliveries, inspect the policy identity plus handling in the application, and
+      confirm an operator can act on the warning/error. Synthetic fixtures are not field proof.
+
+## 2026-08-14 — G2 SB-DIO-040: Wrapped LAS Import stays aligned and LAS Export stays unwrapped
+
+- [ ] **Automated characterization — not manual evidence:** exact SB-DIO-T58 is green at
+      1 passed / 0 failed / 0 ignored. The 30-curve `WRAP.YES` delivery enters the real importer;
+      all 60 uniquely identifiable samples are queried from their stored curve identities.
+- [ ] **Writer control:** export the imported object through the registered default writer, confirm
+      `WRAP.NO`, exactly two physical data lines, and depth plus every emitted curve on each line.
+      A three-column parser helper or source-text search alone does not close this contract.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative wide wrapped LAS,
+      inspect several early/middle/late curves, export it, and open the result independently. The
+      synthetic 30-curve fixture is CHARACTERIZATION, not field evidence.
+
+## 2026-08-14 — G2 SB-DIO-003: LAS Import distinguishes NoNull from unset data conventions
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T04 and SB-DIO-T05 are
+      independently green at 1 passed / 0 failed / 0 ignored each. Both enter the real LAS import,
+      inspect the typed per-channel result and query the stored sample; parser helpers alone do not
+      close this contract.
+- [ ] **Two-sided control:** declare `PWF1` as `NoNull` and confirm the cited genuine `-999.25`
+      amplitude remains finite with result mode `no_null`; repeat without a channel declaration and
+      confirm ordinary screening writes internal `f32::NAN` with result mode `unset`.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import both representative deliveries,
+      inspect the resolved channel-null records returned by the application, and independently
+      verify the preserved versus missing sample after reload. Synthetic fixtures are not field evidence.
+
+## 2026-08-14 — G2 SB-DIO-034: Curve Catalog Workflow and log view silently choose family members
+
+- [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T50 does not exist, and the current universal
+      read contract fails: equation and Workflow readers accept a family match and return only its
+      values under the request key. A well with two same-family curves therefore has a concrete
+      choice that is neither stated nor asked.
+- **Read-only implementation evidence — not acceptance:** plotting's semantic resolver records the
+      concrete mnemonic and resolution reason, but `fetch_generic_curve_aligned` and related frame
+      readers do not. Existing family-fallback tests prove useful behavior such as `HDRA -> DRHO`;
+      they do not prove the required choice disclosure across every read path.
+- [ ] **Decision / architecture:** DEC-030 already owns the shared dependency. Engineering
+      recommends typed `EXACT_MNEMONIC` and `SEMANTIC_FAMILY` requests; only the latter may choose a
+      member, and it must return concrete mnemonic, set/curve identity and resolution rule. Every
+      caller must be classified rather than guessed.
+- [ ] **Visual / Manual / Field:** unavailable until the typed contract and all-resolver T50 exist.
+      Later review must present two same-family curves and show that each consuming surface asks for
+      or states the concrete choice. A green family-ranking unit test is not operator evidence.
+
+## 2026-08-14 — G2 SB-DIO-033: Reframe curve selection is named saved and inspectable
+
+- [ ] **Automated selection correctness — not manual evidence:** exact SB-DIO-T49 is green at
+      1 passed / 0 failed / 0 ignored. Saving and reloading normalizes the object name, preserves
+      the ordered exact `RHOB`, `GR` membership, removes only the repeated member, and returns the
+      explicit `Selected` mode.
+- [ ] **Hidden-default refusal:** a document that lists members without declaring its mode cannot
+      deserialize as a curve selection. A type-implied, blank-means-all or storage-order selection
+      therefore cannot satisfy the same contract merely by returning a list of names.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to save a representative Reframe selection,
+      close and reopen the project, inspect the name, mode and ordered members, then confirm the run
+      consumes that saved object. The in-memory round trip is not operator or project-reload evidence.
+
+## 2026-08-14 — G2 SB-DIO-032: Reframe substitution stays explicit and provenance-bearing
+
+- [ ] **Automated substitution correctness — not manual evidence:** exact SB-DIO-T48 is green
+      at 1 passed / 0 failed / 0 ignored. A named substitute is accepted only for an unavailable
+      explicitly requested curve; the opposite case refuses before any log set or curve is written.
+- [ ] **Identity and ancestry proof:** the accepted run writes the substitute under its own
+      mnemonic and persists the exact requested-to-substitute decision in the resulting log-set
+      ancestry. Merely relabelling bytes or logging a decision without applying it cannot pass both
+      sides of the same test.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise a representative Reframe run,
+      inspect the named offer before accepting it, and confirm the output identity and processing
+      ancestry remain understandable after reload. Synthetic in-memory evidence is not operator or
+      pilot-corpus evidence.
+
+## 2026-08-14 — G2 SB-DIO-031: Curve Catalog Workflow and log view need exact-name refusal
+
+- [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T47 does not exist, and no current
+      universal proof can pass while the generic resolver accepts `mnemonic = request OR
+      family = request`. A requested exact-looking key can therefore receive another curve's
+      bytes. The unchanged full gate remains 1015 passed / 0 failed / 36 ignored with 55 owned
+      Rust warnings; that green result does not prove this missing MUST NOT.
+- **Read-only implementation evidence — not acceptance:** equations readers and sampling
+      diagnostics share the family fallback; workflows intentionally depend on cases such as
+      `HDRA -> DRHO` and `HCAL -> CALI`. Plotting at least returns the concrete mnemonic and
+      resolution reason, while Reframe's explicit accepted-substitute path keeps the substitute's
+      own name. The application therefore has two legitimate intents hidden behind one string.
+- [ ] **Decision / architecture:** DEC-030 needs Jauhar to approve an explicit request-type split.
+      Engineering recommends `EXACT_MNEMONIC`, which never falls back, and `SEMANTIC_FAMILY`,
+      which may resolve a member only while returning its concrete identity and resolution rule.
+      Existing callers must be classified by intent; guessing would either preserve silent
+      substitution or break deliberate family workflows.
+- [ ] **Visual / Manual / Field:** unavailable until the split and exact T47 inventory exist.
+      Later review must show an exact miss as unavailable and a semantic match under its real
+      mnemonic in every consuming surface. A family-fallback unit test is not operator evidence.
+
+## 2026-08-14 — G2 SB-DIO-030: LAS alias rename keeps source identity in the Curve Catalog
+
+- [ ] **Automated rename correctness — not manual evidence:** exact SB-DIO-T46 is green at
+      1 passed / 0 failed / 0 ignored. Importing `SGR` produces a public decision and visible
+      note containing original `SGR`, applied target `GR`, and exact firing row
+      `GR_ALIASES: SGR -> GR`; a silent or source-less rename cannot pass.
+- [ ] **Two-store identity proof:** standard GR receives the delivered `71.0` sample while the
+      generic catalog still names the curve `SGR` beside applied family `GR`. Merely logging a
+      rename without applying it, or applying it by destroying the source mnemonic, fails on
+      opposite sides of the same test.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative aliased LAS,
+      inspect the import note and Curve Catalog identity, and verify the standard track uses the
+      intended target. Synthetic source/target custody is not operator or interoperability evidence.
+
+## 2026-08-14 — G2 SB-DIO-029: LAS MS/FT unit decisions remain file-scoped in the Curve Catalog
+
+- [ ] **Automated no-default correctness — not manual evidence:** exact SB-DIO-T45 is green
+      at 1 passed / 0 failed / 0 ignored. An unanswered `MS/FT` delivery is refused before
+      any well commits, and the result names both legitimate quantities plus the required
+      per-file decision; a silent sonic default cannot pass.
+- [ ] **Two-file scope proof:** one batch assigns `microseconds_per_foot` to one source path
+      and `millisiemens_per_foot` to another. Their separate public designation records and
+      stored curves must respectively become `DT/us/ft` and familyless `MS/FT`; a cached or
+      batch-wide answer would corrupt one side and fail the test.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative ambiguous-unit
+      deliveries, confirm that the dialog asks separately for each file, and inspect both the
+      visible decision record and resulting Curve Catalog identity. Synthetic two-file evidence
+      is not operator or interoperability evidence.
+
+## 2026-08-14 — G2 SB-DIO-028: every shipped unit factor is independently auditable
+
+- [ ] **Automated arithmetic correctness — not manual evidence:** exact SB-DIO-T44 is green
+      at 1 passed / 0 failed / 0 ignored. Its independent table enumerates all ten generated
+      transforms and checks family binding, factor, affine offset and automatic-versus-confirmed
+      status against the cited exact unit identities; a mutually wrong factor and explanation fail.
+- [ ] **Automated derivation custody:** every runtime row must expose the independently required
+      arithmetic terms, including `25.4 mm/in`, `0.3048 m/ft`, the Fahrenheit offset and scale,
+      and `10^3 mL/L`; a blank, vendor-only or numerically disconnected derivation fails.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to inspect representative imported
+      conversions and their visible audit records, including the confirmation-only QV case.
+      Generated-table correctness is not proof that operators can understand the report or that
+      representative deliveries use the declared units honestly.
+
+## 2026-08-14 — G2 SB-DIO-027: LAS unit alias rejection keeps Curve Catalog and standard density honest
+
+- [ ] **Automated rejection correctness — not manual evidence:** exact SB-DIO-T43 is green
+      at 1 passed / 0 failed / 0 ignored. A delivered `RHOZ.PPG` channel remains familyless,
+      keeps unit `PPG` and source value `9.5` in the generic store, and does not populate the
+      standard RHOB channel, which remains `NaN`.
+- [ ] **Automated designation evidence:** the same public import result names the rejected
+      `density.units: PPG -> density` entry, marks quantity designation required, and exposes a
+      warning containing `PPG`, the recorded pressure-gradient conflict and designation. A silent
+      family binding or a destructive refusal that loses the source data cannot pass.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative ambiguous-unit
+      delivery, inspect the warning and retained Curve Catalog row, and confirm that no standard
+      RHOB trace appears until an explicit quantity decision is made. Synthetic LAS evidence is
+      not operator, interoperability or representative-delivery evidence.
+
+## 2026-08-14 — G2 SB-DIO-026: LAS affine unit conversion prevents a silent Curve Catalog shortcut
+
+- [ ] **Automated affine correctness — not manual evidence:** exact SB-DIO-T42 is green at
+      1 passed / 0 failed / 0 ignored. A `FTEMP.DEGF` import records factor `1/1.8` and
+      source-space offset `-32`, stores family TEMP with canonical unit `DEGC`, and maps the
+      chapter's `200 °F` input to `93.333… °C`.
+- [ ] **Two-sided offset proof:** the same test maps the independently checkable fixed point
+      `32 °F` to `0 °C` and rejects the factor-only `111.111… °C` answer for `200 °F`.
+      A multiplicative field disguised as an affine transform cannot satisfy both controls.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative Fahrenheit
+      temperature curve, inspect the visible factor/offset audit and Curve Catalog unit, and
+      compare the stored curve in the log view. The synthetic LAS proof is not operator,
+      interoperability or representative-delivery evidence.
+
+## 2026-08-14 — G2 SB-DIO-025: LAS unit coverage and Curve Catalog pass-throughs are not silent
+
+- [ ] **Automated query correctness — not manual evidence:** exact SB-DIO-T41 is green at
+      1 passed / 0 failed / 0 ignored. The shipping Tauri command returns exactly CALI, BS,
+      RHOB, DRHO, NPHI, DT, DTS and TEMP; the same test pins command registration and the
+      typed frontend invoke route, so an internal list with no product query cannot pass.
+- [ ] **Automated unsupported-unit custody — not manual evidence:** exact SB-DIO-T40 is
+      green at 1 passed / 0 failed / 0 ignored. `RHOZ.FURLONGS` creates no conversion record,
+      retains its declared unit and `2400` source sample in the generic store, and produces a
+      visible unconverted warning naming both the curve and unit. Silent canonical relabelling
+      and a warning detached from changed data fail independently.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative LAS carrying
+      an unsupported declared unit, inspect the visible result and Curve Catalog custody, and
+      judge the warning wording. The synthetic import and registered IPC route are not operator,
+      interoperability or representative-delivery evidence.
+
+## 2026-08-14 — G2 SB-DIO-024: every automatic conversion is visible
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T39 is green at
+      1 passed / 0 failed / 0 ignored. One import converts independent DTCO and DTSM
+      curves from `US/M` to `us/ft`; both public conversion records and the visible note
+      name curve, source unit, destination unit and the cited `0.3048` factor.
+- [ ] **Two-sided storage proof:** the stored first samples are independently derived as
+      `100 × 0.3048 = 30.48` and `150 × 0.3048 = 45.72`. A plausible report attached
+      to unchanged values, or reporting only the first converted curve, cannot pass.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative convertible
+      LAS and DLIS deliveries, judge the result wording and inspect the stored curves.
+      Automated synthetic LAS evidence is not representative-format or operator evidence.
+
+## 2026-08-14 — G2 SB-DIO-022: every writer keeps stored samples at defaults
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T35 is green at
+      1 passed / 0 failed / 0 ignored. Every registered writer receives an irregular,
+      non-linear database fixture and must emit the exact stored depths and paired GR
+      values; a regularized index or interpolated values fail independently.
+- [ ] **Registry boundary:** a new writer cannot inherit this result merely because LAS
+      passes. T35 iterates the writer registry and refuses an unadapted output format by
+      name, so each format must expose its written samples to the same proof.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative irregular
+      well through the UI and compare the delivered file in an independent reader. No
+      writer-side resample control ships; if one is proposed later, its naming, default-off
+      state and provenance require a separate increment before implementation.
+
+## 2026-08-14 — G2 SB-DIO-021: reads preserve native sampling by default
+
+- [ ] **Automated characterization — not correctness or manual evidence:** exact
+      SB-DIO-T34 is green at 1 passed / 0 failed / 0 ignored. Every source-registered
+      file reader is classified; every sampled reader preserves the delivered
+      `1000.0, 1000.1, 1000.3 m` index, so a hidden regularizer that invents the
+      missing `1000.2 m` station cannot pass.
+- [ ] **Automated storage boundary:** the shipping LAS, delimited core and WIDE-array
+      import paths store those same three depths and create no `OWN` Reframe set at
+      defaults. This characterizes the current product; it is not representative-file
+      or operator evidence.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative native-grid
+      LAS, core and array deliveries, inspect their sample counts/depths, then run an
+      explicitly chosen Reframe and judge its operation naming. Only Jauhar records that
+      operator and field evidence.
+
+## 2026-08-14 — G2 SB-DIO-020: duplicate depths require a declared policy
+
+- [ ] **Automated no-decision proof — not manual evidence:** exact SB-DIO-T33 is
+      green at 1 passed / 0 failed / 0 ignored. A LAS with three repeated depth rows
+      names the count and missing policy, and commits zero wells.
+- [ ] **Automated policy proof — not manual evidence:** exact SB-DIO-T32 is green at
+      1 passed / 0 failed / 0 ignored. `keep-first` reports three affected rows and
+      retains the first GR and generic PEF samples on the same two stored depths;
+      explicit `refuse` also commits nothing. Supporting keep-last and mean checks keep
+      independent standard and generic companion columns aligned.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise the duplicate-depth
+      decision in the LAS import UI, judge the count and policy wording, and inspect a
+      representative run-splice result. Automated synthetic imports are not operator or
+      field evidence.
+
+## 2026-08-14 — G2 SB-DIO-019: committed depths cannot be re-declared
+
+- [ ] **Automated custody proof — not manual evidence:** exact SB-DIO-T31 is green at
+      1 passed / 0 failed / 0 ignored. Reasserting the stored metre unit remains a safe
+      no-op; changing to feet is refused, names the one affected well and explains that
+      re-declaration would reinterpret rather than convert the stored depths.
+- [ ] **Two-sided persistence boundary:** after refusal, the project declaration is still
+      metres and every packed depth byte matches the pre-attempt database snapshot. The
+      check does not infer a conversion or treat an in-memory fixture as post-write custody.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to attempt the same change through
+      Data Conventions in a representative populated project, confirm the message is clear,
+      and reopen/replot the project. The automated database proof is not operator or field
+      evidence.
+
+## 2026-08-14 — G2 SB-DIO-018: LAS family units have one canonical owner
+
+- [ ] **Automated ownership proof — not manual evidence:** exact SB-DIO-T29 is green at
+      1 passed / 0 failed / 0 ignored. Its static check is restricted to production source,
+      proves `export.rs` has no writer-owned unit table, and proves the LAS writer calls the
+      canonical family registry; the assertion cannot satisfy itself from test-source text.
+- [ ] **Automated file-boundary proof — not manual evidence:** exact SB-DIO-T30 is green at
+      1 passed / 0 failed / 0 ignored. One exported curve from every registered family declares
+      that family's reviewed canonical unit with exact spelling and case.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export representative held curves,
+      inspect their LAS unit tokens in another reader, and confirm the UI identifies any omitted
+      or unsupported curve clearly. Automated source and synthetic-file checks are not
+      interoperability or operator evidence.
+
+## 2026-08-14 — G2 SB-DIO-017: LAS export depth units survive round trips
+
+- [ ] **Correctness — not manual evidence:** exact SB-DIO-T27 is green at 1 passed /
+      0 failed / 0 ignored. A feet project writes `FT` on `STRT`, `STOP`, `STEP` and
+      `DEPT`, writes no opposite `M` declaration, re-imports as a feet project, and
+      returns the original `2000.0` depth unchanged.
+- [ ] **Characterization — not correctness:** exact SB-DIO-T28 is separately green at
+      1 passed / 0 failed / 0 ignored. The corresponding metre project currently writes
+      `M` on all four declarations and round-trips `2000.0`; the chapter deliberately
+      labels this metre scenario as characterization. The negative self-check is also
+      green and rejects feet-valued output falsely declared as metres.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export representative feet and
+      metre projects, inspect all four LAS header declarations in the delivered files,
+      re-import them through the UI, and confirm the result messaging is clear. Automated
+      round trips are not representative-client or interoperability evidence.
+
+## 2026-08-14 — G2 SB-DIO-015: undeclared LAS depth units refuse
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T22 and T23 are separately green
+      at 1 passed / 0 failed / 0 ignored each. With neither unit source declared, the
+      refusal names both the file index and project and commits zero wells. A metre project
+      still refuses an undeclared file and commits zero wells until that import explicitly
+      confirms `FT`; the stored `1000 ft` sample is then `304.8 m` by the cited NIST factor.
+- [ ] **Characterization — not correctness:** exact SB-DIO-T24 is separately green at
+      1 passed / 0 failed / 0 ignored. A file-declared `FT` index is converted to metres and
+      the current result text reports `converted from ft`; the numeric conversion is sourced,
+      but the chapter deliberately classifies the report wording scenario as characterization.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise all three imports in the
+      LAS dialog, confirm the two refusals keep the project tree unchanged, and judge whether
+      the confirmation and conversion messages are readable and actionable. Automated tests
+      do not establish operator comprehension or representative-delivery evidence.
+
+## 2026-08-14 — G2 SB-DIO-014: TVD tops require survey-backed MD correlation
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T20 is green at 1 passed /
+      0 failed / 0 ignored. A production import of a TVD-only tops table writes the
+      delivered `900.0` unchanged with `depth_datum = TVD`; the alias remains accepted,
+      and an MD-only editor cannot silently overwrite or delete/recreate that custody.
+- [ ] **Reference-frame refusal and conversion:** exact SB-DIO-T21 is green at 1 passed /
+      0 failed / 0 ignored. Building MD zones from that top without an active deviation
+      survey names TVD, MD and the missing survey and writes zero zones. With the literal
+      fixture mapping `900 TVD → 1000 MD`, the resulting MD zone starts at `1000`, not the
+      raw `900`.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative TVD-only
+      tops delivery, confirm Tops/Log/Correlation show `MD ← TVD` only after a survey is
+      active, and confirm the no-survey message remains readable at narrow and wide dock
+      widths. No automated assertion is promoted to operator or field evidence.
+
+## 2026-08-14 — G2 SB-DIO-013: core import requires explicit index designation
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T19 is green at 1 passed /
+      0 failed / 0 ignored. An unresolved `SAMPLE,CPOR` table commits zero
+      `core_data` rows without a designation; selecting column zero imports both rows
+      and reports `UserDesignation`, the selected index and `SAMPLE` mnemonic.
+- [ ] **Positive and negative boundary:** the supporting parser regression is green at
+      1 passed / 0 failed / 0 ignored. `Depth (m)`, `DEPTH (FT)` and bare `DEPTH`
+      resolve by their qualified or bare aliases, while an unrelated `MEASURE` column
+      is not guessed. Explicit designation is therefore required only when structure
+      and documented names genuinely fail.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise the desktop core and
+      delimited-intake designation controls with representative deliveries. These
+      automated no-write and resolution assertions are not operator or field evidence.
+
+## 2026-08-14 — G2 SB-DIO-012: a decreasing index is refused before commit
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T18 drives the production LAS
+      importer with 400 finite, non-duplicated rows whose final depth decreases. It is
+      green at 1 passed / 0 failed / 0 ignored: the result names data row 400 and the
+      required user decision, and the database still contains zero wells.
+- [ ] **Decision control:** the same file imports only after the fixture supplies
+      `AcceptAsDelivered`; the public result retains data row 400 in its warning. No
+      implicit sorting, duplicate policy, or guessed correction is introduced.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to confirm the desktop refusal,
+      decision control and accepted-warning readability against a representative
+      delivery. The automated database assertion is not that evidence.
+
+## 2026-08-14 — G2 SB-DIO-011: the deviation index aliases have no documented source
+
+- [ ] **Automated contract:** BLOCKED. The exact source-tree audit found four
+      index-bearing alias lists, while the passing test named “every” inspected only the
+      three lists enumerated in chapter §5.3. It has been renamed as supporting evidence:
+      those three declarations cite §5.3, and `TVD` remains outside every MD list. The
+      uncited `DEV_MD_ALIASES = [MD, DEPTH, DEPT, MEASURED_DEPTH]` path means no
+      qualifying SB-DIO-T17 proof exists. Focused supporting test: 1 passed / 0 failed /
+      0 ignored. Full gate: 1007 passed / 0 failed / 36 ignored, including backend 950
+      passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- **Source boundary — not acceptance:** the immutable chapter owns deviation-survey
+      ingestion but §5.3 names values and sources only for LAS, core-table and tops
+      index aliases. Git history proves the deviation list arrived with the baseline; it
+      does not supply an authority for those four accepted headers.
+- [ ] **Source required:** supply a named, auditable source for the deviation-survey MD
+      alias list. Then cite it beside the declaration and make T17 discover every
+      index-alias declaration mechanically, so adding a fifth undocumented path fails.
+      No historical implementation and no plausible industry spelling becomes a source.
+- [ ] **Visual / Manual / Field:** no operator or representative-delivery evidence is
+      claimed. A green partial static test is not proof that all import paths have sourced
+      namespaces.
+
+## 2026-08-14 — G2 SB-DIO-010: LAS index proof does not prove the structural-reader arm
+
+- [ ] **Automated contract:** BLOCKED. The existing exact test is green at 1 passed / 0
+      failed / 0 ignored and its LAS arm drives the production importer, proving that a
+      second-column `MD` cannot steal LAS's positionally guaranteed first index and that
+      the public result records `positional_guarantee`. Its structural arm supplies
+      headers and `REFERENCE | LOG` classes directly to `resolve_index_column`; no
+      Geolog flat-ASCII file is read, so it is supporting resolver evidence rather than
+      the chapter's file-import T15. Full gate: 1007 passed / 0 failed / 36 ignored,
+      including backend 950 passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- **Read-only source evidence — not acceptance:** the cited local Geolog
+      `xyz.flat_ascii_format` declares `CLASSES = REFERENCE LOG LOG`, and a second cited
+      spec uses the row-oriented form. The shipping tree has no Geolog flat-ASCII reader
+      or Tauri import command that consumes either declaration. A test-only spec parser
+      would be another helper, not proof of import behavior.
+- [ ] **Decision / scope:** DEC-029 must reconcile exact T15's Geolog import with
+      DEC-003 and G2-T04's LAS-2/delimited pilot surface. Either authorize the sourced
+      Geolog reader as necessary SB-DIO-010 infrastructure or explicitly correct the
+      acceptance boundary; engineering will do neither silently.
+- [ ] **Visual / Manual / Field:** unavailable for the missing structural-reader arm.
+      The current serialized LAS result is automated evidence, not Jauhar's inspection
+      of an operator-visible decision and not representative-delivery proof.
+
+## 2026-08-14 — G2 SB-DIO-009: the import result reports the chosen and passed-over aliases
+
+- **Automated — not manual evidence:** exact SB-DIO-T14 drives the production LAS import
+      function with the chapter's all-null `NPHIED` and populated `NPHI_LS` fixture. The
+      returned public result has one competing-alias decision, names `NPHI_LS` as chosen
+      and `NPHIED` as passed over, carries finite counts 2 and 0, and marks both chosen
+      states. The Tauri command and TypeScript IPC contract carry that same typed result.
+      Full gate: 1007 passed / 0 failed / 36 ignored, including backend 950 passed / 0
+      failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** import the disposable fixture and inspect the desktop result surface; it
+      must display the chosen and passed-over mnemonics and both coverage counts, not merely
+      receive them over IPC.
+- [ ] **Manual:** Jauhar confirms the displayed decision is understandable enough to
+      diagnose a wrong heuristic choice. The green backend result is not this usability
+      judgment.
+- [ ] **Field:** pending Gate 4; no representative delivery with competing aliases has
+      verified the operator-facing report.
+
+## 2026-08-14 — G2 SB-DIO-008: alias coverage wins and exact ties follow the declared priority
+
+- **Automated characterization — not correctness or manual evidence:** exact
+      SB-DIO-T12/T13 imports an all-null earlier `NPHIED` beside populated `NPHI_LS`,
+      then imports an equal-coverage `RESD`/`RES_DEEP` pair whose source-column order is
+      deliberately opposite the chapter's declared alias priority. The populated alias
+      wins, both repeated tie imports choose `RES_DEEP`, and the test says
+      `characterizes_...` because chapter §6 classifies these outputs as characterizations.
+      Full gate: 1007 passed / 0 failed / 36 ignored, including backend 950 passed / 0
+      failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** import both disposable fixtures and inspect the alias-decision surface so
+      the winner, passed-over columns, finite counts and declared tie priority are readable.
+- [ ] **Manual:** Jauhar independently repeats the equal-coverage import and confirms the
+      same binding, while recognizing that automated repeatability is not cross-machine
+      operator evidence.
+- [ ] **Field:** pending Gate 4; no representative delivery with competing aliases has
+      established that the declared priority is appropriate for the pilot data.
+
+## 2026-08-14 — G2 SB-DIO-007: empty versus explicitly nulled is blocked on its deliverable representation
+
+- [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T11 requires consecutive empty and
+      explicit-sentinel cells to remain absent for arithmetic while an import/export
+      round trip distinguishes their source states. No qualifying test was written against
+      a representation the chapter does not select.
+- **Read-only evidence — not acceptance:** Intake retains raw preview strings and a
+      column-level kind, but its import rows reduce both cases to `f32::NAN`; curve storage
+      has no per-sample source-state channel, and the LAS writer emits the same project
+      sentinel for every NaN.
+- [ ] **Decision / architecture:** select and version one compact source-cell-state
+      representation, define how each supported deliverable carries or accompanies it, and
+      preserve `f32::NAN` as the arithmetic value. A bitset, table column, sidecar, or
+      manifest is not chosen by this increment.
+- [ ] **Visual / Manual / Field:** unavailable until the representation is adjudicated and
+      exact T11 exists. The current Intake preview is not proof that the distinction survives
+      storage or export.
+
+## 2026-08-14 — G2 SB-DIO-006: one null-exception entry retains all six name patterns
+
+- **Automated — not manual evidence:** exact SB-DIO-T10 loads the chapter's cited
+      one-entry, six-pattern rule shape from its serialized representation, requires the
+      loader to keep one rule and all six patterns, resolves every matching source channel,
+      excludes an unmatched channel, and pins explicit `NoNull` against the ordinary unset
+      screen. Full gate: 1006 passed / 0 failed / 36 ignored, including backend 949 passed /
+      0 failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** load a disposable rule document with six patterns in one entry and inspect
+      the import preview/result so all six matched channels are reported without flattening
+      or truncation.
+- [ ] **Manual:** Jauhar independently confirms a genuine sentinel-shaped amplitude is
+      preserved for a matched `NoNull` channel while an unmatched channel follows the LAS
+      convention. The serialized automated fixture is not this operator check.
+- [ ] **Field:** pending Gate 4; no representative vendor rule document and delivery have
+      been exercised together through the installed application.
+
+## 2026-08-14 — G2 SB-DIO-005: plural nulls stay attached to their source channel in every LAS reader
+
+- **Automated — not manual evidence:** exact SB-DIO-T09 imports the chapter's cited
+      `-999`, `-999.25`, and `-32767` controls through both shipping LAS readers. It
+      requires both nulls declared for one channel to screen there, the other channel's
+      distinct null to screen there, and all three values to survive when they belong to
+      the other channel. Full gate: 1006 passed / 0 failed / 36 ignored, including backend
+      949 passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** import a disposable LAS with two channels carrying the three cited
+      controls; inspect both curve surfaces and confirm gaps appear only under each
+      channel's declared convention.
+- [ ] **Manual:** Jauhar independently queries both imported source channels and confirms
+      their own sentinels became `f32::NAN` while the cross-channel controls remained
+      finite and exact. The two-reader automated fixture is not this operator check.
+- [ ] **Field:** pending Gate 4; no representative delivery has confirmed that its
+      channel-identity and plural-null metadata reach the same reader paths unchanged.
+
+## 2026-08-14 — G2 SB-DIO-004: null recognition has one relative transform and never rewrites
+
+- **Automated — not manual evidence:** exact SB-DIO-T06/T07/T08 recognises the cited
+      near-sentinel and f32/f64 representation controls, preserves a finite nonmatch,
+      converts a declared near-sentinel only to `f32::NAN`, and scans every Rust source
+      file through the mandatory decoder to require one parser-owned relative-comparison
+      helper while rejecting the retired epsilon form. Full gate: 1006 passed / 0 failed /
+      36 ignored, including backend 949 passed / 0 failed / 36 ignored and 55 owned Rust
+      warnings.
+- [ ] **Visual:** import a disposable LAS containing one declared near-sentinel and one
+      nearby genuine reading; inspect the curve and QC surfaces to confirm only the former
+      appears missing.
+- [ ] **Manual:** Jauhar independently queries the imported samples and confirms absence is
+      `f32::NAN` internally while the genuine finite value is byte-preserved. The static
+      inventory is not this operator/data check.
+- [ ] **Field:** pending Gate 4; no representative delivery was used to assess whether its
+      observed formatter noise is covered without false-positive screening.
+
+## 2026-08-14 — G2 SB-DIO-002: the only default export path honours the project sentinel
+
+- **Automated — not manual evidence:** exact SB-DIO-T03 proves the registry has exactly
+      one default, requires that writer to honour the sentinel, exports the cited
+      non-default Baker value through the real default path, and proves an incapable
+      synthetic format exposes its limitation instead of looking equivalent. Full gate:
+      1006 passed / 0 failed / 36 ignored, including backend 949 passed / 0 failed / 36
+      ignored and 55 owned Rust warnings.
+- [ ] **Visual:** no alternate data format ships, so there is currently no meaningful
+      format choice to inspect. When a second format is registered, verify the picker
+      shows exactly one default and renders any sentinel limitation before export.
+- [ ] **Manual:** Jauhar exports a disposable well without changing the format and opens
+      the result independently to confirm the declared project sentinel. This operator
+      workflow is not claimed by exact T03.
+- [ ] **Field:** pending Gate 4; no representative field delivery or third-party reader
+      was exercised by this increment.
+
+## 2026-08-14 — G2 SB-DIO-001: one project sentinel reaches the complete writer registry
+
+- **Automated — not manual evidence:** exact SB-DIO-T01 sets the cited non-default Baker waveform
+      sentinel, enumerates every registered writer, requires each output to declare and
+      use it, proves no writer emits the project default instead, and requires the
+      registered self-reader to accept the result. Exact SB-DIO-T02 enumerates the same
+      registry and pins the required non-optional `WriterSettings` function signature.
+      Full gate: 1006 passed / 0 failed / 36 ignored, including backend 949 passed / 0
+      failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** not claimed. Export a disposable well after selecting a non-default
+      project sentinel and inspect the completed export/status surface for the chosen
+      format and self-check result.
+- [ ] **Manual:** Jauhar opens the exported file independently and confirms its null
+      declaration and missing samples use the selected project sentinel. The synthetic
+      registry test proves custody, not the operator workflow or a third-party reader.
+- [ ] **Field:** pending Gate 4; no representative field delivery was exported by this
+      increment.
+
+## 2026-08-14 — G2 SB-DBM-042: recovery copies name what they restore
+
+- [x] **Automated:** exact SB-DBM-T01 hashes a newer-format project before and after
+      refusal and checks both versions plus writer identity. Exact SB-DBM-T02 proves the
+      real destructive-open backup precedes the rewrite, is reported, never overwrites,
+      aborts deterministically on copy failure and is absent on an additive open. Exact
+      SB-DBM-T43 proves consecutive source formats produce distinct `pre-0` and `pre-1`
+      recovery copies containing the promised states. Full gate: 1006 passed / 0 failed /
+      36 ignored, including backend 949 passed / 0 failed / 36 ignored and 55 owned Rust
+      warnings.
+- [ ] **Visual:** not claimed. On a disposable legacy project, inspect the Processing
+      history/status notice and confirm it displays the exact source-labelled backup path.
+- [ ] **Manual:** Jauhar opens the recovery copy and confirms the pre-migration project is
+      usable. Automated synthetic DuckDB files prove structure and bytes, not the operator's
+      recovery workflow on representative data.
+- [ ] **Field:** pending Gate 4; no customer or field project was used by this increment.
+
+## 2026-08-14 — G2 SB-DBM-041: full inspector trace blocked on the audit store
+
+- [x] **Automated count half:** exact SB-DBM-T41 remains green: inspector
+      `total_rows` is the true count and capped SQL results use `returned_rows` with an
+      explicit non-total flag. Full gate remains 1005 passed / 0 failed / 36 ignored,
+      including backend 948 passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Automated full trace:** BLOCKED. SB-DBM-T42 requires a computed curve to be
+      traced through the inspector to its run, parameters, inputs, model row and the
+      `audit_entry`/`audit_detail` tables owned by SB-DBM-011. Those audit tables do not
+      exist, and SB-DBM-011 is blocked on DEC-022 and DEC-023. No reduced T42 was written.
+- [ ] **Decision / architecture:** settle DEC-022's legacy timestamp classification and
+      DEC-023's zone-set scope, then implement SB-DBM-011's controlled audit relations.
+      Only after that may the inspector inventory be derived and exact T42 added.
+- [ ] **Visual / Manual / Field:** not claimed. Exposing only the currently available
+      provenance tables would improve the screen but still falsely imply a complete audit
+      path. Jauhar's click-through and Gate 4 remain pending after the blocker is removed.
+
+## 2026-08-14 — G2 SB-DBM-040: cancellation reports what the worker observed
+
+- [x] **Automated:** exact SB-DBM-T40 reuses the already-integrated three-job regression
+      that drives an observing worker, a non-observing worker and non-cancellable work.
+      It proves only the observed request finalizes `Cancelled`, an unobserved request
+      preserves actual `Completed`, the non-cancellable view is false, every advertised
+      cancellable registration routes an observing handle, and the Processing source
+      gates its control on active plus cancellable. This is the chapter's declared
+      `CHARACTERIZATION`, not a new behavior or a new test count. Full gate remains 1005
+      passed / 0 failed / 36 ignored, including backend 948 passed / 0 failed / 36 ignored,
+      with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** at narrow and wide Processing-panel widths, inspect one active
+      cancellable job and one active monolithic job. Confirm only the former offers
+      Cancel, the latter visibly says it cannot be interrupted, long job labels do not
+      hide either state, and an observed cancellation ends with an unambiguous status.
+- [ ] **Manual:** on a disposable project, cancel one polling workflow, let one requested
+      cancellation go unobserved until the work actually completes, and run one
+      non-cancellable operation. Verify the final phases match the worker outcomes and no
+      control promises interruption where none is implemented. Jauhar owns this evidence.
+- [ ] **Field:** pending Gate 4. Repeat cancellation on sanitized representative pilot
+      workloads whose duration is long enough to observe the control and final state.
+      Source inventory and synthetic async jobs are not field-performance evidence.
+
+## 2026-08-14 — G2 SB-DBM-039: degraded work cannot look clean
+
+- [x] **Automated:** exact SB-DBM-T39 runs one clamped well, one substituted-input well
+      and one clean well, proves their typed degraded/degraded/clean results and
+      Warned/Warned/Ok job items, proves the aggregate outcome is degraded, forces the
+      25-job prune, then recovers the structured reasons from the durable run record.
+      Exact SB-DBM-T41 separately proves an inspector page over 10,000 rows reports the
+      true total while a 100-row SQL page exposes `returned_rows` and explicitly says it
+      is not a total. The curve rows, outcome and ordered degradation events share one
+      transaction. Full gate is 1005 passed / 0 failed / 36 ignored, including backend
+      948 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** at narrow and wide dock widths, run a three-well module batch containing
+      a source-qualified clamp, an explicit documented input substitution and a clean
+      result. Confirm the module dialog distinguishes clean/degraded/failed counts, the
+      Processing card says `Done with warnings`, each affected well names its structured
+      reason without clipping, Curve Catalog exposes the durable outcome/reasons, and the
+      SQL console labels a capped result as rows returned rather than a total.
+- [ ] **Manual:** on a disposable project, produce the same three result classes, record
+      the output set identities, complete at least 25 later jobs, close/reopen the project,
+      and verify the two degraded run records still name their reasons while the clean run
+      remains clean. Jauhar owns this click-through and records any UX defect separately;
+      this automated increment does not claim the click path has been exercised.
+- [ ] **Field:** pending Gate 4. Repeat the durable-result and capped-count checks on
+      sanitized representative pilot output. The synthetic three-well and 10,000-row
+      fixtures prove the reporting boundary, not field suitability or operator acceptance.
+
+## 2026-08-14 — G2 SB-DBM-037: backend scope is the authority
+
+- [x] **Automated:** exact SB-DBM-T37 creates the cited 540-well project with an active
+      group of 12, directly exercises all 44 registered backend authorization boundaries, and
+      proves the 43 scoped operations resolve exactly the current 12 while the deliberately
+      exhaustive integrity operation reports `PROJECT_WIDE` and 540 wells touched. The test also
+      inventories every corresponding Tauri wrapper and pins the downstream well, contact, top and
+      statistics loaders to SQL-scoped ids, so resolving 12 and then loading/filtering 540 cannot
+      satisfy it. SB-CORE-035 still proves Active Group, named Group, All and Explicit remain
+      distinct and stale membership is refused. Full gate is 1003 passed / 0 failed / 36 ignored,
+      including backend 946 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust
+      warnings.
+- [ ] **Visual:** with an active group, inspect the object tree, map, contact-consistency pane,
+      FWL check, top-order warning and TVD materialization at narrow and wide dock widths. Confirm
+      ordinary surfaces show only the active wells, explicit project-administration surfaces still
+      offer All, and Database Inspector visibly says `PROJECT WIDE — N wells examined` for the
+      exhaustive integrity check without clipping the finding table.
+- [ ] **Manual:** on a disposable project, create a named group, invoke Active Group and named
+      Group directly, then change membership while a dialog remains open and verify the next run
+      uses the new membership. Exercise All and an Explicit selection as separate intentional
+      modes, and confirm an out-of-scope top check is refused. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Repeat the scope and project-wide-disclosure checks on a sanitized
+      representative pilot project and compare the touched well identities to the operator's group.
+      The synthetic 540/12 fixture proves the engineering boundary, not field qualification or
+      acceptable performance at representative project scale.
+
+## 2026-08-14 — G2 SB-DBM-035: restore appends history instead of rewinding it
+
+- [x] **Automated:** exact SB-DBM-T35 begins with archived versions 1 and 2 plus current
+      version 3. It proves SQL-console UPDATE/DELETE and the stale ordinary-delete command refuse,
+      restoring version 1 creates a fresh set identity at version 4, the structured run record
+      names source version 1, current rows cite version 4, version 4 contains the source values,
+      and every row in versions 1–3 is unchanged. The existing catalog and downstream-workflow
+      integration tests also pass. Full gate is 1002 passed / 0 failed / 36 ignored, including
+      backend 945 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** in Curve Catalog at narrow and wide dock widths, inspect a set with at least
+      three versions. Confirm there is no ordinary Delete action, restore version 1, and verify the
+      new version 4 row visibly says `restore`, `restored from v1`, and `current` without clipping
+      the curve list, date, or Ancestry/Restore controls.
+- [ ] **Manual:** on a disposable project, record the values and identities of versions 1–3,
+      restore version 1 while version 3 is current, close/reopen the project, and verify the
+      current values now cite version 4 while all four versions remain selectable. Restore version
+      3 again to reverse the operation as another append-only run. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Repeat on sanitized representative pilot output and compare the
+      restored curve bytes and complete run record against the selected source version. The green
+      synthetic fixture is not evidence that a real delivery, large archive, or operator workflow
+      has been qualified. Backed-up format migration and typed reversible integrity quarantine are
+      separately bounded maintenance paths; neither is an ordinary history-delete permission.
+
+## 2026-08-14 — G2 SB-DBM-033: categorical curves never become arithmetic quantities
+
+- [x] **Automated:** exact SB-DBM-T33 uses the chapter's cited 0.1524 m-to-0.1 m
+      resample and producer-declared fixture codes 1/4. It proves the committed output contains
+      only those existing codes, the Reframe payload and UI report both target samples that cross
+      the source transition, the declaration remains active, Rhai and Python arithmetic each
+      refuse before writing, and unreadable type metadata stops Reframe instead of silently
+      treating the curve as continuous. Full gate is 1001 passed / 0 failed / 36 ignored, including
+      backend 944 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** in Reframe at narrow and wide dock widths, request Interpolate for one
+      producer-declared class curve. Confirm the result says `nearest`, shows the number of
+      category-boundary samples, and lists each target depth plus its two source codes/depths
+      without clipping or hiding the ordinary run notes.
+- [ ] **Manual:** on a disposable project, run a producer that declares a categorical curve,
+      Reframe it to a finer explicitly stated sampling, and inspect every reported transition.
+      Then select the same curve in both equation editors and confirm each refuses by mnemonic and
+      writes no output. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Exercise one sanitized producer-declared class curve and compare
+      its source/output code sets and transition depths. The synthetic labels and green test do
+      not prove a real facies delivery, and this increment does not claim arbitrary imported-curve
+      retyping is available.
+
+## 2026-08-13 — G2 SB-DBM-032: single-handle parameter policy conflict
+
+- [ ] **Automated implementation:** blocked by DEC-028. No SB-DBM-T32 test was added because its
+      required one-handle warning contradicts the already-passing P0 SB-INS-T18 missing-ordinal
+      refusal on the same `parameter_pack.rs` load surface. The mismatch refusal remains intact;
+      no assertion or production guard was weakened.
+- [ ] **Architecture / source boundary:** choose whether a semantic-only row and an ordinal-only
+      row each refuse or load with a warning, then correct the conflicting requirement/test before
+      unit, source, tilt and append-only ordinal custody are implemented. Engineering recommends
+      refusing both for the first pilot; warning-and-continue recreates the documented class of
+      plausible wrong-parameter activation.
+- [ ] **Visual / Manual:** after adjudication and implementation, load the crossed-handle fixture,
+      both one-handle fixtures and a two-zone logarithmic tilt. Confirm the refusal or warning names
+      the actual handles and the boundary steps to the next zone rather than interpolating across
+      it. Jauhar owns this click-through.
+- [ ] **Field:** blocked. A sanitized pilot parameter pack must prove its semantic IDs, permanent
+      ordinals, units, sources and zone tilts against its producer; a synthetic JSON file or green
+      loader test cannot establish that custody.
+
+## 2026-08-13 — G2 SB-DBM-031: depth unit/datum and correlation-contact refusal
+
+- **Automated — not manual evidence:** exact SB-DBM-T31 stores an MD zone and a TVDSS contact,
+      refuses their comparison without a well frame while naming both datums, then permits the same
+      pair through a declared frame and asserts positive-down TVDSS / positive-up elevation. The
+      format-2 migration backs up real projects, converts only explicitly TVDSS system stores once,
+      and leaves an untyped legacy zone NULL and unreadable rather than relabelling it MD. The
+      correlation view no longer substitutes MD when its TVDSS frame is absent. Full gate is
+      1000 passed / 0 failed / 36 ignored with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** in Correlation at narrow and wide dock widths, select TVDSS with one well that has
+      a declared TVDSS curve and one that does not. Confirm the latter is labelled
+      `no TVDSS frame`, draws no curve/top/contact comparison, and the status says MD was not
+      substituted. Confirm the positive-down wording remains visible in the contact editor.
+- [ ] **Manual:** on a disposable pre-format-2 project copy, record the original survey-derived
+      TVDSS/contact values, open it, confirm the adjacent backup exists, and verify the converted
+      values are positive down exactly once. Insert or retain an untyped legacy zone and confirm it
+      refuses use until its datum is explicitly assigned through Database Inspector.
+- [ ] **Field:** blocked pending source/operator declarations for every legacy and imported depth
+      frame in the sanitized representative delivery. Compare the declared MD/TVDSS reference and
+      elevation against the delivery documentation; a mnemonic, unit, sign, or green synthetic test
+      is not evidence of datum.
+
+## 2026-08-13 — G2 SB-DBM-030: null-state contract needs adjudication
+
+- [ ] **Automated implementation:** blocked by DEC-027. No strict Geolog-family store screen or
+      partial T29/T30 proof is presented as the whole contract. The unchanged full gate remains
+      999 passed / 0 failed / 36 ignored with the existing 55 owned Rust warnings.
+- [ ] **Architecture / source boundary:** decide two conflicts before code changes. SB-DBM-003
+      requires an unsupplied required parameter to remain a queryable `REQUIRED_UNSET` row with
+      SQL-NULL value/source, while SB-DBM-030 requires absence-of-row. T29 also requires its bound
+      to derive from the value the export path emits, while §5 refuses both conflicting Geolog
+      magnitudes and assigns that future export choice to SB-DIO.
+- [ ] **Visual / Manual:** after adjudication and implementation, confirm a missing curve sample is
+      visibly a gap—not a plotted sentinel—and an unsupplied required parameter is visibly named
+      `REQUIRED_UNSET`, never shown as zero, a magnitude, an empty string or a clean value. Jauhar
+      owns this click-through.
+- [ ] **Field:** blocked. The sanitized pilot delivery must later prove that source-specific vendor
+      nulls are flagged before storage and that exact-threshold data survives. Synthetic values and
+      a green gate cannot establish which Geolog magnitude a real export must declare.
+
+## 2026-08-13 — G2 SB-DBM-029: protect every existing reference frame
+
+- [x] **Automated:** exact SB-DBM-T28 drives the real module API with its output renamed to
+      `DEPTH`, requires the refusal to name the existing `STANDARD` frame, and snapshots every
+      standard column plus a computed peer so any movement fails byte-for-byte. Its positive
+      control runs Reframe with an explicit synthetic fixture step, proves the distinct basis is
+      archived under `frame = 'OWN'`, and proves the original frame is still byte-identical. Full
+      gate is 999 passed / 0 failed / 36 ignored with the existing 55 owned Rust warnings.
+- [ ] **Visual:** in a module's Output curves card, enter `DEPTH` at narrow and wide dock widths.
+      Confirm the refusal visibly names both `DEPTH` and the `STANDARD frame`, explains that
+      Reframe creates an `OWN` frame, and does not clip the recovery instruction.
+- [ ] **Manual:** on a disposable project, attempt the same output rename and confirm no raw or
+      computed curve changes. Then use Data > Sampling with an explicitly chosen step and confirm
+      the new log set is selectable on its own depths while the original set is unchanged. Jauhar
+      owns this click-through.
+- [ ] **Field:** pending Gate 4. On the sanitized representative pilot delivery, compare the source
+      and reframed depth inventories and inspect neighbouring curves before and after. The
+      synthetic byte-snapshot proves the write contract, not the field sampling choice.
+
+## 2026-08-13 — G2 SB-DBM-028: verify a set's declared sampling style
+
+- [x] **Automated:** exact SB-DBM-T27 supplies its tolerance as a unit-typed fixture input and
+      first proves that neither the sampling style nor the regular-verification tolerance has a
+      production default. The cited 0.1524 m fixture then omits 40 mid-interval rows, requires the
+      stored declaration to become effective `CONTINUOUS_IRREGULAR`, names depth and missing-row
+      count, and keeps the known post-gap sample at its native depth rather than 6.1 m shallow. A
+      genuinely regular control remains regular, while an unverified legacy set is refused by the
+      explicit frame reader. Full gate is 998 passed / 0 failed / 36 ignored with 55 owned Rust
+      warnings.
+- [ ] **Visual:** open Import LAS at narrow and wide modal widths. Confirm Sampling style starts
+      unselected, Regular-step tolerance starts empty and disabled, selecting regular enables both
+      value and unit without filling either, and selecting irregular clears/disables them. Confirm
+      validation and the named post-import warning remain legible without clipping.
+- [ ] **Manual:** on a disposable project, import one regular LAS with an explicit tolerance, one
+      declared-regular LAS containing a known gap, and one declared-irregular LAS. Inspect the
+      stored `import_sets` rows and confirm style, effective verdict, original tolerance/unit,
+      warning, gap depth and row count agree with the delivery. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Use the sanitized representative pilot delivery to confirm the
+      tolerance is project/source justified, then inspect one sample after every contradicted gap
+      against the source LAS. The synthetic 40-row fixture does not qualify a field tolerance.
+
+## 2026-08-13 — G2 SB-DBM-027: complete integrity report and recoverable quarantine
+
+- [x] **Automated:** exact SB-DBM-T26 seeds one archive row whose `set_id` cannot resolve and one
+      well-group membership whose well is gone, while leaving orphan curve samples at the cited
+      zero. It requires all seven live classes by name and count, proves the read-only check changes
+      no row, rejects a bare `clean`, and drives selected typed quarantine through restore and exact
+      reapply. The frontend sends class IDs only; no SQL or sample array crosses IPC. Full gate is
+      997 passed / 0 failed / 36 ignored with the existing 55 owned Rust warnings.
+- [ ] **Visual:** open Database Inspector and check at narrow and wide dock widths. Confirm all
+      seven rows, counts, repair eligibility and required actions remain readable; zero findings
+      must say `Checked 7 integrity classes; 0 findings.` rather than showing a generic green
+      badge. Confirm report-only ML/duplicate rows never receive a destructive checkbox.
+- [ ] **Manual:** on a disposable project copy, create or recover a known orphan, run the checker,
+      quarantine only the selected class, close/reopen the app, restore the persisted batch, then
+      exercise Ctrl+Z and Ctrl+Y. Confirm legacy current rows with `set_id IS NULL` remain reported
+      and are not selected for deletion. Jauhar owns this click-through evidence.
+- [ ] **Field:** pending Gate 4. Run the read-only checker on the sanitized representative pilot
+      delivery before and after its workflow. Every nonzero count must be investigated by class;
+      the synthetic 1/1/0 fixture and a green gate do not prove a real project is healthy.
+
+## 2026-08-13 — G2 SB-DBM-026: depth uniqueness follows declared set type
+
+- [x] **Automated:** exact SB-DBM-T25 drives both `CONTINUOUS_REGULAR` and
+      `CONTINUOUS_IRREGULAR` writes through the real computed-curve boundary and requires the
+      named depth plus both source rows before any current/archive mutation. It also corrupts an
+      archive fixture deliberately and proves Restore cannot bypass that refusal. The shipped
+      auxiliary-data writer accepts same-depth POINT observations under an explicit `PRESERVE`
+      declaration, while `PERTURB` refuses without a positive unit-typed offset and logs both rows
+      when the cited 0.01 ft fixture value is supplied. `computed_curves` remains PK-less and no
+      upsert or uniqueness index was added. Full-gate result is recorded in the status ledger.
+- [ ] **Visual:** no new control was introduced. In Gate 4, inspect one preserved duplicate POINT
+      delivery in its existing point-data surface and one continuous duplicate refusal. A database
+      row or green test is not proof that the operator can see which policy was applied.
+- [ ] **Manual:** on a disposable project, import a representative pressure/core-point delivery
+      containing legitimate same-depth observations and confirm both remain addressable; then
+      attempt a continuous duplicate write and Restore and confirm the error names depth and both
+      rows without changing the previous curve. Jauhar owns this click-through evidence.
+- [ ] **Field:** pending Gate 4. A real pilot delivery must confirm that preserved same-depth points
+      are scientifically intentional and that no delivery-specific workflow expected a silent
+      survivor. The synthetic 0.01 ft fixture is cited correctness evidence, not a project default
+      and not field acceptance.
+
+## 2026-08-13 — G2 SB-DBM-025: cross-module constant registry is source-blocked
+
+- [ ] **Automated implementation:** blocked, so the existing `PHIE_FLOOR = 0.001` is not promoted
+      into a source-bearing registry and no partial T23/T24 test is presented as the whole
+      contract. The unchanged full gate remains 995 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Architecture / source boundary:** settle DEC-026. The floor crosses the selected density,
+      analytic D-N and pay paths. `CLAUDE.md` mandates 0.001, while SB-POR-045 and its immutable
+      parameter table require ABSENT after one held source attests both 0.001 and 0.0001. A central
+      registry would amplify whichever side we guessed; it would not adjudicate the contradiction.
+- [ ] **Visual / Manual:** after the precedence decision and implementation, confirm the chosen or
+      required-empty floor state appears once, carries both competing citations, and survives the
+      run/pay record. Jauhar owns this review; a source-tree scan is not UI evidence.
+- [ ] **Field:** blocked. A representative tight/zero-porosity interval must later prove that the
+      explicit floor choice, unlimited companion and pay classification remain distinguishable.
+      No synthetic fixture may be labelled field verification.
+
+## 2026-08-13 — G2 SB-DBM-023: schema vocabularies have one source
+
+- [x] **Automated:** one typed registry now owns standard columns, sampling style,
+      duplicate-depth resolution, set frame, depth datum, audit location/mode and named provenance
+      absence. Exact SB-DBM-T23 adds a
+      synthetic eighth schema member and requires every derived projection to see it, then scans
+      the Rust source tree for a second declaration or copied full standard-column registry. The
+      full gate passes 995 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Visual:** no new control is intended. In Gate 4, confirm a representative standard curve,
+      an edited standard curve and an OWN-frame set still appear under their existing names and
+      units; an unchanged screen is useful regression evidence, not proof that every code consumer
+      derives from the registry.
+- [ ] **Manual:** on a disposable project, import a representative delivery, edit and undo one
+      standard curve, browse `standard_curves`, and create/read one Reframe set. Jauhar owns this
+      click-through; the automated source mutation test remains the registry-completeness proof.
+- [ ] **Field:** pending Gate 4. A real pilot delivery must preserve native curve identities and
+      frame behavior. Synthetic PEF in T23 is only a schema-name mutation and carries no invented
+      petrophysical value, endpoint or default.
+
+## 2026-08-13 — G2 SB-DBM-017: physics-driving metadata is scope-blocked
+
+- [ ] **Automated implementation:** blocked, so explicit `nphimat` parameters are not presented as
+      the stored metadata contract and no synthetic T17 was added. Exact T17 still needs the
+      run-time attribute value, stale-output invalidation after a change and named refusal when the
+      attribute is absent. The unchanged full gate remains 994 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Architecture / scope:** settle DEC-025. SB-POR-024 requires neutron matrix-basis metadata,
+      but SB-ENV-012 owns its typed enum, persistence and consumer validation and is outside
+      DEC-018's immutable pilot manifest. Either authorize that seam as infrastructure or revise and
+      re-approve the manifest; do not invent a Logging Contractor, tool, salinity or matrix default.
+- [ ] **Visual / Manual:** after implementation, show the declared curve basis in the run review,
+      change it in a disposable project and confirm prior outputs become visibly stale. Remove it
+      and confirm the UI names the missing attribute instead of substituting a default. Jauhar owns
+      this click-through evidence; source inspection is not visual or manual proof.
+- [ ] **Field:** blocked. A representative pilot delivery must preserve the imported basis and make
+      a changed or absent value fail visibly. Vendor precedent and a synthetic project do not prove
+      the real delivery's metadata is trustworthy.
+
+## 2026-08-13 — G2 SB-DBM-016: fresh-process order independence
+
+- [x] **Automated:** exact SB-DBM-T16 runs two byte-identical copies of one imported two-well
+      project in fresh Rust test processes. Their live 64-key HashMap iteration witnesses must
+      differ, while every computed curve's packed bytemuck depth/value bytes and every pay-summary
+      field must agree exactly. A third process changes recorded Rw and must move both artifacts,
+      preventing an empty or constant comparison from passing. The full gate passes 994 / 0 / 36
+      with 55 owned Rust warnings; no production behavior or scientific value changed.
+- [ ] **Visual:** no new UI exists. During Gate 4, compare the curve catalog and summary presentation
+      after two representative runs; a green binary comparison does not prove understandable
+      presentation or that the operator selected the intended saved inputs.
+- [ ] **Manual:** rerun the approved deterministic chain on a disposable sanitized project, reopen
+      it, and compare the complete curve inventory and summary—not only SWE or one headline net-pay
+      value. Record any mismatch rather than rounding it away.
+- [ ] **Field:** pending Gate 4. The repository fixture proves fresh-process order independence for
+      the approved chain, not a real delivery, a different machine, the absent T15 manifest resolver
+      or any of the 689 deferred requirements. Jauhar records representative field acceptance.
+
+## 2026-08-13 — G2 SB-DBM-015: complete re-run manifest is dependency-blocked
+
+- [ ] **Automated implementation:** blocked, so deterministic fragments are not presented as the
+      complete T15 proof. No stored manifest resolver or "re-run this set" command exists, and no
+      test proves the unmutated byte-identical replay plus all four element-naming refusals. The
+      unchanged full gate remains 993 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Architecture / scope:** settle DEC-021's build-derived module identity, DEC-023's versioned
+      zone-set seam and DEC-024's conditional stochastic/model identity seam. Exact T15 reaches
+      pilot-excluded SB-DBM-014 and SB-DBM-019/020 plus SB-DBM-017's physics-driving attributes.
+      Do not omit those manifest arms or import deferred capabilities without explicitly revising
+      and re-approving DEC-018.
+- [ ] **Visual / Manual:** after implementation, expose the stored manifest and make each unresolved
+      element refusal name the exact module, input version, zone set or model. Jauhar should verify
+      the wording against a disposable project; source-level resolution is not UI evidence.
+- [ ] **Field:** blocked. A representative run must later be re-run from its stored record alone and
+      compared byte-for-byte. A same-process deterministic unit test is not cross-process or field
+      replay evidence.
+
+## 2026-08-13 — G2 SB-DBM-013: provenance cannot be disabled
+
+- [x] **Automated:** SB-DBM-T13 executes the real module runner on three sides. An ordinary run
+      writes two VSH samples with one complete run record. A test-only database constraint makes
+      the second `log_sets` insert fail after the first has run, and requires the transaction to
+      leave zero FAULT run records, zero computed rows and both serialized processing items
+      `Failed`. The legacy-looking `skip_version` request is also executed and must refuse with
+      zero PAYFLAG records/curves. Whole-corpus inventories enumerate environment, DuckDB,
+      project-document, installed-user, persisted and session preference reads and reject any raw
+      computed writer. The full gate passes 993 / 0 / 36 with 55 owned Rust warnings; no production
+      behavior, scientific value, schema key or upsert changed.
+- [ ] **Visual:** in the Processing panel, exercise a safely induced run-write failure and confirm
+      every affected well is visibly Failed with a useful message; confirm no UI or deployment
+      setting offers a provenance-off mode. Source scanning proves reachability, not readability.
+- [ ] **Manual:** in a disposable project, run one ordinary module and confirm its output resolves
+      to exactly one live ancestry record. Induce a safe record-write refusal, reopen the project
+      and confirm neither a partial run record nor output curve survived. Do not alter a real
+      project merely to manufacture this evidence.
+- [ ] **Field:** on a representative pilot run, confirm a saved output and its ancestry remain
+      inseparable through Save Project As and an ordinary deliverable path. The synthetic unique
+      constraint is automated failure evidence, not field acceptance; Jauhar records this check.
+
+## 2026-08-13 — G2 SB-DBM-011: structured audit is dependency-blocked
+
+- [ ] **Automated implementation:** blocked, so the current free-text process log is not presented
+      as a relational audit. It survives Save Project As, but one capped JSON blob and more than 70
+      free-text UI emitters provide no controlled location/mode vocabulary, typed value/unit rows or
+      explicit uninterrupted-gesture coalescing. The unchanged full gate remains 992 / 0 / 36 with
+      55 owned Rust warnings.
+- [ ] **Product/data decisions:** settle DEC-022's legacy UTC classification and DEC-023's scope
+      conflict. Exact T11 requires zone-set identity, but SB-DBM-008 is outside DEC-018's immutable
+      pilot manifest. Either authorize that seam as audit infrastructure or revise and re-approve
+      the manifest; do not quietly weaken T11. DEC-020 already supplies explicit HUMAN/AUTOMATED
+      operator identity.
+- [ ] **Visual / Manual:** after implementation, change three zone parameters, rename one curve and
+      drag one crossplot point repeatedly without releasing the gesture. Confirm controlled rows,
+      one entry for the gesture, local timestamp display, exact operator/zone-set custody and legacy
+      text history retained as visibly unstructured rather than silently discarded.
+- [ ] **Field:** blocked on both decisions. Jauhar must inspect the audit inside a Save Project As
+      copy and confirm the controlled rows remain queryable; synthetic row insertion alone is not
+      evidence that the real UI actions are all captured.
+
+## 2026-08-13 — G2 SB-DBM-010: complete deliverable provenance is source-blocked
+
+- [ ] **Automated implementation:** blocked, so no synthetic T10 is presented as complete
+      provenance proof. LAS already embeds machine-readable ancestry, current parameter sources
+      travel inside it, and legacy computed curves remain labelled and counted. PDF and Office
+      deliverables already carry shared human-readable ancestry rows. None of those paths can
+      supply SB-DBM-005's missing method-derivation citations. The unchanged full gate remains
+      992 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Source decision:** approve a complete source-controlled registered-module citation map for
+      SB-DBM-005. A free-form output derivation such as a module or fixture description is not a
+      literature/specification citation and must not be relabelled as one merely to fill T10.
+- [ ] **Visual / Manual:** after the citation inventory exists, export representative computed and
+      legacy curves through every pilot format. Confirm the UI names any format that drops a
+      machine-readable sidecar before export; inspect the LAS record, PDF/Office ancestry and
+      sidecar resolution back to exact run records, parameter sources and citations.
+- [ ] **Field:** blocked on the same source inventory. Jauhar must inspect representative client
+      deliverables and confirm each numeric computed curve resolves without opening SandiBumi;
+      repository JSON presence alone is not field acceptance.
+
+## 2026-08-13 — G2 SB-DBM-009: legacy timestamp meaning is decision-blocked
+
+- [ ] **Automated implementation:** blocked, so no test is presented as proof that the whole UTC
+      storage/local-display contract ships. Current curve ancestry records a Unix-epoch instant,
+      but Inspector renders it in UTC; process history records an epoch instant and renders it
+      locally on screen, while its text export drops an explicit zone; `log_sets.created_at`
+      remains local/unspecified. The unchanged repository gate remains 992 / 0 / 36 with 55 owned
+      Rust warnings.
+- [ ] **Product/data decision:** settle DEC-022. The engineering recommendation is to mark every
+      pre-migration timestamp `ZONE_UNKNOWN`, preserve its literal legacy text, store every new
+      timestamp as an unambiguous UTC instant and convert only at the UI edge. Do not infer the old
+      authoring zone from the machine that later opens the project.
+- [ ] **Visual / Manual:** blocked until DEC-022 and the shared timestamp representation are
+      implemented. Then inspect one new record in two machine zones and one legacy record: the new
+      instant must remain identical while its display changes, and the legacy value must remain
+      visibly zone-unknown rather than being silently shifted.
+- [ ] **Field:** blocked on the same decision and on SB-DBM-011's structured audit store. Jauhar
+      must record representative cross-zone and legacy-project evidence; a synthetic epoch test
+      alone cannot close project-history custody.
+
+## 2026-08-13 — G2 SB-DBM-007: provenance absence has a name
+
+- [x] **Automated:** SB-DBM-T09 executes a real equation whose run has no configurable
+      parameters and requires schema-v3 ancestry to round-trip `NOT_APPLICABLE`, never an empty
+      string or an empty parameter object masquerading as meaning. Its other half injects a module
+      parameter-serialization error through the real module runner and requires a reported failure,
+      zero module `log_sets` rows and zero computed VSH rows. Older schema-v1/v2 empty parameter
+      collections are read as `LEGACY_UNRECORDED`; required-but-unsupplied named parameters remain
+      `REQUIRED_UNSET`. The full repository gate passes 992 / 0 / 36 with 55 owned Rust warnings.
+      Sample missingness remains `f32::NAN`; no petrophysical value, default, endpoint, limit or SQL
+      schema was introduced.
+- [ ] **Visual:** inspect an equation run and a pre-v3 run in Ancestry. Confirm the current run says
+      parameters are not applicable, the legacy run says they were not recorded, and neither is
+      rendered as a blank field, `{}`, `null`, zero or a raw parsing error. A serialized enum in the
+      backend is automated evidence, not proof that this distinction is understandable on screen.
+- [ ] **Manual:** in a disposable project, run a parameterless equation and query its `params_json`.
+      Confirm the embedded ancestry has an empty parameter list plus `NOT_APPLICABLE`, while the
+      equation definition metadata remains present. Open a pre-v3 fixture with an empty parameter
+      list and confirm the reader reports `LEGACY_UNRECORDED` rather than rewriting history. Keep
+      the injected serialization-failure test as the controlled failure proof; do not manufacture
+      malformed production data merely to click this path.
+- [ ] **Field:** inspect representative pilot equation and module run records after the workflow is
+      frozen. Confirm a reviewer can distinguish no parameters, an unsupplied required parameter,
+      and legacy unrecorded provenance. Automated synthetic evidence does not close this check;
+      Jauhar records field acceptance.
+
+## 2026-08-13 — G2 SB-DBM-006: each run names the curve decision it actually used
+
+- [x] **Automated:** SB-DBM-T08 creates three GR curves across two imported sets, marks one
+      curve Final, runs a module, reflags the other set and runs again. It requires the exact
+      chosen UUID/set/version, both rejected UUID/set/version identities, `FINAL_FLAG`, the
+      changed choice, independently derived output bytes and refusal of an incomplete schema-v2
+      record. A second two-sided regression requires a RAW family match to beat an exact mnemonic
+      outside RAW, then requires that attached exact curve after the RAW curve is removed. Existing
+      native-track and deterministic-replay regressions remain green. The full repository gate
+      passes 991 / 0 / 36 with 55 owned Rust warnings; no petrophysical value,
+      endpoint, cutoff, range or default was introduced, and `computed_curves` remains PK-less
+      with no upsert path.
+- [ ] **Visual:** in Curve Catalog, confirm exactly one curve in a duplicated family carries the
+      Final badge, Mark/Clear Final is understandable, and Ancestry presents the chosen identity,
+      set/version, decision rule and rejected candidates without requiring raw JSON. Confirm an
+      ordinary blank-set log track still shows its established current standard projection.
+- [ ] **Manual:** in a disposable project, load three same-family curves across two sets, mark one
+      Final, run a module, reflag a different curve and rerun. Query both run records and confirm
+      each winner, both rejected candidates and set versions match the actual numeric inputs.
+      Also request a family that RAW carries under an alias while an attached set carries the exact
+      mnemonic: confirm RAW wins, then delete the RAW curve and confirm the attached curve becomes
+      eligible. Undo the reflag and confirm the displaced Final designation is restored.
+- [ ] **Field:** repeat the decision trace on a representative pilot well with a genuinely
+      duplicated delivered curve family. Confirm a reviewer can explain which physical curve fed
+      the result and why. Automated synthetic evidence does not close this check; Jauhar records
+      field acceptance.
+
+## 2026-08-13 — G2 SB-DBM-005: method derivation is source-blocked
+
+- [ ] **Automated implementation:** blocked, so no synthetic mechanism test is presented as proof
+      that shipping metadata exists. Live source still has no derivation field in `ModuleSpec` or
+      `CurveAncestry`, no fail-closed registration, and no citation to propagate through LAS,
+      report or Office deliverables. The unchanged full gate remains 989 / 0 / 36 with 55 owned
+      Rust warnings.
+- [ ] **Source decision:** approve a complete, source-controlled map assigning every registered
+      shipping module either its primary literature/specification/patent citation or an explicit
+      `FIRST-PRINCIPLES` marker naming the module's own derivation document. Comments, neighboring
+      chapters and engineering memory are not sufficient custody for an audit claim.
+- [ ] **Visual / Manual:** blocked until the registered metadata exists. After implementation,
+      confirm a normal run shows the method citation beside its effective parameters and a module
+      without one is refused before it can write a run record.
+- [ ] **Field:** blocked on the same inventory. Once approved and implemented, confirm the exact
+      citation travels into representative pilot run records and every number-carrying deliverable;
+      do not close this from a repository-only citation.
+
+## 2026-08-13 — G2 SB-DBM-004: effective parameters retain their manifest origin
+
+- [x] **Automated:** SB-DBM-T06 now saves every declared effective ModuleSpec parameter, not just
+      request overrides. The owned correctness test independently derives the configurable-manifest
+      hash, requires five synthetic parameters to persist as exactly two `EXPLICIT` and three
+      `DEFAULTED`, changes one later manifest default, and proves the original value and manifest
+      identity remain unchanged. Ordinary module runs and workflow chains share the same recorder;
+      REQUIRED_UNSET remains value-less and no petrophysical value, default, endpoint or range was
+      added. The full repository gate passes 989 / 0 / 36, with the existing 55 owned Rust warnings.
+- [ ] **Visual:** run a disposable module once with two visible overrides and other controls left at
+      their manifest defaults. In Sets / Inspector, confirm the saved ancestry shows all effective
+      values, the two `EXPLICIT` flags, the `DEFAULTED` flags and a manifest version for every
+      default. Raw JSON presence alone is not proof that the presentation is readable.
+- [ ] **Manual:** inspect `run_parameters` for an ordinary run and a workflow-chain run. Confirm
+      explicit rows have no default-manifest version, defaulted rows share the manifest identity
+      used by that module, and historical schema-v1 rows remain unclassified rather than being
+      guessed into either state.
+- [ ] **Field:** repeat one representative pilot interpretation after the parameter manifests are
+      frozen. Confirm the run record matches every value actually consumed. This increment does not
+      close SB-DBM-002's build-derived module identity or SB-DBM-015's full rerun manifest; those
+      remain separate contracts.
+
+## 2026-08-13 — G2 SB-DBM-003: parameter absence is named and queryable
+
+- [x] **Automated:** SB-DBM-T05/T09/T30's source-state contract now writes every complete run's
+      parameters into an indexed relation in the same transaction as its run record. The owned
+      correctness test requires a sourced synthetic value, an unsupplied required input stored as
+      NULL value/source plus `REQUIRED_UNSET`, a blank-source refusal, and conservative backfill of
+      pre-index ancestry. All 14 equations controls and the full 988 / 0 / 36 gate pass. No
+      parameter value, endpoint, conversion or default was invented,
+      and `computed_curves` remains deliberately PK-less with no upsert path.
+- [ ] **Visual:** open Ancestry for a disposable run containing one deliberately unsupplied required
+      input. Confirm the record reads as a named absent state with null value/source and that an
+      ordinary sourced value still shows its value and citation. Typed JSON alone is not proof that
+      the human presentation is understandable.
+- [ ] **Manual:** in a disposable project, query `run_parameters` by `state = 'REQUIRED_UNSET'` and
+      confirm the returned names match the run's intentionally absent inputs. Reopen a project
+      written before this index and confirm source-bearing ancestry becomes queryable without any
+      malformed or source-less record being silently repaired.
+- [ ] **Field:** exercise representative pilot runs after the pilot parameter inventory is approved.
+      Confirm every numeric parameter carries its actual source and every unavailable required input
+      remains absent. This automated increment does not approve that inventory or replace Jauhar's
+      field evidence.
+
+## 2026-08-13 — G2 SB-DBM-002: build-derived module identity is decision-blocked
+
+- [ ] **Automated implementation:** blocked, not declared green from the populated ancestry field.
+      Every current complete-run builder records `module_version = CARGO_PKG_VERSION`, but that
+      value is hand-maintained and can remain unchanged when one module's compiled artefact changes.
+      SB-DBM-T04 and the module-version arm of T15 therefore remain missing; no snapshot test was
+      added to defend the known divergence. The unchanged repository gate remains 987 / 0 / 36 and
+      the owned Rust warning inventory remains 55.
+- [ ] **Product/architecture decision:** settle DEC-021's exact artefact boundary, derivation,
+      stored representation and stability rule. A whole-binary digest, per-module source digest,
+      build id or hash policy would all be plausible but materially different contracts; none was
+      selected by engineering while `MODULE_VERSION_SOURCE` remains deliberately absent.
+- [ ] **Manual:** manual inspection can confirm existing records contain the package version, but it
+      cannot prove that value changes with the module artefact. Do not mark this requirement done
+      from a visible non-empty version string.
+- [ ] **Field:** field use cannot repair an ambiguous build identity. After DEC-021 is implemented,
+      Gate 4 may exercise records created by two controlled builds; it must not choose the identity
+      scheme retroactively.
+
+## 2026-08-13 — G2 SB-DBM-001: legacy computed values stay visible and honest
+
+- [x] **Automated:** SB-DBM-T03 sends one ancestry-complete computed curve and one seeded legacy
+      curve through the shared resolver, Curve Catalog payload, number-carrying disclosure, LAS
+      `~O` record and export summary. It requires the first to be `RECORDED`, the second to be
+      `LEGACY_UNRECORDED` with its exact row count, and proves no method or parameters are invented.
+      The production-writer inventory and existing LAS provenance contract remain green; the full
+      gate passed 987 / 0 / 36 with the owned warning inventory unchanged at 55.
+- [ ] **Visual:** in a disposable project copy, delete the run-history version behind a current
+      computed curve, then reopen Curve Catalog. Confirm the row remains visible, its Set reads
+      `LEGACY_UNRECORDED`, the badge includes the row count, and Ancestry is disabled rather than
+      opening an empty or invented record.
+- [ ] **Manual:** export that disposable well to LAS. Confirm the result message names one
+      `LEGACY_UNRECORDED` curve and the file's `~Other Information` contains both the curve-level
+      class/count and the export summary. Confirm an ordinary recorded curve still names its real
+      log set, version, method and stored ancestry.
+- [ ] **Field:** open a legally controlled pre-versioning pilot project if one exists and inventory
+      every legacy computed curve before delivery. This test proves classification and transport;
+      it does not prove that an old project's history can be reconstructed, and the software must
+      never claim that it can.
+
+## 2026-08-13 — G2 SB-INS-019: one generated curve and unit vocabulary
+
+- [x] **Automated:** SB-INS-T24 compares every one of the accepted 15 families and 42 unit tokens
+      across generated Rust runtime, LAS import UI, Markdown and test-manifest consumers carrying
+      one version and source digest. It deliberately changes one generated output and one family
+      dimension and proves both make release validation fail. Existing unit conversion tests stay
+      green, the warning inventory remains 55, and the full gate passed 986 / 0 / 36.
+- [ ] **Visual:** open Import LAS and expand the recognized-vocabulary disclosure. Confirm the
+      version/count summary is readable, the complete family/unit list remains usable in the
+      560-pixel dialog, and the collapsed state does not distract from set/depth decisions.
+- [ ] **Manual:** compare representative delivery mnemonics and unit spellings against the generated
+      documentation. Record any missing alias as a new source-reviewed registry change; do not add
+      a guessed synonym from memory.
+- [ ] **Field:** exercise the accepted vocabulary across pilot deliveries and confirm unknown tokens
+      stay observable and unconverted. This migration preserved the exact live population and added
+      no alias, family, conversion factor, endpoint or default.
+
+## 2026-08-13 — G2 SB-INS-018: missing units cannot become mappings
+
+- [x] **Automated:** SB-INS-T23 sends an absent unit, an empty unit, placeholder symbols and an
+      empty-to-empty mapping row through one serialized `missing_unit` state. It proves generic
+      import preparation stores no placeholder, all four mapping rows register zero conversions,
+      and a valid `mm`-to-`in` length row still registers so a catch-all refusal cannot pass lazily.
+      The focused missing-unit, observed-token and unit-registry suites are green; the full gate
+      passed 985 / 0 / 36.
+- [ ] **Visual:** import fixtures carrying empty and placeholder unit forms and inspect the completed
+      import presentation. Confirm absence is readable and is never presented as a successful
+      conversion. Typed IPC is not proof that the interface communicates the state well.
+- [ ] **Manual:** inspect stored curve metadata and the import audit together. Confirm placeholders
+      do not leak into the stored unit field while the original observed spelling remains available
+      for diagnosis.
+- [ ] **Field:** exercise representative pilot deliveries containing genuinely absent or placeholder
+      units and confirm no false mapping is produced. This increment adds no alias, conversion
+      factor, physical endpoint or petrophysical default.
+
+## 2026-08-13 — G2 SB-INS-017: observed unit and encoding evidence survives interpretation
+
+- [x] **Automated:** SB-INS-T21 imports exact `mV` and `mv` spellings through the product LAS
+      path, proves both spellings survive in stored curve metadata, permits only registered `mV`
+      to acquire the canonical electric-potential interpretation, and requires the unaliased pair
+      to emit a drift warning. SB-INS-T22 loads a declared CP1252 parameter pack carrying byte
+      `0x92`, reconstructs every original byte from exported typed provenance, and proves a false
+      UTF-8 declaration refuses. Focused unit, parser and pack suites are green; the full gate
+      passed 985 / 0 / 36.
+- [ ] **Visual:** import a LAS carrying the case-variant pair and inspect the completed import
+      report. Confirm both raw spellings and the explicit drift warning remain readable; a unit
+      test or stored row is not evidence that the UI presents them well.
+- [ ] **Manual:** load a CP1252 pack through the governed product surface and inspect declared
+      versus decoded encoding plus source-byte provenance. Confirm a contradictory declaration
+      blocks before rows become available.
+- [ ] **Field:** exercise representative pilot deliveries and confirm registry aliases cover only
+      reviewed source spellings. This increment adds no universal case rule, encoding default,
+      conversion factor, physical endpoint or petrophysical default.
+
+## 2026-08-13 — G2 SB-INS-016: typed unit registry is enforced before launch
+
+- [x] **Automated:** startup now validates every shipping canonical token and conversion bridge
+      before constructing Tauri. SB-INS-T19 still proves the recognised `md` permeability to `m`
+      length bridge refuses before arithmetic; renamed SB-INS-T20 proves startup enforcement,
+      exact cited `mm` to `in` and `us/m` to `us/ft` conversions, and NaN preservation. The dead
+      validator warning was closed, not silenced; live warning inventory is now 55. The full gate
+      passed 983 / 0 / 36.
+- [ ] **Visual:** deliberately corrupting the compiled registry is not an ordinary UI scenario.
+      If a startup problem surface later replaces the fail-fast launch refusal, visually confirm
+      it names the invalid tokens and quantity kinds; do not infer that from the unit tests.
+- [ ] **Manual:** import real same-kind convertible units and confirm the conversion provenance is
+      visible, then present an unknown token and confirm it remains unconverted rather than guessed.
+- [ ] **Field:** confirm representative pilot imports use only reviewed same-kind bridges. This
+      increment adds no unit alias, factor, physical endpoint or default.
+
+## 2026-08-13 — G2 SB-INS-015: ambiguous parameter packs refuse at the product boundary
+
+- [x] **Automated:** SB-INS-T17 now crosses the semantic ID of one real shipping-schema row with
+      another row's ordinal through the registered load command and requires the refusal to name
+      the file, pack row and both schema rows. SB-INS-T18 sends missing-ordinal, duplicate-key,
+      unsupported-version and empty-key files through the same command; all four refuse and none
+      returns a partial pack. No existing guard or error detail was loosened. The full gate passed
+      983 / 0 / 36.
+- [ ] **Visual:** no parameter-pack picker or refusal panel exists yet. If later work adds one,
+      confirm the exact backend error is visible without replacing IDs/ordinals with ambiguous
+      labels; automated command tests are not visual evidence.
+- [ ] **Manual:** exercise all five refusal shapes from a future governed pack-selection surface
+      and confirm no value can be applied after any failed load.
+- [ ] **Field:** pack values remain unapplied to computation. Field acceptance waits for the later
+      typed-unit, observed-token, generated-registry and attestation/provenance contracts.
+
+## 2026-08-13 — G2 SB-INS-014: parameter-pack identity is product-reachable
+
+- [x] **Automated:** the backend now derives every configurable module row from the shipping
+      manifest as `module.argument` plus a one-based configurable-row ordinal, and versions that
+      exact manifest with a deterministic SHA-256. The Tauri command accepts a module and file,
+      never a frontend-supplied schema. SB-INS-T16 loads two identical labels through that command's
+      production function and proves both exact keys resolve while a crossed pair does not. The
+      full gate passed 983 / 0 / 36.
+- [ ] **Visual:** no pack-selection UI is introduced by this increment. If a later increment adds
+      one, confirm labels are presented as labels while semantic ID, ordinal, schema version and
+      source file remain inspectable; do not record this checkbox from the IPC test.
+- [ ] **Manual:** call the schema and load commands with a duplicate-label fixture and confirm both
+      returned rows remain visibly distinct. This is optional review evidence, not a substitute for
+      the automated identity contract.
+- [ ] **Field:** no parameter-pack value is applied to a computation yet. Do not field-approve pack
+      application until SB-INS-015 through SB-INS-020 close mismatch, typed-unit, observed-token,
+      generated-registry and attestation/provenance boundaries.
+
+## 2026-08-13 — G2 SB-CORE-044: Tier-C release policy remains source/legal-blocked
+
+- [x] **Automated inventory:** the distributed-dependency notice now reads Cargo's normal edges
+      and npm's installed production graph instead of sweeping hoisted development tools. The
+      generated result records 292 Rust crates, 111 npm packages, six MPL-family attention items
+      and zero undeclared licences. A deliberate stale-file probe was rejected, regeneration
+      restored the file, and the full gate now enforces `--check`. This closes only the dependency
+      inventory slice; it is not legal clearance and is not a whole SB-CORE-044 correctness test.
+- [ ] **Primary-source/legal blocker:** digitized chart payloads, the vendor-merged endpoint
+      library and four branded theme identities still ship under unresolved routes. Obtain a
+      counsel-approved existing route or remove/independently re-source the chart payloads; supply
+      exact per-value primary custody for the endpoint library; and obtain permission or approve a
+      neutral/user-owned theme route. Counsel must also review the generated dependency attention
+      items. Until then SB-CORE-044 is BLOCKED, not “mostly done.”
+- [ ] **Manual:** review `docs/IP_PROVENANCE.md` beside the actual paid-pilot file manifest and
+      record counsel/source evidence per row. Jauhar's product approval cannot substitute for a
+      missing primary source or legal disposition.
+- [ ] **Field:** no field workflow can clear an IP/provenance defect. After the source/legal routes
+      close, Gate 4 may confirm that removed assets are absent or approved replacements are the
+      ones actually installed; it must not be used as retroactive clearance.
+
+## 2026-08-13 — G2 SB-CORE-036: cancellation controls tell the truth
+
+- [x] **Automated:** the owned correctness test executes an unobserved late click as Completed,
+      an observed request as Cancelled, and a monolithic job as non-cancellable. It inventories
+      all seven live `run_job` families, the one manual workflow-chain registration, every worker
+      observer, and both visible Cancel surfaces. Reverification caught and repaired the chain's
+      final-step race: a click after the last worker had completed and committed can no longer
+      relabel that run as Cancelled. Focused test: 1 passed / 0 failed / 0 ignored. Full gate:
+      983 passed / 0 failed / 36 ignored; Rust retains the owned 56-warning inventory.
+- [ ] **Visual:** while one cancellable job and one monolithic job are active, confirm Processing
+      shows Cancel only on the first and “can't be interrupted” on the second. For a workflow
+      chain, confirm the dialog and Processing panel remain synchronized and terminal text is
+      readable. No screenshot is claimed as behavioral proof.
+- [ ] **Manual:** cancel LAS import, an equation/workflow run, Monte Carlo, ML and SandiMin during
+      actual work; confirm each stops after its documented polling boundary and clearly retains
+      any completed partial results. Also click Cancel too late on a nearly finished workflow and
+      confirm it reports Completed rather than denying already committed work.
+- [ ] **Field:** repeat the mid-run and late-click cases on a sanitized legally controlled pilot
+      project, retain the job/result receipt, and confirm reopened persisted results match the
+      terminal message. Automated inventory coverage does not count as field acceptance.
+
 Everything below is implemented, unit/integration-tested, and browser-smoke-tested,
 but has **not** been clicked through in the real desktop app with real field data.
 Work through this list when you have time, marking items as you go.
 Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked. If something is
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
+
+## 2026-08-13 — G2 SB-CORE-035: backend-owned well scope
+
+- [x] **Automated:** ActiveGroup, named Group and All are resolved from current DuckDB membership
+      inside each operation; Explicit active/pinned/selection/custom ids are existence-checked.
+      The owned correctness test changes membership after selector construction, pins both allowed
+      alternatives and refusal cases, and inventories all 36 live scoped Rust command boundaries.
+      `tsc --noEmit` pins every typed TypeScript caller. Per-well parameter and accepted
+      autocorrelation writes authorize the current scope; their undo/redo targets the exact
+      historical wells. No solver math, parameter default or computed-curve write discipline moved.
+      Full gate: 982 passed / 0 failed / 36 ignored in 159s; Rust retains the owned 56-warning
+      inventory.
+- [ ] **Visual:** open Workflow, Reframe, Statistics, Crossplot, Histogram, Pickett, Dashboard,
+      Reports, ML, rock-typing and marker-autocorrelation surfaces; confirm their existing Run on
+      controls/counts still paint correctly, and that a backend refusal remains readable in its
+      status area. This is a UI wiring increment, so no screenshot is claimed as behavioral proof.
+- [ ] **Manual:** with two saved groups, leave a scope-bearing pane open, change membership, then
+      run it. Confirm Group/ActiveGroup uses the new membership, All remains all wells, and an
+      Explicit pinned/selection/custom scope stays explicit. Repeat one parameter edit and one
+      accepted autocorrelation; verify undo/redo returns the exact historical wells.
+- [ ] **Field:** repeat the representative import → QC → VSH → POR → SAT → pay → review → export
+      chain on a sanitized legally controlled pilot project and retain the scope/operation receipt.
+      Automated scope isolation does not count as field acceptance.
+
+## 2026-08-13 — G2 SB-CORE-015: DLIS round-trip closure is source-blocked
+
+- [ ] **Automated implementation:** blocked, not declared green from the working LAS subset. The
+      complete `export::tests` module passes 13 / 0 / 0 and re-proves non-default LAS values,
+      feet/metres declarations and mandatory self-reader refusal. No DLIS writer exists, so the
+      named T15 and the universal T16 cannot execute. No file-existence or internal-`Result` test was
+      substituted for a semantic round trip. Full gate: 981 passed / 0 failed / 36 ignored in 150s;
+      Rust retains the owned 56-warning inventory.
+- [ ] **Source acquisition:** obtain the normative API RP66 V1 multi-dimensional writer sections
+      named by `21_data-io.md` §7.2 A-1 and approve DLIS export scope. Do not derive the writer from
+      `dlisio` behavior: the chapter explicitly warns that doing so can produce a file readable only
+      by the implementation it copied.
+- [ ] **Visual/manual and field:** after a sourced writer exists, export one non-default DLIS fixture,
+      re-import it in a fresh SandiBumi project, and compare values, units, nulls, index conventions
+      and user-visible success/refusal. This remains Gate 4 evidence and is not inferred from LAS.
+
+## 2026-08-13 — G2 SB-CORE-013: cited disagreement stays beside the choice and with the run
+
+- [x] **Automated:** the exact DEC-003 pilot registry covers 15 contested topics without turning
+      any disclosed vendor position into a SandiBumi default. The owned correctness test pins every
+      value/absence, source, tier and editor binding; exact and ranged matches against an unmatched
+      interpreter choice; real persisted VSH ancestry from both sides; custody retention; and all
+      three pay-cutoff decisions. Old ancestry remains readable. Full gate: 981 passed / 0 failed /
+      36 ignored; Rust retains the owned 56-warning inventory.
+- [x] **Visual:** a real debug Tauri window ran with an isolated config, WebView profile and
+      temporary project. At 802×632, the maximized VSH editor kept GR_MA and GR_SH source panels
+      collapsed by default; expanding GR_MA alone showed Techlog, Geolog and IP values with their
+      tier/source lines. The first inspection exposed `.param-sources-body { display:flex }`
+      overriding `hidden`; the explicit hidden selector was added and the two states were rechecked.
+      This is visual evidence, not field evidence. The app closed cleanly with no corrupt backup.
+      Environment policy refused deletion of the inert sandbox before executing the command, so
+      `C:\Users\ARUNIKA\AppData\Local\Temp\sandibumi-visual-core013-00c660f7a5bb44208b1d4735eb6aff13`
+      remains for manual cleanup; no stronger delete was attempted.
+- [ ] **Manual:** Jauhar opens the VSH, porosity, saturation, cutoff, report, dashboard, Results QC,
+      Monte Carlo and workflow editors; confirms each prompt is adjacent to the value it qualifies;
+      expands selected panels; runs one cited value and one own value; and inspects the persisted
+      decision in Curve Catalog and one delivered ancestry disclosure.
+- [ ] **Field:** Gate 4 retains one sanitized legally controlled pilot project showing the same
+      selected decision after reopen and in the delivered artifact. Post-pilot corpus expansion is
+      deferred; this increment does not claim all product domains or all recorded disagreements.
+
+## 2026-08-13 — G2 SB-CORE-011: the recorded project re-run is byte-identical
+
+- [x] **Automated:** the active T16 imports a repository-controlled two-well LAS2 delivery, copies
+      that raw project into isolated databases, and runs the same DEC-003 representative VSH →
+      porosity → saturation → pay-summary chain. It requires exact bytemuck-packed depth/value
+      bytes, exact serialized pay-summary bytes and identical scientifically material ancestry;
+      a third run with changed recorded `Rw` must change both outputs. The initial RED run found
+      that reopening a modern import invoked a legacy backfill and generated fresh duplicate RAW
+      identities. Modern import now records completion atomically with its native generic writes,
+      so identical project copies cite identical inputs. Full gate: 980 passed / 0 failed /
+      36 ignored.
+- [ ] **Visual/manual:** use Save As on one representative project, replay the recorded chain in
+      both copies, inspect final-curve ancestry and compare the pay table/export. This is Jauhar's
+      review and is not inferred from the automated byte comparison.
+- [ ] **Field:** during Gate 4, retain a sanitized legally controlled two-well delivery, the exact
+      input/parameter record and both output receipts. No client, field, block, basin, operator,
+      well or project identity is stored in this automated fixture.
+
+## 2026-08-13 — G2 SB-CORE-010: every computed curve carries complete ancestry
+
+- [x] **Automated:** every production computed-curve writer now requires a validated, per-well,
+      versioned ancestry record: module/version; effective input curve, well and log-set identities;
+      parameter values and named sources; zone scope; explicit HUMAN/AUTOMATED session actor;
+      timestamp; and output derivation. A missing actor/source or an ancestry-free writer refuses
+      before allocating a version or replacing current rows. Computed edits and undos create new
+      versions; raw edits remain reversible in their own store. T14 inventories production Rust
+      writers and proves both complete-record success and missing-custody refusal; T15 proves the
+      exact record survives Save As/reopen. Full gate: 979 passed / 0 failed / 36 ignored.
+- [x] **Automated deliverables:** Curve Catalog/Inspector exposes the record on demand. LAS,
+      standalone and ordinary PNG/SVG/PDF plots, report PDFs and Office exports embed or print the
+      backend-resolved record; no frontend-supplied ancestry can replace project truth. The same
+      complete record remains attached to current and archived curve versions.
+- [ ] **Visual/manual and field:** in the desktop app, enter one HUMAN and one AUTOMATED session
+      operator, run the approved raw-to-pay chain, inspect ancestry in Curve Catalog/Inspector, then
+      open the delivered LAS, plot, report and Office files and a reopened Save As project. Confirm
+      the values are readable and identical. This remains Jauhar's review; no manual or field pass is
+      inferred from the automated gate.
+
+## 2026-08-13 — G2 SB-CORE-007: universal parity is blocked on two contract boundaries
+
+- [ ] **Automated implementation:** blocked, not partially declared green. RED discovery against the
+      live registry found the real `RHO_MA` 2.645/2.65 conflict and eleven repeated declared output
+      keys, including physically different VSH, porosity, saturation and permeability methods. The
+      discovery tests were removed after collecting the inventory: T19/T20/T23 remain missing rather
+      than being weakened into snapshots or committed red. Full gate: 977 passed / 0 failed / 36
+      ignored.
+- [ ] **Contract decision:** define how T23 treats a producer whose required parameters deliberately
+      ship `ABSENT`, because the required no-parameter fixture cannot run it. Separately define the
+      distinction between a canonical method output and an explicitly user-renamed working curve;
+      different methods and the categorical `SW_METHOD` flag must not be forced numerically equal.
+- [ ] **Visual/manual and field:** not eligible until the universal registry contract is executable.
+      When it is, inspect unique default output names, explicit intentional replacement, saved-chain
+      migration and formation-temperature ownership before accepting any field result.
+
+## 2026-08-13 — G2 SB-CORE-006: one saturation name now selects one equation
+
+- [x] **Automated:** the standalone modules and SandiMin share the same Archie, parameterized
+      Indonesia, Bardon-Pied and modified-SLB implementations. Canonical equation IDs replace bare
+      vendor adjectives in new selectors and provenance; legacy values are input-only aliases that
+      retain their old equation. Every saturation run emits a categorical `SW_METHOD` curve whose
+      exact numeric code resolves through the backend-owned equation catalog; missing results carry
+      `f32::NAN`. The two named correctness tests independently check the cited equations, engine
+      parity, labels, documentation, persisted method identity, finite flags and missing flags. Full
+      gate: 977 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** in the desktop app, inspect the standalone typed-Simandoux selector and the
+      SandiMin Sw-equation selector; confirm the canonical ID leads each label, method-specific inputs
+      appear only on their equation, and `SW_METHOD` is inventoried as a class curve rather than a
+      continuous quantity. This remains Jauhar's review, not an automated pass.
+- [ ] **Field:** during Gate 4, run the same cited fixture through both engines and retain the UI,
+      current curves, log-set provenance and exported method flag. The complete foreign-import alias
+      table and whole saturation-family output inventory remain their own SB-SAT requirements.
+
+## 2026-08-13 — G2 SB-CORE-005: endpoint provenance remains blocked, not cosmetically labelled
+
+- [ ] **Automated implementation:** blocked. History begins with the 27-row endpoint matrix already
+      described as merged; the preserved IP and reference tables corroborate many numbers but do not
+      identify which source supplied every shipped value. No production field or green snapshot test
+      was added, because either would convert missing custody into a defended invariant.
+- [ ] **Source/legal resolution:** rebuild coherent libraries from exact vendor assets or primary
+      references, ship every unresolved value ABSENT, retain per-value source through the UI and
+      deliverable, add SB-MIN-T09, and close CLAIM-012 with counsel before first sale.
+- [ ] **Visual/manual and field:** not eligible until the automated custody contract exists. A badge
+      reading only “vendor-derived” would not make the current within-row merge auditable.
+
+## 2026-08-13 — G2 SB-CORE-004: every numeric default is sourced or absent
+
+- [x] **Automated:** every registered numeric parameter carries a named source beside its finite
+      default or exact `ABSENT` beside an empty value. The complete registry fails its build gate on
+      an omission; required absent values refuse before computation; branch-only values are demanded
+      only by the method that consumes them; the UI renders the same custody state. Full gate: 975
+      passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** open representative dialogs for one cited default, one required ABSENT value
+      and one branch-specific ABSENT value. Are the source and refusal guidance readable before Run,
+      and does changing methods hide requirements that branch does not consume?
+- [ ] **Field:** during Gate 4, run one cited-default case and one interpreter-supplied ABSENT case
+      using representative pilot data; retain the dialog, refusal/success and run-history evidence.
+
+## 2026-08-13 — G2 SB-CORE-003: sourced preconditions refuse before computation
+
+- [x] **Automated:** module manifests can carry source-bearing enumeration, per-sample range,
+      branch-conditional, required-companion and relational conditions; the public runner evaluates
+      them before dispatch and returns the condition id, offending value, expected rule, statement
+      and source. The UI renders the same statement/branch/source beside the field. The live linear-
+      GR method now refuses unknown ids, cited range violations and inverted endpoints while its
+      valid control still returns 0.5. Full gate: 973 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** open the VSH-from-GR dialog and confirm each condition and source is readable
+      beside its field; attempt an inverted endpoint pair and confirm the refusal is actionable
+      without obscuring the values the interpreter entered.
+- [ ] **Field:** during Gate 4, run one valid and one invalid-precondition case for every selected
+      pilot method and retain the UI/run-history evidence. SB-CORE-003 remains BLOCKED until that
+      method inventory is complete; this increment proves the mechanism and first live method only.
+
+## 2026-08-12 — G2 SB-CORE-002: degraded results stay visibly degraded
+
+- [x] **Automated:** all seven owned correctness proofs remain green after SB-CORE-001. They inspect
+      the failed job and returned Monte Carlo error, atomic import rollback and named per-file error,
+      degraded PDF and batch record, rendered absent-versus-zero pay rows, partial/all-failed ML
+      status plus History, the stats-only Dashboard refusal, and the zero-contributor ML warning.
+      Full gate: 972 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** exercise each applicable degraded path in the desktop app and confirm the
+      warning or refusal appears where the user reads the result, while its clean control remains
+      visually distinct.
+- [ ] **Field:** force one representative pilot-workflow failure and one partial result with real
+      delivery data, retain the resulting UI/export/history evidence, and confirm no clean result
+      claim survives.
+
+## 2026-08-12 — G2 SB-CORE-001: no depth-bearing path invents metres
+
+- [x] **Automated:** the deterministic-module registry classifies every live module, an undeclared
+      unit refuses every registered depth-dependent module while an independent module still runs,
+      the shared Monte Carlo planner uses the same guard, and the reusable metres fallback has been
+      removed from imports, saturation-height fitting, LAS/Office exports and image-depth handling.
+      Metre-qualified temperature, shift and splice parameters now produce the same physical result
+      when the project stores its depth index in feet. Full gate: 972 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** in an undeclared legacy project, exercise a depth-dependent module, core and
+      curve-table import, array/image import, saturation-height fit, LAS export, workbook, report and
+      deck. Does every path name the missing declaration and point to Data Conventions, while a
+      depth-independent calculation remains available?
+- [ ] **Field:** repeat a representative metre project and foot project from import through compute
+      and deliverable export, confirming that the native declared unit is carried without an
+      invisible metres reinterpretation.
 
 ## 2026-08-09 — SB-CORE-002: degraded results remain visibly degraded
 
@@ -1610,10 +4995,11 @@ faster) **rebuilds the whole `computed_curves` table in place** — `DROP TABLE`
 with no recoverable copy. On a field-scale file, a crash mid-rebuild loses computed results
 with nothing to fall back to.
 
-Now: when that migration is actually going to run (and only then — additive migrations like
-the R-A stamp and the generic-store backfill are exempt, so backups stay meaningful), the
-project is first copied beside itself as `<name>.pre-1-backup.duckdb` and the launch log says
-so. Two honesty properties: a **failed backup aborts the migration** (the un-migrated file
+At this increment, when that migration was actually going to run (and only then — additive
+migrations like the R-A stamp and the generic-store backfill are exempt, so backups stay
+meaningful), the project was first copied beside itself as `<name>.pre-1-backup.duckdb` and
+the launch log said so. Gate 2 SB-DBM-042 later corrected that target-labelled name to
+`<name>.pre-<source-format>-backup.duckdb`. Two honesty properties remain: a **failed backup aborts the migration** (the un-migrated file
 still opens fine — the PK only slows writes — so refusing costs nothing, while proceeding
 would break the exact promise), and an **existing backup is never overwritten** (collision →
 timestamped name, the WAL-recovery convention). One Windows reality the test caught: DuckDB
@@ -1630,7 +5016,8 @@ before).
 - [ ] **Try:** open your real project — since increment 5 already migrated it, the pass
   condition is **absence**: no new `*-backup.duckdb` file beside it, launch not slower.
   To see it fire, open any pre-2026-07-19 project copy that still has the old PK: a
-  `<name>.pre-1-backup.duckdb` appears beside it and the console log announces it before
+  `<name>.pre-0-backup.duckdb` appears beside an unstamped legacy source (otherwise
+  `pre-<its-source-format>`) and the console log announces it before
   the rebuild. (Full list of session-wide manual checks: `docs/manual_check_plan.md`.)
 
 ## Round 92 — R-A: the project file now carries a format stamp, and an older build refuses a newer file by name (2026-07-29)
@@ -10734,3 +14121,638 @@ from the Model tab to sit beside the output set: where it lands and what it is c
 - [ ] **Check the Model tab** no longer has Output curve, and does not look gappy without it.
 - [ ] **Confirm the reading order** matches the list above on a narrow pane and on a wide one (the
       Input tab goes two-column past ~1060px).
+
+## Porosity: the high-shale cut-off is now yours to move
+
+The `VSH >= 0.95` step that killed effective porosity was a literal buried in the code - the chapter's own
+phrase for it was a discontinuity *"at a value the analyst cannot move"*. It is now a normal parameter,
+**High-shale kill threshold**, on both Density Porosity and Density-Neutron Porosity. It still defaults to
+0.95, which is the Geolog value and is cited as such. Sonic porosity has no such branch and deliberately
+did not gain one.
+
+- [ ] **Open Density Porosity and find the new field.** It should read 0.95 and sit near Maximum allowed
+      PHIE. Hover it - the tooltip should name Geolog as the source.
+- [ ] **Run a shaly well at 0.95, then again at 0.99.** Intervals between those two VSH values should stop
+      reading as pure shale and carry a real PHIE on the second run. That is the whole point of the change.
+- [ ] **Do the same on Density-Neutron Porosity.** Both methods had the number hard-coded; both had to be
+      freed, so check the second one really moved too.
+- [ ] **Check Sonic Porosity did NOT gain the field.** It has no high-shale branch, and showing a control
+      that does nothing would be worse than not showing it.
+- [ ] **Leave the value alone on one run and look at the run record.** It should say the parameter used its
+      manifest default. That is deliberate - a default you were never told about is the thing we are trying
+      to stop - but tell me if it is too noisy in a batch.
+- [ ] **Sanity-check your existing wells.** At 0.95 nothing should have changed. If a well moved, that is a
+      bug and I want to know.
+
+## Porosity: a tight carbonate must not read as a flat zero
+
+Techlog ships a rule that sets porosity to exactly zero in a narrow density/neutron window. It is the only
+numeric lithology kill any vendor publishes, and it fires with no flag and no parameter - so a real tight
+carbonate comes back as 0 and nothing tells you a rule did it. SandiBumi has never had that rule. What it
+did not have was anything stopping someone adding it later. Now it does.
+
+- [ ] **Find a tight carbonate interval** - high density, very low neutron - and run Density Porosity.
+      The unlimited curve should read NEGATIVE, not zero. Negative is the honest answer there: it tells you
+      the rock is denser than the matrix you assumed.
+- [ ] **Check the limited curve** still floors as before. Only the unlimited twin should go negative.
+- [ ] **Same check on Density-Neutron Porosity.**
+- [ ] **If you ever WANT a lithology cut-off**, tell me - it has to arrive as a declared parameter you can
+      see and move, not a hidden rule. That is the whole point of this one.
+
+## Units: a Geolog import can't arrive 1000x out
+
+Geolog stores density in kg/m3 and sonic in us/m internally. If either arrived without conversion, a bulk
+density of 2300 would be read as 2300 g/cc and porosity would be nonsense - or worse, quietly plausible.
+SandiBumi converts on import; this pins that it stays that way, and that a computed porosity curve knows
+its own unit is a fraction so the catalogue and LAS export can say so.
+
+- [ ] **Import a Geolog-sourced LAS with density in K/M3.** Check RHOB reads ~2.3-2.7, not ~2300.
+- [ ] **Import one with sonic in US/M.** Check DT reads ~50-150, not ~300-500.
+- [ ] **Run porosity on both and on a normal g/cc well.** Same rock should give the same answer whichever
+      way it was delivered.
+- [ ] **Export a PHIE to LAS** and check the unit says v/v, not blank and not pu.
+- [ ] **If you see a curve come in at percent when it should be a fraction** (or vice versa), tell me the
+      mnemonic and the unit string - that is a registry entry, not a code change.
+
+## Saturation: models are named by their equation, not a vendor's word
+
+"Modified Simandoux" means two different equations in two different products. Geolog's Modified is the
+Vsh.Sw shale term; IP's and Techlog's is the (1-Vcl) divisor. Picking by that adjective is worth about
+7.3 saturation units and +19% HCPV - a real reserves difference from a naming accident. SandiBumi now
+names each model by its equation, and your old saved runs still work.
+
+- [ ] **Open the Simandoux module.** The selector should read `simandoux_bardon_pied` and
+      `simandoux_modified_slb`, each with the vendor word only in brackets afterwards.
+- [ ] **Open a saved chain that used the old MODIFIED setting.** It should still run, and now report
+      `simandoux_bardon_pied`. Tell me if any saved run refuses.
+- [ ] **Check the result matches what you expect from Geolog's MODIFIED**, not Schlumberger's. This is the
+      one that costs 7.3 saturation units if it is round the wrong way.
+- [ ] **Check the mineral solver's model list** uses the same names as the module selector.
+
+## Saturation: the three Indonesia variants, and the solver agrees with the module
+
+Indonesia has one equation with a knob: the shale exponent k in Vsh^(2-k*Vsh). FULL is k=1, SIMPLE is
+k=0, and TAR_SAND (Woodhouse) is k=2. The module always had all three. What was never proven is that the
+SandiMin solver runs the same equation - and that each named preset really is its published k.
+
+- [ ] **Run Indonesia on a shaly interval three times**, once per variant. SWE should visibly differ
+      between them. If two look identical, the option is not reaching the maths - tell me.
+- [ ] **Run the same interval through SandiMin with Indonesia** and compare against the module's FULL.
+      They should agree; they are now pinned to the same form.
+- [ ] **Check TAR_SAND against your Woodhouse expectations** if you have a tar-sand well. That preset is
+      the one IP ships under a separate name.
+- [ ] **Leave the variant unset** on a fresh run - it should default to FULL.
+
+## Saturation: a tight streak is wet, not empty
+
+Where effective porosity is very low (below 0.005) every saturation method calls the interval all water.
+The detail that matters is the water VOLUME: it must equal that small porosity, not zero. Zeroing it would
+quietly remove bulk-volume water from tight streaks that do carry some porosity - the interval would read
+as empty rather than wet, and in a summation those look identical.
+
+- [ ] **Find a tight streak** with PHIE around 0.002-0.004 and run Archie, Indonesia and Simandoux.
+      SWE should be 1 in all three, and VOL_UWAT should equal PHIE - not 0.
+- [ ] **Check a genuinely zero-porosity bed** (PHIE = PHIT = 0). There SWE is still 1, but VOL_UWAT
+      should be 0. That is the difference between wet and empty.
+- [ ] **Check a bed where RT is zero or blank.** Every saturation curve should be blank there, not 1 and
+      not a huge number.
+- [ ] **Sanity-check your net-pay totals** on a well with thin tight streaks - if bulk-volume water moved,
+      tell me.
+
+## Saturation: pure shale now says so
+
+Modified Simandoux (Schlumberger form) divides by (1-Vsh), so at Vsh = 1 it is 0/0. SandiBumi already
+returned all-water there, which is the right answer - but it said nothing, so on the log that sample looked
+exactly like one the equation had actually solved. Indonesia has the same problem from the other side:
+at Vsh = 1 there is no effective porosity left to saturate. Both now raise a flagged condition. The
+numbers are unchanged.
+
+- [ ] **Run Modified Simandoux on an interval with Vsh at or near 1.** SWE should still read 1, and the
+      run record should now carry a clamped condition naming VSH >= 1.
+- [ ] **Run Indonesia over the same interval.** Same flag.
+- [ ] **Run a clean sand.** No such flag should appear - if it fires everywhere it tells you nothing.
+- [ ] **Tell me if this is too noisy in a batch** over very shaly wells. It is one condition per run, not
+      per sample, but you are the one who will see it.
+
+## Saturation: Rw is never guessed for you
+
+IP ships a default Rw of 0.1 and Techlog 0.03. Those differ by about 1.83x on Sw at m = n = 2, so whichever
+you inherit silently decides your saturations. SandiBumi ships none - every Rw comes from you - and this
+now has a test so no future edit can slip one back in.
+
+- [ ] **Open any saturation module** and confirm Rw is empty, not prefilled.
+- [ ] **Try running one without setting Rw.** It should refuse or report the parameter as absent, never
+      quietly produce a curve.
+- [ ] **Same check in SandiMin.** The solver refuses a fluid model with no Rw at all.
+- [ ] **If any screen shows 0.1, 0.03, 0.3 or 0.21 as a starting Rw**, tell me - those are the four values
+      the test forbids.
+
+## Saturation: the module and SandiMin now give the same number
+
+The two engines used to compute different Simandoux equations under the same name - about 7.3 saturation
+units apart. The naming was fixed earlier; this pins the part naming cannot fix, that the numbers agree.
+Archie and both Simandoux forms are now cross-checked engine against engine to 1e-6.
+
+- [ ] **Run Simandoux on a well through the module**, then the same well and parameters through SandiMin.
+      SWE should match. Tell me if they do not - that is the failure this is meant to stop.
+- [ ] **Do the same with Archie.**
+- [ ] **Run both Simandoux variants** and confirm they give DIFFERENT answers from each other. If they
+      agree, the two equations have collapsed into one and the cross-check means nothing.
+
+## IMTS: a saturation that did not converge is now blank, not a guess
+
+sw_imts iterates up to 100 times to solve for SwT. If it ran out of passes it used to write whatever
+number it had reached, and that number looks completely normal on a log - a plausible saturation in the
+right range. There was no way to tell it apart from a properly solved one. It now leaves that sample
+blank instead. gascorr has always behaved this way; IMTS was the one that did not.
+
+- [ ] **Re-run IMTS on any well where you have ever distrusted the saturations**, especially high-clay or
+      very low-porosity intervals. Samples that were silently non-converged will now read blank.
+- [ ] **Check that ordinary intervals are unchanged.** Only non-converged samples should differ - if a
+      normal sand went blank, that is a bug and I want to know.
+- [ ] **If a whole interval goes blank**, that is the honest answer, but tell me - it may mean the inputs
+      or S factor need looking at rather than the solver.
+
+## Archie's `a` is no longer quietly 1
+
+Every saturation module already required you to type `a`, `m` and `n` — none of them shipped a
+default. SandiMin's solver did not: if you left the `a` box empty it used 1.0 without saying so.
+That is correct for the dual-water models, where `a = 1` is physics, but the same box feeds
+Indonesia and Simandoux, where `a` is a rock property you measure on core. A default that is right
+for the common case is the hardest kind to notice. It now refuses and names the parameter instead.
+
+- [ ] **Open SandiMin, clear the `a` box, and run.** It should refuse and say `archie_a` is missing.
+      If it runs and gives you numbers, that is the bug and I want to know.
+- [ ] **Put a value back in and re-run.** Nothing else should have changed.
+- [ ] **Check a saved SandiMin run from before this change still loads.** If one errors on open,
+      tell me — an old saved run may not carry `a`, and I would rather hear it from you than guess.
+
+## Net-to-gross now says how much of the zone nobody could judge
+
+A zone that comes back 40% net-to-gross because 60% of it is shale, and a zone that comes back 40%
+because 55% of it was never logged, printed the same number. Nothing on the row told you which.
+
+The pay summary now splits gross footage four ways instead of two — Gross, Net, Not net, Unknown —
+and they add up exactly. "Unknown" is footage nothing could judge: either a sample with no VSH,
+PHIE or SWE at it, or footage with no sample at all, which is what you get when a zone is bottomed
+on a marker deeper than the logging run reached. The Field Dashboard grid and its CSV export both
+carry the two new columns beside Gross and Net.
+
+- [ ] **Open the Field Dashboard on a field you know** and check Gross = Net + Not net + Unknown on
+      every row. If any row does not add up, tell me — that is the whole point of the change.
+- [ ] **Find a zone bottomed below where the logs stop.** The unlogged footage should show under
+      Unknown. If it shows under Not net instead, that is the bug this was meant to remove.
+- [ ] **Check nothing else moved.** Net, N/G and HPV should be exactly what they were before.
+- [ ] **Tell me if the grid is now too wide.** Two extra columns is two extra columns; I can move
+      them behind a toggle if they get in the way of the numbers you actually read.
+
+## Two net-to-gross numbers, both labelled
+
+Following on from the four-way split: the dashboard now shows N/G twice. "N/G" is net over the
+whole zone, exactly as before. "N/G excl. Unk" is net over only the footage something could
+actually be judged on. On a fully logged, fully interpreted zone they are close. On a zone that
+runs below where the logs stop, or one with a long washout, they can differ by a lot — and that
+difference is the honest argument about whether the net-to-gross is defensible at all.
+
+Where nothing in a zone could be judged, the second number reads "—", not 0.00. A zero there would
+be a statement about rock nobody looked at.
+
+- [ ] **Compare the two columns on a zone you know is fully logged.** They should be close.
+- [ ] **Find a zone that runs past the bottom of the logs** and compare them again. The second
+      should be higher. If they are identical everywhere, something is wrong and I want to know.
+- [ ] **Tell me which of the two you actually want quoted in the report and the workbook.** Right
+      now only the dashboard and its CSV show both; the PDF, workbook and deck still quote the
+      original N/G alone. That is a deliberate stop, not an oversight — which number belongs in a
+      client deliverable is your call, not mine.
+
+## The footage split now has to add up, and says so if it had to be nudged
+
+Gross, Net, Not net and Unknown are stored as single-precision numbers, so the three parts can miss
+adding back to the whole by a hair — not an error, just rounding. The summation now checks that
+gap. If it is smaller than a ten-millionth of the zone, it puts the difference on whichever part is
+largest and **records how much it moved**. If it is bigger than that, the summation refuses and
+tells you the well, the zone, the flag and every number involved, rather than handing you a
+partition that does not add up.
+
+The recorded amount matters more than it sounds. Techlog does this same correction and prints it to
+a console, where it vanishes — and a correction nobody can see is the same as no correction.
+
+- [ ] **Run a normal summary.** It should behave exactly as before; the correction should be zero.
+- [ ] **Tell me if any well ever refuses.** With the way Unknown is computed this should be
+      impossible, so if it happens, something upstream is wrong and I want the message.
+- [ ] **Do you want the correction shown anywhere?** Right now it is stored and sent to the
+      frontend but has no column, because it would be a column of zeros. Say the word if you would
+      rather see it.
+
+## Which average is porosity-weighted is now something you say, not something the code assumes
+
+Average water saturation over a zone should be weighted by porosity — Σ(Sw·φ·h)/Σ(φ·h) — because a
+thick tight streak should not count as much as a thin good one. SandiBumi already did that, but it
+was welded to the saturation slot: you could not ask for it on another curve and you could not turn
+it off. Now it is a declaration on the run, and nothing about it depends on what the curve is
+called. (Techlog's documented behaviour is that a curve named SW gets porosity weighting and one
+named SWE does not — the same rock, ten saturation units apart, with nothing on the page to say so.)
+
+Nothing changes unless you ask it to: leave it alone and every number is exactly what it was.
+
+- [ ] **Re-run a summary you have run before.** Every average should be identical to the last run.
+      If any moved, stop and tell me — that is a regression, not a feature.
+- [ ] **Sanity-check one zone by hand** where porosity varies a lot: average Sw should sit closer to
+      the Sw of the good porosity than a straight thickness average would.
+- [ ] **Do you want this exposed in the Cutoffs & Summary pane?** Right now it is settable through
+      the backend and recorded in provenance, but there is no control on screen. Also tell me if the
+      default is wrong for how you work.
+
+## The hydrocarbon column now has to agree with itself
+
+HPV is added up sample by sample as Σφ(1−Sw)h. It can also be rebuilt from the three numbers printed
+beside it: Net × Avg PHIE × (1 − Avg SWE). Those two must give the same answer, and there is now a
+test that says so on every zone and every flag — plus a control proving it stops agreeing if the
+saturation average is weighted the wrong way. That is the point: the identity is what pins the
+porosity weighting in place. Same check on the Monte Carlo engine.
+
+- [ ] **Take any zone off the dashboard and multiply it out yourself**: Net × Avg PHIE ×
+      (1 − Avg SWE) should equal the HPV column.
+- [ ] **Expect a difference where SWE has gaps inside the net interval.** Avg PHIE is averaged over
+      the footage porosity was valid on, while HPV can only count footage where BOTH were valid, so
+      the two legitimately part company there. Tell me if you would rather they were forced to
+      agree — that would mean changing what Avg PHIE means, so it is your call, not mine.
+
+## Rock below your deepest marker cannot sneak into a summary
+
+If a well is logged 30 m past its last zone top, those samples may well pass every cutoff you have
+set — good sand, good porosity, low Sw. They must still count for nothing, because they are not in
+any zone you defined. All three places that add footage up now have one shared test proving it: the
+pay summary, the cutoff sweep, and Monte Carlo.
+
+The test is built so it cannot pass by accident — the out-of-zone samples are first proved to pass
+every cutoff, so if they were excluded it could only be on zone membership.
+
+- [ ] **Find a well logged well past its deepest marker** and check the summary. The footage below
+      the last zone should appear nowhere: not in net, not in the averages, not in HPV.
+- [ ] **Add a temporary zone covering that deep section, re-run, and confirm it now counts.** Same
+      data, different answer, and the only thing that changed is that you declared a zone.
+- [ ] **Check a well where a zone top falls mid-sample.** The sample should be split at the
+      boundary, not counted whole to either side. That is a neighbouring rule I have not pinned
+      here, so tell me if it looks wrong.
+
+## Every summation now says which depth it was measured in
+
+Net thickness measured along the hole is not net thickness measured vertically. In a 60° hold
+section the per-sample weights differ by a factor of two, so every average changes too — IP's own
+wording is that TVD zonal averages "could be considerably different". A net quoted without saying
+which one it is cannot be used in a deviated field.
+
+Every summary row now carries its frame (MD today) and what the weights were differenced from. And
+if anything asks for TVD, TVDSS or TST, the summation **refuses and says why** rather than handing
+back the MD numbers with a different label on them.
+
+- [ ] **Check the frame appears** wherever you read summary numbers, and that it says MD.
+- [ ] **Decide whether you actually need TVD summation.** SandiBumi cannot do it today and now says
+      so out loud instead of pretending. Building it means weighting each sample by Δz·cos θ off the
+      deviation survey, and keeping MD and TVD as separate records — not one converted into the
+      other. Tell me if the pilot needs it and I will scope it.
+
+## The cutoff boxes are empty now, and a blank one means "not filtered"
+
+This is the big one, and it changes what you see the moment you open a cutoff pane.
+
+SandiBumi used to pre-fill VSH ≤ 0.5, PHIE ≥ 0.1, SWE ≤ 0.6. Those came from no defensible source:
+IP ships 0.1/0.5/0.5, Techlog 0.15/0.85/0.5, Geolog ships **two different sets of its own**, and
+your own delivered work runs Vsh 0.20 to 0.85 — one job spans 0.55 to 0.85 across intervals of a
+single area. There is no number to ship, so SandiBumi ships none.
+
+Every cutoff box now opens **empty**. A box you leave blank means that property is **not filtered**,
+and the summary says so — the PDF, the workbook and the deck all print the word "unfiltered" where a
+number used to be. Your own saved project defaults still load exactly as before; only *our* numbers
+are gone.
+
+- [ ] **Open the Field Dashboard and the Cutoffs pane.** Every cutoff box should be empty.
+- [ ] **Load a project where you saved defaults.** They should come back unchanged. If they do not,
+      stop and tell me — that is your data, not ours.
+- [ ] **Run a summary with SWE left blank.** Net should go UP (nothing is excluded on Sw) and the
+      result should say SWE was unfiltered. Check the PDF says it too.
+- [ ] **Re-run an interpretation you have run before, with the same numbers typed in.** Every figure
+      should match your old run exactly. If any moved, that is a bug and I want to hear immediately.
+- [ ] **Results QC's cutoff-sensitivity row** now reads "no PHIE cutoff set" until you set one,
+      instead of quietly sweeping around a number nobody chose.
+
+## Any number SandiBumi still chooses for you now has to say where it came from
+
+Nothing changes on screen. This is a build-time rule: a shipped default in the cutoffs/summation/
+Monte Carlo area now has to carry a citation, and the build **fails** if one does not. A number
+whose provenance is not stored is a number nobody can defend in a client review.
+
+It also surfaced something worth your attention. The Monte Carlo **auto-stop tolerance** ships at
+0.5%, while the reference documentation for it says 0.1% — five times stricter. That value belongs
+to a requirement outside this gate, so I have not changed it; I have recorded it, with the
+divergence written down where a machine can find it instead of buried in a code comment.
+
+- [ ] **Nothing to click.** But when you next look at Monte Carlo convergence, know that auto-stop
+      stops five times sooner than the reference behaviour, and tell me whether you want it moved.
+
+## The Field Dashboard now shows the same cutoffs as everywhere else
+
+Six panes used to carry their own copies of the cutoff numbers, and **two of the copies disagreed**
+— Monte Carlo and Results QC used PHIE ≥ 0.08 / SWE ≤ 0.5 while the cutoff editor, summary, report
+and dashboard used 0.1 / 0.6. The Monte Carlo tooltip said "Cutoffs match the pay summary" the whole
+time it wasn't true. The Field Dashboard was the last pane still holding its own copies; it now
+reads the same saved project defaults as every other surface.
+
+There is a test that goes looking for panes rather than working from a list, so a pane added next
+year cannot quietly start its own copy again.
+
+- [ ] **Open a project where you have saved cutoffs, then open the Cutoffs pane and the Field
+      Dashboard side by side.** The four boxes should match exactly.
+- [ ] **Change a saved default, reopen both.** Both should move together.
+- [ ] **Compare Monte Carlo's cutoffs against the pay summary's** on the same project — the claim in
+      that tooltip should finally be true.
+
+## A cut-off now has to say what unit it is in
+
+Your manual expresses the sensitivity-sweep example in **porosity units** and the cut-off default in
+**v/v** — for the same quantity, on a field that carries no unit tag. So a porosity cut-off typed as
+`35` might mean 0.35, and might mean 35. That is a 350x error, and its symptom is not an error
+message: it is a well where every sample passes and the whole interval books as net. A good-looking
+result, not a visible failure.
+
+A cut-off is therefore now carried as a number **and** the unit it was entered in, all the way
+across to the engine, and the engine converts it before it computes anything:
+
+- `35 pu` is accepted and becomes `0.35 v/v`.
+- `35 v/v` is refused — a volume fraction cannot exceed 1.
+- A bare number with no unit is refused by name, and the message says why rather than just saying no.
+- Permeability has its own units: `1 D` becomes `1000 mD`, and a volume fraction is not accepted as
+  a permeability however plausible the number looks.
+
+The refusal happens at the entrance to the pay summary, the cut-off sweep and Monte Carlo, so a
+cut-off that never said its unit cannot reach the arithmetic by any route.
+
+**What you will see:** the cut-off number is now printed with its unit in the report and the
+workbook — `PHIE >= 0.10 v/v` rather than `PHIE >= 0.10`. The entry boxes themselves still assume
+v/v for VSH, PHIE and SWE and mD for permeability, which is what they have always meant; whether
+they should offer you a unit selector instead is your call, and I have not made it.
+
+- [ ] **Run a pay summary and open the report.** Every cut-off line should now carry its unit.
+- [ ] **Same for the workbook** — the cut-off rows in the header sheet.
+- [ ] **Tell me whether you want a unit selector on the cut-off boxes**, or whether fixed v/v and mD
+      is right for how you work. If you ever type porosity in p.u., the selector is worth having.
+
+## A saturation curve now carries the paper it came from
+
+Geolog puts the published references inside every module manifest — Archie 1942, Poupon & Leveaux
+1971 Paper O, Simandoux 1963 with Bardon & Pied 1969, and so on. What none of the three tools does
+is carry that reference through to the ANSWER. Open a computed `SWE` in any of them and there is
+nothing in it that says which paper the equation came from.
+
+Every saturation run now records, beside the curve:
+
+- **the paper the equation traces to** — the module's own published references;
+- **the Worthington 1985 type** where a source states one — Indonesia is type 4, both Simandoux
+  equations are type 2, and Archie says `NONE-STATED` rather than leaving the field blank, because
+  "nobody classified this" and "nobody wrote it down" are different things;
+- **which of the two Simandoux equations ran.** They trace to the same references but are different
+  equations, and the word "Modified" means the opposite thing in Geolog and in IP;
+- **where a citation is disputed.** IMTS carries a note that IP credits the clay-bound-water paper to
+  Hill, Shirley & Klein while Geolog credits a paper of the same title, same conference, same year to
+  Juhász. Nobody has settled that, so the record says so rather than picking one;
+- **for RtC and IMTS, the standing of the calibration coefficients.** None of them ships as a default
+  any more, and the record says that per coefficient.
+
+All of this rides the ancestry record you already get, so it comes out in the report PDF, the Word
+document, the workbook and the deck without any new step.
+
+**One thing I did not claim.** For RtC and IMTS the record says a coefficient was ENTERED, but it
+cannot yet tell whether you got it from Calibrate RtC… or typed it in — a fitted coefficient is
+stored without a note saying where it came from. Rather than guess, the record says plainly that it
+cannot tell. Tell me if you want that closed and I will do it as its own change.
+
+- [ ] **Run a saturation model, then render the report.** The "Computed curve ancestry" section
+      should name the paper.
+- [ ] **Run both Simandoux equations on the same well** and check the record distinguishes them.
+- [ ] **Run RtC** and read the coefficient line — tell me whether that is the wording you want in
+      front of a client.
+
+## A cut-off can now be a window, and it says which side the boundary belongs to
+
+Until now a cut-off was one number and one direction: PHIE at least this, VSH at most that. Two
+things were missing.
+
+**A window.** Sometimes the sand you want is between two numbers — porosity above 0.10 to exclude
+tight rock, but below 0.35 to exclude a washout spike that is hole, not rock. You can now send a
+cut-off as a range with a bottom and a top.
+
+**Which side the boundary belongs to.** If your PHIE cut-off is 0.10 and a sample reads exactly
+0.10, is it in or out? That was never stated anywhere, and it decides marginal pay. Each end of the
+range now carries its own answer — inclusive means a sample exactly on the line is IN, exclusive
+means it is OUT — and there is a written specification with a test that checks every combination at
+exactly the boundary. The reason for being strict about this: the tool we took the idea from
+documents two of its own modes one way and implements them the other way round.
+
+**Nothing you already have changes.** A one-sided cut-off is now just a range with the far end open,
+and it is inclusive on the boundary — exactly what it always was. Every saved project, every report,
+every workflow step books the same net it booked yesterday. That is the thing worth checking.
+
+**One thing this uncovered, and it mattered.** Log samples are stored at single precision and a
+cut-off you type is double precision. So a sample reading 0.30 was actually very slightly ABOVE a
+cut-off of 0.30, meaning nothing ever sat exactly on the line — and an exclusive cut-off would have
+excluded nothing at all while looking perfectly configured. The comparison is now made at the
+precision the log data actually has, so "exactly on the cut-off" means what you would expect.
+
+**Also fixed while here:** the note that appears when a well has no permeability curve used to say
+"PERM ≥ x mD" no matter what you had actually set. It now prints your real cut-off.
+
+- [ ] **Run a pay summary on a well you know well and compare net against a previous run.** It
+      should be identical — this change is meant to be invisible to existing work.
+- [ ] **Tell me whether you want the cut-off boxes to offer a window and an in/out toggle.** Today
+      you can only enter the one-sided form by clicking; the rest is reachable from a saved run. I
+      have not added the control because how it should look is your call.
+
+## Each cut-off now says which report levels it applies to
+
+A cut-off used to be tied to its level by the shape of the code: VSH decided sand, porosity decided
+reservoir, water saturation decided pay, and each level was built on the one above it. That works,
+but it is invisible — you cannot look at a result and tell what was applied where.
+
+Each cut-off now carries its own answer for each level, and the answers ship exactly as before:
+
+- **VSH** applies at sand, reservoir and pay.
+- **Porosity** applies at reservoir and pay — **one value, read by both**.
+- **Water saturation** and **permeability** apply at pay only.
+
+Water saturation being OFF at the reservoir level is deliberate and matches IP, which describes its
+net reservoir as porosity- and clay-driven and keeps separate switches for Sw at each level.
+
+**One value, two switches** is the part worth understanding. Your porosity cut-off is a single
+number. You can now turn it off for the reservoir level without touching pay, or off for pay without
+touching reservoir, and the number itself never moves. Previously there was no way to say that at
+all.
+
+**Nothing you have changes.** Every existing run gets the ladder above, which is what it already
+did — all 1,038 backend tests passed without a single change, which is the evidence. The reason for
+doing it: the tool this comes from changed its own activation rule between two of its own modules,
+one firing on the presence of a curve and the other on the presence of a value, and neither result
+could tell you which. Now ours can.
+
+**What did not change, on purpose:** a missing curve still makes a level unjudgeable. A sample with
+no VSH is not sand, reservoir or pay regardless of any switch — the switches say whether a cut-off
+VALUE is applied, not whether the level can do without the curve.
+
+- [ ] **Re-run a pay summary you have run before and compare net at all three levels.** It should be
+      identical.
+- [ ] **Tell me whether you want these switches in the Cutoffs pane.** They are not on screen yet;
+      today every run gets the standard ladder, and how the control should look is your call.
+
+## A wet sand is still reservoir rock
+
+Net reservoir does not apply a water-saturation cut-off, and now there is a test that says so.
+
+This was already how the engine behaved — nothing changed. What was missing was proof. The
+consequence of getting it wrong is specific: a clean, porous, water-bearing sand would stop counting
+as reservoir at all. It is not pay, and it should not be; but it is reservoir rock, and a reserves
+report that says otherwise has lost a sand it should be showing you.
+
+The test uses a sand built for the purpose — clean, porous, and wet at 80 % water — and checks that
+it books as reservoir in full and as pay not at all. It also checks the two things that would let a
+wrong implementation slip through: that reservoir does not move when you change the saturation
+cut-off, and that reservoir still responds to the clay and porosity cut-offs (a level that filtered
+nothing at all would otherwise look identical).
+
+**It is a default, not a ban.** If you deliberately declare that saturation should apply at the
+reservoir level, it does. The rule is about what happens when nobody says.
+
+**One correction to the record:** this requirement was listed as proved by a test about missing-data
+handling. That test is fine and stays, but it would have passed with the defect present, so it was
+never proof of this. It has been replaced with one that is.
+
+- [ ] **On a well with a known wet sand, check the RESERVOIR flag covers it and PAY does not.**
+      This is the one where your own data is the real evidence — a synthetic sand proves the rule
+      is applied, not that it is the right rule for your field.
+
+## No ceiling on how much rock a study can describe
+
+IP's parameter model stops at ten input curves. Its 2025 documentation claims fifty. Its 2018
+documentation said ten and was right — the newer edit introduced the error. None of those numbers
+comes from the rock; they are implementation limits, and we should inherit neither the caps nor the
+confusion about which one is real.
+
+There is now a test that puts **sixty curves on one well and reads them all back in a single
+frame**, checking each one carries its own values rather than a neighbour's. Sixty is chosen to
+clear both of their numbers.
+
+It also pins two things that would otherwise be easy to get wrong later:
+
+- **The three report levels come from one list.** The output carries exactly the levels that list
+  names — so adding a level is a change to a list, not a hunt for every place a "3" is written.
+- **The engine contains no maximum on how many curves, cut-offs, levels or flags a study has.** The
+  limits it does have are on how many Monte Carlo iterations run and how many steps a sweep takes,
+  which cap how long a calculation runs rather than how much rock it describes. Those are named in
+  the test so nobody can quietly widen the rule later to let a real cap through.
+
+**A note on the record:** this requirement was marked as diverging because the four cut-off boxes
+and three report levels look like a fixed schema. They are not a cap — four boxes exist because
+four things are cut on, not because you have run out of boxes. The specification says the same, and
+that is the reading I followed.
+
+- [ ] **Nothing to click.** This is a guard, not a feature.
+
+## Saturation always says which saturation it is
+
+`SWE` and `SWT` mean different things, and a bare `SW` does not say which. Worse, in Techlog the
+name itself changes the arithmetic — their SW curve is porosity-weighted and their SWE is not — so
+an ambiguous name does not stay an ambiguity, it becomes a different number in the report.
+
+Nothing here changed; SandiBumi already names them explicitly everywhere. What was missing was a
+test that would notice if that stopped being true. There is now one, and it checks three places a
+bare name could get in:
+
+- **No shipping module emits a curve called `SW`** — and, from the other side, some module does
+  emit `SWE` and `SWT`, so the check cannot pass by finding nothing.
+- **No result field is a bare `sw`** — the pay summary row says `avg_swe`.
+- **A cut-off sent as `sw_max` is not read as the saturation cut-off.** This is the one worth
+  having: an alias is exactly how a bare name gets accepted "for compatibility" without anyone
+  deciding to accept it.
+
+Reading a curve you happen to have called `SW` is still fine — that is your data, and the rule is
+about what we write down, not what we read.
+
+- [ ] **Look at one report and one LAS export** and confirm the saturation column is `SWE` or `SWT`
+      rather than a bare `SW`. The registry and the wire are covered by the test; what a rendered
+      deliverable shows you is the half a test cannot claim.
+
+## "Not computed" travels beside the number, never inside it
+
+IP writes `$$` **into a numeric column** to mean "there were nulls here". A spreadsheet cannot add
+it, a script reading that column as a number cannot see it, and it survives every export looking
+like data.
+
+SandiBumi has never done that — the count of samples actually classified, the missing-permeability
+flag, and now the footage split all ride in their own fields beside the number. What was missing was
+a test that would notice if a marker ever crept into a numeric column.
+
+The test's important arm is the one that asserts two rows are the **same**: a zone nobody
+interpreted and a zone interpreted and found barren both read Net 0, N:G 0, HCPV 0 — identical
+numbers — and only the typed fields tell them apart. That forbids any future field from quietly
+encoding the difference back into the numbers, which is the shape the defect always takes.
+
+**A correction to the record:** this was marked partly done on the grounds that some footage null
+states had no typed field. That was true when it was written and stopped being true when the
+four-way footage split landed earlier in this same run of work — the specification had already said
+that was the only thing outstanding.
+
+- [ ] **On a real study, check a zone you never interpreted reads as a dash rather than a zero** —
+      in the summary pane, the report, and the workbook. The wire is proved; which surfaces you
+      actually read is the half a test cannot claim.
+
+## Clamping happens in three named places, and summing is not one of them
+
+Clamping a value into its physical range is right in some places and wrong in others, and the
+difference is not a matter of taste.
+
+**Inside a sum it is wrong, and here is why.** Take a genuinely wet interval. The hydrocarbon
+contribution is `φ×(1−Sw)`, and with noise either side of Sw = 1 it averages to zero — which is
+correct, there is no hydrocarbon. Now clamp it at zero first: the negative half becomes zero, the
+positive half stays, and the average is **`0.399 × φ × σ` above zero**. Always positive. Always toward
+more hydrocarbon. And it does not shrink if you run more iterations — more iterations just measure
+the wrong number more precisely.
+
+So there are now three named stages: **accumulate** (never clamped), **flag test** (clamped) and
+**present** (clamped). Nothing you have moves — all 1,043 tests passed unchanged — because the
+clamps that were already there were in the two places clamping is correct.
+
+**Bounds belong to the quantity, not to a curve's label.** A porosity is 0–1 because it is a volume
+fraction, not because something is labelled "porosity". IP clips by declared curve type, so
+mis-typing a curve there silently changes its numbers and nothing in the data shows it. Permeability
+is bounded at zero and open above — 4,000 mD survives — and HPV is not a fraction at all, so it is
+never squeezed into 0–1.
+
+**An impossible average is now flagged, not fixed.** If a zone average comes out at Sw = 1.4, you
+see 1.4 with a warning beside it. Quietly writing 1.0 would hand you a number nobody calculated and
+hide the thing you most need to know.
+
+**One thing I did not change, and it is your call.** The Monte Carlo accumulator still sums the
+chain's *limited* curves. The specification's own analysis says that only bites in two setups: a
+wide-open cut-off set (Sw ≤ 1, φ ≥ 0 — the whole-zone-average configuration), and any zone average
+that is not restricted to pay. Pointing it at the unlimited curves instead would change every Monte
+Carlo result you have run in those setups, and the specification does not say which unlimited curve
+pairs with which limited one when a chain produces several. That is a method decision and it is
+yours.
+
+- [ ] **Re-run a pay summary and a Monte Carlo you have run before.** Both should be identical.
+- [ ] **Tell me whether to point the Monte Carlo accumulator at the unlimited curves.** I have set
+      out what changes if you say yes.
+
+## Export DLIS (2026-08-19, SB-CORE-015)
+
+The Data tab now has **Export DLIS…** beside Export LAS. It writes the same curve inventory the
+LAS export writes — the six standard curves, every computed curve, and the attached set curves —
+as an RP66 V1 DLIS file, built natively from the published specification. Before the button
+reports success the file is read back through the same dlisio route your client DLIS imports
+take, so what ships is what re-imports; if that Python package is missing the export refuses up
+front by name instead of writing an unverifiable file. A missing sample travels as a true blank
+(IEEE NaN), never as -999.25 pretending to be a reading.
+
+- [ ] **Export a well as DLIS and re-import it** (Data → Export DLIS…, then Import DLIS on a
+      scratch project). The curves and depths should come back exactly, including the gaps.
+- [ ] **Open the exported file in another package you trust** (IP or Techlog) and confirm it
+      loads and the units read correctly.

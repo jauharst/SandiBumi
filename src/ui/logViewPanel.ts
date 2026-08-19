@@ -20,7 +20,7 @@ import {
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { band, binByDepth, boxStats, evenIndices, histogram, type WhiskerRule } from "../distribution";
+import { band, binByDepth, boxStats, canonicalHistogram, evenIndices, type WhiskerRule } from "../distribution";
 import { appState, setStatus } from "../state";
 import { setDisplayDepthUnit } from "../depthUnitPref";
 import { unitLabel } from "../units";
@@ -36,9 +36,25 @@ import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
 import { HighlightsOverlay } from "./highlightsOverlay";
 import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
+import {
+  applyPlotChannelPolicy,
+  type PlotChannelPolicyReport,
+  type PlotDisplayRange,
+} from "./plotTypes";
+import { ViewportRefetchCoordinator } from "./viewportRefetch";
 
 type HeaderMode = "full" | "compact" | "collapsed";
 type BorderStyle = { style: "solid" | "dashed" | "none"; width: number; color: string };
+
+/** SB-PLT-013's screen/composite waveform contract: derive the clamped display values,
+ * preserve the source samples, and retain separate exclusion/clamp counts. */
+export function applyArrayWaveformPolicy(
+  source: Float32Array,
+  display: PlotDisplayRange,
+  logAxis: boolean,
+): PlotChannelPolicyReport {
+  return applyPlotChannelPolicy(source, "array_waveform", display, logAxis);
+}
 
 /** How many decoded plates one viewer keeps. Small on purpose: this is a VIEW cache, and a
  *  core photo run of 300 frames must not end up mirrored in memory. */
@@ -164,10 +180,9 @@ export class LogViewPanel {
   /** Monotonic token so an out-of-order loadWell (fast well switching, or a dataVersion
    *  bump mid-load) can't render a stale well's series over a newer one. */
   private loadGen = 0;
-  /** Viewport refetches are independently generation-guarded from whole-well loads. */
-  private viewportGen = 0;
+  /** Disposable loaded-interval/density identity plus the generation guard for viewport loads. */
+  private readonly viewportRefetch = new ViewportRefetchCoordinator<TrackCurveSeries[]>();
   private viewportTimer: number | undefined;
-  private viewportSignature = "";
   private depthRangeInitialized = false;
   /** Set in dispose(); the un-awaited initRenderer checks it so subscriptions/observers
    *  aren't registered after the panel already closed (they would leak forever). */
@@ -694,10 +709,9 @@ export class LogViewPanel {
     // supersedes this one and we bail before writing this.series/coreByName. this.well is
     // set synchronously and NOT rolled back — a newer load already advanced it.
     const gen = ++this.loadGen;
-    this.viewportGen += 1;
+    this.viewportRefetch.reset();
     if (this.viewportTimer !== undefined) window.clearTimeout(this.viewportTimer);
     this.viewportTimer = undefined;
-    this.viewportSignature = "";
     this.depthRangeInitialized = false;
     if (!keepView) this.viewResetPending = true;
     this.well = well;
@@ -723,9 +737,12 @@ export class LogViewPanel {
           )
           .sort((a, b) => {
             if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-            if (a.run_no == null && b.run_no != null) return -1;
-            if (a.run_no != null && b.run_no == null) return 1;
-            if (a.run_no !== b.run_no) return (a.run_no ?? 0) - (b.run_no ?? 0);
+            if (a.modified_seq == null && b.modified_seq != null) return 1;
+            if (a.modified_seq != null && b.modified_seq == null) return -1;
+            if (a.modified_seq !== b.modified_seq) return (b.modified_seq ?? 0) - (a.modified_seq ?? 0);
+            if (a.run_no == null && b.run_no != null) return 1;
+            if (a.run_no != null && b.run_no == null) return -1;
+            if (a.run_no !== b.run_no) return (b.run_no ?? 0) - (a.run_no ?? 0);
             return a.curve_id.localeCompare(b.curve_id);
           });
         if (candidates[0]?.unit) units.set(trackCurveKey(request), candidates[0].unit);
@@ -733,6 +750,15 @@ export class LogViewPanel {
       this.curveUnits = units;
       this.refresh(false);
       this.depthRangeInitialized = true;
+      const [loadedLow, loadedHigh] = this.renderer.getDataDepthRange();
+      if (Number.isFinite(loadedLow) && Number.isFinite(loadedHigh) && loadedHigh > loadedLow) {
+        this.viewportRefetch.seedLoaded({
+          sourceKey: this.viewportSourceKey(well.well_id, curveRequests),
+          low: loadedLow,
+          high: loadedHigh,
+          targetPixelHeight: this.canvas.clientHeight || 400,
+        });
+      }
       if (this.viewResetPending) {
         this.renderer.resetView();
         this.viewResetPending = false;
@@ -1124,6 +1150,7 @@ export class LogViewPanel {
     const [top, bottom] = this.renderer.getVisibleDepthRange();
     if (bottom <= top) return;
     const yOf = (d: number): number => ((d - top) / (bottom - top)) * h;
+    const theme = readTheme(this.root);
 
     for (const range of this.renderer.getTrackRanges()) {
       const track = arrayTracks.find((t) => t.title === range.title);
@@ -1132,18 +1159,19 @@ export class LogViewPanel {
       const span = (range.rightFrac - range.leftFrac) * w;
       const log = track.scale_type === "log";
 
-      for (const style of track.arrays) {
+      for (const [styleIndex, style] of track.arrays.entries()) {
         const series = this.arrayLogs.get(style.curve_name.trim().toUpperCase());
         if (!series) continue;
-        const lo = log ? Math.log10(Math.max(style.min, 1e-6)) : style.min;
-        const hi = log ? Math.log10(Math.max(style.max, 1e-6)) : style.max;
+        if (!Number.isFinite(style.min) || !Number.isFinite(style.max) || (log && (style.min <= 0 || style.max <= 0))) continue;
+        const lo = log ? Math.log10(style.min) : style.min;
+        const hi = log ? Math.log10(style.max) : style.max;
         if (hi === lo) continue;
         // CLAMPED at the track edge, unlike a point sample. The rule follows what the data is:
         // a discrete plug drawn at a value it never had is a lie, while a continuous reading
         // running past the scale is the ordinary log-display convention.
         const xOf = (v: number): number | null => {
-          if (!Number.isFinite(v)) return null;
-          const tv = log ? Math.log10(Math.max(v, 1e-6)) : v;
+          if (!Number.isFinite(v) || (log && v <= 0)) return null;
+          const tv = log ? Math.log10(v) : v;
           return left + Math.min(1, Math.max(0, (tv - lo) / (hi - lo))) * span;
         };
         // Only the depths on screen — a 2000-sample matrix zoomed to 10 m must cost 10 m of work.
@@ -1160,8 +1188,28 @@ export class LogViewPanel {
         ctx.fillStyle = style.color;
         ctx.strokeStyle = style.color;
         const display = style.display ?? "band";
-        if (display === "spaghetti") this.drawSpaghetti(ctx, style, series, rows, yOf, xOf);
-        else if (display === "heatmap") this.drawArrayHeatmap(ctx, style, series, rows, yOf, left, span);
+        if (display === "spaghetti") {
+          const policy = this.drawSpaghetti(
+            ctx,
+            style,
+            series,
+            rows,
+            yOf,
+            xOf,
+            { min: style.min, max: style.max },
+            log,
+          );
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = theme.text;
+          ctx.font = canvasFont(theme, 9);
+          ctx.textAlign = "left";
+          ctx.fillText(
+            `waveform clamped=${policy.clamped} · non-finite excluded=${policy.nonFiniteExcluded} · log-domain excluded=${policy.logDomainExcluded}`,
+            left + 3,
+            12 + styleIndex * 12,
+            Math.max(0, span - 6),
+          );
+        } else if (display === "heatmap") this.drawArrayHeatmap(ctx, style, series, rows, yOf, left, span);
         else this.drawArrayBand(ctx, style, series, rows, yOf, xOf);
         ctx.restore();
       }
@@ -1176,14 +1224,28 @@ export class LogViewPanel {
     rows: number[],
     yOf: (d: number) => number,
     xOf: (v: number) => number | null,
-  ): void {
+    display: PlotDisplayRange,
+    logAxis: boolean,
+  ): PlotChannelPolicyReport {
     ctx.lineWidth = 0.5;
     ctx.globalAlpha = Math.min(1, Math.max(0.08, 8 / Math.max(1, style.traces ?? 40)));
-    for (const r of evenIndices(s.width, style.traces ?? 40)) {
+    const traces = evenIndices(s.width, style.traces ?? 40);
+    const source = new Float32Array(traces.length * rows.length);
+    let sourceIndex = 0;
+    for (const trace of traces) {
+      for (const row of rows) {
+        source[sourceIndex++] = s.values[row * s.width + trace] ?? Number.NaN;
+      }
+    }
+    const policy = applyArrayWaveformPolicy(source, display, logAxis);
+    let displayIndex = 0;
+    for (let traceIndex = 0; traceIndex < traces.length; traceIndex++) {
       ctx.beginPath();
       let drawing = false;
       for (const i of rows) {
-        const x = xOf(s.values[i * s.width + r]);
+        const included = policy.included[displayIndex] === 1;
+        const x = included ? xOf(policy.values[displayIndex]) : null;
+        displayIndex++;
         // A realization that produced nothing here BREAKS its own trace rather than being
         // bridged — joining across the gap would draw a path this realization never took.
         if (x === null) {
@@ -1200,6 +1262,7 @@ export class LogViewPanel {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    return policy;
   }
 
   /** P-low to P-high shaded, with the median line through it. */
@@ -1263,7 +1326,12 @@ export class LogViewPanel {
       const i = rows[k];
       // `histogram` DROPS out-of-range values rather than clamping: a heat-map cell is a count
       // AT a value, so a clamped sample would invent density the data never had.
-      const counts = histogram(s.values.subarray(i * s.width, (i + 1) * s.width), style.min, style.max, bins);
+      const counts = canonicalHistogram(
+        s.values.subarray(i * s.width, (i + 1) * s.width),
+        style.min,
+        style.max,
+        bins,
+      ).counts;
       let peak = 0;
       for (const c of counts) if (c > peak) peak = c;
       if (peak === 0) continue;
@@ -1436,7 +1504,7 @@ export class LogViewPanel {
       const mid = (yTop + yBase) / 2;
 
       if (display === "histogram") {
-        const counts = histogram(b.values, style.min, style.max, style.hist_bins ?? 12);
+        const counts = canonicalHistogram(b.values, style.min, style.max, style.hist_bins ?? 12).counts;
         const peak = Math.max(...counts);
         if (peak === 0) continue;
         const barW = span / counts.length;
@@ -1644,6 +1712,10 @@ export class LogViewPanel {
     }, 100);
   }
 
+  private viewportSourceKey(wellId: string, requests: TrackCurveRequest[]): string {
+    return JSON.stringify([wellId, requests]);
+  }
+
   private async reloadViewport(): Promise<void> {
     const well = this.well;
     const renderer = this.renderer;
@@ -1652,40 +1724,46 @@ export class LogViewPanel {
     if (!Number.isFinite(depthMin) || !Number.isFinite(depthMax) || depthMax <= depthMin) return;
     const targetPixelHeight = this.canvas.clientHeight || 400;
     const requests = this.trackCurveRequests();
-    const signature = JSON.stringify([
-      well.well_id,
-      requests,
-      depthMin,
-      depthMax,
-      targetPixelHeight,
-    ]);
-    if (signature === this.viewportSignature) return;
-    this.viewportSignature = signature;
-    const viewportGen = ++this.viewportGen;
     const loadGen = this.loadGen;
-    try {
-      const series = await getTrackData(
-        well.well_id,
-        requests,
+    await this.viewportRefetch.refetch(
+      {
+        sourceKey: this.viewportSourceKey(well.well_id, requests),
+        low: depthMin,
+        high: depthMax,
         targetPixelHeight,
-        depthMin,
-        depthMax,
-      );
-      if (
-        this.disposed ||
-        viewportGen !== this.viewportGen ||
-        loadGen !== this.loadGen ||
-        this.well?.well_id !== well.well_id ||
-        !this.renderer
-      ) {
-        return;
-      }
-      this.series = series;
-      this.applySeriesToRenderer(true);
-    } catch (error) {
-      if (viewportGen === this.viewportGen) this.viewportSignature = "";
-      console.error("Failed to refresh visible curve interval:", error);
-    }
+      },
+      (tagged) =>
+        getTrackData(
+          well.well_id,
+          requests,
+          tagged.targetPixelHeight,
+          tagged.low,
+          tagged.high,
+        ),
+      (series) => {
+        if (
+          this.disposed ||
+          loadGen !== this.loadGen ||
+          this.well?.well_id !== well.well_id ||
+          !this.renderer
+        ) {
+          return;
+        }
+        this.series = series;
+        this.applySeriesToRenderer(true);
+        this.message("");
+      },
+      (pending) => {
+        if (this.disposed || loadGen !== this.loadGen || this.well?.well_id !== well.well_id) return;
+        this.message(pending);
+      },
+      (failure, error) => {
+        if (this.disposed || loadGen !== this.loadGen || this.well?.well_id !== well.well_id) return;
+        console.error("Failed to refresh visible curve interval:", error);
+        this.message(failure);
+        setStatus(failure);
+      },
+    );
   }
 
   private applySeriesToRenderer(preserveDepthRange: boolean): void {
@@ -1859,7 +1937,7 @@ export class LogViewPanel {
 
   dispose(): void {
     this.disposed = true;
-    this.viewportGen += 1;
+    this.viewportRefetch.reset();
     if (this.viewportTimer !== undefined) {
       window.clearTimeout(this.viewportTimer);
       this.viewportTimer = undefined;

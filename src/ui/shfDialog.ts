@@ -222,14 +222,17 @@ export async function buildShfContent(
     };
     try {
       if (method === "foil") {
-        const res = await runCuddyFoil({
-          input_set: setPicker.inputSet(),
-          ...common,
-          scan: scanCb.checked,
-          scan_lo: parseFloat(scanLo.value) || 0,
-          scan_hi: parseFloat(scanHi.value) || 0,
-          scan_step: parseFloat(scanStep.value) || 0.5,
-        });
+        const res = await runCuddyFoil(
+          {
+            input_set: setPicker.inputSet(),
+            ...common,
+            scan: scanCb.checked,
+            scan_lo: parseFloat(scanLo.value) || 0,
+            scan_hi: parseFloat(scanHi.value) || 0,
+            scan_step: parseFloat(scanStep.value) || 0.5,
+          },
+          scope.backend(),
+        );
         const ms = Math.round(performance.now() - t0);
         if (res.error) {
           statusLine.textContent = `Failed: ${res.error}`;
@@ -244,15 +247,18 @@ export async function buildShfContent(
           renderResults(results, res, fwlCtl);
         }
       } else {
-        const res = await runShfFit({
-          input_set: setPicker.inputSet(),
-          ...common,
-          method: method as "brooks_corey" | "skelt" | "thomeer" | "leverett_j",
-          perm_curve: method === "leverett_j" ? permSel.value : undefined,
-          rho_w: parseFloat(rhoWInput.value) || 1.0,
-          rho_hc: parseFloat(rhoHcInput.value) || 0.7,
-          ift_res: parseFloat(iftInput.value) || 26,
-        });
+        const res = await runShfFit(
+          {
+            input_set: setPicker.inputSet(),
+            ...common,
+            method: method as "brooks_corey" | "skelt" | "thomeer" | "leverett_j",
+            perm_curve: method === "leverett_j" ? permSel.value : undefined,
+            rho_w: parseFloat(rhoWInput.value) || 1.0,
+            rho_hc: parseFloat(rhoHcInput.value) || 0.7,
+            ift_res: parseFloat(iftInput.value) || 26,
+          },
+          scope.backend(),
+        );
         const ms = Math.round(performance.now() - t0);
         if (res.error) {
           statusLine.textContent = `Failed: ${res.error}`;

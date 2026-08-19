@@ -129,11 +129,11 @@
                     <option value="system">System</option>
                     <option value="white">White / Grey</option>
                   </optgroup>
-                  <optgroup label="Client">
-                    <option value="pertamina">Pertamina</option>
-                    <option value="halliburton">Halliburton</option>
-                    <option value="schlumberger">Schlumberger</option>
-                    <option value="lapi-itb">LAPI ITB</option>
+                  <optgroup label="Color Themes">
+                    <option value="color-1">Color Theme 1</option>
+                    <option value="color-2">Color Theme 2</option>
+                    <option value="color-3">Color Theme 3</option>
+                    <option value="color-4">Color Theme 4</option>
                   </optgroup>
                 </select>
               </label>
@@ -190,6 +190,13 @@
                     <path d="M4 13v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3M10 12V3M6.5 6.5 10 3l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                   <span class="ribbon-label">Export LAS…</span>
+                </button>
+                <button id="export-dlis-btn" class="ribbon-btn" title="Export the selected well's standard + computed curves as DLIS (RP66 V1), self-read through the dlisio importer">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M4 13v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3M10 12V3M6.5 6.5 10 3l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M6 16h8" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Export DLIS…</span>
                 </button>
               </div>
               <span class="ribbon-group-caption">Import / Export</span>

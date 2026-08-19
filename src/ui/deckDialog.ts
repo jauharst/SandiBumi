@@ -5,6 +5,7 @@ import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import { buildWellScope } from "./wellScope";
 
 const FLAGS = [
@@ -89,9 +90,9 @@ export async function openDeckDialog(): Promise<void> {
   const phieIn = numIn(cutoffs.phie_min, "0.01");
   const sweIn = numIn(cutoffs.swe_max, "0.01");
   const permIn = numIn(cutoffs.perm_min, "0.1", "off");
-  wrap.appendChild(formRow("VSH max (v/v)", vshIn, "Sand cutoff — the project default"));
-  wrap.appendChild(formRow("PHIE min (v/v)", phieIn, "Reservoir cutoff"));
-  wrap.appendChild(formRow("SWE max (v/v)", sweIn, "Pay cutoff"));
+  wrap.appendChild(formRow("VSH max (v/v)", withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax), "Sand cutoff — the project default"));
+  wrap.appendChild(formRow("PHIE min (v/v)", withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin), "Reservoir cutoff"));
+  wrap.appendChild(formRow("SWE max (v/v)", withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax), "Pay cutoff"));
   wrap.appendChild(formRow("PERM min (mD)", permIn, "Optional — leave blank to not apply a permeability floor"));
   // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
   const setPicker = buildLogSetPicker({ write: false });
@@ -154,19 +155,26 @@ export async function openDeckDialog(): Promise<void> {
     if (!dest) return;
     runBtn.disabled = true;
     status.textContent = `Computing ${wellIds.length} well(s)…`;
+    // SB-CUT-019: a blank box is ABSENT (unfiltered); a number carries the unit it was typed in.
+    const cutOf = (i: HTMLInputElement, unit = "v/v"): { value: number; unit: string } | null => {
+      const v = parseFloat(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : null;
+    };
     try {
       const res = await exportDeck(
         {
           well_ids: wellIds,
-          vsh_max: parseFloat(vshIn.value),
-          phie_min: parseFloat(phieIn.value),
-          swe_max: parseFloat(sweIn.value),
-          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          // SB-CUT-019: entered with a unit, never a bare number.
+          vsh_max: cutOf(vshIn),
+          phie_min: cutOf(phieIn),
+          swe_max: cutOf(sweIn),
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
           input_set: setPicker.inputSet(),
           title: titleIn.value.trim(),
           author: authorIn.value.trim(),
           flag: flagSel.value,
         },
+        scope.backend(),
         dest,
       );
       const blind = res.wells - res.wells_with_results;

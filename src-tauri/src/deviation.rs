@@ -5,8 +5,8 @@
 //! industry-standard interpolation between two stations: it fits a circular arc through
 //! both, which is more accurate than tangential/balanced-tangential for the coarse surveys
 //! real wells actually record. TVD is the vertical component of that path; TVDSS is TVD
-//! referenced to a datum (subsea), i.e. `TVDSS = datum_elevation - TVD` where a positive
-//! datum (KB above sea level) puts the subsea depths below zero.
+//! referenced to a datum (subsea), i.e. `TVDSS = TVD - datum_elevation`: depth is positive
+//! down while the datum elevation is positive up from mean sea level.
 
 /// One survey station with its computed vertical position.
 #[derive(Debug, Clone, Copy)]
@@ -19,7 +19,7 @@ pub struct Station {
 }
 
 /// Computes TVD/TVDSS for every station by minimum curvature. `datum_elevation` is the
-/// KB (or chosen reference) elevation above mean sea level; TVDSS = datum - TVD.
+/// KB (or chosen reference) elevation above mean sea level; TVDSS = TVD - datum.
 ///
 /// The first station anchors the path: its TVD is taken as its own MD (i.e. the survey is
 /// assumed to start vertical at surface). Inputs must be sorted by MD ascending and equal
@@ -39,7 +39,7 @@ pub fn minimum_curvature(md: &[f32], inc_deg: &[f32], azi_deg: &[f32], datum_ele
         inc: inc_deg[0],
         azi: azi_deg[0],
         tvd,
-        tvdss: datum_elevation - tvd,
+        tvdss: tvd - datum_elevation,
     });
 
     for i in 1..n {
@@ -66,7 +66,7 @@ pub fn minimum_curvature(md: &[f32], inc_deg: &[f32], azi_deg: &[f32], datum_ele
             inc: inc_deg[i],
             azi: azi_deg[i],
             tvd,
-            tvdss: datum_elevation - tvd,
+            tvdss: tvd - datum_elevation,
         });
     }
     out
@@ -118,8 +118,8 @@ mod tests {
         for st in &s {
             assert!((st.tvd - st.md).abs() < 1e-3, "vertical well TVD must equal MD");
         }
-        // TVDSS = datum - TVD.
-        assert!((s[1].tvdss - (30.0 - 1000.0)).abs() < 1e-3);
+        // F-17 / SB-DBM-031: TVDSS is positive down; elevation is positive up.
+        assert!((s[1].tvdss - (1000.0 - 30.0)).abs() < 1e-3);
     }
 
     #[test]
@@ -151,17 +151,17 @@ mod tests {
 
     #[test]
     fn sample_at_interpolates_both_tvd_and_tvdss() {
-        // Datum 30 m KB: TVDSS = 30 − TVD. Vertical well, so TVD == MD.
+        // F-17 / SB-DBM-031: 30 m elevation is positive up, so TVDSS = TVD - 30 m.
         let md = [0.0, 1000.0, 2000.0];
         let inc = [0.0, 0.0, 0.0];
         let azi = [0.0, 0.0, 0.0];
         let s = minimum_curvature(&md, &inc, &azi, 30.0);
         let (tvd, tvdss) = sample_at(&s, 1500.0);
         assert!((tvd - 1500.0).abs() < 1e-2, "tvd={tvd}");
-        assert!((tvdss - (30.0 - 1500.0)).abs() < 1e-2, "tvdss={tvdss}");
+        assert!((tvdss - (1500.0 - 30.0)).abs() < 1e-2, "tvdss={tvdss}");
         // Clamps below/above carry the end stations' TVDSS.
-        assert!((sample_at(&s, -50.0).1 - (30.0 - 0.0)).abs() < 1e-2);
-        assert!((sample_at(&s, 9999.0).1 - (30.0 - 2000.0)).abs() < 1e-2);
+        assert!((sample_at(&s, -50.0).1 - (0.0 - 30.0)).abs() < 1e-2);
+        assert!((sample_at(&s, 9999.0).1 - (2000.0 - 30.0)).abs() < 1e-2);
         // Empty survey → (MD, NaN).
         let (t0, ss0) = sample_at(&[], 1234.0);
         assert!((t0 - 1234.0).abs() < 1e-6 && ss0.is_nan());

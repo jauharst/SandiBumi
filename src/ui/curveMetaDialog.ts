@@ -1,4 +1,6 @@
 import {
+  getCurveHeaderDisplayRange,
+  setCurveHeaderDisplayRange,
   updateCurveMeta,
   type GenericCurveCatalogEntry,
   type GenericCurveInventoryEntry,
@@ -8,6 +10,7 @@ import { bumpDataVersion } from "../state";
 import { pushUndo } from "../undo";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
+import { ensureSessionOperator } from "./runCustody";
 
 /** Edit one imported curve's identity — name, unit, family — from the Wells pane.
  *
@@ -57,6 +60,81 @@ export function openCurveMetaDialog(
     formRow("Family", family, "The curve TYPE used as a fallback when no mnemonic matches — GR, RES, NPHI, RHOB, DT, SP…"),
   );
 
+  const displayMin = document.createElement("input");
+  displayMin.className = "form-control";
+  displayMin.type = "number";
+  displayMin.step = "any";
+  displayMin.placeholder = "unset";
+  displayMin.disabled = true;
+  const displayMax = document.createElement("input");
+  displayMax.className = "form-control";
+  displayMax.type = "number";
+  displayMax.step = "any";
+  displayMax.placeholder = "unset";
+  displayMax.disabled = true;
+  const displayRange = document.createElement("div");
+  displayRange.style.display = "grid";
+  displayRange.style.gridTemplateColumns = "1fr auto 1fr";
+  displayRange.style.gap = "6px";
+  displayRange.style.alignItems = "center";
+  displayRange.append(displayMin, document.createTextNode("→"), displayMax);
+  content.appendChild(formRow(
+    "Header display range",
+    displayRange,
+    "Optional display metadata for plots. It is not a scientific validity range and never filters samples.",
+  ));
+
+  const saveDisplay = document.createElement("button");
+  saveDisplay.className = "btn";
+  saveDisplay.textContent = "Save header range";
+  saveDisplay.disabled = true;
+  content.appendChild(saveDisplay);
+
+  void getCurveHeaderDisplayRange(curve.curve_id)
+    .then((range) => {
+      displayMin.value = range ? String(range.low) : "";
+      displayMax.value = range ? String(range.high) : "";
+      displayMin.disabled = false;
+      displayMax.disabled = false;
+      saveDisplay.disabled = false;
+    })
+    .catch((error) => setStatus(`Curve header display range unavailable: ${error}`));
+
+  const applyDisplayRange = (range: { low: number; high: number } | null): Promise<void> =>
+    setCurveHeaderDisplayRange(curve.curve_id, range).then(() => {
+      bumpDataVersion();
+    });
+
+  saveDisplay.addEventListener("click", () => {
+    const lowText = displayMin.value.trim();
+    const highText = displayMax.value.trim();
+    if ((lowText === "") !== (highText === "")) {
+      setStatus("Header display range needs both limits, or both fields blank to remove it");
+      return;
+    }
+    const next = lowText === "" ? null : { low: Number(lowText), high: Number(highText) };
+    if (next && (!Number.isFinite(next.low) || !Number.isFinite(next.high) || next.low === next.high)) {
+      setStatus("Header display range needs two distinct finite limits");
+      return;
+    }
+    saveDisplay.disabled = true;
+    setCurveHeaderDisplayRange(curve.curve_id, next)
+      .then((previous) => {
+        bumpDataVersion();
+        setStatus(next ? `Header display range saved for ${curve.mnemonic}` : `Header display range removed for ${curve.mnemonic}`);
+        recordProcess("Curve", `${curve.mnemonic} header display range ${next ? `${next.low} → ${next.high}` : "removed"}`);
+        pushUndo({
+          label: `edit ${curve.mnemonic} header display range`,
+          undo: () => applyDisplayRange(previous),
+          redo: () => applyDisplayRange(next),
+        });
+      })
+      .catch((error) => setStatus(`Header display range not saved: ${error}`))
+      .finally(() => {
+        saveDisplay.disabled = false;
+      });
+  });
+
   const note = document.createElement("p");
   note.className = "modal-doc";
   note.textContent = `Set ${curve.set_name}${curve.n_samples == null ? "" : ` • ${curve.n_samples} samples`}${
@@ -88,11 +166,15 @@ export function openCurveMetaDialog(
       return;
     }
     save.disabled = true;
-    const apply = (name: string, u: string | null, f: string | null): Promise<unknown> =>
-      updateCurveMeta(curve.curve_id, name, u, f).then(() => {
+    const apply = async (name: string, u: string | null, f: string | null): Promise<unknown> => {
+      // SB-DBM-011: a rename/attribute edit is audited with the explicit session operator.
+      const op = await ensureSessionOperator("Edit curve identity");
+      if (!op) throw new Error("edit cancelled: no session operator entered");
+      return updateCurveMeta(curve.curve_id, name, u, f, op, "Curve Catalog").then(() => {
         bumpDataVersion(); // log views, plots and module pickers re-resolve by name
         onChanged();
       });
+    };
 
     apply(nextName, unit.value.trim() || null, family.value.trim() || null)
       .then(() => {

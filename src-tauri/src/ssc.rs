@@ -40,7 +40,9 @@
 //! from. Re-porting sspw() against it is pending Jauhar's sign-off; until then the
 //! declared NPHI_* parameters here are read by the UI but unused by the math.
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
@@ -82,8 +84,8 @@ pub fn ssc_spec() -> ModuleSpec {
               matrix density from the fraction mix, PHIT from density. Bound water is split \
               into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − \
               VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent \
-              volumes rescale the SSC volumes to honour VSHGR. Defaults are the LQR reference \
-              values."
+              volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints \
+              ship absent and must be supplied from the active interpretation."
             .into(),
         args: vec![
             opt(
@@ -92,19 +94,28 @@ pub fn ssc_spec() -> ModuleSpec {
                 "LINEAR",
                 &["LINEAR", "STIEBER1", "STIEBER2", "STIEBER3", "LARINOV1", "LARINOV2", "LARINOV3", "CLAVIER"],
             ),
-            param("GR_MA", "Gamma ray matrix (clean)", "gapi", 10.0, 0.0, 100.0),
-            param("GR_SH", "Gamma ray clay", "gapi", 150.0, 0.0, 1000.0),
-            param("RHOB_MA", "Density matrix", "g/cc", 2.65, 1.0, 4.0),
-            param("NPHI_MA", "Neutron matrix", "v/v", 0.0, -0.1, 1.2),
-            param("RHOB_FL", "Density fluid", "g/cc", 1.0, 0.5, 4.0),
-            param("NPHI_FL", "Neutron fluid", "v/v", 1.0, -0.1, 1.2),
-            param("RHOB_WCL", "Bulk density wet clay", "g/cc", 2.3, 1.0, 4.0),
-            param("NPHI_WCL", "Neutron porosity wet clay", "v/v", 0.6, -0.1, 1.2),
-            param("RHOB_DCL", "Bulk density dry clay", "g/cc", 2.71, 1.0, 4.0),
-            param("NPHI_WSI", "Neutron porosity wet silt", "v/v", 0.3, -0.1, 1.2),
-            param("DCLF_SI", "Dry clay fraction at dry silt", "v/v", 0.1, 0.0, 1.0),
-            param("PHIT_CL", "Total porosity of clay", "v/v", 0.24, 0.0, 0.8),
-            param("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 0.0, 1.0),
+            param_open("GR_MA", "Gamma ray matrix (clean)", "gapi", 0.0, 100.0, true),
+            param_open("GR_SH", "Gamma ray clay", "gapi", 0.0, 1000.0, true),
+            param(
+                "RHOB_MA", "Density matrix", "g/cc", 2.65, 1.0, 4.0,
+                "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("NPHI_MA", "Neutron matrix", "v/v", -0.1, 1.2, true),
+            param(
+                "RHOB_FL", "Density fluid", "g/cc", 1.0, 0.5, 4.0,
+                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param(
+                "NPHI_FL", "Neutron fluid", "v/v", 1.0, -0.1, 1.2,
+                "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+            ),
+            param_open("RHOB_WCL", "Bulk density wet clay", "g/cc", 1.0, 4.0, true),
+            param_open("NPHI_WCL", "Neutron porosity wet clay", "v/v", -0.1, 1.2, true),
+            param_open("RHOB_DCL", "Bulk density dry clay", "g/cc", 1.0, 4.0, true),
+            param_open("NPHI_WSI", "Neutron porosity wet silt", "v/v", -0.1, 1.2, true),
+            param_open("DCLF_SI", "Dry clay fraction at dry silt", "v/v", 0.0, 1.0, true),
+            param_open("PHIT_CL", "Total porosity of clay", "v/v", 0.0, 0.8, true),
+            param_open("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 1.0, true),
             log_in("GR", "Gamma ray (normalized)", "gapi", "GRN", true),
             log_in("RHOB", "Bulk density (corrected)", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity (sandstone units)", "v/v", "NPHI", true),
@@ -177,7 +188,14 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // base line as the comment always claimed. NPHI enters squared, so a negative
         // neutron loses its sign here — the Loglan squares it identically.
         let phidi = (rhob_ma - r) / (rhob_ma - rhob_fl);
-        let (rhob_cor, nphi_cor) = if np <= 1.05 * phidi {
+        let gas_pull = np <= 1.05 * phidi;
+        // SB-POR-003: the gas branch is a per-sample identity for the run's custody comment.
+        crate::modules::record_branch(if gas_pull {
+            "gas-conditioned (pulled onto the sand base line)"
+        } else {
+            "no gas conditioning"
+        });
+        let (rhob_cor, nphi_cor) = if gas_pull {
             let mid = ((phidi * phidi + np * np) / 2.0).max(0.0).sqrt();
             (rhob_ma - (rhob_ma - rhob_fl) * mid, mid)
         } else {
@@ -207,6 +225,13 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         let nphi_proj = (c4 - c5) / (m5 - m4);
 
         // Sand-silt-clay fractions from the projection position.
+        // SB-POR-003: which side of the dry-silt point the projection landed on - the two
+        // sides are different fraction systems, not one equation with a different constant.
+        crate::modules::record_branch(if nphi_proj < nphi_dsi {
+            "left of the dry-silt point (clay-sand-silt)"
+        } else {
+            "right of the dry-silt point (clay-silt)"
+        });
         let (dclf, dsaf, dsif) = if nphi_proj < nphi_dsi {
             let m6 = dclf_si / (nphi_dsi - nphi_ma);
             let m7 = (1.0 - dclf_si) / (nphi_dsi - nphi_ma);
@@ -223,7 +248,11 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // Total porosity from the fraction-mixed matrix density.
         let rhoma = limit(dsaf * rhob_ma + dsif * rhob_dsi + dclf * rhob_dcl, 0.5, 5.0);
         let nphima = limit(dsaf * nphi_ma + dsif * nphi_dsi + dclf * nphi_dcl, 0.0, 1.0);
-        let phit = limit((rhoma - rhob_cor) / (rhoma - rhob_fl), 0.001, 0.75);
+        let phit_raw = (rhoma - rhob_cor) / (rhoma - rhob_fl);
+        let phit = limit(phit_raw, 0.001, 0.75);
+        if !phit_raw.is_nan() && phit != phit_raw {
+            crate::modules::record_bound_limit("PHIT");
+        }
 
         // Shale volumes from GR and N-D for the GR-equivalent rescaling.
         let vshgr = if g.is_nan() || gr_ma >= gr_sh {
@@ -243,10 +272,19 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // Effective porosity and the bound-water split.
         let vwcl = vdcl / (1.0 - phit_cl);
         let vsh = vwcl + vsilt;
-        let phie = limit(phit - vwcl * phit_cl, 0.0, phit);
+        let phie_raw = phit - vwcl * phit_cl;
+        let phie = limit(phie_raw, 0.0, phit);
+        if !phie_raw.is_nan() && phie != phie_raw {
+            crate::modules::record_bound_limit("PHIE");
+        }
         let cbw = phit - phie;
-        let phit_sh = (rhob_dsi - rhob_wsi) / (rhob_dsi - rhob_fl);
-        let vwsh = limit(vsh / (1.0 - phit_sh), 0.0, 1.0);
+        // SB-POR-008 / F16: this is NOT the clay-bound-water PHIT_SH and must not carry that name.
+        // `rhob_dsi` is the intersection of the fluid-anchored line m3 with the dry-clay line m4,
+        // so this is the wet-silt point's fractional distance along m3 from dry silt toward the
+        // fluid point. Its denominator must stay `rhob_fl`: change it and the expression stops
+        // being a fraction along the very line that defined its numerator. Arithmetic unchanged.
+        let silt_water_fraction = (rhob_dsi - rhob_wsi) / (rhob_dsi - rhob_fl);
+        let vwsh = limit(vsh / (1.0 - silt_water_fraction), 0.0, 1.0);
         let mut cwsh = vwsh - vdcl - cbw - vsilt;
         let mut bw = cbw + cwsh;
 
@@ -366,15 +404,34 @@ pub fn sspw_spec() -> ModuleSpec {
               PHIT/PHIE LAS output."
             .into(),
         args: vec![
-            param("RHOB_MAT", "Bulk density of matrix point", "g/cc", 2.65, 2.0, 3.0),
-            param("NPHI_MAT", "Neutron of matrix point", "v/v", 0.0, -0.1, 0.2),
-            param("RHOB_SH", "Bulk density of measured (wet) shale", "g/cc", 2.4, 1.5, 3.5),
-            param("NPHI_SH", "Neutron of measured shale", "v/v", 0.55, 0.0, 1.0),
-            param("RHOB_DSH", "Dry shale grain density (0 p.u. shale)", "g/cc", 2.71, 2.0, 3.0),
-            param("VOL_CBW_SH", "Clay-bound water volume in wet shale", "v/v", 0.1, 0.0, 1.0),
-            param("SWIRR_MIN", "Minimum irreducible water saturation", "v/v", 0.0, 0.0, 1.0),
-            param("RHOB_FL", "Density of invaded-zone fluid", "g/cc", 1.0, 0.5, 1.5),
-            param("NPHI_FL", "Neutron response of flushed-zone fluid", "v/v", 1.0, 0.5, 1.2),
+            param(
+                "RHOB_MAT", "Bulk density of matrix point", "g/cc", 2.65, 2.0, 3.0,
+                "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("NPHI_MAT", "Neutron of matrix point", "v/v", -0.1, 0.2, true),
+            param_open("RHOB_SH", "Bulk density of measured (wet) shale", "g/cc", 1.5, 3.5, true),
+            param_open("NPHI_SH", "Neutron of measured shale", "v/v", 0.0, 1.0, true),
+            param_open("RHOB_DSH", "Dry shale grain density (0 p.u. shale)", "g/cc", 2.0, 3.0, true),
+            param_open("VOL_CBW_SH", "Clay-bound water volume in wet shale", "v/v", 0.0, 1.0, true),
+            param_open("SWIRR_MIN", "Minimum irreducible water saturation", "v/v", 0.0, 1.0, true),
+            // SB-POR-008: the water filling shale porosity is FORMATION water, so PHIT_SH is
+            // anchored on RHO_W and not on the invaded-zone RHOB_FL below. Both ship at 1.00, so
+            // this separates only once salt water is selected.
+            crate::modules::with_sources(
+                param(
+                    "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                    "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FORMATION_WATER_DENSITY,
+            ),
+            param(
+                "RHOB_FL", "Density of invaded-zone fluid", "g/cc", 1.0, 0.5, 1.5,
+                "Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4",
+            ),
+            param(
+                "NPHI_FL", "Neutron response of flushed-zone fluid", "v/v", 1.0, 0.5, 1.2,
+                "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+            ),
             log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity (sandstone units)", "v/v", "NPHI", false),
             log_in("VSH", "Shale volume", "v/v", "VSH", true),
@@ -410,6 +467,7 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
         let vol_cbw_sh = ctx.p("VOL_CBW_SH", i);
         let swirr_min = ctx.p("SWIRR_MIN", i);
         let rhob_fl = ctx.p("RHOB_FL", i);
+        let rho_w = ctx.p("RHO_W", i);
         // Shale/CBW params joined the guard: with any of them NaN, `(phit_sh -
         // vol_cbw_sh).max(0.0)` silently swallowed the NaN into 0.0 and a NaN `cbw`
         // then reached `limit` as a NaN clamp bound. Outputs are NaN-initialised, so
@@ -429,7 +487,14 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Same gas conditioning as SSC when a neutron log is available.
         let phidi = (rhob_mat - r) / (rhob_mat - rhob_fl);
-        let rhob_cor = if !np.is_nan() && np <= 1.05 * phidi {
+        let gas_pull = !np.is_nan() && np <= 1.05 * phidi;
+        // SB-POR-003: same custody identity as SSC's gas branch.
+        crate::modules::record_branch(if gas_pull {
+            "gas-conditioned (pulled onto the sand base line)"
+        } else {
+            "no gas conditioning"
+        });
+        let rhob_cor = if gas_pull {
             let phid = (phidi * phidi - 1.6 * (phidi * phidi - np * np).abs() / 2.0).max(0.0).sqrt();
             rhob_mat - (rhob_mat - rhob_fl) * phid
         } else {
@@ -438,14 +503,29 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Dry-matrix mix and total (density) porosity.
         let rhoma = (1.0 - vsh) * rhob_mat + vsh * rhob_dsh;
-        let phit = limit((rhoma - rhob_cor) / (rhoma - rhob_fl), 0.0, 0.75);
+        let phit_raw = (rhoma - rhob_cor) / (rhoma - rhob_fl);
+        let phit = limit(phit_raw, 0.0, 0.75);
+        if !phit_raw.is_nan() && phit != phit_raw {
+            crate::modules::record_bound_limit("PHIT");
+        }
 
-        // Wet-shale total porosity and the bound-water split.
-        let phit_sh = limit((rhob_dsh - rhob_sh) / (rhob_dsh - rhob_fl), 0.0, 1.0);
+        // Wet-shale total porosity and the bound-water split. SB-POR-008: this is the product's
+        // one clay-bound-water porosity, so it comes from the shared definition and is anchored on
+        // FORMATION water, not on the invaded-zone `rhob_fl` the density porosity above uses. The
+        // existing [0,1] clamp is retained exactly as it was.
+        let phit_sh = limit(
+            crate::modules::shale_total_porosity(rhob_dsh, rhob_sh, rho_w),
+            0.0,
+            1.0,
+        );
         let cbw = limit(vsh * vol_cbw_sh, 0.0, phit);
         let capbw_raw = vsh * (phit_sh - vol_cbw_sh).max(0.0);
         let capbw = limit(capbw_raw, 0.0, phit - cbw);
-        let phie = limit(phit - cbw, 0.0, phit);
+        let phie_raw = phit - cbw;
+        let phie = limit(phie_raw, 0.0, phit);
+        if !phie_raw.is_nan() && phie != phie_raw {
+            crate::modules::record_bound_limit("PHIE");
+        }
         let mut bw = cbw + capbw;
 
         // SWIRR floor: pad capillary water up to SWIRR_MIN·PHIT if needed.
@@ -484,10 +564,40 @@ mod tests {
     fn ctx_with(logs: Vec<(&str, Vec<f32>)>, spec: &ModuleSpec, n: usize) -> ModuleContext {
         let mut params = HashMap::new();
         let mut opts = HashMap::new();
+        // CHARACTERIZATION INPUTS — the existing SSC/SSPW equation fixtures retain their
+        // historical endpoints explicitly; SB-CORE-004 removes them from the shipping manifest.
+        // Source: the pre-SB-CORE-004 manifests in git and the named crossplot fixtures below.
+        let fixture_value = |name: &str| match (spec.name.as_str(), name) {
+            ("ssc", "GR_MA") => 10.0,
+            ("ssc", "GR_SH") => 150.0,
+            ("ssc", "RHOB_MA") => 2.65,
+            ("ssc", "NPHI_MA") => 0.0,
+            ("ssc", "RHOB_FL") | ("ssc", "NPHI_FL") => 1.0,
+            ("ssc", "RHOB_WCL") => 2.3,
+            ("ssc", "NPHI_WCL") => 0.6,
+            ("ssc", "RHOB_DCL") => 2.71,
+            ("ssc", "NPHI_WSI") => 0.3,
+            ("ssc", "DCLF_SI") => 0.1,
+            ("ssc", "PHIT_CL") => 0.24,
+            ("ssc", "SWIRR_MIN") => 0.0,
+            ("sspw", "RHOB_MAT") => 2.65,
+            ("sspw", "NPHI_MAT") => 0.0,
+            ("sspw", "RHOB_SH") => 2.4,
+            ("sspw", "NPHI_SH") => 0.55,
+            ("sspw", "RHOB_DSH") => 2.71,
+            ("sspw", "VOL_CBW_SH") => 0.1,
+            ("sspw", "SWIRR_MIN") => 0.0,
+            ("sspw", "RHOB_FL") | ("sspw", "NPHI_FL") => 1.0,
+            // SB-POR-008: fresh formation water, equal to this fixture's fluid density on purpose.
+            // Holding them equal is what makes these existing assertions a control proving the
+            // shared-helper change is behaviour-neutral wherever the two anchors agree.
+            ("sspw", "RHO_W") => 1.0,
+            _ => panic!("no explicit SSC test fixture for {}.{name}", spec.name),
+        };
         for a in &spec.args {
             match a.kind {
                 crate::modules::ArgKind::Param => {
-                    let v: f64 = a.default.parse().unwrap();
+                    let v = fixture_value(&a.name);
                     params.insert(a.name.clone(), vec![v; n]);
                 }
                 crate::modules::ArgKind::Option => {
@@ -661,5 +771,74 @@ mod tests {
         assert!((out["PHIT_SSPW"][0] - out["PHIFF_SSPW"][0]).abs() < 1e-6);
         // Pure density porosity: (2.65-2.40)/(2.65-1.0) = 0.1515
         assert!((out["PHIT_SSPW"][0] - 0.1515).abs() < 0.002);
+    }
+
+    /// SB-POR-003's SSC/SSPW half (DEC-039 form): the two flagship porosity methods record
+    /// their POROSITY branches and binds through the same capture channel the phi_* family
+    /// uses - the gas-conditioning branch, SSC's dry-silt-point split, and a PHIT that hit
+    /// its published ceiling - so the workflow runner can write them into the run's version
+    /// comment. Scope is the chapter's own: porosity branches and porosity limits; the
+    /// saturation machinery is not part of SB-POR-003.
+    #[test]
+    fn ssc_and_sspw_record_their_porosity_branches_and_binds_for_the_runs_custody_comment() {
+        let spec = ssc_spec();
+        // Three samples: no-gas sand (NPHI 0.30 > 1.05*PHID 0.16), gas sand (NPHI 0.10 under
+        // the line at PHID 0.273), and an off-scale washout reading whose raw PHIT ~0.88
+        // hits the 0.75 ceiling (NPHI 0.95 keeps it off the gas branch: 0.95 > 1.05*0.879).
+        let ctx = ctx_with(
+            vec![
+                ("GR", vec![15.0, 15.0, 15.0]),
+                ("RHOB", vec![2.40, 2.20, 1.20]),
+                ("NPHI", vec![0.30, 0.10, 0.95]),
+            ],
+            &spec,
+            3,
+        );
+        let (_, _, _, _, (bound, branches)) = crate::modules::run_module_with_degradations(
+            "ssc",
+            &ctx,
+            crate::modules::DefaultUsage::default(),
+        )
+        .unwrap();
+        let count = |list: &[(String, usize)], name: &str| {
+            list.iter().find(|(n, _)| n == name).map(|(_, c)| *c).unwrap_or(0)
+        };
+        assert_eq!(
+            count(&branches, "gas-conditioned (pulled onto the sand base line)"),
+            1,
+            "branches: {branches:?}"
+        );
+        assert_eq!(count(&branches, "no gas conditioning"), 2, "branches: {branches:?}");
+        // Every computed sample lands on exactly one side of the dry-silt point.
+        assert_eq!(
+            count(&branches, "left of the dry-silt point (clay-sand-silt)")
+                + count(&branches, "right of the dry-silt point (clay-silt)"),
+            3,
+            "branches: {branches:?}"
+        );
+        assert_eq!(count(&bound, "PHIT"), 1, "the washout sample's PHIT ceiling must be counted, got {bound:?}");
+
+        let spec = sspw_spec();
+        let ctx = ctx_with(
+            vec![
+                ("RHOB", vec![2.40, 2.20]),
+                ("NPHI", vec![0.35, 0.10]),
+                ("VSH", vec![0.10, 0.10]),
+            ],
+            &spec,
+            2,
+        );
+        let (_, _, _, _, (_, branches)) = crate::modules::run_module_with_degradations(
+            "sspw",
+            &ctx,
+            crate::modules::DefaultUsage::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            count(&branches, "gas-conditioned (pulled onto the sand base line)"),
+            1,
+            "branches: {branches:?}"
+        );
+        assert_eq!(count(&branches, "no gas conditioning"), 1, "branches: {branches:?}");
     }
 }

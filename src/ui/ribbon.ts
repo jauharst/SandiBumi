@@ -1,6 +1,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportLas,
+  exportDlis,
   importDeviationCsv,
   materializeTvd,
   importScalFiles,
@@ -8,6 +9,7 @@ import {
   importWellLocations,
   importDlisFile,
   importLasFiles,
+  probeLasWellIdentities,
   currentProject,
   bootReport,
   compactProject,
@@ -20,6 +22,7 @@ import {
   listModules,
   listWells,
   saveDocument,
+  saveSessionDocument,
   saveProjectAs,
   shiftCoreData,
   updateWellField,
@@ -27,6 +30,7 @@ import {
   type ModuleSpec,
   type RecentProject,
 } from "../ipc";
+import type { ImportResult } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { syncWellGroups } from "./wellGroups";
@@ -36,7 +40,7 @@ import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
-import { buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
@@ -46,6 +50,7 @@ import { openWorkbookDialog } from "./workbookDialog";
 import { openDeckDialog } from "./deckDialog";
 import { requireWell } from "./needWell";
 import { openInstallationSupportDialog } from "./installationSupportDialog";
+import { registerDepthReframeRoute } from "./plotCommon";
 
 interface RibbonMenuItem {
   label: string;
@@ -106,6 +111,61 @@ function buildRibbonDropdown(label: string, iconPath: string, items: RibbonMenuI
 /** The main ribbon (Project | Data | Petrophysics | Plot | View). Talks to the docking
  *  workspace directly: panel-opening actions create dock panels, view actions target the
  *  active log view. */
+/** SB-CLY-034 (DEC-037): the blocking undeclared-sentinel question. Names the value,
+ *  every affected curve and the sample count; resolves with the user's decision, or null
+ *  when dismissed (the files stay unimported - nothing converts on magnitude alone). */
+function askUndeclaredSentinelDecision(
+  blocked: ImportResult[],
+): Promise<"convert" | "keep" | null> {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    const value = blocked[0].sentinel_question?.value ?? -999;
+    const intro = document.createElement("p");
+    intro.textContent =
+      `These files carry the value ${value} - a known vendor bad-hole sentinel - on curves ` +
+      `whose null convention does not declare it. Nothing from them has been imported yet. ` +
+      `Are these cells absent values, or measurements?`;
+    wrap.appendChild(intro);
+    const list = document.createElement("ul");
+    for (const r of blocked) {
+      const q = r.sentinel_question;
+      if (!q) continue;
+      const li = document.createElement("li");
+      const file = r.path.split(/[\/]/).pop() ?? r.path;
+      li.textContent = `${file}: ${q.curves
+        .map((c) => `${c.mnemonic} (${c.samples} sample(s))`)
+        .join(", ")}`;
+      list.appendChild(li);
+    }
+    wrap.appendChild(list);
+    const row = document.createElement("div");
+    row.className = "modal-actions";
+    const convert = document.createElement("button");
+    convert.className = "btn btn-accent";
+    convert.textContent = `Treat ${value} as absent`;
+    const keep = document.createElement("button");
+    keep.className = "btn";
+    keep.textContent = "Keep as measurements";
+    row.appendChild(convert);
+    row.appendChild(keep);
+    wrap.appendChild(row);
+    let answered = false;
+    const close = openModal("Undeclared null sentinel", wrap, 520, () => {
+      if (!answered) resolve(null);
+    });
+    convert.addEventListener("click", () => {
+      answered = true;
+      close();
+      resolve("convert");
+    });
+    keep.addEventListener("click", () => {
+      answered = true;
+      close();
+      resolve("keep");
+    });
+  });
+}
+
 export class Ribbon {
   private layouts: Layout[] = [];
   /** Name of the session last saved or opened, so Ctrl+S can re-save it in place without a
@@ -240,6 +300,7 @@ export class Ribbon {
 
     // --- Data ---
     q<HTMLButtonElement>("#export-las-btn")?.addEventListener("click", () => void this.handleExport());
+    q<HTMLButtonElement>("#export-dlis-btn")?.addEventListener("click", () => void this.handleExportDlis());
     this.buildDataDropdowns(root);
     q<HTMLButtonElement>("#open-wells-btn")?.addEventListener("click", () => workspace.openWellsTops());
     q<HTMLButtonElement>("#open-inspector-btn")?.addEventListener("click", () => workspace.openInspector());
@@ -255,6 +316,7 @@ export class Ribbon {
     // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
     // singleton created once in main.ts, so this window listener is registered exactly once.
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
+    registerDepthReframeRoute(() => workspace.openReframe());
     // The start sheet's recent-project rows route through the SAME switchProject guard the
     // Recent ▾ menu uses — a busy chain blocks a switch there exactly as it does here.
     window.addEventListener("sandibumi:open-recent-project", (e) => {
@@ -1033,7 +1095,7 @@ export class Ribbon {
   /** Persists the current workspace under `name` and clears the unsaved markers. Shared by
    *  the Save Session dialog and the Ctrl+S quiet re-save. */
   private async writeSession(name: string): Promise<void> {
-    await saveDocument("session", name, JSON.stringify(this.workspace.snapshotSession()));
+    await saveSessionDocument(name, JSON.stringify(this.workspace.snapshotSession()));
     this.lastSessionName = name;
     // Everything is captured in the named session — clear all unsaved markers.
     this.workspace.muteDirty();
@@ -1151,7 +1213,10 @@ export class Ribbon {
       const omission = result.omitted.length
         ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
         : "";
-      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
+      const legacy = result.legacy_unrecorded_curves
+        ? ` ${result.legacy_unrecorded_curves} computed curve(s) labelled LEGACY_UNRECORDED.`
+        : "";
+      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.${legacy}`;
       const precision = result.precision.reduced
         ? ` Precision: ${result.precision.values_reduced} value(s) reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`
         : ` Precision: no values reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`;
@@ -1163,6 +1228,40 @@ export class Ribbon {
         : "";
       setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${precision}${selfCheck}${states}${omission}`);
       recordProcess("Export", `Exported LAS (${summary})${precision}${selfCheck}${states}${omission} → ${dest}`, well.well_name);
+    } catch (err) {
+      setStatus(`Export failed: ${err}`);
+    }
+  }
+
+  /** SB-CORE-015: DLIS export. The status line leads with the self-check because the
+   * artifact's definition includes it — the file was read back by the same dlisio route
+   * every client DLIS takes before this handler ever reports success. */
+  private async handleExportDlis(): Promise<void> {
+    const well = requireWell("Export DLIS");
+    if (!well) return;
+    let dest: string | null;
+    try {
+      dest = await save({
+        title: `Export ${well.well_name} as DLIS (RP66 V1)`,
+        defaultPath: `${well.well_name.replace(/[^\w.-]+/g, "_")}.dlis`,
+        filters: [{ name: "DLIS (RP66 V1)", extensions: ["dlis"] }],
+      });
+    } catch (err) {
+      setStatus(`Export dialog unavailable: ${err}`);
+      return;
+    }
+    if (!dest) return;
+    try {
+      const result = await exportDlis(well.well_id, dest);
+      const omission = result.omitted.length
+        ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
+        : "";
+      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
+      const selfCheck = result.self_checked
+        ? " SandiBumi DLIS reader self-check passed."
+        : "";
+      setStatus(`Exported ${well.well_name} (${summary})${selfCheck} to ${dest}.${omission}`);
+      recordProcess("Export", `Exported DLIS (${summary})${selfCheck}${omission} → ${dest}`, well.well_name);
     } catch (err) {
       setStatus(`Export failed: ${err}`);
     }
@@ -1183,9 +1282,17 @@ export class Ribbon {
 
     if (!paths || paths.length === 0) return;
 
+    let identityProbes;
+    try {
+      identityProbes = await probeLasWellIdentities(paths);
+    } catch (err) {
+      setStatus(`LAS identity preflight failed: ${err}`);
+      return;
+    }
+
     // Which curve set does this delivery land under, and should same-named files attach to
     // the wells already in the project? (T-IMP-02 — the Geolog/IP set model.)
-    const choice = await openImportSetDialog(paths);
+    const choice = await openImportSetDialog(paths, identityProbes);
     if (!choice) {
       setStatus("Import cancelled");
       return;
@@ -1194,7 +1301,24 @@ export class Ribbon {
     const setLabel = choice.setName ? choice.setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
     setStatus(`Importing ${paths.length} LAS file(s) as set ${setLabel}...`);
     try {
-      const results = await importLasFiles(paths, choice);
+      let results = await importLasFiles(paths, choice);
+      // SB-CLY-034 (DEC-037): an undeclared vendor-sentinel value BLOCKS its file with a
+      // question - nothing from that file was imported. Ask ONCE for the batch (the import
+      // wizard is modal by design), then re-run just the blocked files with the decision;
+      // the backend records the answer either way, in the import warning and per curve.
+      const blocked = results.filter((r) => r.sentinel_question);
+      if (blocked.length) {
+        const decision = await askUndeclaredSentinelDecision(blocked);
+        if (decision) {
+          const redo = await importLasFiles(
+            blocked.map((r) => r.path),
+            { ...choice, undeclaredSentinelDecision: decision },
+          );
+          results = results.map(
+            (r) => (r.sentinel_question && redo.find((n) => n.path === r.path)) || r,
+          );
+        }
+      }
       // Partition on `well_id`, which is set only when a well row was actually committed.
       // `!r.error` used to stand in for "imported", but cancelling an import now returns an entry
       // with neither a well nor an error — so every cancelled file counted as imported, and
@@ -1241,6 +1365,27 @@ export class Ribbon {
       );
       if (encodingSummary) {
         recordProcess("Import", `Text encodings detected: ${encodingSummary}`);
+      }
+      for (const result of imported) {
+        const mapped = result.well_headers
+          .filter((header) => header.mapped_field)
+          .map((header) => `${header.mnemonic} → ${header.mapped_field}`);
+        if (mapped.length) {
+          recordProcess(
+            "Import",
+            `${result.well_name ?? result.path}: LAS well-header mappings: ${mapped.join(", ")}`,
+            result.well_name ?? undefined,
+          );
+        }
+        const unmapped = result.well_headers.filter((header) => !header.mapped_field);
+        if (unmapped.length) {
+          recordProcess(
+            "Import",
+            `${result.well_name ?? result.path}: preserved unmapped LAS well header(s): ` +
+              unmapped.map((header) => header.raw).join(" | "),
+            result.well_name ?? undefined,
+          );
+        }
       }
       for (const w of warned) {
         recordProcess("Import", `${w.well_name ?? w.path}: ${w.warning}`, w.well_name ?? undefined);
@@ -1448,6 +1593,7 @@ export class Ribbon {
           setName,
           choice.fileDepthUnit,
           null,
+          choice.undeclaredDrhoUnit,
           intervalDecision,
           duplicateDecisions,
           choice.lasSentinelExceptions,
@@ -1559,6 +1705,7 @@ export class Ribbon {
   private askDlisSetName(path: string): Promise<{
     setName: string;
     fileDepthUnit: "M" | "FT" | null;
+    undeclaredDrhoUnit: "g/cc" | "kg/m3" | null;
     lasSentinelExceptions: string[];
   } | null> {
     return new Promise((resolve) => {
@@ -1600,6 +1747,26 @@ export class Ribbon {
         ),
       );
 
+      const undeclaredDrhoUnit = document.createElement("select");
+      undeclaredDrhoUnit.className = "form-control";
+      for (const [value, label] of [
+        ["", "Require each DRHO channel to declare it"],
+        ["g/cc", "g/cc (explicit confirmation)"],
+        ["kg/m3", "kg/m³ (explicit confirmation)"],
+      ] as const) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        undeclaredDrhoUnit.appendChild(option);
+      }
+      wrap.appendChild(
+        formRow(
+          "DRHO unit when undeclared",
+          undeclaredDrhoUnit,
+          "Used only for a density-correction channel whose UNITS attribute is absent. Leave empty to refuse it.",
+        ),
+      );
+
       const sentinelExceptions = document.createElement("input");
       sentinelExceptions.type = "text";
       sentinelExceptions.className = "form-control";
@@ -1628,6 +1795,7 @@ export class Ribbon {
       const finish = (v: {
         setName: string;
         fileDepthUnit: "M" | "FT" | null;
+        undeclaredDrhoUnit: "g/cc" | "kg/m3" | null;
         lasSentinelExceptions: string[];
       } | null) => {
         if (settled) return;
@@ -1642,6 +1810,10 @@ export class Ribbon {
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
+        undeclaredDrhoUnit:
+          undeclaredDrhoUnit.value === "g/cc" || undeclaredDrhoUnit.value === "kg/m3"
+            ? undeclaredDrhoUnit.value
+            : null,
         lasSentinelExceptions: sentinelExceptions.value
           .split(",")
           .map((name) => name.trim())
@@ -1754,6 +1926,10 @@ export class Ribbon {
     // SCAL plugs ARE core plugs, so their depths are the core report's depths.
     const scalFollowCore = buildFollowCoreRow("the plug depths", "scal");
     content.appendChild(scalFollowCore.el);
+    const scalDatumSel = buildDatumSelect();
+    content.appendChild(
+      formRow("Depth datum", scalDatumSel, "The datum the plug depths are quoted in (declared once for the delivery)."),
+    );
 
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
@@ -1781,6 +1957,7 @@ export class Ribbon {
         ift,
         setInput.value.trim() || "SCAL",
         scalFollowCore.checked(),
+        scalDatumSel.value,
       )
         .then((result) => {
           if (result.error) {
@@ -1869,7 +2046,7 @@ export class Ribbon {
     doc.className = "modal-doc";
     doc.textContent =
       "Computes TVD/TVDSS by the minimum-curvature method from the MD/INC/AZI survey. " +
-      "Datum elevation (KB above mean sea level) sets TVDSS = datum − TVD; leave blank to use the well's KB.";
+      "Datum elevation (positive up above mean sea level) sets positive-down TVDSS = TVD − elevation; leave blank to use the well's KB.";
     content.appendChild(doc);
     // T-IMP-12: the survey is VERSIONED. A definitive survey imported over a preliminary
     // one lands beside it and takes over TVD/TVDSS; the old one stays switchable.
@@ -1931,7 +2108,7 @@ export class Ribbon {
         setStatus("No wells in the project");
         return;
       }
-      const results = await materializeTvd(wells.map((w) => w.well_id));
+      const results = await materializeTvd({ kind: "active_group" });
       const surveyed = results.filter((r) => r.has_survey);
       if (surveyed.length === 0) {
         setStatus("No deviation surveys found — import one first (Import Deviation…)");
@@ -2034,7 +2211,7 @@ export class Ribbon {
     // (often null) coordinates. Re-read the well from the DB so the X/Y/zone fields show
     // current values — otherwise the unconditional coordinate writes below would clobber
     // a just-imported/entered location with the stale snapshot.
-    const fresh = await listWells()
+    const fresh = await listWells({ kind: "explicit", well_ids: [selected.well_id] })
       .then((ws) => ws.find((w) => w.well_id === selected.well_id))
       .catch(() => undefined);
     const well = fresh ?? selected;

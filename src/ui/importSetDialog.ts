@@ -1,5 +1,11 @@
 import { formRow, openModal } from "./modal";
-import type { LasImportOptions } from "../ipc";
+import type { LasImportOptions, LasWellIdentityProbe } from "../ipc";
+import {
+  UNIT_REGISTRY_FAMILIES,
+  UNIT_REGISTRY_POPULATION,
+  UNIT_REGISTRY_UNITS,
+  UNIT_REGISTRY_VERSION,
+} from "../generated/unitRegistry";
 
 /** The Import LAS "which set?" dialog (T-IMP-02 — the Geolog/IP set model).
  *
@@ -62,15 +68,23 @@ export interface ImportSetChoice extends LasImportOptions {
   setName: string;
   attach: boolean;
   fileDepthUnit: "M" | "FT" | null;
+  undeclaredDrhoUnit: "g/cc" | "kg/m3" | null;
+  samplingStyle: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR";
+  samplingStyleVerifyTolerance: { value: number; unit: "M" | "FT" } | null;
+  confirmedWellNames: Record<string, string>;
 }
 
 /**
  * Asks for the set name + attach behaviour. Resolves with the choice, or null if the user
  * cancels (Esc / ✕ / Cancel) — the caller must treat null as "import nothing".
  */
-export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | null> {
+export function openImportSetDialog(
+  paths: string[],
+  identityProbes: LasWellIdentityProbe[],
+): Promise<ImportSetChoice | null> {
   return new Promise((resolve) => {
     const wrap = document.createElement("div");
+    const probesByPath = new Map(identityProbes.map((probe) => [probe.path, probe]));
 
     // Organic design 1e: the picked delivery as a file rail rather than one
     // truncated line — the user is naming what these files ARE, so they should
@@ -86,7 +100,11 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
     for (const p of shown) {
       const row = document.createElement("div");
       row.className = "import-file-row";
-      row.textContent = p.replace(/\\/g, "/").split("/").pop() ?? p;
+      const filename = p.replace(/\\/g, "/").split("/").pop() ?? p;
+      const containerIdentity = probesByPath.get(p)?.container_well_name;
+      row.textContent = containerIdentity
+        ? `${filename} — container identity: ${containerIdentity}; filename not used`
+        : `${filename} — source identity absent`;
       row.title = p;
       rail.appendChild(row);
     }
@@ -97,6 +115,27 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
       rail.appendChild(more);
     }
     wrap.appendChild(rail);
+
+    const identityInputs = new Map<string, HTMLInputElement>();
+    for (const path of paths) {
+      const probe = probesByPath.get(path);
+      if (probe?.container_well_name) continue;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "form-control";
+      input.value = probe?.filename_proposal ?? "";
+      input.spellcheck = false;
+      input.setAttribute("data-no-i18n", "");
+      identityInputs.set(path, input);
+      const filename = path.replace(/\\/g, "/").split("/").pop() ?? path;
+      wrap.appendChild(
+        formRow(
+          `Confirm identity for ${filename}`,
+          input,
+          "The container has no WELL value. The filename is only a proposal; Import explicitly confirms the entered identity.",
+        ),
+      );
+    }
 
     const setInput = document.createElement("input");
     setInput.type = "text";
@@ -139,6 +178,66 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
       "A name matching several existing wells is always ambiguous — those import as separate records and say so.";
     wrap.appendChild(attachHint);
 
+    const samplingStyle = document.createElement("select");
+    samplingStyle.className = "form-control";
+    for (const [value, label] of [
+      ["", "Choose the delivery's declared style"],
+      ["CONTINUOUS_REGULAR", "Continuous regular (verify STEP)"],
+      ["CONTINUOUS_IRREGULAR", "Continuous irregular"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      samplingStyle.appendChild(option);
+    }
+    wrap.appendChild(
+      formRow(
+        "Sampling style",
+        samplingStyle,
+        "Required per set. SandiBumi stores both the declaration and its verified effective style; it never infers regularity from the samples.",
+      ),
+    );
+
+    const toleranceRow = document.createElement("div");
+    toleranceRow.className = "import-sampling-tolerance";
+    const toleranceValue = document.createElement("input");
+    toleranceValue.type = "number";
+    toleranceValue.step = "any";
+    toleranceValue.min = "0";
+    toleranceValue.className = "form-control";
+    toleranceValue.placeholder = "Required for regular";
+    const toleranceUnit = document.createElement("select");
+    toleranceUnit.className = "form-control";
+    for (const [value, label] of [
+      ["", "Choose unit"],
+      ["M", "metres"],
+      ["FT", "feet"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      toleranceUnit.appendChild(option);
+    }
+    toleranceRow.append(toleranceValue, toleranceUnit);
+    wrap.appendChild(
+      formRow(
+        "Regular-step tolerance",
+        toleranceRow,
+        "Required only for a regular declaration. No default ships, and this is not the irregular-set snap tolerance.",
+      ),
+    );
+    const syncSamplingControls = () => {
+      const regular = samplingStyle.value === "CONTINUOUS_REGULAR";
+      toleranceValue.disabled = !regular;
+      toleranceUnit.disabled = !regular;
+      if (!regular) {
+        toleranceValue.value = "";
+        toleranceUnit.value = "";
+      }
+    };
+    samplingStyle.addEventListener("change", syncSamplingControls);
+    syncSamplingControls();
+
     const undeclaredUnit = document.createElement("select");
     undeclaredUnit.className = "form-control";
     for (const [value, label] of [
@@ -158,6 +257,55 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
         "The project unit is not evidence of what a file meant. Leave this safe default to refuse any file that omits its index unit.",
       ),
     );
+
+    const undeclaredDrhoUnit = document.createElement("select");
+    undeclaredDrhoUnit.className = "form-control";
+    for (const [value, label] of [
+      ["", "Require each DRHO curve to declare it"],
+      ["g/cc", "g/cc (explicit confirmation)"],
+      ["kg/m3", "kg/m³ (explicit confirmation)"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      undeclaredDrhoUnit.appendChild(option);
+    }
+    wrap.appendChild(
+      formRow(
+        "DRHO unit when undeclared",
+        undeclaredDrhoUnit,
+        "Used only for a density-correction channel whose source unit is absent. Leave empty to refuse it; a mnemonic is not a unit declaration.",
+      ),
+    );
+
+    const vocabulary = document.createElement("details");
+    vocabulary.className = "import-unit-registry";
+    const vocabularySummary = document.createElement("summary");
+    vocabularySummary.textContent =
+      `Recognized vocabulary ${UNIT_REGISTRY_VERSION} — ` +
+      `${UNIT_REGISTRY_POPULATION.families} families, ` +
+      `${UNIT_REGISTRY_POPULATION.aliases} exact aliases, ` +
+      `${UNIT_REGISTRY_POPULATION.aliasPatterns} vendor patterns, ` +
+      `${UNIT_REGISTRY_POPULATION.units} unit tokens`;
+    vocabulary.appendChild(vocabularySummary);
+    const familyList = document.createElement("div");
+    familyList.className = "form-hint";
+    familyList.textContent = UNIT_REGISTRY_FAMILIES.map(
+      (family) =>
+        `${family.family} [${family.quantityKind}, ${family.canonicalUnit}]: ` +
+        `${family.aliases.join(", ")}` +
+        (family.aliasPatterns.length > 0 ? `; patterns ${family.aliasPatterns.join(", ")}` : "") +
+        (family.excludedAliasPatterns.length > 0
+          ? `; excludes ${family.excludedAliasPatterns.join(", ")}`
+          : ""),
+    ).join("\n");
+    familyList.style.whiteSpace = "pre-wrap";
+    vocabulary.appendChild(familyList);
+    const unitList = document.createElement("div");
+    unitList.className = "form-hint";
+    unitList.textContent = `Unit tokens: ${UNIT_REGISTRY_UNITS.map((unit) => unit.token).join(", ")}`;
+    vocabulary.appendChild(unitList);
+    wrap.appendChild(vocabulary);
 
     // The mock's footer line, and a true statement of the store's rules: sets
     // auto-suffix (never overwrite) and RAW keeps absolute read priority.
@@ -191,15 +339,56 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
 
     const close = openModal("Import LAS — curve set", wrap, 560);
     cancelBtn.addEventListener("click", () => finish(null));
-    okBtn.addEventListener("click", () =>
+    okBtn.addEventListener("click", () => {
+      const confirmedWellNames: Record<string, string> = {};
+      for (const [path, input] of identityInputs) {
+        const confirmed = input.value.trim();
+        if (!confirmed) {
+          input.setCustomValidity("Enter and confirm an identity; the filename cannot be selected silently.");
+          input.reportValidity();
+          input.setCustomValidity("");
+          return;
+        }
+        confirmedWellNames[path] = confirmed;
+      }
+      if (samplingStyle.value !== "CONTINUOUS_REGULAR" && samplingStyle.value !== "CONTINUOUS_IRREGULAR") {
+        samplingStyle.setCustomValidity("Declare whether this curve set is continuous regular or continuous irregular.");
+        samplingStyle.reportValidity();
+        samplingStyle.setCustomValidity("");
+        return;
+      }
+      let tolerance: { value: number; unit: "M" | "FT" } | null = null;
+      if (samplingStyle.value === "CONTINUOUS_REGULAR") {
+        const value = Number(toleranceValue.value);
+        if (toleranceValue.value.trim() === "" || !Number.isFinite(value) || value < 0) {
+          toleranceValue.setCustomValidity("Enter an explicit finite non-negative verification tolerance.");
+          toleranceValue.reportValidity();
+          toleranceValue.setCustomValidity("");
+          return;
+        }
+        if (toleranceUnit.value !== "M" && toleranceUnit.value !== "FT") {
+          toleranceUnit.setCustomValidity("Choose the tolerance unit.");
+          toleranceUnit.reportValidity();
+          toleranceUnit.setCustomValidity("");
+          return;
+        }
+        tolerance = { value, unit: toleranceUnit.value };
+      }
       finish({
         setName: setInput.value.trim(),
         attach: attachBox.checked,
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
-      }),
-    );
+        undeclaredDrhoUnit:
+          undeclaredDrhoUnit.value === "g/cc" || undeclaredDrhoUnit.value === "kg/m3"
+            ? undeclaredDrhoUnit.value
+            : null,
+        samplingStyle: samplingStyle.value,
+        samplingStyleVerifyTolerance: tolerance,
+        confirmedWellNames,
+      });
+    });
     setInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") okBtn.click();
     });

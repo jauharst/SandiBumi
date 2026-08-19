@@ -4,7 +4,9 @@ import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import { buildWellScope } from "./wellScope";
+import { requestRunCustody } from "./runCustody";
 
 /** Cutoffs & Pay Summary (pay-summary model): VSH/PHIE/SWE (+ optional PERM)
  *  cutoffs → SAND / RESERVOIR / PAY flags → per-well per-zone statistics table.
@@ -34,9 +36,9 @@ export async function buildSummaryContent(
   const sweIn = numInput(String(cuts.swe_max));
   const permIn = numInput(cuts.perm_min != null ? String(cuts.perm_min) : "");
   permIn.placeholder = "(off)";
-  content.appendChild(formRow("VSH ≤", vshIn, "Sand cutoff"));
-  content.appendChild(formRow("PHIE ≥", phieIn, "Reservoir cutoff"));
-  content.appendChild(formRow("SWE ≤", sweIn, "Pay cutoff"));
+  content.appendChild(formRow("VSH ≤", withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax), "Sand cutoff"));
+  content.appendChild(formRow("PHIE ≥", withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin), "Reservoir cutoff"));
+  content.appendChild(formRow("SWE ≤", withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax), "Pay cutoff"));
   content.appendChild(formRow("PERM ≥ (optional)", permIn, "Extra pay cutoff, needs a computed PERM curve"));
   // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
   const setPicker = buildLogSetPicker({ write: false });
@@ -59,17 +61,28 @@ export async function buildSummaryContent(
       return;
     }
     const permRaw = parseFloat(permIn.value);
+    const custody = await requestRunCustody("Compute and write pay flags");
+    if (!custody) return;
     runBtn.disabled = true;
     resultBox.textContent = "Computing…";
+    const cutOf = (i: HTMLInputElement, unit: string) => {
+      const v = parseFloat(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : null;
+    };
     try {
-      const rows = await runPaySummary({
-        well_ids: wellIds,
-        vsh_max: parseFloat(vshIn.value),
-        phie_min: parseFloat(phieIn.value),
-        swe_max: parseFloat(sweIn.value),
-        perm_min: Number.isNaN(permRaw) ? null : permRaw,
-        input_set: setPicker.inputSet(),
-      });
+      const rows = await runPaySummary(
+        {
+          well_ids: wellIds,
+          // SB-CUT-019: entered with a unit; a blank box is ABSENT, not a bare number.
+          vsh_max: cutOf(vshIn, "v/v"),
+          phie_min: cutOf(phieIn, "v/v"),
+          swe_max: cutOf(sweIn, "v/v"),
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
+          input_set: setPicker.inputSet(),
+          custody,
+        },
+        scope.backend(),
+      );
       renderPaySummaryTable(resultBox, rows);
       setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);
       // The explicit Compute Summary versions FLAG_SAND/RESERVOIR/PAY into a PAYFLAG log set —

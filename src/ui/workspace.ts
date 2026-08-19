@@ -12,7 +12,7 @@ import { escapeHtml } from "./safeDom";
 import "dockview-core/dist/styles/dockview.css";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { WORKSPACE_DIRTY, clearDirty, isDirty, markDirty, subscribeDirty } from "../dirty";
-import { listModules, type Layout, type ModuleSpec, type WellSummary } from "../ipc";
+import { listModules, type Layout, type ModuleSpec, type PersistedPlotState, type WellSummary } from "../ipc";
 import { recordProcess } from "../processLog";
 import { LogViewPanel } from "./logViewPanel";
 import { ObjectTree } from "./objectTree";
@@ -25,13 +25,18 @@ import { buildPickettContent } from "./pickettPanel";
 import { buildCorrelationContent } from "./correlationPanel";
 import { buildDashboardContent } from "./dashboardPanel";
 import { DbInspectorPanel } from "./dbInspectorPanel";
-import type { PlotContent } from "./plotCommon";
+import { assertPlotStateRestored, type PlotContent } from "./plotCommon";
 import { SqlQueryPanel } from "./sqlQueryPanel";
 import { HistoryPanel } from "./historyPanel";
 import { buildStartSheet } from "./startSheet";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
-import { imageExportMenuEntries } from "./plotExport";
+import { imageExportMenuEntries, plotAncestryScope } from "./plotExport";
 import { forgetViewer, isWorkingPane, markActiveViewer } from "./activeViewer";
+import {
+  beginPlotAsyncGeneration,
+  commitPlotAsyncGeneration,
+  isPlotAsyncGenerationCurrent,
+} from "./plotAsync";
 
 const LAYOUT_STORAGE_KEY = "sandibumi.workspace";
 /** Id of the blank content-area placeholder shown only when every real content pane is closed
@@ -44,13 +49,15 @@ type PlotKind = "histogram" | "crossplot" | "pickett" | "correlation" | "vega";
  *  are open and how they're arranged) plus the active well so the visualizations come
  *  back pointed at the same data. Stored in the `documents` table (doc_type "session"). */
 export interface SessionSnapshot {
-  version: 1;
+  version: 1 | 2;
   layout: ReturnType<DockviewComponent["toJSON"]>;
   well: WellSummary | null;
   /** Each log view's chosen Layout, keyed by dock panel id. Dockview's toJSON doesn't
    *  serialize panel-internal state, so we snapshot it alongside and reapply on restore.
    *  Optional — sessions saved before this field simply restore the default layout. */
   logViewLayouts?: Record<string, Layout>;
+  /** Exact semantic and concrete state for each plot panel. Version-1 sessions omit it. */
+  plotStates?: Record<string, PersistedPlotState>;
 }
 
 /** A dock panel whose content is a plain DOM subtree with optional async fill + cleanup. */
@@ -84,6 +91,8 @@ export class Workspace {
   /** Each open plot pane's Properties dialog opener, so the pane's right-click menu can
    *  offer it (the canvas no longer hijacks right-click for the dialog). */
   private plotProps = new Map<string, () => void>();
+  private plotStateGetters = new Map<string, () => PersistedPlotState>();
+  private pendingPlotRestore = new Map<string, PersistedPlotState>();
   private counter = 0;
   /** Layout-change events before this time don't mark the workspace dirty — set around
    *  programmatic rebuilds (applySession/reset) and named saves, whose tab-title updates
@@ -919,7 +928,15 @@ export class Workspace {
       const openProps = this.plotProps.get(panelId);
       if (openProps) items.push({ label: "Properties…", onClick: () => openProps() }, "sep");
       items.push(
-        ...imageExportMenuEntries(() => host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"), nice, setStatus),
+        ...imageExportMenuEntries(
+          () => host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"),
+          nice,
+          setStatus,
+          undefined,
+          undefined,
+          undefined,
+          (surface) => plotAncestryScope(host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"), surface),
+        ),
         "sep",
         { label: `New ${kind} window`, onClick: () => this.openPlot(kind as PlotKind, group) },
       );
@@ -1155,6 +1172,8 @@ export class Workspace {
 
   private createPlot(kind: PlotKind): IContentRenderer {
     return new DomPanel(`dock-plot dock-${kind}`, (host, params) => {
+      let expectedRestore = this.pendingPlotRestore.get(params.api.id);
+      this.pendingPlotRestore.delete(params.api.id);
       const build: (well: WellSummary, setStatus: (t: string) => void, initial?: Record<string, string>) => Promise<PlotContent> =
         kind === "histogram"
           ? buildHistogramContent
@@ -1177,11 +1196,12 @@ export class Workspace {
       let currentWellId: string | null = null;
 
       const rebuild = (well: WellSummary | null) => {
-        const gen = ++generation;
-        const initial = getState?.();
+        const token = beginPlotAsyncGeneration("workspace-plot-build", ++generation);
+        const initial = getState?.() ?? (expectedRestore?.options as Record<string, string> | undefined);
         disposer?.();
         disposer = undefined;
         getState = undefined;
+        this.plotStateGetters.delete(params.api.id);
         host.innerHTML = "";
         this.plotProps.delete(params.api.id);
         currentWellId = well?.well_id ?? null;
@@ -1195,19 +1215,42 @@ export class Workspace {
         }
         // well is only null for correlation, whose builder tolerates it.
         build(well as WellSummary, setStatus, initial)
-          .then((content) => {
-            if (closed || gen !== generation) {
-              content.dispose?.();
-              return;
-            }
+          .then(async (content) => {
+            if (
+              commitPlotAsyncGeneration(token, generation, closed, content, {
+                apply: () => {},
+                disposeStale: (stale) => stale.dispose?.(),
+              }) === "stale"
+            ) return;
             host.appendChild(content.el);
             disposer = content.dispose;
             getState = content.getState;
+            if (expectedRestore) {
+              if (!content.getPersistedState) {
+                content.dispose?.();
+                throw new Error(`saved ${kind} refused: panel has no durable binding state`);
+              }
+              try {
+                await content.bindingReady;
+                if (!isPlotAsyncGenerationCurrent(token, generation, closed)) {
+                  content.dispose?.();
+                  return;
+                }
+                assertPlotStateRestored(expectedRestore, content.getPersistedState());
+              } catch (error) {
+                content.dispose?.();
+                throw error;
+              }
+              expectedRestore = undefined;
+            }
+            if (content.getPersistedState) {
+              this.plotStateGetters.set(params.api.id, content.getPersistedState);
+            }
             // Expose this plot's Properties dialog to the pane's right-click menu.
             if (content.openProperties) this.plotProps.set(params.api.id, content.openProperties);
           })
           .catch((err) => {
-            if (closed || gen !== generation) return; // a newer build/close already won
+            if (!isPlotAsyncGenerationCurrent(token, generation, closed)) return;
             host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(kind)}: ${escapeHtml(String(err))}</div>`;
           });
       };
@@ -1230,6 +1273,7 @@ export class Workspace {
         closed = true;
         untrack();
         this.plotProps.delete(params.api.id);
+        this.plotStateGetters.delete(params.api.id);
         unsubWell();
         disposer?.();
       };
@@ -1326,6 +1370,8 @@ export class Workspace {
     localStorage.removeItem(LAYOUT_STORAGE_KEY);
     this.dock.clear();
     this.logViews.clear();
+    this.plotStateGetters.clear();
+    this.pendingPlotRestore.clear();
     this.defaultWorkspace();
     this.ensureWellsPane();
     this.ensureTopsPane();
@@ -1689,11 +1735,16 @@ export class Workspace {
       const layout = view.getLayout();
       if (layout) logViewLayouts[panelId] = layout;
     }
+    const plotStates: Record<string, PersistedPlotState> = {};
+    for (const [panelId, getState] of this.plotStateGetters) {
+      plotStates[panelId] = getState();
+    }
     return {
-      version: 1,
+      version: 2,
       layout: this.dock.toJSON(),
       well: appState.selectedWell.get(),
       logViewLayouts,
+      plotStates,
     };
   }
 
@@ -1703,12 +1754,15 @@ export class Workspace {
   applySession(snap: SessionSnapshot): void {
     this.muteDirty(3000);
     this.logViews.clear();
+    this.plotStateGetters.clear();
+    this.pendingPlotRestore = new Map(Object.entries(snap.plotStates ?? {}));
     this.dock.clear();
     // Point app state at the session's well BEFORE fromJSON, so panels recreated by the
     // restore read the right well at init (tree highlight, plots, log views all follow).
     appState.selectedInterval.set(null);
     if (snap.well) appState.selectedWell.set(snap.well);
     this.dock.fromJSON(snap.layout);
+    this.pendingPlotRestore.clear();
     // fromJSON has synchronously recreated the log-view panels (repopulating logViews via
     // createLogView), so their ids now resolve; reapply each saved layout.
     if (snap.logViewLayouts) {
@@ -1727,6 +1781,10 @@ export class Workspace {
    *  of the autosave that dockview's layout JSON doesn't carry — the active well and
    *  each log view's layout. Panel ids that no longer exist are skipped. */
   applyAutosaveExtras(snap: SessionSnapshot): void {
+    if (snap.plotStates) {
+      this.applySession(snap);
+      return;
+    }
     this.muteDirty(5000); // async well/title loads must not mark a fresh boot dirty
     if (snap.well) {
       appState.selectedInterval.set(null);

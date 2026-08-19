@@ -16,6 +16,13 @@ make each question precise enough that a lawyer can answer it in minutes rather 
 **Maintenance rule:** any new asset derived from an external source gets a row here in the same
 increment that introduces it. A row added later is a row that was forgotten once already.
 
+**Machine-enforced slice:** `THIRD-PARTY-LICENSES.md` is generated from Cargo's normal dependency
+edges and npm's installed production graph. `tools/check.ps1` runs the generator in `--check` mode,
+so a dependency change cannot leave that distributed-package inventory stale. This is only the
+dependency slice. Source code cannot reveal an origin record that was never written, so the
+asset/default rows below remain an explicit human-maintained register; unresolved rows continue to
+block first sale rather than being treated as cleared by a green build.
+
 ---
 
 ## 1. Tier definitions
@@ -50,6 +57,7 @@ research folders.
 | **Tier as recorded** | Treated as A (factual data points describing physical relationships). |
 | **The open question** | Whether the *coordinates of a published chart's curves* are a protectable expression of that chart or unprotectable facts about a physical relationship — and whether the answer differs when redistributed inside commercial software. **This is a lawyer question and it is the single most exposed item in the product.** |
 | **If the answer is unfavourable** | Fallback options, in increasing cost: (a) cite the chart and require the user to own the chartbook; (b) re-derive the same relationships from the underlying primary publications and tool-physics papers rather than from the chart images; (c) drop the overlays as a shipped feature and expose the digitizer as a user-side tool operating on a chartbook the user owns. Option (c) preserves the code and moves the data question to the customer. |
+| **Owner ruling (2026-08-19, DEC-078)** | Route (b) for the ten definitions a primary source exists for (the Por-20/22 equation curves; the lithology charts computable from cited mineral constants) — each re-derivation replaces the digitized coordinates as it is executed. The nine neutron **tool-response** definitions (`por11`–`por19` set, listed in `src/ui/chartOverlayPolicy.ts`) have no independent primary source in principle; Jauhar retains them cited + fail-closed **through Gate 5** for manual/field verification, with delete-at-final-commercial kept a single named operation (regenerate `chartOverlays.ts` without those ids). Counsel disposition under CLAIM-013 remains open for whatever ships at first sale. |
 | **Urgency** | **Before first sale.** |
 
 ### 2.2 Vendor-derived parameter defaults (PRD R2)
@@ -62,16 +70,17 @@ research folders.
 | **Tier as recorded** | A (published mineral physical properties — grain density, neutron response, Pe and so on are measured facts appearing in many public sources). |
 | **The open question** | Individual mineral endpoints are physical constants and are published widely. **The compiled, ordered selection may be a different question from the values themselves** — a curated table can carry more claim than any of its rows. |
 | **Recommended action, independent of the legal answer** | Add a primary-literature citation per row where one exists (Schön, Ellis & Singer, SPWLA references). That converts "merged from vendor installs" into "sourced from the literature, cross-checked against vendor defaults", which is both a better engineering record and a materially stronger position. **This is work SandiBumi should do anyway** and it is currently unscheduled. |
-| **Urgency** | Before first sale. |
+| **Outcome (2026-08-19, DEC-078)** | Done, in the owner-adjudicated form: Jauhar ruled the library **his default library**, and per-value custody now ships in code (`multimin2.rs` `LibRow::src` + `Component::endpoint_sources`, carried through the SandiMin dialog and every run record's `params_json`). Every value was verified against his copy of the *Schlumberger Log Interpretation Charts* (2013): values the book states in print (Appendix B pp. 279–280, Appendix C p. 281, chart Por-1 p. 212) cite the page; every other value — including all near-misses, where the printed number differs from the library's — is owner-attributed to DEC-078. Shipped strings no longer claim vendor-install custody; **this section remains the custody history and is deliberately not rewritten**. CLAIM-012's counsel review stays open as a first-sale item. |
+| **Urgency** | Engineering custody complete; counsel disposition (CLAIM-012) before first sale. |
 
 ### 2.3 Mnemonic and family dictionary
 
 | | |
 |---|---|
-| **Asset** | `src-tauri/src/curves.rs` `FAMILIES` (alias → family, unit canonicalization), including a merged "Bunga" mnemonic table |
-| **Source** | Assembled from public mnemonic conventions; `curves.rs:6` records that it "mirrors what commercial tool/curve dictionaries and IP's `CurveAlias.txt` do, but kept small and code-resident". |
+| **Asset** | `registry/unit-registry.json` (alias → family, typed unit canonicalization), including the independently assembled project mnemonic table; generated Rust, import-UI, documentation and test consumers carry one version and digest. |
+| **Source** | Assembled from public mnemonic conventions and the project workflow record; `tools/unit-registry.mjs --check` rejects drift or dimension disagreement without adding an alias or interpreting an opaque vendor file. |
 | **Tier** | A — mnemonics and units are industry-standard identifiers, not authored content. |
-| **Assessment** | Lowest exposure in this register. Worth confirming the table was assembled rather than transcribed wholesale from any single vendor alias file, since a verbatim copy of a complete list is a different fact pattern from an independently assembled one. |
+| **Assessment** | Lowest exposure in this register. The source custody explicitly records an independently assembled vocabulary rather than a wholesale vendor alias-file transcription; any later alias still needs its own reviewed source. |
 | **Urgency** | Confirm at leisure. |
 
 ### 2.4 Method implementations
@@ -106,14 +115,18 @@ acceptable while they stay internal, and would need the same treatment before pu
 
 Ordinary open-source consumption: Tauri, DuckDB, dockview-core, CodeMirror, Vega/Vega-Lite,
 rayon, tokio, bytemuck, and the Python-side `numpy`, `dlisio` and `scikit-learn` (invoked as
-subprocesses, not linked). No licence audit has been performed.
+subprocesses, not linked).
 
-**Action before first sale:** generate a dependency licence manifest (`cargo about` or equivalent
-for Rust, `license-checker` for npm) and confirm nothing carries a copyleft obligation incompatible
-with distributing a closed binary. This is routine, automatable, and currently not done. Note that
-the Python packages are **not distributed** with the product — they are prerequisites the customer
-installs — which is a materially different obligation from bundling them, and is a point in favour
-of keeping Python as a prerequisite (`docs/PRD.md` §10.4).
+**Current inventory:** `THIRD-PARTY-LICENSES.md` is generated from the installed distributed
+dependency graphs and is freshness-checked by the full gate. It reports every package's declared
+licence, calls out the current MPL-family weak-copyleft set, and refuses a stale file. This is a
+factual inventory, not counsel's compatibility decision.
+
+**Action before first sale:** counsel reviews the generated attention items and confirms the notice,
+source-offer and redistribution obligations for the paid binary. Python packages are **not currently
+distributed** with SandiBumi; they are prerequisites invoked as subprocesses. If the Gate 3 offline
+runtime pack bundles them, that pack's exact locked contents and notices must enter this generated
+inventory before release rather than inheriting the present prerequisite-only statement.
 
 ---
 
@@ -148,7 +161,7 @@ identifiers it exists to control would be self-defeating.
 | 2.1 Digitized chart data | **High** — values ship, source is a copyrighted chartbook | First sale |
 | 2.5 Client-brand theme names | **Medium** — third-party marks in a sold product | First sale |
 | 2.2 Vendor-merged endpoint library | **Medium** — values are public facts; the curated selection is the question | First sale |
-| 2.6 Dependency licences | **Low but unverified** — routine, not yet run | First sale |
+| 2.6 Dependency licences | **Low, inventoried but not legally cleared** — generated notice is gate-current | First sale |
 | 2.3 Mnemonic dictionary | Low | Confirm at leisure |
 | 2.4 Method implementations | **Lowest** — published or original, specs banked in-repo | None |
 

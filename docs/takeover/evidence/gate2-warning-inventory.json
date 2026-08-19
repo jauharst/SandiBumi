@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "captured_at_commit": "02c8ac539537c398c8f89bf75a7679e1df71056c",
+  "capture_command": "cd src-tauri && cargo check --message-format=json",
+  "evidence_class": "CHARACTERIZATION",
+  "evidence_note": "This inventory was anchored at the accepted Gate 2 planning baseline and is maintained as owner requirements close warnings. Ownership is not proof that a disconnected product path works.",
+  "expected_warning_count": 31,
+  "expected_warning_counts_by_file": {
+    "src/coreimage.rs": 1,
+    "src/distribution.rs": 3,
+    "src/ingest.rs": 1,
+    "src/ml.rs": 2,
+    "src/parsers.rs": 3,
+    "src/plotting.rs": 21
+  },
+  "warning_groups": [
+    {
+      "owner_requirement": "SB-RPH-045",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "The unused fluorescence classifier belongs to the deferred core-photo illumination contract; Gate 2 must not surface it as a pilot capability.",
+      "warning_keys": [
+        "src/coreimage.rs|dead_code|method `contains` is never used"
+      ]
+    },
+    {
+      "owner_requirement": "SB-MLA-025",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "Ward application identity is a deferred ML contract; the pilot must not claim the unused free variant or provenance accessor.",
+      "warning_keys": [
+        "src/distribution.rs|dead_code|field `order` is never read",
+        "src/distribution.rs|dead_code|method `variant` is never used",
+        "src/distribution.rs|dead_code|variant `Free` is never constructed"
+      ]
+    },
+    {
+      "owner_requirement": "SB-DIO-013",
+      "owner_gate": "G2",
+      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
+      "rationale": "The no-designation core CSV wrappers must remain a deliberate compatibility path or be removed when every live reader requires an explicit unresolved-index decision.",
+      "warning_keys": [
+        "src/ingest.rs|dead_code|function `import_core_csv` is never used",
+        "src/parsers.rs|dead_code|function `parse_core_csv` is never used"
+      ]
+    },
+    {
+      "owner_requirement": "SB-MLA-049",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "The KNN neighbourhood-distance output is part of the deferred ML prediction contract and is not a pilot curve merely because its suffix exists.",
+      "warning_keys": [
+        "src/ml.rs|dead_code|constant `BAND_DIST_SUFFIX` is never used"
+      ]
+    },
+    {
+      "owner_requirement": "SB-MLA-065",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "The test-only ML compatibility runner remains later-owned; Gate 2 does not reconnect or redesign the deferred ML workflow.",
+      "warning_keys": [
+        "src/ml.rs|dead_code|function `exec_ml` is never used"
+      ]
+    },
+    {
+      "owner_requirement": "SB-DIO-010",
+      "related_requirements": ["SB-DIO-041", "SB-DIO-044", "SB-DIO-053"],
+      "owner_gate": "G2",
+      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
+      "rationale": "The composite compiler warning includes the pilot index-resolution record, deferred LAS 3 recognition fields, the returned SB-DIO-044 section-policy outcome and SB-DIO-053 raw well-header custody; the Gate 2 owner must consume index resolution while preserving every named parser result rather than suppressing the warning.",
+      "warning_keys": [
+        "src/parsers.rs|dead_code|fields `las_version`, `unread_sections`, `section_policy`, `section_handling`, `well_headers`, and `index_resolution` are never read"
+      ]
+    },
+    {
+      "owner_requirement": "SB-DIO-020",
+      "owner_gate": "G2",
+      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
+      "rationale": "Every indexed reader must use the declared duplicate-depth policy; an unused LAS-frame wrapper may not be assumed to protect the live path.",
+      "warning_keys": [
+        "src/parsers.rs|dead_code|function `resolve_las_frame_duplicates` is never used"
+      ]
+    },
+    {
+      "owner_requirement": "SB-PLT-003",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "Typed overlay conversion is outside the approved pilot; disconnected helper code must not be presented as a shipped overlay guarantee.",
+      "warning_keys": [
+        "src/plotting.rs|dead_code|function `bind_overlay_axis` is never used",
+        "src/plotting.rs|dead_code|struct `OverlayAxisBinding` is never constructed",
+        "src/plotting.rs|dead_code|struct `OverlayAxisContract` is never constructed",
+        "src/plotting.rs|dead_code|struct `PlotAxisSource` is never constructed"
+      ]
+    },
+    {
+      "owner_requirement": "SB-PLT-008",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "Typed percentile probability versus range position is deferred; the unused types are not evidence that the distinction ships.",
+      "warning_keys": [
+        "src/plotting.rs|dead_code|associated items `new` and `value` are never used",
+        "src/plotting.rs|dead_code|enum `PercentageKind` is never used",
+        "src/plotting.rs|dead_code|method `value` is never used",
+        "src/plotting.rs|dead_code|struct `PercentileP` is never constructed",
+        "src/plotting.rs|dead_code|struct `RangePositionPct` is never constructed"
+      ]
+    },
+    {
+      "owner_requirement": "SB-PLT-031",
+      "related_requirements": ["SB-PLT-014"],
+      "owner_gate": "G2",
+      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
+      "rationale": "The pilot no-truncation contract uses finite-pair allocation and endpoint refusal in T40; Gate 2 must connect the hard limit or remove the claim while the broader multi-well allocation contract remains later-owned.",
+      "warning_keys": [
+        "src/plotting.rs|dead_code|function `allocate_finite_pair_budget` is never used",
+        "src/plotting.rs|dead_code|function `stride_source_indices` is never used",
+        "src/plotting.rs|dead_code|struct `AbsentWellAllocation` is never constructed",
+        "src/plotting.rs|dead_code|struct `MultiWellPointAllocation` is never constructed",
+        "src/plotting.rs|dead_code|struct `ReductionManifest` is never constructed",
+        "src/plotting.rs|dead_code|struct `WellPointAllocation` is never constructed",
+        "src/plotting.rs|dead_code|struct `WellRequiredChannels` is never constructed"
+      ]
+    },
+    {
+      "owner_requirement": "SB-PLT-011",
+      "owner_gate": "LATER",
+      "disposition": "DEFERRED-CAPABILITY-KEEP-UNREACHABLE",
+      "rationale": "Pickett identifiability and sourced separation of a and Rw are deferred; helper-only arithmetic may not be marketed as a pilot fit workflow.",
+      "warning_keys": [
+        "src/plotting.rs|dead_code|function `disclose_pickett_fit` is never used",
+        "src/plotting.rs|dead_code|function `validate_sourced_pickett_value` is never used",
+        "src/plotting.rs|dead_code|struct `PickettDisclosure` is never constructed",
+        "src/plotting.rs|dead_code|struct `PickettFit` is never constructed",
+        "src/plotting.rs|dead_code|struct `SourcedPickettValue` is never constructed"
+      ]
+    }
+  ]
+}

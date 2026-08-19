@@ -4,7 +4,7 @@ use duckdb::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    params, Appender, Connection,
+    params, params_from_iter, Appender, Connection, OptionalExt,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub type DbResult<T> = Result<T, DbError>;
 /// build would silently misread DOES (and is a MAJOR release). The stamp exists so an
 /// OLDER app can refuse a NEWER file by name instead of opening it, finding only the
 /// tables it knows, and presenting a partial project as the whole thing (RELEASE §3.1).
-pub const FORMAT_VERSION: i64 = 1;
+pub const FORMAT_VERSION: i64 = 2;
 
 /// Opens (creating if needed) the embedded DuckDB file and applies the schema.
 ///
@@ -46,8 +46,11 @@ pub const FORMAT_VERSION: i64 = 1;
 pub fn init_db(path: &str) -> DbResult<Connection> {
     let conn = Connection::open(path)?;
     tune_connection(&conn);
-    check_and_stamp_format(&conn)?;
+    let source_format_version = check_and_stamp_format(&conn)?;
+    remember_migration_source_format(&conn, source_format_version)?;
     create_schema(&conn)?;
+    migrate_tvdss_positive_down(&conn, if path == ":memory:" { None } else { Some(path) })?;
+    stamp_current_format(&conn)?;
     Ok(conn)
 }
 
@@ -117,40 +120,20 @@ pub fn take_boot_notes() -> Vec<String> {
 
 /// RELEASE.md §3.1 (requirement R-A). Three cases:
 /// - no `project_meta` table — a fresh file OR a legacy pre-stamp project; both are by
-///   definition ≤ this build's format, so create the table and stamp them (additive —
-///   exempt from the R-B backup rule).
-/// - stamped ≤ `FORMAT_VERSION` — open normally; when older, re-stamp to current (the
-///   launch migrations in `project::open_and_migrate` bring the schema forward anyway,
-///   so after this open the file IS the current format — one-way, per RELEASE §3.3).
+///   definition ≤ this build's format, so create the table but stamp only after migration.
+/// - stamped ≤ `FORMAT_VERSION` — open normally; retain an older stamp until every
+///   format-defining migration succeeds, then advance it through `stamp_current_format`.
 /// - stamped > `FORMAT_VERSION` — refuse, naming both versions and the app that wrote
 ///   the file. Silently misreading a newer project is the one unacceptable behaviour.
-fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
+fn check_and_stamp_format(conn: &Connection) -> DbResult<i64> {
     let has_meta: i64 = conn.query_row(
         "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'project_meta'",
         [],
         |r| r.get(0),
     )?;
-    let stamp = |written_by: &str| -> DbResult<()> {
-        conn.execute(
-            "UPDATE project_meta SET value = ? WHERE key = 'format_version'",
-            params![FORMAT_VERSION.to_string()],
-        )?;
-        conn.execute(
-            "INSERT INTO project_meta SELECT 'format_version', ? WHERE NOT EXISTS
-                 (SELECT 1 FROM project_meta WHERE key = 'format_version')",
-            params![FORMAT_VERSION.to_string()],
-        )?;
-        conn.execute("DELETE FROM project_meta WHERE key = 'written_by'", [])?;
-        conn.execute(
-            "INSERT INTO project_meta VALUES ('written_by', ?)",
-            params![written_by],
-        )?;
-        Ok(())
-    };
-    let app = concat!("SandiBumi ", env!("CARGO_PKG_VERSION"));
     if has_meta == 0 {
         conn.execute_batch("CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);")?;
-        return stamp(app);
+        return Ok(0);
     }
     // A present table with a missing/unparsable version row is treated as legacy (0),
     // never as newer — refusing must require positive evidence of a newer writer.
@@ -170,9 +153,78 @@ fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
              left unmodified)"
         )));
     }
-    if ver < FORMAT_VERSION {
-        stamp(app)?;
+    Ok(ver)
+}
+
+/// Retains the format observed before schema work for every destructive migration in this
+/// connection. `stamp_current_format` deliberately runs before some legacy migrations owned by
+/// `project::open_and_migrate`; a connection-local TEMP row prevents that target stamp from erasing
+/// the source identity those later backups must carry. Nothing is persisted into the project.
+fn remember_migration_source_format(conn: &Connection, source_format_version: i64) -> DbResult<()> {
+    conn.execute_batch(
+        "CREATE TEMP TABLE __sandibumi_migration_source_format (source_format_version BIGINT NOT NULL);",
+    )?;
+    conn.execute(
+        "INSERT INTO __sandibumi_migration_source_format VALUES (?1)",
+        params![source_format_version],
+    )?;
+    Ok(())
+}
+
+/// Returns the source-format identity captured at open. Focused recovery tools and tests that
+/// operate on an already-open connection fall back to its persistent stamp; a pre-stamp file is
+/// format 0, matching `check_and_stamp_format`.
+fn migration_source_format(conn: &Connection) -> DbResult<i64> {
+    let has_context: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_tables()
+         WHERE temporary AND table_name = '__sandibumi_migration_source_format'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_context > 0 {
+        return conn
+            .query_row(
+                "SELECT source_format_version FROM __sandibumi_migration_source_format LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(DbError::from);
     }
+
+    let has_meta: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_tables() WHERE table_name = 'project_meta'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_meta == 0 {
+        return Ok(0);
+    }
+    let raw: String = conn.query_row(
+        "SELECT coalesce(max(CASE WHEN key = 'format_version' THEN value END), '0') FROM project_meta",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(raw.parse::<i64>().unwrap_or(0))
+}
+
+/// Stamps the current file format only after every format-defining migration in `init_db`
+/// succeeds. Stamping first would let a failed TVDSS conversion leave a format-2 label on
+/// format-1 values, after which the next open would have no trustworthy way to detect the mix.
+fn stamp_current_format(conn: &Connection) -> DbResult<()> {
+    conn.execute(
+        "UPDATE project_meta SET value = ? WHERE key = 'format_version'",
+        params![FORMAT_VERSION.to_string()],
+    )?;
+    conn.execute(
+        "INSERT INTO project_meta SELECT 'format_version', ? WHERE NOT EXISTS
+             (SELECT 1 FROM project_meta WHERE key = 'format_version')",
+        params![FORMAT_VERSION.to_string()],
+    )?;
+    conn.execute("DELETE FROM project_meta WHERE key = 'written_by'", [])?;
+    conn.execute(
+        "INSERT INTO project_meta VALUES ('written_by', ?)",
+        params![concat!("SandiBumi ", env!("CARGO_PKG_VERSION"))],
+    )?;
     Ok(())
 }
 
@@ -209,7 +261,9 @@ pub fn init_db_resilient(path: &str) -> DbResult<Connection> {
 }
 
 pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
-    conn.execute_batch(
+    crate::schema_vocab::validate_schema_vocabularies().map_err(DbError::Invalid)?;
+    let standard = crate::schema_vocab::standard_projections();
+    let schema = format!(
         r#"
         CREATE TABLE IF NOT EXISTS wells (
             well_id     UUID PRIMARY KEY,
@@ -236,17 +290,9 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS standard_curves (
             well_id     UUID NOT NULL,
-            depth       FLOAT NOT NULL,
-            gr          FLOAT,
-            res_deep    FLOAT,
-            nphi        FLOAT,
-            rhob        FLOAT,
-            dt          FLOAT,
-            sp          FLOAT,
+{standard_table_ddl},
             PRIMARY KEY (well_id, depth)
         );
-        ALTER TABLE standard_curves ADD COLUMN IF NOT EXISTS dt FLOAT;
-        ALTER TABLE standard_curves ADD COLUMN IF NOT EXISTS sp FLOAT;
 
         CREATE TABLE IF NOT EXISTS high_res_curves (
             well_id     UUID NOT NULL,
@@ -331,12 +377,127 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             module      VARCHAR NOT NULL,     -- module name, 'workflow (N steps)', 'equation:X', ...
             params_json VARCHAR,              -- parameters of the run
             inputs_json VARCHAR,              -- resolved input curve mnemonics
-            created_at  TIMESTAMP NOT NULL DEFAULT now(),
+            -- SB-DBM-009 / DEC-022: a provenance timestamp is an unambiguous UTC INSTANT,
+            -- converted only at display. now() alone lands the session's local wall clock.
+            created_at  TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
             -- 'STANDARD' = written on the well's own depth grid (every module).
             -- 'OWN'      = the set carries its own depth column (reframe.rs), and every read
             --              through it runs on that frame instead. Declared, never inferred.
-            frame       VARCHAR NOT NULL DEFAULT 'STANDARD'
+            frame       VARCHAR NOT NULL DEFAULT '{standard_frame}',
+            -- Declared by the writer, never inferred from coincidentally regular depths. Legacy
+            -- rows remain NULL because their original declaration cannot be recovered.
+            sampling_style VARCHAR,
+            duplicate_resolution VARCHAR,
+            -- NULL = legacy/unclassified. Every complete production write starts CLEAN and is
+            -- changed atomically to DEGRADED when a structured event is persisted with its rows.
+            outcome_state VARCHAR CHECK (outcome_state IN ('CLEAN', 'DEGRADED')),
+            -- DEC-045/DEC-039: the per-VERSION free-text comment - the branch a POR module took
+            -- and every limit that bound, or what the user did on that run. Versions never
+            -- inherit it: a comment describes ONE run. NULL = no comment recorded.
+            comment VARCHAR,
+            -- SB-ENV-005 (DEC-031(b), signed DRAFT_ENV005 under DEC-076): the one authoritative
+            -- applied-step manifest, riding the versioned interpretation it describes. Written in
+            -- the SAME transaction that allocates the version - the manifest and its version
+            -- exist atomically or not at all. NULL = a pre-contract version whose step history
+            -- cannot be recovered: preserved as UNKNOWN, never backfilled and never read as an
+            -- empty step list (an empty list claims "nothing was applied", which is an answer).
+            applied_steps_json VARCHAR
         );
+
+        -- SB-DBM-011 (DEC-020/022/023): the STRUCTURED audit - Geolog's taxonomy adopted
+        -- wholesale (T2 AuditTrail). This sits BESIDE log_sets ("how was this curve made")
+        -- and beside the legacy processLog text history, which stays visible and is not
+        -- relabelled: the audit answers "what did someone do to this project" as queryable
+        -- rows. The chapter's `user` field is stored as operator + operator_kind because
+        -- DEC-020 requires the explicit HUMAN/AUTOMATED classification (never inferred from
+        -- the Windows account). entry_seq makes "uninterrupted" decidable by ORDER, not by
+        -- an invented elapsed-time window - AUDIT_ENTRY_COLLAPSE_WINDOW ships ABSENT by
+        -- design because Geolog's rule is uninterruptedness, not time.
+        CREATE SEQUENCE IF NOT EXISTS audit_entry_counter;
+        CREATE TABLE IF NOT EXISTS audit_entry (
+            entry_id      UUID PRIMARY KEY,
+            entry_seq     BIGINT NOT NULL DEFAULT nextval('audit_entry_counter'),
+            well_id       UUID,
+            ts_utc        TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+            operator      VARCHAR NOT NULL,
+            operator_kind VARCHAR NOT NULL CHECK (operator_kind IN ('HUMAN', 'AUTOMATED')),
+            view          VARCHAR NOT NULL,
+            source        VARCHAR NOT NULL,
+            comment       VARCHAR,
+            -- DEC-023's narrow seam: rename or move a top and the same run means something
+            -- different, so a zone-scoped entry names the zone-set identity it saw.
+            zone_set_version INTEGER,
+            zone_set_digest  VARCHAR,
+            -- Geolog collapses uninterrupted repeats into ONE entry; the count keeps the
+            -- collapse honest about how many gestures it absorbed.
+            repeat_count  INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS audit_detail (
+            entry_id UUID NOT NULL,
+            seq      INTEGER NOT NULL,
+            location VARCHAR NOT NULL CHECK (
+                location IN ('PARAMETER', 'COMMENT', 'SET', 'CONSTANT', 'INTERVAL', 'LOG', 'ATTRIBUTE')
+            ),
+            mode     VARCHAR NOT NULL CHECK (
+                mode IN ('INPUT', 'OUTPUT', 'DELETE', 'RENAME', 'SAVE', 'SAVE_AS', 'SAVE_CANCEL')
+            ),
+            unit     VARCHAR,
+            name     VARCHAR NOT NULL,
+            value    VARCHAR,
+            PRIMARY KEY (entry_id, seq)
+        );
+        -- DEC-023: the zone-set identity/version seam. A digest of the well's zones in
+        -- depth order; a new version row appears only when the zones actually change.
+        CREATE TABLE IF NOT EXISTS zone_set_versions (
+            well_id    UUID NOT NULL,
+            version    INTEGER NOT NULL,
+            digest     VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+            PRIMARY KEY (well_id, version)
+        );
+
+        -- Structured reasons a durable run is DEGRADED. Multiple workflow steps may append to one
+        -- set_id, so position is monotone per run rather than keyed by a message someone might edit.
+        CREATE TABLE IF NOT EXISTS run_degradations (
+            set_id      UUID NOT NULL,
+            position    INTEGER NOT NULL,
+            module      VARCHAR NOT NULL,
+            kind        VARCHAR NOT NULL CHECK (
+                kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT', 'ENDPOINT_INVALID')
+            ),
+            detail      VARCHAR NOT NULL,
+            occurrences BIGINT NOT NULL CHECK (occurrences > 0),
+            PRIMARY KEY (set_id, position)
+        );
+
+        -- Queryable parameter custody for one run. The full ancestry JSON remains the portable
+        -- record; this relation is the indexed project query required by SB-DBM-003. A present
+        -- value always has a non-empty source. A deliberately unsupplied required parameter is
+        -- represented only by the named REQUIRED_UNSET state with both value and source NULL.
+        CREATE TABLE IF NOT EXISTS run_parameters (
+            set_id      UUID NOT NULL,
+            position    INTEGER NOT NULL,
+            name        VARCHAR NOT NULL,
+            value_json  VARCHAR,
+            source      VARCHAR,
+            state       VARCHAR,
+            resolution  VARCHAR,
+            manifest_version VARCHAR,
+            PRIMARY KEY (set_id, position),
+            CHECK (
+                (state = 'REQUIRED_UNSET' AND value_json IS NULL AND source IS NULL
+                    AND resolution IS NULL AND manifest_version IS NULL)
+                OR
+                (state IS NULL AND value_json IS NOT NULL AND source IS NOT NULL
+                    AND length(trim(source)) > 0 AND (
+                        (resolution IS NULL AND manifest_version IS NULL)
+                        OR (resolution = 'EXPLICIT' AND manifest_version IS NULL)
+                        OR (resolution = 'DEFAULTED' AND manifest_version IS NOT NULL
+                            AND length(trim(manifest_version)) > 0)
+                    ))
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_parameters_state ON run_parameters(state);
 
         -- Append-only history: every versioned run's full output rows, tagged by set_id.
         -- `computed_curves` stays the fast "current" store every panel reads; this table
@@ -369,9 +530,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID NOT NULL,
             top_name    VARCHAR NOT NULL,
             depth       FLOAT NOT NULL,
+            depth_datum VARCHAR,
             color       VARCHAR,
             PRIMARY KEY (well_id, top_name)
         );
+        -- Existing tops predate source-reference custody. Keep them NULL rather than silently
+        -- inventing MD; every new writer supplies its actual reference.
+        ALTER TABLE tops ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
 
         -- Depth intervals per well (zoned interval sets). Modules
         -- resolve their interval parameters per zone at run time.
@@ -380,8 +545,12 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             zone_name    VARCHAR NOT NULL,
             top_depth    FLOAT NOT NULL,
             bottom_depth FLOAT NOT NULL,
+            depth_datum   VARCHAR,
             PRIMARY KEY (well_id, zone_name)
         );
+        -- Legacy zones stay NULL until an operator/source declares their datum. Assigning MD here
+        -- would turn an absent reference into invented provenance.
+        ALTER TABLE zones ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
 
         -- Per-zone interval parameter values (interval logs like GR_MA, GR_SH,
         -- RW, M, N). zone_name '*' holds whole-well defaults.
@@ -426,11 +595,16 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             contact_type VARCHAR NOT NULL,  -- OWC | GWC | GOC | GDT | ODT | FWL | custom
             depth        DOUBLE NOT NULL,
             is_tvdss     BOOLEAN NOT NULL,  -- true = depth is TVDSS (flat across wells), false = MD
+            depth_datum  VARCHAR NOT NULL DEFAULT 'MD',
             color        VARCHAR,
             label        VARCHAR,
             compartment  VARCHAR,           -- named fault block / segment; NULL = not stated
             PRIMARY KEY (contact_id)
         );
+        ALTER TABLE fluid_contacts ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+        UPDATE fluid_contacts
+           SET depth_datum = CASE WHEN is_tvdss THEN 'TVDSS' ELSE 'MD' END
+         WHERE depth_datum IS NULL;
 
         -- Which MARKERS a contact governs. A link table rather than a column on the contact,
         -- because the relationship is genuinely many-to-one in BOTH the ways a field is built:
@@ -563,7 +737,28 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- it the app could not tell a core-depth delivery from a log-depth one, and moving
             -- the wrong one is silent.
             on_core_depths INTEGER NOT NULL DEFAULT 0,
+            -- Aux deliveries are the shipped POINT store: rows are independent observations,
+            -- not a sampled continuous frame. The writer declares how same-depth observations
+            -- were kept, rather than leaving the PK-less store's behavior implicit.
+            sampling_style VARCHAR NOT NULL,
+            duplicate_resolution VARCHAR NOT NULL,
+            perturbation_value DOUBLE,
+            perturbation_unit VARCHAR,
             PRIMARY KEY (well_id, dataset, set_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS aux_duplicate_depth_resolutions (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            item        VARCHAR NOT NULL,
+            source_row  INTEGER NOT NULL,
+            original_depth FLOAT NOT NULL,
+            stored_depth FLOAT NOT NULL,
+            resolution  VARCHAR NOT NULL,
+            perturbation_value DOUBLE,
+            perturbation_unit VARCHAR,
+            PRIMARY KEY (well_id, dataset, set_name, item, source_row)
         );
 
         -- Depth-registered PICTURES: petrographic thin sections, core photographs, SEM
@@ -765,9 +960,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (doc_type, name)
         );
 
+        CREATE SEQUENCE IF NOT EXISTS curve_meta_modified_seq START 1;
+
         -- Phase 6: generic curve store. Unlike `standard_curves` (fixed 6 mnemonics),
-        -- this holds ANY curve at ANY name, in one of several named sets (RAW = as
-        -- imported, EDIT = user-edited, FINAL = QC'd for delivery). `curve_meta` is the
+        -- this holds ANY curve at ANY name, in one of several named sets. Set labels describe
+        -- custody; the separate curve-level Final flag records a resolving decision. `curve_meta` is the
         -- catalog row (one per curve per set); `curve_samples` is the long/tall value
         -- store, mirroring the `computed_curves` pattern so new curves never need a
         -- schema migration.
@@ -781,10 +978,40 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             source      VARCHAR,          -- e.g. 'LAS import', 'DLIS import', 'computed'
             run_no      INTEGER,
             pinned      INTEGER DEFAULT 0,  -- 1 = user-promoted winner for its (well,set,mnemonic)
+            set_version INTEGER NOT NULL DEFAULT 1,
+            final_flag  INTEGER NOT NULL DEFAULT 0,
+            modified_seq BIGINT NOT NULL DEFAULT nextval('curve_meta_modified_seq'),
             UNIQUE (well_id, set_name, mnemonic, run_no)
         );
         -- `pinned` added via ALTER so existing project databases converge on the same shape.
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS pinned INTEGER DEFAULT 0;
+        -- SB-DBM-017 / DEC-025: the neutron matrix basis is DECLARED curve metadata, never
+        -- inferred from contractor, tool, salinity or a matrix default. NULL is the honest
+        -- absence - a limestone-unit neutron read against a sandstone matrix is ~0.04 v/v low
+        -- in clean water sand, and nothing can refuse a wrong basis that was never recorded.
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS neutron_basis VARCHAR;
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS neutron_basis_source VARCHAR;
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS set_version INTEGER DEFAULT 1;
+        UPDATE curve_meta SET set_version = 1 WHERE set_version IS NULL;
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS final_flag INTEGER;
+        -- A historical set name is not evidence that one particular curve identity was selected
+        -- from duplicate runs in that set. Existing rows therefore start unflagged rather than
+        -- receiving an invented Final decision during migration.
+        UPDATE curve_meta SET final_flag = 0 WHERE final_flag IS NULL;
+        ALTER TABLE curve_meta ALTER COLUMN final_flag SET DEFAULT 0;
+        -- Existing rows predate a recoverable modification order and stay NULL. New or edited
+        -- rows receive a monotonic revision so SB-DBM-006 can truthfully apply MRU; the resolver
+        -- refuses an otherwise-tied legacy collision instead of inventing which old row was last.
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS modified_seq BIGINT;
+        ALTER TABLE curve_meta ALTER COLUMN modified_seq SET DEFAULT nextval('curve_meta_modified_seq');
+        -- SB-DIO-007 (signed DRAFT_DIO007 under DEC-076): the versioned source-cell-state mask,
+        -- one byte per sample in ASCENDING DEPTH order behind a one-byte version prefix
+        -- (0 = measured, 1 = empty cell, 2 = explicitly nulled). Both absent states store
+        -- f32::NAN in the samples - rule 2 is untouched by construction; the mask is consulted
+        -- only by exporters and custody surfaces, never by arithmetic. NULL = a pre-contract
+        -- import whose cell states cannot be recovered: preserved as unknown, never backfilled.
+        -- Added LAST via ALTER (the additive-column precedent above).
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS state_mask BLOB;
 
         -- SB-MLA-055. A row here DECLARES that a curve's values are class identifiers — a facies
         -- code, a litho code, a predicted class — and not a quantity. Averaging or interpolating
@@ -877,6 +1104,64 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID NOT NULL,
             PRIMARY KEY (group_id, well_id)
         );
+
+        -- One declaration and one verified verdict per imported continuous curve set. Legacy
+        -- curve_meta rows intentionally have no matching row: a frame-indexed reader must refuse
+        -- them rather than infer regularity from coincidentally regular samples.
+        CREATE TABLE IF NOT EXISTS import_sets (
+            well_id                     UUID NOT NULL,
+            set_name                    VARCHAR NOT NULL,
+            declared_sampling_style     VARCHAR NOT NULL,
+            effective_sampling_style    VARCHAR NOT NULL,
+            sampling_verified           BOOLEAN NOT NULL,
+            verification_tolerance      DOUBLE,
+            verification_tolerance_unit VARCHAR,
+            verification_warning        VARCHAR,
+            gap_depth                   FLOAT,
+            gap_row_count               INTEGER,
+            PRIMARY KEY (well_id, set_name)
+        );
+
+        -- SB-DBM-027. Integrity cleanup is a QUARANTINE, never an irreversible DELETE.
+        -- The checker itself is read-only. An explicit prune moves only the bounded orphan
+        -- classes named below into typed tables in one transaction; the batch remains in the
+        -- project so Ctrl+Z (or a later reopen) can restore the exact rows without JSON-float
+        -- round-tripping. Duplicate samples and unresolved ML provenance are report-only:
+        -- choosing a survivor or deleting a trained artifact would be a product decision.
+        CREATE TABLE IF NOT EXISTS integrity_prune_batches (
+            batch_id       UUID PRIMARY KEY,
+            state          VARCHAR NOT NULL,
+            classes        VARCHAR NOT NULL,
+            created_at     TIMESTAMP NOT NULL DEFAULT now(),
+            changed_at     TIMESTAMP NOT NULL DEFAULT now(),
+            CHECK (state IN ('ACTIVE', 'RESTORED'))
+        );
+        CREATE TABLE IF NOT EXISTS integrity_quarantine_computed (
+            batch_id       UUID NOT NULL,
+            source_table   VARCHAR NOT NULL,
+            set_id         UUID,
+            well_id        UUID NOT NULL,
+            depth          FLOAT NOT NULL,
+            curve_name     VARCHAR NOT NULL,
+            value          FLOAT,
+            CHECK (source_table IN ('computed_curves', 'computed_curves_archive')),
+            FOREIGN KEY (batch_id) REFERENCES integrity_prune_batches(batch_id)
+        );
+        CREATE TABLE IF NOT EXISTS integrity_quarantine_group_members (
+            batch_id       UUID NOT NULL,
+            group_id       UUID NOT NULL,
+            well_id        UUID NOT NULL,
+            PRIMARY KEY (batch_id, group_id, well_id),
+            FOREIGN KEY (batch_id) REFERENCES integrity_prune_batches(batch_id)
+        );
+        CREATE TABLE IF NOT EXISTS integrity_quarantine_curve_samples (
+            batch_id       UUID NOT NULL,
+            curve_id       UUID NOT NULL,
+            depth          FLOAT NOT NULL,
+            value          FLOAT,
+            PRIMARY KEY (batch_id, curve_id, depth),
+            FOREIGN KEY (batch_id) REFERENCES integrity_prune_batches(batch_id)
+        );
         -- Pinned wells: a lightweight, persisted "favourites" subset, independent of groups, so
         -- a handful of wells of interest stay one click away in every run dialog (the ★ toggle in
         -- the Wells pane). There is only ever one pinned set per project and, unlike an active
@@ -893,8 +1178,207 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID PRIMARY KEY
         );
         "#,
+        standard_table_ddl = standard.table_ddl,
+        standard_frame = crate::schema_vocab::LogSetFrame::Standard.as_str(),
+    );
+    conn.execute_batch(&schema)?;
+    conn.execute_batch(&standard.migration_ddl)?;
+    // Additive migration for projects whose log_sets rows predate declared sampling style. NULL is
+    // intentional for those historical rows: neither regularity nor point semantics can be
+    // reconstructed merely by looking at their stored depths.
+    conn.execute_batch(&format!(
+        "ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         -- SB-DBM-031 (DEC-073 item 5): a delivery declares its depth datum ONCE, on its
+         -- SET row - one delivery is one datum, and a per-row column would break the
+         -- positional-Appender contracts. NULL = legacy unknown, PRESERVED as unknown:
+         -- backfilling MD would be exactly the inference the ruling forbids.
+         ALTER TABLE core_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE aux_sets   ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE scal_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE image_sets ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS outcome_state VARCHAR;
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS comment VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_unit VARCHAR;
+         -- SB-ENV-005: the applied-step manifest column, added LAST (positional rule). NULL on
+         -- migrated rows is the pre-contract state, preserved as unknown - never backfilled.
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS applied_steps_json VARCHAR;
+         UPDATE aux_sets SET sampling_style = '{}' WHERE sampling_style IS NULL;
+         UPDATE aux_sets SET duplicate_resolution = '{}'
+             WHERE duplicate_resolution IS NULL;",
+        crate::schema_vocab::SamplingStyle::Point.as_str(),
+        crate::schema_vocab::DuplicateDepthResolution::Preserve.as_str()
+    ))?;
+    // Projects first opened by SB-DBM-003 already own the indexed parameter relation. Preserve
+    // those rows and extend it additively; historical records remain unclassified rather than
+    // being relabelled as explicit/defaulted without evidence.
+    conn.execute_batch(
+        "ALTER TABLE run_parameters ADD COLUMN IF NOT EXISTS resolution VARCHAR;
+         ALTER TABLE run_parameters ADD COLUMN IF NOT EXISTS manifest_version VARCHAR;",
     )?;
+    backfill_run_parameters(conn)?;
     Ok(())
+}
+
+/// Builds SB-DBM-003's indexed parameter view for complete ancestry written before the relation
+/// existed. The migration is deliberately evidence-preserving: it accepts only a sourced value
+/// or the exact historical ABSENT/ABSENT pair. Malformed legacy JSON is left unclassified instead
+/// of being repaired with an invented value, source, or state.
+fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
+    #[derive(Debug)]
+    struct BackfillRow {
+        set_id: String,
+        position: i64,
+        name: String,
+        value_json: Option<String>,
+        source: Option<String>,
+        state: Option<String>,
+        resolution: Option<String>,
+        manifest_version: Option<String>,
+    }
+
+    let candidates: Vec<(String, String)> = {
+        let mut statement = conn.prepare(
+            "SELECT CAST(log_sets.set_id AS VARCHAR), log_sets.params_json
+             FROM log_sets
+             WHERE log_sets.params_json IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM run_parameters
+                   WHERE run_parameters.set_id = log_sets.set_id
+               )
+             ORDER BY log_sets.set_id",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<duckdb::Result<_>>()?
+    };
+
+    let mut rows = Vec::new();
+    for (set_id, params_json) in candidates {
+        let Ok(payload) = serde_json::from_str::<serde_json::Value>(&params_json) else {
+            continue;
+        };
+        let Some(parameters) = payload
+            .get(crate::equations::CURVE_ANCESTRY_KEY)
+            .and_then(|ancestry| ancestry.get("parameters"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+
+        let mut set_rows = Vec::with_capacity(parameters.len());
+        let mut complete = true;
+        for (position, parameter) in parameters.iter().enumerate() {
+            let Some(name) = parameter
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+            else {
+                complete = false;
+                break;
+            };
+            let value = parameter.get("value");
+            let source = parameter.get("source");
+            let state = parameter.get("state").and_then(serde_json::Value::as_str);
+            let resolution = parameter
+                .get("resolution")
+                .and_then(serde_json::Value::as_str);
+            let manifest_version = parameter
+                .get("manifest_version")
+                .and_then(serde_json::Value::as_str);
+            let historical_required_unset = state.is_none()
+                && value.and_then(serde_json::Value::as_str)
+                    == Some(crate::modules::ABSENT_DEFAULT_SOURCE)
+                && source.and_then(serde_json::Value::as_str)
+                    == Some(crate::modules::ABSENT_DEFAULT_SOURCE)
+                && resolution.is_none()
+                && manifest_version.is_none();
+            let canonical_required_unset =
+                state == Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE)
+                    && value.is_some_and(serde_json::Value::is_null)
+                    && source.is_some_and(serde_json::Value::is_null)
+                    && resolution.is_none()
+                    && manifest_version.is_none();
+
+            let row = if historical_required_unset || canonical_required_unset {
+                BackfillRow {
+                    set_id: set_id.clone(),
+                    position: position as i64,
+                    name: name.to_string(),
+                    value_json: None,
+                    source: None,
+                    state: Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+                    resolution: None,
+                    manifest_version: None,
+                }
+            } else if state.is_none() {
+                let Some(value) = value.filter(|value| !value.is_null()) else {
+                    complete = false;
+                    break;
+                };
+                let Some(source) = source
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|source| !source.trim().is_empty())
+                else {
+                    complete = false;
+                    break;
+                };
+                let legal_resolution = match (resolution, manifest_version) {
+                    (None, None) | (Some("EXPLICIT"), None) => true,
+                    (Some("DEFAULTED"), Some(version)) if !version.trim().is_empty() => true,
+                    _ => false,
+                };
+                if !legal_resolution {
+                    complete = false;
+                    break;
+                }
+                BackfillRow {
+                    set_id: set_id.clone(),
+                    position: position as i64,
+                    name: name.to_string(),
+                    value_json: Some(value.to_string()),
+                    source: Some(source.to_string()),
+                    state: None,
+                    resolution: resolution.map(str::to_string),
+                    manifest_version: manifest_version.map(str::to_string),
+                }
+            } else {
+                complete = false;
+                break;
+            };
+            set_rows.push(row);
+        }
+        if complete {
+            rows.extend(set_rows);
+        }
+    }
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+    with_txn(conn, |conn| {
+        for row in rows {
+            conn.execute(
+                "INSERT INTO run_parameters
+                    (set_id, position, name, value_json, source, state, resolution, manifest_version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    row.set_id,
+                    row.position,
+                    row.name,
+                    row.value_json,
+                    row.source,
+                    row.state,
+                    row.resolution,
+                    row.manifest_version
+                ],
+            )?;
+        }
+        Ok::<(), DbError>(())
+    })
 }
 
 /// Migrates once, on open: copies every `standard_curves` column into the generic
@@ -904,18 +1388,6 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
 /// source = 'standard_curves migration' before doing any work, so it runs at most once
 /// per well per column even if called on every launch.
 pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<()> {
-    const COLUMNS: &[(&str, &str, &str)] = &[
-        // (db column, mnemonic, family)
-        ("gr", "GR", "GR"),
-        ("res_deep", "RES_DEEP", "RES"),
-        ("nphi", "NPHI", "NPHI"),
-        ("rhob", "RHOB", "RHOB"),
-        ("dt", "DT", "DT"),
-        ("sp", "SP", "SP"),
-    ];
-    const UNITS: &[(&str, &str)] =
-        &[("GR", "gAPI"), ("RES", "ohm.m"), ("NPHI", "v/v"), ("RHOB", "g/cc"), ("DT", "us/ft"), ("SP", "mV")];
-
     // Only wells not yet fully backfilled. Once a well is in curve_migration_done it is skipped
     // entirely, so this whole function is ~instant on an already-migrated project instead of
     // re-scanning standard_curves for every well's absent columns on each launch.
@@ -925,7 +1397,17 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
     drop(stmt);
 
     for well_id in well_ids {
-        for (col, mnemonic, family) in COLUMNS {
+        for column in crate::schema_vocab::STANDARD_COLUMNS
+            .iter()
+            .filter(|column| column.editable)
+        {
+            let col = column.storage_column;
+            let mnemonic = column.mnemonic;
+            let family = crate::curves::family_for(mnemonic).ok_or_else(|| {
+                DbError::Invalid(format!(
+                    "registered standard column '{mnemonic}' has no curve-family definition"
+                ))
+            })?;
             let already: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM curve_meta WHERE well_id = ?1 AND mnemonic = ?2 AND source = 'standard_curves migration'",
                 params![well_id, mnemonic],
@@ -947,16 +1429,28 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
             }
 
             let curve_id = Uuid::new_v4().to_string();
-            let unit = UNITS.iter().find(|(f, _)| f == family).map(|(_, u)| *u);
             conn.execute(
-                "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no)
-                 VALUES (?1, ?2, 'RAW', ?3, ?4, ?5, 'standard_curves migration', NULL)",
-                params![curve_id, well_id, mnemonic, unit, family],
+                "INSERT INTO curve_meta
+                    (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no,
+                     set_version, final_flag, modified_seq)
+                 VALUES (?1, ?2, 'RAW', ?3, ?4, ?5, 'standard_curves migration', NULL,
+                         1, 0, nextval('curve_meta_modified_seq'))",
+                params![
+                    curve_id,
+                    well_id,
+                    mnemonic,
+                    family.canonical_unit,
+                    family.family
+                ],
             )?;
+            // SB-DBM-030: a data-bearing column migrates its FULL frame - a NULL sample is a
+            // measurement that is absent at that depth, and dropping the row would conflate
+            // "logged but missing" with "never sampled". The has_data gate above already skips
+            // columns that were never supplied at all.
             conn.execute(
                 &format!(
                     "INSERT INTO curve_samples (curve_id, depth, value)
-                     SELECT ?1, depth, {col} FROM standard_curves WHERE well_id = ?2 AND {col} IS NOT NULL"
+                     SELECT ?1, depth, {col} FROM standard_curves WHERE well_id = ?2"
                 ),
                 params![curve_id, well_id],
             )?;
@@ -973,8 +1467,25 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
     Ok(())
 }
 
+/// Records that a newly imported well already has its standard projection represented in the
+/// native generic store. A current LAS import writes both views from the same decoded columns in
+/// one outer transaction, so running the legacy backfill on the next open would create duplicate
+/// RAW identities with fresh UUIDs and make otherwise identical project copies cite different
+/// input ancestry. This marker belongs in that same import transaction: a failed native write must
+/// not suppress the legacy repair on the next open.
+pub(crate) fn mark_standard_curve_migration_done(
+    conn: &Connection,
+    well_id: &str,
+) -> DbResult<()> {
+    conn.execute(
+        "INSERT INTO curve_migration_done (well_id) VALUES (?1) ON CONFLICT DO NOTHING",
+        params![well_id],
+    )?;
+    Ok(())
+}
+
 /// RELEASE.md §3.2 (requirement R-B): before a migration that rewrites or drops data, copy
-/// the project file beside itself as `<name>.pre-<FORMAT_VERSION>-backup.duckdb`. Purely
+/// the project file beside itself as `<name>.pre-<SOURCE_FORMAT>-backup.duckdb`. Purely
 /// additive migrations are exempt — a backup on every open would bury the one that matters.
 ///
 /// The copy is made BY THE ENGINE (`ATTACH` + `COPY FROM DATABASE`), not by the filesystem:
@@ -987,16 +1498,108 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
 /// as the WAL recovery's `.corrupt-backup-<ts>`.
 fn backup_before_destructive_migration(conn: &Connection, path: &str) -> DbResult<String> {
     let stem = path.strip_suffix(".duckdb").unwrap_or(path);
-    let mut backup = format!("{stem}.pre-{FORMAT_VERSION}-backup.duckdb");
+    let source_format = migration_source_format(conn)?;
+    let mut backup = format!("{stem}.pre-{source_format}-backup.duckdb");
     if std::path::Path::new(&backup).exists() {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        backup = format!("{stem}.pre-{FORMAT_VERSION}-backup-{ts}.duckdb");
+        backup = format!("{stem}.pre-{source_format}-backup-{ts}.duckdb");
+        let mut collision = 1_u64;
+        while std::path::Path::new(&backup).exists() {
+            backup = format!("{stem}.pre-{source_format}-backup-{ts}-{collision}.duckdb");
+            collision += 1;
+        }
     }
     engine_copy_to(conn, &backup)?;
     Ok(backup)
+}
+
+const TVDSS_CONVENTION_KEY: &str = "tvdss_sign_convention";
+const TVDSS_POSITIVE_DOWN: &str = "F17_POSITIVE_DOWN_V1";
+
+/// Converts the pre-SB-DBM-031 TVDSS stores from elevation-minus-TVD to F-17 positive-down
+/// TVD-minus-elevation. The project-meta marker makes the rewrite idempotent; a real project is
+/// copied by DuckDB before the first affected row is changed.
+///
+/// Only stores whose existing schema already declares TVDSS are rewritten: `well_path.tvdss`,
+/// explicitly TVDSS contacts, and the system's materialized current/archive TVDSS curves. Generic
+/// imported curves are deliberately not selected by mnemonic here because their source sign was
+/// never declared; treating a name as a reference-frame declaration would invent provenance.
+pub fn migrate_tvdss_positive_down(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+    // `init_db` creates this before calling us, but focused migrations and recovery tools
+    // may operate on a schema-only connection. The marker table is additive; creating it
+    // here keeps the destructive sign rewrite independently safe and idempotent.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);",
+    )?;
+    let convention: Option<String> = conn
+        .query_row(
+            "SELECT value FROM project_meta WHERE key = ?1",
+            params![TVDSS_CONVENTION_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match convention.as_deref() {
+        Some(TVDSS_POSITIVE_DOWN) => return Ok(()),
+        Some(other) => {
+            return Err(DbError::Invalid(format!(
+                "unsupported TVDSS sign convention '{other}'; expected {TVDSS_POSITIVE_DOWN}"
+            )));
+        }
+        None => {}
+    }
+
+    let affected: i64 = conn.query_row(
+        "SELECT
+             (SELECT COUNT(*) FROM well_path WHERE tvdss IS NOT NULL)
+           + (SELECT COUNT(*) FROM fluid_contacts WHERE depth_datum = 'TVDSS')
+           + (SELECT COUNT(*) FROM computed_curves
+                WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL)
+           + (SELECT COUNT(*) FROM computed_curves_archive
+                WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+    let backup = if affected > 0 {
+        match path {
+            Some(path) => Some(backup_before_destructive_migration(conn, path)?),
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    with_txn(conn, |conn| -> DbResult<()> {
+        conn.execute("UPDATE well_path SET tvdss = -tvdss WHERE tvdss IS NOT NULL", [])?;
+        conn.execute(
+            "UPDATE fluid_contacts SET depth = -depth WHERE depth_datum = 'TVDSS'",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE computed_curves SET value = -value
+             WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE computed_curves_archive SET value = -value
+             WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO project_meta (key, value) VALUES (?1, ?2)",
+            params![TVDSS_CONVENTION_KEY, TVDSS_POSITIVE_DOWN],
+        )?;
+        Ok(())
+    })?;
+
+    if let Some(backup) = backup {
+        boot_note(format!(
+            "One-time TVDSS sign upgrade ({affected} stored value(s)): project backed up first to {backup}"
+        ));
+    }
+    Ok(())
 }
 
 /// Engine copy of the CURRENT database to a fresh file at `dest` (`ATTACH` +
@@ -1038,7 +1641,91 @@ pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
 /// nothing, while rewriting a field-scale project after the promised copy failed breaks the
 /// exact guarantee R-B exists to make. `path: None` is for in-memory test databases only —
 /// every real caller must pass the project-file path.
+/// SB-DBM-009 / DEC-022: converts every pre-migration `log_sets.created_at` from WIB
+/// (UTC+7) local wall time to a UTC instant, and re-points the column DEFAULT at UTC so new
+/// rows can never reintroduce the local meaning. The zone is DECLARED, not measured: Jauhar
+/// ruled (DEC-022, 2026-08-17) that every legacy record was written on a machine set to
+/// Western Indonesia time, and the ruling itself is recorded as the converted values' SOURCE
+/// in the marker document below, so a later reader sees the offset was declared by the
+/// product owner rather than inferred from the data. Idempotent: the marker gates the
+/// subtraction, because running it twice would move history by another seven hours.
+/// SB-CLY-001 (DEC-036): `run_degradations.kind` gained the documented fifth member
+/// `ENDPOINT_INVALID` - the zone-bearing run message rides the degradation channel. A
+/// pre-existing project carries the four-member CHECK, which would refuse the row at
+/// persist time, so the table is rebuilt in place with the extended CHECK and every row
+/// copied verbatim. Idempotent: a table whose CHECK already names the member is left alone.
+pub fn migrate_run_degradations_endpoint_invalid(conn: &Connection) -> DbResult<()> {
+    let outdated: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_constraints()
+         WHERE table_name = 'run_degradations' AND constraint_type = 'CHECK'
+           AND constraint_text LIKE '%kind IN%'
+           AND constraint_text NOT LIKE '%ENDPOINT_INVALID%'",
+        [],
+        |r| r.get(0),
+    )?;
+    if outdated == 0 {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE run_degradations_v2 (
+            set_id      UUID NOT NULL,
+            position    INTEGER NOT NULL,
+            module      VARCHAR NOT NULL,
+            kind        VARCHAR NOT NULL CHECK (
+                kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT', 'ENDPOINT_INVALID')
+            ),
+            detail      VARCHAR NOT NULL,
+            occurrences BIGINT NOT NULL CHECK (occurrences > 0),
+            PRIMARY KEY (set_id, position)
+         );
+         INSERT INTO run_degradations_v2
+             SELECT set_id, position, module, kind, detail, occurrences FROM run_degradations;
+         DROP TABLE run_degradations;
+         ALTER TABLE run_degradations_v2 RENAME TO run_degradations;
+         COMMIT;",
+    )?;
+    boot_note("One-time storage upgrade: run_degradations now accepts the ENDPOINT_INVALID kind (SB-CLY-001)".to_string());
+    Ok(())
+}
+
+pub fn migrate_log_set_timestamps_to_utc(conn: &Connection) -> DbResult<()> {
+    let already: i64 = conn.query_row(
+        "SELECT count(*) FROM documents WHERE doc_type = 'migration' AND name = 'DEC-022-created-at-utc'",
+        [],
+        |r| r.get(0),
+    )?;
+    if already > 0 {
+        return Ok(());
+    }
+    let converted = conn.execute(
+        "UPDATE log_sets SET created_at = created_at - INTERVAL 7 HOUR",
+        [],
+    )?;
+    conn.execute_batch(
+        "ALTER TABLE log_sets ALTER COLUMN created_at SET DEFAULT (now() AT TIME ZONE 'UTC')",
+    )?;
+    conn.execute(
+        "INSERT INTO documents (doc_id, doc_type, name, json) VALUES (gen_random_uuid(), 'migration', 'DEC-022-created-at-utc', ?1)",
+        params![format!(
+            "{{\"declared_zone\":\"WIB (UTC+7)\",\"source\":\"DEC-022 (RULED 2026-08-17): every pre-migration log_sets.created_at was written on a machine set to Western Indonesia time; the offset is declared by the product owner, not measured from the data\",\"rows_converted\":{converted}}}"
+        )],
+    )?;
+    Ok(())
+}
+
 pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+    migrate_drop_computed_curves_pk_with_backup(conn, path, backup_before_destructive_migration)
+}
+
+fn migrate_drop_computed_curves_pk_with_backup<F>(
+    conn: &Connection,
+    path: Option<&str>,
+    backup: F,
+) -> DbResult<()>
+where
+    F: FnOnce(&Connection, &str) -> DbResult<String>,
+{
     let has_pk: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_constraints()
          WHERE table_name = 'computed_curves' AND constraint_type = 'PRIMARY KEY'",
@@ -1049,8 +1736,8 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
         return Ok(());
     }
     if let Some(path) = path {
-        let backup = backup_before_destructive_migration(conn, path)?;
-        boot_note(format!("One-time storage upgrade (write-speed index removal): project backed up first to {backup}"));
+        let backup_path = backup(conn, path)?;
+        boot_note(format!("One-time storage upgrade (write-speed index removal): project backed up first to {backup_path}"));
     }
     // Rebuild PK-less, preserving every row, atomically.
     conn.execute_batch(
@@ -1466,7 +2153,10 @@ pub fn migrate_log_set_frame(conn: &Connection) -> DbResult<()> {
         |r| r.get(0),
     )?;
     if has == 0 {
-        conn.execute_batch("ALTER TABLE log_sets ADD COLUMN frame VARCHAR NOT NULL DEFAULT 'STANDARD';")?;
+        conn.execute_batch(&format!(
+            "ALTER TABLE log_sets ADD COLUMN frame VARCHAR NOT NULL DEFAULT '{}';",
+            crate::schema_vocab::LogSetFrame::Standard.as_str()
+        ))?;
     }
     Ok(())
 }
@@ -1557,17 +2247,35 @@ pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResul
     // filter on the active set) can still see them. Cheap, gap-filling and idempotent, so
     // it runs before the early return — a project may have been rebuilt already while a
     // later aux import path was still writing unregistered rows.
-    conn.execute_batch(
+    conn.execute_batch(&format!(
+        "ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_unit VARCHAR;
+         -- SB-DBM-031: rebuilt pre-set-era stores converge on the datum column too; the
+         -- value stays NULL - legacy unknown is preserved, never inferred to MD.
+         ALTER TABLE core_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE aux_sets   ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE scal_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         UPDATE aux_sets SET sampling_style = '{}' WHERE sampling_style IS NULL;
+         UPDATE aux_sets SET duplicate_resolution = '{}' WHERE duplicate_resolution IS NULL;",
+        crate::schema_vocab::SamplingStyle::Point.as_str(),
+        crate::schema_vocab::DuplicateDepthResolution::Preserve.as_str()
+    ))?;
+    conn.execute_batch(&format!(
         "UPDATE aux_data SET set_name = 'RAW' WHERE set_name IS NULL;
-         INSERT INTO aux_sets (well_id, dataset, set_name, active)
-         SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1 FROM aux_data a
+         INSERT INTO aux_sets
+             (well_id, dataset, set_name, active, sampling_style, duplicate_resolution)
+         SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1, '{}', '{}' FROM aux_data a
          WHERE NOT EXISTS (SELECT 1 FROM aux_sets s
                            WHERE s.well_id = a.well_id AND s.dataset = a.dataset);
          UPDATE scal_pc SET set_name = 'RAW' WHERE set_name IS NULL;
          INSERT INTO scal_sets (well_id, set_name, active)
          SELECT DISTINCT p.well_id, p.set_name, 1 FROM scal_pc p
          WHERE NOT EXISTS (SELECT 1 FROM scal_sets s WHERE s.well_id = p.well_id);",
-    )?;
+        crate::schema_vocab::SamplingStyle::Point.as_str(),
+        crate::schema_vocab::DuplicateDepthResolution::Preserve.as_str()
+    ))?;
 
     if has_set > 0 && has_survey > 0 {
         return Ok(());
@@ -1648,7 +2356,7 @@ pub fn insert_standard_curves(
     rhob: Vec<f32>,
     dt: Vec<f32>,
     sp: Vec<f32>,
-) -> DbResult<()> {
+) -> DbResult<Vec<(String, usize)>> {
     let n = depths.len();
     if gr.len() != n || res_deep.len() != n || nphi.len() != n || rhob.len() != n || dt.len() != n || sp.len() != n {
         return Err(DbError::LengthMismatch(format!(
@@ -1658,20 +2366,49 @@ pub fn insert_standard_curves(
 
     let well_id_str = well_id.to_string();
     let mut appender: Appender = conn.appender("standard_curves")?;
+    // SB-DBM-030: the standard projection screens and NULL-binds exactly as the generic store
+    // does - one delivery lands in both, and a value screened in one but kept in the other
+    // would be two truths about the same sample.
+    let mut screened: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for i in 0..n {
-        appender.append_row(params![
-            well_id_str,
-            depths[i],
-            gr[i],
-            res_deep[i],
-            nphi[i],
-            rhob[i],
-            dt[i],
-            sp[i],
-        ])?;
+        let supplied = |mnemonic: &str| match mnemonic {
+            "DEPTH" => Some(depths[i]),
+            "GR" => Some(gr[i]),
+            "RES_DEEP" => Some(res_deep[i]),
+            "NPHI" => Some(nphi[i]),
+            "RHOB" => Some(rhob[i]),
+            "DT" => Some(dt[i]),
+            "SP" => Some(sp[i]),
+            _ => None,
+        };
+        let mut values = Vec::with_capacity(crate::schema_vocab::STANDARD_COLUMNS.len() + 1);
+        values.push(duckdb::types::Value::Text(well_id_str.clone()));
+        for column in crate::schema_vocab::STANDARD_COLUMNS {
+            match supplied(column.mnemonic) {
+                // The depth index is never screened: a NULL index row is not a missing
+                // measurement, it is a broken frame, and the parser already rejects one.
+                Some(value) if column.mnemonic == "DEPTH" => {
+                    values.push(duckdb::types::Value::Float(value))
+                }
+                Some(value) if value.is_nan() => values.push(duckdb::types::Value::Null),
+                Some(value) if is_large_negative_null(value) => {
+                    *screened.entry(column.mnemonic).or_insert(0) += 1;
+                    values.push(duckdb::types::Value::Null);
+                }
+                Some(value) => values.push(duckdb::types::Value::Float(value)),
+                None if column.required => {
+                    return Err(DbError::Invalid(format!(
+                        "required standard column '{}' has no insert projection",
+                        column.mnemonic
+                    )));
+                }
+                None => values.push(duckdb::types::Value::Null),
+            }
+        }
+        appender.append_row(duckdb::appender_params_from_iter(values.iter()))?;
     }
     appender.flush()?;
-    Ok(())
+    Ok(screened.into_iter().map(|(mnemonic, count)| (mnemonic.to_string(), count)).collect())
 }
 
 /// Runs `f` inside a single transaction: BEGIN, then COMMIT on Ok / ROLLBACK on Err. Makes a
@@ -1985,6 +2722,11 @@ pub fn delete_aux_set(conn: &Connection, well_id: &str, dataset: &str, set_name:
             "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
             params![well_id, dataset, set_name],
         )?;
+        conn.execute(
+            "DELETE FROM aux_duplicate_depth_resolutions
+             WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
         Ok(n)
     })?;
     let has_active: i64 = conn.query_row(
@@ -2020,13 +2762,176 @@ pub fn insert_aux_data(
     source: Option<&str>,
     rows: &[AuxRow],
 ) -> DbResult<()> {
+    insert_aux_data_with_resolution(
+        conn,
+        well_id,
+        dataset,
+        set_name,
+        source,
+        rows,
+        crate::schema_vocab::DuplicateDepthResolution::Preserve,
+        None,
+    )
+}
+
+#[derive(Debug)]
+struct AuxDuplicateDecision {
+    item: String,
+    source_row: i64,
+    original_depth: f32,
+    stored_depth: f32,
+}
+
+fn depth_identity(depth: f32) -> u32 {
+    if depth == 0.0 {
+        0.0_f32.to_bits()
+    } else {
+        depth.to_bits()
+    }
+}
+
+/// Point-data form of SB-DBM-026. The ordinary import path calls this with explicit PRESERVE;
+/// PERTURB is available only when its caller supplies a positive unit-typed offset. No numeric
+/// fallback exists.
+pub fn insert_aux_data_with_resolution(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    set_name: &str,
+    source: Option<&str>,
+    rows: &[AuxRow],
+    resolution: crate::schema_vocab::DuplicateDepthResolution,
+    perturbation: Option<crate::units::DepthOffset>,
+) -> DbResult<()> {
+    use crate::schema_vocab::DuplicateDepthResolution::{Perturb, Preserve, Refuse};
+
+    match (resolution, perturbation) {
+        (Refuse, _) => {
+            return Err(DbError::Invalid(
+                "POINT duplicate resolution must preserve or perturb, not refuse".into(),
+            ))
+        }
+        (Preserve, Some(_)) => {
+            return Err(DbError::Invalid(
+                "POINT PRESERVE must not carry a perturbation offset".into(),
+            ))
+        }
+        (Perturb, None) => {
+            return Err(DbError::Invalid(
+                "POINT PERTURB requires an explicit positive unit-typed offset; no default ships"
+                    .into(),
+            ))
+        }
+        (Perturb, Some(offset)) if !offset.value.is_finite() || offset.value <= 0.0 => {
+            return Err(DbError::Invalid(
+                "POINT PERTURB offset must be finite and greater than zero".into(),
+            ))
+        }
+        _ => {}
+    }
+    if resolution == Perturb && rows.iter().any(|row| row.depth_base.is_some()) {
+        return Err(DbError::Invalid(
+            "POINT PERTURB refuses interval rows; changing only an interval top would change its meaning"
+                .into(),
+        ));
+    }
+
+    let project_unit = if resolution == Perturb {
+        Some(
+            crate::units::require_project_depth_unit(conn, "POINT duplicate perturbation")
+                .map_err(DbError::Invalid)?,
+        )
+    } else {
+        None
+    };
+    let offset_in_project = match (perturbation, project_unit) {
+        (Some(offset), Some(unit)) => Some(
+            crate::units::convert_depth(offset.value, offset.unit, unit) as f32,
+        ),
+        _ => None,
+    };
+
+    let mut group_counts = std::collections::HashMap::<(String, u32), usize>::new();
+    let mut original_depths = std::collections::HashMap::<String, std::collections::HashSet<u32>>::new();
+    for row in rows {
+        let item = row.item.trim().to_ascii_uppercase();
+        let key = depth_identity(row.depth_top);
+        *group_counts.entry((item.clone(), key)).or_default() += 1;
+        original_depths.entry(item).or_default().insert(key);
+    }
+    let mut occurrences = std::collections::HashMap::<(String, u32), usize>::new();
+    let mut resolved_depths = std::collections::HashMap::<String, std::collections::HashSet<u32>>::new();
+    let mut stored_rows = Vec::with_capacity(rows.len());
+    let mut decisions = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let item_key = row.item.trim().to_ascii_uppercase();
+        let original_key = depth_identity(row.depth_top);
+        let occurrence = occurrences
+            .entry((item_key.clone(), original_key))
+            .or_default();
+        let mut stored = row.clone();
+        if let Some(offset) = offset_in_project.filter(|_| *occurrence > 0) {
+            stored.depth_top = row.depth_top + offset * (*occurrence as f32);
+            if !stored.depth_top.is_finite() {
+                return Err(DbError::Invalid(format!(
+                    "POINT duplicate perturbation refused for item '{}' source row {}: stored depth is not finite",
+                    row.item,
+                    index + 1
+                )));
+            }
+            let stored_key = depth_identity(stored.depth_top);
+            if stored_key == original_key {
+                return Err(DbError::Invalid(format!(
+                    "POINT duplicate perturbation refused for item '{}' source row {}: the unit-typed offset rounds to zero on the stored depth",
+                    row.item,
+                    index + 1
+                )));
+            }
+            if original_depths
+                .get(&item_key)
+                .is_some_and(|depths| depths.contains(&stored_key))
+                || resolved_depths
+                    .get(&item_key)
+                    .is_some_and(|depths| depths.contains(&stored_key))
+            {
+                return Err(DbError::Invalid(format!(
+                    "POINT duplicate perturbation refused for item '{}' source row {}: stored depth {} collides with another source row",
+                    row.item,
+                    index + 1,
+                    stored.depth_top
+                )));
+            }
+        }
+        if resolution == Perturb {
+            resolved_depths
+                .entry(item_key.clone())
+                .or_default()
+                .insert(depth_identity(stored.depth_top));
+        }
+        if group_counts
+            .get(&(item_key, original_key))
+            .copied()
+            .unwrap_or(0)
+            > 1
+        {
+            decisions.push(AuxDuplicateDecision {
+                item: row.item.clone(),
+                source_row: (index + 1) as i64,
+                original_depth: row.depth_top,
+                stored_depth: stored.depth_top,
+            });
+        }
+        stored_rows.push(stored);
+        *occurrence += 1;
+    }
+
     with_txn(conn, |conn| {
         conn.execute(
             "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
             params![well_id, dataset, set_name],
         )?;
         let mut appender: Appender = conn.appender("aux_data")?;
-        for r in rows {
+        for r in &stored_rows {
             appender.append_row(params![
                 well_id,
                 dataset,
@@ -2039,8 +2944,14 @@ pub fn insert_aux_data(
             ])?;
         }
         appender.flush()?;
+        drop(appender);
         conn.execute(
             "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM aux_duplicate_depth_resolutions
+             WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
             params![well_id, dataset, set_name],
         )?;
         conn.execute(
@@ -2048,15 +2959,48 @@ pub fn insert_aux_data(
             params![well_id, dataset],
         )?;
         conn.execute(
-            "INSERT INTO aux_sets (well_id, dataset, set_name, active, source) VALUES (?1, ?2, ?3, 1, ?4)",
-            params![well_id, dataset, set_name, source],
+            "INSERT INTO aux_sets
+                (well_id, dataset, set_name, active, source, sampling_style,
+                 duplicate_resolution, perturbation_value, perturbation_unit)
+             VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                well_id,
+                dataset,
+                set_name,
+                source,
+                crate::schema_vocab::SamplingStyle::Point.as_str(),
+                resolution.as_str(),
+                perturbation.map(|offset| offset.value),
+                perturbation.map(|offset| offset.unit.code())
+            ],
         )?;
+        for decision in &decisions {
+            conn.execute(
+                "INSERT INTO aux_duplicate_depth_resolutions
+                    (well_id, dataset, set_name, item, source_row, original_depth, stored_depth,
+                     resolution, perturbation_value, perturbation_unit)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    well_id,
+                    dataset,
+                    set_name,
+                    decision.item,
+                    decision.source_row,
+                    decision.original_depth,
+                    decision.stored_depth,
+                    resolution.as_str(),
+                    perturbation.map(|offset| offset.value),
+                    perturbation.map(|offset| offset.unit.code())
+                ],
+            )?;
+        }
         Ok(())
     })
 }
 
 /// One well's auxiliary rows from the ACTIVE set of each dataset, ordered by depth then item.
 pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<AuxRow>> {
+    refuse_non_md_active_set(conn, "aux_sets", well_id, dataset)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT a.dataset, a.depth_top, a.depth_base, a.item, a.value_num, a.value_text
          FROM aux_data a
@@ -2398,6 +3342,7 @@ pub fn insert_well_images(
 /// Metadata for a well's pictures, from the ACTIVE delivery of each dataset, ordered by
 /// depth. `dataset = None` spans every dataset. NEVER selects `data` — see [`ImageInfo`].
 pub fn list_well_images(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<ImageInfo>> {
+    refuse_non_md_active_set(conn, "image_sets", well_id, dataset)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
                 i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
@@ -3089,8 +4034,125 @@ pub fn insert_scal_pc(
     })
 }
 
+/// SB-DBM-031 (DEC-073 item 5, RULED): the delivery-set stores that carry a per-SET
+/// depth datum. `true` marks the two whose sets are keyed by (well, dataset, set).
+const SET_DATUM_STORES: &[(&str, bool)] = &[
+    ("core_sets", false),
+    ("aux_sets", true),
+    ("scal_sets", false),
+    ("image_sets", true),
+];
+
+fn set_datum_store(store: &str) -> DbResult<bool> {
+    SET_DATUM_STORES
+        .iter()
+        .find(|(name, _)| *name == store)
+        .map(|(_, has_dataset)| *has_dataset)
+        .ok_or_else(|| DbError::Invalid(format!("'{store}' is not a datum-bearing delivery store")))
+}
+
+/// Declare the datum of ONE registered delivery set. The token is validated against the
+/// shipped vocabulary; an unknown token refuses naming it, and a set that does not exist
+/// refuses rather than silently declaring nothing (SB-DBM-031).
+pub fn declare_set_datum(
+    conn: &Connection,
+    store: &str,
+    well_id: &str,
+    dataset: Option<&str>,
+    set_name: &str,
+    datum: &str,
+) -> DbResult<()> {
+    let has_dataset = set_datum_store(store)?;
+    let datum = crate::schema_vocab::DepthDatum::parse(datum)
+        .ok_or_else(|| {
+            DbError::Invalid(format!(
+                "'{datum}' is not a depth datum; the vocabulary is MD | TVD | TVDSS | TVDKB | TWT | OWT | CDEPTH (SB-DBM-031)"
+            ))
+        })?
+        .as_str();
+    let n = if has_dataset {
+        let dataset = dataset.ok_or_else(|| {
+            DbError::Invalid(format!("'{store}' sets are keyed by dataset; none was named"))
+        })?;
+        conn.execute(
+            &format!(
+                "UPDATE {store} SET depth_datum = ?4 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3"
+            ),
+            params![well_id, dataset, set_name, datum],
+        )?
+    } else {
+        conn.execute(
+            &format!("UPDATE {store} SET depth_datum = ?3 WHERE well_id = ?1 AND set_name = ?2"),
+            params![well_id, set_name, datum],
+        )?
+    };
+    if n == 0 {
+        return Err(DbError::Invalid(format!(
+            "cannot declare a datum on '{set_name}': no such {store} delivery is registered"
+        )));
+    }
+    Ok(())
+}
+
+/// SB-DBM-031's comparison guard, shared by every depth-pairing reader of the four
+/// delivery stores so the refusal text cannot drift. The log frame is MD; an ACTIVE
+/// delivery whose DECLARED datum differs is refused NAMING BOTH datums - comparing an MD
+/// log depth with, say, a TVDSS plug depth is a category error that silently produces a
+/// number (F-17). A legacy set with no declaration (NULL) is the preserved unknown and
+/// passes exactly as it always did; refusing it would relabel unknown as wrong.
+fn refuse_non_md_active_set(
+    conn: &Connection,
+    store: &str,
+    well_id: &str,
+    dataset: Option<&str>,
+) -> DbResult<()> {
+    let has_dataset = set_datum_store(store)?;
+    let mut stmt = if has_dataset {
+        match dataset {
+            Some(_) => conn.prepare(&format!(
+                "SELECT dataset, set_name, depth_datum FROM {store} \
+                 WHERE well_id = ?1 AND active = 1 AND dataset = ?2 AND depth_datum IS NOT NULL"
+            ))?,
+            None => conn.prepare(&format!(
+                "SELECT dataset, set_name, depth_datum FROM {store} \
+                 WHERE well_id = ?1 AND active = 1 AND depth_datum IS NOT NULL"
+            ))?,
+        }
+    } else {
+        conn.prepare(&format!(
+            "SELECT '' AS dataset, set_name, depth_datum FROM {store} \
+             WHERE well_id = ?1 AND active = 1 AND depth_datum IS NOT NULL"
+        ))?
+    };
+    let rows: Vec<(String, String, String)> = if has_dataset && dataset.is_some() {
+        stmt.query_map(params![well_id, dataset.unwrap()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?
+    } else {
+        stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    for (dataset, set_name, datum) in rows {
+        if datum != crate::schema_vocab::DepthDatum::Md.as_str() {
+            let label = if dataset.is_empty() {
+                set_name
+            } else {
+                format!("{dataset}/{set_name}")
+            };
+            return Err(DbError::Invalid(format!(
+                "cross-datum comparison refused: active {store} delivery '{label}' declares \
+                 datum {datum} but the log frame is MD - import the delivery on MD or \
+                 convert it before pairing (SB-DBM-031)"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// One well's capillary-pressure points, from the ACTIVE SCAL delivery.
 pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
+    refuse_non_md_active_set(conn, "scal_sets", well_id, None)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
          WHERE well_id = ?1 AND set_name = {ACTIVE_SCAL_SET} ORDER BY sample_no NULLS FIRST, pc"
@@ -3151,6 +4213,7 @@ pub struct CoreQcRow {
 /// fixed pairs the φ–k and φ–ρg readers return. NULL cells are dropped, not turned into
 /// zeros, so an unfilled column contributes no samples instead of a false cloud at 0.
 pub fn get_core_point_series(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, f32, f32)>> {
+    refuse_non_md_active_set(conn, "core_sets", well_id, None)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT depth, cpor, cperm, cgd, csw FROM core_data
          WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
@@ -3227,6 +4290,9 @@ pub struct WellSummary {
 
 /// Lists every well for the object tree, along with which curve tables actually hold data
 /// for it (so the tree can show real children instead of a fixed guess).
+/// Kept for project-wide diagnostics and integration fixtures; production IPC must use
+/// `list_wells_by_ids` after the backend resolves or declares scope.
+#[allow(dead_code)]
 pub fn list_wells(conn: &Connection) -> DbResult<Vec<WellSummary>> {
     let mut stmt = conn.prepare(
         "SELECT well_id, well_name, field_name, td, kb, surface_x, surface_y, utm_zone FROM wells ORDER BY well_name",
@@ -3250,34 +4316,185 @@ pub fn list_wells(conn: &Connection) -> DbResult<Vec<WellSummary>> {
     Ok(wells)
 }
 
+/// Lists only the backend-authorized wells. The `IN` predicate is deliberate: resolving a
+/// 12-well group and then loading all 540 summaries before filtering would preserve the original
+/// SB-DBM-037 defect behind a correctly scoped id list.
+pub fn list_wells_by_ids(conn: &Connection, well_ids: &[String]) -> DbResult<Vec<WellSummary>> {
+    if well_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?")
+        .take(well_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT well_id, well_name, field_name, td, kb, surface_x, surface_y, utm_zone
+         FROM wells WHERE well_id IN ({placeholders}) ORDER BY well_name, well_id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(well_ids.iter()), |row| {
+        Ok(WellSummary {
+            well_id: row.get(0)?,
+            well_name: row.get(1)?,
+            field_name: row.get(2)?,
+            td: row.get(3)?,
+            kb: row.get(4)?,
+            surface_x: row.get(5)?,
+            surface_y: row.get(6)?,
+            utm_zone: row.get(7)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TopEntry {
     pub top_name: String,
+    /// Depth on the MD frame consumed by the existing log, correlation and zone surfaces.
     pub depth: f32,
+    /// Delivered value retained without rewriting, with its declared source reference.
+    pub source_depth: f32,
+    pub source_depth_datum: Option<crate::schema_vocab::DepthDatum>,
     pub color: Option<String>,
 }
 
 /// Lists the formation tops for one well, ordered by depth (a formation-tops
-/// equivalent — the Tops panel's data source).
+/// equivalent — the Tops panel's data source). A TVD source is converted to MD only through
+/// the active deviation survey; without that frame the MD consumer is refused by name.
 pub fn list_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<TopEntry>> {
-    let mut stmt = conn.prepare("SELECT top_name, depth, color FROM tops WHERE well_id = ?1 ORDER BY depth")?;
+    let mut stmt = conn.prepare(
+        "SELECT top_name, depth, depth_datum, color FROM tops WHERE well_id = ?1 ORDER BY depth",
+    )?;
     let rows = stmt.query_map(params![well_id], |row| {
-        Ok(TopEntry { top_name: row.get(0)?, depth: row.get(1)?, color: row.get(2)? })
+        let raw_datum: Option<String> = row.get(2)?;
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, f32>(1)?,
+            raw_datum,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
-    let mut tops = Vec::new();
+    let mut raw_tops = Vec::new();
     for r in rows {
-        tops.push(r?);
+        raw_tops.push(r?);
     }
+
+    let needs_tvd_frame = raw_tops
+        .iter()
+        .any(|(_, _, datum, _)| datum.as_deref().and_then(crate::schema_vocab::DepthDatum::parse)
+            == Some(crate::schema_vocab::DepthDatum::Tvd));
+    let survey = if needs_tvd_frame {
+        let path = get_well_path(conn, well_id)?;
+        if path.is_empty() {
+            return Err(DbError::Invalid(
+                "TVD-referenced tops cannot be plotted, joined or compared on an MD log: the well has no active deviation survey"
+                    .into(),
+            ));
+        }
+        Some(path)
+    } else {
+        None
+    };
+
+    let mut tops = Vec::with_capacity(raw_tops.len());
+    for (top_name, source_depth, raw_datum, color) in raw_tops {
+        let source_depth_datum = match raw_datum.as_deref() {
+            Some(value) => Some(crate::schema_vocab::DepthDatum::parse(value).ok_or_else(|| {
+                DbError::Invalid(format!("formation top '{top_name}' has unknown depth datum '{value}'"))
+            })?),
+            None => None,
+        };
+        let depth = match source_depth_datum {
+            Some(crate::schema_vocab::DepthDatum::Md) | None => source_depth,
+            Some(crate::schema_vocab::DepthDatum::Tvd) => md_at_tvd(
+                survey.as_deref().expect("TVD rows require a loaded survey"),
+                source_depth,
+                &top_name,
+            )?,
+            Some(other) => {
+                return Err(DbError::Invalid(format!(
+                    "formation top '{top_name}' is {}-referenced and cannot be used on an MD log without an implemented reference transform",
+                    other.as_str()
+                )))
+            }
+        };
+        tops.push(TopEntry { top_name, depth, source_depth, source_depth_datum, color });
+    }
+    tops.sort_by(|left, right| left.depth.total_cmp(&right.depth));
     Ok(tops)
+}
+
+fn md_at_tvd(stations: &[WellPathStation], tvd: f32, top_name: &str) -> DbResult<f32> {
+    let mut candidates = stations
+        .iter()
+        .filter(|station| station.tvd == tvd)
+        .map(|station| station.md)
+        .collect::<Vec<_>>();
+    for pair in stations.windows(2) {
+        let (left, right) = (&pair[0], &pair[1]);
+        if left.tvd == right.tvd {
+            continue;
+        }
+        let inside = (tvd > left.tvd && tvd < right.tvd) || (tvd < left.tvd && tvd > right.tvd);
+        if inside {
+            let fraction = (tvd - left.tvd) / (right.tvd - left.tvd);
+            candidates.push(left.md + fraction * (right.md - left.md));
+        }
+    }
+    candidates.sort_by(f32::total_cmp);
+    candidates.dedup();
+    match candidates.as_slice() {
+        [md] => Ok(*md),
+        [] => Err(DbError::Invalid(format!(
+            "TVD-referenced top '{top_name}' at {tvd} cannot be placed on the MD log because the active deviation survey does not cover that TVD"
+        ))),
+        _ => Err(DbError::Invalid(format!(
+            "TVD-referenced top '{top_name}' at {tvd} cannot be placed uniquely on the MD log by the active deviation survey"
+        ))),
+    }
 }
 
 /// Upserts a formation top by (well_id, top_name).
 pub fn upsert_top(conn: &Connection, well_id: &str, top_name: &str, depth: f32, color: Option<&str>) -> DbResult<()> {
+    let existing_datum: Option<Option<String>> = conn
+        .query_row(
+            "SELECT depth_datum FROM tops WHERE well_id = ?1 AND top_name = ?2",
+            params![well_id, top_name],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(Some(existing_datum)) = existing_datum {
+        if existing_datum != crate::schema_vocab::DepthDatum::Md.as_str() {
+            return Err(DbError::Invalid(format!(
+                "{existing_datum}-referenced top '{top_name}' cannot be rewritten by the MD tops editor; re-import it with an explicit source reference"
+            )));
+        }
+    }
+    upsert_top_with_datum(
+        conn,
+        well_id,
+        top_name,
+        depth,
+        crate::schema_vocab::DepthDatum::Md,
+        color,
+    )
+}
+
+/// Upserts a formation top while retaining the reference declared by its source.
+pub fn upsert_top_with_datum(
+    conn: &Connection,
+    well_id: &str,
+    top_name: &str,
+    depth: f32,
+    depth_datum: crate::schema_vocab::DepthDatum,
+    color: Option<&str>,
+) -> DbResult<()> {
     conn.execute(
-        "INSERT INTO tops (well_id, top_name, depth, color) VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO tops (well_id, top_name, depth, depth_datum, color) VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT (well_id, top_name) DO UPDATE SET depth = excluded.depth,
+             depth_datum = excluded.depth_datum,
              color = COALESCE(excluded.color, tops.color)",
-        params![well_id, top_name, depth, color],
+        params![well_id, top_name, depth, depth_datum.as_str(), color],
     )?;
     Ok(())
 }
@@ -3287,26 +4504,68 @@ pub struct ZoneEntry {
     pub zone_name: String,
     pub top_depth: f32,
     pub bottom_depth: f32,
+    pub depth_datum: crate::schema_vocab::DepthDatum,
 }
 
 pub fn list_zones(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEntry>> {
-    let mut stmt =
-        conn.prepare("SELECT zone_name, top_depth, bottom_depth FROM zones WHERE well_id = ?1 ORDER BY top_depth")?;
+    let mut stmt = conn.prepare(
+        "SELECT zone_name, top_depth, bottom_depth, depth_datum
+         FROM zones WHERE well_id = ?1 ORDER BY top_depth",
+    )?;
     let rows = stmt.query_map(params![well_id], |row| {
-        Ok(ZoneEntry { zone_name: row.get(0)?, top_depth: row.get(1)?, bottom_depth: row.get(2)? })
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, f32>(1)?,
+            row.get::<_, f32>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
     let mut zones = Vec::new();
     for r in rows {
-        zones.push(r?);
+        let (zone_name, top_depth, bottom_depth, datum) = r?;
+        let datum = datum.ok_or_else(|| {
+            DbError::Invalid(format!(
+                "zone '{zone_name}' has no declared depth datum; assign one before reading or comparing it"
+            ))
+        })?;
+        let depth_datum = crate::schema_vocab::DepthDatum::parse(&datum).ok_or_else(|| {
+            DbError::Invalid(format!("zone '{zone_name}' has unsupported depth datum '{datum}'"))
+        })?;
+        zones.push(ZoneEntry { zone_name, top_depth, bottom_depth, depth_datum });
     }
     Ok(zones)
 }
 
-pub fn upsert_zone(conn: &Connection, well_id: &str, zone_name: &str, top_depth: f32, bottom_depth: f32) -> DbResult<()> {
+/// Explicit measured-depth convenience for writers whose input is already on the standard MD
+/// reference. The name is intentionally not datum-neutral: callers must not use it for an
+/// unclassified legacy depth.
+pub fn upsert_md_zone(conn: &Connection, well_id: &str, zone_name: &str, top_depth: f32, bottom_depth: f32) -> DbResult<()> {
+    upsert_zone_with_datum(
+        conn,
+        well_id,
+        zone_name,
+        top_depth,
+        bottom_depth,
+        crate::schema_vocab::DepthDatum::Md,
+    )
+}
+
+pub fn upsert_zone_with_datum(
+    conn: &Connection,
+    well_id: &str,
+    zone_name: &str,
+    top_depth: f32,
+    bottom_depth: f32,
+    depth_datum: crate::schema_vocab::DepthDatum,
+) -> DbResult<()> {
     conn.execute(
-        "INSERT INTO zones (well_id, zone_name, top_depth, bottom_depth) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (well_id, zone_name) DO UPDATE SET top_depth = excluded.top_depth, bottom_depth = excluded.bottom_depth",
-        params![well_id, zone_name, top_depth, bottom_depth],
+        "INSERT INTO zones (well_id, zone_name, top_depth, bottom_depth, depth_datum)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (well_id, zone_name) DO UPDATE SET
+             top_depth = excluded.top_depth,
+             bottom_depth = excluded.bottom_depth,
+             depth_datum = excluded.depth_datum",
+        params![well_id, zone_name, top_depth, bottom_depth, depth_datum.as_str()],
     )?;
     Ok(())
 }
@@ -3380,6 +4639,7 @@ pub struct FluidContact {
     pub well_id: Option<String>,
     pub contact_type: String,
     pub depth: f64,
+    pub depth_datum: crate::schema_vocab::DepthDatum,
     pub is_tvdss: bool,
     pub color: Option<String>,
     pub label: Option<String>,
@@ -3391,35 +4651,85 @@ pub struct FluidContact {
     pub zones: Vec<String>,
 }
 
-/// Every fluid contact in the project. There are few of these (one per reservoir/field),
-/// so the correlation view fetches them all and decides per well which apply.
-pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
-    let mut stmt = conn.prepare(
-        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment
-         FROM fluid_contacts ORDER BY depth",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(FluidContact {
-            contact_id: row.get(0)?,
-            field_name: row.get(1)?,
-            well_id: row.get(2)?,
-            contact_type: row.get(3)?,
-            depth: row.get(4)?,
-            is_tvdss: row.get(5)?,
-            color: row.get(6)?,
-            label: row.get(7)?,
-            compartment: row.get(8)?,
-            zones: Vec::new(),
-        })
-    })?;
+/// Shared loader for either every project contact or only contacts owned by a backend-authorized
+/// well set. The scoped branch constrains both contact rows and marker links in SQL.
+fn list_fluid_contacts_scoped(
+    conn: &Connection,
+    well_ids: Option<&[String]>,
+) -> DbResult<Vec<FluidContact>> {
+    if well_ids.is_some_and(|ids| ids.is_empty()) {
+        return Ok(Vec::new());
+    }
+    let placeholders = well_ids.map(|ids| {
+        std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ")
+    });
+    let where_clause = placeholders
+        .as_ref()
+        .map(|items| format!(" WHERE well_id IN ({items})"))
+        .unwrap_or_default();
+    let contact_sql = format!(
+        "SELECT contact_id, field_name, well_id, contact_type, depth, depth_datum, color, label, compartment
+         FROM fluid_contacts{where_clause} ORDER BY depth"
+    );
+    let mut stmt = conn.prepare(&contact_sql)?;
+    let mut read_row = |row: &duckdb::Row<'_>| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, f64>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<String>>(8)?,
+        ))
+    };
+    let rows = match well_ids {
+        Some(ids) => stmt.query_map(params_from_iter(ids.iter()), &mut read_row)?,
+        None => stmt.query_map([], &mut read_row)?,
+    };
     let mut contacts = Vec::new();
     for r in rows {
-        contacts.push(r?);
+        let (contact_id, field_name, well_id, contact_type, depth, datum, color, label, compartment) = r?;
+        let depth_datum = crate::schema_vocab::DepthDatum::parse(&datum).ok_or_else(|| {
+            DbError::Invalid(format!("contact '{contact_id}' has unsupported depth datum '{datum}'"))
+        })?;
+        contacts.push(FluidContact {
+            contact_id,
+            field_name,
+            well_id,
+            contact_type,
+            depth,
+            depth_datum,
+            is_tvdss: depth_datum == crate::schema_vocab::DepthDatum::Tvdss,
+            color,
+            label,
+            compartment,
+            zones: Vec::new(),
+        });
     }
     // One scan of the link table rather than a query per contact: there are few contacts, but a
     // per-row query is how a list turns into N round trips on a field-scale project.
-    let mut zstmt = conn.prepare("SELECT contact_id, zone_name FROM contact_zones ORDER BY zone_name")?;
-    let links = zstmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let zone_where = placeholders
+        .as_ref()
+        .map(|items| {
+            format!(
+                " WHERE contact_id IN (SELECT contact_id FROM fluid_contacts WHERE well_id IN ({items}))"
+            )
+        })
+        .unwrap_or_default();
+    let zone_sql = format!(
+        "SELECT contact_id, zone_name FROM contact_zones{zone_where} ORDER BY zone_name"
+    );
+    let mut zstmt = conn.prepare(&zone_sql)?;
+    let mut read_link = |row: &duckdb::Row<'_>| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    };
+    let links = match well_ids {
+        Some(ids) => zstmt.query_map(params_from_iter(ids.iter()), &mut read_link)?,
+        None => zstmt.query_map([], &mut read_link)?,
+    };
     let mut by_id: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for l in links {
         let (id, zone) = l?;
@@ -3433,29 +4743,58 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
     Ok(contacts)
 }
 
+/// Every fluid contact in the project. There are few of these (one per reservoir/field),
+/// so the correlation view fetches them all and decides per well which apply.
+pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
+    list_fluid_contacts_scoped(conn, None)
+}
+
+/// Only contacts owned by the backend-authorized wells. Project/field contacts with no well id
+/// are deliberately absent: cross-well consistency and FWL agreement operate on well picks only.
+pub fn list_fluid_contacts_for_wells(
+    conn: &Connection,
+    well_ids: &[String],
+) -> DbResult<Vec<FluidContact>> {
+    list_fluid_contacts_scoped(conn, Some(well_ids))
+}
+
 #[allow(clippy::too_many_arguments)]
-pub fn upsert_fluid_contact(
+pub fn upsert_fluid_contact_with_datum(
     conn: &Connection,
     contact_id: &str,
     field_name: Option<&str>,
     well_id: Option<&str>,
     contact_type: &str,
     depth: f64,
-    is_tvdss: bool,
+    depth_datum: crate::schema_vocab::DepthDatum,
     color: Option<&str>,
     label: Option<&str>,
     compartment: Option<&str>,
     zones: &[String],
 ) -> DbResult<()> {
+    let is_tvdss = depth_datum == crate::schema_vocab::DepthDatum::Tvdss;
     conn.execute(
-        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "INSERT INTO fluid_contacts
+             (contact_id, field_name, well_id, contact_type, depth, is_tvdss, depth_datum, color, label, compartment)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (contact_id) DO UPDATE SET
              field_name = excluded.field_name, well_id = excluded.well_id,
              contact_type = excluded.contact_type, depth = excluded.depth,
-             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label,
+             is_tvdss = excluded.is_tvdss, depth_datum = excluded.depth_datum,
+             color = excluded.color, label = excluded.label,
              compartment = excluded.compartment",
-        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment],
+        params![
+            contact_id,
+            field_name,
+            well_id,
+            contact_type,
+            depth,
+            is_tvdss,
+            depth_datum.as_str(),
+            color,
+            label,
+            compartment
+        ],
     )?;
     // Replace the marker links wholesale. An upsert that only ADDED would make removing a marker
     // impossible, and a contact silently governing a sand the user took it off is the same class
@@ -3650,8 +4989,13 @@ pub fn zones_from_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEnt
         let mut zones = Vec::new();
         for (i, top) in tops.iter().enumerate() {
             let bottom = tops.get(i + 1).map(|t| t.depth).unwrap_or_else(|| max_depth.max(top.depth));
-            upsert_zone(conn, well_id, &top.top_name, top.depth, bottom)?;
-            zones.push(ZoneEntry { zone_name: top.top_name.clone(), top_depth: top.depth, bottom_depth: bottom });
+            upsert_md_zone(conn, well_id, &top.top_name, top.depth, bottom)?;
+            zones.push(ZoneEntry {
+                zone_name: top.top_name.clone(),
+                top_depth: top.depth,
+                bottom_depth: bottom,
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
+            });
         }
         Ok(zones)
     })
@@ -3663,20 +5007,157 @@ pub fn zones_from_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEnt
 // SQL — table and column names are validated against these specs.
 // ---------------------------------------------------------------------------
 
-/// (table, columns, well_scoped, ORDER BY clause)
-const TABLE_SPECS: &[(&str, &[&str], bool, &str)] = &[
-    ("wells", &["well_id", "well_name", "field_name", "td", "kb"], false, "well_name"),
-    ("standard_curves", &["depth", "gr", "res_deep", "nphi", "rhob", "dt", "sp"], true, "depth"),
-    ("computed_curves", &["depth", "curve_name", "value"], true, "curve_name, depth"),
-    ("tops", &["top_name", "depth", "color"], true, "depth"),
-    ("zones", &["zone_name", "top_depth", "bottom_depth"], true, "top_depth"),
-    ("zone_params", &["zone_name", "param_name", "value_num", "value_text"], true, "zone_name, param_name"),
-    // set_name is listed (read-only, like every non-editable column) so a well carrying
-    // several core deliveries can be told apart in the grid; edits still target the
-    // ACTIVE set only (see `update_core_sample`).
-    ("core_data", &["set_name", "depth", "cpor", "cperm", "cgd", "csw"], true, "set_name, depth"),
-    ("aux_data", &["dataset", "depth_top", "depth_base", "item", "value_num", "value_text"], true, "dataset, depth_top, item"),
-];
+struct TableSpec {
+    table: &'static str,
+    columns: Vec<&'static str>,
+    well_scoped: bool,
+    order: &'static str,
+}
+
+fn table_specs() -> Vec<TableSpec> {
+    vec![
+        TableSpec {
+            table: "wells",
+            columns: vec!["well_id", "well_name", "field_name", "td", "kb"],
+            well_scoped: false,
+            order: "well_name",
+        },
+        TableSpec {
+            table: "standard_curves",
+            columns: crate::schema_vocab::standard_projections().inspector_columns,
+            well_scoped: true,
+            order: crate::schema_vocab::STANDARD_COLUMNS[0].storage_column,
+        },
+        TableSpec {
+            table: "computed_curves",
+            columns: vec!["depth", "curve_name", "value"],
+            well_scoped: true,
+            order: "curve_name, depth",
+        },
+        TableSpec {
+            table: "tops",
+            columns: vec!["top_name", "depth", "depth_datum", "color"],
+            well_scoped: true,
+            order: "depth",
+        },
+        TableSpec {
+            table: "zones",
+            columns: vec!["zone_name", "top_depth", "bottom_depth"],
+            well_scoped: true,
+            order: "top_depth",
+        },
+        TableSpec {
+            table: "zone_params",
+            columns: vec!["zone_name", "param_name", "value_num", "value_text"],
+            well_scoped: true,
+            order: "zone_name, param_name",
+        },
+        // set_name is listed (read-only, like every non-editable column) so a well carrying
+        // several core deliveries can be told apart in the grid; edits still target the
+        // ACTIVE set only (see `update_core_sample`).
+        TableSpec {
+            table: "core_data",
+            columns: vec!["set_name", "depth", "cpor", "cperm", "cgd", "csw"],
+            well_scoped: true,
+            order: "set_name, depth",
+        },
+        TableSpec {
+            table: "aux_data",
+            columns: vec![
+                "dataset",
+                "depth_top",
+                "depth_base",
+                "item",
+                "value_num",
+                "value_text",
+            ],
+            well_scoped: true,
+            order: "dataset, depth_top, item",
+        },
+        // SB-DBM-041 T42 (2026-08-19): the provenance and audit registry is BROWSABLE.
+        // These grids are read-only by construction - inspector writes go through the
+        // explicit per-table commands (rule 6) and none exists for any of them: an audit
+        // or provenance row edited in a grid is a falsified record. `ml_models`
+        // deliberately omits `data` - the joblib blob follows the same never-select rule
+        // as `list_ml_models`.
+        TableSpec {
+            table: "log_sets",
+            columns: vec![
+                "set_id", "well_id", "set_name", "version", "module", "params_json",
+                "inputs_json", "created_at", "frame", "sampling_style",
+                "duplicate_resolution", "outcome_state", "comment", "applied_steps_json",
+            ],
+            well_scoped: true,
+            order: "set_name, version",
+        },
+        TableSpec {
+            table: "audit_entry",
+            // NOT well-scoped: well_id is nullable and project-level gestures carry none,
+            // so a mandatory well filter would hide exactly the entries it exists to show.
+            columns: vec![
+                "entry_id", "entry_seq", "well_id", "ts_utc", "operator", "operator_kind",
+                "view", "source", "comment", "zone_set_version", "zone_set_digest",
+                "repeat_count",
+            ],
+            well_scoped: false,
+            order: "entry_seq",
+        },
+        TableSpec {
+            table: "audit_detail",
+            columns: vec!["entry_id", "seq", "location", "mode", "unit", "name", "value"],
+            well_scoped: false,
+            order: "entry_id, seq",
+        },
+        TableSpec {
+            table: "zone_set_versions",
+            columns: vec!["well_id", "version", "digest", "created_at"],
+            well_scoped: true,
+            order: "version",
+        },
+        TableSpec {
+            table: "run_parameters",
+            columns: vec![
+                "set_id", "position", "name", "value_json", "source", "state", "resolution",
+                "manifest_version",
+            ],
+            well_scoped: false,
+            order: "set_id, position",
+        },
+        TableSpec {
+            table: "run_degradations",
+            columns: vec!["set_id", "position", "module", "kind", "detail", "occurrences"],
+            well_scoped: false,
+            order: "set_id, position",
+        },
+        TableSpec {
+            table: "computed_curves_archive",
+            columns: vec!["set_id", "well_id", "depth", "curve_name", "value"],
+            well_scoped: true,
+            order: "set_id, curve_name, depth",
+        },
+        TableSpec {
+            table: "curve_meta",
+            columns: vec![
+                "curve_id", "well_id", "set_name", "mnemonic", "unit", "family", "source",
+                "run_no", "pinned", "set_version", "final_flag", "neutron_basis",
+                "neutron_basis_source",
+            ],
+            well_scoped: true,
+            order: "set_name, mnemonic, set_version",
+        },
+        TableSpec {
+            table: "ml_models",
+            columns: vec![
+                "model_id", "name", "task", "algorithm", "feature_curves", "target_curve",
+                "params_json", "metrics_json", "trained_on", "n_train", "standardize",
+                "sklearn_version", "note", "created_at", "train_hash", "training_json",
+                "runtime_json",
+            ],
+            well_scoped: false,
+            order: "name",
+        },
+    ]
+}
 
 #[derive(Debug, Serialize)]
 pub struct TablePage {
@@ -3684,9 +5165,20 @@ pub struct TablePage {
     /// Cells stringified by DuckDB's VARCHAR cast; None = SQL NULL.
     pub rows: Vec<Vec<Option<String>>>,
     pub total_rows: usize,
-    /// True when `total_rows` is a display cap rather than a true count — the SQL console's
-    /// `LIMIT + 1` probe found more rows than it returned, so the real result is larger. The
-    /// paginated inspector path always leaves this false: its `total_rows` is a real COUNT(*).
+    /// Always false on this inspector path: `total_rows` is a real COUNT(*), separate from the
+    /// number of rows returned in this page.
+    pub truncated: bool,
+}
+
+/// SQL-console response. Deliberately not [`TablePage`]: `returned_rows` is the page size after
+/// the cap, never the inspector's true total, and `count_is_total = false` states that distinction
+/// on the wire instead of relying on explanatory UI text.
+#[derive(Debug, Serialize)]
+pub struct QueryPage {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+    pub returned_rows: usize,
+    pub count_is_total: bool,
     pub truncated: bool,
 }
 
@@ -3699,11 +5191,14 @@ pub fn get_table_page(
     offset: usize,
     limit: usize,
 ) -> Result<TablePage, String> {
-    let spec = TABLE_SPECS
+    let specs = table_specs();
+    let spec = specs
         .iter()
-        .find(|(t, ..)| *t == table)
+        .find(|spec| spec.table == table)
         .ok_or_else(|| format!("unknown table '{table}'"))?;
-    let (_, columns, well_scoped, order) = *spec;
+    let columns = &spec.columns;
+    let well_scoped = spec.well_scoped;
+    let order = spec.order;
     if well_scoped && well_id.is_none() {
         return Err(format!("table '{table}' requires a well"));
     }
@@ -3747,10 +5242,457 @@ pub fn get_table_page(
     run().map_err(|e| e.to_string())
 }
 
+pub const INTEGRITY_CURRENT_LOG_SET_CLASS: &str = "computed_curves_missing_log_set";
+pub const INTEGRITY_ARCHIVE_LOG_SET_CLASS: &str = "computed_curves_archive_missing_log_set";
+pub const INTEGRITY_WELL_GROUP_MEMBER_CLASS: &str = "well_group_members_missing_well";
+pub const INTEGRITY_CURVE_SAMPLE_CLASS: &str = "curve_samples_missing_curve_meta";
+pub const INTEGRITY_ML_TRAINING_WELL_CLASS: &str = "ml_models_unresolved_training_wells";
+pub const INTEGRITY_CURRENT_DUPLICATE_CLASS: &str = "computed_curves_duplicate_depths";
+pub const INTEGRITY_ARCHIVE_DUPLICATE_CLASS: &str = "computed_curves_archive_duplicate_depths";
+
+const PRUNABLE_INTEGRITY_CLASSES: [&str; 4] = [
+    INTEGRITY_CURRENT_LOG_SET_CLASS,
+    INTEGRITY_ARCHIVE_LOG_SET_CLASS,
+    INTEGRITY_WELL_GROUP_MEMBER_CLASS,
+    INTEGRITY_CURVE_SAMPLE_CLASS,
+];
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IntegrityClassReport {
+    pub class_id: String,
+    pub name: String,
+    /// Rows for dangling-reference classes; unresolved models for ML; duplicate key groups for
+    /// the two PK-less computed stores. The unit is named in `name`, never inferred by the UI.
+    pub count: usize,
+    pub prunable_count: usize,
+    pub can_prune: bool,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IntegrityPruneOffer {
+    pub offered: bool,
+    pub prunable_findings: usize,
+    pub class_ids: Vec<String>,
+    pub recovery: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RecoverableIntegrityPrune {
+    pub batch_id: String,
+    pub created_at: String,
+    pub class_ids: Vec<String>,
+    pub pruned_findings: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IntegrityReport {
+    pub classes: Vec<IntegrityClassReport>,
+    pub checked_class_count: usize,
+    pub finding_count: usize,
+    pub summary: String,
+    pub prune: IntegrityPruneOffer,
+    /// ACTIVE quarantine batches survive an app restart and remain restorable from the checker.
+    pub recoverable_prunes: Vec<RecoverableIntegrityPrune>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IntegrityPruneClassReceipt {
+    pub class_id: String,
+    pub pruned_findings: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IntegrityPruneReceipt {
+    pub batch_id: String,
+    pub pruned_findings: usize,
+    pub classes: Vec<IntegrityPruneClassReceipt>,
+}
+
+fn integrity_count(conn: &Connection, sql: &str) -> Result<usize, String> {
+    conn.query_row(sql, [], |row| row.get::<_, i64>(0))
+        .map(|count| count.max(0) as usize)
+        .map_err(|error| error.to_string())
+}
+
+/// Counts models whose stored `trained_on` JSON is absent in substance, malformed, or does not
+/// resolve every recorded well name to exactly one current well. It deliberately does not infer a
+/// model-to-well identity from sample data or another metadata field.
+fn unresolved_ml_training_model_count(conn: &Connection) -> Result<usize, String> {
+    let mut stmt = conn.prepare("SELECT trained_on FROM ml_models ORDER BY model_id").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    let mut unresolved = 0usize;
+    for row in rows {
+        let encoded = row.map_err(|e| e.to_string())?;
+        let Ok(names) = serde_json::from_str::<Vec<String>>(&encoded) else { unresolved += 1; continue };
+        if names.is_empty() { unresolved += 1; continue; }
+        let mut resolves = true;
+        for name in names {
+            if name.trim().is_empty() {
+                resolves = false;
+                break;
+            }
+            let matches: i64 = conn.query_row(
+                "SELECT count(*) FROM wells WHERE well_name = ?1",
+                params![name],
+                |row| row.get(0),
+            ).map_err(|e| e.to_string())?;
+            if matches != 1 { resolves = false; break; }
+        }
+        if !resolves { unresolved += 1; }
+    }
+    Ok(unresolved)
+}
+
+fn active_integrity_prunes(conn: &Connection) -> Result<Vec<RecoverableIntegrityPrune>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT CAST(b.batch_id AS VARCHAR), CAST(b.created_at AS VARCHAR), b.classes,
+                (SELECT count(*) FROM integrity_quarantine_computed q WHERE q.batch_id = b.batch_id) +
+                (SELECT count(*) FROM integrity_quarantine_group_members q WHERE q.batch_id = b.batch_id) +
+                (SELECT count(*) FROM integrity_quarantine_curve_samples q WHERE q.batch_id = b.batch_id)
+         FROM integrity_prune_batches b WHERE b.state = 'ACTIVE'
+         ORDER BY b.created_at DESC, b.batch_id"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        let classes: String = row.get(2)?;
+        Ok(RecoverableIntegrityPrune {
+            batch_id: row.get(0)?,
+            created_at: row.get(1)?,
+            class_ids: classes.split(',').filter(|item| !item.is_empty()).map(str::to_string).collect(),
+            pruned_findings: row.get::<_, i64>(3)?.max(0) as usize,
+        })
+    }).map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Read-only, exhaustive SB-DBM-027 checker. Every class is emitted even at zero; the summary
+/// always names how many classes were checked, so an empty finding set can never collapse to a
+/// content-free "clean" badge.
+pub fn check_referential_integrity(conn: &Connection) -> Result<IntegrityReport, String> {
+    let current_missing = integrity_count(conn,
+        "SELECT count(*) FROM computed_curves c LEFT JOIN log_sets l ON l.set_id = c.set_id WHERE l.set_id IS NULL")?;
+    let current_prunable = integrity_count(conn,
+        "SELECT count(*) FROM computed_curves c LEFT JOIN log_sets l ON l.set_id = c.set_id
+         WHERE c.set_id IS NOT NULL AND l.set_id IS NULL")?;
+    let archive_missing = integrity_count(conn,
+        "SELECT count(*) FROM computed_curves_archive a LEFT JOIN log_sets l ON l.set_id = a.set_id
+         WHERE l.set_id IS NULL")?;
+    let group_missing = integrity_count(conn,
+        "SELECT count(*) FROM well_group_members m LEFT JOIN wells w ON w.well_id = m.well_id
+         WHERE w.well_id IS NULL")?;
+    let sample_missing = integrity_count(conn,
+        "SELECT count(*) FROM curve_samples s LEFT JOIN curve_meta m ON m.curve_id = s.curve_id
+         WHERE m.curve_id IS NULL")?;
+    let ml_unresolved = unresolved_ml_training_model_count(conn)?;
+    let current_duplicates = integrity_count(conn,
+        "SELECT count(*) FROM (SELECT well_id, curve_name, depth FROM computed_curves
+         GROUP BY well_id, curve_name, depth HAVING count(*) > 1) duplicate_keys")?;
+    // Versions legitimately repeat a tuple across set_id values, so archive uniqueness belongs
+    // inside one declared set — the identity SB-DBM-026 actually writes.
+    let archive_duplicates = integrity_count(conn,
+        "SELECT count(*) FROM (SELECT set_id, well_id, curve_name, depth FROM computed_curves_archive
+         GROUP BY set_id, well_id, curve_name, depth HAVING count(*) > 1) duplicate_keys")?;
+    let classes = vec![
+        IntegrityClassReport { class_id: INTEGRITY_CURRENT_LOG_SET_CLASS.into(), name: "Current computed rows without a resolvable log set (rows; includes legacy NULL set_id)".into(), count: current_missing, prunable_count: current_prunable, can_prune: true, action: "Quarantine broken non-NULL references; keep legacy NULL rows labelled and visible.".into() },
+        IntegrityClassReport { class_id: INTEGRITY_ARCHIVE_LOG_SET_CLASS.into(), name: "Archived computed rows without a resolvable log set (rows)".into(), count: archive_missing, prunable_count: archive_missing, can_prune: true, action: "Quarantine the orphan archive rows; restore remains available by batch.".into() },
+        IntegrityClassReport { class_id: INTEGRITY_WELL_GROUP_MEMBER_CLASS.into(), name: "Well-group memberships whose well is missing (rows)".into(), count: group_missing, prunable_count: group_missing, can_prune: true, action: "Quarantine the dangling membership rows; restore remains available by batch.".into() },
+        IntegrityClassReport { class_id: INTEGRITY_CURVE_SAMPLE_CLASS.into(), name: "Curve samples whose curve metadata is missing (rows)".into(), count: sample_missing, prunable_count: sample_missing, can_prune: true, action: "Quarantine the orphan samples without serialising their numeric payload through IPC.".into() },
+        IntegrityClassReport { class_id: INTEGRITY_ML_TRAINING_WELL_CLASS.into(), name: "ML models with unresolved trained-on well names (models)".into(), count: ml_unresolved, prunable_count: 0, can_prune: false, action: "Repair the stored training provenance or retire the model explicitly; never infer or auto-delete it.".into() },
+        IntegrityClassReport { class_id: INTEGRITY_CURRENT_DUPLICATE_CLASS.into(), name: "Duplicate current computed curve-depth keys (duplicate tuples)".into(), count: current_duplicates, prunable_count: 0, can_prune: false, action: "Supply the declared SB-DBM-026 resolution; the checker never chooses a survivor.".into() },
+        IntegrityClassReport { class_id: INTEGRITY_ARCHIVE_DUPLICATE_CLASS.into(), name: "Duplicate archived set/curve-depth keys (duplicate tuples)".into(), count: archive_duplicates, prunable_count: 0, can_prune: false, action: "Supply the declared SB-DBM-026 resolution; the checker never chooses a survivor.".into() },
+    ];
+    let checked_class_count = classes.len();
+    let finding_count = classes.iter().map(|class| class.count).sum();
+    let prunable_findings = classes.iter().map(|class| class.prunable_count).sum();
+    Ok(IntegrityReport {
+        classes, checked_class_count, finding_count,
+        summary: format!("Checked {checked_class_count} integrity classes; {finding_count} findings."),
+        prune: IntegrityPruneOffer {
+            offered: true,
+            prunable_findings,
+            class_ids: PRUNABLE_INTEGRITY_CLASSES.iter().map(|class| (*class).to_string()).collect(),
+            recovery: "Selected orphan rows move to typed project quarantine; Undo/Redo and post-restart restore keep the exact values.".into(),
+        },
+        recoverable_prunes: active_integrity_prunes(conn)?,
+    })
+}
+
+/// Moves selected, explicitly prunable classes into typed quarantine in one transaction. No
+/// frontend SQL, no numeric sample arrays over IPC, and no automatic ML/duplicate resolution.
+pub fn prune_referential_integrity(conn: &Connection, class_ids: &[String]) -> Result<IntegrityPruneReceipt, String> {
+    if class_ids.is_empty() { return Err("select at least one prunable integrity class".into()); }
+    let mut selected = Vec::<&str>::new();
+    for class_id in class_ids {
+        if selected.contains(&class_id.as_str()) {
+            return Err(format!("integrity class '{class_id}' was selected more than once"));
+        }
+        if !PRUNABLE_INTEGRITY_CLASSES.contains(&class_id.as_str()) {
+            return Err(format!("integrity class '{class_id}' is report-only; resolving it requires an explicit identity or survivor decision"));
+        }
+        selected.push(class_id);
+    }
+    let batch_id = Uuid::new_v4().to_string();
+    let classes_csv = selected.join(",");
+    with_txn(conn, |conn| -> DbResult<IntegrityPruneReceipt> {
+        conn.execute(
+            "INSERT INTO integrity_prune_batches (batch_id, state, classes) VALUES (?1, 'ACTIVE', ?2)",
+            params![batch_id, classes_csv],
+        )?;
+        let mut classes = Vec::new();
+        for class_id in &selected {
+            let pruned = match *class_id {
+                INTEGRITY_CURRENT_LOG_SET_CLASS => {
+                    let count = conn.execute(
+                        "INSERT INTO integrity_quarantine_computed
+                             (batch_id, source_table, set_id, well_id, depth, curve_name, value)
+                         SELECT ?1, 'computed_curves', c.set_id, c.well_id, c.depth, c.curve_name, c.value
+                         FROM computed_curves c WHERE c.set_id IS NOT NULL
+                           AND NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = c.set_id)",
+                        params![batch_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM computed_curves WHERE set_id IS NOT NULL
+                           AND NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = computed_curves.set_id)",
+                        [],
+                    )?;
+                    count
+                }
+                INTEGRITY_ARCHIVE_LOG_SET_CLASS => {
+                    let count = conn.execute(
+                        "INSERT INTO integrity_quarantine_computed
+                             (batch_id, source_table, set_id, well_id, depth, curve_name, value)
+                         SELECT ?1, 'computed_curves_archive', a.set_id, a.well_id, a.depth, a.curve_name, a.value
+                         FROM computed_curves_archive a
+                         WHERE NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = a.set_id)",
+                        params![batch_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM computed_curves_archive
+                         WHERE NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = computed_curves_archive.set_id)",
+                        [],
+                    )?;
+                    count
+                }
+                INTEGRITY_WELL_GROUP_MEMBER_CLASS => {
+                    let count = conn.execute(
+                        "INSERT INTO integrity_quarantine_group_members (batch_id, group_id, well_id)
+                         SELECT ?1, m.group_id, m.well_id FROM well_group_members m
+                         WHERE NOT EXISTS (SELECT 1 FROM wells w WHERE w.well_id = m.well_id)",
+                        params![batch_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM well_group_members
+                         WHERE NOT EXISTS (SELECT 1 FROM wells w WHERE w.well_id = well_group_members.well_id)",
+                        [],
+                    )?;
+                    count
+                }
+                INTEGRITY_CURVE_SAMPLE_CLASS => {
+                    let count = conn.execute(
+                        "INSERT INTO integrity_quarantine_curve_samples (batch_id, curve_id, depth, value)
+                         SELECT ?1, s.curve_id, s.depth, s.value FROM curve_samples s
+                         WHERE NOT EXISTS (SELECT 1 FROM curve_meta m WHERE m.curve_id = s.curve_id)",
+                        params![batch_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM curve_samples
+                         WHERE NOT EXISTS (SELECT 1 FROM curve_meta m WHERE m.curve_id = curve_samples.curve_id)",
+                        [],
+                    )?;
+                    count
+                }
+                _ => unreachable!("validated prunable class"),
+            };
+            classes.push(IntegrityPruneClassReceipt { class_id: (*class_id).into(), pruned_findings: pruned });
+        }
+        let pruned_findings = classes.iter().map(|class| class.pruned_findings).sum();
+        if pruned_findings == 0 {
+            return Err(DbError::Invalid(
+                "the selected integrity classes no longer contain quarantinable findings; run the checker again".into(),
+            ));
+        }
+        Ok(IntegrityPruneReceipt { batch_id: batch_id.clone(), pruned_findings, classes })
+    }).map_err(|error| error.to_string())
+}
+
+fn require_integrity_batch_state(conn: &Connection, batch_id: &str, expected: &str) -> DbResult<()> {
+    let state = conn.query_row(
+        "SELECT state FROM integrity_prune_batches WHERE batch_id = ?1",
+        params![batch_id],
+        |row| row.get::<_, String>(0),
+    ).optional()?;
+    match state {
+        None => Err(DbError::Invalid(format!("integrity prune batch '{batch_id}' does not exist"))),
+        Some(actual) if actual != expected => Err(DbError::Invalid(format!(
+            "integrity prune batch '{batch_id}' is {actual}; expected {expected}"
+        ))),
+        Some(_) => Ok(()),
+    }
+}
+
+fn count_bound(conn: &Connection, sql: &str, batch_id: &str) -> DbResult<usize> {
+    conn.query_row(sql, params![batch_id], |row| row.get::<_, i64>(0))
+        .map(|count| count.max(0) as usize)
+        .map_err(DbError::from)
+}
+
+/// Restores one persisted quarantine batch exactly. Any identity collision refuses the whole
+/// transaction rather than duplicating a PK-less curve or overwriting work created after prune.
+pub fn restore_referential_integrity_prune(conn: &Connection, batch_id: &str) -> Result<usize, String> {
+    with_txn(conn, |conn| -> DbResult<usize> {
+        require_integrity_batch_state(conn, batch_id, "ACTIVE")?;
+        let collision_queries = [
+            "SELECT count(*) FROM computed_curves c WHERE EXISTS (
+                 SELECT 1 FROM integrity_quarantine_computed q
+                 WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves'
+                   AND q.well_id = c.well_id AND q.curve_name = c.curve_name AND q.depth = c.depth)",
+            "SELECT count(*) FROM computed_curves_archive a WHERE EXISTS (
+                 SELECT 1 FROM integrity_quarantine_computed q
+                 WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves_archive'
+                   AND q.set_id = a.set_id AND q.well_id = a.well_id
+                   AND q.curve_name = a.curve_name AND q.depth = a.depth)",
+            "SELECT count(*) FROM well_group_members m WHERE EXISTS (
+                 SELECT 1 FROM integrity_quarantine_group_members q
+                 WHERE q.batch_id = ?1 AND q.group_id = m.group_id AND q.well_id = m.well_id)",
+            "SELECT count(*) FROM curve_samples s WHERE EXISTS (
+                 SELECT 1 FROM integrity_quarantine_curve_samples q
+                 WHERE q.batch_id = ?1 AND q.curve_id = s.curve_id AND q.depth = s.depth)",
+        ];
+        for (index, query) in collision_queries.iter().enumerate() {
+            if count_bound(conn, query, batch_id)? > 0 {
+                return Err(DbError::Invalid(format!(
+                    "integrity prune batch '{batch_id}' cannot be restored: identity collision in restore class {}",
+                    index + 1
+                )));
+            }
+        }
+        let mut restored = 0usize;
+        restored += conn.execute(
+            "INSERT INTO computed_curves (set_id, well_id, depth, curve_name, value)
+             SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed
+             WHERE batch_id = ?1 AND source_table = 'computed_curves'",
+            params![batch_id],
+        )?;
+        restored += conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
+             SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed
+             WHERE batch_id = ?1 AND source_table = 'computed_curves_archive'",
+            params![batch_id],
+        )?;
+        restored += conn.execute(
+            "INSERT INTO well_group_members (group_id, well_id)
+             SELECT group_id, well_id FROM integrity_quarantine_group_members WHERE batch_id = ?1",
+            params![batch_id],
+        )?;
+        restored += conn.execute(
+            "INSERT INTO curve_samples (curve_id, depth, value)
+             SELECT curve_id, depth, value FROM integrity_quarantine_curve_samples WHERE batch_id = ?1",
+            params![batch_id],
+        )?;
+        conn.execute(
+            "UPDATE integrity_prune_batches SET state = 'RESTORED', changed_at = now() WHERE batch_id = ?1",
+            params![batch_id],
+        )?;
+        Ok(restored)
+    }).map_err(|error| error.to_string())
+}
+
+fn ensure_reapply_rows(
+    conn: &Connection,
+    batch_id: &str,
+    expected_sql: &str,
+    live_sql: &str,
+    missing_sql: &str,
+    class_name: &str,
+) -> DbResult<()> {
+    let expected = count_bound(conn, expected_sql, batch_id)?;
+    if expected == 0 { return Ok(()); }
+    let live = count_bound(conn, live_sql, batch_id)?;
+    let missing = count_bound(conn, missing_sql, batch_id)?;
+    if live != expected || missing != 0 {
+        return Err(DbError::Invalid(format!(
+            "integrity prune batch '{batch_id}' cannot be redone: {class_name} changed after restore"
+        )));
+    }
+    Ok(())
+}
+
+/// Reapplies the exact persisted batch for Ctrl+Y. It refuses if any restored row was edited,
+/// removed, or collided since undo; redo must never broaden to newly discovered findings.
+pub fn reapply_referential_integrity_prune(conn: &Connection, batch_id: &str) -> Result<usize, String> {
+    with_txn(conn, |conn| -> DbResult<usize> {
+        require_integrity_batch_state(conn, batch_id, "RESTORED")?;
+        let checks = [
+            (
+                "SELECT count(*) FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves'",
+                "SELECT count(*) FROM computed_curves c WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves' AND q.well_id = c.well_id AND q.curve_name = c.curve_name AND q.depth = c.depth)",
+                "SELECT count(*) FROM (SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves' EXCEPT ALL SELECT set_id, well_id, depth, curve_name, value FROM computed_curves) missing",
+                "current computed rows",
+            ),
+            (
+                "SELECT count(*) FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves_archive'",
+                "SELECT count(*) FROM computed_curves_archive a WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves_archive' AND q.set_id = a.set_id AND q.well_id = a.well_id AND q.curve_name = a.curve_name AND q.depth = a.depth)",
+                "SELECT count(*) FROM (SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves_archive' EXCEPT ALL SELECT set_id, well_id, depth, curve_name, value FROM computed_curves_archive) missing",
+                "archived computed rows",
+            ),
+            (
+                "SELECT count(*) FROM integrity_quarantine_group_members WHERE batch_id = ?1",
+                "SELECT count(*) FROM well_group_members m WHERE EXISTS (SELECT 1 FROM integrity_quarantine_group_members q WHERE q.batch_id = ?1 AND q.group_id = m.group_id AND q.well_id = m.well_id)",
+                "SELECT count(*) FROM (SELECT group_id, well_id FROM integrity_quarantine_group_members WHERE batch_id = ?1 EXCEPT ALL SELECT group_id, well_id FROM well_group_members) missing",
+                "well-group memberships",
+            ),
+            (
+                "SELECT count(*) FROM integrity_quarantine_curve_samples WHERE batch_id = ?1",
+                "SELECT count(*) FROM curve_samples s WHERE EXISTS (SELECT 1 FROM integrity_quarantine_curve_samples q WHERE q.batch_id = ?1 AND q.curve_id = s.curve_id AND q.depth = s.depth)",
+                "SELECT count(*) FROM (SELECT curve_id, depth, value FROM integrity_quarantine_curve_samples WHERE batch_id = ?1 EXCEPT ALL SELECT curve_id, depth, value FROM curve_samples) missing",
+                "curve samples",
+            ),
+        ];
+        for (expected, live, missing, name) in checks {
+            ensure_reapply_rows(conn, batch_id, expected, live, missing, name)?;
+        }
+        let expected = count_bound(conn,
+            "SELECT (SELECT count(*) FROM integrity_quarantine_computed WHERE batch_id = ?1) +
+                    (SELECT count(*) FROM integrity_quarantine_group_members WHERE batch_id = ?1) +
+                    (SELECT count(*) FROM integrity_quarantine_curve_samples WHERE batch_id = ?1)",
+            batch_id,
+        )?;
+        conn.execute(
+            "DELETE FROM computed_curves WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q
+             WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves'
+               AND q.well_id = computed_curves.well_id AND q.curve_name = computed_curves.curve_name
+               AND q.depth = computed_curves.depth)",
+            params![batch_id],
+        )?;
+        conn.execute(
+            "DELETE FROM computed_curves_archive WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q
+             WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves_archive'
+               AND q.set_id = computed_curves_archive.set_id AND q.well_id = computed_curves_archive.well_id
+               AND q.curve_name = computed_curves_archive.curve_name AND q.depth = computed_curves_archive.depth)",
+            params![batch_id],
+        )?;
+        conn.execute(
+            "DELETE FROM well_group_members WHERE EXISTS (SELECT 1 FROM integrity_quarantine_group_members q
+             WHERE q.batch_id = ?1 AND q.group_id = well_group_members.group_id AND q.well_id = well_group_members.well_id)",
+            params![batch_id],
+        )?;
+        conn.execute(
+            "DELETE FROM curve_samples WHERE EXISTS (SELECT 1 FROM integrity_quarantine_curve_samples q
+             WHERE q.batch_id = ?1 AND q.curve_id = curve_samples.curve_id AND q.depth = curve_samples.depth)",
+            params![batch_id],
+        )?;
+        conn.execute(
+            "UPDATE integrity_prune_batches SET state = 'ACTIVE', changed_at = now() WHERE batch_id = ?1",
+            params![batch_id],
+        )?;
+        Ok(expected)
+    }).map_err(|error| error.to_string())
+}
+
 /// Runs one read-only SELECT (a SQL console, full DuckDB SQL: joins,
 /// window functions, aggregates). Anything that isn't a single SELECT/WITH statement
 /// is rejected before execution.
-pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<TablePage, String> {
+pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<QueryPage, String> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
     let lowered = trimmed.to_lowercase();
     if !(lowered.starts_with("select") || lowered.starts_with("with")) {
@@ -3785,8 +5727,14 @@ pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<
     let columns = stmt.column_names().iter().map(|c| c.to_string()).collect();
     let truncated = rows_out.len() > limit;
     rows_out.truncate(limit);
-    let total = rows_out.len();
-    Ok(TablePage { columns, rows: rows_out, total_rows: total, truncated })
+    let returned_rows = rows_out.len();
+    Ok(QueryPage {
+        columns,
+        rows: rows_out,
+        returned_rows,
+        count_is_total: false,
+        truncated,
+    })
 }
 
 fn value_ref_to_string(value: duckdb::types::ValueRef) -> Option<String> {
@@ -3944,6 +5892,7 @@ mod well_param_override_tests {
 #[cfg(test)]
 mod inspector_tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
     fn mem_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -3959,6 +5908,89 @@ mod inspector_tests {
     fn read_meta(conn: &Connection, key: &str) -> Option<String> {
         conn.query_row("SELECT value FROM project_meta WHERE key = ?", params![key], |r| r.get(0))
             .ok()
+    }
+
+    fn file_sha256(path: &str) -> Vec<u8> {
+        Sha256::digest(std::fs::read(path).unwrap()).to_vec()
+    }
+
+    /// CORRECTNESS — the three seeded counts and the explicit zero come from
+    /// `22_database-model.md` SB-DBM-T26; the complete class inventory comes from
+    /// SB-DBM-027. Dossier D-25 / T-DB-17 is the cited reporting-shape source.
+    #[test]
+    fn the_integrity_checker_names_every_class_including_zero_counts_offers_a_reversible_prune_and_never_says_clean_without_checking(
+    ) {
+        let conn = mem_db();
+        let dangling_set = Uuid::new_v4().to_string();
+        let referenced_well = Uuid::new_v4().to_string();
+        let group_id = Uuid::new_v4().to_string();
+        let missing_well = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
+             VALUES (?1, ?2, 0.0, 'INTEGRITY_FIXTURE', NULL)",
+            params![dangling_set, referenced_well],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO well_groups (group_id, name) VALUES (?1, 'INTEGRITY_FIXTURE')",
+            params![group_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO well_group_members (group_id, well_id) VALUES (?1, ?2)",
+            params![group_id, missing_well],
+        ).unwrap();
+
+        let rows_before: i64 = conn.query_row(
+            "SELECT (SELECT count(*) FROM computed_curves_archive) +
+                    (SELECT count(*) FROM well_group_members) +
+                    (SELECT count(*) FROM curve_samples)",
+            [], |row| row.get(0),
+        ).unwrap();
+        let report = check_referential_integrity(&conn).unwrap();
+        let count = |class_id: &str| report.classes.iter()
+            .find(|class| class.class_id == class_id)
+            .unwrap_or_else(|| panic!("missing named integrity class {class_id}"))
+            .count;
+        assert_eq!(report.checked_class_count, 7, "every SB-DBM-027 class must be enumerated");
+        assert_eq!(count(INTEGRITY_ARCHIVE_LOG_SET_CLASS), 1);
+        assert_eq!(count(INTEGRITY_WELL_GROUP_MEMBER_CLASS), 1);
+        assert_eq!(count(INTEGRITY_CURVE_SAMPLE_CLASS), 0, "T26 requires the empty class by name");
+        assert_eq!(count(INTEGRITY_CURRENT_LOG_SET_CLASS), 0);
+        assert_eq!(count(INTEGRITY_ML_TRAINING_WELL_CLASS), 0);
+        assert_eq!(count(INTEGRITY_CURRENT_DUPLICATE_CLASS), 0);
+        assert_eq!(count(INTEGRITY_ARCHIVE_DUPLICATE_CLASS), 0);
+        assert_eq!(report.finding_count, 2);
+        assert!(report.prune.offered, "the bounded quarantine prune must be offered");
+        assert_eq!(report.prune.prunable_findings, 2);
+        assert!(report.prune.class_ids.contains(&INTEGRITY_ARCHIVE_LOG_SET_CLASS.to_string()));
+        assert!(report.prune.class_ids.contains(&INTEGRITY_WELL_GROUP_MEMBER_CLASS.to_string()));
+        assert_ne!(report.summary.trim().to_ascii_lowercase(), "clean");
+        assert!(report.summary.starts_with("Checked 7 integrity classes;"), "summary: {}", report.summary);
+        let rows_after_check: i64 = conn.query_row(
+            "SELECT (SELECT count(*) FROM computed_curves_archive) +
+                    (SELECT count(*) FROM well_group_members) +
+                    (SELECT count(*) FROM curve_samples)",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(rows_after_check, rows_before, "the checker itself is read-only");
+
+        let receipt = prune_referential_integrity(
+            &conn,
+            &[INTEGRITY_ARCHIVE_LOG_SET_CLASS.to_string(), INTEGRITY_WELL_GROUP_MEMBER_CLASS.to_string()],
+        ).unwrap();
+        assert_eq!(receipt.pruned_findings, 2);
+        let after_prune = check_referential_integrity(&conn).unwrap();
+        assert_eq!(after_prune.finding_count, 0);
+        assert_eq!(after_prune.summary, "Checked 7 integrity classes; 0 findings.");
+        assert!(after_prune.prune.offered, "the cleanup surface remains explicit even when nothing is eligible");
+
+        restore_referential_integrity_prune(&conn, &receipt.batch_id).unwrap();
+        let restored = check_referential_integrity(&conn).unwrap();
+        assert_eq!(restored.classes.iter().find(|c| c.class_id == INTEGRITY_ARCHIVE_LOG_SET_CLASS).unwrap().count, 1);
+        assert_eq!(restored.classes.iter().find(|c| c.class_id == INTEGRITY_WELL_GROUP_MEMBER_CLASS).unwrap().count, 1);
+        reapply_referential_integrity_prune(&conn, &receipt.batch_id).unwrap();
+        assert_eq!(check_referential_integrity(&conn).unwrap().finding_count, 0);
+        restore_referential_integrity_prune(&conn, &receipt.batch_id).unwrap();
+        assert_eq!(check_referential_integrity(&conn).unwrap().finding_count, 2);
     }
 
     #[test]
@@ -4001,37 +6033,58 @@ mod inspector_tests {
             create_schema(&conn).unwrap();
         }
         let conn = init_db(&path).unwrap();
-        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some("1"));
+        assert_eq!(
+            read_meta(&conn, "format_version").as_deref(),
+            Some(FORMAT_VERSION.to_string().as_str())
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }
 
+    /// CHARACTERIZATION — `22_database-model.md` SB-DBM-T01, sourced to the shipped
+    /// format gate at `db.rs::check_and_stamp_format`, requires both version identities,
+    /// the writer identity and exact byte preservation on refusal.
     #[test]
-    fn future_format_is_refused_and_left_unmodified() {
+    fn a_newer_format_is_refused_with_both_versions_and_its_writer_while_the_project_bytes_remain_identical() {
         let path = tmp_db("future");
         {
             // A file from a hypothetical future format: it carries a stamp but NOT the
             // current schema (a future format may have renamed any table) — so if
             // create_schema ran despite the refusal, `wells` would appear.
             let conn = Connection::open(&path).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);
-                 INSERT INTO project_meta VALUES ('format_version', '999'), ('written_by', 'SandiBumi 9.9.9');",
+            conn.execute_batch("CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);")
+                .unwrap();
+            conn.execute(
+                "INSERT INTO project_meta VALUES ('format_version', ?1), ('written_by', 'SandiBumi future-writer')",
+                params![(FORMAT_VERSION + 1).to_string()],
             )
             .unwrap();
         }
+        let before = file_sha256(&path);
         let err = init_db(&path).err().expect("a newer file must be refused");
         let msg = err.to_string();
-        assert!(msg.contains("format 999"), "must name the file's format: {msg}");
-        assert!(msg.contains("SandiBumi 9.9.9"), "must name the writer: {msg}");
+        assert!(
+            msg.contains(&format!("format {}", FORMAT_VERSION + 1)),
+            "must name the file's format: {msg}"
+        );
+        assert!(
+            msg.contains(&format!("format {FORMAT_VERSION}")),
+            "must name the running build's format: {msg}"
+        );
+        assert!(msg.contains("SandiBumi future-writer"), "must name the writer: {msg}");
         assert!(msg.contains("upgrade SandiBumi"), "must say what to do: {msg}");
+        assert_eq!(file_sha256(&path), before, "a refused open must leave every project byte unchanged");
         // The refusal must have mutated nothing: no schema, stamp intact.
         let conn = Connection::open(&path).unwrap();
         let wells: i64 = conn
             .query_row("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'wells'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(wells, 0, "create_schema must not have run on a refused file");
-        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some("999"), "stamp must be untouched");
+        assert_eq!(
+            read_meta(&conn, "format_version").as_deref(),
+            Some((FORMAT_VERSION + 1).to_string().as_str()),
+            "stamp must be untouched"
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }
@@ -4075,6 +6128,430 @@ mod inspector_tests {
     /// Phase 6 foundation: standard_curves rows must land in the generic curve store as
     /// set RAW with the right family/unit, and the migration must be a no-op the second
     /// time (idempotent — it's called on every launch via lib.rs::run()).
+    /// SB-DBM-030. Source: Geolog `cgg.h` `MISS_FLOAT = -1.0e30` (and the manuals' `-1.0D38`),
+    /// DEC-027/DEC-061/DEC-062. The store's null discipline: an undeclared large-negative
+    /// sentinel is screened to SQL NULL by a strict inequality against a bound COMPUTED one
+    /// decade inside the cited constant, the screen is COUNTED (the flag channel - never
+    /// silent), NaN binds SQL NULL so absence is not representable as a number at the store,
+    /// and a value exactly ON the bound is DATA that survives bit for bit.
+    /// SB-DBM-009 / DEC-022: legacy `log_sets.created_at` values are WIB (UTC+7) wall time
+    /// and are converted to UTC instants EXACTLY ONCE, with the declared zone and the ruling
+    /// recorded as the converted values' SOURCE - so a later reader sees the offset was
+    /// declared by the product owner, never measured from the data - and new rows default to
+    /// UTC so the local meaning cannot creep back in.
+    /// SB-DBM-017 / DEC-025: the neutron matrix basis is DECLARED curve metadata. Absence
+    /// stays absent - never inferred from the unit, the family, the contractor, the tool or a
+    /// matrix default - a declaration is scoped to the one curve it names, it carries its
+    /// source, and an empty declaration is refused rather than stored blank.
+    #[test]
+    fn the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        // Idempotent additive schema: a legacy project converges on the same shape.
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-NB", None, None, None).unwrap();
+        let well = id.to_string();
+        let nphi = upsert_curve_meta(
+            &conn, &well, "RAW", "NPHI", Some("v/v"), Some("NPHI"), Some("LAS import"), None,
+        )
+        .unwrap();
+        let gr = upsert_curve_meta(
+            &conn, &well, "RAW", "GR", Some("gapi"), Some("GR"), Some("LAS import"), None,
+        )
+        .unwrap();
+        let basis_of = |curve: &str| -> Option<String> {
+            list_generic_curve_catalog(&conn, &well)
+                .unwrap()
+                .into_iter()
+                .find(|c| c.curve_id == curve)
+                .unwrap()
+                .neutron_basis
+        };
+        // A. An imported neutron curve carries NO basis until somebody declares one - the
+        //    unit and the family are not a declaration.
+        assert_eq!(basis_of(&nphi), None, "absence stays absent; nothing is inferred");
+        // B. An empty declaration is refused, not stored blank - and a missing source too:
+        //    a declaration without an authority is a guess wearing a declaration's clothes.
+        assert!(set_curve_neutron_basis(&conn, &nphi, "", "user").is_err());
+        assert!(set_curve_neutron_basis(&conn, &nphi, "LIMESTONE", "  ").is_err());
+        assert_eq!(basis_of(&nphi), None, "a refused declaration must write nothing");
+        // C. A real declaration lands on exactly the curve it names, with its source.
+        set_curve_neutron_basis(
+            &conn, &nphi, "LIMESTONE", "declared at import by the user (DEC-025)",
+        )
+        .unwrap();
+        assert_eq!(basis_of(&nphi).as_deref(), Some("LIMESTONE"));
+        assert_eq!(basis_of(&gr), None, "the declaration is scoped to the curve it names");
+        let source: String = conn
+            .query_row(
+                "SELECT neutron_basis_source FROM curve_meta WHERE curve_id = ?1",
+                params![nphi],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(source.contains("DEC-025"), "the declaration records its authority: {source}");
+        // D. An unknown curve is refused by name - a WELL-FORMED id that matches no row, so
+        //    the refusal comes from the zero-row guard, not from a cast error upstream of it.
+        let absent = Uuid::new_v4().to_string();
+        assert!(set_curve_neutron_basis(&conn, &absent, "SANDSTONE", "user").is_err());
+    }
+
+    /// SB-DBM-011 / exact SB-DBM-T11 (DEC-020, DEC-022, DEC-023): the audit is STRUCTURED
+    /// rows with the controlled vocabulary, uninterrupted repeats of the same type collapse
+    /// into ONE entry (an interruption breaks the chain - both sides pinned), the timestamp
+    /// column's own default is UTC, the operator is explicit and refused when absent, and a
+    /// zone-scoped entry names the zone-set identity, whose version moves when a zone moves.
+    #[test]
+    fn the_audit_is_structured_collapses_uninterrupted_repeats_and_carries_operator_utc_and_zone_set(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-AUD", None, None, None).unwrap();
+        let well = id.to_string();
+        upsert_md_zone(&conn, &well, "MIOCENE_A", 1000.0, 1100.0).unwrap();
+        upsert_md_zone(&conn, &well, "MIOCENE_B", 1100.0, 1200.0).unwrap();
+        let entries = |conn: &Connection| -> i64 {
+            conn.query_row("SELECT count(*) FROM audit_entry", [], |r| r.get(0)).unwrap()
+        };
+
+        // (i) three zone-parameter changes: one entry each, PARAMETER/INPUT rows with unit,
+        // name and value, the zone riding as an INTERVAL row, the zone set at version 1.
+        for (param, value) in [("GR_MA", 20.0_f32), ("GR_SH", 120.0), ("RHO_MA", 2.65)] {
+            set_zone_param_audited(
+                &conn, &well, "MIOCENE_A", param, Some(value), None, "Jauhar-QC", "HUMAN",
+                "Zones",
+            )
+            .unwrap();
+        }
+        assert_eq!(entries(&conn), 3, "three distinct changes are three entries");
+        let listed = list_audit_entries(&conn, 10).unwrap();
+        let newest = &listed[0];
+        assert_eq!(newest.operator, "Jauhar-QC");
+        assert_eq!(newest.operator_kind, "HUMAN");
+        assert_eq!(newest.zone_set_version, Some(1), "zone-scoped entries carry the zone set");
+        assert!(newest.zone_set_digest.is_some());
+        assert_eq!(newest.details.len(), 2);
+        assert_eq!(
+            (newest.details[0].location.as_str(), newest.details[0].mode.as_str()),
+            ("INTERVAL", "INPUT")
+        );
+        assert_eq!(newest.details[0].name, "MIOCENE_A");
+        let parameter = &newest.details[1];
+        assert_eq!((parameter.location.as_str(), parameter.mode.as_str()), ("PARAMETER", "INPUT"));
+        assert_eq!(parameter.name, "RHO_MA");
+        assert_eq!(parameter.unit.as_deref(), Some("g/cc"), "the manifest unit rides the row");
+        assert_eq!(parameter.value.as_deref(), Some("2.65"));
+        let gr_ma_entry = &listed[2];
+        assert_eq!(gr_ma_entry.details[1].unit.as_deref(), Some("gAPI"));
+
+        // (iii) forty uninterrupted drags of the same handle: ONE entry, not forty - with
+        // the count honest and the value the LAST gesture's.
+        for step in 0..40 {
+            set_zone_param_audited(
+                &conn, &well, "MIOCENE_A", "GR_MA", Some(20.0 + step as f32), None,
+                "Jauhar-QC", "HUMAN", "Crossplot",
+            )
+            .unwrap();
+        }
+        assert_eq!(entries(&conn), 4, "forty uninterrupted repeats collapse to ONE entry");
+        let collapsed = &list_audit_entries(&conn, 1).unwrap()[0];
+        assert_eq!(collapsed.repeat_count, 40);
+        assert_eq!(collapsed.details[1].value.as_deref(), Some("59"));
+
+        // The other side: an INTERRUPTION breaks the chain, so the same action again is a
+        // NEW entry rather than a late collapse into the old one.
+        set_zone_param_audited(
+            &conn, &well, "MIOCENE_B", "GR_MA", Some(30.0), None, "Jauhar-QC", "HUMAN",
+            "Crossplot",
+        )
+        .unwrap();
+        set_zone_param_audited(
+            &conn, &well, "MIOCENE_A", "GR_MA", Some(25.0), None, "Jauhar-QC", "HUMAN",
+            "Crossplot",
+        )
+        .unwrap();
+        assert_eq!(entries(&conn), 6, "an interrupted repeat is a new entry, never a merge");
+
+        // (ii) a curve rename is mode RENAME on the LOG, and a unit change is the
+        // dotted-name ATTRIBUTE case.
+        let curve_id =
+            upsert_curve_meta(&conn, &well, "RAW", "GRX", Some("gAPI"), Some("GR"), None, None)
+                .unwrap();
+        update_curve_meta_audited(
+            &conn, &curve_id, "GRY", Some("api"), Some("GR"), "Jauhar-QC", "HUMAN",
+            "Curve Catalog",
+        )
+        .unwrap();
+        let renamed = &list_audit_entries(&conn, 1).unwrap()[0];
+        let rename_row = renamed
+            .details
+            .iter()
+            .find(|detail| detail.mode == "RENAME")
+            .expect("a mnemonic change audits as RENAME");
+        assert_eq!(rename_row.location, "LOG");
+        assert_eq!(rename_row.name, "GRX");
+        assert_eq!(rename_row.value.as_deref(), Some("GRY"));
+        let attribute_row = renamed
+            .details
+            .iter()
+            .find(|detail| detail.location == "ATTRIBUTE")
+            .expect("a unit change audits as the dotted-name ATTRIBUTE case");
+        assert!(attribute_row.name.contains('.'), "{}", attribute_row.name);
+
+        // (iv) UTC by the column's own default - structural, not a wall-clock race.
+        let default_expr: String = conn
+            .query_row(
+                "SELECT column_default FROM duckdb_columns()
+                 WHERE table_name = 'audit_entry' AND column_name = 'ts_utc'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(default_expr.to_uppercase().contains("UTC"), "{default_expr}");
+
+        // DEC-023: moving a zone changes the zone-set identity, and the next zone-scoped
+        // entry says so with a bumped version and a different digest.
+        let digest_before = collapsed.zone_set_digest.clone().unwrap();
+        upsert_md_zone(&conn, &well, "MIOCENE_B", 1105.0, 1200.0).unwrap();
+        set_zone_param_audited(
+            &conn, &well, "MIOCENE_A", "GR_SH", Some(110.0), None, "Jauhar-QC", "HUMAN",
+            "Zones",
+        )
+        .unwrap();
+        let moved = &list_audit_entries(&conn, 1).unwrap()[0];
+        assert_eq!(moved.zone_set_version, Some(2), "a moved top is a NEW zone-set version");
+        assert_ne!(moved.zone_set_digest.as_deref(), Some(digest_before.as_str()));
+
+        // DEC-020: the operator is explicit or the audit refuses - never inferred - and the
+        // controlled vocabularies refuse by name.
+        let refusal = record_audit_entry(
+            &conn, Some(&well), "  ", "HUMAN", "Zones", "test", None, None,
+            &[AuditDetail {
+                location: "PARAMETER".into(),
+                mode: "INPUT".into(),
+                unit: None,
+                name: "GR_MA".into(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(refusal.to_string().contains("DEC-020"), "{refusal}");
+        let refusal = record_audit_entry(
+            &conn, Some(&well), "Jauhar-QC", "HUMAN", "Zones", "test", None, None,
+            &[AuditDetail {
+                location: "GESTURE".into(),
+                mode: "INPUT".into(),
+                unit: None,
+                name: "GR_MA".into(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            refusal.to_string().contains("GESTURE")
+                && refusal.to_string().contains("PARAMETER"),
+            "the refusal names the offending value and the permitted set: {refusal}"
+        );
+        let refusal = record_audit_entry(
+            &conn, Some(&well), "Jauhar-QC", "HUMAN", "Zones", "test", None, None,
+            &[AuditDetail {
+                location: "ATTRIBUTE".into(),
+                mode: "INPUT".into(),
+                unit: None,
+                name: "GRX".into(),
+                value: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            refusal.to_string().contains("dotted"),
+            "ATTRIBUTE without a dotted name breaks the chapter's rule: {refusal}"
+        );
+    }
+
+    /// SB-CLY-001 (DEC-036): a pre-existing project's four-member kind CHECK is rebuilt to
+    /// accept ENDPOINT_INVALID with every stored row copied verbatim - and the migration is
+    /// idempotent, so a project already carrying the member is left alone.
+    #[test]
+    fn an_old_degradation_table_accepts_the_endpoint_invalid_kind_after_migration_and_keeps_its_rows(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        // Recreate the PRE-migration shape: the four-member CHECK.
+        conn.execute_batch(
+            "DROP TABLE run_degradations;
+             CREATE TABLE run_degradations (
+                set_id      UUID NOT NULL,
+                position    INTEGER NOT NULL,
+                module      VARCHAR NOT NULL,
+                kind        VARCHAR NOT NULL CHECK (
+                    kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT')
+                ),
+                detail      VARCHAR NOT NULL,
+                occurrences BIGINT NOT NULL CHECK (occurrences > 0),
+                PRIMARY KEY (set_id, position)
+             );",
+        )
+        .unwrap();
+        let set_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO run_degradations VALUES (?1, 0, 'phi_den', 'CLAMPED', 'kept', 3)",
+            params![set_id],
+        )
+        .unwrap();
+        // The old CHECK refuses the fifth kind - the exact failure the migration removes.
+        assert!(conn
+            .execute(
+                "INSERT INTO run_degradations VALUES (?1, 1, 'vsh_gr', 'ENDPOINT_INVALID', 'x', 1)",
+                params![set_id],
+            )
+            .is_err());
+        migrate_run_degradations_endpoint_invalid(&conn).unwrap();
+        migrate_run_degradations_endpoint_invalid(&conn).unwrap(); // idempotent
+        conn.execute(
+            "INSERT INTO run_degradations VALUES (?1, 1, 'vsh_gr', 'ENDPOINT_INVALID', 'x', 1)",
+            params![set_id],
+        )
+        .expect("the rebuilt CHECK accepts the documented fifth member");
+        let kept: (String, i64) = conn
+            .query_row(
+                "SELECT kind, occurrences FROM run_degradations WHERE position = 0",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(kept, ("CLAMPED".to_string(), 3), "existing rows are copied verbatim");
+    }
+
+    #[test]
+    fn legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-TS", None, None, None).unwrap();
+        // A legacy row: written at 12:00 WIB wall time on the pre-migration schema.
+        conn.execute(
+            "INSERT INTO log_sets (set_id, well_id, set_name, version, module, created_at)
+             VALUES (gen_random_uuid(), ?1, 'RAW', 1, 'legacy', TIMESTAMP '2026-08-01 12:00:00')",
+            params![id.to_string()],
+        )
+        .unwrap();
+        migrate_log_set_timestamps_to_utc(&conn).unwrap();
+        let stored = || -> String {
+            conn.query_row(
+                "SELECT strftime(created_at, '%Y-%m-%d %H:%M:%S') FROM log_sets WHERE module = 'legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        // A. 12:00 WIB is 05:00 UTC - seven hours, the declared offset.
+        assert_eq!(stored(), "2026-08-01 05:00:00");
+        // B. Idempotent: running the migration again must NOT move history by another seven
+        //    hours - the marker document gates the subtraction.
+        migrate_log_set_timestamps_to_utc(&conn).unwrap();
+        assert_eq!(stored(), "2026-08-01 05:00:00", "a second run must not subtract again");
+        // C. The source is RECORDED: the marker names the declared zone and DEC-022, so the
+        //    conversion is traceable to the owner's declaration rather than to a guess.
+        let record: String = conn
+            .query_row(
+                "SELECT json FROM documents WHERE doc_type = 'migration' AND name = 'DEC-022-created-at-utc'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(record.contains("WIB (UTC+7)"), "the declared zone is recorded: {record}");
+        assert!(record.contains("DEC-022"), "the ruling is the recorded source: {record}");
+        assert!(record.contains("declared by the product owner"), "{record}");
+        // D. A row written AFTER the migration defaults to a UTC instant, not local wall
+        //    time - proven by pinning the SESSION zone to Jakarta first, so a default that
+        //    silently reverted to now() would land seven hours off.
+        conn.execute_batch("SET TimeZone = 'Asia/Jakarta'").unwrap();
+        conn.execute(
+            "INSERT INTO log_sets (set_id, well_id, set_name, version, module)
+             VALUES (gen_random_uuid(), ?1, 'RAW', 2, 'fresh')",
+            params![id.to_string()],
+        )
+        .unwrap();
+        let drift_seconds: f64 = conn
+            .query_row(
+                "SELECT abs(epoch(created_at) - epoch(now() AT TIME ZONE 'UTC'))
+                 FROM log_sets WHERE module = 'fresh'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            drift_seconds < 60.0,
+            "a fresh row must be a UTC instant; it is {drift_seconds}s from UTC now - a local              default on a UTC+7 machine would read ~25200s"
+        );
+        // E. The DEFAULT itself declares UTC. This bundled build's now() happens to sit on
+        //    UTC whatever the session zone is set to, so arm D alone cannot catch a default
+        //    quietly reverted to bare now() - but a build with ICU zone support would then
+        //    write local wall time again. The declaration is pinned structurally.
+        let default_expr: String = conn
+            .query_row(
+                "SELECT column_default FROM duckdb_columns()
+                 WHERE table_name = 'log_sets' AND column_name = 'created_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            default_expr.contains("UTC"),
+            "created_at's default must declare UTC, got: {default_expr}"
+        );
+    }
+
+    #[test]
+    fn an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-NULL", None, None, None).unwrap();
+        let well = id.to_string();
+        let curve =
+            upsert_curve_meta(&conn, &well, "RAW", "GR", Some("gapi"), Some("GR"), None, None)
+                .unwrap();
+        let bound = GEOLOG_MISS_FLOAT / 10.0;
+        let depths = [1000.0, 1001.0, 1002.0, 1003.0, 1004.0, 1005.0];
+        let values = [-999.25f32, GEOLOG_MISS_FLOAT, -1.0e38, bound, 3.5, f32::NAN];
+        let screened = insert_curve_samples(&conn, &curve, &depths, &values).unwrap();
+        let samples = get_curve_samples(&conn, &curve).unwrap();
+        // A. A value exactly ON the computed bound is DATA, bit for bit - a `<=` or a
+        //    hand-typed decimal would have coerced it. Asserted FIRST so a bound slip fires
+        //    here, distinctly, before the count can.
+        assert_eq!(
+            samples[3].value.to_bits(),
+            bound.to_bits(),
+            "a value exactly on the bound is DATA"
+        );
+        // B. cgg.h's MISS_FLOAT and the manual's -1.0D38 are BOTH caught - an equality against
+        //    either sentinel would miss the other - and the count is the flag channel.
+        assert_eq!(screened, 2);
+        // C. At the store, absence is SQL NULL: the two screened sentinels and the NaN all
+        //    bind NULL, and nothing else does - "no value" is never a number.
+        let nulls: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples WHERE curve_id = ?1 AND value IS NULL",
+                params![curve],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(nulls, 3);
+        // D. Reload: screened samples read back as the NaN missing convention, and the rest
+        //    of the DATA survives bit for bit - the declared-null lookalike -999.25 (declared
+        //    nulls are resolved at parse, never re-guessed here) and an ordinary reading.
+        assert!(samples[1].value.is_nan() && samples[2].value.is_nan());
+        assert!(samples[5].value.is_nan());
+        assert_eq!(samples[0].value.to_bits(), (-999.25f32).to_bits());
+        assert_eq!(samples[4].value.to_bits(), 3.5f32.to_bits());
+    }
+
     #[test]
     fn generic_store_migration_and_manual_curve() {
         let conn = mem_db();
@@ -4531,7 +7008,8 @@ mod inspector_tests {
         // Cap BELOW the true count: exactly `limit` rows, and truncated is set.
         let capped = run_readonly_query(&conn, "SELECT well_name FROM wells", 3).unwrap();
         assert_eq!(capped.rows.len(), 3, "returns exactly the cap");
-        assert_eq!(capped.total_rows, 3);
+        assert_eq!(capped.returned_rows, 3);
+        assert!(!capped.count_is_total);
         assert!(capped.truncated, "a result larger than the cap must be flagged truncated");
 
         // Cap ABOVE the true count: complete result, not truncated.
@@ -4543,6 +7021,43 @@ mod inspector_tests {
         let exact = run_readonly_query(&conn, "SELECT well_name FROM wells", 5).unwrap();
         assert_eq!(exact.rows.len(), 5);
         assert!(!exact.truncated, "a result that fills the cap exactly is complete, not truncated");
+    }
+
+    /// CORRECTNESS - SB-DBM-039 / SB-DBM-T41. The exact 10,000-row input, 100-row
+    /// console cap and expected count meanings come from `docs/PRD_v2/22_database-model.md`
+    /// section 6, SB-DBM-T41, sourced there to SB-CORE-002. No expected value is copied
+    /// from the implementation: the fixture creates exactly the two cited cardinalities.
+    #[test]
+    fn the_inspector_reports_the_true_ten_thousand_row_total_while_the_hundred_row_console_page_names_its_count_as_returned_not_total(
+    ) {
+        let conn = mem_db();
+        conn.execute(
+            "INSERT INTO wells (well_id, well_name)
+             SELECT uuid(), 'ROW-' || CAST(i AS VARCHAR) FROM range(10000) AS fixture(i)",
+            [],
+        )
+        .unwrap();
+
+        let inspector = get_table_page(&conn, "wells", None, 0, 100).unwrap();
+        let console = run_readonly_query(&conn, "SELECT well_name FROM wells ORDER BY well_name", 100)
+            .unwrap();
+
+        assert_eq!(inspector.rows.len(), 100, "the inspector returns one requested page");
+        assert_eq!(inspector.total_rows, 10_000, "the inspector's total is the true COUNT(*)");
+        assert!(!inspector.truncated, "the inspector's page count and true total are distinct fields");
+
+        assert_eq!(console.rows.len(), 100, "the SQL console returns only its requested page");
+        assert_eq!(console.returned_rows, 100, "the console names this value as rows returned");
+        assert!(!console.count_is_total, "the console explicitly says its page count is not a total");
+        assert!(console.truncated, "the LIMIT+1 probe proves more than 100 rows exist");
+
+        let wire = serde_json::to_value(&console).unwrap();
+        assert_eq!(wire.get("returned_rows"), Some(&serde_json::json!(100)));
+        assert_eq!(wire.get("count_is_total"), Some(&serde_json::json!(false)));
+        assert!(
+            wire.get("total_rows").is_none(),
+            "one field name must never carry the inspector's true-total meaning and the console's page-count meaning"
+        );
     }
 
     #[test]
@@ -4592,23 +7107,270 @@ mod inspector_tests {
         insert_well(&conn, id, "SANDI-INSP", Some("Sandi Field"), Some(2000.0), Some(25.0)).unwrap();
         let w = id.to_string();
 
-        for (table, columns, well_scoped, _order) in TABLE_SPECS {
-            let scope = if *well_scoped { Some(w.as_str()) } else { None };
-            let page = get_table_page(&conn, table, scope, 0, 200)
-                .unwrap_or_else(|e| panic!("table '{table}' failed to browse: {e}"));
+        for spec in table_specs() {
+            let scope = if spec.well_scoped { Some(w.as_str()) } else { None };
+            let page = get_table_page(&conn, spec.table, scope, 0, 200)
+                .unwrap_or_else(|e| panic!("table '{}' failed to browse: {e}", spec.table));
             assert_eq!(
                 page.columns,
-                columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
-                "table '{table}' returned the wrong column set"
+                spec.columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+                "table '{}' returned the wrong column set",
+                spec.table
             );
             assert!(!page.truncated, "the paginated path always knows its true count");
 
-            if *well_scoped {
+            if spec.well_scoped {
                 assert!(
-                    get_table_page(&conn, table, None, 0, 200).is_err(),
-                    "well-scoped table '{table}' must refuse rather than return the whole project"
+                    get_table_page(&conn, spec.table, None, 0, 200).is_err(),
+                    "well-scoped table '{}' must refuse rather than return the whole project",
+                    spec.table
                 );
             }
+        }
+    }
+
+
+
+    /// SB-DBM-031 residue (DEC-073 item 5, RULED 2026-08-18: source-declared rows migrate,
+    /// unknown legacy meaning is preserved as unknown, cross-datum comparison is refused).
+    /// The T31 core - typed zone/contact custody, positive-down TVDSS, framed comparison -
+    /// is pinned by its own test; what closes here is the delivery-set half: a delivery
+    /// declares the datum its depths are quoted in ONCE, on its SET row (the per-row
+    /// alternative would break the positional-Appender contracts); an unknown token
+    /// refuses naming the vocabulary; a legacy set stays NULL - the preserved unknown,
+    /// never inferred to MD - and behaves exactly as before; and every depth-pairing
+    /// reader of the four stores refuses a KNOWN non-MD delivery NAMING both datums,
+    /// because an MD log depth against a TVDSS plug depth is F-17's category error that
+    /// silently produces a number.
+    #[test]
+    fn a_delivery_declares_its_datum_once_and_a_known_non_md_set_refuses_log_depth_pairing_naming_both(
+    ) {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-DATUM", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // A - the import boundary declares: a core delivery lands with its datum on the
+        // set row, and the pairing reader works.
+        insert_core_data(&conn, &w, "CORE", None, &[1000.0, 1001.0], &[0.18, 0.19], &[10.0, 11.0], &[2.65, 2.65], &[0.3, 0.3]).unwrap();
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "MD").unwrap();
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT depth_datum FROM core_sets WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![w],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("MD"), "the declaration lands on the SET row");
+        assert!(!get_core_point_series(&conn, &w).unwrap().is_empty(), "MD pairs freely");
+
+        // B - an unknown token refuses NAMING the vocabulary, and declares nothing.
+        let bad = declare_set_datum(&conn, "core_sets", &w, None, "CORE", "DRILLER")
+            .expect_err("an unknown token must refuse");
+        assert!(
+            bad.to_string().contains("MD | TVD | TVDSS | TVDKB | TWT | OWT | CDEPTH"),
+            "{bad}"
+        );
+        // ... and so does a declaration on a set that does not exist.
+        let missing = declare_set_datum(&conn, "core_sets", &w, None, "NO_SUCH", "MD")
+            .expect_err("a missing set cannot be declared");
+        assert!(missing.to_string().contains("NO_SUCH"), "{missing}");
+
+        // C - lowercase parses to the same token: the vocabulary is canonical, not
+        // case-sensitive, so a guard comparing raw strings cannot half-work.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "md").unwrap();
+        assert!(!get_core_point_series(&conn, &w).unwrap().is_empty(), "md == MD");
+
+        // D - a KNOWN non-MD delivery refuses log-depth pairing NAMING BOTH datums, on
+        // every guarded store.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "TVDSS").unwrap();
+        let refused = get_core_point_series(&conn, &w).expect_err("TVDSS plugs cannot pair with MD logs");
+        let text = refused.to_string();
+        assert!(
+            text.contains("TVDSS") && text.contains("MD") && text.contains("CORE"),
+            "both datums and the delivery are named: {text}"
+        );
+        insert_scal_pc(&conn, &w, "SCAL", None, &[ScalPcRow {
+            sample_no: Some(1), depth: Some(1000.0), perm: 10.0, poro: 0.2, pc: 5.0, sw: 0.6,
+            system: None, ift: None,
+        }]).unwrap();
+        declare_set_datum(&conn, "scal_sets", &w, None, "SCAL", "TVDSS").unwrap();
+        assert!(get_scal_pc(&conn, &w).expect_err("scal too").to_string().contains("TVDSS"));
+        insert_aux_data(&conn, &w, "XRD", "RAW", None, &[AuxRow {
+            dataset: "XRD".into(), depth_top: 1000.0, depth_base: None, item: "ILLITE".into(),
+            value_num: Some(12.0), value_text: None,
+        }]).unwrap();
+        declare_set_datum(&conn, "aux_sets", &w, Some("XRD"), "RAW", "TVD").unwrap();
+        let aux_refused = list_aux_data(&conn, &w, Some("XRD")).expect_err("aux too").to_string();
+        assert!(aux_refused.contains("TVD") && aux_refused.contains("XRD/RAW"), "{aux_refused}");
+        conn.execute(
+            "INSERT INTO image_sets (well_id, dataset, set_name, active, depth_datum) VALUES (?1, 'CORE PHOTO', 'RAW', 1, 'TWT')",
+            params![w],
+        )
+        .unwrap();
+        assert!(list_well_images(&conn, &w, None).expect_err("images too").to_string().contains("TWT"));
+
+        // E - back on MD, everything pairs again: the guard is about a WRONG datum, not
+        // about having declared one.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "MD").unwrap();
+        assert!(!get_core_point_series(&conn, &w).unwrap().is_empty());
+
+        // F - the preserved unknown: a legacy delivery with no declaration (NULL) behaves
+        // exactly as it always did, on a fresh well - unknown is unknown, not wrong.
+        let legacy = Uuid::new_v4();
+        insert_well(&conn, legacy, "SANDI-LEGACY", None, None, None).unwrap();
+        let lw = legacy.to_string();
+        insert_core_data(&conn, &lw, "CORE", None, &[1000.0], &[0.2], &[10.0], &[2.65], &[0.4]).unwrap();
+        let datum: Option<String> = conn
+            .query_row(
+                "SELECT depth_datum FROM core_sets WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![lw],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(datum, None, "nothing backfills MD onto an undeclared delivery");
+        assert!(!get_core_point_series(&conn, &lw).unwrap().is_empty(), "and it still pairs");
+    }
+
+    /// SB-DBM-041 exact T42 (`22_database-model.md` section 6), unblocked by SB-DBM-011's
+    /// audit tables (DEC-020/022/023, landed 2026-08-18): the inspector exposes the
+    /// COMPLETE provenance and audit registry - log sets, structured audit, zone-set
+    /// versions, run parameters and degradations, the curve archive, the curve catalog and
+    /// the model registry - and none of it is editable. The audit rows come through the
+    /// REAL writer (`record_audit_entry`); `ml_models` is pinned to omit the joblib blob,
+    /// and the frontend catalog is pinned read-only with matching well scoping, so the
+    /// grid cannot grow an edit affordance the backend never offered. T41's true-total
+    /// contract is untouched - these pages report `total_rows` through the same path.
+    #[test]
+    fn the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable(
+    ) {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-T42", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // A - the registry is complete, and the blob column is NOT offered.
+        let specs = table_specs();
+        let registry = [
+            "log_sets", "audit_entry", "audit_detail", "zone_set_versions", "run_parameters",
+            "run_degradations", "computed_curves_archive", "curve_meta", "ml_models",
+        ];
+        for table in registry {
+            assert!(
+                specs.iter().any(|spec| spec.table == table),
+                "the inspector must expose provenance table '{table}'"
+            );
+        }
+        let models = specs.iter().find(|spec| spec.table == "ml_models").unwrap();
+        assert!(
+            !models.columns.contains(&"data"),
+            "the joblib blob is never selected - the list_ml_models rule"
+        );
+
+        // B - the audit half browses REAL rows written by the real writer.
+        record_audit_entry(
+            &conn,
+            Some(&w),
+            "jauhar",
+            "HUMAN",
+            "ZONES",
+            "zone_params",
+            Some("T42 fixture"),
+            None,
+            &[AuditDetail {
+                location: "PARAMETER".into(),
+                mode: "INPUT".into(),
+                unit: Some("gAPI".into()),
+                name: "GR_MA".into(),
+                value: Some("25".into()),
+            }],
+        )
+        .unwrap();
+        let entries = get_table_page(&conn, "audit_entry", None, 0, 50).unwrap();
+        assert_eq!(entries.total_rows, 1, "T41 unchanged: the count is the true total");
+        let operator_column =
+            entries.columns.iter().position(|column| column == "operator").unwrap();
+        assert_eq!(entries.rows[0][operator_column].as_deref(), Some("jauhar"));
+        let details = get_table_page(&conn, "audit_detail", None, 0, 50).unwrap();
+        let name_column = details.columns.iter().position(|column| column == "name").unwrap();
+        assert_eq!(details.rows[0][name_column].as_deref(), Some("GR_MA"));
+
+        // C - the run-provenance half: seed one row per table and read it back through the
+        // declared columns (each table's WRITER is pinned by its own suite; this pins the
+        // read path and the declared column lists against the live schema).
+        let set = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO log_sets (set_id, well_id, set_name, version, module) VALUES (?1, ?2, 'INTERP', 1, 'phi_den')",
+            params![set, w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO run_parameters (set_id, position, name, value_json, source) VALUES (?1, 0, 'RHO_SH', '2.5', 'T42 fixture source')",
+            params![set],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO run_degradations (set_id, position, module, kind, detail, occurrences) VALUES (?1, 0, 'phi_den', 'DEFAULTED', 'T42 fixture', 3)",
+            params![set],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value) VALUES (?1, ?2, 1000.0, 'PHIE', 0.21)",
+            params![set, w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO zone_set_versions (well_id, version, digest) VALUES (?1, 1, 'sha:fixture')",
+            params![w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit) VALUES (?1, ?2, 'RAW', 'GR', 'gAPI')",
+            params![Uuid::new_v4().to_string(), w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, params_json, metrics_json, trained_on, n_train, standardize, data) \
+             VALUES (?1, 'PERM_RF', 'regression', 'rf', '[]', '{}', '{}', '[]', 10, 1, ?2)",
+            params![Uuid::new_v4().to_string(), vec![0u8; 4]],
+        )
+        .unwrap();
+        let expect = |table: &str, well: Option<&str>, column: &str, value: &str| {
+            let page = get_table_page(&conn, table, well, 0, 50)
+                .unwrap_or_else(|error| panic!("{table}: {error}"));
+            assert_eq!(page.total_rows, 1, "{table} true total");
+            let position = page.columns.iter().position(|name| name == column).unwrap();
+            assert_eq!(page.rows[0][position].as_deref(), Some(value), "{table}.{column}");
+        };
+        expect("log_sets", Some(&w), "module", "phi_den");
+        expect("run_parameters", None, "source", "T42 fixture source");
+        expect("run_degradations", None, "kind", "DEFAULTED");
+        expect("computed_curves_archive", Some(&w), "curve_name", "PHIE");
+        expect("zone_set_versions", Some(&w), "digest", "sha:fixture");
+        expect("curve_meta", Some(&w), "mnemonic", "GR");
+        expect("ml_models", None, "name", "PERM_RF");
+
+        // D - READ-ONLY, both sides. The backend offers no update command for any of these
+        // (writes are the explicit rule-6 commands, none of which names a registry table),
+        // and the frontend catalog is pinned: every registry entry exists with an EMPTY
+        // editable list and the SAME well scoping the backend enforces.
+        let frontend = include_str!("../../src/ui/dbInspectorPanel.ts");
+        for table in registry {
+            let spec = specs.iter().find(|spec| spec.table == table).unwrap();
+            let entry_start = frontend
+                .find(&format!("key: \"{table}\""))
+                .unwrap_or_else(|| panic!("the inspector UI must offer '{table}'"));
+            // One catalog entry is one source line; taking the line avoids an unbalanced
+            // brace literal, which would derail the cfg-test stripper's brace counting.
+            let entry = frontend[entry_start..].lines().next().expect("the entry is one line");
+            assert!(
+                entry.contains("editable: []"),
+                "'{table}' must be read-only in the grid"
+            );
+            assert!(
+                entry.contains(&format!("wellScoped: {}", spec.well_scoped)),
+                "'{table}' well scoping must match the backend"
+            );
         }
     }
 
@@ -4769,7 +7531,8 @@ mod inspector_tests {
 
         // Nothing writes to it. The numeric editors reject every one of its columns by name,
         // including `value_num`, which is the one a reader would assume is editable.
-        let aux_columns = TABLE_SPECS.iter().find(|(t, ..)| *t == "aux_data").unwrap().1;
+        let specs = table_specs();
+        let aux_columns = &specs.iter().find(|spec| spec.table == "aux_data").unwrap().columns;
         for col in aux_columns {
             assert!(
                 update_standard_sample(&conn, &w, 1000.0, col, 1.0).is_err(),
@@ -5682,21 +8445,23 @@ mod inspector_tests {
         );
     }
 
-    /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
-    /// real file, a complete pre-migration copy must exist beside it FIRST — openable, PK
-    /// still present, every row intact. Opens that don't migrate must write no backup, and
-    /// an existing backup must never be overwritten (collision → timestamped name).
+    /// CHARACTERIZATION — `22_database-model.md` SB-DBM-T02 and dossier T-DB-11:
+    /// destructive work is preceded by a reported, non-overwriting copy; additive work
+    /// creates none; and a failed copy leaves the source structurally un-migrated.
     #[test]
-    fn destructive_migration_backs_up_the_project_file_first() {
+    fn a_destructive_upgrade_backs_up_before_writing_never_overwrites_reports_the_path_and_aborts_on_backup_failure_while_an_additive_open_takes_no_backup() {
         let dir = std::env::temp_dir().join(format!("sandibumi-rb-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("field.duckdb");
         let db_path_str = db_path.to_str().unwrap().to_string();
-        let count_backups = || -> usize {
+        let count_backups = |stem: &str| -> usize {
             std::fs::read_dir(&dir)
                 .unwrap()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_name().to_string_lossy().contains("-backup"))
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    name.starts_with(stem) && name.contains("-backup")
+                })
                 .count()
         };
         let make_legacy_file = |path: &str| {
@@ -5714,22 +8479,27 @@ mod inspector_tests {
         };
 
         make_legacy_file(&db_path_str);
-        let conn = Connection::open(&db_path_str).unwrap();
-        migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
+        take_boot_notes();
+        let conn = crate::project::open_and_migrate(&db_path_str).unwrap();
         assert_eq!(pk_count(&conn, "computed_curves"), 0, "live file migrated");
 
-        let backup = dir.join(format!("field.pre-{FORMAT_VERSION}-backup.duckdb"));
-        assert!(backup.exists(), "backup must exist beside the project, named per RELEASE 3.2");
+        let backup = dir.join("field.pre-0-backup.duckdb");
+        assert!(backup.exists(), "an unstamped legacy project is source format 0");
+        assert!(
+            take_boot_notes().iter().any(|note| note.contains(backup.to_str().unwrap())),
+            "the user-facing boot record must name the exact recovery copy"
+        );
         {
             let bconn = Connection::open(backup.to_str().unwrap()).unwrap();
             assert_eq!(pk_count(&bconn, "computed_curves"), 1, "backup is the PRE-migration file: PK intact");
             let rows: i64 = bconn.query_row("SELECT COUNT(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
             assert_eq!(rows, 2, "backup holds every pre-migration row (engine copy reads WAL state)");
         }
+        let first_backup_hash = file_sha256(backup.to_str().unwrap());
 
         // Already-migrated open: no second backup.
         migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
-        assert_eq!(count_backups(), 1, "a non-destructive open must not write a backup");
+        assert_eq!(count_backups("field.pre-"), 1, "a non-destructive open must not write a backup");
         drop(conn);
 
         // Collision: a NEW legacy file at the same path must not overwrite the old backup.
@@ -5738,9 +8508,92 @@ mod inspector_tests {
         make_legacy_file(&db_path_str);
         let conn = Connection::open(&db_path_str).unwrap();
         migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
-        assert_eq!(count_backups(), 2, "second destructive run takes a timestamped name, never overwrites");
+        assert_eq!(count_backups("field.pre-"), 2, "second destructive run takes a timestamped name, never overwrites");
+        assert_eq!(
+            file_sha256(backup.to_str().unwrap()),
+            first_backup_hash,
+            "the original recovery copy must remain byte-identical"
+        );
         drop(conn);
 
+        // Deterministic failure injection at the exact copy boundary: the migration must
+        // return before its first DROP/CREATE/INSERT and the original must remain openable.
+        let failed_path = dir.join("failed.duckdb");
+        let failed_path_str = failed_path.to_str().unwrap().to_string();
+        make_legacy_file(&failed_path_str);
+        let conn = Connection::open(&failed_path_str).unwrap();
+        let err = migrate_drop_computed_curves_pk_with_backup(
+            &conn,
+            Some(&failed_path_str),
+            |_conn, _path| {
+                Err(DbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected backup refusal",
+                )))
+            },
+        )
+        .expect_err("a failed backup must abort the migration");
+        assert!(err.to_string().contains("injected backup refusal"));
+        assert_eq!(pk_count(&conn, "computed_curves"), 1, "no destructive statement may run after copy failure");
+        drop(conn);
+        let reopened = Connection::open(&failed_path_str).unwrap();
+        assert_eq!(pk_count(&reopened, "computed_curves"), 1, "the un-migrated project must remain openable");
+        let rows: i64 = reopened.query_row("SELECT COUNT(*) FROM computed_curves", [], |row| row.get(0)).unwrap();
+        assert_eq!(rows, 2, "copy failure must preserve every source row");
+        drop(reopened);
+
+        // A current, additive-only open must leave no recovery copy at all.
+        let additive_path = dir.join("additive.duckdb");
+        let additive = crate::project::open_and_migrate(additive_path.to_str().unwrap()).unwrap();
+        drop(additive);
+        assert_eq!(count_backups("additive.pre-"), 0, "an additive open must not bury meaningful backups");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// CORRECTNESS — `22_database-model.md` SB-DBM-T43 adopts F-07: a backup is
+    /// labelled by the source format it restores, independently of the target version.
+    #[test]
+    fn consecutive_destructive_upgrades_name_each_backup_for_the_source_format_it_restores() {
+        let dir = std::env::temp_dir().join(format!("sandibumi-source-shelf-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("project.duckdb");
+        let db_path_str = db_path.to_str().unwrap();
+        let conn = Connection::open(db_path_str).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);
+             INSERT INTO project_meta VALUES ('format_version', '0'), ('written_by', 'SandiBumi source-0');
+             CREATE TABLE migration_probe (value INTEGER);
+             INSERT INTO migration_probe VALUES (0);",
+        )
+        .unwrap();
+
+        let source_zero = backup_before_destructive_migration(&conn, db_path_str).unwrap();
+        conn.execute_batch(
+            "UPDATE migration_probe SET value = 1;
+             UPDATE project_meta SET value = '1' WHERE key = 'format_version';",
+        )
+        .unwrap();
+        let source_one = backup_before_destructive_migration(&conn, db_path_str).unwrap();
+        conn.execute_batch(
+            "UPDATE migration_probe SET value = 2;
+             UPDATE project_meta SET value = '2' WHERE key = 'format_version';",
+        )
+        .unwrap();
+
+        assert!(source_zero.ends_with("project.pre-0-backup.duckdb"), "first shelf label: {source_zero}");
+        assert!(source_one.ends_with("project.pre-1-backup.duckdb"), "second shelf label: {source_one}");
+        assert_ne!(source_zero, source_one, "source-labelled backups need no timestamp to distinguish upgrade steps");
+        for (path, expected_version, expected_value) in [(&source_zero, "0", 0_i64), (&source_one, "1", 1_i64)] {
+            let restored = Connection::open(path).unwrap();
+            assert_eq!(read_meta(&restored, "format_version").as_deref(), Some(expected_version));
+            assert_eq!(
+                restored.query_row("SELECT value FROM migration_probe", [], |row| row.get::<_, i64>(0)).unwrap(),
+                expected_value,
+                "each shelf item must contain the state its label promises"
+            );
+        }
+        drop(conn);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -5830,8 +8683,8 @@ mod inspector_tests {
     }
 
     /// P1-c log-set versioning: re-runs bump the version and preserve history in the
-    /// archive; any version can be restored into current; deleting a version keeps
-    /// current values (provenance tag cleared); the catalog reports provenance + stats.
+    /// archive; restoring a version appends another version; ordinary deletion is refused;
+    /// the catalog reports the new current provenance + stats.
     #[test]
     fn log_set_versioning_never_overwrites() {
         use crate::equations::{
@@ -5881,27 +8734,30 @@ mod inspector_tests {
         assert_eq!(sets[0].curve_names, vec!["VSH".to_string()]);
         assert!(sets[0].is_current && !sets[1].is_current);
 
-        // Restore version 1 → current shows the old values again; archive untouched.
+        // Restore version 1 → version 3 becomes current with the old values; v1/v2 remain.
         let restored = restore_log_set(&conn, &set1).unwrap();
-        assert_eq!(restored, 3);
+        assert_eq!(restored.rows_restored, 3);
+        assert_eq!(restored.new_version, 3);
+        assert_eq!(restored.restored_from.source_version, 1);
         assert!((current(1000.0) - 0.10).abs() < 1e-6, "restored to version 1");
 
-        // Catalog: provenance of the current value now points at version 1, stats sane.
+        // Catalog: provenance of the current value points at the appended restore version.
         let cat = list_computed_catalog(&conn, &w).unwrap();
         let vsh = cat.iter().find(|e| e.curve_name == "VSH").unwrap();
         assert_eq!(vsh.set_name.as_deref(), Some("INTERP"));
-        assert_eq!(vsh.version, Some(1));
+        assert_eq!(vsh.version, Some(3));
         assert_eq!(vsh.n_samples, 3);
         assert!((vsh.min.unwrap() - 0.10).abs() < 1e-6 && (vsh.max.unwrap() - 0.30).abs() < 1e-6);
 
-        // Deleting version 2's history keeps current values; v1 remains restorable.
-        delete_log_set(&conn, &set2).unwrap();
-        assert_eq!(list_log_sets(&conn, &w).unwrap().len(), 1);
-        assert!((current(1000.0) - 0.10).abs() < 1e-6, "delete never changes current values");
+        // Ordinary deletion cannot mutate immutable history.
+        let delete_error = delete_log_set(&conn, &set2).expect_err("archive deletion must refuse");
+        assert!(delete_error.contains("append-only"), "{delete_error}");
+        assert_eq!(list_log_sets(&conn, &w).unwrap().len(), 3);
+        assert!((current(1000.0) - 0.10).abs() < 1e-6, "delete refusal leaves current values");
         let n_archive: i64 = conn
             .query_row("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", params![w], |r| r.get(0))
             .unwrap();
-        assert_eq!(n_archive, 3, "only version 2's history removed");
+        assert_eq!(n_archive, 9, "versions 1, 2 and the appended restore all remain");
     }
 
     /// Batched multi-well versioned write (the field-scale write path): many wells land in ONE
@@ -5936,12 +8792,16 @@ mod inspector_tests {
                     depth: depth.clone(),
                     curves: vec![("VSH".into(), vsh1.to_vec()), ("PHIE".into(), phie1.to_vec())],
                     set_id: sets[&w1].clone(),
+                    degradation_module: None,
+                    degradations: None,
                 },
                 WellWrite {
                     well_id: w2.clone(),
                     depth: depth.clone(),
                     curves: vec![("VSH".into(), vsh2.to_vec())],
                     set_id: sets[&w2].clone(),
+                    degradation_module: None,
+                    degradations: None,
                 },
             ];
             write_computed_curves_versioned_batch(conn, &writes).unwrap();
@@ -6828,6 +9688,7 @@ pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: 
 }
 
 /// Edits one computed-curve sample value.
+#[cfg(test)]
 pub fn update_computed_sample(conn: &Connection, well_id: &str, depth: f32, curve_name: &str, value: f32) -> Result<(), String> {
     let n = conn
         .execute(
@@ -6845,6 +9706,20 @@ pub fn update_computed_sample(conn: &Connection, well_id: &str, depth: f32, curv
 
 /// Deletes one formation top.
 pub fn delete_top(conn: &Connection, well_id: &str, top_name: &str) -> DbResult<()> {
+    let existing_datum: Option<Option<String>> = conn
+        .query_row(
+            "SELECT depth_datum FROM tops WHERE well_id = ?1 AND top_name = ?2",
+            params![well_id, top_name],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(Some(existing_datum)) = existing_datum {
+        if existing_datum != crate::schema_vocab::DepthDatum::Md.as_str() {
+            return Err(DbError::Invalid(format!(
+                "{existing_datum}-referenced top '{top_name}' cannot be deleted by the MD tops editor; remove it through a source-reference-aware workflow"
+            )));
+        }
+    }
     conn.execute("DELETE FROM tops WHERE well_id = ?1 AND top_name = ?2", params![well_id, top_name])?;
     Ok(())
 }
@@ -6885,12 +9760,19 @@ pub struct GenericCurveCatalogEntry {
     pub set_name: String,
     pub source: Option<String>,
     pub run_no: Option<i32>,
+    pub set_version: i32,
+    pub final_flag: bool,
+    /// Monotonic metadata revision used for the declared MRU resolution stage. NULL means a
+    /// pre-SB-DBM-006 row whose historical order cannot be recovered.
+    pub modified_seq: Option<i64>,
     /// Every stored row, including missing/non-finite values.
     pub n_samples: i64,
     /// Finite values eligible for numeric statistics.
     pub n_valid: i64,
     /// Stored rows excluded from numeric statistics because their value is non-finite.
     pub n_missing: i64,
+    /// SB-DBM-017 / DEC-025: the DECLARED neutron matrix basis; None is the honest absence.
+    pub neutron_basis: Option<String>,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub mean: Option<f64>,
@@ -6910,6 +9792,9 @@ pub struct GenericCurveInventoryEntry {
     pub set_name: String,
     pub source: Option<String>,
     pub run_no: Option<i32>,
+    pub set_version: i32,
+    pub final_flag: bool,
+    pub modified_seq: Option<i64>,
     pub pinned: bool,
 }
 
@@ -6918,7 +9803,9 @@ pub fn list_generic_curve_inventory(
     well_id: &str,
 ) -> DbResult<Vec<GenericCurveInventoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT curve_id, mnemonic, unit, family, set_name, source, run_no, COALESCE(pinned, 0)
+        "SELECT curve_id, mnemonic, unit, family, set_name, source, run_no, set_version,
+                COALESCE(final_flag, 0), modified_seq,
+                COALESCE(pinned, 0)
          FROM curve_meta
          WHERE well_id = ?1
          ORDER BY set_name, family, mnemonic, run_no NULLS FIRST, curve_id",
@@ -6932,7 +9819,10 @@ pub fn list_generic_curve_inventory(
             set_name: row.get(4)?,
             source: row.get(5)?,
             run_no: row.get(6)?,
-            pinned: row.get::<_, i32>(7)? != 0,
+            set_version: row.get(7)?,
+            final_flag: row.get::<_, i32>(8)? != 0,
+            modified_seq: row.get(9)?,
+            pinned: row.get::<_, i32>(10)? != 0,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -6943,20 +9833,53 @@ pub fn list_generic_curve_inventory(
 /// from `equations::list_curve_catalog` (the existing standard+computed catalog), which
 /// remains the frontend's data source until the Phase 6 curve-store migration is wired
 /// through the rest of the app (workflow modules, log views, equations).
+/// SB-DBM-017 / DEC-025: records the DECLARED neutron matrix basis on one curve, with the
+/// declaration's source. Refuses an empty basis or source - an empty declaration is not a
+/// declaration - and never fills a default: ABSENT stays absent, and inference from the
+/// contractor, the tool or the salinity is exactly what this field exists to replace.
+pub fn set_curve_neutron_basis(
+    conn: &Connection,
+    curve_id: &str,
+    basis: &str,
+    source: &str,
+) -> DbResult<()> {
+    let basis = basis.trim();
+    let source = source.trim();
+    if basis.is_empty() || source.is_empty() {
+        return Err(DbError::Invalid(
+            "a neutron matrix basis is DECLARED: both the basis and its source are required, \
+             and an absent basis stays absent rather than being written blank"
+                .into(),
+        ));
+    }
+    let n = conn.execute(
+        "UPDATE curve_meta SET neutron_basis = ?2, neutron_basis_source = ?3 WHERE curve_id = ?1",
+        params![curve_id, basis, source],
+    )?;
+    if n == 0 {
+        return Err(DbError::Invalid(format!(
+            "no curve '{curve_id}' to declare a neutron basis on"
+        )));
+    }
+    Ok(())
+}
+
 pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<Vec<GenericCurveCatalogEntry>> {
     let mut stmt = conn.prepare(
         "SELECT m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
+                m.set_version, COALESCE(m.final_flag, 0), m.modified_seq,
                 COUNT(s.depth),
                 COUNT(*) FILTER (WHERE s.depth IS NOT NULL AND isfinite(CAST(s.value AS DOUBLE))),
                 COUNT(s.depth) - COUNT(*) FILTER (WHERE s.depth IS NOT NULL AND isfinite(CAST(s.value AS DOUBLE))),
                 MIN(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
                 MAX(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
                 AVG(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
-                COALESCE(m.pinned, 0)
+                COALESCE(m.pinned, 0), m.neutron_basis
          FROM curve_meta m
          LEFT JOIN curve_samples s ON s.curve_id = m.curve_id
          WHERE m.well_id = ?1
-         GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no, m.pinned
+         GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
+                  m.set_version, m.final_flag, m.modified_seq, m.pinned, m.neutron_basis
          ORDER BY m.set_name, m.family, m.mnemonic",
     )?;
     let rows = stmt.query_map(params![well_id], |row| {
@@ -6968,13 +9891,17 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
             set_name: row.get(4)?,
             source: row.get(5)?,
             run_no: row.get(6)?,
-            n_samples: row.get(7)?,
-            n_valid: row.get(8)?,
-            n_missing: row.get(9)?,
-            min: row.get(10)?,
-            max: row.get(11)?,
-            mean: row.get(12)?,
-            pinned: row.get::<_, i32>(13)? != 0,
+            set_version: row.get(7)?,
+            final_flag: row.get::<_, i32>(8)? != 0,
+            modified_seq: row.get(9)?,
+            n_samples: row.get(10)?,
+            n_valid: row.get(11)?,
+            n_missing: row.get(12)?,
+            min: row.get(13)?,
+            max: row.get(14)?,
+            mean: row.get(15)?,
+            pinned: row.get::<_, i32>(16)? != 0,
+            neutron_basis: row.get(17)?,
         })
     })?;
     let mut out = Vec::new();
@@ -7008,12 +9935,77 @@ pub fn promote_generic_curve(conn: &Connection, curve_id: &str) -> DbResult<()> 
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
         conn.execute(
-            "UPDATE curve_meta SET pinned = 0
-             WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = upper(?3)",
-            params![well, set, mnem],
+            "UPDATE curve_meta
+             SET pinned = 0, set_version = set_version + 1
+             WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = upper(?3)
+               AND curve_id <> ?4 AND COALESCE(pinned, 0) <> 0",
+            params![well, set, mnem, curve_id],
         )?;
-        conn.execute("UPDATE curve_meta SET pinned = 1 WHERE curve_id = ?1", params![curve_id])?;
+        conn.execute(
+            "UPDATE curve_meta
+             SET pinned = 1, set_version = set_version + 1
+             WHERE curve_id = ?1 AND COALESCE(pinned, 0) <> 1",
+            params![curve_id],
+        )?;
         Ok(())
+    })
+}
+
+/// Marks one generic curve as the Final member of its resolved quantity family. The previous
+/// Final curve id is returned so the frontend can place the metadata edit on the undo stack.
+/// At most one curve per well/family is Final; clearing a flag affects only the named curve.
+pub fn set_generic_curve_final(
+    conn: &Connection,
+    curve_id: &str,
+    is_final: bool,
+) -> DbResult<Option<String>> {
+    with_txn(conn, |conn| {
+        let (well_id, family, mnemonic, current_final): (String, Option<String>, String, bool) = conn.query_row(
+            "SELECT well_id, family, mnemonic, COALESCE(final_flag, 0) <> 0
+             FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        let key = family
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(mnemonic.as_str())
+            .to_uppercase();
+        let previous: Option<String> = if !is_final {
+            current_final.then(|| curve_id.to_string())
+        } else {
+            match conn.query_row(
+                "SELECT curve_id FROM curve_meta
+                 WHERE well_id = ?1
+                   AND COALESCE(NULLIF(upper(trim(family)), ''), upper(mnemonic)) = ?2
+                   AND COALESCE(final_flag, 0) = 1
+                 ORDER BY curve_id LIMIT 1",
+                params![well_id, key],
+                |row| row.get(0),
+            ) {
+                Ok(previous) => Some(previous),
+                Err(duckdb::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        if is_final {
+            conn.execute(
+                "UPDATE curve_meta
+                 SET final_flag = 0, set_version = set_version + 1
+                 WHERE well_id = ?1
+                   AND COALESCE(NULLIF(upper(trim(family)), ''), upper(mnemonic)) = ?2
+                   AND COALESCE(final_flag, 0) = 1 AND curve_id <> ?3",
+                params![well_id, key, curve_id],
+            )?;
+        }
+        conn.execute(
+            "UPDATE curve_meta
+             SET final_flag = ?2, set_version = set_version + 1
+             WHERE curve_id = ?1 AND COALESCE(final_flag, 0) <> ?2",
+            params![curve_id, i32::from(is_final)],
+        )?;
+        Ok(previous)
     })
 }
 
@@ -7057,7 +10049,11 @@ pub fn update_curve_meta_fields(
             |r| Ok(CurveMetaEdit { mnemonic: r.get(0)?, unit: r.get(1)?, family: r.get(2)? }),
         )?;
         conn.execute(
-            "UPDATE curve_meta SET mnemonic = ?2, unit = ?3, family = ?4 WHERE curve_id = ?1",
+            "UPDATE curve_meta
+             SET mnemonic = ?2, unit = ?3, family = ?4,
+                 set_version = set_version + 1,
+                 modified_seq = nextval('curve_meta_modified_seq')
+             WHERE curve_id = ?1",
             params![curve_id, mnemonic, unit, family],
         )?;
         Ok(before)
@@ -7086,15 +10082,23 @@ pub fn upsert_curve_meta(
         .ok();
     if let Some(id) = existing {
         conn.execute(
-            "UPDATE curve_meta SET unit = ?1, family = ?2, source = ?3 WHERE curve_id = ?4",
+            "UPDATE curve_meta
+             SET unit = ?1, family = ?2, source = ?3,
+                 set_version = set_version + 1,
+                 modified_seq = nextval('curve_meta_modified_seq')
+             WHERE curve_id = ?4",
             params![unit, family, source, id],
         )?;
         return Ok(id);
     }
     let curve_id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO curve_meta
+            (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no,
+             set_version, final_flag, modified_seq)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1,
+                 0,
+                 nextval('curve_meta_modified_seq'))",
         params![curve_id, well_id, set_name, mnemonic, unit, family, source, run_no],
     )?;
     Ok(curve_id)
@@ -7102,13 +10106,184 @@ pub fn upsert_curve_meta(
 
 /// Bulk-replaces the samples for one curve (delete-then-append, mirroring
 /// `insert_core_data`'s replace-on-reimport semantics).
-pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], values: &[f32]) -> DbResult<()> {
-    insert_curve_samples_batch(conn, depths, &[(curve_id, values)])
+/// SB-DBM-030: Geolog's null-sentinel family. `cgg.h` defines `MISS_FLOAT = -1.0e30` and the
+/// manuals also show `-1.0D38`; both are "large negative", and neither is guaranteed to arrive
+/// as an exact bit pattern after a unit conversion or a float round-trip. The screen is
+/// therefore a strict inequality against a bound COMPUTED one decade inside the cited
+/// constant - an equality against one sentinel misses the other entirely, and a hand-typed
+/// decimal could land on the wrong side of a boundary sample.
+// SB-DBM-025: the value is registered in `param_sources::CROSS_MODULE_CONSTANTS` with its
+// citation; this re-export keeps the screen and the registry one object.
+pub const GEOLOG_MISS_FLOAT: f32 = crate::param_sources::GEOLOG_MISS_FLOAT;
+
+/// True when a value is in the undeclared large-negative null family: strictly below one tenth
+/// of `GEOLOG_MISS_FLOAT`. A value exactly ON the bound is DATA. NaN is not screened here - it
+/// is already the missing convention and binds SQL NULL at the writer.
+pub fn is_large_negative_null(value: f32) -> bool {
+    value < GEOLOG_MISS_FLOAT / 10.0
+}
+
+/// Returns how many samples the large-negative null screen bound to SQL NULL for this curve -
+/// the write path's flag channel. A caller importing external data must surface a non-zero
+/// count; screening is never silent.
+pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], values: &[f32]) -> DbResult<usize> {
+    let screened = insert_curve_samples_batch(conn, depths, &[(curve_id, values)])?;
+    Ok(screened.into_iter().map(|(_, count)| count).sum())
+}
+
+/// SB-DIO-057 / DEC-076: the interpreter's recorded word on exact zeros in one log-scale
+/// curve. `keep` commits them as VALUES; `!keep` converts them to MISSING at commit. Stored
+/// as a document so the decision survives with the project and T85's "the decision is
+/// recorded" is a row, not a log line.
+pub fn confirm_log_scale_zeros(
+    conn: &Connection,
+    well_id: &str,
+    mnemonic: &str,
+    keep: bool,
+) -> DbResult<()> {
+    let name = format!("{well_id}:{}", mnemonic.trim().to_uppercase());
+    let json = serde_json::json!({
+        "decision": if keep { "keep" } else { "convert" },
+        "requirement": "SB-DIO-057",
+    })
+    .to_string();
+    save_document(conn, "zero-decision", &name, &json)
+}
+
+fn log_scale_zero_decision(conn: &Connection, well_id: &str, mnemonic: &str) -> Option<String> {
+    let name = format!("{well_id}:{}", mnemonic.trim().to_uppercase());
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM documents WHERE doc_type = 'zero-decision' AND name = ?1",
+            params![name],
+            |row| row.get(0),
+        )
+        .ok();
+    json.and_then(|text| {
+        serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|value| value.get("decision").and_then(|d| d.as_str()).map(str::to_string))
+    })
+}
+
+/// SB-DIO-057 (DEC-076 signed registry): counts exact zeros on a log-scale-family curve and
+/// returns the interpreter's recorded decision, refusing BY NAME when zeros are present and
+/// no decision exists — surfaced before commit, never rewritten automatically. A curve with
+/// no meta row, no family, or a non-logarithmic family passes untouched; so does a
+/// log-family curve carrying no exact zero.
+fn screen_log_scale_zeros(
+    conn: &Connection,
+    curve_id: &str,
+    values: &[f32],
+) -> DbResult<Option<String>> {
+    let zero_count = values.iter().filter(|value| **value == 0.0).count();
+    if zero_count == 0 {
+        return Ok(None);
+    }
+    let meta: Option<(String, String, Option<String>)> = conn
+        .query_row(
+            "SELECT well_id, mnemonic, family FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .ok();
+    let Some((well_id, mnemonic, family)) = meta else { return Ok(None) };
+    let Some(family) = family else { return Ok(None) };
+    if !crate::curves::LOG_SCALE_FAMILIES.contains(&family.as_str()) {
+        return Ok(None);
+    }
+    match log_scale_zero_decision(conn, &well_id, &mnemonic) {
+        Some(decision) => Ok(Some(decision)),
+        None => Err(DbError::Invalid(format!(
+            "curve {mnemonic} (family {family}) carries {zero_count} exact zero(s): a zero on a \
+             log-scale curve cannot be committed as a reading without your word — it is usually an \
+             exporter's encoding of 'no reading' (SB-DIO-057). Confirm keep-as-values or \
+             convert-to-missing for this curve (db::confirm_log_scale_zeros), then re-import; \
+             nothing was written."
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SB-DIO-007 (signed DRAFT_DIO007 under DEC-076): the source-cell-state mask.
+// "Field empty" and "field = null sentinel" are different facts (PRD D-33) -
+// the mask records which, per sample, and the distinction survives to the
+// delimited deliverable. Auxiliary custody only: never a gate on measurements.
+// ---------------------------------------------------------------------------
+
+/// Version prefix of every written mask blob. A reader seeing an unknown version
+/// refuses to interpret STATES; the curve's values are unaffected.
+pub const CELL_STATE_MASK_VERSION: u8 = 1;
+/// The cell held a measurement.
+pub const CELL_STATE_MEASURED: u8 = 0;
+/// Nothing between the delimiters (or the row ended before the column).
+pub const CELL_STATE_EMPTY: u8 = 1;
+/// The cell held the file's null token (the SB-DBM-030 large-negative family).
+pub const CELL_STATE_NULLED: u8 = 2;
+
+/// Encodes per-sample states (ascending depth order) behind the version byte.
+pub fn encode_state_mask(states: &[u8]) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(states.len() + 1);
+    blob.push(CELL_STATE_MASK_VERSION);
+    blob.extend_from_slice(states);
+    blob
+}
+
+/// Decodes a stored mask against the curve's sample count. Refuses an unknown
+/// version by name, and refuses a length mismatch WHOLE - a mask that misaligns
+/// with its array attributes states to the wrong depths, which is worse than no
+/// mask at all (draft rule 6).
+pub fn decode_state_mask(blob: &[u8], expected_samples: usize) -> Result<Vec<u8>, String> {
+    let Some((&version, states)) = blob.split_first() else {
+        return Err("state mask is empty: refused whole rather than misread (SB-DIO-007)".into());
+    };
+    if version != CELL_STATE_MASK_VERSION {
+        return Err(format!(
+            "state mask carries version {version}, and this build reads version \
+             {CELL_STATE_MASK_VERSION}: cell states are refused rather than misread; the \
+             curve's values are unaffected (SB-DIO-007)"
+        ));
+    }
+    if states.len() != expected_samples {
+        return Err(format!(
+            "state mask carries {} state(s) for {expected_samples} sample(s): a misaligned mask \
+             attributes states to the wrong depths, so it is refused whole (SB-DIO-007)",
+            states.len()
+        ));
+    }
+    Ok(states.to_vec())
+}
+
+/// Stores (or clears) a curve's mask. Refuses by name when the curve does not
+/// exist - a mask exists only beside the samples it describes.
+pub fn set_curve_state_mask(conn: &Connection, curve_id: &str, mask: Option<&[u8]>) -> DbResult<()> {
+    let updated = conn.execute(
+        "UPDATE curve_meta SET state_mask = ?2 WHERE curve_id = ?1",
+        params![curve_id, mask],
+    )?;
+    if updated == 0 {
+        return Err(DbError::Invalid(format!(
+            "no curve {curve_id}: a state mask exists only beside the samples it describes (SB-DIO-007)"
+        )));
+    }
+    Ok(())
+}
+
+/// The raw stored blob; `None` = pre-contract import (unknown states).
+pub fn get_curve_state_mask(conn: &Connection, curve_id: &str) -> DbResult<Option<Vec<u8>>> {
+    let blob: Option<Vec<u8>> = conn.query_row(
+        "SELECT state_mask FROM curve_meta WHERE curve_id = ?1",
+        params![curve_id],
+        |row| row.get(0),
+    )?;
+    Ok(blob)
 }
 
 /// Atomically replaces every curve in one imported delivery using one transaction and one
-/// DuckDB appender. The complete batch is validated before any DELETE occurs.
-pub fn insert_curve_samples_batch(conn: &Connection, depths: &[f32], curves: &[(&str, &[f32])]) -> DbResult<()> {
+/// DuckDB appender. The complete batch is validated before any DELETE occurs. Returns the
+/// SB-DBM-030 flag channel: per curve id, how many samples the large-negative null screen
+/// bound to SQL NULL (only non-zero entries).
+pub fn insert_curve_samples_batch(conn: &Connection, depths: &[f32], curves: &[(&str, &[f32])]) -> DbResult<Vec<(String, usize)>> {
     with_txn(conn, |conn| insert_curve_samples_batch_in_transaction(conn, depths, curves))
 }
 
@@ -7118,7 +10293,7 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
     conn: &Connection,
     depths: &[f32],
     curves: &[(&str, &[f32])],
-) -> DbResult<()> {
+) -> DbResult<Vec<(String, usize)>> {
     for (curve_id, values) in curves {
         if depths.len() != values.len() {
             return Err(DbError::LengthMismatch(format!(
@@ -7126,6 +10301,17 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
                 depths.len(),
                 values.len()
             )));
+        }
+    }
+    // SB-DIO-057: the zero gate runs BEFORE the DELETEs — an undecided refusal must leave
+    // the store exactly as it was, not empty. `convert` decisions are collected here and
+    // applied where the staging arrays are built.
+    let mut convert_zero_curves: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (curve_id, values) in curves {
+        if let Some(decision) = screen_log_scale_zeros(conn, curve_id, values)? {
+            if decision == "convert" {
+                convert_zero_curves.insert(*curve_id);
+            }
         }
     }
     for (curve_id, _) in curves {
@@ -7152,17 +10338,46 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
     ]));
     let depth_array: ArrayRef = Arc::new(Float32Array::from_iter_values(depths.iter().copied()));
     let mut appender: Appender = conn.appender(&staging_table)?;
+    let mut screened: Vec<(String, usize)> = Vec::new();
     for (curve_id, values) in curves {
         let curve_id_array: ArrayRef = Arc::new(StringArray::from_iter_values(
             std::iter::repeat(*curve_id).take(depths.len()),
         ));
-        let value_array: ArrayRef = Arc::new(Float32Array::from_iter_values(values.iter().copied()));
+        // SB-DBM-030: the store's null discipline. A NaN is the missing convention and binds
+        // SQL NULL, so at the store absence is never representable as a number; a value in the
+        // large-negative family is an undeclared vendor null sentinel, screened to NULL and
+        // COUNTED - the count is the flag channel every importer surfaces. Never silent.
+        let mut screened_here = 0usize;
+        // SB-DIO-057: a recorded `convert` decision turns this curve's exact zeros into
+        // MISSING at commit — explicit, per-curve, never automatic (the gate above refused
+        // if no decision existed).
+        let convert_zeros = convert_zero_curves.contains(*curve_id);
+        let value_array: ArrayRef = Arc::new(
+            values
+                .iter()
+                .map(|&value| {
+                    if value.is_nan() {
+                        None
+                    } else if is_large_negative_null(value) {
+                        screened_here += 1;
+                        None
+                    } else if convert_zeros && value == 0.0 {
+                        None
+                    } else {
+                        Some(value)
+                    }
+                })
+                .collect::<Float32Array>(),
+        );
         let batch = RecordBatch::try_new(
             Arc::clone(&schema),
             vec![curve_id_array, Arc::clone(&depth_array), value_array],
         )
         .map_err(|err| DbError::ColumnarBatch(err.to_string()))?;
         appender.append_record_batch(batch)?;
+        if screened_here > 0 {
+            screened.push(((*curve_id).to_string(), screened_here));
+        }
     }
     appender.flush()?;
     drop(appender);
@@ -7171,7 +10386,7 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
          SELECT CAST(curve_id AS UUID), depth, value FROM {staging_table};
          DROP TABLE {staging_table};"
     ))?;
-    Ok(())
+    Ok(screened)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -7374,6 +10589,427 @@ pub fn get_well_path(conn: &Connection, well_id: &str) -> DbResult<Vec<WellPathS
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// SB-DBM-011 - the structured audit writer (DEC-020 operator, DEC-022 UTC,
+// DEC-023 zone-set seam). ONE backend-owned atomic writer: entry + details in
+// one transaction, with Geolog's uninterrupted-collapse rule applied here so
+// no caller can produce forty entries for one crossplot drag.
+// ---------------------------------------------------------------------------
+
+pub const AUDIT_LOCATIONS: [&str; 7] =
+    ["PARAMETER", "COMMENT", "SET", "CONSTANT", "INTERVAL", "LOG", "ATTRIBUTE"];
+pub const AUDIT_MODES: [&str; 7] =
+    ["INPUT", "OUTPUT", "DELETE", "RENAME", "SAVE", "SAVE_AS", "SAVE_CANCEL"];
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AuditDetail {
+    pub location: String,
+    pub mode: String,
+    pub unit: Option<String>,
+    pub name: String,
+    pub value: Option<String>,
+}
+
+/// DEC-023's seam: the current zone-set identity and version for one well. The digest is a
+/// stable SHA-256 over the zones in depth order (name, top, bottom); a version row is
+/// appended only when the digest changes, so the version is monotone and an audit entry can
+/// name exactly which zone configuration it saw. SB-DBM-008, when scheduled, inherits this
+/// rather than designing freely - the accepted cost of the narrow route.
+pub fn current_zone_set(conn: &Connection, well_id: &str) -> DbResult<(i64, String)> {
+    use sha2::{Digest, Sha256};
+    let zones = list_zones(conn, well_id)?;
+    let mut hasher = Sha256::new();
+    for zone in &zones {
+        hasher.update(zone.zone_name.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(zone.top_depth.to_le_bytes());
+        hasher.update(zone.bottom_depth.to_le_bytes());
+        hasher.update([1u8]);
+    }
+    let digest = hasher.finalize()[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let latest: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT version, digest FROM zone_set_versions WHERE well_id = ?1
+             ORDER BY version DESC LIMIT 1",
+            params![well_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    match latest {
+        Some((version, stored)) if stored == digest => Ok((version, digest)),
+        other => {
+            let version = other.map(|(version, _)| version + 1).unwrap_or(1);
+            conn.execute(
+                "INSERT INTO zone_set_versions (well_id, version, digest) VALUES (?1, ?2, ?3)",
+                params![well_id, version, digest],
+            )?;
+            Ok((version, digest))
+        }
+    }
+}
+
+/// The one audit writer. Refusals are BY NAME with the permitted vocabulary stated: an
+/// empty operator (DEC-020 forbids inferring one), an empty detail list, a location or
+/// mode outside the controlled sets, and the dotted-name rule both ways - a dotted name
+/// MUST denote an attribute change on the named object, so ATTRIBUTE requires a dot and a
+/// dot requires ATTRIBUTE. Uninterrupted repeats of the same type (identical well, actor,
+/// view, source and detail signature) COLLAPSE into the latest entry: its values and
+/// timestamp advance and repeat_count counts the gestures. Any different action between
+/// two repeats breaks the chain by construction, because "latest entry" is decided by
+/// entry_seq order - never by an invented time window.
+pub fn record_audit_entry(
+    conn: &Connection,
+    well_id: Option<&str>,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+    source: &str,
+    comment: Option<&str>,
+    zone_set: Option<(i64, &str)>,
+    details: &[AuditDetail],
+) -> DbResult<String> {
+    if operator.trim().is_empty() {
+        return Err(DbError::Invalid(
+            "audit refused: the session operator is explicit and never inferred (DEC-020) - enter an operator identity".into(),
+        ));
+    }
+    if !matches!(operator_kind, "HUMAN" | "AUTOMATED") {
+        return Err(DbError::Invalid(format!(
+            "audit refused: operator kind '{operator_kind}' is not in the controlled set HUMAN/AUTOMATED (DEC-020)"
+        )));
+    }
+    if details.is_empty() {
+        return Err(DbError::Invalid("audit refused: an entry needs at least one detail row".into()));
+    }
+    for detail in details {
+        if !AUDIT_LOCATIONS.contains(&detail.location.as_str()) {
+            return Err(DbError::Invalid(format!(
+                "audit refused: location '{}' is not in the controlled vocabulary {}",
+                detail.location,
+                AUDIT_LOCATIONS.join("/")
+            )));
+        }
+        if !AUDIT_MODES.contains(&detail.mode.as_str()) {
+            return Err(DbError::Invalid(format!(
+                "audit refused: mode '{}' is not in the controlled vocabulary {}",
+                detail.mode,
+                AUDIT_MODES.join("/")
+            )));
+        }
+        let dotted = detail.name.contains('.');
+        let attribute = detail.location == "ATTRIBUTE";
+        if attribute != dotted {
+            return Err(DbError::Invalid(format!(
+                "audit refused: a dotted name denotes an attribute change on the named object and nothing else - '{}' with location {} breaks that both-ways rule",
+                detail.name, detail.location
+            )));
+        }
+    }
+
+    // The collapse check: the LATEST entry, by sequence - uninterruptedness is order.
+    let latest: Option<(String, String, Option<String>, String, String, String, String)> = conn
+        .query_row(
+            "SELECT entry_id, COALESCE(well_id::VARCHAR, ''), NULL, operator, operator_kind, view, source
+             FROM audit_entry ORDER BY entry_seq DESC LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .ok();
+    if let Some((entry_id, latest_well, _, latest_op, latest_kind, latest_view, latest_source)) =
+        latest
+    {
+        let same_head = latest_well == well_id.unwrap_or("")
+            && latest_op == operator
+            && latest_kind == operator_kind
+            && latest_view == view
+            && latest_source == source;
+        if same_head {
+            let mut stmt = conn.prepare(
+                "SELECT location, mode, name, COALESCE(unit, '') FROM audit_detail
+                 WHERE entry_id = ?1 ORDER BY seq",
+            )?;
+            let signature: Vec<(String, String, String, String)> = stmt
+                .query_map(params![entry_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })?
+                .collect::<Result<_, _>>()?;
+            let incoming: Vec<(String, String, String, String)> = details
+                .iter()
+                .map(|detail| {
+                    (
+                        detail.location.clone(),
+                        detail.mode.clone(),
+                        detail.name.clone(),
+                        detail.unit.clone().unwrap_or_default(),
+                    )
+                })
+                .collect();
+            if signature == incoming {
+                with_txn(conn, |conn| {
+                    conn.execute(
+                        "UPDATE audit_entry SET ts_utc = (now() AT TIME ZONE 'UTC'),
+                             repeat_count = repeat_count + 1, comment = ?2,
+                             zone_set_version = ?3, zone_set_digest = ?4
+                         WHERE entry_id = ?1",
+                        params![
+                            entry_id,
+                            comment,
+                            zone_set.map(|(version, _)| version),
+                            zone_set.map(|(_, digest)| digest)
+                        ],
+                    )?;
+                    for (seq, detail) in details.iter().enumerate() {
+                        conn.execute(
+                            "UPDATE audit_detail SET value = ?3 WHERE entry_id = ?1 AND seq = ?2",
+                            params![entry_id, seq as i64, detail.value],
+                        )?;
+                    }
+                    Ok::<(), DbError>(())
+                })?;
+                return Ok(entry_id);
+            }
+        }
+    }
+
+    let entry_id = uuid::Uuid::new_v4().to_string();
+    with_txn(conn, |conn| {
+        conn.execute(
+            "INSERT INTO audit_entry
+                (entry_id, well_id, operator, operator_kind, view, source, comment,
+                 zone_set_version, zone_set_digest)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                entry_id,
+                well_id,
+                operator,
+                operator_kind,
+                view,
+                source,
+                comment,
+                zone_set.map(|(version, _)| version),
+                zone_set.map(|(_, digest)| digest)
+            ],
+        )?;
+        for (seq, detail) in details.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO audit_detail (entry_id, seq, location, mode, unit, name, value)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    entry_id,
+                    seq as i64,
+                    detail.location,
+                    detail.mode,
+                    detail.unit,
+                    detail.name,
+                    detail.value
+                ],
+            )?;
+        }
+        Ok::<(), DbError>(())
+    })?;
+    Ok(entry_id)
+}
+
+/// The zone-parameter surface, audited: the write and its audit entry are ONE atomic
+/// gesture record. A cleared row is mode DELETE, an applied value mode INPUT; the zone
+/// itself rides as an INTERVAL row so the same parameter dragged in two different zones
+/// can never collapse into one entry. The parameter's unit comes from the first module
+/// manifest that declares it - the same declaration the dialog shows.
+pub fn set_zone_param_audited(
+    conn: &Connection,
+    well_id: &str,
+    zone_name: &str,
+    param_name: &str,
+    value_num: Option<f32>,
+    value_text: Option<&str>,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+) -> DbResult<()> {
+    set_zone_param(conn, well_id, zone_name, param_name, value_num, value_text)?;
+    let zone_set = current_zone_set(conn, well_id)?;
+    let unit = crate::modules::list_modules()
+        .iter()
+        .flat_map(|module| module.args.iter())
+        .find(|argument| {
+            argument.kind == crate::modules::ArgKind::Param
+                && argument.name == param_name
+                && !argument.unit.is_empty()
+        })
+        .map(|argument| argument.unit.clone());
+    let cleared = value_num.is_none() && value_text.is_none();
+    let details = [
+        AuditDetail {
+            location: "INTERVAL".into(),
+            mode: if cleared { "DELETE" } else { "INPUT" }.into(),
+            unit: None,
+            name: zone_name.into(),
+            value: None,
+        },
+        AuditDetail {
+            location: "PARAMETER".into(),
+            mode: if cleared { "DELETE" } else { "INPUT" }.into(),
+            unit,
+            name: param_name.into(),
+            value: value_num
+                .map(|value| value.to_string())
+                .or_else(|| value_text.map(str::to_string)),
+        },
+    ];
+    record_audit_entry(
+        conn,
+        Some(well_id),
+        operator,
+        operator_kind,
+        view,
+        "set_zone_param",
+        None,
+        Some((zone_set.0, zone_set.1.as_str())),
+        &details,
+    )?;
+    Ok(())
+}
+
+/// The curve-identity surface, audited: a mnemonic change is mode RENAME on the LOG, and a
+/// unit or family change is the dotted-name ATTRIBUTE case the chapter defines.
+pub fn update_curve_meta_audited(
+    conn: &Connection,
+    curve_id: &str,
+    mnemonic: &str,
+    unit: Option<&str>,
+    family: Option<&str>,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+) -> DbResult<CurveMetaEdit> {
+    let well_id: Option<String> = conn
+        .query_row(
+            "SELECT well_id::VARCHAR FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |row| row.get(0),
+        )
+        .ok();
+    let before = update_curve_meta_fields(conn, curve_id, mnemonic, unit, family)?;
+    let mut details = Vec::new();
+    let renamed = !before.mnemonic.eq_ignore_ascii_case(mnemonic.trim());
+    if renamed {
+        details.push(AuditDetail {
+            location: "LOG".into(),
+            mode: "RENAME".into(),
+            unit: None,
+            name: before.mnemonic.clone(),
+            value: Some(mnemonic.trim().to_uppercase()),
+        });
+    }
+    if before.unit.as_deref() != unit {
+        details.push(AuditDetail {
+            location: "ATTRIBUTE".into(),
+            mode: "INPUT".into(),
+            unit: None,
+            name: format!("{}.unit", before.mnemonic),
+            value: unit.map(str::to_string),
+        });
+    }
+    if before.family.as_deref() != family {
+        details.push(AuditDetail {
+            location: "ATTRIBUTE".into(),
+            mode: "INPUT".into(),
+            unit: None,
+            name: format!("{}.family", before.mnemonic),
+            value: family.map(str::to_string),
+        });
+    }
+    if !details.is_empty() {
+        record_audit_entry(
+            conn,
+            well_id.as_deref(),
+            operator,
+            operator_kind,
+            view,
+            "update_curve_meta",
+            None,
+            None,
+            &details,
+        )?;
+    }
+    Ok(before)
+}
+
+/// SB-DBM-011: the structured audit, newest first, visible on demand. `details` rides along
+/// so the panel needs one call, not one per entry.
+#[derive(serde::Serialize)]
+pub struct AuditEntryView {
+    pub entry_id: String,
+    pub well_id: Option<String>,
+    pub ts_utc: String,
+    pub operator: String,
+    pub operator_kind: String,
+    pub view: String,
+    pub source: String,
+    pub comment: Option<String>,
+    pub zone_set_version: Option<i64>,
+    pub zone_set_digest: Option<String>,
+    pub repeat_count: i64,
+    pub details: Vec<AuditDetail>,
+}
+
+pub fn list_audit_entries(conn: &Connection, limit: usize) -> DbResult<Vec<AuditEntryView>> {
+    let mut stmt = conn.prepare(
+        "SELECT entry_id, well_id::VARCHAR, ts_utc::VARCHAR, operator, operator_kind, view,
+                source, comment, zone_set_version, zone_set_digest, repeat_count
+         FROM audit_entry ORDER BY entry_seq DESC LIMIT ?1",
+    )?;
+    let mut entries: Vec<AuditEntryView> = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok(AuditEntryView {
+                entry_id: row.get(0)?,
+                well_id: row.get(1)?,
+                ts_utc: row.get(2)?,
+                operator: row.get(3)?,
+                operator_kind: row.get(4)?,
+                view: row.get(5)?,
+                source: row.get(6)?,
+                comment: row.get(7)?,
+                zone_set_version: row.get(8)?,
+                zone_set_digest: row.get(9)?,
+                repeat_count: row.get(10)?,
+                details: Vec::new(),
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    for entry in &mut entries {
+        let mut stmt = conn.prepare(
+            "SELECT location, mode, unit, name, value FROM audit_detail
+             WHERE entry_id = ?1 ORDER BY seq",
+        )?;
+        entry.details = stmt
+            .query_map(params![entry.entry_id], |row| {
+                Ok(AuditDetail {
+                    location: row.get(0)?,
+                    mode: row.get(1)?,
+                    unit: row.get(2)?,
+                    name: row.get(3)?,
+                    value: row.get(4)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+    }
+    Ok(entries)
+}
+
 pub fn set_zone_param(
     conn: &Connection,
     well_id: &str,
@@ -7478,4 +11114,105 @@ pub fn set_well_param_overrides(
     entries: &[(String, String, Option<f32>)],
 ) -> DbResult<usize> {
     set_zone_param_batch(conn, "*", entries)
+}
+
+/// SB-DIO-057 / DEC-076: the zero gate at the shared curve-commit boundary — every import
+/// path (LAS, DLIS, intake) funnels through `insert_curve_samples*`, so the gate is
+/// inherited, never re-implemented per importer.
+#[cfg(test)]
+mod log_scale_zero_tests {
+    use super::*;
+
+    fn seed(conn: &Connection) -> String {
+        create_schema(conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        insert_well(conn, well, "ZERO-GATE", None, None, None).unwrap();
+        well.to_string()
+    }
+
+    #[test]
+    fn a_zero_on_a_log_scale_curve_is_surfaced_before_commit_and_the_recorded_decision_governs()
+    {
+        let conn = Connection::open_in_memory().unwrap();
+        let well = seed(&conn);
+        let depths = [1000.0f32, 1000.5, 1001.0, 1001.5];
+        let with_zeros = [12.5f32, 0.0, 3.4, 0.0];
+
+        // T84: an undecided zero-bearing resistivity curve REFUSES by name, before commit —
+        // nothing is written and nothing is rewritten.
+        let res = upsert_curve_meta(
+            &conn, &well, "RAW", "RES_DEEP", Some("ohm.m"), Some("RES_DEEP"), None, None,
+        )
+        .unwrap();
+        let error = insert_curve_samples(&conn, &res, &depths, &with_zeros)
+            .expect_err("undecided zeros on a log-scale family must refuse")
+            .to_string();
+        assert!(error.contains("RES_DEEP"), "the refusal names the curve and family: {error}");
+        assert!(error.contains("2 exact zero"), "and counts them: {error}");
+        assert!(error.contains("SB-DIO-057"), "and cites the rule: {error}");
+        let committed: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples WHERE curve_id = ?1",
+                params![res],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(committed, 0, "a refusal writes nothing");
+
+        // T85: the interpreter DECLINES the conversion — zeros commit as VALUES, and the
+        // decision is a recorded row.
+        confirm_log_scale_zeros(&conn, &well, "RES_DEEP", true).unwrap();
+        insert_curve_samples(&conn, &res, &depths, &with_zeros).unwrap();
+        let kept: Vec<Option<f32>> = conn
+            .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![res], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(kept[1], Some(0.0), "a declined conversion keeps the zero as a value");
+        assert_eq!(kept[3], Some(0.0));
+        let recorded: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM documents WHERE doc_type = 'zero-decision'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recorded, 1, "the decision is recorded, not just applied");
+
+        // The explicit CONVERT decision — zeros become MISSING at commit, never silently.
+        let rxo = upsert_curve_meta(
+            &conn, &well, "RAW", "RXO", Some("ohm.m"), Some("RXO"), None, None,
+        )
+        .unwrap();
+        confirm_log_scale_zeros(&conn, &well, "RXO", false).unwrap();
+        insert_curve_samples(&conn, &rxo, &depths, &with_zeros).unwrap();
+        let converted: Vec<Option<f32>> = conn
+            .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![rxo], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(converted[0], Some(12.5), "real readings survive a convert decision");
+        assert_eq!(converted[1], None, "a converted zero is MISSING, not a reading");
+        assert_eq!(converted[3], None);
+
+        // Both negative arms: a LINEAR family with zeros passes ungated (a genuine zero is
+        // a legitimate reading there), and a log-family curve with no zeros never asks.
+        let gr = upsert_curve_meta(
+            &conn, &well, "RAW", "GR", Some("gAPI"), Some("GR"), None, None,
+        )
+        .unwrap();
+        insert_curve_samples(&conn, &gr, &depths, &with_zeros)
+            .expect("a linear-family curve with zeros commits without a gate");
+        let clean = [12.5f32, 8.0, 3.4, 9.9];
+        let resm = upsert_curve_meta(
+            &conn, &well, "RAW", "RES_MED", Some("ohm.m"), Some("RES_MED"), None, None,
+        )
+        .unwrap();
+        insert_curve_samples(&conn, &resm, &depths, &clean)
+            .expect("a zero-free log-family curve commits without a gate");
+    }
 }

@@ -12,97 +12,94 @@
 - Source-navigation boundary: the codebase index was not callable in this task, so targeted `rg`, direct source reads, executable tests and reachable Git history were used as the declared fallback. Consequential negative findings were checked in the expected Rust, TypeScript, schema, test and history paths.
 - Verification boundary: a supporting test is named only for the clause it exercises. A test that does not cover every clause of its owned DBM contract is not promoted to qualifying proof. Manual checkboxes remain separate from automated evidence.
 - Fresh verification: 21 focused supporting Rust tests passed. The repository gate passed 16 takeover-ledger + 13 frontend + 917 Rust tests, with 0 failed and 36 ignored; production build and generated verification matrix were green.
+- Gate 2 update (2026-08-13): SB-DBM-001, SB-DBM-003, SB-DBM-004, SB-DBM-006 and SB-DBM-007 now have owned
+  correctness proofs. The repository gate passes 992 / 0 / 36. Automated, visual, manual and field evidence
+  remain separate.
 
 ## SB-DBM-001 - One run record per computed curve, resolvable in one hop
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DBM-T03`, `SB-DBM-T10`; sections 4.1 and 6.2.
 - **Atomic obligations:** every current computed row resolves to exactly one run record; every legacy row is counted and visibly labelled `LEGACY_UNRECORDED`; displays and exports preserve that state.
-- **Current source:** `src-tauri/src/equations.rs` provides versioned `log_sets` writers and current/archive links, but `computed_curves.set_id` remains nullable and production paths still call unversioned `write_computed_curve`. `workflow.rs::run_pay_summary` exposes `skip_version`, and `export.rs::provenance_lines` refuses an unversioned computed curve instead of labelling and counting a legacy class.
-- **Qualifying acceptance tests:** none; T03's exhaustive resolver/legacy-label contract and T10's legacy deliverable contract are missing. Test class is `MISSING`.
-- **Supporting tests:** `db.rs::log_set_versioning_never_overwrites` and `export.rs::every_las_export_carries_measured_computed_and_model_provenance_in_the_file` prove the versioned happy path and export refusal, not universal writer coverage or legacy labelling.
+- **Current source:** `src-tauri/src/equations.rs::computed_provenance_groups` classifies every live row through its actual `log_sets` join, preserves exact counts, and exposes recorded or `LEGACY_UNRECORDED` state through catalog and deliverable disclosures. `export.rs::provenance_lines` writes the same class/count into LAS `~O` plus an export summary; `inspectorPanel.ts` and `ribbon.ts` surface it. All production computed writers remain behind the complete-ancestry inventory in `core_ancestry_tests.rs`; `skip_version` still refuses.
+- **Qualifying acceptance tests:** `every_computed_value_resolves_to_one_run_or_is_counted_and_labelled_legacy_unrecorded` is `CORRECTNESS`. It pins a recorded curve and a seeded legacy curve from both sides through the resolver, catalog, general disclosure, LAS file and export summary. The complete multi-run parameter-source/derivation fixture in T10 remains owned by SB-DBM-003/SB-DBM-005/SB-DBM-010.
+- **Supporting tests:** `every_computed_curve_written_by_any_module_has_a_complete_ancestry_record` inventories every production writer; `every_las_export_carries_measured_computed_and_model_provenance_in_the_file` now requires the explicit legacy class without weakening the saved-model refusal.
 - **Manual evidence:** `delivery-sets` 0/33, `generic-curve-store` 0/18 and `las-export` 0/2 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the versioned mechanism and the reachable unversioned counter-path; the full contract is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no numerical source is missing; the universal writer inventory, legacy class and visible label/count are missing.
-- **Next action:** route every computed writer through the atomic versioned path and implement T03/T10 with both current and seeded legacy rows, without adding a PK or upsert.
+- **Git evidence:** Gate 2 topic branch contains the recorded/legacy resolver, surfaces and owned proof without changing the deliberately PK-less schema or adding an upsert.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** no numerical source or product decision is missing. Visual/manual/field review remains open and cannot be inferred from the automated proof.
+- **Next action:** retain T03 and the production-writer inventory; continue with SB-DBM-002. Do not infer a `MODULE_VERSION_SOURCE` while that chapter parameter remains ABSENT.
 
-## SB-DBM-002 - The run record pins module identity by version, not by name
+## SB-DBM-002 - Module identity is build-derived, not hand-maintained
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T04`, `SB-DBM-T15`; sections 4.1 and 6.2-6.3.
-- **Atomic obligations:** persist a build-derived module identity that changes when the compiled module changes; include it in the re-run manifest and refuse a mismatch.
-- **Current source:** `LogSetSpec` and `log_sets` store only the module name. No build hash, module artefact version or manifest comparator exists.
-- **Qualifying acceptance tests:** none; T04 and the module-version arm of T15 are missing. Test class is `MISSING`.
-- **Supporting tests:** version-number tests cover log-set generations, not module binary identity.
-- **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the accepted anchor has no module-version field or re-run check.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `MODULE_VERSION_SOURCE` is deliberately absent; a reproducible build-derived identity must be specified rather than guessed.
-- **Next action:** decide and document the build-derived identity source, persist it per run and implement T04 plus the T15 mismatch refusal.
+- **Specified contract:** the identity recorded for the code that produced a curve must move when the code does; DEC-021 (RULED 2026-08-17) chose a per-module SOURCE DIGEST computed at build time, replacing CARGO_PKG_VERSION.
+- **Current implementation (2026-08-18):** DONE. build.rs emits SHA-256 (16 hex) of CR-normalized bytes per module-bearing file (the stated cross-machine rule; nothing path/timestamp-dependent); `modules::module_source_digest` maps every dispatched module and `equation:*` to its home file (the stated artefact boundary); production ancestry stores `src:<hex16>`. Accepted cost recorded per the ruling: comment edits move the digest - over-reporting, never under-reporting.
+- **Qualifying tests:** `a_modules_identity_is_the_normalized_digest_of_its_own_source_file_not_the_package_version` (recomputes the digest from the checked-out CRLF files - a raw-bytes build could not match; per-file mapping; shared-home identity; never the package version) and `a_runs_recorded_module_version_is_the_producing_files_digest` (production runner, stored ancestry). Three mutations killed: normalization dropped, writer reverted to the package version, mapping arm mis-pointed. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-003 - Every petrophysical parameter in a run record carries a source string
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T05`, `SB-DBM-T09`, `SB-DBM-T30`; sections 4.1, 5.4 and 6.2/6.6.
 - **Atomic obligations:** store value, source and a named absent state relationally/queryably; refuse any numeric petrophysical value without a source; never encode state as an empty string or numeric sentinel.
-- **Current source:** general writers serialize free-form `params_json` without a mandatory source. ML effective defaults sometimes carry a source string and defaulted flag, but explicit ML values and other modules do not. `zone_params` has no source/state columns.
-- **Qualifying acceptance tests:** none; no test writes the three T05 states and queries the unset state from an index. Test class is `MISSING`.
-- **Supporting tests:** `ml.rs::every_parameter_the_runner_reads_is_recorded_as_supplied_or_defaulted` proves one ML inventory, but not mandatory sources or a queryable absent state.
-- **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the ML fragment; the universal source/state contract is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the source inventory is incomplete; under `CONTRACT.md` section 2, uncited values must remain absent.
-- **Next action:** add mandatory structured value/source/state rows for the pilot method registry, populate only cited sources and implement T05/T09/T30.
+- **Current source:** `run_parameters` is the relational, position-preserving view of every complete ancestry parameter and `idx_run_parameters_state` supports direct unset queries. Complete single and batch run creation writes those rows in the same transaction as `log_sets`; deletion removes both atomically. `AncestryParameter` serializes an unsupplied required input only as `value: null`, `source: null`, `state: REQUIRED_UNSET`, while sourced values require a non-blank source. Schema open conservatively backfills only source-proven legacy ancestry and the exact historical `ABSENT`/`ABSENT` pair; malformed history is not guessed into compliance. Typed IPC permits the null source only alongside the named state, and the ancestry surface describes sourced values versus named absence.
+- **Qualifying acceptance test:** `a_parameter_without_a_source_is_queryable_required_unset_and_never_a_number` is `CORRECTNESS`. Synthetic fixture inputs exercise one sourced value and one absent required input; the test requires the exact index, direct query result, canonical ancestry JSON, blank-source write refusal and pre-index project backfill from both sides. Its expected state comes from SB-DBM-T05/T09/T30 and F-11, not from current output.
+- **Supporting tests:** all 14 equations tests pass, including saved-set versioning and ordinary text parameter values; focused complete-ancestry, LAS provenance and project round-trip controls remain green.
+- **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - still unexercised.
+- **Git evidence:** Gate 2 topic branch carries the schema, migration, atomic writer, typed wire contract and owned proof. No primary key or upsert was added to `computed_curves`.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for this source/state contract. Uncited parameters remain absent with NULL value/source; no parameter value, physical endpoint or default was selected.
+- **Next action:** retain the indexed source/state contract; visually inspect the ancestry presentation, manually query a disposable project and field-verify representative pilot runs. These open evidence classes do not reopen the automated contract.
 
 ## SB-DBM-004 - The run record stores the effective parameter set, not only the overrides
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DBM-T06`, `SB-DBM-T15`; sections 4.1 and 6.2-6.3.
 - **Atomic obligations:** persist every effective value; distinguish explicit from defaulted; pin the manifest version/source of each default; keep old records invariant after a default changes.
-- **Current source:** `ml.rs` records its effective runner parameters with supplied/defaulted flags. `workflow.rs` records request overrides rather than the fully resolved `build_opts`, and the equation path writes an empty parameter string.
-- **Qualifying acceptance tests:** none; T06's five-parameter/default-change fixture and the effective-parameter arm of T15 are missing. Test class is `MISSING`.
-- **Supporting tests:** `ml.rs::every_parameter_the_runner_reads_is_recorded_as_supplied_or_defaulted` covers one subsystem only.
+- **Current source:** `workflow.rs::effective_module_parameters` records every configurable value from the exact `ModuleSpec` the runner used. Numeric parameters and string options are labelled `EXPLICIT` or `DEFAULTED`; absent numeric defaults remain `REQUIRED_UNSET`. Every defaulted value carries the deterministic configurable-manifest hash already owned by `parameter_pack.rs`, while explicit and zone-override values carry no default-manifest version. Ordinary runs and workflow chains call the same recorder. `AncestryParameter` and typed IPC preserve the fields, and `run_parameters` stores them queryably in the same transaction as the run record. Existing databases gain the two nullable columns additively; old rows remain unclassified rather than being relabelled without evidence.
+- **Qualifying acceptance test:** `a_run_records_all_effective_parameters_and_keeps_the_default_manifest_version_after_that_manifest_changes` is `CORRECTNESS`. It independently derives the manifest hash for a synthetic five-parameter module, requires two explicit plus three defaulted records, changes one default, and proves both the new run's changed value/version and the original run's unchanged value/version. All values are declared synthetic fixture inputs, not product defaults.
+- **Supporting tests:** SB-DBM-003's source/absence/migration proof, all chain controls and all parameter-pack controls remain green. The ML-specific effective-parameter test remains supporting evidence for that separate subsystem.
 - **Manual evidence:** `workflow` 0/23, `machine-learning` 7/189 and `processing-history` 0/7.
-- **Git evidence:** accepted anchor `b332026c` contains the ML implementation and the general-writer gaps.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** module version/source identity from SB-DBM-002 is also required for default provenance.
-- **Next action:** serialize the post-resolution effective parameter set for every writer and implement T06 with explicit/defaulted controls and a changed-manifest control.
+- **Git evidence:** the Gate 2 topic branch contains the typed record, additive schema migration, shared ordinary-run/chain recorder and owned proof. `computed_curves` remains deliberately PK-less and no upsert path was added.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for T06. SB-DBM-002's deliberately absent build-derived module identity remains blocked and is not substituted by the parameter-manifest hash. The full T15 rerun manifest remains owned by SB-DBM-015.
+- **Next action:** retain T06 and the shared recorder; visually/manual-review the effective-set presentation and proceed to SB-DBM-005 without claiming T15 or SB-DBM-002 closed.
 
 ## SB-DBM-005 - The run record carries a method-derivation citation, not only parameter values
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T07`, `SB-DBM-T10`; sections 4.1 and 6.2.
 - **Atomic obligations:** require a literature citation or `FIRST-PRINCIPLES` marker at registration; persist it per run; propagate it into the deliverable.
-- **Current source:** module metadata and run records do not enforce or persist a derivation citation, and the LAS provenance JSON has no such field.
+- **Current source:** live re-verification after SB-DBM-004 confirms `ModuleSpec` still has no derivation-citation field or fail-closed registration result, `CurveAncestry` has no method-derivation field, and LAS/report/Office provenance can only propagate the ancestry fields that exist. Module comments and method-chapter prose are not a registered, complete, source-controlled metadata inventory.
 - **Qualifying acceptance tests:** none; the registration refusal, run-record and export arms of T07/T10 are missing. Test class is `MISSING`.
-- **Supporting tests:** module-specific comments/citations and model-citation UI rows are not durable derivation records for every run.
+- **Supporting tests:** module-specific comments/citations and model-citation UI rows are not durable derivation records for every run. A synthetic T07 mechanism test alone would not make the shipping registry compliant and therefore is not added as a costume for implementation.
 - **Manual evidence:** `workflow` 0/23, `las-export` 0/2 and `office-deliverables` 0/39 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no universal registration/run/export field exists at the accepted anchor.
+- **Git evidence:** `UNIMPLEMENTED`; no universal registration/run/export field exists at the Gate 2 live source.
 - **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** every pilot method needs an adjudicated derivation source; no citation is inferred here.
-- **Next action:** add the registration field and fail-closed validation, persist it per run and carry it in every provenance-capable deliverable.
+- **Blocker or decision:** `BLOCKED` — neither the chapter nor the current registry supplies a complete map assigning every registered shipping module one primary citation or one approved `FIRST-PRINCIPLES` marker naming the module's own derivation document. Choosing labels from comments, adjacent chapters or engineering memory would write unsupported audit claims into client deliverables. SB-CORE-003's complete cited pilot-method inventory remains blocked on the same source-adjudication boundary.
+- **Next action:** Jauhar must approve the complete registered-module derivation-source map, or adopt a named architecture/source record that supplies it. Then add the fail-closed registration field, run-record persistence, deliverable propagation and both sides of T07/T10.
 
 ## SB-DBM-006 - Inputs are recorded as resolved identities, with the rule that chose them and the candidates it rejected
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned test `SB-DBM-T08`; sections 4.1, 5.3 and 6.2.
 - **Atomic obligations:** store the chosen curve id and set version, controlled decision-rule name and every rejected candidate identity; a changed choice creates a changed record.
-- **Current source:** workflow `inputs_json` records requested slots/mnemonics and an input set, but not the chosen `curve_id`, complete set version, rule vocabulary or rejected candidates. DIO import alias decisions are reported elsewhere and are not the run record.
-- **Qualifying acceptance tests:** none; the three-GR choice/rechoice fixture in T08 is missing. Test class is `MISSING`.
-- **Supporting tests:** input-set selection tests prove that requested sets can be selected, not why an exact curve won.
+- **Current source:** `equations.rs` now owns one staged generic-curve resolver and uses its decision for calculation inputs, plotting identity and schema-v2 ancestry. Each input records its exact stored curve identity, set/version, controlled rule and every rejected curve identity/set/version. The resolver records F-04's controlled decision stages while preserving SandiBumi's binding import-set contract: RAW is the absolute working-set tier, then exact mnemonic/alias, manual pin, Final and MRU decide within that tier; another set becomes eligible only when RAW lacks the requested mnemonic or family. It never treats a mnemonic as identity or infers Final from a set label. `db.rs` stores additive set versions, explicit Final state and modification order; Final changes are one-per-family and reversible. Workflow chains replace planning-only SELF references with exact deterministic stored set/curve identities, preserving replay determinism. Ordinary blank-set track reads retain their established standard projection contract.
+- **Qualifying acceptance test:** `a_module_run_records_the_final_curve_identity_and_both_rejected_candidates_then_records_the_reflagged_choice` is `CORRECTNESS`. Three synthetic GR arrays across two sets exercise both sides of a Final reflag. The test independently derives the flip outputs and requires the exact chosen UUID/set/version, `FINAL_FLAG`, both rejected UUID/set/version identities, changed choice with the same rule, undo displacement, mnemonic-not-identity and fail-closed schema-v2 validation.
+- **Supporting tests:** `a_raw_family_match_beats_an_exact_mnemonic_outside_the_working_set_until_raw_is_absent` pins RAW priority and its attached-set fallback from both sides. The native-grid/blank-set track regression, deterministic raw-import chain replay, generic promote/family controls, plotting suite and complete-ancestry inventory all pass. They preserve adjacent contracts but are not substituted for T08.
 - **Manual evidence:** `generic-curve-store` 0/18, `delivery-sets` 0/33 and `workflow` 0/23 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the requested-input fragment; the resolved-decision record is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no numeric source is missing; the central resolution-decision schema and vocabulary are absent.
-- **Next action:** make resolution return a structured chosen/rejected decision and store it atomically with the run; implement T08 from both choice states.
+- **Git evidence:** the Gate 2 topic branch contains the additive schema, central resolver, exact decision record, typed IPC/UI Final action and owned T08 proof. `computed_curves` remains PK-less and no upsert or duplicate-tolerant path was added.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for this contract. No petrophysical value, endpoint, cutoff, range or default was selected. Visual/manual/field evidence remains open.
+- **Next action:** retain T08 and the shared resolver; visually inspect the Final/rejected-candidate presentation, manually run/query both reflag states and field-verify a representative duplicated curve family before any pilot claim.
 
 ## SB-DBM-007 - A missing provenance element is a named state, never an empty string
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T09`; sections 4.1 and 6.2.
 - **Atomic obligations:** represent genuinely not-applicable and required-but-unset states distinctly; fail serialization rather than writing an empty string; make readers deterministic.
-- **Current source:** `LogSetSpec.params_json` remains a string, and the equation path writes `String::new()`. No `NOT_APPLICABLE`/`REQUIRED_UNSET` schema or reader exists.
-- **Qualifying acceptance tests:** none; T09's no-parameter and serialization-failure controls are missing. Test class is `MISSING`.
-- **Supporting tests:** partial ML parameter JSON does not remove the empty-string equation counter-path.
+- **Current source:** `equations.rs::ProvenanceAbsentState` is the one typed `NOT_APPLICABLE` / `REQUIRED_UNSET` / `LEGACY_UNRECORDED` vocabulary. Schema-v3 ancestry requires every current empty parameter collection to carry `NOT_APPLICABLE`; parameterless equations retain their definition metadata without misclassifying it as parameters, and schema-v1/v2 empty collections are normalised by the reader to `LEGACY_UNRECORDED`. Named required inputs keep the relational `REQUIRED_UNSET` state from SB-DBM-003. `workflow.rs` serializes module parameters through a fallible boundary before batch set allocation, and any error returns a failed run with no run or curve rows.
+- **Qualifying acceptance test:** `absent_is_a_named_state_never_an_empty_string` is `CORRECTNESS`. It executes a real parameterless equation and requires the persisted schema-v3 reader surface to carry `NOT_APPLICABLE` with no parameter entries; the other half injects a module-parameter serialization error through the real runner and requires an error plus zero `log_sets` and zero computed VSH rows. The named states and fail-closed behavior come directly from SB-DBM-T09/F-11, while all numeric values are synthetic reachability inputs.
+- **Supporting tests:** the complete-ancestry round trip, production-writer inventory, queryable REQUIRED_UNSET proof and effective-parameter manifest proof remain green. They protect adjacent states but are not substituted for T09.
 - **Manual evidence:** `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the divergent empty-string path.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; this is a missing state model and fail-closed writer.
-- **Next action:** replace ambiguous empty provenance with an explicit tagged state and implement both T09 controls without changing sample-missing representation.
+- **Git evidence:** the Gate 2 topic branch carries the schema-v3 typed state, legacy-reader normalisation, parameterless equation writer, fail-closed module boundary and owned T09 proof. It does not change the SQL schema, missing-sample representation or computed-curve write discipline.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. No petrophysical value, endpoint, cutoff, range or default was selected. Visual/manual/field evidence remains open.
+- **Next action:** retain T09; visually inspect the ancestry presentation, manually query current and pre-v3 records, and field-verify representative pilot provenance. Do not infer those evidence classes from the automated serializer fault.
 
 ## SB-DBM-008 - The run record names the operator and the zone set in force
 
@@ -119,42 +116,30 @@
 
 ## SB-DBM-009 - Provenance timestamps are stored UTC and displayed local
 
-- **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T11`; sections 4.1, 5.5 and 6.2.
-- **Atomic obligations:** store UTC; render local only at the display edge; migrate or explicitly classify legacy local timestamps without guessing.
-- **Current source:** `log_sets.created_at` and related tables use DuckDB `TIMESTAMP DEFAULT now()` without a UTC contract or offset, and no legacy-local migration policy exists.
-- **Qualifying acceptance tests:** none; T11's cross-zone UTC storage/local-display fixture is missing. Test class is `MISSING`.
-- **Supporting tests:** timestamp presence/order tests do not prove UTC semantics.
-- **Manual evidence:** `processing-history` 0/7 and `project-lifecycle` 3/24.
-- **Git evidence:** accepted anchor `b332026c` contains the local/unspecified timestamp schema.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the UTC migration policy for legacy local timestamps is deliberately unresolved.
-- **Next action:** adjudicate legacy migration, introduce an unambiguous UTC representation, convert only for display and implement the time-zone arms of T11.
+- **Specified contract:** provenance timestamps are unambiguous UTC instants at the store, converted only at display; DEC-022 (RULED 2026-08-17) declared the legacy `log_sets.created_at` values WIB (UTC+7) and ordered their one-time conversion with the declaration recorded as the source.
+- **Current implementation (2026-08-18):** DONE. `db::migrate_log_set_timestamps_to_utc` (wired into project open) subtracts the declared seven hours exactly once, gated by the `DEC-022-created-at-utc` marker document that records the zone, the ruling and the rows converted - the accepted risk (a record written elsewhere lands hours off with nothing in the data to catch it) is thereby on the record as a DECLARATION, not a measurement. New rows default to `now() AT TIME ZONE 'UTC'` in both the CREATE and the migration's ALTER (deliberate redundancy: old-schema and fresh projects land on one meaning). Display: ancestry renders viewer-local in the inspector; the history text export says UTC by name.
+- **Qualifying test:** `db::inspector_tests::legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source` - the seven-hour conversion, the idempotency gate (a second run must not move history again), the recorded declaration, a fresh row within 60s of UTC under a Jakarta-pinned session, and the structural DEFAULT pin. Three mutations killed on distinct assertions (gate removed, offset re-typed to eight hours, both defaults removed); removing either single default alone survives because the other covers it - genuine redundancy, recorded as such. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-010 - Provenance travels into the deliverable
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DBM-T10`; sections 4.1 and 6.2.
 - **Atomic obligations:** every exported computed curve resolves to run, effective parameter sources and derivation citation; legacy curves are labelled/countable; formats that cannot carry provenance disclose the omission at export.
-- **Current source:** `export.rs::provenance_lines` writes machine-readable JSON into LAS `~O` for measured, versioned computed and saved-model curves. It lacks parameter-source and derivation-citation fields, refuses rather than labels legacy curves, and no universal office/other-format sidecar contract exists.
+- **Current source:** `export.rs::provenance_lines` writes machine-readable JSON into LAS `~O` for measured, versioned computed and saved-model curves; schema-v3 ancestry now carries parameter source strings, and SB-DBM-001 keeps legacy computed curves exported under `LEGACY_UNRECORDED` with an exact summary count. PDF, workbook, DOCX and deck paths use the shared `curve_ancestry_disclosures` rows, but those are human-readable tables rather than one registered machine-readable sidecar contract. `AncestryOutput.derivation` contains implementation descriptions, not the source-controlled method citations SB-DBM-005 requires.
 - **Qualifying acceptance tests:** none; the complete 20-well, multi-run, equation and legacy fixture from T10 is missing. Test class is `MISSING`.
-- **Supporting tests:** `export.rs::every_las_export_carries_measured_computed_and_model_provenance_in_the_file` proves the narrower LAS JSON and saved-model refusal.
+- **Supporting tests:** `export.rs::every_las_export_carries_measured_computed_and_model_provenance_in_the_file` proves the narrower LAS JSON and saved-model refusal; SB-DBM-001's owned test proves legacy labels/counts through LAS and number-carrying disclosure surfaces. Neither can manufacture the missing method citations or prove one format-wide sidecar contract.
 - **Manual evidence:** `las-export` 0/2, `office-deliverables` 0/39 and `processing-history` 0/7 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the LAS provenance fragment; whole-deliverable closure is not integrated.
+- **Git evidence:** live re-verification on `codex/g2-program-plan` finds the LAS machine-readable record and shared report/Office ancestry rows integrated; complete cited provenance across deliverable formats is not integrated.
 - **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-DBM-003 and SB-DBM-005 must first provide parameter-source and derivation fields.
-- **Next action:** extend the writer registry with a provenance-capability contract and implement the complete T10 fixture across selected pilot deliverables.
+- **Blocker or decision:** SB-DBM-003's parameter sources now exist, but SB-DBM-005 remains blocked on the complete registered-module derivation-source map. Existing free-form derivation descriptions cannot be relabelled as citations.
+- **Next action:** after SB-DBM-005 supplies source-controlled citations, extend the export/report/Office registries with one provenance-capability and machine-readable-sidecar contract, then implement all T10 arms across the selected pilot deliverables.
 
 ## SB-DBM-011 - Structured audit entries, as name-value pairs with a controlled vocabulary
 
-- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DBM-T11`, `SB-DBM-T12`; sections 4.1, 5.5 and 6.2.
-- **Atomic obligations:** store relational audit entry/detail rows using controlled location/mode vocabulary, typed values/units, coalescing and UTC/operator/zone-set fields.
-- **Current source:** `src/ui/processLog.ts` and document/process-history paths persist free-text/JSON event text. No `audit_entry`/`audit_detail` tables, controlled vocabulary or coalescing boundary exists.
-- **Qualifying acceptance tests:** none; T11 and the structured-diff setup of T12 are missing. Test class is `MISSING`.
-- **Supporting tests:** process-log rendering proves history is visible, not relational or diffable.
-- **Manual evidence:** `processing-history` 0/7, `security-integrity` 0/63 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains a divergent text/JSON history mechanism, not the specified audit schema.
-- **Verdict:** `PRESENT-DIVERGENT`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** pilot audit granularity and operator identity depend on the product decision in SB-DBM-008.
-- **Next action:** define the controlled audit vocabulary and atomic entry/detail writer, then implement T11 without deleting existing visible history until migration is adjudicated.
+- **Specified contract:** Geolog's audit taxonomy adopted wholesale - `audit_entry`/`audit_detail` relations with controlled location/mode vocabularies, uninterrupted repeats collapsing to one entry, the dotted-name attribute rule, project-resident and Save-As-surviving. Blocked on DEC-020 (operator), DEC-022 (UTC) and DEC-023 (zone-set seam) - all now ruled.
+- **Current implementation (2026-08-18):** DONE. Relational store with CHECKed vocabularies and writer-side named refusals; one atomic backend writer with the vendor's own collapse rule (uninterruptedness by entry order, never an invented time window - `AUDIT_ENTRY_COLLAPSE_WINDOW` stays ABSENT); `repeat_count` keeps the collapse honest; the dotted-name rule enforced both ways; DEC-023's `zone_set_versions` digest seam (SB-DBM-008 inherits it); DEC-020 operator explicit with the frontend prompting once per session and refusing the edit when dismissed. Migrated surfaces: zone-parameter writes (Zones dialog, DB Inspector, crossplot drag - the forty-gesture case) and curve identity edits (RENAME + dotted ATTRIBUTE). Legacy processLog stays visible, unrelabelled. Read on demand via `list_audit_entries`. SB-DBM-012's diff not imported.
+- **Qualifying test:** exact T11 pinned end to end with seven mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-012 - A parameter-state diff is a database join, not an external differ
 
@@ -173,14 +158,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DBM-T13`; sections 4.1 and 6.2.
 - **Atomic obligations:** run-record failure rolls back curve writes and reports failure; every computed writer is atomic with provenance; no setting/input/environment switch bypasses it.
-- **Current source:** versioned workflow batch writers transactionally create run records and curve rows, but `PaySummaryRequest.skip_version` deliberately writes flags without versioning and several production modules still call unversioned writers. The universal no-bypass claim is false even without an environment switch.
-- **Qualifying acceptance tests:** none; T13's injected log-set failure and complete configuration inventory are missing. Test class is `MISSING`.
-- **Supporting tests:** versioned batch transaction tests prove one correct path; `pay_summary_versions_flags_with_cutoffs_in_provenance` explicitly characterizes the bypass on its other arm.
-- **Manual evidence:** `workflow` 0/23, `delivery-sets` 0/33 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains both atomic versioned writers and the live bypass.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; the existing bypasses and writer inventory are the blocker.
-- **Next action:** remove provenance-optional production paths by routing them through the one versioned transaction, then implement T13 from failure and no-bypass sides.
+- **Current source:** every production computed writer requires an opaque live complete-ancestry set. Legacy writer helpers are test-only, `PaySummaryRequest.skip_version` refuses rather than writing, and the shared whole-corpus scan rejects production calls to legacy/raw computed writers. A second scan enumerates Rust environment, DuckDB, project-document and installed-settings reads plus TypeScript local/session preference reads, so the no-bypass proof is not limited to a hand-picked setting list.
+- **Qualifying acceptance tests:** `workflow::tests::provenance_cannot_be_switched_off_and_a_failed_record_fails_the_write` is `CORRECTNESS`. Its expected transaction/refusal contract is SB-DBM-T13, sourced there to F-03. It proves a normal paired record/curve write, forces the second `log_sets` insert in one batch to fail after the first insert, requires rollback of both records and every output, requires both serialized job items to be `Failed`, executes the `skip_version` refusal, enumerates configuration reads and reuses the independent writer inventory.
+- **Supporting tests:** `core_ancestry_tests::every_computed_curve_written_by_any_module_has_a_complete_ancestry_record` independently retains the shared whole-production writer inventory; `pay_summary_versions_flags_with_cutoffs_in_provenance` retains the ordinary versioned path and explicit refusal.
+- **Manual evidence:** `workflow` 0/23, `delivery-sets` 0/33 and `security-integrity` 0/63 remain unexercised; synthetic fault injection is automated evidence only.
+- **Git evidence:** current topic branch; one SB-DBM-013 commit will carry T13, inventory reuse and tracker correction after the full gate passes.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. No petrophysical value, deployment default or scientific assumption is required.
+- **Next action:** retain T13 and the shared writer/configuration inventories; Jauhar performs visual/manual review without promoting the synthetic fault to field evidence.
 
 ## SB-DBM-014 - Every stochastic operation records its seed and its seeding rule
 
@@ -197,42 +182,31 @@
 
 ## SB-DBM-015 - The re-run manifest is enumerated, stored, and checkable
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T15`, `SB-DBM-T16`; sections 4.2 and 6.3.
-- **Atomic obligations:** one manifest enumerates module, effective parameters/sources, resolved inputs/frames, zone set, seeds, models and physics-driving attributes; a rerun command resolves every element or refuses it by name.
-- **Current source:** those elements exist only as incomplete fragments across `log_sets`, model metadata and request JSON. No complete manifest schema, resolver or "re-run this set" command exists.
-- **Qualifying acceptance tests:** none; all mutated-project arms of T15 and manifest-driven T16 are missing. Test class is `MISSING`.
-- **Supporting tests:** log-set restore feeding a later run and model drift warnings do not enumerate or enforce the complete manifest.
-- **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no complete manifest/re-run feature exists at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on SB-DBM-002 through 006, 008, 014, 017 and 019.
-- **Next action:** close the prerequisite identity fields, then implement one enumerated manifest resolver and all four named T15 refusal controls.
+- **Specified contract:** per run, the complete pinned-fact set - module identity/version, effective parameters with sources, resolved input identities with set versions, depth frame and sampling, zone-set identity, stochastic seed identity, applied-model identity, run-time physics-driving attributes - plus a "re-run this set" operation that verifies every element and refuses NAMING the one that no longer resolves. Blocked on DEC-021/023/024 - all now ruled (024: identity FIELDS only; 014/019/020 stay deferred and inherit them).
+- **Current implementation (2026-08-18):** DONE. Curve ancestry schema v4 carries all eight arms (new fields serde-defaulted so old history reads); the runner records the depth frame and the injected neutron basis via `record_run_manifest` (same resolver as the injection, so record and behavior cannot drift); zone_set from the DEC-023 digest seam. `workflow::rerun_log_set` verifies module digest, every input identity via the same resolver, the zone-set digest and the applied model - refusing by name with stored-vs-current stated - then replays into a RERUN set and byte-compares against the manifest's own version (archive-backed snapshot). A changed zone parameter resolves and reports `bit_identical=false` honestly. Command `rerun_log_set`.
+- **Qualifying test:** exact T15 - unmutated bit-identical replay plus all four named refusals plus the honest not-identical arm; five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-016 - Re-run output does not depend on iteration order
 
 - **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DBM-T16`; sections 4.2 and 6.3.
 - **Atomic obligations:** output curves and aggregates are byte-identical across processes with different hash seeds and unordered database row traversal.
-- **Current source:** many module and stochastic tests are deterministic for a fixed fixture, and several queries use explicit ordering. There is no complete query/collection inventory and no two-process different-hash-seed project comparison.
-- **Qualifying acceptance tests:** none; T16's process-level byte and aggregate comparison is missing. Test class is `MISSING`.
-- **Supporting tests:** `workflow.rs::test_full_deterministic_chain` and fixed-seed module tests are same-process, bounded-path evidence.
+- **Current source:** `core_determinism_tests.rs` launches the real Rust test executable against copies of one imported two-well project. Each child executes the approved VSH-density/neutron-saturation chain and pay summary, emits every computed curve and aggregate field in a binary artifact and exposes a 64-key live HashMap-order witness. Query-side output packing is explicitly ordered.
+- **Qualifying acceptance tests:** `a_project_run_in_fresh_processes_with_different_hash_orders_produces_identical_curve_bytes_and_aggregate_statistics` is a `CORRECTNESS` proof of T16. It requires two fresh-process witnesses to differ while every packed curve and aggregate byte agrees, then changes recorded Rw in a third process and requires both products to differ.
+- **Supporting tests:** `a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blobs_and_an_identical_pay_summary` remains the same-process SB-CORE-011 proof; T16 adds the process boundary and observed order difference.
 - **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains deterministic fragments; universal order independence is unverified.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the complete rerun manifest from SB-DBM-015 is required to drive the specified comparison.
-- **Next action:** inventory unordered reads/collections and implement T16 as two fresh processes with different hash seeds over the same manifest.
+- **Git evidence:** the Gate 2 topic branch contains the fresh-process binary comparison and an opposite-side sensitivity control; no production behavior or scientific value changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the exact approved deterministic pilot chain. This does not close SB-DBM-015's absent stored re-run manifest or extend proof to the 689 deferred requirements.
+- **Next action:** retain T16 in the default gate; Jauhar may field-verify a representative sanitized delivery in Gate 4 without relabelling the automated fixture as field evidence.
 
-## SB-DBM-017 - A metadata attribute that drives physics is an input of the module that consumes it
+## SB-DBM-017 - Neutron matrix scale is typed curve metadata with a declared owner
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T17`; sections 4.2 and 6.3.
-- **Atomic obligations:** declare every physics-driving metadata attribute as a module input; record runtime value; mark prior output stale on change; refuse a named unset attribute instead of defaulting.
-- **Current source:** no registry attribute declares metadata-to-physics dependencies, no run record stores them generically, and no stale-output invalidation follows such changes.
-- **Qualifying acceptance tests:** none; T17's changed and unset controls are missing. Test class is `MISSING`.
-- **Supporting tests:** bespoke module arguments and warnings do not prove the universal metadata dependency contract.
-- **Manual evidence:** `workflow` 0/23, `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the registry/run/staleness mechanism is absent at the accepted anchor.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `DEC-003` must identify pilot methods before their physics-driving attributes can be source-audited; uncited values remain absent.
-- **Next action:** for the selected pilot methods only, declare source-cited attribute inputs, add stale tracking and implement both arms of T17.
+- **Specified contract:** the neutron matrix basis drives physics (~0.04 v/v in clean water sand) and needs a typed metadata owner; DEC-025 (RULED 2026-08-17) authorized the narrow seam - declared, never inferred from contractor/tool/salinity/default; absence stays absent; import can state it; a declaration records its source.
+- **Current implementation (2026-08-18):** DONE. `curve_meta.neutron_basis` + `neutron_basis_source` (additive ALTER, legacy projects converge). `db::set_curve_neutron_basis` refuses empty basis or source and unknown curves; the `set_curve_neutron_basis` Tauri command is the import surface's way to state it; the curve catalog surfaces the basis so absence is visible. The seam is this field only, per the ruling.
+- **Qualifying test:** `db::inspector_tests::the_neutron_matrix_basis_is_declared_never_inferred_and_absence_stays_absent` - None until declared, refusals write nothing, scoped to the named curve, DEC-025 recorded as authority, zero-row guard specifically exercised with a well-formed absent UUID. Three mutations killed (emptiness guard removed, source dropped from the UPDATE, zero-row guard removed - the last only after the fixture was corrected from a malformed id that failed at the cast upstream of the guard). Test class `CORRECTNESS`.
+- **Boundary:** the module that REFUSES a missing basis by name is SB-POR-024's half; the wizard pre-fill field is UI polish over the shipped command.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-018 - Training-set identity is recorded as ids and intervals, not as names
 
@@ -303,14 +277,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T23`; sections 4.4 and 6.5.
 - **Atomic obligations:** one registry owns every schema vocabulary and every projection derives from it; a second literal declaration fails; adding one registry item reaches every consumer.
-- **Current source:** `equations.rs` and `curve_edit.rs` still declare independent standard-column lists with different membership (`DEPTH` is included in only one). Frame, sampling, datum, audit and absent-state vocabularies are also not generated from one registry.
-- **Qualifying acceptance tests:** none; T23's source-tree failure/one-item propagation/second-literal controls are missing. Test class is `MISSING`.
-- **Supporting tests:** current output-shadow tests compare behavior, not derivation from one source.
+- **Current source:** `schema_vocab.rs` owns one typed registry for standard columns plus the exact sampling-style, log-set-frame, depth-datum, audit-location, audit-mode and provenance-absence populations. Schema DDL/migration, standard-frame reads and inserts, curve editing, plotting resolution, inspector columns, output-shadow refusal and frame reads/writes consume exported entries or derived projections; the former `equations.rs` and `curve_edit.rs` duplicate declarations are gone.
+- **Qualifying acceptance tests:** `vocabularies_have_one_source_and_every_projection_derives_from_it` passed and is `CORRECTNESS`. It adds a synthetic eighth schema member and independently requires its select, editable, inspector, DDL and migration projections, checks the six exact vocabulary populations, scans for exactly one declaration owner and rejects a second full literal standard-column declaration.
+- **Supporting tests:** existing standard-curve read, edit, inspector and Reframe regressions remain green, but only T23 owns the source-of-truth mutation contract.
 - **Manual evidence:** `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the duplicate declarations and therefore the live divergence.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; centralization must preserve deliberate membership differences as derived projections, not copy another list.
-- **Next action:** build one typed vocabulary registry with derived projections and implement every T23 mutation control.
+- **Git evidence:** current topic-branch increment centralizes the registry and removes the divergent declarations without adding a scientific value, computed-curve key or upsert path.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` satisfied; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. `DEPTH` remains non-editable by a derived projection rather than disappearing from a copied list.
+- **Next action:** preserve the source-tree guard; Gate 4 may inspect representative imported and own-frame sets, but manual inspection is not automated proof of registry completeness.
 
 ## SB-DBM-024 - Every capacity limit is unit-typed, carries a source string, and is the source of its own documentation
 
@@ -327,120 +301,112 @@
 
 ## SB-DBM-025 - A constant that crosses a module boundary is registered with its source
 
-- **Chapter evidence:** P2; chapter status `ABSENT`; owned tests `SB-DBM-T23`, `SB-DBM-T24`; sections 4.4 and 6.5.
-- **Atomic obligations:** every cross-module petrophysical constant resolves through one source-carrying registry; modules may not duplicate or privately default it.
-- **Current source:** there is no central source-bearing petrophysical constant registry or build-time duplicate guard. Module-local arguments/constants remain independently declared.
-- **Qualifying acceptance tests:** none; the registry and duplicate-declaration arms of T23/T24 are missing. Test class is `MISSING`.
-- **Supporting tests:** module numerical tests verify individual formulae, not cross-module identity/source custody.
-- **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no qualifying registry exists at the accepted anchor.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `DEC-003` must identify pilot methods; every registry value still needs a named primary/cited source.
-- **Next action:** inventory only selected pilot cross-module constants, leave uncited values absent, then add one source-bearing registry and duplicate-declaration gate.
+- **Specified contract:** cross-module petrophysical constants carry a registered source; DEC-026's PHIE-floor precedence question was answered by DEC-043 (0.001, the later direct product record superseding the chapter's unresolved position; shape per DEC-047).
+- **Current implementation (2026-08-18):** DONE. `param_sources::CROSS_MODULE_CONSTANTS` is the registry AND the definition point - `modules::PHIE_FLOOR` and `db::GEOLOG_MISS_FLOAT` re-export the registry consts, so the registered and running values are one object by construction. Complete selected-pilot inventory of three: PHIE_FLOOR (DEC-043/DEC-047), GEOLOG_MISS_FLOAT (Geolog cgg.h), C_MAD (robust.rs's own `C_MAD_SOURCE`), each naming its consumers.
+- **Qualifying test:** `param_sources::tests::every_cross_module_constant_is_registered_with_its_source_and_the_registry_is_what_runs` - absolute value pins plus bit-equal consumer pins (each side catches what the other cannot), the exact inventory, named authorities, no uncited row. Three mutations killed: value drifted, source blanked, entry dropped. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-026 - Two samples may not share a depth in one curve, and the resolution is declared
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DBM-T25`, `SB-DBM-T26`; sections 4.5 and 6.6.
 - **Atomic obligations:** continuous-set duplicate depths refuse with both source rows named; POINT sets can retain duplicates only under a declared/logged resolution; storage distinguishes set types and resolution.
-- **Current source:** DIO ingest paths detect duplicates and require a selected policy, while the generic/standard stores have primary-key constraints. Deliberately PK-less `computed_curves` has no set-type/sampling-style field or store-boundary duplicate refusal, so direct writes can append duplicate `(well, curve, depth)` rows.
-- **Qualifying acceptance tests:** none; T25's continuous-versus-POINT two-sided store fixture and T26 integrity arm are missing. Test class is `MISSING`.
-- **Supporting tests:** ingest duplicate-policy tests and `batch_write_overwrites_without_duplicating` cover cooperative writers, not adversarial store-boundary duplicates or POINT legality.
+- **Current source:** `schema_vocab.rs` owns typed continuous/POINT and REFUSE/PRESERVE/PERTURB vocabularies. `log_sets` records a conservative `CONTINUOUS_IRREGULAR`/`REFUSE` declaration for current producers; every single, clearing, batched, OWN-frame and Restore boundary validates declared continuous uniqueness before mutation. `aux_sets` is the shipped sparse point-delivery registry; its real import writer declares `POINT`/`PRESERVE`, preserves legitimate same-depth rows and logs each duplicate source row. An explicit PERTURB route requires a positive unit-typed offset and records original/stored depth, resolution, magnitude and unit per duplicate row. Historical aux rows are labelled from their actual PK-less preserve-all writer behavior; historical log-set style remains unrecorded rather than guessed.
+- **Qualifying acceptance tests:** exact correctness test `continuous_duplicates_name_both_source_rows_while_point_duplicates_require_and_record_their_resolution` implements SB-DBM-T25 from both sides: regular and irregular duplicate continuous writes and a corrupted-archive Restore refuse with curve, depth and both rows before current mutation; the production aux writer accepts and logs duplicate POINT observations; PERTURB refuses with no offset and logs both rows under the cited 0.01 ft fixture; `computed_curves` remains PK-less. Test class is `CORRECTNESS`. SB-DBM-T26 is not claimed here; it remains the next SB-DBM-027 integrity-checker increment.
+- **Supporting tests:** ingest duplicate-policy tests, `batch_write_overwrites_without_duplicating`, log-set Restore tests, auxiliary import tests and the pre-column point-set migration regression remain green.
 - **Manual evidence:** `data-conventions` 0/45, `generic-curve-store` 0/18 and `delivery-sets` 0/33 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains DIO policy fragments and the PK-less central counter-boundary.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** a set-type/resolution vocabulary is missing. The fix must preserve PK-less `computed_curves` and its delete-then-append performance discipline.
-- **Next action:** validate and record duplicate policy before the existing transaction writes, then implement T25 from continuous-refusal and POINT-acceptance sides without a PK/upsert.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for SB-DBM-026. `DUPLICATE_DEPTH_PERTURBATION` remains ABSENT by design; 0.01 ft appears only as the cited T25 fixture input. The deliberately PK-less `computed_curves` table and delete-then-append discipline remain unchanged, with no uniqueness index or upsert path.
+- **Next action:** implement SB-DBM-027/SB-DBM-T26 as the separate read-only integrity checker, then retain Visual, Manual and Field review as distinct Gate 4 evidence.
 
 ## SB-DBM-027 - A referential-integrity checker exists, reports every dangling class by name and count, and never reports "clean" without checking
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T26`; sections 4.5 and 6.6.
 - **Atomic obligations:** enumerate every reference class; report named counts including zero; offer bounded prune/repair; never emit a bare clean result without the class inventory.
-- **Current source:** no central integrity-check command/report inventories dangling archive set ids, group members, curve samples or other references. Foreign keys are not a substitute for the required all-class report.
-- **Qualifying acceptance tests:** none; T26's two dangling classes plus zero-count class are missing. Test class is `MISSING`.
-- **Supporting tests:** individual delete/lookup tests cover local behavior only.
+- **Current source:** `db.rs::check_referential_integrity` returns all seven live classes on every run: current and archive log-set references, missing-well group membership, orphan curve samples, unresolved `ml_models.trained_on`, and current/archive duplicate-depth keys. It counts legacy current `set_id IS NULL` rows but deliberately excludes them from pruning. Typed quarantine tables preserve exact numeric rows in-project; `prune_referential_integrity`, restore and reapply are one-transaction backend-whitelisted actions. `lib.rs`, `ipc.ts` and `dbInspectorPanel.ts` expose the read-only check, explicit selected-class quarantine, persisted recovery and Ctrl+Z/Ctrl+Y without client SQL or sample arrays over IPC.
+- **Qualifying acceptance tests:** exact correctness test `the_integrity_checker_names_every_class_including_zero_counts_offers_a_reversible_prune_and_never_says_clean_without_checking` seeds the cited dangling archive row and missing-well group member, requires the empty curve-sample class by name, asserts every remaining class at zero, proves the check does not mutate the three stores, and exercises quarantine, restore and reapply. Test class is `CORRECTNESS`.
+- **Supporting tests:** none credited; the one owned T26 proof carries the whole contract.
 - **Manual evidence:** `security-integrity` 0/63 and `database-tools` 0/2 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no checker surface exists at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** the reference-class inventory must be generated from the live schema/writer model rather than hand-waved.
-- **Next action:** build a read-only named-count checker first, add separately authorized prune actions, and implement the full three-class T26 fixture.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated closure. ML provenance and duplicate-depth classes remain report-only because automatic deletion or survivor selection would invent identity policy. Legacy `NULL set_id` rows remain labelled findings rather than data to erase.
+- **Next action:** Jauhar visually and manually exercises check, selected quarantine, restart recovery, Ctrl+Z and Ctrl+Y in Gate 4; a green synthetic fixture is not field acceptance.
 
 ## SB-DBM-028 - A declared sampling style is verified against the reference column on ingest, and the verdict is stored
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DBM-T27`; sections 4.5, 5.2 and 6.6.
 - **Atomic obligations:** persist declared style; verify it against the actual reference samples; store effective verdict and warning; prevent frame-indexed misplacement after a contradicted regular declaration.
-- **Current source:** log/curve set schemas do not store declared/effective sampling style or a verification verdict, and ingest has no shared contradiction check before frame-indexed use.
-- **Qualifying acceptance tests:** none; T27 is deliberately unwritten because its verification tolerance is an input and no production default is cited. Test class is `MISSING`.
-- **Supporting tests:** non-increasing/duplicate and reframe tests cover different structural conditions.
+- **Current source:** `ingest.rs` requires a declared continuous style for every new LAS set. A regular declaration additionally requires a unit-typed tolerance with no default, verifies the delivery's declared STEP against the sanitized native reference samples and atomically writes declared/effective style, verdict, input tolerance, warning, gap depth and missing-row count to `import_sets`. `equations.rs` refuses an explicit imported-set frame read without that verdict and uses verified native reference samples rather than a synthesized row index.
+- **Qualifying acceptance tests:** exact SB-DBM-T27 `a_forty_row_gap_contradicts_a_regular_sampling_declaration_while_a_verified_regular_set_stays_regular_and_an_unverified_set_cannot_be_frame_read`; test class `CORRECTNESS`. It pins the cited 0.1524 m / 40-row / 6.1 m fixture, stored contradiction, native post-gap depth, genuinely regular control and unverified-read refusal. The 0.0001 m fixture tolerance is supplied only by the test and is not a product default.
+- **Supporting tests:** all 45 default ingest tests pass; existing non-increasing/duplicate and reframe tests remain separate structural controls.
 - **Manual evidence:** `data-conventions` 0/45, `delivery-sets` 0/33 and `reframe` 0/34 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no sampling-style schema/guard exists at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `SAMPLING_STYLE_VERIFY_TOLERANCE` is deliberately absent; a cited tolerance or explicit input contract is required.
-- **Next action:** obtain/adjudicate the source or require the tolerance explicitly, then store declared/effective style and implement T27's 40-row-gap control.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated closure. `SAMPLING_STYLE_VERIFY_TOLERANCE` remains deliberately absent as a product default; every regular import must supply its own explicit unit-typed value.
+- **Next action:** Jauhar visually and manually checks declaration/tolerance refusal and the named contradiction in Gate 4, then confirms a representative post-gap sample retains its delivered depth. Automated evidence is not field evidence.
 
 ## SB-DBM-029 - A module never writes to the reference column of a frame it reads
 
 - **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DBM-T28`; sections 4.5 and 6.6.
 - **Atomic obligations:** refuse any module output targeting the input frame's reference column at the API boundary; name the frame; leave every other curve unmoved; a new basis creates an `OWN` frame.
-- **Current source:** `workflow.rs::resolve_output_names` refuses names shadowing `STANDARD_COLUMNS`, whose registry includes `DEPTH`; Reframe can create `OWN` output. The error/test does not target `DEPTH`, name a frame or prove all curves remain unchanged, and no full writer inventory establishes universality.
-- **Qualifying acceptance tests:** none; T28's DEPTH-targeted API/no-movement/OWN controls are missing. Test class is `MISSING`.
-- **Supporting tests:** `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` proves GR/RHOB shadow and collision refusal, not the exact reference-column contract.
+- **Current source:** `workflow.rs::resolve_output_names` is the one output-name boundary shared by every deterministic module and now gives `DEPTH` a specific refusal naming the existing `STANDARD` frame and the explicit Reframe recovery path. `reframe.rs::run_reframe` delegates its complete write to `equations.rs::write_complete_own_frame`, which marks the new set `OWN` and writes it to the archive only.
+- **Qualifying acceptance tests:** exact SB-DBM-T28 `a_module_cannot_write_an_existing_reference_column_and_a_different_depth_basis_is_a_new_own_frame`; test class `CORRECTNESS`. It drives both real APIs, byte-snapshots every standard column plus a computed peer across refusal and OWN-frame creation, and verifies the distinct archived depth basis.
+- **Supporting tests:** `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` separately preserves generic GR/RHOB shadow and same-run collision refusal; the older Reframe round trip separately pins set-qualified readback.
 - **Manual evidence:** `curve-editing` 5/5, `reframe` 0/34 and `data-conventions` 0/45.
-- **Git evidence:** accepted anchor `b332026c` contains the preventive mechanism; the compound contract remains unverified.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no parameter is missing; an exact acceptance test and complete reference-writer inventory are missing.
-- **Next action:** implement T28 with `DEPTH`, a named frame, unchanged peer curves and a separate `OWN`-frame success control.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated closure. No depth step or other petrophysical value was defaulted; the OWN control supplies its synthetic step explicitly.
+- **Next action:** Jauhar visually and manually checks the named refusal and explicit Reframe path in Gate 4, then compares source and reframed depth inventories on the representative delivery. Automated evidence is not field evidence.
 
 ## SB-DBM-030 - Null discipline: a threshold, not an equality; and "no value" is not "no parameter"
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T29`, `SB-DBM-T30`; sections 4.5, 5.1 and 6.6.
-- **Atomic obligations:** store-side vendor-null detection uses the strict computed threshold and exact boundary; missing curve samples and absent parameters remain distinct through store, byte IPC, UI and export.
-- **Current source:** DIO readers have source-specific sentinel logic, but no shared store-side `v < MISS_FLOAT / 10` screen exists. Numeric arrays correctly use `f32::NAN` and bytemuck bytes, yet no structured parameter-absence state exists through all four layers.
-- **Qualifying acceptance tests:** none; T29's exact-boundary/computed-bound and T30's four-layer distinction are missing. Test class is `MISSING`.
-- **Supporting tests:** parser null tests do not prove the store-side vendor family, and parameter-pack structural tests do not supply absent-parameter semantics.
-- **Manual evidence:** `data-conventions` 0/45, `generic-curve-store` 0/18 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the store threshold and cross-layer parameter-absence contract are absent at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** specification friction is explicit: chapter T30's prose must be implemented without violating the binding `f32::NAN` plus byte-IPC array contract; `Option<f32>`/JSON arrays remain forbidden.
-- **Next action:** add the cited strict store screen and a tagged parameter-state channel beside unchanged sample arrays, then implement both exact-boundary and four-layer tests.
+- **Specified contract:** an undeclared large-negative vendor null is screened by a strict threshold (never an equality against one sentinel), a screened value is FLAGGED, never silently coerced; and measurement-absent versus parameter-not-supplied are distinguishable at store, IPC, UI and export as SQL NULL and absence-of-row, neither representable as a number.
+- **Current implementation (2026-08-18):** the screen and its flag channel SHIPPED as one piece. `db::is_large_negative_null` screens strictly below a COMPUTED bound one decade inside Geolog `cgg.h` `MISS_FLOAT = -1.0e30`; a value exactly ON the bound is DATA (bit-for-bit pinned). The generic-store writer and `insert_standard_curves` both screen and both bind SQL NULL for NaN - one delivery lands in both projections, and one screened / one kept would be two truths about one sample. Every screened count travels to the importer by DELIVERED mnemonic: LAS new-well and attach warnings, DLIS's existing `DlisSkip` channel, intake notes. The standard-to-generic migration now copies a data-bearing column's FULL frame (a NULL sample row is "logged but missing", never "never sampled"). Two NULL-intolerant `curve_samples` readers fixed. SB-DBM-003/007 cover the parameter-not-supplied half (REQUIRED_UNSET row + tagged ancestry at IPC/UI/export).
+- **Qualifying tests (in code; register entry follows on promotion):** `db::inspector_tests::an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data` and `ingest::tests::a_screened_import_names_the_curve_and_count_in_its_own_warning_never_silently` (full production LAS import; warning names mnemonic and count; both projections agree).
+- **Mutation evidence:** six probes, six DISTINCT assertions fired - equality screen (misses -1.0D38), bound coerced (`<` to `<=`), NaN kept as a float, importer warning silenced, standard projection unscreened, migration dropping missing rows.
+- **Manual evidence:** none claimed. Automated only.
+- **Completed same day (2026-08-18):** the computed stores joined the discipline - all six `computed_curves`/archive appender loops bind SQL NULL for NaN (write_versioned_rows_raw, clearing and archive-only variants, the batched multi-well writer, reframe's archive writer); the ~135 reader sites were audited (most were counts/copies/already-tolerant; seven value readers fixed to `Option<f32>`), and `equations::tests::a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader` pins store, archive and reader with two further mutations killed (each store's loop reverted to float NaN).
+- **Verdict:** `PRESENT-OK`; test class `CORRECTNESS`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
-## SB-DBM-031 - Every depth quantity declares its datum, and cross-datum comparison is refused
+## SB-DBM-031 - Every depth declares its datum, and cross-datum comparison is refused
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T31`; sections 4.5 and 6.6.
-- **Atomic obligations:** every depth-bearing value declares datum/reference and sign convention; cross-datum comparison refuses and names both datums unless a reference frame/survey resolves them.
-- **Current source:** the project carries depth units, `well_surveys` has a datum elevation, and selected contact/image paths carry reference flags. Tops parsing can still collapse MD/TVD aliases into an untyped depth, and zones, curves and other quantities lack a universal datum field and comparison guard.
-- **Qualifying acceptance tests:** none; T31's no-frame refusal, framed success and sign assertions are missing. Test class is `MISSING`.
-- **Supporting tests:** measured-depth contact refusal and survey-specific tests cover isolated consumers only.
-- **Manual evidence:** `data-conventions` 0/45, `correlation-tops` 0/36 and `core-depth-registration` 0/39 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains partial survey/reference structures and untyped counter-paths.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the datum vocabulary and migration for existing untyped depths require explicit adjudication; no datum is inferred from a unit or mnemonic.
-- **Next action:** carry a typed datum through every depth schema/IPC boundary, require a declared transform for cross-datum use and implement both T31 cases.
+- **Specified contract:** every stored depth carries a datum from MD|TVD|TVDSS|TVDKB|TWT|OWT|CDEPTH; TVDSS is positive down; a cross-datum comparison is refused unless a frame exists, naming both datums (F-17).
+- **Current implementation (2026-08-19):** DONE under **DEC-073 item 5** (RULED: source-declared rows migrate, unknown legacy meaning preserved as unknown, cross-datum comparison refused). The T31 core (typed zone/contact custody, positive-down TVDSS, framed comparison, idempotent migration) was already pinned. The residue closed: the four delivery-set stores carry a **per-SET** `depth_datum` (one delivery is one datum; a per-row column would break the positional-Appender contracts - `on_core_depths` is the precedent shape). `db::declare_set_datum` validates the full 7-token vocabulary and refuses an unknown token or a missing set by name; `db::refuse_non_md_active_set` is the ONE shared comparison guard on every depth-pairing reader (`get_core_point_series`, `get_scal_pc`, `list_aux_data`, `list_well_images`), refusing a KNOWN non-MD delivery naming both datums and the delivery. NULL stays the preserved unknown - never backfilled, never refused; legacy behaviour is bit-identical. Every import boundary requires the declaration (core csv/table, SCAL csv/files, aux, images - early, before the conditioning subprocess - and the intake pane), and the four live wizards carry an explicit "Depth datum" select (MD preselected; confirming the wizard is the declaration). Core extras ride the core delivery's datum; the pre-set-era migration converges additively.
+- **Qualifying test:** `a_delivery_declares_its_datum_once_and_a_known_non_md_set_refuses_log_depth_pairing_naming_both` - declaration on the SET row, vocabulary refusal, missing-set refusal, canonical case, refusal on all four guarded readers naming both datums, MD pairs freely, legacy NULL preserved and still pairing. Five mutations killed on distinct assertions; the existing T31 test untouched. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced; the vocabulary is the chapter's own.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-19 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-032 - A stored parameter carries a dual handle, and a disagreement is a load failure
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T32`; sections 4.5, 5.4 and 6.6.
 - **Atomic obligations:** persist permanent sparse ordinal plus semantic key, unit, source and tilt; mismatch hard-fails naming both rows; single-handle legacy loads with warning; tilt evaluates within-zone and steps at boundaries.
-- **Current source:** `parameter_pack.rs` stores semantic id plus ordinal and hard-fails disagreement naming both schema rows. It instead refuses a missing ordinal, and its row format has no required unit/tilt/source evaluation contract or append-only ordinal-evolution proof.
-- **Qualifying acceptance tests:** none; the full mismatch, single-handle warning and tilt/unit round-trip/evaluation fixture in T32 is missing. Test class is `MISSING`.
-- **Supporting tests:** `an_identifier_ordinal_disagreement_stops_loading_and_names_both_schema_rows` correctly pins the mismatch arm; `missing_ordinals_duplicate_keys_unsupported_schemas_and_empty_keys_are_all_refused_without_partial_activation` demonstrates the current single-handle divergence.
-- **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the dual-handle/mismatch fragment and divergent single-handle behavior.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` must determine whether parameter-pack import is pilot-reachable; unit/source/tilt still require their cited schemas.
-- **Next action:** reconcile the single-handle policy with the binding chapter, add unit/source/tilt and append-only ordinal rules, then implement all T32 arms.
+- **Current source:** `parameter_pack.rs` carries the whole contract now. The dual handle and the hard mismatch naming both rows were already in, and `DEC-028` ruled the one-handle conflict: BOTH one-handle forms are refused, matching the closed `SB-INS-015`/`SB-INS-T18` installer contract rather than the chapter's "loads with a warning". This increment adds the three per-value fields §5.4 requires and the append-only ordinal custody. `ParameterPackRow` gains `unit`, `source` and a typed `ParameterTilt` (`NONE | LINEAR | LOG`); `value_at_depth` evaluates a tilt within its own zone.
+- **`tilt` is parsed from its own token, deliberately:** an unrecognised tilt is refused BY NAME rather than deserialized into a default. Falling through to `NONE` is the one failure mode here that returns a plausible number instead of an error, and a plausible `Rw` is not a failure anybody notices.
+- **Refusals added, none removed:** a numeric or tilted value with no `source` is refused at load (§5.4 - a silently defaulted value is not a legal state); a tilted value must carry a two-endpoint range, because a scalar carrying a tilt token has already lost the physics the token claims; and a `LOG` tilt needs two positive endpoints, since refusing beats handing back a NaN a caller has to notice.
+- **Within-zone only, and it returns absence rather than a clamp.** `value_at_depth` gives `None` outside `[top, base]` in both directions. Clamping is the tempting mistake and it is the wrong one: a parameter that clamps at the zone base silently spreads one zone's calibration into the next, which is exactly the physics F-19 says a scalar loses. The parameter STEPS, and the neighbouring zone supplies its own endpoints.
+- **Qualifying acceptance tests:** `parameter_pack::tests::a_stored_parameter_carries_its_unit_and_source_and_a_tilted_value_never_interpolates_across_a_zone_boundary`, beside the already-registered `a_parameter_row_carrying_only_one_of_its_two_handles_is_refused_by_name`. Test class `CORRECTNESS`.
+- **The witness is the chapter's own, and it names the WRONG answer.** F-19 (`22_database-model.md:433-441`) states that `Rw` tilted logarithmically between 0.28 and 0.19 across a zone **is not 0.235**. 0.235 is the LINEAR midpoint of those same endpoints, so a tilt stored as a display mode - or a `LOG` tilt quietly evaluated linearly - lands exactly on the number the chapter names as wrong, off by 0.0043 ohm.m on `Rw`, which propagates into Sw. The test pins both sides: the log answer must be the geometric mean, the linear answer must not be produced, and the LINEAR twin on the same endpoints must give exactly 0.235 - otherwise the arm proves only that some arithmetic happened.
+- **Append-only ordinals** are pinned by asking for the DECLARED ordinal rather than the position: a sparse pack `1/2/5/9` survives the load uncompacted, `by_ordinal(9)` finds the row that declared 9, and a retired slot resolves to nothing rather than to a neighbour. Renumbering is precisely how ledger R-10's ClayVol #41 bound one parameter's value to another.
+- **Mutation record:** five mutations, five distinct assertions, none surviving - evaluating `LOG` linearly (:558), clamping outside the zone instead of refusing (:596), an unknown token falling through to `NONE` (:661), dropping the mandatory-source rule (:611), and dropping the two-endpoint requirement (:648). Each was applied and restored from a sha256-verified byte copy; `git diff --stat` showed 300 insertions and 0 deletions.
+- **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised. Automated only; no manual or field evidence is claimed.
+- **Git evidence:** additive throughout. The new raw fields are `#[serde(default)]`, so every existing pack still parses, and all pre-existing fixtures use object values and are untouched by the numeric-source rule. Full suite 1052 passed / 0 failed / 37 ignored.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none outstanding. `DEC-028` ruled the conflict and needed nothing further; `SB-INS-015`/`T18` is untouched and is the contract this row was corrected TO, not away from.
+- **Next action:** wire `value_at_depth` into the zone-parameter read path when an authorization covers it. That binding lives in `zone_params` in `db.rs`, and `DEC-061`'s narrow authorization is scoped to `SB-DBM-030` only, so it is deliberately not taken here.
 
 ## SB-DBM-033 - A categorical curve is a distinct type and is never linearly interpolated
 
 - **Chapter evidence:** P2; chapter status `ABSENT`; owned test `SB-DBM-T33`; sections 4.5 and 6.6.
 - **Atomic obligations:** categorical type is explicit; resampling produces only existing codes and reports boundary crossings; arithmetic refuses categorical inputs; all relevant writers/readers preserve the type.
-- **Current source:** `curve_class` explicitly declares computed class curves. Reframe coerces categorical interpolation/mean to nearest/mode, frame blocking uses mode and refuses averages, and smoothing/despiking refuse class curves. Values still occupy the numeric curve store; boundary-crossing reports and universal equation arithmetic refusal are absent.
-- **Qualifying acceptance tests:** none; T33's 0.1524-to-0.1 resample, boundary report and arithmetic refusal fixture is missing. Test class is `MISSING`.
+- **Current source:** `curve_class` explicitly declares producer-known class curves. Reframe refuses an unreadable registry, coerces unsafe methods to nearest/mode, returns a structured record for every target sample bracketed by unlike source codes, and renders those records in the Reframe report. Frame blocking uses mode and refuses averages; smoothing/despiking refuse class curves. Both Rhai and Python equation runners preflight the declaration and refuse categorical inputs before evaluation, interpreter discovery or writes.
+- **Qualifying acceptance tests:** exact correctness test `a_categorical_curve_resamples_only_to_existing_codes_reports_every_boundary_crossing_and_is_refused_by_every_equation_language` implements T33's cited 0.1524-to-0.1 m fixture, asserts only source codes 1/4, both crossed target samples and their source bracket, retained declaration, both equation-language refusals, zero arithmetic writes and fail-closed unreadable metadata. Test class is `CORRECTNESS`.
 - **Supporting tests:** `a_declared_class_curve_is_never_averaged_and_an_undeclared_one_keeps_the_method_asked_for`, `a_class_curve_is_carried_by_its_commonest_value_rather_than_averaged`, `a_class_curve_is_blocked_by_its_commonest_code_and_refuses_every_average`, and `a_class_curve_is_refused_by_smooth_and_despike_and_an_undeclared_one_is_not` prove important fragments from both sides.
 - **Manual evidence:** `reframe` 0/34, `workflow` 0/23 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains explicit class metadata and safe selected consumers; full type behavior is not integrated.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` must decide whether categorical/facies workflows are pilot scope.
-- **Next action:** if selected, carry class type through every expression/resample boundary, add boundary reporting and implement the complete T33 fixture.
+- **Git evidence:** the accepted anchor `b332026c` supplied producer declarations and selected safe consumers; the current Gate 2 branch adds the complete T33 reporting and equation refusal boundary.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the selected producer-declared categorical workflow. This increment does not claim an arbitrary imported curve can be manually retyped; no heuristic may silently create that declaration.
+- **Next action:** retain T33; Jauhar visually and manually verifies the rendered Reframe report and equation refusal, then Gate 4 exercises one sanitized producer-declared class curve.
 
 ## SB-DBM-034 - Every bulk operation returns `{matched, unmatched, ambiguous}` and drops nothing silently
 
@@ -459,14 +425,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DBM-T35`; sections 4.5 and 6.6.
 - **Atomic obligations:** archive UPDATE/DELETE refuse; restore creates the next version with a source-version link; all earlier versions remain unchanged.
-- **Current source:** `restore_log_set` is a first-class backend/Tauri/UI operation, but it replaces current rows with archive rows under the old `set_id` rather than creating a new version. `delete_log_set` deletes archive rows and the run record, so the archive is not append-only.
-- **Qualifying acceptance tests:** none; T35's refused UPDATE/DELETE and version-4 restore/source-link fixture is missing. Test class is `MISSING`.
-- **Supporting tests:** `db.rs::log_set_versioning_never_overwrites` and `workflow.rs::a_restored_log_set_version_feeds_the_next_module_run` prove current restore and history behavior while also characterizing archive deletion/old-id reuse.
+- **Current source:** `equations.rs::restore_log_set` validates the archived source, then in one transaction appends a new log-set row, copies its queryable run parameters, replaces only the current projection, and appends a new archive copy under the next version and a fresh `set_id`. `_sandibumi_restore_v1` records the immediate source set/version. `delete_log_set` is now an explicit append-only refusal retained behind the Tauri command for stale clients. `ipc.ts` returns the typed source/new-version receipt; `inspectorPanel.ts` names it and exposes no ordinary Delete action.
+- **Qualifying acceptance tests:** exact correctness test `archive_updates_and_deletes_are_refused_and_restoring_version_one_creates_version_four_without_changing_versions_one_through_three` starts with archived v1/v2 and current v3, refuses SQL-console UPDATE/DELETE plus the stale ordinary-delete command, restores v1 as v4, verifies the source record and new current identity, and compares every v1-v3 archive row before/after. Test class is `CORRECTNESS`.
+- **Supporting tests:** `db.rs::log_set_versioning_never_overwrites` now proves restore appends the next catalog version and deletion refuses; `workflow.rs::a_restored_log_set_version_feeds_the_next_module_run` proves the restored values remain consumable downstream. Neither is credited as T35's owned proof.
 - **Manual evidence:** `delivery-sets` 0/33, `project-lifecycle` 3/24 and `security-integrity` 0/63.
-- **Git evidence:** accepted anchor `b332026c` contains the divergent restore/delete implementation.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** archive retention/prune policy must distinguish immutable history from separately authorized space reclamation.
-- **Next action:** make restore append a new version with `restored_from`, prohibit ordinary archive mutation and implement every T35 arm; keep any future prune explicit and auditable.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `RECOVERY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for ordinary history operations. The backed-up format migration and the typed, logged, reversible integrity quarantine are separately bounded maintenance paths; neither authorizes ordinary version deletion.
+- **Next action:** retain exact T35; Jauhar manually restores v1 while v3 is current and visually verifies the v4/source disclosure; Gate 4 repeats on a sanitized project without treating synthetic automation as field evidence.
 
 ## SB-DBM-036 - No operation whose duration scales with well count holds the global lock
 
@@ -485,14 +451,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DBM-T37`; sections 4.6 and 6.7.
 - **Atomic obligations:** every well-iterating backend command enforces the active group or explicitly declares project-wide scope; direct invocation cannot bypass it; evidence uses query/row counts.
-- **Current source:** well groups and active membership are persisted in `db.rs`, but `list_wells` and many backend commands remain project-wide. `src/state.ts`/`wellScope.ts` filter or pass selected ids from the client, so a direct backend invocation can bypass the active-group policy.
-- **Qualifying acceptance tests:** none; T37's direct-invocation inventory over 540/12 wells is missing. Test class is `MISSING`.
-- **Supporting tests:** UI scope tests and selected command fixtures prove caller-supplied subsets, not backend enforcement across every iterator.
+- **Current source:** `well_scope.rs` owns a 44-entry command registry: 43 operations are `BACKEND_SCOPED`, while the deliberately exhaustive referential-integrity command is `PROJECT_WIDE`. Registered scoped commands accept a typed scope identity and resolve current membership inside their Tauri boundary; an unknown operation fails closed. `db.rs::list_wells_by_ids`, the scoped contact loader, `tops.rs`, `statistics.rs` and job-name loaders constrain the authorized ids in SQL rather than resolving 12 and then materializing 540. TypeScript defaults ordinary well inventory to `ActiveGroup`; project-administration surfaces request `All` explicitly. The integrity response carries `scope: PROJECT_WIDE` and `wells_touched` to the Database Inspector.
+- **Qualifying acceptance test:** `every_well_iterating_backend_command_scopes_the_sql_to_the_active_twelve_of_five_hundred_and_forty_or_declares_project_wide` passed; test class is `CORRECTNESS`. It builds the exact 540-well project and active group of 12 from T37, directly invokes every registered backend authorization boundary, proves the current 12 identities are returned, inventories the corresponding Tauri wrapper, pins the downstream `WHERE well_id IN (...)` loaders and proves the exhaustive integrity path declares `PROJECT_WIDE` with 540 wells touched. This is shared-boundary plus source-inventory evidence; it does not pretend to execute every expensive scientific job end to end.
+- **Supporting tests:** `every_backend_scoped_operation_uses_current_group_membership_and_refuses_stale_or_unknown_scope` preserves the distinct Group, ActiveGroup, All and Explicit alternatives, proves stale membership disappears, and refuses missing or repeated identities. TypeScript compilation pins callers to the typed scope API.
 - **Manual evidence:** `well-scope` 3/9, `workflow` 0/23 and `security-integrity` 0/63.
-- **Git evidence:** accepted anchor `b332026c` contains persisted groups and the client-enforced divergent boundary.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** a command-scope registry must distinguish deliberately project-wide operations from group-scoped operations.
-- **Next action:** enforce/declare scope in one backend wrapper and implement T37 by direct command invocation with instrumented touched-well counts.
+- **Git evidence:** implementation is on `codex/g2-program-plan` pending the per-requirement commit and PR; the accepted anchor remains the earlier client-enforced boundary.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied engineering contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED` after the requirement commit.
+- **Blocker or decision:** none for Gate 2 engineering. The synthetic 540/12 fixture is automated evidence, not manual or representative-field qualification.
+- **Next action:** retain exact T37 and SB-CORE-035; Jauhar visually and manually exercises Active Group, named Group, All and Explicit modes plus a membership change, then confirms the integrity command visibly declares project-wide scope. Gate 4 repeats the scope contract on sanitized representative data.
 
 ## SB-DBM-038 - The interactive set is the only thing materialised
 
@@ -511,53 +477,49 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DBM-T39`, `SB-DBM-T41`; sections 4.6 and 6.7.
 - **Atomic obligations:** clean, warned/degraded and failed are distinct per well and in aggregate; clamp/substitution degradations cannot appear clean; degradation remains queryable after transient job pruning.
-- **Current source:** `jobs.rs::ItemState` includes `Warned` and preserves severity; workflow all-NaN outputs can warn. ML writes selected cancelled/partial markers into `log_sets.params_json`. There is no general durable degradation field or universal clamp/substitution path, and finished jobs are pruned after 24.
-- **Qualifying acceptance tests:** none; T39's clamp/substitution/clean batch plus 25-job prune and the store arm of T41 are missing. Test class is `MISSING`.
-- **Supporting tests:** job-state and ML cancellation tests prove transient or subsystem-specific fragments only.
+- **Current source:** `workflow.rs::ModuleRunResult` and `jobs.rs::JobView` expose typed clean/degraded/failed outcomes. The module boundary captures actual `CLAMPED`, `DEFAULTED`, `TRUNCATED` and `SUBSTITUTED_INPUT` events; the complete writer commits `log_sets.outcome_state` and ordered `run_degradations` in the same transaction as curve rows. `run_readonly_query` now returns `returned_rows` plus `count_is_total = false`, while inspector `total_rows` retains its exact meaning.
+- **Qualifying acceptance tests:** `a_clamped_well_and_a_substituted_input_well_are_warned_and_leave_durable_degradation_records_after_their_job_is_pruned_while_a_clean_well_stays_clean` exercises the three per-well outcomes, aggregate warning and 25-job prune. `the_inspector_reports_the_true_ten_thousand_row_total_while_the_hundred_row_console_page_names_its_count_as_returned_not_total` pins the 10,000/100 reporting boundary. Both are `CORRECTNESS` from SB-DBM-T39/T41.
+- **Supporting tests:** existing job-state, SQL-truncation and module-workflow tests remain active behind the exact contracts.
 - **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `machine-learning` 7/189.
-- **Git evidence:** accepted anchor `b332026c` contains the transient and ML-specific fragments; universal durable honesty is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** a controlled, durable degradation vocabulary and its run-record column are missing.
-- **Next action:** carry structured degradation reasons from computation to job view and run record, then implement T39 across the prune boundary.
+- **Git evidence:** `codex/g2-program-plan` pre-PR implements the owned engineering contract; the accepted baseline remains unchanged until review and merge.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; the chapter supplies the closed four-value degradation vocabulary.
+- **Next action:** retain exact T39/T41; Jauhar visually and manually checks warning/history/inspector rendering, and Gate 4 repeats durable-record recovery on sanitized representative output.
 
 ## SB-DBM-040 - Cancellation honesty is regression-locked
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DBM-T40` (`CHARACTERIZATION`); sections 4.6 and 6.7.
 - **Atomic obligations:** an observing worker finalizes cancelled; a non-observing worker reports its actual outcome; non-cancellable jobs expose no cancel control; one regression test pins all three.
 - **Current source:** `jobs.rs` separately records request and worker observation; `run_job` uses observation for final status; `JobView.cancellable` reaches `processingPanel.ts`, which creates a cancel button only for active cancellable jobs.
-- **Qualifying acceptance tests:** none covers all three end-to-end outcomes. T40 as one complete characterization is missing, so test class is `MISSING`.
-- **Supporting tests:** `cancellable_flag_reaches_the_view_both_ways`, `cancel_counts_as_cancelled_only_once_a_worker_observes_it` and `note_cancel_observed_marks_it_for_raw_flag_readers` pin backend halves. There is no DOM test for the absent control and no one test drives actual final phases for both worker behaviors.
+- **Qualifying acceptance tests:** `every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled` drives the observing, non-observing and non-cancellable jobs, asserts their final views, inventories every cancellable registration/observer and pins the live panel's control condition. It is `CHARACTERIZATION` for SB-DBM-T40 exactly as the chapter requires.
+- **Supporting tests:** `cancellable_flag_reaches_the_view_both_ways`, `cancel_counts_as_cancelled_only_once_a_worker_observes_it` and `note_cancel_observed_marks_it_for_raw_flag_readers` continue to pin the individual state-model halves.
 - **Manual evidence:** `workflow` 0/23 and `machine-learning` 7/189.
-- **Git evidence:** accepted anchor `b332026c` contains the intended behavior; complete regression closure is unverified.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; only the complete owned characterization is missing.
-- **Next action:** implement T40 end to end with polling, non-polling and non-cancellable jobs, asserting both final phase and rendered control.
+- **Git evidence:** the exact integrated regression was added during SB-CORE-036 closure and is reverified on `codex/g2-program-plan`; the accepted baseline remains unchanged until review and merge.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated characterization. Source-level UI inventory is not a rendered click-through, so Visual and Manual evidence remain open.
+- **Next action:** retain exact T40 and the cancellation-registration inventory; Jauhar visually and manually verifies the live Processing controls.
 
-## SB-DBM-041 - A count presented as a total is a total; the inspector exposes the provenance tables
+## SB-DBM-041 - True totals, and the inspector exposes the provenance tables
 
-- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DBM-T41`, `SB-DBM-T42`; sections 4.6 and 6.7.
-- **Atomic obligations:** `total_rows` has one meaning across inspector and SQL console or the capped count uses a different field; inspector whitelist includes all provenance/model/audit tables and can trace a curve without leaving it.
-- **Current source:** paginated `get_table_page` computes the true count. `run_readonly_query` fetches `limit + 1`, sets `truncated`, then still puts the returned-row count in the same `total_rows` field. `TABLE_SPECS` omits `log_sets`, `computed_curves_archive`, `ml_models`, `curve_meta` and the absent audit tables.
-- **Qualifying acceptance tests:** none; T41's 10,000/100 same-field contract and T42's full trace are missing. Test class is `MISSING`.
-- **Supporting tests:** `readonly_query_flags_truncation_at_the_cap` intentionally defends the current alternative, and `every_inspector_table_returns_the_columns_it_declares` checks only the incomplete whitelist.
-- **Manual evidence:** `database-tools` 0/2, `processing-history` 0/7 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains both live divergences.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** T42 also depends on the structured audit tables in SB-DBM-011.
-- **Next action:** rename/separate capped count semantics, derive the inspector inventory from the provenance registry and implement T41/T42 without weakening read-only SQL.
+- **Specified contract:** a count presented as a total is a total (T41); the inspector exposes the provenance tables (T42).
+- **Current implementation (2026-08-19):** DONE. T41 was already integrated (inspector `total_rows` exact; SQL console `returned_rows` with `count_is_total=false`). T42 landed once SB-DBM-011's audit tables existed: `table_specs()` exposes the complete provenance/audit registry - `log_sets`, `audit_entry`, `audit_detail`, `zone_set_versions`, `run_parameters`, `run_degradations`, `computed_curves_archive`, `curve_meta`, `ml_models` - each with its declared column list, well-scoped where the table carries a well (`audit_entry` deliberately unscoped: nullable well_id, and a mandatory filter would hide project-level gestures). `ml_models` omits the joblib blob. All nine are READ-ONLY by construction (rule 6: no update command names a registry table) and the frontend catalog offers them with empty editable lists and backend-matching scoping.
+- **Qualifying test:** `db::inspector_tests::the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable` - nine-table inventory, blob omission, audit rows through the REAL writer, one seeded row per table read back through declared columns with the true total, frontend read-only/scoping agreement with a per-entry bounded scan. Five mutations killed on distinct assertions. The generic column sweep now also exercises the nine. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-19 @ codex/g2-program-plan (pre-PR).
 
 ## SB-DBM-042 - The format-version gate and the pre-migration backup are contractual, and the backup names the format it can restore
 
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; owned tests `SB-DBM-T01`, `SB-DBM-T02`, `SB-DBM-T43`; sections 4.6 and 6.1.
 - **Atomic obligations:** a newer format refuses before mutation and leaves bytes identical; destructive migration first creates a fail-closed, non-overwriting, user-visible backup; additive migration creates none; filename names the source format restored at each step.
-- **Current source:** `check_and_stamp_format` refuses newer files before schema work and names file/current versions and writer. `backup_before_destructive_migration` uses engine copy, aborts on copy error, suffixes collisions and posts a boot note; additive/no-op migration skips backup. Its filename uses current target `FORMAT_VERSION`, not the source version, so sequential shelves do not satisfy T43.
-- **Qualifying acceptance tests:** none covers the complete compound contract. T01 lacks an actual before/after byte hash, T02 does not inject backup failure, and T43 is absent; test class is `MISSING`.
-- **Supporting tests:** `future_format_is_refused_and_left_unmodified`, `destructive_migration_backs_up_the_project_file_first` and `fresh_project_open_writes_no_backup` characterize the implemented safety clauses and collision behavior.
+- **Current source:** `check_and_stamp_format` returns the observed source version before schema work; `init_db` preserves it in a connection-local temporary row across the later target stamp. `backup_before_destructive_migration` derives the recovery name from that source identity, copies with DuckDB, selects a fresh collision suffix and returns before any destructive statement on copy failure. Additive/no-op migration still skips backup.
+- **Qualifying acceptance tests:** `consecutive_destructive_upgrades_name_each_backup_for_the_source_format_it_restores` is `CORRECTNESS`, independently deriving the `pre-0`/`pre-1` shelf and contents from F-07. The exact T01/T02 characterizations are also executable and jointly pin byte-stable refusal, writer/current/source reporting, backup-before-write, non-overwrite, user-visible path, deterministic copy failure and additive exemption.
+- **Supporting tests:** `fresh_project_open_writes_no_backup` remains a narrower additive-path regression; it is not counted as a second owned proof.
 - **Manual evidence:** `project-lifecycle` 3/24, `security-integrity` 0/63 and `verification-stewardship` 0/24.
-- **Git evidence:** accepted anchor `b332026c` contains the strong gate/backup behavior and the source-versus-target naming divergence.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no parameter is missing; the backup must derive the source stamp before migration, and failure/byte-identity tests are missing.
-- **Next action:** name backups from the pre-migration source version, add fail-injection and byte-hash controls, and implement T43 across two destructive version steps.
+- **Git evidence:** current `codex/g2-program-plan` increment carries the source-labelled backup contract and exact tests; accepted baseline remains unchanged until review and merge.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `RECOVERY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; no petrophysical or uncited parameter is involved.
+- **Next action:** retain exact T01/T02/T43 and run Jauhar's manual legacy-project recovery check separately from automated evidence.
 
 ## SB-DBM-043 - A deterministic parameter sweep records every trial, uncapped and ordered
 
@@ -574,9 +536,8 @@
 
 ## Domain result
 
-- All 43 live SB-DBM rows were adjudicated exactly once against the accepted tree.
-- As-built: 1 `PRESENT-OK`, 3 `PRESENT-UNVERIFIED`, 11 `PRESENT-DIVERGENT`, 13 `PARTIAL`, 15 `ABSENT`.
-- Release disposition: 32 `PILOT-BLOCKER`, 8 `UNDECIDED`, 3 `DEFERRED`, 0 `OUT`.
-- Test evidence: 1 `OPTIONAL-PACKAGE-IGNORED`; 42 `MISSING` qualifying whole-contract proofs. Supporting tests are retained above but are not counted as owned closure.
-- Hard evidence blocks preserved: `MODULE_VERSION_SOURCE`, `ARTIFACT_HASH_ALGORITHM`, `SAMPLING_STYLE_VERIFY_TOLERANCE`, `INTERACTIVE_SET_CEILING`, the legacy UTC migration policy, real-well N-scale evidence and `DEC-003` pilot-method/workflow scope.
-- No production, schema, PRD, generated verification, `REVIEW.md`, database write-discipline or model behavior was changed.
+- All `30 / 30` approved Gate 2 SB-DBM pilot blockers are handled: `18 DONE`, `12 BLOCKED`; the other 13 domain requirements remain explicitly deferred beyond the first pilot.
+- Current as-built: 19 `PRESENT-OK`, 5 `PRESENT-DIVERGENT`, 8 `PARTIAL`, 11 `ABSENT`; no row is unadjudicated or silently omitted.
+- Current test evidence: 18 `CORRECTNESS`, 1 `CHARACTERIZATION`, 1 `OPTIONAL-PACKAGE-IGNORED` and 23 `MISSING`. A missing proof on a deferred or blocked row remains visible rather than being converted into completion.
+- Remaining pilot blocks are exactly SB-DBM-002, 005, 009, 010, 011, 015, 017, 025, 030, 031, 032 and 041, with their source or product decisions named in the corresponding evidence rows and `STATUS.md`.
+- Automated evidence is not manual recovery, inspector, operator or representative-field evidence; those remain for Jauhar and Gates 3-4. No database guard was weakened, and `computed_curves` remains PK-less with no upsert path.

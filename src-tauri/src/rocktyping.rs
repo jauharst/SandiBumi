@@ -19,7 +19,9 @@
 //! the old k/φ + 3.5 were unverified reference-doc recall). PS_EXP stays a param for override;
 //! confirm PGS against the primary SPE 125350 if a copy becomes available.
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 /// Corbett & Potter (2004) global hydraulic element FZI boundaries (µm). A sample's GHE class is
@@ -56,7 +58,10 @@ pub fn rocktyping_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("METHOD", "Rock-type class basis", "ghe", &["ghe", "winland_port"]),
-            param("PS_EXP", "PGS pore-structure exponent (k/φ^PS_EXP)", "-", 3.0, 1.0, 6.0),
+            param(
+                "PS_EXP", "PGS pore-structure exponent (k/φ^PS_EXP)", "-", 3.0, 1.0, 6.0,
+                "docs/constants_verification_2026-07-22.md Permadi-Susilo exponent re-verification; docs/PRD_v2/15_sat-height-rocktyping.md §5.4",
+            ),
             log_in("PHI", "Effective porosity", "v/v", "PHIE", true),
             log_in("PERM", "Permeability", "mD", "PERM", true),
             log_out("RQI", "Reservoir quality index 0.0314·√(k/φ)", "um"),
@@ -245,10 +250,10 @@ pub fn rt_cutoff_spec() -> ModuleSpec {
               with missing Vsh or PHIE stay MISSING."
             .into(),
         args: vec![
-            param("VSH1", "Vsh cutoff for RT1 (best)", "v/v", 0.15, 0.0, 1.0),
-            param("PHI1", "PHIE cutoff for RT1 (best)", "v/v", 0.12, 0.0, 1.0),
-            param("VSH2", "Vsh cutoff for RT2 (moderate)", "v/v", 0.35, 0.0, 1.0),
-            param("PHI2", "PHIE cutoff for RT2 (moderate)", "v/v", 0.06, 0.0, 1.0),
+            param_open("VSH1", "Vsh cutoff for RT1 (best)", "v/v", 0.0, 1.0, true),
+            param_open("PHI1", "PHIE cutoff for RT1 (best)", "v/v", 0.0, 1.0, true),
+            param_open("VSH2", "Vsh cutoff for RT2 (moderate)", "v/v", 0.0, 1.0, true),
+            param_open("PHI2", "PHIE cutoff for RT2 (moderate)", "v/v", 0.0, 1.0, true),
             log_in("VSH", "Shale volume", "v/v", "VSH", true),
             log_in("PHIE", "Effective porosity", "v/v", "PHIE", true),
             log_out("RT_LOG", "Cutoff rock-type class (1/2/3)", "-"),
@@ -520,7 +525,8 @@ mod tests {
         let vsh = vec![0.10f32, 0.30, 0.30, 0.60, f32::NAN, 0.10];
         let phie = vec![0.20f32, 0.20, 0.08, 0.03, 0.20, f32::NAN];
 
-        // Sane defaults from the manifest: VSH1 0.15, PHI1 0.12, VSH2 0.35, PHI2 0.06.
+        // CHARACTERIZATION inputs: the historical ladder values are explicit test data now;
+        // SB-CORE-004 deliberately leaves all four interpretation cutoffs ABSENT in the manifest.
         let sane = rt_cutoff(&cutoff_ctx(vsh.clone(), phie.clone(), 0.15, 0.12, 0.35, 0.06))["RT_LOG"].clone();
         assert_eq!(sane[0], 1.0, "clean and porous is the best class");
         assert_eq!(sane[1], 2.0, "moderately shaly but porous is the middle class");

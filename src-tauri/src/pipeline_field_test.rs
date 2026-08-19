@@ -81,6 +81,20 @@ fn is_documented_absence_refusal(
         return error == expected;
     }
 
+    // The input-role precondition postdates this classifier: a module refusing an
+    // unpopulated required input BY NAME is documented behaviour for a delivery that
+    // lacks the channel, not a pipeline failure.
+    if error.contains("required input role") && error.contains("has a finite sample") {
+        return true;
+    }
+
+    // SB-POR-024 (DEC-025): an N-D method refusing an undeclared or wrong neutron matrix
+    // basis is the documented boundary for a delivery that never declared one - the fix
+    // is a user declaration (or nphimat), not a pipeline change.
+    if error.contains("DECLARED matrix basis") || error.contains("declares basis") {
+        return true;
+    }
+
     let names_an_absent_open_parameter = spec
         .args
         .iter()
@@ -138,6 +152,25 @@ fn raw_mean(conn: &Connection, well_id: &str, mnemonic: &str) -> f64 {
     .ok()
     .flatten()
     .unwrap_or(f64::NAN)
+}
+
+
+/// GENERIC characterization endpoints for the required-ABSENT parameters the chains run
+/// with - deliberately not a field calibration (the validation section only reports
+/// means; nothing asserts agreement with the delivery). SB-CORE-004 removed these from
+/// the shipping manifests, so a chain that once ran on defaults must now supply its own.
+fn generic_chain_params(module: &str) -> HashMap<String, f64> {
+    let pairs: &[(&str, f64)] = match module {
+        "vsh_gr" => &[("GR_MA", 25.0), ("GR_SH", 130.0)],
+        "phi_dn" => &[("RHO_SH", 2.5), ("NPHI_SH", 0.35)],
+        "phi_den" => &[("RHO_SH", 2.5)],
+        "sw_indo" => &[
+            ("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.2), ("RT_SH", 4.0), ("SWE_IRR", 0.0),
+        ],
+        "perm_wyllie_rose" => &[("SWE_IRR", 0.15)],
+        _ => &[],
+    };
+    pairs.iter().map(|(k, v)| ((*k).to_string(), *v)).collect()
 }
 
 #[test]
@@ -219,7 +252,9 @@ fn pipeline_field_full_run() {
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
@@ -285,76 +320,22 @@ fn pipeline_field_full_run() {
         );
     }
 
-    // ---- 3. Pay summary --------------------------------------------------
-    println!("\n=== PAY SUMMARY (VSH<=0.5 PHIE>=0.10 SWE<=0.60) ===");
-    let pay_req = PaySummaryRequest {
-        input_set: None,
-        well_ids: well_ids.clone(),
-        vsh_max: 0.5,
-        phie_min: 0.10,
-        swe_max: 0.60,
-        perm_min: None,
-        skip_version: true,
-        stats_only: false,
-    };
-    match run_pay_summary(&db, &pay_req) {
-        Ok(rows) => {
-            println!("  {} summary rows", rows.len());
-            for r in rows.iter().filter(|r| r.flag == "PAY").take(12) {
-                println!(
-                    "  {:<10} {:<8} {:<4} net={:>6.1} ntg={:.2} phie={:.3} swe={:.3} hpv={:.2}",
-                    r.well_name, r.zone, r.flag, r.net, r.ntg, r.avg_phie, r.avg_swe, r.hpv
-                );
-            }
-        }
-        Err(e) => unexpected_errors.push(format!("pay_summary: {e}")),
-    }
-
-    // ---- 4. Render report PDF -------------------------------------------
-    println!("\n=== REPORT RENDER ===");
-    let spec = crate::report::ReportSpec {
-        input_set: None,
-        composite: CompositeSpec {
-            well_id: well_ids[0].clone(),
-            layout: crate::layout::standard_layout(),
-            depth_top: None,
-            depth_bottom: None,
-            scale: 500,
-            page_size: PageSize::A4,
-        },
-        title: "Petrophysical Evaluation — field pipeline test".into(),
-        author: "SandiBumi pipeline test".into(),
-        methodology: vec![],
-        vsh_max: 0.5,
-        phie_min: 0.10,
-        swe_max: 0.60,
-        perm_min: None,
-        tables_only: false,
-    };
-    match crate::report::render_report_pdf(&db, &spec) {
-        Ok(bytes) => {
-            let out = std::env::temp_dir().join("sandibumi_field_report.pdf");
-            std::fs::write(&out, &bytes).ok();
-            println!("  PDF {} bytes -> {}", bytes.len(), out.display());
-            assert!(bytes.len() > 1000, "PDF suspiciously small");
-        }
-        Err(e) => unexpected_errors.push(format!("report: {e}")),
-    }
-
-    // ---- 5. Validation vs delivery's own curves -------------------------
+    // ---- 3. Validation vs delivery's own curves -------------------------
     // Re-run a clean coherent chain (vsh_gr -> phi_dn -> sw_indo) so PHIE/SWE/VSH aren't
     // left holding whatever the last porosity/saturation module wrote in the sweep above.
     println!("\n=== VALIDATION vs delivered PHIE/SWE/VSH (well {}) ===", wells[0].well_name);
-    for m in ["vsh_gr", "phi_dn", "sw_indo"] {
+    for m in ["vsh_gr", "phi_den", "sw_indo"] {
         let spec = specs.iter().find(|spec| spec.name == m).expect("catalogued validation module");
         let req = RunModuleRequest {
             module: m.into(),
             well_ids: well_ids.clone(),
             log_inputs: field_log_inputs(spec),
-            params: HashMap::new(),
+            params: generic_chain_params(m),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let runs = run_workflow_module(&db, &req);
         assert!(
@@ -376,6 +357,71 @@ fn pipeline_field_full_run() {
                 cm - dm
             );
         }
+    }
+
+
+    // ---- 4. Pay summary --------------------------------------------------
+    println!("\n=== PAY SUMMARY (VSH<=0.5 PHIE>=0.10 SWE<=0.60) ===");
+    let pay_req = PaySummaryRequest {
+        discretisation: crate::workflow::DiscretisationModel::Forward,
+        input_set: None,
+        well_ids: well_ids.clone(),
+        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
+        perm_min: None,
+        enabled_unset: Vec::new(),
+        cutoff_use: Default::default(),
+        skip_version: false,
+        stats_only: false
+    ,
+        custody: Some(crate::workflow::test_run_custody()),
+        frame: Default::default(),
+        weighting: Default::default(),
+    };
+    match run_pay_summary(&db, &pay_req) {
+        Ok(rows) => {
+            println!("  {} summary rows", rows.len());
+            for r in rows.iter().filter(|r| r.flag == "PAY").take(12) {
+                println!(
+                    "  {:<10} {:<8} {:<4} net={:>6.1} ntg={:.2} phie={:.3} swe={:.3} hpv={:.2}",
+                    r.well_name, r.zone, r.flag, r.net, r.ntg, r.avg_phie, r.avg_swe, r.hpv
+                );
+            }
+        }
+        Err(e) => unexpected_errors.push(format!("pay_summary: {e}")),
+    }
+
+    // ---- 5. Render report PDF -------------------------------------------
+    println!("\n=== REPORT RENDER ===");
+    let spec = crate::report::ReportSpec {
+        input_set: None,
+        custody: Some(crate::workflow::test_run_custody()),
+        composite: CompositeSpec {
+            well_id: well_ids[0].clone(),
+            layout: crate::layout::standard_layout(),
+            depth_top: None,
+            depth_bottom: None,
+            scale: 500,
+            page_size: PageSize::A4,
+        },
+        title: "Petrophysical Evaluation — field pipeline test".into(),
+        author: "SandiBumi pipeline test".into(),
+        methodology: vec![],
+        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
+        perm_min: None,
+        tables_only: false,
+    };
+    match crate::report::render_report_pdf(&db, &spec) {
+        Ok(bytes) => {
+            let out = std::env::temp_dir().join("sandibumi_field_report.pdf");
+            std::fs::write(&out, &bytes).ok();
+            println!("  PDF {} bytes -> {}", bytes.len(), out.display());
+            assert!(bytes.len() > 1000, "PDF suspiciously small");
+        }
+        Err(e) => unexpected_errors.push(format!("report: {e}")),
     }
 
     // ---- Report problems -------------------------------------------------
@@ -424,12 +470,12 @@ fn pipeline_field_100well_stress() {
             .query_map(params![src_id], |r| {
                 Ok((
                     r.get::<_, f32>(0)?,
-                    r.get::<_, f32>(1)?,
-                    r.get::<_, f32>(2)?,
-                    r.get::<_, f32>(3)?,
-                    r.get::<_, f32>(4)?,
-                    r.get::<_, f32>(5)?,
-                    r.get::<_, f32>(6)?,
+                    r.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN),
+                    r.get::<_, Option<f32>>(2)?.unwrap_or(f32::NAN),
+                    r.get::<_, Option<f32>>(3)?.unwrap_or(f32::NAN),
+                    r.get::<_, Option<f32>>(4)?.unwrap_or(f32::NAN),
+                    r.get::<_, Option<f32>>(5)?.unwrap_or(f32::NAN),
+                    r.get::<_, Option<f32>>(6)?.unwrap_or(f32::NAN),
                 ))
             })
             .unwrap();
@@ -477,17 +523,21 @@ fn pipeline_field_100well_stress() {
 
     let db = Mutex::new(conn);
     // A representative interpretation chain (each call fans across all 100 wells via rayon).
-    let chain = ["vsh_gr", "phi_dn", "sw_indo", "perm_wyllie_rose"];
+    // phi_den, not phi_dn: SB-POR-024 (DEC-025) gates phi_dn on a declared neutron
+    // basis, and this chain measures write-path timing, not the N-D boundary.
+    let chain = ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"];
     let mut grand = std::time::Duration::ZERO;
     for m in chain {
         let req = RunModuleRequest {
             module: m.into(),
             well_ids: ids.clone(),
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
+            params: generic_chain_params(m),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
@@ -513,7 +563,14 @@ fn pipeline_field_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, input_set: None, skip_version: true, stats_only: false },
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+        enabled_unset: Vec::new(),
+            discretisation: crate::workflow::DiscretisationModel::Forward,
+        cutoff_use: Default::default(),
+            custody: Some(crate::workflow::test_run_custody()),
+            frame: Default::default(),
+            weighting: Default::default(),
+        },
     );
     println!("  pay_summary(100 wells) {:?} → {} rows", t.elapsed(), pay.map(|r| r.len()).unwrap_or(0));
 

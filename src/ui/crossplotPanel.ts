@@ -1,11 +1,20 @@
-import { getCoreData, getCurveData, plotBindingSnapshot, runNetFlag, type NetFlagSpec, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, runNetFlag, type NetFlagSpec, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import {
+  HISTOGRAM_BINS_DEFAULT,
+  HISTOGRAM_BINS_MAX,
+  HISTOGRAM_BINS_MIN,
+  canonicalHistogram,
+  normalizeHistogramBinCount,
+  type HistogramContract,
+} from "../distribution";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
+import { requestRunCustody } from "./runCustody";
 import {
   attachKeyboardPanZoom,
-  attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
+  buildPlotStatisticsRecord,
   categoricalColors,
   colorRampEx,
   distinctValues,
@@ -13,19 +22,25 @@ import {
   faciesColor,
   faciesLabel,
   fitCanvasBackingStore,
+  formatPlotStatisticsRecord,
   fmtValue,
   looksDiscrete,
   makeCanvasAccessible,
   percentile,
+  plotStatisticsInterval,
   PlotCanvas,
   canvasFont,
   readTheme,
   type ColormapName,
+  type PlotStatisticsRecord,
   type Viewport,
   type ViewportRef,
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
-import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
+import { AXIS_ALIASES, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
+// Resolution goes through the policy module: a route-2 derived overlay (DEC-078) shadows
+// its digitized coordinates the moment its derivation lands.
+import { allChartOverlays, resolveChartOverlay } from "./chartOverlayPolicy";
 import {
   applyPlotChannelPolicy,
   reconcileDepthChannels,
@@ -34,17 +49,20 @@ import {
 } from "./plotTypes";
 import {
   buildPlotTemplateBar,
+  buildPersistedPlotState,
+  buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
   contextZoneWindow,
   CORE_OVERLAY_MAP,
   contextReductionExport,
-  CONTEXT_LEGEND_ROWS,
   curveSelect,
+  depthReframeHandoff,
   describeContextOutcome,
   fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
+  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -56,30 +74,34 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
-import { renderPlotToSvg } from "./svgExport";
-import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { buildWellScope } from "./wellScope";
+import { renderPlotToPaperSvg } from "./svgExport";
+import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type AxisDisplayRange,
+  type AxisRangeResolution,
+  type PlotAxisRangeExport,
+} from "./axisRange";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
+import {
+  chartRecordForSurface,
+  type ChartRenderRecord,
+  type ChartRenderSurface,
+} from "./chartProvenance";
+import {
+  applyPlotRangePolicy,
+  formatPlotRangePolicySummary,
+  type PlotRangePolicyReport,
+} from "./plotRangePolicy";
 
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
 export type SizeMode = "fill" | "fixed";
-
-export interface ChartRenderRecord {
-  chart_id: string;
-  title: string;
-  chart_type: string;
-  x_quantity: string;
-  x_unit: string;
-  y_quantity: string;
-  y_unit: string;
-  citation: string;
-  publisher: string;
-  revision_date: string;
-  digitizer: string | null;
-  approved_derivation_path: string;
-  payload_checksum: string;
-  transform_applied: string;
-}
 
 interface ChartSourceProvenance {
   chartType: string;
@@ -101,7 +123,7 @@ export interface CrossplotOptions {
   regModel: RegModel;
   /** Fit method: ordinary Y-on-X, inverse X-on-Y, or reduced major axis. */
   regMethod: RegMethod;
-  /** Manual axis ranges; null = auto (mnemonic defaults, else P2–P98). */
+  /** Manual axis ranges; null = header display, audited family display, then finite data. */
   xMin: number | null;
   xMax: number | null;
   yMin: number | null;
@@ -190,7 +212,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   plotW: 640,
   plotH: 480,
   marginals: false,
-  bins: 40,
+  bins: HISTOGRAM_BINS_DEFAULT,
   color: "",
   percentiles: [],
   zLog: false,
@@ -204,9 +226,8 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
  *  the axis-log flags to keep saved por-perm regressions meaning the same thing. */
 export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): CrossplotOptions {
   const opts: CrossplotOptions = { ...DEFAULT_CROSSPLOT_OPTIONS, ...raw };
-  // A saved snapshot never authorizes itself. Rebuild it from the current approved chart
-  // record, concrete axis units and actual transform before the next persistence write.
-  opts.chartProvenance = null;
+  // Preserve the record as portable evidence. It never authorizes itself: every live draw,
+  // state write and export rebuilds and validates the record from the current chart definition.
   if (raw.regModel === undefined) {
     opts.regModel = opts.xLog && opts.yLog ? "power" : opts.xLog ? "logx" : opts.yLog ? "exp" : "linear";
   }
@@ -218,7 +239,7 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   if (raw.chartOverlay === undefined && legacyDn) {
     opts.chartOverlay = legacyDn === "fresh" ? "por11" : legacyDn === "salt" ? "por12" : "";
   }
-  if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !findChartOverlay(opts.chartOverlay))) {
+  if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !resolveChartOverlay(opts.chartOverlay))) {
     opts.chartOverlay = "";
   }
   if (!["", "winland", "pittman_r25", "pittman_r35", "pittman_r50"].includes(opts.rockOverlay)) {
@@ -226,7 +247,7 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   }
   opts.plotW = Math.max(200, Math.min(2000, Math.round(opts.plotW) || DEFAULT_CROSSPLOT_OPTIONS.plotW));
   opts.plotH = Math.max(200, Math.min(2000, Math.round(opts.plotH) || DEFAULT_CROSSPLOT_OPTIONS.plotH));
-  opts.bins = Math.max(5, Math.min(200, Math.round(opts.bins) || DEFAULT_CROSSPLOT_OPTIONS.bins));
+  opts.bins = normalizeHistogramBinCount(opts.bins);
   opts.color = typeof opts.color === "string" ? opts.color : "";
   opts.percentiles = Array.isArray(opts.percentiles) ? parsePercentiles(opts.percentiles.join(",")) : [];
   if (opts.colormap !== "viridis") opts.colormap = "rainbow";
@@ -468,69 +489,6 @@ export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean
   ctx.restore();
 }
 
-/** Audited family display ranges already carried by this panel. They remain display
- * limits only; no validity filtering is inferred from them. */
-function axisDefaults(curve: string): { min: number; max: number; invert: boolean } | null {
-  switch (curve.toUpperCase()) {
-    case "NPHI":
-      return { min: -0.05, max: 0.6, invert: false };
-    case "RHOB":
-      return { min: 1.9, max: 3.0, invert: true }; // density increases downward (D-N convention)
-    case "GR":
-      return { min: 0, max: 200, invert: false };
-    case "DT":
-      return { min: 40, max: 190, invert: false };
-    case "VSH":
-    case "PHIE":
-    case "PHIT":
-    case "SWE":
-    case "SWT":
-      return { min: 0, max: 1, invert: false };
-    // MID-plot axes (Lith-6): the window spans the chart's own mineral points, quartz
-    // (4.8, 2.65) to anhydrite (14.9, 2.98), and RHOMAA increases downward like RHOB so
-    // the triangle sits the way the printed chart draws it.
-    case "UMAA":
-      return { min: 0, max: 16, invert: false };
-    case "RHOMAA":
-      return { min: 2.2, max: 3.1, invert: true };
-    default:
-      return null;
-  }
-}
-
-export type AxisRangeTier = "user" | "header_display" | "audited_family_display" | "finite_data";
-
-export interface AxisDisplayRange {
-  min: number;
-  max: number;
-}
-
-export interface AxisRangeCandidates {
-  user: AxisDisplayRange | null;
-  headerDisplay: AxisDisplayRange | null;
-  auditedFamilyDisplay: AxisDisplayRange | null;
-  finiteData: AxisDisplayRange | null;
-  /** Validity belongs to filtering and is intentionally excluded from precedence. */
-  validity: AxisDisplayRange | null;
-}
-
-export function resolveAxisRange(
-  candidates: AxisRangeCandidates,
-): (AxisDisplayRange & { tier: AxisRangeTier }) | null {
-  const ordered: Array<[AxisDisplayRange | null, AxisRangeTier]> = [
-    [candidates.user, "user"],
-    [candidates.headerDisplay, "header_display"],
-    [candidates.auditedFamilyDisplay, "audited_family_display"],
-    [candidates.finiteData, "finite_data"],
-  ];
-  for (const [range, tier] of ordered) {
-    if (range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min !== range.max) {
-      return { ...range, tier };
-    }
-  }
-  return null;
-}
-
 /** Quartz / calcite / dolomite matrix reference points in (NPHI, RHOB) space — drawn
  *  only when requested AND the plot actually is an NPHI-RHOB crossplot. */
 const MATRIX_POINTS: { nphi: number; rhob: number; label: string }[] = [
@@ -643,6 +601,7 @@ function authorizeProvenancedChart(
   yName: string,
   xSource: ResolvedPlotCurve | null,
   ySource: ResolvedPlotCurve | null,
+  surface: ChartRenderSurface = "screen",
 ): ChartRenderDecision {
   const authorization = authorizeTypedOverlay(def, xName, yName, xSource, ySource);
   if (!authorization) return { authorization: null, record: null, refusal: null };
@@ -693,10 +652,7 @@ function authorizeProvenancedChart(
       offset: authorization.y.offset,
     },
   });
-  return {
-    authorization,
-    refusal: null,
-    record: {
+  const record: ChartRenderRecord = {
       chart_id: def.id,
       title: def.label,
       chart_type: source.chartType,
@@ -711,8 +667,12 @@ function authorizeProvenancedChart(
       approved_derivation_path: source.approvedDerivationPath,
       payload_checksum: source.payloadChecksum.toLowerCase(),
       transform_applied: transform,
-    },
   };
+  try {
+    return { authorization, refusal: null, record: chartRecordForSurface(def.id, record, surface) };
+  } catch (error) {
+    return { authorization, record: null, refusal: String(error) };
+  }
 }
 
 function drawChartProvenanceRefusal(plot: PlotCanvas, refusal: string): void {
@@ -842,35 +802,48 @@ function alignCoreSeriesByDepth(a: TrackCurveSeries, b: TrackCurveSeries): { xs:
   return { xs: Float32Array.from(xs), ys: Float32Array.from(ys) };
 }
 
-/** Bin counts over the axis's own space (log axes bin log-uniformly so bars align with
- *  the display); returns null when nothing falls in range. */
-function marginalCounts(
+export interface MarginalHistogramContract extends HistogramContract {
+  /** Finite non-positive values excluded before a logarithmic transform. */
+  logDomainExcluded: number;
+}
+
+/** Canonical bins over the axis's own space. Log axes transform only eligible finite values,
+ *  preserving source non-finite and log-domain exclusion counts as different facts. */
+export function computeMarginalHistogram(
   values: ArrayLike<number>,
   lo: number,
   hi: number,
   bins: number,
   log: boolean,
-): number[] | null {
+): MarginalHistogramContract | null {
   const t = (v: number) => (log ? Math.log10(v) : v);
   const tLo = t(lo);
   const tHi = t(hi);
   if (!Number.isFinite(tLo) || !Number.isFinite(tHi) || tLo === tHi) return null;
-  const counts = new Array(bins).fill(0);
-  let any = false;
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i];
-    if (Number.isNaN(v) || (log && v <= 0)) continue;
-    const f = (t(v) - tLo) / (tHi - tLo);
-    if (f < 0 || f > 1) continue;
-    counts[Math.min(bins - 1, Math.floor(f * bins))]++;
-    any = true;
+  const transformed: number[] = [];
+  let logDomainExcluded = 0;
+  for (let index = 0; index < values.length; index++) {
+    const value = values[index];
+    if (!Number.isFinite(value)) {
+      transformed.push(value);
+    } else if (log && value <= 0) {
+      logDomainExcluded++;
+    } else {
+      transformed.push(t(value));
+    }
   }
-  return any ? counts : null;
+  return { ...canonicalHistogram(transformed, tLo, tHi, bins), logDomainExcluded };
 }
 
 /** Marginal histograms in the widened top (X) and right (Y) margins, aligned with the
  *  plot's axes (fraction-based so log scales and inverted axes stay in register). */
-function drawMarginals(plot: PlotCanvas, xs: Float32Array, ys: Float32Array, bins: number, color: string): void {
+function drawMarginals(
+  plot: PlotCanvas,
+  xs: Float32Array,
+  ys: Float32Array,
+  bins: number,
+  color: string,
+): { x: MarginalHistogramContract | null; y: MarginalHistogramContract | null } {
   const r = plot.plotRect;
   const { ctx } = plot;
   const stripH = plot.margin.top - 12;
@@ -878,31 +851,32 @@ function drawMarginals(plot: PlotCanvas, xs: Float32Array, ys: Float32Array, bin
   ctx.save();
   ctx.fillStyle = color;
   ctx.globalAlpha = 0.55;
-  const cx = marginalCounts(xs, Math.min(plot.x.min, plot.x.max), Math.max(plot.x.min, plot.x.max), bins, plot.x.log);
-  if (cx && stripH > 6) {
-    const peak = Math.max(...cx);
-    const bw = r.w / bins;
-    for (let i = 0; i < bins; i++) {
-      if (cx[i] === 0) continue;
-      const f = (i + 0.5) / bins;
+  const xHistogram = computeMarginalHistogram(xs, Math.min(plot.x.min, plot.x.max), Math.max(plot.x.min, plot.x.max), bins, plot.x.log);
+  if (xHistogram && xHistogram.displayedTotal > 0 && stripH > 6) {
+    const peak = Math.max(...xHistogram.counts);
+    const bw = r.w / xHistogram.counts.length;
+    for (let i = 0; i < xHistogram.counts.length; i++) {
+      if (xHistogram.counts[i] === 0) continue;
+      const f = (i + 0.5) / xHistogram.counts.length;
       const px = r.x0 + (plot.x.invert ? 1 - f : f) * r.w;
-      const h = (cx[i] / peak) * stripH;
+      const h = (xHistogram.counts[i] / peak) * stripH;
       ctx.fillRect(px - bw / 2 + 0.5, r.y0 - 4 - h, Math.max(1, bw - 1), h);
     }
   }
-  const cy = marginalCounts(ys, Math.min(plot.y.min, plot.y.max), Math.max(plot.y.min, plot.y.max), bins, plot.y.log);
-  if (cy && stripW > 6) {
-    const peak = Math.max(...cy);
-    const bh = r.h / bins;
-    for (let i = 0; i < bins; i++) {
-      if (cy[i] === 0) continue;
-      const f = (i + 0.5) / bins;
+  const yHistogram = computeMarginalHistogram(ys, Math.min(plot.y.min, plot.y.max), Math.max(plot.y.min, plot.y.max), bins, plot.y.log);
+  if (yHistogram && yHistogram.displayedTotal > 0 && stripW > 6) {
+    const peak = Math.max(...yHistogram.counts);
+    const bh = r.h / yHistogram.counts.length;
+    for (let i = 0; i < yHistogram.counts.length; i++) {
+      if (yHistogram.counts[i] === 0) continue;
+      const f = (i + 0.5) / yHistogram.counts.length;
       const py = r.y0 + (plot.y.invert ? f : 1 - f) * r.h;
-      const w = (cy[i] / peak) * stripW;
+      const w = (yHistogram.counts[i] / peak) * stripW;
       ctx.fillRect(r.x0 + r.w + 4, py - bh / 2 + 0.5, w, Math.max(1, bh - 1));
     }
   }
   ctx.restore();
+  return { x: xHistogram, y: yHistogram };
 }
 
 /** Precomputed per-point Z coloring for the scatter — the redraw's heaviest step (two
@@ -1013,31 +987,95 @@ export function screenPlotPairs(
   xLog = false,
   yLog = false,
 ): PairValidityReport {
-  const indices: number[] = [];
-  let nonFiniteExcluded = 0;
-  let logDomainExcluded = 0;
-  let validityExcluded = 0;
-  const outside = (value: number, range: AxisDisplayRange | null): boolean =>
-    !!range && (value < Math.min(range.min, range.max) || value > Math.max(range.min, range.max));
-  const n = Math.min(xs.length, ys.length);
-  for (let i = 0; i < n; i++) {
-    const x = xs[i];
-    const y = ys[i];
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      nonFiniteExcluded++;
-      continue;
-    }
-    if ((xLog && x <= 0) || (yLog && y <= 0)) {
-      logDomainExcluded++;
-      continue;
-    }
-    if (enabled && (outside(x, xValidity) || outside(y, yValidity))) {
-      validityExcluded++;
-      continue;
-    }
-    indices.push(i);
-  }
-  return { indices, nonFiniteExcluded, logDomainExcluded, validityExcluded, statisticsCount: indices.length };
+  const report = screenCrossplotPopulation(
+    xs,
+    ys,
+    enabled,
+    xValidity,
+    yValidity,
+    null,
+    null,
+    xLog,
+    yLog,
+  );
+  return {
+    indices: report.indices,
+    nonFiniteExcluded: report.nonFiniteExcluded,
+    logDomainExcluded: report.logDomainExcluded,
+    validityExcluded: report.validityExcluded,
+    statisticsCount: report.analysisCount,
+  };
+}
+
+export function screenCrossplotPopulation(
+  xs: Float32Array,
+  ys: Float32Array,
+  enabled: boolean,
+  xValidity: AxisDisplayRange | null,
+  yValidity: AxisDisplayRange | null,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+  xLog = false,
+  yLog = false,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([
+    { values: xs, display: xDisplay, validity: xValidity, log: xLog },
+    { values: ys, display: yDisplay, validity: yValidity, log: yLog },
+  ], enabled);
+}
+
+/** Live Crossplot adapter: both channel summaries share one reconciled finite-pair population. */
+export function buildCrossplotStatisticsRecords(
+  xs: Float32Array,
+  ys: Float32Array,
+  opts: CrossplotOptions,
+  xName: string,
+  yName: string,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+  selectionLabel = "all eligible",
+): PlotStatisticsRecord[] {
+  const xValidity = opts.xValidMin !== null && opts.xValidMax !== null
+    ? { min: opts.xValidMin, max: opts.xValidMax }
+    : null;
+  const yValidity = opts.yValidMin !== null && opts.yValidMax !== null
+    ? { min: opts.yValidMin, max: opts.yValidMax }
+    : null;
+  const policy = screenCrossplotPopulation(
+    xs,
+    ys,
+    opts.validityFilter,
+    xValidity,
+    yValidity,
+    xDisplay,
+    yDisplay,
+    opts.xLog,
+    opts.yLog,
+  );
+  if (policy.analysisCount === 0) return [];
+  const context = {
+    population: "active_well" as const,
+    well_ids: [wellId],
+    interval: plotStatisticsInterval(intervalLow, intervalHigh),
+    selection: { kind: "all_eligible" as const, selection_id: null, label: selectionLabel, applied: false },
+    policy,
+    selection_excluded: 0,
+    unpaired_or_unclassified_excluded: 0,
+    standard_deviation: "sample_n_minus_one" as const,
+  };
+  return [
+    buildPlotStatisticsRecord(
+      Float32Array.from(policy.indices.map((index) => xs[index])),
+      { ...context, binding_channel: "x", channel: `x:${xName}` },
+    ),
+    buildPlotStatisticsRecord(
+      Float32Array.from(policy.indices.map((index) => ys[index])),
+      { ...context, binding_channel: "y", channel: `y:${yName}` },
+    ),
+  ];
 }
 
 export function drawCrossplot(
@@ -1054,6 +1092,8 @@ export function drawCrossplot(
   precolors: CrossplotColors | null = null,
   context: CrossplotContext | null = null,
   typedAxes: { x: ResolvedPlotCurve | null; y: ResolvedPlotCurve | null } | null = null,
+  axisBindings: { x: PlotChannelBinding | null; y: PlotChannelBinding | null } | null = null,
+  onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const xValidity = opts.xValidMin !== null && opts.xValidMax !== null
@@ -1066,46 +1106,49 @@ export function drawCrossplot(
   const plotXs = Float32Array.from(validity.indices.map((index) => xs[index]));
   const plotYs = Float32Array.from(validity.indices.map((index) => ys[index]));
   const plotZs = zs.length > 0 ? Float32Array.from(validity.indices.map((index) => zs[index])) : zs;
-  const auto = (values: Float32Array): { min: number; max: number } | null => {
-    const lo = percentile(values, 2);
-    const hi = percentile(values, 98);
-    if (Number.isNaN(lo) || Number.isNaN(hi) || lo === hi) return null;
-    const pad = (hi - lo) * 0.08;
-    return { min: lo - pad, max: hi + pad };
+  const auto = (values: Float32Array, log: boolean): { min: number; max: number } | null => {
+    const eligible = log
+      ? Float32Array.from(values.filter((value) => Number.isFinite(value) && value > 0))
+      : values;
+    const lo = percentile(eligible, 2);
+    const hi = percentile(eligible, 98);
+    if (Number.isNaN(lo) || Number.isNaN(hi)) return null;
+    const pad = (hi - lo) * 0.08 || Math.max(Math.abs(lo) * 0.01, 1e-6);
+    const min = log ? Math.max(lo - pad, lo * 0.8) : lo - pad;
+    return { min, max: hi + pad };
   };
   /** User > header display > audited family display > finite-data range. */
   const resolve = (
-    name: string,
+    binding: PlotChannelBinding | null,
     values: Float32Array,
     log: boolean,
     manMin: number | null,
     manMax: number | null,
-  ): { min: number; max: number; invert: boolean; tier: AxisRangeTier } | null => {
-    const family = axisDefaults(name);
-    const finite = auto(values);
-    const resolved = resolveAxisRange({
+    viewport: AxisDisplayRange | null,
+    validityRange: AxisDisplayRange | null,
+  ): { min: number; max: number; invert: boolean; resolution: AxisRangeResolution } | null => {
+    const base = resolveBoundAxisRange({
+      binding,
       user: manMin !== null && manMax !== null ? { min: manMin, max: manMax } : null,
-      headerDisplay: null,
-      auditedFamilyDisplay: family ? { min: family.min, max: family.max } : null,
-      finiteData: finite,
-      validity: null,
+      finiteData: auto(values, log),
+      validity: validityRange,
+      log,
     });
-    if (!resolved) return null;
-    let { min, max } = resolved;
-    const invert = family?.invert ?? false;
-    if (log) {
-      if (max <= 0) return null;
-      if (min <= 0) {
-        let smallest = Infinity;
-        for (let i = 0; i < values.length; i++) {
-          const v = values[i];
-          if (!Number.isNaN(v) && v > 0 && v < smallest) smallest = v;
+    if (!base) return null;
+    const invert = base.min > base.max;
+    const resolution = viewport
+      ? {
+          min: invert ? viewport.max : viewport.min,
+          max: invert ? viewport.min : viewport.max,
+          tier: "user" as const,
         }
-        min = Number.isFinite(smallest) ? smallest * 0.8 : max / 1000;
-      }
-    }
-    if (min === max) return null;
-    return { min, max, invert, tier: resolved.tier };
+      : base;
+    return {
+      min: Math.min(resolution.min, resolution.max),
+      max: Math.max(resolution.min, resolution.max),
+      invert,
+      resolution,
+    };
   };
 
   // With context wells the auto range (and the log-axis positive floor) must cover the
@@ -1113,16 +1156,30 @@ export function drawCrossplot(
   const hasCtx = !!context && context.layers.length > 0;
   const rangeXs = hasCtx ? concatValues(plotXs, context!.layers.map((l) => l.xs)) : plotXs;
   const rangeYs = hasCtx ? concatValues(plotYs, context!.layers.map((l) => l.ys)) : plotYs;
-  const xr = resolve(xName, rangeXs, opts.xLog, opts.xMin, opts.xMax);
-  const yr = resolve(yName, rangeYs, opts.yLog, opts.yMin, opts.yMax);
+  const xr = resolve(
+    axisBindings?.x ?? null,
+    rangeXs,
+    opts.xLog,
+    opts.xMin,
+    opts.xMax,
+    view ? { min: view.xMin, max: view.xMax } : null,
+    xValidity,
+  );
+  const yr = resolve(
+    axisBindings?.y ?? null,
+    rangeYs,
+    opts.yLog,
+    opts.yMin,
+    opts.yMax,
+    view ? { min: view.yMin, max: view.yMax } : null,
+    yValidity,
+  );
   if (!xr || !yr) return null;
-  // A zoom/pan viewport (if any) overrides the computed window, keeping axis inversion.
-  if (view) {
-    xr.min = view.xMin;
-    xr.max = view.xMax;
-    yr.min = view.yMin;
-    yr.max = view.yMax;
-  }
+  const resolvedRanges = [
+    axisRangeExportRecord("x", xr.resolution),
+    axisRangeExportRecord("y", yr.resolution),
+  ];
+  onAxisRanges?.(resolvedRanges);
 
   const plot = new PlotCanvas(
     canvas,
@@ -1135,7 +1192,7 @@ export function drawCrossplot(
   plot.ctx.font = canvasFont(plot.theme, 9);
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "left";
-  plot.ctx.fillText(`axis ranges: X ${xr.tier} · Y ${yr.tier}`, plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
   plot.ctx.restore();
   const pointColor = opts.color || plot.theme.accent;
 
@@ -1182,21 +1239,33 @@ export function drawCrossplot(
     plot.drawDiamonds(highXs, highYs, plot.theme.warn, Math.max(2.5, opts.pointSize + 1));
   }
 
-  if (opts.marginals) drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor);
+  const marginalHistograms = opts.marginals
+    ? drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor)
+    : null;
 
-  let displayHidden = 0;
-  for (let i = 0; i < plotXs.length; i++) {
-    if (plotXs[i] < Math.min(xr.min, xr.max) || plotXs[i] > Math.max(xr.min, xr.max)
-      || plotYs[i] < Math.min(yr.min, yr.max) || plotYs[i] > Math.max(yr.min, yr.max)) {
-      displayHidden++;
-    }
-  }
+  const population = screenCrossplotPopulation(
+    xs,
+    ys,
+    opts.validityFilter,
+    xValidity,
+    yValidity,
+    { min: xr.min, max: xr.max },
+    { min: yr.min, max: yr.max },
+    opts.xLog,
+    opts.yLog,
+  );
   plot.ctx.save();
   plot.ctx.font = canvasFont(plot.theme, 9);
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "right";
+  const marginalSummary = marginalHistograms
+    ? ` · marginal displayed n X=${marginalHistograms.x?.displayedTotal ?? 0}, Y=${marginalHistograms.y?.displayedTotal ?? 0}`
+    : "";
   plot.ctx.fillText(
-    `n=${validity.statisticsCount} · non-finite excluded=${validity.nonFiniteExcluded} · log-domain excluded=${validity.logDomainExcluded} · display hidden=${displayHidden} · validity excluded=${validity.validityExcluded}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
+    `${formatPlotRangePolicySummary(population, {
+      statistics: true,
+      fitInputs: opts.regression ? population.analysisCount : null,
+    })}${marginalSummary}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
     plot.plotRect.x0 + plot.plotRect.w,
     plot.plotRect.y0 + plot.plotRect.h + 31,
   );
@@ -1243,7 +1312,6 @@ export function drawCrossplot(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);
@@ -1272,12 +1340,20 @@ export function drawCrossplot(
     };
     // The active row's swatch only means something when the cloud is one color; a
     // Z-colored cloud gets a label instead of a misleading single swatch.
-    row(hasZ ? null : opts.color || plot.theme.accent, `${trunc(context!.activeName)} (active${hasZ ? `, by ${zName}` : ""})`);
+    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
+    row(hasZ ? null : opts.color || plot.theme.accent, `${activeName} (active${hasZ ? `, by ${zName}` : ""})`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, trunc(layer.name));
-    if (layers.length > CONTEXT_LEGEND_ROWS) {
+    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+    for (const layer of visibleLegend.displayed) {
+      row(layer.color, reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed);
+    }
+    if (visibleLegend.item) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
+      ctx.fillText(
+        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
+        boxX + 16,
+        boxY + 10,
+      );
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -1372,9 +1448,16 @@ export function drawCrossplot(
 
   // Chartbook overlay — drawn when the plot axes match the chart's axes. Linear
   // axes only, except charts that themselves need a log axis (e.g. Th/K ratio).
-  const overlayDef = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
+  const overlayDef = opts.chartOverlay ? resolveChartOverlay(opts.chartOverlay) : undefined;
   if (overlayDef) {
-    const decision = authorizeProvenancedChart(overlayDef, xName, yName, typedAxes?.x ?? null, typedAxes?.y ?? null);
+    const decision = authorizeProvenancedChart(
+      overlayDef,
+      xName,
+      yName,
+      typedAxes?.x ?? null,
+      typedAxes?.y ?? null,
+      "screen",
+    );
     if (decision.authorization && decision.record) {
       const flipped = decision.authorization.orientation === "flipped";
       const logOk = overlayDef.xLogNeeded
@@ -1418,13 +1501,15 @@ export async function buildCrossplotContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const curveNames = await loadCurveNames();
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, initial?.zone);
   const opts = normalizeCrossplotOptions(await loadPlotProps<CrossplotOptions>("crossplot"));
   const plotId = initial?.plotId ?? crypto.randomUUID();
 
   const content = document.createElement("div");
   content.className = "plot-content";
+  const activeDepthHandoff = buildDepthReframeHandoff(setStatus);
+  const contextDepthHandoff = buildDepthReframeHandoff(setStatus);
   const xSel = curveSelect(curveNames, initial?.x ?? "NPHI");
   const ySel = curveSelect(curveNames, initial?.y ?? "RHOB");
   // Z select with a "— None —" head option (universal: color only when wanted).
@@ -1471,7 +1556,7 @@ export async function buildCrossplotContent(
     "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
   const scopeInfo = document.createElement("p");
   scopeInfo.className = "modal-hint";
-  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo, contextDepthHandoff.el);
   scopeBtn.addEventListener("click", () => {
     scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
   });
@@ -1481,9 +1566,41 @@ export async function buildCrossplotContent(
     scopeInfo.style.display = ctxInfo ? "" : "none";
   };
 
+  const plotIntents = () => [
+    { channel: "x", semantic_request: xSel.value, required: true },
+    { channel: "y", semantic_request: ySel.value, required: true },
+    ...(zSel.value ? [{ channel: "colour", semantic_request: zSel.value, required: false }] : []),
+  ];
+  const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBindings = (): { x: PlotChannelBinding | null; y: PlotChannelBinding | null } => {
+    const bindings = plotBindingSnapshotForChannels(representedWellIds(), plotIntents());
+    return {
+      x: bindings.find((binding) => binding.intent.channel === "x") ?? null,
+      y: bindings.find((binding) => binding.intent.channel === "y") ?? null,
+    };
+  };
+  const selectionState = (surface: ChartRenderSurface = "save"): Record<string, string> => {
+    const chartProvenance = chartRecordForSelectedSurface(surface);
+    return {
+      plotId,
+      x: xSel.value,
+      y: ySel.value,
+      z: zSel.value,
+      zone: zoneSel.select.value,
+      wells: scope.serialize(),
+      chartProvenance: chartProvenance ? JSON.stringify(chartProvenance) : "",
+    };
+  };
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState("crossplot", options, representedWellIds(), plotIntents(), axisRanges);
   const persist = () => {
-    opts.chartProvenance = currentChartDecision().record;
-    savePlotProps("crossplot", opts);
+    try {
+      void savePlotProps("crossplot", persistedChartState("save"))
+        .catch((error) => setStatus(`Crossplot state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Crossplot state not saved: ${error}`);
+    }
   };
 
   const propsBtn = document.createElement("button");
@@ -1504,29 +1621,44 @@ export async function buildCrossplotContent(
     buildPlotTemplateBar<CrossplotOptions>(
       "crossplot",
       "Crossplot",
-      () => ({ ...opts }),
+      () => persistedChartState("template"),
       (t) => {
         Object.assign(opts, normalizeCrossplotOptions({ ...opts, ...t }));
-        persist();
         applySize();
         applyPicksVisibility();
         senseSel.value = opts.netSense; // a template can carry netSense — keep the dropdown in sync
         void reloadCore();
         redraw();
+        persist();
       },
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(
+  const exportGroup = buildImageExportButtons(
     () => canvas,
     "Crossplot",
     setStatus,
-    () => getSvg(),
-    () => getPdf(),
+    (scope) => getSvg(scope),
+    (scope) => getPdf(scope),
     () => ctxReductionManifest,
-  ));
+    (surface) => {
+      const chartSurface: ChartRenderSurface = surface === "svg" || surface === "pdf" ? surface : "save";
+      const state = persistedState(selectionState(chartSurface));
+      const chartRenderRecord = chartRecordForSelectedSurface(chartSurface);
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
+        statisticsRecords,
+        chartRenderRecord: chartRenderRecord ?? undefined,
+      };
+    },
+  );
+  selRow.appendChild(exportGroup);
   content.appendChild(selRow);
   content.appendChild(scopeRow);
+  content.appendChild(activeDepthHandoff.el);
 
   const canvas = document.createElement("canvas");
   canvas.width = 720;
@@ -1537,6 +1669,10 @@ export async function buildCrossplotContent(
   const hint = document.createElement("p");
   hint.className = "modal-hint";
   content.appendChild(hint);
+  const statisticsInfo = document.createElement("p");
+  statisticsInfo.className = "modal-hint";
+  statisticsInfo.style.whiteSpace = "pre-wrap";
+  content.appendChild(statisticsInfo);
   const updateHint = () => {
     hint.textContent =
       (opts.showPicks
@@ -1571,8 +1707,8 @@ export async function buildCrossplotContent(
     "Shade the net-reservoir quadrant relative to the parameter handle and count the points inside it";
   senseSel.addEventListener("change", () => {
     opts.netSense = senseSel.value as NetSense;
-    persist();
     redraw();
+    persist();
   });
   const senseWrap = document.createElement("div");
   senseWrap.style.margin = "2px 0 6px";
@@ -1617,12 +1753,69 @@ export async function buildCrossplotContent(
   let plot: PlotCanvas | null = null;
   let marker: [number, number] | null = null;
   let hoverIdx = -1;
+  let statisticsRecords: PlotStatisticsRecord[] = [];
+  let statisticsSignature = "";
   // Shared-brush state: indices of the samples in the current brush (this well), plus the live
   // drag rectangle (CSS px) while a Shift+drag is in progress.
   let brushIdx: number[] = [];
   let brushRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   let brushing = false;
   const viewRef: ViewportRef = { current: null };
+
+  const refreshStatisticsRecords = (): void => {
+    if (!plot) {
+      statisticsSignature = "";
+      statisticsRecords = [];
+      statisticsInfo.textContent = "No governed statistics population.";
+      return;
+    }
+    const zone = zoneSel.current();
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const signature = JSON.stringify([
+      dataGen,
+      xSel.value,
+      ySel.value,
+      zone.depthMin,
+      zone.depthMax,
+      opts.validityFilter,
+      opts.xValidMin,
+      opts.xValidMax,
+      opts.yValidMin,
+      opts.yValidMax,
+      opts.xLog,
+      opts.yLog,
+      plot.x.min,
+      plot.x.max,
+      plot.y.min,
+      plot.y.max,
+      selectionLabel,
+    ]);
+    if (signature === statisticsSignature) return;
+    statisticsRecords = buildCrossplotStatisticsRecords(
+      xs,
+      ys,
+      opts,
+      xSel.value,
+      ySel.value,
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      { min: plot.x.min, max: plot.x.max },
+      { min: plot.y.min, max: plot.y.max },
+      selectionLabel,
+    );
+    statisticsSignature = signature;
+    if (statisticsRecords.length === 0) {
+      statisticsInfo.textContent = "No governed statistics population.";
+      return;
+    }
+    statisticsInfo.textContent = statisticsRecords
+      .map((record) => formatPlotStatisticsRecord(record))
+      .join("\n");
+  };
   // Free-form net-flag polygon: click to drop vertices (captured in DATA space so they track
   // zoom/pan), then write a discrete 0/1 net-reservoir flag curve from the polygon's interior.
   const lasso: { active: boolean; pts: [number, number][]; cursor: [number, number] | null } = {
@@ -1636,18 +1829,31 @@ export async function buildCrossplotContent(
       .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
       ?.resolved[0] ?? null;
 
-  function currentChartDecision(): ChartRenderDecision {
-    const def = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
+  function currentChartDecision(surface: ChartRenderSurface = "screen"): ChartRenderDecision {
+    const def = opts.chartOverlay ? resolveChartOverlay(opts.chartOverlay) : undefined;
     return def
-      ? authorizeProvenancedChart(def, xSel.value, ySel.value, typedAxes.x, typedAxes.y)
+      ? authorizeProvenancedChart(def, xSel.value, ySel.value, typedAxes.x, typedAxes.y, surface)
       : { authorization: null, record: null, refusal: null };
   }
 
-  function persistChartProvenanceIfChanged(): void {
+  function chartRecordForSelectedSurface(surface: ChartRenderSurface): ChartRenderRecord | null {
+    if (!opts.chartOverlay) return null;
+    const decision = currentChartDecision(surface);
+    if (!decision.record) throw new Error(decision.refusal ?? `${surface} chart rendering is blocked`);
+    return decision.record;
+  }
+
+  function persistedChartState(surface: "save" | "template") {
+    const chartProvenance = chartRecordForSelectedSurface(surface);
+    opts.chartProvenance = chartProvenance;
+    return persistedState({ ...opts, chartProvenance });
+  }
+
+  function persistChartProvenanceIfChanged(): boolean {
     const next = currentChartDecision().record;
-    if (JSON.stringify(opts.chartProvenance) === JSON.stringify(next)) return;
+    if (JSON.stringify(opts.chartProvenance) === JSON.stringify(next)) return false;
     opts.chartProvenance = next;
-    savePlotProps("crossplot", opts);
+    return true;
   }
 
   const crossplotWriteSource = async (method: string): Promise<PlotWriteSource> => {
@@ -1721,6 +1927,10 @@ export async function buildCrossplotContent(
       zColors(),
       ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null,
       typedAxes,
+      currentAxisBindings(),
+      (ranges) => {
+        axisRanges = ranges;
+      },
     );
     if (!p) return null;
     if (opts.showCore) {
@@ -1740,15 +1950,17 @@ export async function buildCrossplotContent(
   };
 
   // Vector export: the static chart re-run into a recording context sized to the live plot.
-  const getSvg = (): string | null =>
-    plot ? renderPlotToSvg(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
-  const getPdf = (): PlotPdf | null =>
-    plot ? renderPlotToPdf(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
+  const getSvg = (scope: PlotAncestryScope): string | null =>
+    plot ? renderPlotToPaperSvg(plot.width, plot.height, (c) => drawStatic(c, -1), scope) : null;
+  const getPdf = (scope: PlotAncestryScope): PlotPdf | null =>
+    plot ? renderPlotToPaperPdf(plot.width, plot.height, (c) => drawStatic(c, -1), scope) : null;
 
   const redraw = () => {
     canvas.setAttribute("aria-label", ariaLabel()); // keep the a11y description in sync with the axes
+    axisRanges = [];
     plot = drawStatic(canvas, hoverIdx);
     if (!plot) {
+      refreshStatisticsRecords();
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const th = readTheme(canvas);
@@ -1758,6 +1970,7 @@ export async function buildCrossplotContent(
       ctx.fillText("No valid data for these curves/zone.", canvas.width / 2, canvas.height / 2);
       return;
     }
+    refreshStatisticsRecords();
     if (marker && opts.showPicks) {
       const [px, py] = plot.toPx(marker[0], marker[1]);
       const ctx = plot.ctx;
@@ -2058,13 +2271,15 @@ export async function buildCrossplotContent(
     go.style.marginTop = "10px";
     body.appendChild(go);
     const close = openModal("Write Net Flag", body, 380);
-    go.addEventListener("click", () => {
+    go.addEventListener("click", async () => {
       const name = nameIn.value.trim();
       if (!name) {
         setStatus("Net-flag curve needs a name");
         return;
       }
       const z = zoneSel.current();
+      const custody = await requestRunCustody("Write net flag");
+      if (!custody) return;
       const spec: NetFlagSpec = {
         well_id: well.well_id,
         x_curve: xSel.value,
@@ -2075,6 +2290,7 @@ export async function buildCrossplotContent(
         output_curve: name,
         depth_top: z.depthMin,
         depth_bottom: z.depthMax,
+        custody,
       };
       go.disabled = true;
       void runNetFlag(spec)
@@ -2101,13 +2317,14 @@ export async function buildCrossplotContent(
   // whichever reload commits, so a background bump can't strand new axes at the old zoom.
   let resetPending = false;
   const reload = async (preserveView = false) => {
-    const gen = ++reloadGen;
+    const token = beginPlotAsyncGeneration("crossplot-data-refetch", ++reloadGen);
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
+    const wanted = [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])];
+    activeDepthHandoff.clear();
     try {
-      const wanted = [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])];
       const series = await getCurveData(well.well_id, wanted, zone.depthMin, zone.depthMax);
-      if (gen !== reloadGen) return; // a newer reload started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       const byName = new Map(series.map((s) => [s.curve_name, s]));
       const required = wanted.map((name) => byName.get(name.toUpperCase()));
       if (required.some((item) => !item)) throw new Error("one or more required plot curves are absent");
@@ -2128,12 +2345,14 @@ export async function buildCrossplotContent(
         y: bindings.find((binding) => binding.intent.semantic_request === ySel.value)?.resolved[0] ?? null,
       };
     } catch (err) {
-      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
-      setStatus(`Crossplot data load failed: ${err}`);
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
+      const handoff = depthReframeHandoff(err, [well.well_id], wanted);
+      activeDepthHandoff.show(handoff);
+      setStatus(handoff ? `Crossplot refused: ${handoff.reason}` : `Crossplot data load failed: ${err}`);
       xs = ys = zs = depths = new Float32Array(0);
       typedAxes = { x: null, y: null };
     }
-    persistChartProvenanceIfChanged();
+    const chartProvenanceChanged = persistChartProvenanceIfChanged();
     hoverIdx = -1; // the old hover index may point at a different sample now
     if (resetPending) {
       resetPending = false;
@@ -2154,6 +2373,7 @@ export async function buildCrossplotContent(
     recomputeBrush(appState.brushedDepths.get()); // depths grid changed — re-map the brush
     dataGen++; // new arrays are in place — invalidate the memoized Z coloring
     redraw();
+    if (chartProvenanceChanged) persist();
   };
 
   /** Loads the well's core data once (all four series; cheap — core datasets are
@@ -2162,7 +2382,7 @@ export async function buildCrossplotContent(
    *  rapid core toggle supersedes an in-flight core fetch without dropping a data reload. */
   let coreGen = 0;
   const reloadCore = async () => {
-    const gen = ++coreGen;
+    const token = beginPlotAsyncGeneration("crossplot-core-refetch", ++coreGen);
     if (!opts.showCore) {
       coreByName = new Map();
       redraw();
@@ -2170,10 +2390,10 @@ export async function buildCrossplotContent(
     }
     try {
       const series = await getCoreData(well.well_id);
-      if (gen !== coreGen) return; // a newer core load started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, coreGen)) return;
       coreByName = new Map(series.map((s) => [s.curve_name, s]));
     } catch (err) {
-      if (gen !== coreGen) return;
+      if (!isPlotAsyncGenerationCurrent(token, coreGen)) return;
       setStatus(`Core data load failed: ${err}`);
       coreByName = new Map();
     }
@@ -2184,8 +2404,8 @@ export async function buildCrossplotContent(
   // Total point budget across ALL context wells: 2,000 wells × ~5,000 samples is 10M
   // points — far past what canvas 2D (or the eye) can use. Each well gets an equal
   // share and is stride-decimated down to it; the scope row reports the decimation.
-  const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: ContextWellLayer[] = [];
+  let ctxWellIds: string[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxInfo = "";
   let ctxGen = 0;
@@ -2195,13 +2415,25 @@ export async function buildCrossplotContent(
    *  generation token). Scope = just the active well → clears the overlay: byte-identical
    *  single-well behaviour. */
   const reloadContext = async () => {
-    const gen = ++ctxGen;
-    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    const token = beginPlotAsyncGeneration("crossplot-context-refetch", ++ctxGen);
+    contextDepthHandoff.clear();
+    let resolvedIds: string[];
+    try {
+      resolvedIds = await resolveWellScope(scope.backend());
+    } catch (error) {
+      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Crossplot scope refused: ${error}`);
+      return;
+    }
+    refreshStatisticsRecords();
+    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
+    const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
+      contextDepthHandoff.clear();
       updateScopeUi();
       if (had) redraw();
       return;
@@ -2209,8 +2441,7 @@ export async function buildCrossplotContent(
     ctxReductionManifest = contextReductionExport(
       "crossplot",
       null,
-      scope.getWellIds().length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      resolvedIds.length,
     );
     setStatus(`Crossplot: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
@@ -2218,15 +2449,15 @@ export async function buildCrossplotContent(
       names: scope.namesFor(ids),
       curves: [xSel.value, ySel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: MAX_CONTEXT_POINTS,
-      isStale: () => gen !== ctxGen,
+      budget: plotRecordLimit("context_point_budget").maximum,
+      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
     ctxReductionManifest = contextReductionExport(
       "crossplot",
       outcome,
-      scope.getWellIds().length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      resolvedIds.length,
+      { wellId: well.well_id, name: well.well_name },
     );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,
@@ -2234,7 +2465,9 @@ export async function buildCrossplotContent(
       xs: l.series.get(xSel.value.toUpperCase())!,
       ys: l.series.get(ySel.value.toUpperCase())!,
     }));
+    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
+    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
     updateScopeUi();
     setStatus(`Crossplot ${ctxInfo.toLowerCase()}`);
     redraw();
@@ -2350,6 +2583,8 @@ export async function buildCrossplotContent(
     });
     const marginalsChk = chk("Marginal histograms (X top, Y right)", opts.marginals);
     const binsIn = num(opts.bins, 52, "");
+    binsIn.min = String(HISTOGRAM_BINS_MIN);
+    binsIn.max = String(HISTOGRAM_BINS_MAX);
     const pctIn = document.createElement("input");
     pctIn.className = "form-control";
     pctIn.placeholder = "e.g. 10, 50, 90";
@@ -2409,8 +2644,8 @@ export async function buildCrossplotContent(
     noneOpt.value = "";
     noneOpt.textContent = "— None —";
     chartSel.appendChild(noneOpt);
-    const applicable = CHART_OVERLAYS.filter((d) => matchOverlayAxes(d, xSel.value, ySel.value));
-    const other = CHART_OVERLAYS.filter((d) => !matchOverlayAxes(d, xSel.value, ySel.value));
+    const applicable = allChartOverlays().filter((d) => matchOverlayAxes(d, xSel.value, ySel.value));
+    const other = allChartOverlays().filter((d) => !matchOverlayAxes(d, xSel.value, ySel.value));
     for (const [groupLabel, list] of [
       ["For these axes", applicable],
       ["Other axes (drawn only when axes match)", other],
@@ -2427,7 +2662,7 @@ export async function buildCrossplotContent(
       }
       chartSel.appendChild(group);
     }
-    chartSel.value = opts.chartOverlay && findChartOverlay(opts.chartOverlay) ? opts.chartOverlay : "";
+    chartSel.value = opts.chartOverlay && resolveChartOverlay(opts.chartOverlay) ? opts.chartOverlay : "";
     // Rock-typing pore-throat grid (Winland/Pittman) — drawn when the axes are a φ-k pair.
     const rockSel = document.createElement("select");
     rockSel.className = "form-control";
@@ -2454,7 +2689,7 @@ export async function buildCrossplotContent(
     body.appendChild(formRow("Percentiles", pctIn, "Dashed X/Y reference lines, comma-separated (0–100)"));
     body.appendChild(section("Axes"));
     body.appendChild(inline(xLogChk.el, yLogChk.el));
-    body.appendChild(formRow("X range", inline(xMinIn, xMaxIn), "Blank = auto (mnemonic default, else P2–P98)"));
+    body.appendChild(formRow("X range", inline(xMinIn, xMaxIn), "Blank = header display, then audited unit-family display, then finite data"));
     body.appendChild(formRow("Y range", inline(yMinIn, yMaxIn)));
     body.appendChild(validityChk.el);
     body.appendChild(formRow("X valid", inline(xValidMinIn, xValidMaxIn), "Blank = no X validity exclusion"));
@@ -2515,13 +2750,15 @@ export async function buildCrossplotContent(
       opts.rockOverlay = rockSel.value;
       opts.showPicks = picksChk.input.checked;
       Object.assign(opts, normalizeCrossplotOptions({ ...opts }));
-      persist();
       applySize();
       applyPicksVisibility();
       let reloading = false;
       if (opts.tsOverlay && !tsWas) reloading = tsAutoAxes();
       if (opts.showCore !== coreWas) void reloadCore();
-      if (!reloading) redraw();
+      if (!reloading) {
+        redraw();
+        persist();
+      }
       const chartDecision = currentChartDecision();
       setStatus(chartDecision.refusal ?? "Crossplot properties applied");
       close();
@@ -2694,20 +2931,14 @@ export async function buildCrossplotContent(
     redraw,
     onPanStart: (px, py) => handleAt(px, py) === null, // a handle grab vetoes panning
   });
-  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
-  const detachResize = attachResizeRedraw(canvas, redraw);
-  const unsubTheme = appState.themeVersion.subscribe(() => redraw());
-
-  // Re-fetch when computed curves change (module/equation run, import, undo) so the
-  // crossplot never shows stale data; keep the zoom/pan and the placed parameter handle.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void reload(true);
-    void reloadContext(); // a module run may have rewritten the context wells' curves too
+  const detachKeys = attachKeyboardPanZoom({
+    canvas,
+    getPlot: () => plot,
+    view: viewRef,
+    redraw,
+    getLabel: ariaLabel,
+    openProperties: () => openProps(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
   });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
@@ -2761,15 +2992,34 @@ export async function buildCrossplotContent(
   };
   window.addEventListener("mouseup", onBrushEnd);
 
-  // Consume the shared brush (incl. our own publishes) → highlight the covered samples.
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
-    recomputeBrush(sel);
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+  const invalidation = registerPlotInvalidationContract(canvas, {
+    theme: () => redraw(),
+    dataRevision: () => {
+      // Re-fetch after module/equation runs, imports and undo while preserving the viewport
+      // and placed parameter handle. Context wells can have changed in the same revision.
+      void reload(true);
+      void reloadContext();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    selection: (selection) => {
+      recomputeBrush(selection);
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          redraw();
+        });
+      }
+    },
+    size: () => redraw(),
+    cancelPending: () => {
+      reloadGen++;
+      coreGen++;
+      ctxGen++;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
         rafId = 0;
-        redraw();
-      });
-    }
+      }
+    },
   });
 
   // Local hover tooltip: the sample values under the cursor (X/Y/Z + depth), independent of the
@@ -2804,36 +3054,22 @@ export async function buildCrossplotContent(
   await reloadCore();
   // Not awaited: a big scope (hundreds of wells) must not block the panel build — the
   // active well's plot appears immediately and the context layer fades in when ready.
-  void reloadContext();
+  const bindingReady = reloadContext();
   return {
     el: content,
     dispose: () => {
-      ctxGen++; // cancel any in-flight context fetch
+      invalidation.dispose();
       scope.dispose();
       unsubHover();
-      unsubTheme();
-      unsubData();
-      unsubBrush();
       detachZoomPan();
-      detachKeys();
-      detachResize();
+      detachKeys.dispose();
       detachTip();
       window.removeEventListener("mouseup", onBrushEnd);
-      if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => {
-      const chartProvenance = currentChartDecision().record;
-      return {
-        plotId,
-        x: xSel.value,
-        y: ySel.value,
-        z: zSel.value,
-        zone: zoneSel.select.value,
-        wells: scope.serialize(),
-        chartProvenance: chartProvenance ? JSON.stringify(chartProvenance) : "",
-      };
-    },
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
     openProperties: openProps,
   };
 }

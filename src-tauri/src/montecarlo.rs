@@ -41,7 +41,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 /// Distribution attached to one uncertain parameter.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Distribution {
     Normal { mean: f64, sd: f64 },
@@ -128,7 +128,7 @@ fn probit(p: f64) -> f64 {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McParam {
     /// Module parameter name to vary (e.g. "GR_MA"); applies to every step that has it.
     pub param: String,
@@ -143,7 +143,7 @@ pub struct McParam {
 }
 
 /// How the N×P draw matrix is generated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Sampling {
     /// Latin Hypercube (default): N equal-probability strata per parameter, one jittered draw
@@ -158,7 +158,7 @@ pub enum Sampling {
 /// Target Spearman rank correlation between two Monte Carlo parameters, induced with the
 /// Iman–Conover method. `rho` is clamped to ±0.995; pairs naming unknown parameters are
 /// reported in `McResult.notes` and skipped.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McCorrelation {
     pub param_a: String,
     pub param_b: String,
@@ -178,17 +178,27 @@ fn default_converge_tol() -> f64 {
 #[derive(Debug, Clone, Deserialize)]
 pub struct McRequest {
     pub well_ids: Vec<String>,
+    /// SB-CUT-001 (DEC-071): the thickness discretisation model, shared with the
+    /// deterministic pay summary so an MC net can never disagree with it for this reason.
+    #[serde(default)]
+    pub discretisation: crate::workflow::DiscretisationModel,
     /// The deterministic chain to run each realization (same shape as a workflow chain).
     pub steps: Vec<ChainStep>,
     pub mc_params: Vec<McParam>,
     pub iterations: usize,
     pub seed: u64,
-    // Pay/HPV cutoffs (same semantics as the pay summary).
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub custody: Option<equations::RunCustody>,
+    // Pay/HPV cutoffs (same semantics as the pay summary).
+    /// SB-CUT-016. `None` = UNFILTERED on this property. Absent-capable for the same reason the
+    /// deterministic summation is: an MC run silently using a shipped 0.5 while the pay summary
+    /// reports the property unfiltered is a disagreement nobody could reconcile.
+    /// SB-CUT-019: carried as entered, with its unit, and canonicalised before any realization.
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
+    #[serde(default)]
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// HPV histogram bin count.
     pub bins: usize,
     /// Low / high output percentiles as fractions in (0, 1) — default 0.10 / 0.90. One control
@@ -266,6 +276,10 @@ pub struct McZoneResult {
     pub top: f32,
     pub bottom: f32,
     pub gross: f32,
+    /// SB-CUT-002: the discretisation model and the sample interval these percentile bundles
+    /// were computed under — the same identity the deterministic pay summary records.
+    pub discretisation_model: String,
+    pub sample_interval: f32,
     pub iterations: usize,
     pub net: Pctl,
     pub ntg: Pctl,
@@ -365,7 +379,7 @@ pub struct McPlausibility {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct McResult {
     pub zones: Vec<McZoneResult>,
     /// Per-zone parameter sensitivity (empty unless `sensitivity` or `tornado` was requested).
@@ -711,20 +725,20 @@ struct StepPlan {
 
 /// Cutoffs bundled for the per-zone pay/HPV accumulation.
 #[derive(Clone, Copy)]
-struct Cutoffs {
-    vsh_max: f64,
-    phie_min: f64,
-    swe_max: f64,
-    perm_min: Option<f64>,
+pub(crate) struct Cutoffs {
+    pub(crate) vsh_max: Option<crate::workflow::CutoffRange>,
+    pub(crate) phie_min: Option<crate::workflow::CutoffRange>,
+    pub(crate) swe_max: Option<crate::workflow::CutoffRange>,
+    pub(crate) perm_min: Option<crate::workflow::CutoffRange>,
 }
 
 #[derive(Clone, Copy)]
-struct ZoneMetrics {
-    net: f32,
-    ntg: f32,
-    avg_phie: f32,
-    avg_swe: f32,
-    hpv: f32,
+pub(crate) struct ZoneMetrics {
+    pub(crate) net: f32,
+    pub(crate) ntg: f32,
+    pub(crate) avg_phie: f32,
+    pub(crate) avg_swe: f32,
+    pub(crate) hpv: f32,
 }
 
 /// Zone-resolved parameter array: manifest/step base, then well-wide '*' then named zones.
@@ -755,7 +769,12 @@ fn resolve_zone_param(
 }
 
 /// Per-zone net-pay / NTG / averages / HPV from a realization's output curves.
-fn zone_metrics(
+///
+/// `pub(crate)` for SB-CUT-010: the volumetric identity `HCPV = Net.phi_bar.(1 - Sw_bar)` is
+/// asserted against THIS function, because it is a statement about one realization and
+/// percentiles do not commute with a product - the P10/P50/P90 bundle cannot carry it.
+pub(crate) fn zone_metrics(
+    model: crate::workflow::DiscretisationModel,
     vsh: &[f32],
     phie: &[f32],
     swe: &[f32],
@@ -776,11 +795,19 @@ fn zone_metrics(
         // run_pay_summary): the last in-zone sample no longer bleeds a full step past the
         // base, and net can never exceed gross — so MC P10/P50/P90 net/NTG/HPV agree with
         // the pay summary.
-        let s_top = depth[i] as f64;
-        let s_bot = (depth[i] + step[i]) as f64;
-        let lo = s_top.max(zone.top_depth as f64);
-        let hi = s_bot.min(zone.bottom_depth as f64);
-        let h = hi - lo;
+        // SB-CUT-001: the ONE discretisation rule, shared with run_pay_summary. This was a
+        // third inline copy; three copies of a net-pay clamp is three places for it to drift,
+        // and a Monte Carlo P50 disagreeing with the deterministic pay summary for that
+        // reason would look like uncertainty rather than a bug. Narrow edit under DEC-048.
+        let (s_top, s_bot) =
+            crate::workflow::sample_slab(depth[i] as f64, step[i] as f64, model);
+        let h = crate::workflow::sample_incl_thickness(
+            s_top,
+            s_bot,
+            zone.top_depth as f64,
+            zone.bottom_depth as f64,
+            None,
+        );
         if h <= 0.0 {
             continue;
         }
@@ -790,12 +817,15 @@ fn zone_metrics(
         if v.is_nan() || p.is_nan() || s.is_nan() {
             continue;
         }
-        let mut pay = v <= cut.vsh_max && p >= cut.phie_min && s <= cut.swe_max;
+        // SB-CUT-016: an absent cut-off does not filter. The NaN guard above is untouched.
+        let mut pay = cut.vsh_max.map_or(true, |r| r.contains(vsh[i]))
+            && cut.phie_min.map_or(true, |r| r.contains(phie[i]))
+            && cut.swe_max.map_or(true, |r| r.contains(swe[i]));
         if has_perm_cut {
             // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
             // PERM must fail, not silently pass (matches run_pay_summary's classify_sample, so
             // MC and the pay summary agree for identical cutoffs).
-            pay = pay && !perm[i].is_nan() && (perm[i] as f64) >= cut.perm_min.unwrap();
+            pay = pay && !perm[i].is_nan() && cut.perm_min.unwrap().contains(perm[i]);
         }
         if !pay {
             continue;
@@ -954,6 +984,7 @@ fn spearman(x: &[f64], y: &[f32]) -> f32 {
 /// like `mc_params` (zone scopes respected via `spans`).
 #[allow(clippy::too_many_arguments)]
 fn metrics_for_values(
+    model: crate::workflow::DiscretisationModel,
     plans: &[StepPlan],
     raw_pool: &HashMap<String, Vec<f32>>,
     depth: &[f32],
@@ -976,7 +1007,7 @@ fn metrics_for_values(
     zones
         .iter()
         .map(|z| {
-            let m = zone_metrics(vsh, phie, swe, perm, depth, step_thick, z, cut, has_perm_cut);
+            let m = zone_metrics(model, vsh, phie, swe, perm, depth, step_thick, z, cut, has_perm_cut);
             MetricSet { net: m.net, ntg: m.ntg, avg_phie: m.avg_phie, avg_swe: m.avg_swe, hpv: m.hpv }
         })
         .collect()
@@ -989,6 +1020,7 @@ fn metrics_for_values(
 struct WellPlan {
     plans: Vec<StepPlan>,
     raw_pool: HashMap<String, Vec<f32>>,
+    ancestry_inputs: Vec<(String, String, String)>,
     depth: Vec<f32>,
     step_thick: Vec<f32>,
     zones: Vec<ZoneEntry>,
@@ -1014,13 +1046,18 @@ fn build_plans(
 
     // External inputs = LogIn mnemonics not produced by any step.
     let mut external: HashSet<String> = HashSet::new();
-    for step in steps {
+    let mut ancestry_candidates = Vec::new();
+    for (step_index, step ) in steps .iter().enumerate() {
         let spec = &specs[&step.module];
         for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogIn) {
             let mnem = step.log_inputs.get(&a.name).cloned().unwrap_or_else(|| a.default.clone());
             let up = mnem.trim().to_uppercase();
             if !produced.contains(&up) {
-                external.insert(up);
+                external.insert(up.clone());
+                ancestry_candidates.push((
+                    format!("step_{}:{}:{}", step_index + 1, step.module, a.name),
+                    up,
+                ));
             }
         }
     }
@@ -1037,6 +1074,15 @@ fn build_plans(
     for name in &names {
         let v = columns.get(&name.to_uppercase()).cloned().unwrap_or_else(|| vec![f32::NAN; n]);
         raw_pool.insert(name.to_uppercase(), v);
+    }
+
+    let mut ancestry_inputs = Vec::new();
+    for (argument, curve) in ancestry_candidates {
+        if equations::try_resolve_ancestry_input(conn, well_id, &argument, &curve, None, None)?
+            .is_some()
+        {
+            ancestry_inputs.push((well_id.to_string(), argument, curve));
+        }
     }
 
     let zones_raw = db::list_zones(conn, well_id).map_err(|e| e.to_string())?;
@@ -1118,14 +1164,15 @@ fn build_plans(
         plans.push(StepPlan {
             module: step.module.clone(),
             opts,
-            depth_unit: crate::units::project_depth_unit_or_default(conn),
+            depth_unit: crate::workflow::resolve_module_depth_unit(conn, &step.module)?,
             log_args,
             param_args,
             base_params,
         });
     }
 
-    Ok(WellPlan { plans, raw_pool, depth, step_thick, zones: zones_raw, produced })
+    Ok(WellPlan { plans, raw_pool, ancestry_inputs,
+        depth, step_thick, zones: zones_raw, produced })
 }
 
 /// Contiguous index span of a zone-scoped MC parameter on the well's depth grid; None = the
@@ -1141,6 +1188,90 @@ type RealOut = (Vec<f64>, Vec<ZoneMetrics>, Option<Vec<Vec<f32>>>, (u32, u32, u3
 
 /// Output curves eligible for MC_*_LOW/P50/HIGH/BASE persistence, in snapshot order.
 const TRACKED: [&str; 4] = ["VSH", "PHIE", "SWE", "PERM"];
+
+/// One tracked curve family's in-memory persistence payload. Keeping this assembly separate from
+/// the database write lets the data-custody rule be proved without manufacturing scientifically
+/// invalid module inputs merely to make a deterministic base curve missing.
+struct PersistedCurveSummary {
+    curves: Vec<(String, Vec<f32>)>,
+    array: Option<(String, Vec<f32>, Vec<Vec<f32>>)>,
+    note: Option<String>,
+}
+
+/// Assemble one MC_<KEY> family from realization snapshots plus its deterministic base run.
+/// This is the former inline persistence calculation: samples with fewer than eight finite
+/// realizations remain missing; a missing/all-missing base drops BASE only when percentile curves
+/// still exist; realization order (including NaNs) is preserved in the optional array payload.
+fn summarize_persisted_curve(
+    key: &str,
+    well_name: &str,
+    depth: &[f32],
+    snapshots: &[&[f32]],
+    base: Option<&[f32]>,
+    lo_p: f64,
+    hi_p: f64,
+    persist_realizations: bool,
+    real_cap: usize,
+) -> PersistedCurveSummary {
+    let n = depth.len();
+    let mut lo_c = vec![f32::NAN; n];
+    let mut mid_c = vec![f32::NAN; n];
+    let mut hi_c = vec![f32::NAN; n];
+    let mut buf: Vec<f32> = Vec::with_capacity(snapshots.len());
+    let cap = real_cap.min(snapshots.len());
+    let mut arr_depths: Vec<f32> = Vec::new();
+    let mut arr_vals: Vec<Vec<f32>> = Vec::new();
+    for i in 0..n {
+        buf.clear();
+        buf.extend(snapshots.iter().filter_map(|snapshot| snapshot.get(i).copied()).filter(|v| v.is_finite()));
+        if persist_realizations {
+            // REALIZATION ORDER, NaNs included: index r must mean the same realization at every
+            // depth. The sorted `buf` is for percentiles only and must not be stored.
+            let col: Vec<f32> = snapshots
+                .iter()
+                .take(cap)
+                .map(|snapshot| snapshot.get(i).copied().unwrap_or(f32::NAN))
+                .collect();
+            if col.iter().filter(|v| v.is_finite()).count() >= 8 {
+                arr_depths.push(depth[i]);
+                arr_vals.push(col);
+            }
+        }
+        if buf.len() < 8 {
+            continue;
+        }
+        buf.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        lo_c[i] = percentile(&buf, lo_p);
+        mid_c[i] = percentile(&buf, 0.50);
+        hi_c[i] = percentile(&buf, hi_p);
+    }
+
+    let have_pct = mid_c.iter().any(|v| v.is_finite());
+    let finite_base = base.filter(|curve| curve.iter().any(|v| v.is_finite()));
+    let mut curves = Vec::new();
+    if have_pct {
+        curves.push((format!("MC_{key}_LOW"), lo_c));
+        curves.push((format!("MC_{key}_P50"), mid_c));
+        curves.push((format!("MC_{key}_HIGH"), hi_c));
+    }
+    let note = match finite_base {
+        Some(curve) => {
+            curves.push((format!("MC_{key}_BASE"), curve.to_vec()));
+            None
+        }
+        None if have_pct => Some(format!(
+            "{well_name}: MC_{key}_BASE skipped — the all-median base run produced no finite {key}"
+        )),
+        None => None,
+    };
+    let array = if arr_depths.is_empty() {
+        None
+    } else {
+        Some((format!("MC_{key}_REAL"), arr_depths, arr_vals))
+    };
+
+    PersistedCurveSummary { curves, array, note }
+}
 
 /// Runs the chain in memory for one realization and returns the resulting curve pool.
 /// `values[j]` is the draw for `mc_params[j]`, applied over `spans[j]` on top of that
@@ -1213,7 +1344,8 @@ fn fraction_output_curves(
 ) -> (Vec<String>, Vec<String>) {
     let (mut poro, mut sat) = (Vec::new(), Vec::new());
     for step in steps {
-        let Some(spec) = specs.get(&step.module) else { continue };
+        let Some(spec) = specs.get(&step.module) else { continue ;
+        };
         for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogOut) {
             if !a.unit.eq_ignore_ascii_case("v/v") {
                 continue;
@@ -1233,6 +1365,48 @@ fn fraction_output_curves(
 
 /// Runs the Monte Carlo study across the requested wells. All computation is in memory; the
 /// only DB access is the per-well input read in [`build_plans`].
+/// SB-CUT-019. Canonicalise every entered cut-off, refusing a bare number, an unknown unit or a
+/// physically impossible value.
+///
+/// Called at the ENTRY POINT - the Tauri command - so the user gets the message. `run_monte_carlo`
+/// calls it again and produces nothing on failure, because the job registry fixes that function's
+/// return type and a silent guess is the one outcome that must not happen.
+pub fn validate_cutoffs(req: &McRequest) -> Result<Cutoffs, String> {
+    use crate::workflow::{CutoffQuantity, CutoffSense};
+    let entered = |e: &Option<crate::workflow::CutoffSpec>,
+                   q: CutoffQuantity,
+                   sense: CutoffSense,
+                   label: &str| {
+        e.as_ref().map(|x| x.canonical(q, sense, label)).transpose()
+    };
+    Ok(Cutoffs {
+        vsh_max: entered(
+            &req.vsh_max,
+            CutoffQuantity::VolumeFraction,
+            CutoffSense::Maximum,
+            "the VSH cut-off",
+        )?,
+        phie_min: entered(
+            &req.phie_min,
+            CutoffQuantity::VolumeFraction,
+            CutoffSense::Minimum,
+            "the PHIE cut-off",
+        )?,
+        swe_max: entered(
+            &req.swe_max,
+            CutoffQuantity::VolumeFraction,
+            CutoffSense::Maximum,
+            "the SWE cut-off",
+        )?,
+        perm_min: entered(
+            &req.perm_min,
+            CutoffQuantity::Permeability,
+            CutoffSense::Minimum,
+            "the PERM cut-off",
+        )?,
+    })
+}
+
 pub fn run_monte_carlo(
     db: &Mutex<Connection>,
     req: &McRequest,
@@ -1243,13 +1417,42 @@ pub fn run_monte_carlo(
     // the whole study stays consistent. Clamp to a sane open interval and keep lo < hi.
     let lo_p = req.low_pctl.clamp(0.001, 0.499);
     let hi_p = req.high_pctl.clamp(0.501, 0.999);
+    if req.persist {
+        let validation = req
+            .custody
+            .as_ref()
+            .ok_or_else(|| {
+                "run refused: enter custody before persisting Monte Carlo curves".to_string()
+            })
+            .and_then(equations::RunCustody::validate);
+        if let Err(error) = validation {
+            return McResult {
+                zones: Vec::new(),
+                sensitivity: Vec::new(),
+                low_pctl: lo_p,
+                high_pctl: hi_p,
+                sampling: match req.sampling {
+                    Sampling::Lhs => "lhs",
+                    Sampling::Random => "random",
+                }
+                .into(),
+                convergence: Vec::new(),
+                persisted: Vec::new(),
+                plausibility: Vec::new(),
+                notes: Vec::new(),
+                errors: vec![error],
+            };
+        }
+    }
     let specs: HashMap<String, modules::ModuleSpec> =
         modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
-    let cut = Cutoffs {
-        vsh_max: req.vsh_max,
-        phie_min: req.phie_min,
-        swe_max: req.swe_max,
-        perm_min: req.perm_min,
+    // SB-CUT-019: the cut-offs were canonicalised and validated by `validate_cutoffs` at the
+    // entry point. A run reaching here with an unusable entry produces NOTHING rather than
+    // guessing - `run_monte_carlo` cannot return an error because the job registry fixes its
+    // return type, so the refusal lives where the user's value first arrives.
+    let cut = match validate_cutoffs(req) {
+        Ok(cut) => cut,
+        Err(_) => return McResult::default(),
     };
 
     let mut zones_out: Vec<McZoneResult> = Vec::new();
@@ -1302,10 +1505,17 @@ pub fn run_monte_carlo(
                 }
             }
         };
-        let WellPlan { plans, raw_pool, depth, step_thick, mut zones, produced } = wp;
+        let WellPlan { plans, raw_pool, ancestry_inputs,
+            depth, step_thick, mut zones, produced } = wp;
         let n = depth.len();
+        let had_declared_zones = !zones.is_empty();
         if zones.is_empty() {
-            zones.push(ZoneEntry { zone_name: "ALL".into(), top_depth: depth[0], bottom_depth: *depth.last().unwrap() });
+            zones.push(ZoneEntry {
+                zone_name: "ALL".into(),
+                top_depth: depth[0],
+                bottom_depth: *depth.last().unwrap(),
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
+            });
         }
         // First module failure anywhere in this well's sweep. A failed step used to be dropped,
         // leaving the pool unchanged so every downstream step read NaN and the well came back as
@@ -1379,7 +1589,7 @@ pub fn run_monte_carlo(
             let perm = pool.get("PERM").unwrap_or(&nanv);
             let zm = zones
                 .iter()
-                .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
+                .map(|z| zone_metrics(req.discretisation, vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
                 .collect();
             // Physical-plausibility tally: distinct in-zone samples whose porosity or saturation
             // leaves [0,1] on the chain's curves. The unlimited companions (PHIE_DN, SWT_ARCH, …)
@@ -1503,6 +1713,7 @@ pub fn run_monte_carlo(
             if req.tornado && !req.mc_params.is_empty() {
                 let base_vals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
                 let base = metrics_for_values(
+                    req.discretisation,
                     &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
                     &req.mc_params, &spans, &base_vals, n, &step_err,
                 );
@@ -1514,10 +1725,12 @@ pub fn run_monte_carlo(
                     let mut hv = base_vals.clone();
                     hv[pj] = p.dist.quantile(hi_p);
                     low.push(metrics_for_values(
+                    req.discretisation,
                         &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
                         &req.mc_params, &spans, &lv, n, &step_err,
                     ));
                     high.push(metrics_for_values(
+                    req.discretisation,
                         &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
                         &req.mc_params, &spans, &hv, n, &step_err,
                     ));
@@ -1585,6 +1798,8 @@ pub fn run_monte_carlo(
                 top: zone.top_depth,
                 bottom: zone.bottom_depth,
                 gross: zone.bottom_depth - zone.top_depth,
+                discretisation_model: req.discretisation.token().to_string(),
+                sample_interval: crate::workflow::median_sample_interval(&step_thick),
                 iterations: used_iterations,
                 net: summarize(&net, lo_p, hi_p),
                 ntg: summarize(&ntg, lo_p, hi_p),
@@ -1668,80 +1883,96 @@ pub fn run_monte_carlo(
                 if !produced.contains(*key) {
                     continue;
                 }
-                let snaps: Vec<&Vec<f32>> = per_real.iter().filter_map(|m| m.2.as_ref().map(|s| &s[t])).collect();
-                let mut lo_c = vec![f32::NAN; n];
-                let mut mid_c = vec![f32::NAN; n];
-                let mut hi_c = vec![f32::NAN; n];
-                let mut buf: Vec<f32> = Vec::with_capacity(snaps.len());
-                let cap = real_cap.min(snaps.len());
-                let mut arr_depths: Vec<f32> = Vec::new();
-                let mut arr_vals: Vec<Vec<f32>> = Vec::new();
-                for i in 0..n {
-                    buf.clear();
-                    buf.extend(snaps.iter().map(|s| s[i]).filter(|v| v.is_finite()));
-                    if req.persist_realizations {
-                        // REALIZATION ORDER, NaNs included: index r must mean the same
-                        // realization at every depth or a spaghetti trace is not a trace. The
-                        // sorted `buf` above is for percentiles only and must not be stored.
-                        // The >= 8 floor matches the percentile curves', so a stored depth and
-                        // the MC_*_LOW/_HIGH curves are never present at different depths.
-                        let col: Vec<f32> = snaps.iter().take(cap).map(|s| s[i]).collect();
-                        if col.iter().filter(|v| v.is_finite()).count() >= 8 {
-                            arr_depths.push(depth[i]);
-                            arr_vals.push(col);
-                        }
-                    }
-                    if buf.len() < 8 {
-                        continue;
-                    }
-                    buf.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    lo_c[i] = percentile(&buf, lo_p);
-                    mid_c[i] = percentile(&buf, 0.50);
-                    hi_c[i] = percentile(&buf, hi_p);
-                }
-                let have_pct = mid_c.iter().any(|v| v.is_finite());
-                let base = base_pool.get(*key).filter(|c| c.iter().any(|v| v.is_finite())).cloned();
-                if !have_pct && base.is_none() {
+                let snaps: Vec<&[f32]> = per_real
+                    .iter()
+                    .filter_map(|m| m.2.as_ref().map(|s| s[t].as_slice()))
+                    .collect();
+                let summary = summarize_persisted_curve(
+                    key,
+                    &well_name,
+                    &depth,
+                    &snaps,
+                    base_pool.get(*key).map(Vec::as_slice),
+                    lo_p,
+                    hi_p,
+                    req.persist_realizations,
+                    real_cap,
+                );
+                if summary.curves.is_empty() {
                     continue;
                 }
-                if have_pct {
-                    out.push((format!("MC_{key}_LOW"), lo_c));
-                    out.push((format!("MC_{key}_P50"), mid_c));
-                    out.push((format!("MC_{key}_HIGH"), hi_c));
+                out.extend(summary.curves);
+                if let Some(note) = summary.note {
+                    notes.push(note);
                 }
-                match base {
-                    Some(b) => out.push((format!("MC_{key}_BASE"), b)),
-                    None => notes.push(format!(
-                        "{well_name}: MC_{key}_BASE skipped — the all-median base run produced no finite {key}"
-                    )),
-                }
-                if !arr_depths.is_empty() {
-                    arrays.push((format!("MC_{key}_REAL"), arr_depths, arr_vals));
+                if let Some(array) = summary.array {
+                    arrays.push(array);
                 }
             }
             if out.is_empty() {
                 notes.push(format!("{well_name}: nothing to persist — no tracked output curve had finite values"));
             } else {
-                let spec = equations::LogSetSpec {
-                    set_name: "MONTECARLO".into(),
-                    module: "montecarlo".into(),
-                    params_json: serde_json::json!({
+                let conn = db.lock().unwrap();
+                let parameters = serde_json::json!({
                         "iterations": used_iterations,
-                        "seed": req.seed,
-                        "sampling": match req.sampling { Sampling::Lhs => "lhs", Sampling::Random => "random" },
+                        "requested_iterations": req.iterations,
+                    "seed": req.seed,
+                        "sampling": req.sampling ,
                         "low_pctl": lo_p,
                         "high_pctl": hi_p,
                         "kept_realizations": kept,
-                        "params": req.mc_params.iter().map(|p| match &p.zone {
-                            Some(z) => format!("{} @ {}", p.param, z),
-                            None => p.param.clone(),
-                        }).collect::<Vec<_>>(),
-                    })
-                    .to_string(),
-                    inputs_json: serde_json::json!(req.steps.iter().map(|s| s.module.clone()).collect::<Vec<_>>())
-                        .to_string(),
+                        "mc_params": req.mc_params,
+                    "correlations": req.correlations, "steps":req.steps,
+                    "vsh_max": req.vsh_max,
+                    "phie_min": req.phie_min,
+                    "swe_max": req.swe_max,
+                    // SB-CUT-019: the ENTERED form goes into provenance - value AND unit -
+                    // because "stored with it" is half the requirement. An absent cut-off is
+                    // still the token ABSENT, which is what a reader needs to see.
+                    "perm_min": req.perm_min.as_ref().map(|e| serde_json::json!(e))
+                        .unwrap_or_else(|| serde_json::json!("ABSENT")),
+                    "bins": req.bins,
+                    "sensitivity": req.sensitivity,
+                    "tornado": req.tornado,
+                    "converge": req.converge,
+                    "converge_tol": req.converge_tol,
+                    "persist_realizations": req.persist_realizations,
+                    "realization_cap": req.realization_cap.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
+                });
+                let zone_scope = if had_declared_zones {
+                    equations::AncestryZoneScope::Defined(
+                        zones
+                            .iter()
+                            .filter(|zone| zone.top_depth < zone.bottom_depth)
+                            .map(|zone| equations::AncestryZone {
+                                name: zone.zone_name.clone(),
+                                top: zone.top_depth,
+                                base: zone.bottom_depth,
+                                source: req
+                                    .custody
+                                    .as_ref()
+                                    .expect("persistence custody validated")
+                                    .source_note
+                                    .clone(),
+                            })
+                            .collect(),
+                    )
+                } else {
+                    equations::AncestryZoneScope::WholeWell
                 };
-                let conn = db.lock().unwrap();
+                let output_names = out.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+                let spec = equations::complete_curve_run_spec(
+                    &conn ,
+                    well_id,
+                    "MONTECARLO",
+                    "montecarlo",
+                    req.custody.as_ref().expect("persistence custody validated"),
+                    &ancestry_inputs,
+                    None,
+                    parameters,
+                    zone_scope,
+                    &output_names,
+                );
                 // Reclaim the ENTIRE MC_* family in the current store first: a previous
                 // MONTECARLO version may have written keys this run doesn't (e.g. PERM dropped
                 // from the chain), and the versioned writer deletes only the names it writes —
@@ -1750,22 +1981,16 @@ pub fn run_monte_carlo(
                 // version restorable.
                 let family: Vec<String> = TRACKED
                     .iter()
-                    .flat_map(|k| ["LOW", "P50", "HIGH", "BASE"].into_iter().map(move |s| format!("MC_{k}_{s}")))
+                    .flat_map(|k| {
+                        ["LOW", "P50", "HIGH", "BASE"].into_iter().map(move |s| format!("MC_{k}_{s}"))})
                     .collect();
-                let ph = std::iter::repeat("?").take(family.len()).collect::<Vec<_>>().join(", ");
-                let mut del_params: Vec<String> = Vec::with_capacity(family.len() + 1);
-                del_params.push(well_id.clone());
-                del_params.extend(family);
-                let write = conn
-                    .execute(
-                        &format!("DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({ph})"),
-                        duckdb::params_from_iter(del_params),
-                    )
-                    .and_then(|_| equations::create_log_set(&conn, well_id, &spec))
-                    .and_then(|(set_id, version)| {
-                        let refs: Vec<(&str, &[f32])> = out.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
-                        equations::write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id)
-                            .map(|()| version)
+                let write = spec.and_then(|spec| {
+                        let (set_id, version) =
+                        equations::create_complete_log_set(&conn, well_id, &spec)?;
+                    let refs: Vec<(&str, &[f32])> = out.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
+                        equations::write_computed_curves_with_ancestry_clearing(&conn, well_id, &depth, &refs, &family, &set_id)
+                            ?;
+                    Ok(version)
                     });
                 match write {
                     Ok(version) => {
@@ -1799,8 +2024,10 @@ pub fn run_monte_carlo(
                                         persisted.push(name.clone());
                                     }
                                 }
-                                Err(e) => notes.push(format!("{well_name}: {name} not stored — {e}")),
+                                Err(e) => {
+                            notes.push(format!("{well_name}: {name} not stored — {e}"));
                             }
+                        }
                         }
                         if !arrays.is_empty() && kept > real_cap {
                             notes.push(format!(
@@ -1866,10 +2093,46 @@ mod tests {
     use uuid::Uuid;
 
     fn step(module: &str) -> ChainStep {
-        ChainStep { module: module.into(), log_inputs: HashMap::new(), params: HashMap::new(), opts: HashMap::new() }
+        // CHARACTERIZATION fixtures: these values are the pre-SB-CORE-004 manifest inputs that
+        // existing Monte Carlo tests previously consumed implicitly. They are explicit here so
+        // the tests continue to isolate sampling, persistence, masking, and cutoff behavior; none
+        // of them is restored as a shipping default.
+        let params = match module {
+            "vsh_gr" => HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+            // phi_den, not phi_dn: DEC-070 (2026-08-18) made the D-N quick-look curve
+            // visual-only, so a chain that feeds pay uses the authoritative density
+            // method - these fixtures are about sampling/masking/cutoffs, not the ruling.
+            "phi_den" => HashMap::from([
+                ("RHO_MA".into(), 2.645),
+                ("RHO_SH".into(), 2.5),
+                ("RHO_FL".into(), 1.0),
+                ("RHO_DSH".into(), 2.65),
+                ("RHO_W".into(), 1.0),
+                ("PHIE_MAX".into(), 0.3),
+            ]),
+            "sw_indo" => HashMap::from([
+                ("A".into(), 1.0),
+                ("M".into(), 2.0),
+                ("N".into(), 2.0),
+                ("RT_SH".into(), 5.0),
+                ("SWE_IRR".into(), 0.0),
+                ("RW".into(), 0.1),
+            ]),
+            "perm_coates" => {
+                HashMap::from([("CONST_COATES".into(), 100.0), ("SWE_IRR".into(), 0.15)])
+            }
+            "rocktyping" => HashMap::from([("PS_EXP".into(), 3.0)]),
+            _ => HashMap::new(),
+        };
+        ChainStep {
+            module: module.into(),
+            log_inputs: HashMap::new(),
+            params,
+            opts: HashMap::new(),
+        }
     }
 
-    /// A clean-ish sand: low GR, moderate porosity, low water saturation, so vsh_gr → phi_dn →
+    /// A clean-ish sand: low GR, moderate porosity, low water saturation, so vsh_gr → phi_den →
     /// sw_indo yields real pay and a positive HPV.
     fn seed_well(conn: &Connection) -> String {
         let id = Uuid::new_v4();
@@ -1889,13 +2152,16 @@ mod tests {
     fn base_request(well: &str, mc: Vec<McParam>, iterations: usize, seed: u64) -> McRequest {
         McRequest {
             well_ids: vec![well.into()],
-            steps: vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")],
+            // DEC-071: MC fixtures keep their hand-derived FORWARD expectations.
+            discretisation: crate::workflow::DiscretisationModel::Forward,
+            steps: vec![step("vsh_gr"), step("phi_den"), step("sw_indo")],
             mc_params: mc,
             iterations,
             seed,
-            vsh_max: 0.5,
-            phie_min: 0.08,
-            swe_max: 0.6,
+            custody: Some(crate::workflow::test_run_custody()),
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             bins: 10,
             low_pctl: 0.10,
@@ -1945,7 +2211,7 @@ mod tests {
         crate::equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![1.0f32; n]).unwrap();
         let dbm = Mutex::new(conn);
 
-        let run = |steps: Vec<ChainStep>, perm_min: Option<f64>| -> McResult {
+        let run = |steps: Vec<ChainStep>, perm_min: Option<crate::workflow::CutoffSpec>| -> McResult {
             let mc = vec![McParam {
                 param: "GR_MA".into(),
                 dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
@@ -1962,9 +2228,9 @@ mod tests {
         // Chain A — reads permeability from the project (rocktyping consumes PERM, nothing
         // produces it). This is the case where the cutoff works, and it is the control: without
         // it, the equality below would prove only that the cutoff is broken everywhere.
-        let reads_perm = || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("rocktyping")];
+        let reads_perm = || vec![step("vsh_gr"), step("phi_den"), step("sw_indo"), step("rocktyping")];
         let a_open = run(reads_perm(), None);
-        let a_cut = run(reads_perm(), Some(1.0e9));
+        let a_cut = run(reads_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         assert!(a_open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
         assert_eq!(a_cut.zones[0].net.mid, 0.0, "1 mD cannot pass a 1e9 mD cutoff — the cutoff works here");
 
@@ -1972,9 +2238,9 @@ mod tests {
         // PRODUCED curve, so it never enters the external pool at all; the cutoff has to find it
         // in `produced` instead.
         let makes_perm =
-            || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
+            || vec![step("vsh_gr"), step("phi_den"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
         let b_open = run(makes_perm(), None);
-        let b_cut = run(makes_perm(), Some(1.0e9));
+        let b_cut = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
         assert!(bo.net.mid > 0.0, "chain B must have pay to lose");
         assert_eq!(bc.net.mid, 0.0, "a 1e9 mD cutoff must bite in chain B exactly as in chain A");
@@ -1992,7 +2258,7 @@ mod tests {
         // And the cutoff is still a cutoff rather than a switch that now deletes everything: a
         // threshold the modelled rock CLEARS must leave the pay alone. Without this, setting
         // `has_perm_cut` unconditionally would pass every assertion above.
-        let b_loose = run(makes_perm(), Some(1.0e-9));
+        let b_loose = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e-9, unit: "mD".into() }.into()));
         assert_eq!(
             b_loose.zones[0].net.mid, bo.net.mid,
             "a cutoff the modelled permeability passes must not remove pay"
@@ -2024,20 +2290,23 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let masked = || HashMap::from([("MASK".to_string(), "BADHOLE".to_string())]);
-        let modules_in_chain = ["vsh_gr", "phi_dn", "sw_indo"];
+        let modules_in_chain = ["vsh_gr", "phi_den", "sw_indo"];
 
         // The real chain, one masked step at a time, then the pay summary over what it wrote.
         for m in modules_in_chain {
+            let params = step(m).params;
             let res = crate::workflow::run_workflow_module(
                 &dbm,
                 &crate::workflow::RunModuleRequest {
                     module: m.into(),
                     well_ids: vec![well.clone()],
                     log_inputs: HashMap::new(),
-                    params: HashMap::new(),
+                    params,
                     opts: masked(),
                     output_set: None,
-                    input_set: None,
+                    input_set: None
+                ,
+                    custody: crate::workflow::test_run_custody(),
                 },
             );
             assert!(res[0].error.is_none(), "{m} failed: {:?}", res[0].error);
@@ -2045,14 +2314,22 @@ mod tests {
         let chain_rows = crate::workflow::run_pay_summary(
             &dbm,
             &crate::workflow::PaySummaryRequest {
+                // DEC-071: compared against the FORWARD MC fixture above.
+                discretisation: crate::workflow::DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: 0.5,
-                phie_min: 0.08,
-                swe_max: 0.6,
+                vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+                swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
                 skip_version: false,
-                stats_only: true,
+                stats_only: true
+            ,
+                custody: None,
+                frame: Default::default(),
+                weighting: Default::default(),
             },
         )
         .expect("pay summary runs");
@@ -2074,9 +2351,15 @@ mod tests {
         assert!(mc.errors.is_empty(), "unexpected errors: {:?}", mc.errors);
         let mc_net = mc.zones[0].net.mid;
 
+        // SB-POR-047 CLOSED this observable for chains carrying a porosity module: hole quality
+        // is a DECLARED input now, and `build_plans` assembles its fetch list from LogIn
+        // mnemonics — so the flag curve rides into the realization and phi_den excludes the
+        // washout natively, mask or no mask. The MASK-ignoring MECHANISM this test's doc block
+        // describes still exists (`run_realization` still never blanks on MASK); it simply no
+        // longer has anything left to inflate here, and the equality is the proof.
         assert!(
-            mc_net > chain_net,
-            "MC counted the washout as rock: MC net {mc_net} vs the same chain's {chain_net}"
+            (mc_net - chain_net).abs() < 1e-3,
+            "the declared BADHOLE input must exclude the washout in BOTH engines: MC net {mc_net} vs chain {chain_net}"
         );
 
         // The mask is inert, not partially applied: dropping it changes nothing.
@@ -2088,16 +2371,19 @@ mod tests {
             "setting a MASK on the step made no difference to the Monte Carlo answer"
         );
 
-        // Cause two: the flag curve never even enters the pool the realizations run on, though
-        // the option itself is carried all the way into the plan.
+        // Cause two WAS "the flag curve never enters the pool". SB-POR-047 closed it from the
+        // module side: BADHOLE is a declared LogIn on the porosity methods, and build_plans
+        // assembles its fetch from LogIn mnemonics, so the flag now rides into every
+        // realization. The MASK option itself is still carried and still never read - the
+        // remaining half of the original finding, kept pinned below.
         {
             let conn = dbm.lock().unwrap();
             let specs: HashMap<String, modules::ModuleSpec> =
                 modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
             let wp = build_plans(&conn, &well, &req.steps, &specs).expect("plans build");
             assert!(
-                !wp.raw_pool.contains_key("BADHOLE"),
-                "the flag curve is never fetched: {:?}",
+                wp.raw_pool.contains_key("BADHOLE"),
+                "the declared flag input must enter the realization pool: {:?}",
                 wp.raw_pool.keys().collect::<Vec<_>>()
             );
             assert_eq!(
@@ -2115,7 +2401,11 @@ mod tests {
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
 
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // The test's subject is percentile ordering and seed reproducibility, not an unbounded
+        // Gaussian prior. Use the original fixture's mean ± one stated SD as an explicitly bounded
+        // interval so no realization violates `vsh_gr`'s declared GR_MA range. Gaussian truncation
+        // is the separate, deferred SB-CUT-038 contract and must not be invented here.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         let res = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 500, 42), None);
         assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
         assert_eq!(res.zones.len(), 1);
@@ -2165,7 +2455,10 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // Sensitivity reproducibility is the subject. The bounded interval is the original 25 ± 8
+        // fixture; an unbounded Gaussian would require the separately deferred SB-CUT-038
+        // truncation policy.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         // Default request has sensitivity=false → no sensitivity block, and the headline zones
         // are byte-identical to a run that DID ask for sensitivity (draws don't perturb the rng).
         let plain = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 400, 42), None);
@@ -2391,13 +2684,15 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         // Two zones over the 1000–1150 m column; the MC entry is scoped to UPPER only.
-        db::upsert_zone(&conn, &well, "UPPER", 1000.0, 1075.0).unwrap();
-        db::upsert_zone(&conn, &well, "LOWER", 1075.0, 1150.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "UPPER", 1000.0, 1075.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "LOWER", 1075.0, 1150.0).unwrap();
         let dbm = Mutex::new(conn);
 
         let mc = vec![McParam {
             param: "GR_MA".into(),
-            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            // Preserve the original fixture's mean ± stated SD as a bounded input; the subject is
+            // zone scoping, while Gaussian truncation remains SB-CUT-038.
+            dist: Distribution::Uniform { lo: 10.0, hi: 40.0 },
             zone: Some("UPPER".into()),
         }];
         let mut req = base_request(&well, mc, 400, 42);
@@ -2415,7 +2710,7 @@ mod tests {
         // An unknown zone name leaves the parameter at base values, with a note.
         let mc2 = vec![McParam {
             param: "GR_MA".into(),
-            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            dist: Distribution::Uniform { lo: 10.0, hi: 40.0 },
             zone: Some("NOPE".into()),
         }];
         let res2 = run_monte_carlo(&dbm, &base_request(&well, mc2, 100, 42), None);
@@ -2426,14 +2721,11 @@ mod tests {
     }
 
     fn seed_computed(conn: &Connection, well: &str, name: &str, value: f32) {
-        for i in 0..300 {
-            let d = 1000.0 + i as f32 * 0.5;
-            conn.execute(
-                "INSERT INTO computed_curves (well_id, depth, curve_name, value) VALUES (?1, ?2, ?3, ?4)",
-                duckdb::params![well, d, name, value],
-            )
-            .unwrap();
-        }
+        let depth = (0..300)
+            .map(|i| 1000.0 + i as f32 * 0.5)
+            .collect::<Vec<_>>();
+        let values = vec![value; depth.len()];
+        equations::write_computed_curves_batch(conn, well, &depth, &[(name, &values)]).unwrap();
     }
 
     #[test]
@@ -2442,7 +2734,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         // Storable through the DB inspector (no validation on that path): top ≥ bottom.
-        db::upsert_zone(&conn, &well, "BAD", 1100.0, 1050.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "BAD", 1100.0, 1050.0).unwrap();
         let dbm = Mutex::new(conn);
         let mc = vec![McParam {
             param: "GR_MA".into(),
@@ -2532,30 +2824,56 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         // Run 1: full chain → MC_VSH/PHIE/SWE families all written (v1).
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // Persistence is the subject. Keep the original 25 ± 8 fixture inside an explicit bounded
+        // distribution rather than silently adding the deferred SB-CUT-038 truncation policy.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         let mut req1 = base_request(&well, mc, 200, 42);
         req1.persist = true;
         let res1 = run_monte_carlo(&dbm, &req1, None);
         assert!(res1.persisted.iter().any(|c| c.starts_with("MC_PHIE_")));
 
-        // Run 2: vsh_gr only, with GR_SH pinned to the distribution's central value — the
-        // all-median base run degenerates (GR_MA == GR_SH), but half the draws stay finite.
+        // Run 2: a valid vsh_gr-only chain proves that the persistence transaction reclaims
+        // families which the new chain no longer produces. Degenerate-base assembly is exercised
+        // separately below without asking an invalid GR_MA >= GR_SH pair to compute.
         let mut s = step("vsh_gr");
         s.params.insert("GR_SH".into(), 100.0);
-        let mc2 = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 99.0, hi: 101.0 }, zone: None }];
+        let mc2 = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 20.0, hi: 30.0 }, zone: None }];
         let mut req2 = base_request(&well, mc2, 300, 7);
         req2.steps = vec![s];
         req2.persist = true;
         let res2 = run_monte_carlo(&dbm, &req2, None);
         assert!(res2.errors.is_empty(), "unexpected errors: {:?}", res2.errors);
-        // Percentile curves survive a degenerate base; only BASE is skipped, with a note.
         assert!(res2.persisted.contains(&"MC_VSH_LOW".to_string()), "persisted: {:?}", res2.persisted);
-        assert!(
-            !res2.persisted.contains(&"MC_VSH_BASE".to_string()),
-            "degenerate base must skip only BASE: {:?}",
-            res2.persisted
+        assert!(res2.persisted.contains(&"MC_VSH_BASE".to_string()), "valid base missing: {:?}", res2.persisted);
+
+        // A persistence-layer degenerate base is a data-custody condition, not permission to make
+        // a scientific module accept invalid inputs. Eight finite realization snapshots prove the
+        // percentile curves survive; an all-missing deterministic base must drop only BASE and
+        // retain the exact explanatory note. These values are synthetic array fixtures, not
+        // petrophysical endpoints or defaults.
+        let snapshots: Vec<Vec<f32>> = (1..=8).map(|v| vec![v as f32]).collect();
+        let snapshot_refs: Vec<&[f32]> = snapshots.iter().map(Vec::as_slice).collect();
+        let degenerate = summarize_persisted_curve(
+            "VSH",
+            "Synthetic",
+            &[1000.0],
+            &snapshot_refs,
+            None,
+            0.10,
+            0.90,
+            false,
+            8,
         );
-        assert!(res2.notes.iter().any(|n| n.contains("MC_VSH_BASE skipped")), "notes: {:?}", res2.notes);
+        let names: Vec<&str> = degenerate.curves.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(names.contains(&"MC_VSH_LOW"), "percentile curves must survive: {names:?}");
+        assert!(names.contains(&"MC_VSH_P50"), "percentile curves must survive: {names:?}");
+        assert!(names.contains(&"MC_VSH_HIGH"), "percentile curves must survive: {names:?}");
+        assert!(!names.contains(&"MC_VSH_BASE"), "degenerate base must skip only BASE: {names:?}");
+        assert!(
+            degenerate.note.as_deref().is_some_and(|n| n.contains("MC_VSH_BASE skipped")),
+            "notes: {:?}",
+            degenerate.note
+        );
 
         let conn = dbm.lock().unwrap();
         // Stale family reclaim: run 2 wrote no PHIE curves, so v1's MC_PHIE_* rows must be gone
@@ -2593,12 +2911,14 @@ mod tests {
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
 
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // Persistence is the subject. Keep the original 25 ± 8 fixture inside an explicit bounded
+        // distribution rather than silently adding the deferred SB-CUT-038 truncation policy.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         let mut req = base_request(&well, mc, 300, 42);
         req.persist = true;
         let res = run_monte_carlo(&dbm, &req, None);
         assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
-        // The chain (vsh_gr → phi_dn → sw_indo) produces VSH/PHIE/SWE but no PERM.
+        // The chain (vsh_gr → phi_den → sw_indo) produces VSH/PHIE/SWE but no PERM.
         assert!(res.persisted.contains(&"MC_PHIE_LOW".to_string()), "persisted: {:?}", res.persisted);
         assert!(res.persisted.contains(&"MC_PHIE_BASE".to_string()));
         assert!(!res.persisted.iter().any(|c| c.contains("PERM")), "no PERM in this chain");

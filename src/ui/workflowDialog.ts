@@ -16,8 +16,17 @@ import {
 } from "../ipc";
 import { bumpDataVersion } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
+import { buildRunCustodyControls } from "./runCustody";
 import { formRow } from "./modal";
-import { maskCurveNames } from "./moduleDialog";
+import { buildParamSources, withParamSources } from "./paramSources";
+import {
+  argumentHint,
+  AUTO_INPUT_ALIAS,
+  maskCurveNames,
+  PRECONDITION_POLICY_FLAG_VALID_SAMPLES,
+  PRECONDITION_POLICY_OPT,
+  PRECONDITION_POLICY_REFUSE,
+} from "./moduleDialog";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { openWellParamsDialog } from "./wellParamsDialog";
@@ -295,6 +304,12 @@ export async function buildWorkflowContent(
 
   function logInControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLSelectElement {
     const select = document.createElement("select");
+    if (arg.preferred_aliases?.length) {
+      const automatic = document.createElement("option");
+      automatic.value = AUTO_INPUT_ALIAS;
+      automatic.textContent = `Auto — ${arg.preferred_aliases.join(" → ")}`;
+      select.appendChild(automatic);
+    }
     const names = inputCurveNames.includes(arg.default) ? inputCurveNames : [arg.default, ...inputCurveNames];
     for (const name of names) {
       const o = document.createElement("option");
@@ -302,9 +317,11 @@ export async function buildWorkflowContent(
       o.textContent = name;
       select.appendChild(o);
     }
-    select.value = step.log_inputs[arg.name] ?? arg.default;
+    select.value = step.log_inputs[arg.name] ?? (arg.preferred_aliases?.length ? AUTO_INPUT_ALIAS : arg.default);
     select.addEventListener("change", () => {
-      if (select.value === arg.default) delete step.log_inputs[arg.name];
+      if (select.value === AUTO_INPUT_ALIAS || (!arg.preferred_aliases?.length && select.value === arg.default)) {
+        delete step.log_inputs[arg.name];
+      }
       else step.log_inputs[arg.name] = select.value;
       onChanged();
     });
@@ -394,6 +411,32 @@ export async function buildWorkflowContent(
 
   const MASK_DESC = "Flag curve (=1 bad) blanked from every output — e.g. BADHOLE.";
 
+  function preconditionPolicyControl(step: ChainStep, onChanged: () => void): HTMLSelectElement {
+    const select = document.createElement("select");
+    for (const [value, label] of [
+      [PRECONDITION_POLICY_REFUSE, "Refuse well"],
+      [PRECONDITION_POLICY_FLAG_VALID_SAMPLES, "Keep valid samples + flag"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    }
+    select.value = step.opts[PRECONDITION_POLICY_OPT] ?? PRECONDITION_POLICY_REFUSE;
+    select.addEventListener("change", () => {
+      if (select.value === PRECONDITION_POLICY_FLAG_VALID_SAMPLES) {
+        step.opts[PRECONDITION_POLICY_OPT] = PRECONDITION_POLICY_FLAG_VALID_SAMPLES;
+      } else {
+        delete step.opts[PRECONDITION_POLICY_OPT];
+      }
+      onChanged();
+    });
+    return select;
+  }
+
+  const PRECONDITION_POLICY_DESC =
+    "Default: refuse. Flag mode keeps unaffected samples, writes a companion 0/1 curve and records source-bearing violations.";
+
   /** Inline per-step editor: input curves, options, and numeric params straight from the
    *  module manifest. */
   function buildStepEditor(step: ChainStep, spec: ModuleSpec, badge: HTMLElement): HTMLElement {
@@ -403,15 +446,29 @@ export async function buildWorkflowContent(
 
     for (const arg of spec.args) {
       if (arg.kind === "log_in") {
-        box.appendChild(editorRow(`${arg.name}${arg.required ? "" : " (opt)"}`, logInControl(step, arg, onChanged), arg.desc));
+        box.appendChild(editorRow(`${arg.name}${arg.required ? "" : " (opt)"}`, logInControl(step, arg, onChanged), argumentHint(arg)));
       } else if (arg.kind === "option") {
-        box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), arg.desc));
+        box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), argumentHint(arg)));
       } else if (arg.kind === "param") {
         const unit = arg.unit ? ` [${arg.unit}]` : "";
-        box.appendChild(editorRow(`${arg.name}${unit}`, paramControl(step, arg, onChanged), arg.desc));
+        const control = paramControl(step, arg, onChanged);
+        box.appendChild(
+          editorRow(
+            `${arg.name}${unit}`,
+            arg.sources_topic ? withParamSources(control, arg.sources_topic) : control,
+            argumentHint(arg),
+          ),
+        );
       }
     }
     box.appendChild(editorRow("Mask (opt)", maskControl(step, onChanged), MASK_DESC));
+    box.appendChild(
+      editorRow(
+        "Partial precondition",
+        preconditionPolicyControl(step, onChanged),
+        PRECONDITION_POLICY_DESC,
+      ),
+    );
 
     // Output names, editable per step — the same freedom the module pane's grid gives, because a
     // chain is where a trial run most needs to land beside the interpretation rather than on it.
@@ -435,7 +492,7 @@ export async function buildWorkflowContent(
           onChanged();
         });
         placeholders.set(arg.name, input);
-        box.appendChild(editorRow(`Write ${arg.name} as`, input, arg.desc));
+        box.appendChild(editorRow(`Write ${arg.name} as`, input, argumentHint(arg)));
       }
       void moduleOutputNames(step.module, step.log_inputs, step.opts)
         .then((names) => {
@@ -478,7 +535,14 @@ export async function buildWorkflowContent(
 
   // `log_out` is a real column here: the grid is where a chain's whole shape is read at once, and
   // "which curve does each step write" is as much a part of that as which one it reads.
-  type GridKind = "log_in" | "param" | "option" | "text" | "log_out" | "mask";
+  type GridKind =
+    | "log_in"
+    | "param"
+    | "option"
+    | "text"
+    | "log_out"
+    | "precondition_policy"
+    | "mask";
   interface GridCol {
     kind: GridKind;
     name: string;
@@ -516,6 +580,13 @@ export async function buildWorkflowContent(
     }
     const rank: GridKind[] = ["log_in", "param", "option", "text", "log_out"];
     const cols = [...by.values()].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind));
+    cols.push({
+      kind: "precondition_policy",
+      name: PRECONDITION_POLICY_OPT,
+      unit: "",
+      desc: PRECONDITION_POLICY_DESC,
+      args: new Map(),
+    });
     cols.push({ kind: "mask", name: "MASK", unit: "", desc: MASK_DESC, args: new Map() });
     return cols;
   }
@@ -524,7 +595,11 @@ export async function buildWorkflowContent(
     if (col.kind === "param") return step.params[col.name] !== undefined;
     if (col.kind === "log_in") return step.log_inputs[col.name] !== undefined;
     if (col.kind === "log_out") return step.opts[`__OUT_${col.name}`] !== undefined;
-    return step.opts[col.kind === "mask" ? "MASK" : col.name] !== undefined;
+    if (col.kind === "mask") return step.opts.MASK !== undefined;
+    if (col.kind === "precondition_policy") {
+      return step.opts[PRECONDITION_POLICY_OPT] !== undefined;
+    }
+    return step.opts[col.name] !== undefined;
   }
 
   /** A per-step output rename. Blank means the module's own default name, the same reading the
@@ -562,13 +637,15 @@ export async function buildWorkflowContent(
         control.value = step.params[arg.name] !== undefined ? String(step.params[arg.name]) : arg.default;
         control.classList.remove("workflow-invalid");
       } else if (col.kind === "log_in" && arg) {
-        control.value = step.log_inputs[arg.name] ?? arg.default;
+        control.value = step.log_inputs[arg.name] ?? (arg.preferred_aliases?.length ? AUTO_INPUT_ALIAS : arg.default);
       } else if ((col.kind === "option" || col.kind === "text") && arg) {
         control.value = step.opts[arg.name] ?? arg.default;
       } else if (col.kind === "log_out" && arg) {
         control.value = step.opts[`__OUT_${arg.name}`] ?? "";
       } else if (col.kind === "mask") {
         control.value = step.opts.MASK ?? "";
+      } else if (col.kind === "precondition_policy") {
+        control.value = step.opts[PRECONDITION_POLICY_OPT] ?? PRECONDITION_POLICY_REFUSE;
       }
       td.classList.toggle("workflow-grid-mod", hasOverride(step, col));
       const badge = gridBadges.get(step);
@@ -579,7 +656,8 @@ export async function buildWorkflowContent(
   function gridCell(step: ChainStep, col: GridCol, badge: HTMLElement, known: boolean): HTMLTableCellElement {
     const td = document.createElement("td");
     const arg = col.args.get(step);
-    if (!known || (col.kind !== "mask" && !arg)) {
+    const universal = col.kind === "mask" || col.kind === "precondition_policy";
+    if (!known || (!universal && !arg)) {
       td.className = "workflow-grid-na";
       td.textContent = "—";
       return td;
@@ -590,6 +668,9 @@ export async function buildWorkflowContent(
     };
     let control: HTMLInputElement | HTMLSelectElement;
     if (col.kind === "mask") control = maskControl(step, onChanged);
+    else if (col.kind === "precondition_policy") {
+      control = preconditionPolicyControl(step, onChanged);
+    }
     else if (col.kind === "log_out") control = outNameControl(step, arg!, onChanged);
     else if (col.kind === "log_in") control = logInControl(step, arg!, onChanged);
     else if (col.kind === "option") control = optionControl(step, arg!, onChanged);
@@ -652,8 +733,11 @@ export async function buildWorkflowContent(
       const extras = [...new Set([...col.args.values()].map((a) => a.default))].filter(
         (d) => !inputCurveNames.includes(d),
       );
-      values = [...extras, ...inputCurveNames];
+      values = [AUTO_INPUT_ALIAS, ...extras, ...inputCurveNames];
     } else if (col.kind === "mask") values = ["(none)", ...maskCurveNames(curveNames)];
+    else if (col.kind === "precondition_policy") {
+      values = [PRECONDITION_POLICY_REFUSE, PRECONDITION_POLICY_FLAG_VALID_SAMPLES];
+    }
     else if (col.kind === "log_out") {
       // No Set-all on an output name, deliberately: two steps writing their VSH under one name
       // is the collision `resolve_output_names` refuses, so offering to do it in one click would
@@ -675,7 +759,7 @@ export async function buildWorkflowContent(
     for (const v of values) {
       const o = document.createElement("option");
       o.value = v;
-      o.textContent = v;
+      o.textContent = v === AUTO_INPUT_ALIAS ? "Auto — manifest preference" : v;
       select.appendChild(o);
     }
     select.addEventListener("change", () => {
@@ -689,9 +773,18 @@ export async function buildWorkflowContent(
           else step.opts.MASK = v;
           applied++;
         }
+      } else if (col.kind === "precondition_policy") {
+        for (const step of steps) {
+          if (!moduleByName.has(step.module)) continue;
+          if (v === PRECONDITION_POLICY_REFUSE) delete step.opts[PRECONDITION_POLICY_OPT];
+          else step.opts[PRECONDITION_POLICY_OPT] = v;
+          applied++;
+        }
       } else if (col.kind === "log_in") {
         for (const [step, arg] of col.args) {
-          if (v === arg.default) delete step.log_inputs[arg.name];
+          if (v === AUTO_INPUT_ALIAS || (!arg.preferred_aliases?.length && v === arg.default)) {
+            delete step.log_inputs[arg.name];
+          }
           else step.log_inputs[arg.name] = v;
           applied++;
         }
@@ -703,7 +796,12 @@ export async function buildWorkflowContent(
         }
       }
       refreshColumn(col);
-      setStatus(`${col.kind === "mask" ? "Mask" : col.name} set on ${applied} step${applied === 1 ? "" : "s"}`);
+      const label = col.kind === "mask"
+        ? "Mask"
+        : col.kind === "precondition_policy"
+          ? "Partial precondition policy"
+          : col.name;
+      setStatus(`${label} set on ${applied} step${applied === 1 ? "" : "s"}`);
     });
     td.appendChild(select);
     return td;
@@ -744,6 +842,14 @@ export async function buildWorkflowContent(
         u.textContent = col.unit;
         th.appendChild(u);
       }
+      const topics = [
+        ...new Set(
+          [...col.args.values()]
+            .map((arg) => arg.sources_topic ?? "")
+            .filter((topic) => topic.length > 0),
+        ),
+      ];
+      for (const topic of topics) th.appendChild(buildParamSources(topic));
       th.title = col.desc;
       headRow.appendChild(th);
     }
@@ -800,6 +906,8 @@ export async function buildWorkflowContent(
       "existing one or type a new name. Manage versions in the Curve Catalog.",
   });
   for (const row of setPicker.rows) content.appendChild(row);
+  const custodyControls = buildRunCustodyControls();
+  for (const row of custodyControls.rows) content.appendChild(row);
 
   // --- Run bar -------------------------------------------------------------
   // No inline progress bar here — the universal Processing panel owns the live bar, per-well
@@ -878,6 +986,13 @@ export async function buildWorkflowContent(
       return;
     }
     const jobId = crypto.randomUUID();
+    let custody;
+    try {
+      custody = custodyControls.collect();
+    } catch (error) {
+      statusLine.textContent = String(error);
+      return;
+    }
     currentJob = jobId;
     running = true;
     runBtn.disabled = true;
@@ -892,7 +1007,8 @@ export async function buildWorkflowContent(
     void runWorkflowChain(
       jobId,
       steps,
-      wellIds,
+      scope.backend(),
+      custody,
       setPicker.outputSet(),
       setPicker.inputSet(),
     ).catch((e) => {

@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DepthUnit } from "./units";
 import type { TrackCurveRequest } from "./trackCurveRequest";
+import type { PlotAxisRangeExport } from "./ui/axisRange";
+import type { ChartRenderRecord } from "./ui/chartProvenance";
+import type { PlotStatisticsRecord } from "./ui/plotCanvas";
 
 /** The project's stored depth unit, plus whether it was explicitly declared (false = a
  *  fresh project that will adopt the unit of its first import). */
@@ -66,8 +69,12 @@ export function listEquations(): Promise<EquationDef[]> {
   return invoke<EquationDef[]>("list_equations");
 }
 
-export function runEquation(equationId: string, wellIds: string[]): Promise<EquationRunResult[]> {
-  return invoke<EquationRunResult[]>("run_equation", { equationId, wellIds });
+export function runEquation(
+  equationId: string,
+  scope: BackendWellScope,
+  custody: RunCustody,
+): Promise<EquationRunResult[]> {
+  return invoke<EquationRunResult[]>("run_equation", { equationId, scope, custody });
 }
 
 export function listCurveCatalog(): Promise<CurveCatalogEntry[]> {
@@ -89,8 +96,8 @@ export interface WellSummary {
   utm_zone?: string | null;
 }
 
-export function listWells(): Promise<WellSummary[]> {
-  return invoke<WellSummary[]>("list_wells");
+export function listWells(scope: BackendWellScope = { kind: "active_group" }): Promise<WellSummary[]> {
+  return invoke<WellSummary[]>("list_wells", { scope });
 }
 
 export interface LocationsImportResult {
@@ -113,14 +120,31 @@ export function importWellLocations(
 
 /** Wells whose surface location falls inside `polygon` (ordered [x, y] UTM-metre ring) —
  *  the authoritative hit test behind assigning a map polygon to a well group. */
-export function wellsInPolygon(polygon: [number, number][]): Promise<WellSummary[]> {
-  return invoke<WellSummary[]>("wells_in_polygon", { polygon });
+export function wellsInPolygon(
+  polygon: [number, number][],
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<WellSummary[]> {
+  return invoke<WellSummary[]>("wells_in_polygon", { polygon, scope });
 }
 
 export interface ImportResult {
   path: string;
   well_id: string | null;
   well_name: string | null;
+  /** Every non-comment LAS ~W record in source order; unknown mnemonics remain raw. */
+  well_headers: Array<{
+    raw: string;
+    mnemonic: string;
+    mapped_field:
+      | "well_name"
+      | "uwi"
+      | "country"
+      | "state"
+      | "well_status"
+      | "null_value"
+      | "step"
+      | null;
+  }>;
   rows: number;
   /** Encoding selected by the mandatory byte-tolerant text reader. */
   text_encoding: string | null;
@@ -137,11 +161,25 @@ export interface ImportResult {
     candidates: Array<{ mnemonic: string; finite_samples: number; chosen: boolean }>;
     table_entry: string | null;
   }>;
+  /** Effective per-source-channel null handling; unset still uses ordinary LAS screening. */
+  null_resolutions: Array<{
+    channel: string;
+    mode: "unset" | "no_null" | "values";
+    values: number[];
+  }>;
   index_resolution: {
     column: number;
     mnemonic: string;
     mechanism: "structural_declaration" | "positional_guarantee" | "name_alias" | "user_designation";
   } | null;
+  /** Versioned policy governing LAS section order and tolerated malformed/unknown headers. */
+  section_policy: string;
+  /** Every non-fatal section tolerance that fired, in source order. */
+  section_handling: Array<{
+    line: number;
+    header: string;
+    action: "unknown_section_ignored" | "malformed_header_ignored" | "out_of_order_section_accepted";
+  }>;
   /** Every automatic value conversion performed by the importer. */
   unit_conversions: Array<{
     curve: string;
@@ -169,6 +207,46 @@ export interface ImportResult {
     recorded_unit: string;
     family: string | null;
   }>;
+  /** Verbatim observed unit spellings and only their explicitly registered interpretations. */
+  unit_tokens: Array<{
+    curve: string;
+    state: "missing_unit" | "recognized" | "unrecognized";
+    raw_token: string | null;
+    canonical_unit: string | null;
+    quantity_kind:
+      | "gamma_ray"
+      | "electric_potential"
+      | "length"
+      | "bulk_density"
+      | "photoelectric_factor"
+      | "fraction"
+      | "slowness"
+      | "temperature"
+      | "resistivity"
+      | "charge_per_volume"
+      | "permeability"
+      | null;
+    explicit_alias: string | null;
+  }>;
+  /** Look-alike spellings kept distinct because the registry declares no alias. */
+  unit_token_warnings: string[];
+  /** SB-CLY-034 (DEC-037): set when the import BLOCKED on undeclared vendor-sentinel values.
+   *  Nothing from this file was written; re-invoke with `undeclaredSentinelDecision`. */
+  sentinel_question: {
+    value: number;
+    curves: Array<{ mnemonic: string; samples: number }>;
+  } | null;
+}
+
+/** Container-owned identity plus a filename proposal that is never silently selected. */
+export interface LasWellIdentityProbe {
+  path: string;
+  container_well_name: string | null;
+  filename_proposal: string | null;
+}
+
+export function probeLasWellIdentities(paths: string[]): Promise<LasWellIdentityProbe[]> {
+  return invoke<LasWellIdentityProbe[]>("probe_las_well_identities", { paths });
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
@@ -191,6 +269,18 @@ export interface LasImportOptions {
   duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
   /** Explicit MS/FT meanings keyed by the exact source path; no entry means refuse. */
   msPerFtMeanings?: Record<string, "microseconds_per_foot" | "millisiemens_per_foot">;
+  /** Explicit unit for DRHO-family channels whose source declaration is absent. */
+  undeclaredDrhoUnit?: "g/cc" | "kg/m3" | null;
+  /** Explicit confirmations keyed by source path, consulted only when the container has no identity. */
+  confirmedWellNames?: Record<string, string>;
+  /** Required set-level declaration; it is never inferred from coincidentally regular depths. */
+  samplingStyle?: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR" | null;
+  /** Required only for regular sets. No production default ships. */
+  samplingStyleVerifyTolerance?: { value: number; unit: "M" | "FT" } | null;
+  /** SB-CLY-034 (DEC-037): the user's answer to the undeclared-sentinel question. Absent
+   *  while candidates exist blocks the import with the question; nothing converts on
+   *  magnitude alone. */
+  undeclaredSentinelDecision?: "convert" | "keep" | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -204,12 +294,21 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
     duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
     msPerFtMeanings: opts?.msPerFtMeanings ?? null,
+    undeclaredDrhoUnit: opts?.undeclaredDrhoUnit ?? null,
+    confirmedWellNames: opts?.confirmedWellNames ?? null,
+    samplingStyle: opts?.samplingStyle ?? null,
+    samplingStyleVerifyTolerance: opts?.samplingStyleVerifyTolerance ?? null,
+    undeclaredSentinelDecision: opts?.undeclaredSentinelDecision ?? null,
   });
 }
 
 export interface TopEntry {
   top_name: string;
+  /** MD depth consumed by existing log/correlation/zone surfaces. */
   depth: number;
+  /** Delivered source value and its recorded reference; null marks a pre-custody legacy row. */
+  source_depth: number;
+  source_depth_datum: DepthDatum | null;
   color: string | null;
 }
 
@@ -218,8 +317,11 @@ export function listTops(wellId: string): Promise<TopEntry[]> {
 }
 
 /** Crossing warnings: top pairs in this well whose order contradicts most other wells. */
-export function checkTopOrder(wellId: string): Promise<string[]> {
-  return invoke<string[]>("check_top_order", { wellId });
+export function checkTopOrder(
+  wellId: string,
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<string[]> {
+  return invoke<string[]>("check_top_order", { wellId, scope });
 }
 
 export interface AutoCorrRequest {
@@ -248,8 +350,8 @@ export interface AutoCorrResult {
   error: string | null;
 }
 
-export function autocorrelateTop(req: AutoCorrRequest): Promise<AutoCorrResult> {
-  return invoke<AutoCorrResult>("autocorrelate_top", { req });
+export function autocorrelateTop(req: AutoCorrRequest, scope: BackendWellScope): Promise<AutoCorrResult> {
+  return invoke<AutoCorrResult>("autocorrelate_top", { req, scope });
 }
 
 export interface MultiAutoCorrRequest {
@@ -285,8 +387,8 @@ export interface MultiAutoCorrResult {
 }
 
 /** Propagate several markers together with one consistent (monotone) depth warp. */
-export function autocorrelateMulti(req: MultiAutoCorrRequest): Promise<MultiAutoCorrResult> {
-  return invoke<MultiAutoCorrResult>("autocorrelate_multi", { req });
+export function autocorrelateMulti(req: MultiAutoCorrRequest, scope: BackendWellScope): Promise<MultiAutoCorrResult> {
+  return invoke<MultiAutoCorrResult>("autocorrelate_multi", { req, scope });
 }
 
 export type ScaleType = "linear" | "log";
@@ -459,6 +561,7 @@ export interface CompositeResult {
   page_height_mm: number;
   scale: number;
   well_name: string;
+  ancestry: CurveAncestryDisclosure[];
 }
 
 /** Renders a composite log plot at a true print scale, returning one vector SVG per page. */
@@ -491,15 +594,20 @@ export interface MethodRow {
 export interface ReportSpec {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
+  /** Explicit operator and source/reference for the PDF pay-summary run. */
+  custody?: RunCustody;
   composite: CompositeSpec;
   title: string;
   author: string;
   /** Empty = the built-in default methodology template. */
   methodology: MethodRow[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
-  perm_min?: number | null;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min?: CutoffSpec | null;
   tables_only?: boolean;
 }
 
@@ -514,8 +622,8 @@ export function exportReportPdf(spec: ReportSpec, destPath: string): Promise<str
 }
 
 /** Batch export: one report PDF per well into destDir; returns the written paths. */
-export function exportReportBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
-  return invoke<string[]>("export_report_batch", { spec, wellIds, destDir });
+export function exportReportBatch(spec: ReportSpec, scope: BackendWellScope, destDir: string): Promise<string[]> {
+  return invoke<string[]>("export_report_batch", { spec, scope, destDir });
 }
 
 // --- Office deliverables (office.rs, Python subprocess) ---------------------
@@ -541,10 +649,13 @@ export interface DeckSpec {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
-  perm_min?: number | null;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min?: CutoffSpec | null;
   title?: string;
   author?: string;
   /** Which cutoff level the deck summarises (default PAY). */
@@ -561,18 +672,21 @@ export interface DeckResult {
 
 /** Asset-team deck built from the pay-summary DATA (matplotlib figures), not from composite
  *  pages — a log plot at 1:200 stops being at 1:200 once it is a picture on a slide. */
-export function exportDeck(spec: DeckSpec, destPath: string): Promise<DeckResult> {
-  return invoke<DeckResult>("export_deck", { spec, destPath });
+export function exportDeck(spec: DeckSpec, scope: BackendWellScope, destPath: string): Promise<DeckResult> {
+  return invoke<DeckResult>("export_deck", { spec, scope, destPath });
 }
 
 export interface WorkbookSpec {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
-  perm_min?: number | null;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min?: CutoffSpec | null;
   title?: string;
   include_pay?: boolean;
   include_field?: boolean;
@@ -600,25 +714,91 @@ export function exportReportDocx(spec: ReportSpec, destPath: string): Promise<st
   return invoke<string>("export_report_docx", { spec, destPath });
 }
 
-export function exportReportDocxBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
-  return invoke<string[]>("export_report_docx_batch", { spec, wellIds, destDir });
+export function exportReportDocxBatch(spec: ReportSpec, scope: BackendWellScope, destDir: string): Promise<string[]> {
+  return invoke<string[]>("export_report_docx_batch", { spec, scope, destDir });
 }
 
 /** Writes the study as a formatted multi-sheet .xlsx. Never persists FLAG curves — an export
  *  must not churn the project (see office.rs). */
-export function exportWorkbook(spec: WorkbookSpec, destPath: string): Promise<WorkbookResult> {
-  return invoke<WorkbookResult>("export_workbook", { spec, destPath });
+export function exportWorkbook(spec: WorkbookSpec, scope: BackendWellScope, destPath: string): Promise<WorkbookResult> {
+  return invoke<WorkbookResult>("export_workbook", { spec, scope, destPath });
 }
 
-/** Writes a base64-encoded PNG (rasterized in the frontend) to a user-picked path. */
-export function savePng(destPath: string, dataBase64: string): Promise<string> {
-  return invoke<string>("save_png", { destPath, dataBase64 });
+/** Exact project scope whose current computed curves contribute numbers to an exported plot.
+ *  `curves: []` explicitly means the plot carries no project curve; `allProject` is reserved for
+ *  free-form charts whose query cannot be narrowed without inventing a binding. */
+export interface PaperExportBounds {
+  min_x: number;
+  min_y: number;
+  max_x: number;
+  max_y: number;
+}
+
+/** Machine-checkable paper/raster custody embedded with a plot artifact. Vector page geometry is
+ *  recorded in physical points; raster backing geometry stays honestly labelled pixels. Neither
+ *  route invents an A4/Letter default. */
+export interface PaperExportRecord {
+  schema_version: 1;
+  medium: "svg-vector" | "pdf-vector" | "print-raster";
+  unit: "pt" | "px";
+  source_width: number;
+  source_height: number;
+  margin_pt: number;
+  content_bounds: PaperExportBounds;
+  page_bounds: PaperExportBounds;
+  provenance_footer: string;
+  crop_proof: "all_recorded_bounds_inside_page" | "raster_pixels_preserved_before_browser_print_layout";
+}
+
+export interface PlotAncestryScope {
+  wellIds: string[];
+  curves?: string[];
+  allProject?: boolean;
+  /** Exact binding record captured by the reads that produced the visible marks. */
+  plotBindings?: PlotChannelBinding[];
+  /** Exact displayed limits and the precedence tier that supplied each quantitative axis. */
+  axisRanges?: PlotAxisRangeExport[];
+  /** Complete statistics custody for every numeric summary visible on the plot. */
+  statisticsRecords?: PlotStatisticsRecord[];
+  /** Complete identity and source custody for an optional chart payload. */
+  chartRenderRecord?: ChartRenderRecord;
+  /** Paper geometry, crop proof, output medium and visible footer for a plot deliverable. */
+  paperExportRecord?: PaperExportRecord;
+}
+
+function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
+  return {
+    ancestryWellIds: scope ? scope.wellIds : null,
+    ancestryCurveNames: scope?.curves ?? null,
+    ancestryAllProject: scope?.allProject ?? false,
+    plotBindings: scope?.plotBindings ?? null,
+    axisRanges: scope?.axisRanges ?? null,
+    statisticsRecords: scope?.statisticsRecords ?? null,
+    chartRenderRecord: scope?.chartRenderRecord ?? null,
+    paperExportRecord: scope?.paperExportRecord ?? null,
+  };
+}
+
+/** Writes a base64-encoded PNG or SVG. When scoped, the backend resolves and embeds ancestry. */
+export function savePng(destPath: string, dataBase64: string, scope?: PlotAncestryScope): Promise<string> {
+  return invoke<string>("save_png", { destPath, dataBase64, ...ancestryArgs(scope) });
 }
 
 /** Assembles a single-chart PDF from a frontend-built content stream (points, bottom-left origin;
  *  see pdfExport.ts) and writes it to `destPath`. Returns the written path. */
-export function savePlotPdf(destPath: string, content: string, widthPt: number, heightPt: number): Promise<string> {
-  return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt });
+export function savePlotPdf(
+  destPath: string,
+  content: string,
+  widthPt: number,
+  heightPt: number,
+  scope?: PlotAncestryScope,
+): Promise<string> {
+  return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt, ...ancestryArgs(scope) });
+}
+
+/** Resolves the same backend-owned metadata for clipboard and print artifacts. */
+export function getCurveAncestryDisclosures(scope: PlotAncestryScope): Promise<CurveAncestryDisclosure[]> {
+  return invoke<CurveAncestryDisclosure[]>("get_curve_ancestry_disclosures", ancestryArgs(scope));
 }
 
 /** Writes a backend-validated plot reduction manifest to a user-picked path. */
@@ -645,6 +825,7 @@ export interface NetFlagSpec {
   output_curve: string;
   depth_top: number | null;
   depth_bottom: number | null;
+  custody: RunCustody;
 }
 
 export interface NetFlagResult {
@@ -667,6 +848,14 @@ export interface DocumentEntry {
 /** Named JSON documents (saved layouts, plot property sets, ...). */
 export function saveDocument(docType: string, name: string, json: string): Promise<void> {
   return invoke<void>("save_document", { docType, name, json });
+}
+
+export function savePlotState(docType: string, name: string, state: PersistedPlotState): Promise<void> {
+  return invoke<void>("save_plot_state", { docType, name, state });
+}
+
+export function saveSessionDocument(name: string, json: string): Promise<void> {
+  return invoke<void>("save_session_document", { name, json });
 }
 
 export function listDocuments(docType: string): Promise<DocumentEntry[]> {
@@ -798,13 +987,117 @@ export async function getTrackData(
 /** `text` is a free-typed run option — same `opts` channel as `option`, but the valid values are
  *  not a list the manifest can hold (the Condition family's user-named output curve). */
 export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
+export type FlagKind = "EXCLUSION_MASK" | "DIAGNOSTIC_INDICATOR";
+
+export type PorosityModuleRole =
+  | "DETERMINISTIC_METHOD"
+  | "COMPARISON_PRODUCER"
+  // DEC-038 (2026-08-17): ssc/sspw are separately typed workflows.
+  | "TYPED_WORKFLOW"
+  | "LIMIT_PRODUCER";
+export type PorosityOutputRole =
+  | "UNLIMITED_EFFECTIVE"
+  | "UNLIMITED_TOTAL"
+  | "LIMITED_EFFECTIVE"
+  | "LIMITED_TOTAL"
+  | "COMPARISON_UNLIMITED_EFFECTIVE"
+  | "COMPARISON_UNLIMITED_TOTAL"
+  | "COMPARISON_LIMITED_EFFECTIVE"
+  | "COMPARISON_LIMITED_TOTAL"
+  | "EFFECTIVE"
+  | "TOTAL"
+  | "FREE_FLUID"
+  | "CAPPED"
+  | "CEILING";
+export type PorosityFlagEmission = "PENDING_SB_POR_003";
+
+export interface PorosityOutputContract {
+  family: string;
+  module_role: PorosityModuleRole;
+  method: string;
+  convention: string;
+  output_role: PorosityOutputRole;
+  limiting_contract: string;
+  limiting_policy: string;
+  limiting_policy_source: string;
+  flag_contract: string;
+  flag_emission: PorosityFlagEmission;
+  output_naming_contract: string;
+}
+
+export interface ValidityBranch {
+  argument: string;
+  equals: string;
+}
+
+/** Backend-owned multi-well scope identity. Group and All carry no frontend snapshot: Rust resolves
+ * their current membership at operation start. Explicit is the intentional Active/Pinned/
+ * Selection/Custom alternative and Rust verifies that every identity still exists. */
+export type BackendWellScope =
+  | { kind: "active_group" }
+  | { kind: "group"; group_id: string }
+  | { kind: "all" }
+  | { kind: "explicit"; well_ids: string[] };
+
+/** Resolves a scope in Rust. Multi-well reads use this to avoid drawing a stale group snapshot;
+ * mutating/export commands take the same selector and resolve it inside their own command. */
+export function resolveWellScope(scope: BackendWellScope): Promise<string[]> {
+  return invoke<string[]>("resolve_well_scope", { scope });
+}
+
+export type ValidityCondition = {
+  /** Stable id repeated in runner refusals and persisted manifests. */
+  id: string;
+  /** Human explanation shown beside the affected field. */
+  statement: string;
+  /** Named source for the condition; never an implied or guessed endpoint. */
+  source: string;
+} & (
+  | { kind: "enumeration" }
+  | { kind: "numeric_range"; min: number | null; max: number | null; unit: string; when?: ValidityBranch | null }
+  | { kind: "required_companion"; any_of: string[]; when?: ValidityBranch | null }
+  | { kind: "required_value"; when?: ValidityBranch | null }
+  | { kind: "required_where_finite"; input: string }
+  | { kind: "less_than"; other: string }
+);
 
 export interface ArgSpec {
   name: string;
   desc: string;
   unit: string;
   kind: ArgKind;
+  /** Semantic role of a binary flag output; absent for ordinary numeric/class channels. */
+  flag_kind?: FlagKind | null;
+  /** Explicit physical quantities accepted by this input. VSH and VCL both use v/v, so neither
+   *  the unit nor the selected mnemonic is allowed to supply this identity. */
+  accepted_shale_clay_quantities?: Array<"VSH" | "VCL">;
+  /** Producer-owned physical identity recorded for this output after output renaming. */
+  output_shale_clay_quantity?: "VSH" | "VCL" | null;
+  /** SB-POR-001 common family envelope plus the producing method's own limit/convention policy. */
+  porosity_output?: PorosityOutputContract | null;
   default: string;
+  /** Ordered automatic LogIn aliases; absent means the single manifest default is used. */
+  preferred_aliases?: string[];
+  /** Source-bearing advice shown beside the field. It never populates the argument value. */
+  guidance?: Array<{ text: string; source: string }>;
+  /** Named source for a numeric default, or exact `ABSENT` when no numeric default ships. */
+  default_source: string;
+  /** Source-unit value and the named generated-registry conversion that produced a numeric
+   * default. Absent parameters have no custody object; explicit values receive run custody. */
+  default_unit_custody?: {
+    artefact_value: number;
+    artefact_unit: string;
+    canonical_value: number;
+    canonical_unit: string;
+    conversion: {
+      identity: string;
+      from_unit: string;
+      to_unit: string;
+      factor: number;
+      offset: number;
+      derivation: string;
+    };
+  } | null;
   /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything
    *  else as the value.** */
   choices: string[];
@@ -819,9 +1112,13 @@ export interface ArgSpec {
    *  dialog must not be able to show three different answers for the same number. Empty for almost
    *  every arg; fetch with `paramSources`. */
   sources_topic?: string;
+  /** Source-bearing preconditions evaluated by the public module runner before computation. */
+  validity_conditions?: ValidityCondition[];
   min: number | null;
   max: number | null;
   required: boolean;
+  /** Other declared LogIn argument names that may satisfy this required input role. */
+  required_any_of?: string[];
 }
 
 /** One product's shipped or advised value for a parameter (`SB-CORE-013`). */
@@ -833,8 +1130,10 @@ export interface ParamSource {
   value: string;
   /** What the value is FOR, where the source distinguishes stages or modules. */
   note: string;
-  /** Where the claim was read. Empty for SandiBumi's own, which is this repository. */
+  /** Where the claim was read, including this repository for SandiBumi's own position. */
   source: string;
+  /** Evidence tier exactly as refined by the owning PRD chapter (for example T1a or T3). */
+  tier: string;
 }
 
 /** The competing shipped values recorded for a parameter topic, or empty where there are none.
@@ -858,6 +1157,45 @@ export async function listModules(): Promise<ModuleSpec[]> {
   return invoke<ModuleSpec[]>("list_modules");
 }
 
+export interface ParameterSchemaEntry {
+  semantic_id: string;
+  ordinal: number;
+}
+
+export interface ParameterModuleSchema {
+  module_schema_version: string;
+  parameters: ParameterSchemaEntry[];
+}
+
+export interface ParameterPackRow {
+  semantic_id: string;
+  module_schema_version: string;
+  ordinal: number;
+  display_label: string;
+  value: unknown;
+}
+
+export interface ParameterPack {
+  source_file: string;
+  text_provenance: {
+    declared_encoding: string | null;
+    decoded_encoding: string;
+    /** Reversible original-byte representation; never a JSON numeric array. */
+    original_bytes_hex: string;
+  };
+  rows: ParameterPackRow[];
+}
+
+/** Read the backend-owned semantic identifiers, ordinals, and exact manifest version. */
+export function getParameterModuleSchema(moduleName: string): Promise<ParameterModuleSchema> {
+  return invoke<ParameterModuleSchema>("get_parameter_module_schema", { moduleName });
+}
+
+/** Load and validate a pack against the selected shipping module's backend-owned schema. */
+export function loadParameterPack(moduleName: string, path: string): Promise<ParameterPack> {
+  return invoke<ParameterPack>("load_parameter_pack", { moduleName, path });
+}
+
 export interface RunModuleRequest {
   module: string;
   well_ids: string[];
@@ -869,6 +1207,151 @@ export interface RunModuleRequest {
   /** Log set the INPUTS are read from (latest version per well); curves that set wrote
    *  come from its archived values, others fall back. Omitted = current values. */
   input_set?: string;
+  custody: RunCustody;
+}
+
+export interface ModuleInputAvailability {
+  well_id: string;
+  /** Manifest LogIn argument names with at least one finite sample on the runner's resolved frame. */
+  available_arguments: string[];
+  /** A read failure is distinct from an ordinarily absent required input. */
+  error: string | null;
+}
+
+/** Read-only preflight for a module pane. Numeric arrays remain in Rust; only availability
+ * metadata crosses IPC so this cannot become a second JSON curve-data path. */
+export function moduleInputAvailability(
+  moduleName: string,
+  scope: BackendWellScope,
+  logInputs: Record<string, string>,
+  inputSet?: string,
+): Promise<ModuleInputAvailability[]> {
+  return invoke<ModuleInputAvailability[]>("module_input_availability", {
+    module: moduleName,
+    scope,
+    logInputs,
+    inputSet,
+  });
+}
+
+export type DespikeEstimator = "TRUE_MAD" | "MEAN_DEVIATION_FALLBACK" | "MEAN_SIGMA_POPULATION";
+
+export interface DespikeContaminationBranch {
+  estimator: DespikeEstimator;
+  ceiling_pct: number;
+  sample_count: number;
+}
+
+export interface DespikeContaminationPreview {
+  branches: DespikeContaminationBranch[];
+  evaluated_wells: number;
+  unavailable_well_ids: string[];
+  issues: Array<{ well_id: string; error: string }>;
+}
+
+/** Read-only SB-ENV-031 preflight. The selected curve arrays stay in Rust; only estimator names,
+ * mathematical ceilings and counts cross IPC. */
+export function despikeContaminationPreview(
+  scope: BackendWellScope,
+  logInputs: Record<string, string>,
+  params: Record<string, number>,
+  opts: Record<string, string>,
+  inputSet?: string,
+): Promise<DespikeContaminationPreview> {
+  return invoke<DespikeContaminationPreview>("despike_contamination_preview", {
+    scope,
+    logInputs,
+    params,
+    opts,
+    inputSet,
+  });
+}
+
+export type AncestryActorKind = "HUMAN" | "AUTOMATED";
+
+export interface RunCustody {
+  actor: {
+    kind: AncestryActorKind;
+    identity: string;
+  };
+  source_note: string;
+}
+
+export interface AncestryInput {
+  well_id: string;
+  argument: string;
+  curve: string;
+  log_set: string;
+  set_version: number | null;
+  set_id: string;
+  /** Exact stored curve identity (native imported UUID or computed set/name composite);
+   *  absent only on readable schema-v1 history. */
+  chosen_curve_id?: string;
+  /** Controlled resolution stage that selected the stored identity. */
+  rule?:
+    | "EXPLICIT_NAME"
+    | "WORKING_INPUT_SET"
+    | "ALIAS_OFF"
+    | "ALIAS_MANUAL"
+    | "ALIAS_AUTOMATIC"
+    | "FINAL_FLAG"
+    | "CURVE_TYPE_MRU";
+  /** Candidates considered by the same resolver and not selected. */
+  rejected_candidates?: Array<{
+    curve_id: string;
+    log_set: string;
+    set_version: number | null;
+  }>;
+}
+
+export interface AncestryParameter {
+  name: string;
+  value: unknown;
+  source: string | null;
+  /** Present only when no numeric value exists; a sourced value has no absent-state token. */
+  state?: "REQUIRED_UNSET";
+  /** Whether the effective value came from this run request or the module manifest. */
+  resolution?: "EXPLICIT" | "DEFAULTED";
+  /** Exact module-manifest identity for a DEFAULTED value; absent for explicit and legacy rows. */
+  manifest_version?: string;
+  decision?: {
+    topic: string;
+    parameter: string;
+    alternatives: Array<{
+      product: string;
+      value: string;
+      note: string;
+      source: string;
+      tier: string;
+    }>;
+    selected_matches: string[];
+  };
+}
+
+export type AncestryZoneScope =
+  | { kind: "WHOLE_WELL" }
+  | { kind: "DEFINED"; definitions: Array<{ name: string; top: number; base: number; source: string }> };
+
+export interface CurveAncestry {
+  schema_version: number;
+  module: string;
+  module_version: string;
+  inputs: AncestryInput[];
+  parameters: AncestryParameter[];
+  zone_scope: AncestryZoneScope;
+  actor: { kind: AncestryActorKind; identity: string };
+  timestamp_utc_ms: number;
+  outputs: Array<{ curve: string; derivation: string }>;
+}
+
+export interface CurveAncestryDisclosure {
+  well_id: string;
+  curve_name: string;
+  provenance_class: "RECORDED" | "LEGACY_UNRECORDED";
+  provenance_row_count: number;
+  set_name: string | null;
+  version: number | null;
+  ancestry: CurveAncestry | null;
 }
 
 export interface ModuleRunResult {
@@ -876,6 +1359,14 @@ export interface ModuleRunResult {
   rows_written: number;
   output_curves: string[];
   error: string | null;
+  outcome: "clean" | "degraded" | "failed" | "skipped";
+  degradations: RunDegradation[];
+}
+
+export interface RunDegradation {
+  kind: "CLAMPED" | "DEFAULTED" | "TRUNCATED" | "SUBSTITUTED_INPUT" | "ENDPOINT_INVALID";
+  detail: string;
+  occurrences: number;
 }
 
 /** One declared output and the curve name a run with the current settings would write it under. */
@@ -884,6 +1375,7 @@ export interface OutputName {
   desc: string;
   unit: string;
   name: string;
+  flag_kind?: FlagKind | null;
 }
 
 /**
@@ -901,8 +1393,11 @@ export async function moduleOutputNames(
   return invoke("module_output_names", { module, logInputs, opts });
 }
 
-export async function runWorkflowModule(req: RunModuleRequest): Promise<ModuleRunResult[]> {
-  return invoke<ModuleRunResult[]>("run_workflow_module", { req });
+export async function runWorkflowModule(
+  req: RunModuleRequest,
+  scope: BackendWellScope,
+): Promise<ModuleRunResult[]> {
+  return invoke<ModuleRunResult[]>("run_workflow_module", { req, scope });
 }
 
 // --- Workflow chains (Phase 9) --------------------------------------------
@@ -929,14 +1424,28 @@ export type ChainStatus =
 export async function runWorkflowChain(
   jobId: string,
   steps: ChainStep[],
-  wellIds: string[],
+  scope: BackendWellScope,
+  custody: RunCustody,
   outputSet?: string,
   inputSet?: string,
 ): Promise<void> {
-  return invoke<void>("run_workflow_chain", { jobId, steps, wellIds, outputSet: outputSet ?? null, inputSet: inputSet ?? null });
+  return invoke<void>("run_workflow_chain", {
+    jobId,
+    steps,
+    scope,
+    custody,
+    outputSet: outputSet ?? null,
+    inputSet: inputSet ?? null,
+  });
 }
 
 // --- P1-c log-set versioning (never overwrite) ------------------------------
+
+export interface LogSetRestoreRecord {
+  schema_version: number;
+  source_set_id: string;
+  source_version: number;
+}
 
 /** One run event into a named log set (the version history of computed outputs). */
 export interface LogSetEntry {
@@ -950,6 +1459,13 @@ export interface LogSetEntry {
   curve_names: string[];
   /** True while any current curve value still comes from this version. */
   is_current: boolean;
+  /** Complete SB-CORE-010 record; null only for a pre-contract legacy project. */
+  ancestry: CurveAncestry | null;
+  /** Present only when this run appended a prior immutable version back as a new version. */
+  restored_from: LogSetRestoreRecord | null;
+  /** Null only for a pre-contract run that cannot honestly be classified after the fact. */
+  outcome_state: "CLEAN" | "DEGRADED" | null;
+  degradations: Array<RunDegradation & { module: string }>;
 }
 
 /** A well's version history, newest first per set. */
@@ -963,19 +1479,23 @@ export function listLogSetNames(): Promise<string[]> {
   return invoke<string[]>("list_log_set_names");
 }
 
-/** Copies an archived version back into the current store; returns restored row count. */
-export function restoreLogSet(setId: string): Promise<number> {
-  return invoke<number>("restore_log_set", { setId });
+export interface RestoreLogSetResult {
+  rows_restored: number;
+  new_set_id: string;
+  new_version: number;
+  restored_from: LogSetRestoreRecord;
 }
 
-/** Deletes one version's history (current values are kept). */
-export function deleteLogSet(setId: string): Promise<void> {
-  return invoke<void>("delete_log_set", { setId });
+/** Restores an archived version as a new append-only version and returns its source link. */
+export function restoreLogSet(setId: string): Promise<RestoreLogSetResult> {
+  return invoke<RestoreLogSetResult>("restore_log_set", { setId });
 }
 
 /** Current computed curves of a well with provenance + basic statistics. */
 export interface ComputedCatalogEntry {
   curve_name: string;
+  provenance_class: "RECORDED" | "LEGACY_UNRECORDED";
+  provenance_row_count: number;
   set_name: string | null;
   version: number | null;
   module: string | null;
@@ -984,6 +1504,8 @@ export interface ComputedCatalogEntry {
   min: number | null;
   max: number | null;
   mean: number | null;
+  /** Complete SB-CORE-010 record exposed on demand in the catalog. */
+  ancestry: CurveAncestry | null;
 }
 
 export function listComputedCatalog(wellId: string): Promise<ComputedCatalogEntry[]> {
@@ -1014,6 +1536,8 @@ export interface JobView {
   kind: string;
   label: string;
   phase: "queued" | "running" | "completed" | "cancelled" | "failed";
+  /** Aggregate result is separate from lifecycle: completed work may still be degraded. */
+  outcome: "clean" | "degraded" | "failed" | null;
   total: number;
   done: number;
   current: string | null;
@@ -1072,15 +1596,20 @@ export interface McParam {
 }
 
 export interface McRequest {
+  /** SB-CUT-001 (DEC-071): "CENTRED" (default) or "TOPS" (the legacy forward rule). */
+  discretisation?: "CENTRED" | "TOPS";
   well_ids: string[];
   steps: ChainStep[];
   mc_params: McParam[];
   iterations: number;
   seed: number;
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
-  perm_min: number | null;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min: CutoffSpec | null;
   bins: number;
   /** Low / high output percentiles (fractions in (0,1); default 0.10 / 0.90). One control drives
    *  both the reported spread and the tornado's input sweep. The median is always reported. */
@@ -1110,6 +1639,8 @@ export interface McRequest {
   persist_realizations?: boolean;
   /** How many realizations to store per depth (default 256, clamped 8..1024). */
   realization_cap?: number;
+  /** Required only when `persist` writes computed curves. */
+  custody?: RunCustody | null;
 }
 
 /** Target rank correlation between two MC parameters (rho clamped to ±0.995 backend-side). */
@@ -1232,8 +1763,8 @@ export interface McResult {
 
 /** Runs a Monte Carlo study; resolves with the per-zone P10/P50/P90 + HPV histograms. Runs
  *  in memory on the backend (no computed_curves writes), so 1000+ realizations are fast. */
-export async function runMonteCarlo(req: McRequest): Promise<McResult> {
-  return invoke<McResult>("run_monte_carlo", { req });
+export async function runMonteCarlo(req: McRequest, scope: BackendWellScope): Promise<McResult> {
+  return invoke<McResult>("run_monte_carlo", { req, scope });
 }
 
 // --- Machine learning (Phase 10-4) ---
@@ -1324,6 +1855,7 @@ export interface MlRequest {
    *  resolved feature order by the backend. Send only the curves actually changed — an omitted
    *  curve means "as measured", which keeps every payload written before this existed identical. */
   feature_transforms?: CurveTransform[];
+  custody: RunCustody;
 }
 
 /** One input's transform. `transform` is `none` | `log10` | `ln` | `sqrt`.
@@ -1442,8 +1974,8 @@ export interface MlResult {
 /** Runs a scikit-learn model (subprocess): supervised tasks fit on the train wells'
  *  labelled samples and predict on the apply wells; unsupervised tasks fit on the pooled
  *  apply samples (field-wide, globally consistent cluster ids). */
-export function runMl(req: MlRequest): Promise<MlResult> {
-  return invoke<MlResult>("run_ml", { req });
+export function runMl(req: MlRequest, scope: BackendWellScope): Promise<MlResult> {
+  return invoke<MlResult>("run_ml", { req, scope });
 }
 
 /** A saved, re-runnable model. `feature_curves` is ORDERED — the order is part of the apply
@@ -1501,6 +2033,7 @@ export interface MlApplyRequest {
   /** Confine the prediction to this depth window. NOT inherited from the model: where a model
    *  LEARNED and where you choose to propagate it are separate decisions. */
   interval?: DepthWindow;
+  custody: RunCustody;
 }
 
 export function listMlModels(): Promise<MlModelInfo[]> {
@@ -1552,17 +2085,17 @@ export interface CurveSampling {
 
 /** Per well, how each named curve is sampled against that well's frame. */
 export function curveSampling(
-  wellIds: string[],
+  scope: BackendWellScope,
   curves: string[],
 ): Promise<[string, CurveSampling[]][]> {
-  return invoke<[string, CurveSampling[]][]>("curve_sampling", { wellIds, curves });
+  return invoke<[string, CurveSampling[]][]>("curve_sampling", { scope, curves });
 }
 
 /** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
  *  data is a different model. The model's own curve list drives the inputs, so the caller cannot
  *  reorder them. */
-export function applyMlModel(req: MlApplyRequest): Promise<MlResult> {
-  return invoke<MlResult>("apply_ml_model", { req });
+export function applyMlModel(req: MlApplyRequest, scope: BackendWellScope): Promise<MlResult> {
+  return invoke<MlResult>("apply_ml_model", { req, scope });
 }
 
 export function renameMlModel(modelId: string, newName: string): Promise<string> {
@@ -1716,8 +2249,8 @@ export interface CurveValue {
 
 /** Ranks algorithm × feature-subset combos by blind-well (GroupKFold) CV, with permutation
  *  importance + confusion matrix. Evaluation only — writes no curves. */
-export function runMlEval(req: MlEvalRequest): Promise<MlEvalResult> {
-  return invoke<MlEvalResult>("run_ml_eval", { req });
+export function runMlEval(req: MlEvalRequest, scope: BackendWellScope): Promise<MlEvalResult> {
+  return invoke<MlEvalResult>("run_ml_eval", { req, scope });
 }
 
 /** Cuddy FOIL / BVW saturation-height fit (Wave B item 8, SHF side). */
@@ -1776,8 +2309,8 @@ export interface CuddyFoilResult {
 
 /** Fits BVW = a·H^b (Cuddy FOIL) from computed PHIE/SW/TVDSS across wells; optionally scans the
  *  common FWL (Cuddy Eq 19). Evaluation only — writes no curves. */
-export function runCuddyFoil(req: CuddyFoilRequest): Promise<CuddyFoilResult> {
-  return invoke<CuddyFoilResult>("run_cuddy_foil", { req });
+export function runCuddyFoil(req: CuddyFoilRequest, scope: BackendWellScope): Promise<CuddyFoilResult> {
+  return invoke<CuddyFoilResult>("run_cuddy_foil", { req, scope });
 }
 
 /** Height-domain SHF fit (Brooks-Corey / Skelt-Harrison) to the log-derived Sw-vs-height cloud. */
@@ -1838,8 +2371,8 @@ export interface ShfFitResult {
   error: string | null;
 }
 
-export function runShfFit(req: ShfFitRequest): Promise<ShfFitResult> {
-  return invoke<ShfFitResult>("run_shf_fit", { req });
+export function runShfFit(req: ShfFitRequest, scope: BackendWellScope): Promise<ShfFitResult> {
+  return invoke<ShfFitResult>("run_shf_fit", { req, scope });
 }
 
 /** Electrofacies tie-in QC: confusion matrix of a predicted log RT curve vs a reference/core RT. */
@@ -1912,8 +2445,8 @@ export interface FaciesConfusionResult {
   error: string | null;
 }
 
-export function runFaciesConfusion(req: FaciesConfusionRequest): Promise<FaciesConfusionResult> {
-  return invoke<FaciesConfusionResult>("run_facies_confusion", { req });
+export function runFaciesConfusion(req: FaciesConfusionRequest, scope: BackendWellScope): Promise<FaciesConfusionResult> {
+  return invoke<FaciesConfusionResult>("run_facies_confusion", { req, scope });
 }
 
 // --- Generalized Multimin (multi-mineral inversion) -----------------------
@@ -1928,10 +2461,16 @@ export interface MmComponent {
   /** Fluids: "water" | "bound_water" | "oil" | "gas". */
   fluid_type: string;
   endpoints: Record<string, number>;
+  /** Per-value provenance (SB-MIN-009 / DEC-078): tool-key → source string, plus `CEC`/`WCP`
+   *  entries for the row scalars and `VP`/`VS` derivation records. Filled by the library; the
+   *  dialog replaces an edited value's entry with a user-supplied marker on submit so the run
+   *  record carries the endpoint custody as run. Optional for older saved payloads. */
+  endpoint_sources?: Record<string, string>;
   /** Cation exchange capacity, meq/g (clays → bound-water constraint). */
   cec: number;
   /** Wet-clay porosity φ_clay (clays only, minerals 0). Drives the bound-water tie when the
-   *  porosity source is `wet_clay_porosity`: k = φ/(1−φ). Techlog WCLP defaults on the library. */
+   *  porosity source is `wet_clay_porosity`: k = φ/(1−φ). Library defaults are Jauhar's own
+   *  (DEC-078; custody history in docs/IP_PROVENANCE.md §2.2). */
   wet_clay_porosity: number;
   /** Upper volume bound (1.0 minerals, 0.5 fluids by default). */
   max_vol: number;
@@ -1960,6 +2499,10 @@ export interface MmFluidProps {
   rsh?: number;
   /** Archie tortuosity factor a (Indonesia/Simandoux). Dual-water uses a=1. Backend default 1.0. */
   archie_a?: number;
+  /** Indonesia shale exponent coefficient k: SIMPLE=0, FULL=1 (default), TAR_SAND=2. */
+  indonesia_k?: number;
+  /** simandoux_modified_slb shale exponent C. Cited default 1 and valid range 1..2. */
+  simandoux_c?: number;
   /** Wet-clay (shale) total porosity φ_sh for Juhász's normalized Qv (Vsh·φ_sh/φt) and shale-point
    *  conductivity (1/(Rsh·φ_sh^m)). Only Juhász reads it. Backend default 0.10. */
   phit_sh?: number;
@@ -1970,15 +2513,24 @@ export interface MmFluidProps {
 
 /** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
  *  dual-water; the rest are post-solve forms (Sw from Rt + the solved volumes): `dual_water_nonlinear`
- *  and `archie` (total-porosity), `indonesia`/`simandoux`/`juhasz`/`waxman_smits` (shaly-sand). */
+ *  and `archie_total` (total-porosity), `indonesia`, the two typed Simandoux equations,
+ *  `juhasz`, and `waxman_smits` (shaly-sand). */
 export type SwModel =
   | "linear_dw"
   | "dual_water_nonlinear"
-  | "archie"
+  | "archie_total"
   | "indonesia"
-  | "simandoux"
+  | "simandoux_bardon_pied"
+  | "simandoux_modified_slb"
   | "juhasz"
   | "waxman_smits";
+
+export interface SwModelChoice {
+  id: SwModel;
+  label: string;
+  /** Stable categorical value written to SW_METHOD; resolve it through this catalog, never as a quantity. */
+  flag_code: number;
+}
 
 /** What drives the clay bound-water (BNDWAT) constraint. `cec` (default) uses
  *  α·96·CEC·ρ/(T+298); `wet_clay_porosity` uses the geometric k = φ/(1−φ) from each clay's
@@ -2032,6 +2584,7 @@ export interface MultiminRequest {
   enforce_water_mud?: boolean;
   /** Soft-constraint tolerance σ (row weight = 1/σ). Default 0.01; non-positive falls back to it. */
   sigma_constraint?: number;
+  custody: RunCustody;
 }
 
 /** Agreement between a solved output and a routine-core-analysis measurement, over the plugs that
@@ -2074,9 +2627,14 @@ export function multiminLibrary(): Promise<MmComponent[]> {
   return invoke<MmComponent[]>("multimin_library");
 }
 
+/** Canonical saturation equation ids and their backend-owned display labels. */
+export function multiminSwModels(): Promise<SwModelChoice[]> {
+  return invoke<SwModelChoice[]>("multimin_sw_models");
+}
+
 /** Runs the generalized multi-mineral inversion; writes VOL_<component> + derived curves. */
-export function runMultimin(req: MultiminRequest): Promise<MultiminResult> {
-  return invoke<MultiminResult>("run_multimin", { req });
+export function runMultimin(req: MultiminRequest, scope: BackendWellScope): Promise<MultiminResult> {
+  return invoke<MultiminResult>("run_multimin", { req, scope });
 }
 
 /** Derived fluid quantities (Cw, Cmf, Cbw, α, w, auto CT/CXO σ) for the dialog preview. */
@@ -2124,18 +2682,27 @@ export function multiminFluidFromPrecalc(
   return invoke<MmPrecalcFluid>("multimin_fluid_from_precalc", { wellId, top, bottom });
 }
 
+export type DepthDatum = "MD" | "TVD" | "TVDSS" | "TVDKB" | "TWT" | "OWT" | "CDEPTH";
+
 export interface ZoneEntry {
   zone_name: string;
   top_depth: number;
   bottom_depth: number;
+  depth_datum: DepthDatum;
 }
 
 export async function listZones(wellId: string): Promise<ZoneEntry[]> {
   return invoke<ZoneEntry[]>("list_zones", { wellId });
 }
 
-export async function upsertZone(wellId: string, zoneName: string, topDepth: number, bottomDepth: number): Promise<void> {
-  return invoke("upsert_zone", { wellId, zoneName, topDepth, bottomDepth });
+export async function upsertZone(
+  wellId: string,
+  zoneName: string,
+  topDepth: number,
+  bottomDepth: number,
+  depthDatum: DepthDatum,
+): Promise<void> {
+  return invoke("upsert_zone", { wellId, zoneName, topDepth, bottomDepth, depthDatum });
 }
 
 export async function deleteZone(wellId: string, zoneName: string): Promise<void> {
@@ -2181,6 +2748,9 @@ export interface FluidContact {
   well_id: string | null;
   contact_type: string;
   depth: number;
+  /** Explicit stored datum. Older in-memory callers may omit it; writes derive only from the
+   *  caller's existing MD/TVDSS switch, never from the numeric value or its unit. */
+  depth_datum?: DepthDatum;
   /** true → depth is TVDSS (draws flat across wells); false → measured depth. */
   is_tvdss: boolean;
   color: string | null;
@@ -2207,6 +2777,7 @@ export function upsertFluidContact(c: FluidContact): Promise<void> {
     contactType: c.contact_type,
     depth: c.depth,
     isTvdss: c.is_tvdss,
+    depthDatum: c.depth_datum ?? (c.is_tvdss ? "TVDSS" : "MD"),
     color: c.color,
     label: c.label,
     compartment: c.compartment ?? null,
@@ -2296,12 +2867,14 @@ export function checkContactConsistency(
   compartment?: string | null,
   zones?: string[],
   flagAbs?: number,
+  scope: BackendWellScope = { kind: "active_group" },
 ): Promise<ContactConsistency> {
   return invoke<ContactConsistency>("check_contact_consistency", {
     contactType,
     compartment: compartment ?? null,
     zones: zones ?? [],
     flagAbs,
+    scope,
   });
 }
 
@@ -2320,8 +2893,11 @@ export interface FwlCheck {
 }
 
 /** Compares each marker-tagged FWL contact against the parameter `sw_height` computes from. */
-export function checkFwlAgreement(tolerance?: number): Promise<FwlCheck[]> {
-  return invoke<FwlCheck[]>("check_fwl_agreement", { tolerance });
+export function checkFwlAgreement(
+  tolerance?: number,
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<FwlCheck[]> {
+  return invoke<FwlCheck[]>("check_fwl_agreement", { tolerance, scope });
 }
 
 /** Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
@@ -2390,14 +2966,27 @@ export async function listZoneParams(wellId: string): Promise<ZoneParamEntry[]> 
   return invoke<ZoneParamEntry[]>("list_zone_params", { wellId });
 }
 
+/** SB-DBM-011: an audited surface - the backend writes the value and its structured audit
+ *  entry as one gesture record, so the operator is part of the call, never inferred. */
 export async function setZoneParam(
   wellId: string,
   zoneName: string,
   paramName: string,
   valueNum: number | null,
   valueText: string | null,
+  operator: { identity: string; kind: AncestryActorKind },
+  view?: string,
 ): Promise<void> {
-  return invoke("set_zone_param", { wellId, zoneName, paramName, valueNum, valueText });
+  return invoke("set_zone_param", {
+    wellId,
+    zoneName,
+    paramName,
+    valueNum,
+    valueText,
+    operator: operator.identity,
+    operatorKind: operator.kind,
+    view: view ?? null,
+  });
 }
 
 /** A whole-well override of a module parameter: a `zone_params` row whose zone is `*`.
@@ -2419,8 +3008,9 @@ export async function listWellParamOverrides(): Promise<WellParamOverride[]> {
  *  fill-column sweep and its reversal are the same single transaction shape. */
 export async function setWellParamOverrides(
   entries: [string, string, number | null][],
+  scope: BackendWellScope,
 ): Promise<number> {
-  return invoke<number>("set_well_param_overrides", { entries });
+  return invoke<number>("set_well_param_overrides", { entries, scope });
 }
 
 /** Applies a batch of parameter overrides at ONE zone scope in ONE transaction — `"*"` for the
@@ -2436,14 +3026,130 @@ export async function setZoneParamBatch(
   return invoke<number>("set_zone_param_batch", { zoneName, entries });
 }
 
+/** SB-DIO-057. Records the interpreter's word for exact zeros on a log-scale curve:
+ * keep=true commits them as readings on the next import, keep=false converts them to
+ * missing. The import refusal names this as the confirmation it is waiting for. */
+export async function confirmLogScaleZeros(
+  wellId: string,
+  mnemonic: string,
+  keep: boolean,
+): Promise<void> {
+  return invoke<void>("confirm_log_scale_zeros", { wellId, mnemonic, keep });
+}
+
+/** SB-ENV-005. One applied step of a log-set version's manifest — every field copied
+ * from what the run resolved; a field the runner could not describe is null, never
+ * invented. */
+export interface AppliedStep {
+  seq: number;
+  kind: "module" | "correction" | "mask" | "edit";
+  module: string | null;
+  params_digest: string | null;
+  inputs: string[];
+  outcome: { full: number; partial: number; none: number; refused: number } | null;
+  mask: string | null;
+  recovery: string | null;
+}
+
+/** SB-ENV-005. The applied-step manifest for a log-set version. `state: "unknown"` is a
+ * pre-contract version whose step history cannot be recovered — deliberately not an
+ * empty step list, because an empty list claims "nothing was applied". */
+export type AppliedStepsRecord =
+  | { state: "manifest"; manifest: { v: number; steps: AppliedStep[] } }
+  | { state: "unknown" };
+
+/** SB-ENV-005. Retrieves the manifest without re-running anything; an unknown manifest
+ * schema version rejects with a named refusal while the curves still read. */
+export async function getLogSetManifest(setId: string): Promise<AppliedStepsRecord> {
+  return invoke<AppliedStepsRecord>("get_log_set_manifest", { setId });
+}
+
+/** SB-DIO-007. Delimited export of one curve set — the source-cell-state round trip:
+ * an empty source cell exports empty, an explicitly nulled cell exports the null
+ * token, and a pre-contract curve exports absents as the token with a note saying the
+ * distinction is unavailable. The default token is T11's own literal. */
+export async function exportDelimitedSet(
+  wellId: string,
+  setName: string,
+  destPath: string,
+  nullToken = "-999.25",
+): Promise<{ path: string; rows: number; curves: string[]; notes: string[] }> {
+  return invoke("export_delimited_set", { wellId, setName, destPath, nullToken });
+}
+
+/** SB-CUT-019. A cut-off AS ENTERED: the number and the unit it was typed in.
+ *
+ *  The unit is not decoration. IP's own manual expresses one quantity in porosity units in one
+ *  place and `v/v` in another, with no unit tag on the field, so `35` where `0.1` is meant is a
+ *  350x error whose symptom is a plausible all-net well. A bare number is REFUSED by the backend
+ *  rather than guessed at. Volume fractions accept `v/v`, `pu` or `%`; permeability `mD` or `D`. */
+export interface CutoffEntry {
+  value: number;
+  unit: string;
+}
+
+/** SB-CUT-020. Which side of a bound a sample sitting exactly ON it falls.
+ *
+ *  Spelled as a word rather than `>=` / `>`, because this is the one setting whose misreading is
+ *  invisible: it changes the verdict only for samples exactly on the cut-off, which is precisely
+ *  the population a marginal-pay result turns on. */
+export type BoundOperator = "INCLUSIVE" | "EXCLUSIVE";
+
+/** SB-CUT-020. One side of a cut-off range, as entered. `operator` defaults to `INCLUSIVE`. */
+export interface CutoffSpecBound extends CutoffEntry {
+  operator?: BoundOperator;
+}
+
+/** SB-CUT-020. A cut-off, which may be single-sided or a two-sided range.
+ *
+ *  The single-sided form is the DEGENERATE case with an open far bound, not a separate mechanism,
+ *  so sending a bare `{value, unit}` keeps meaning exactly what it always meant: `>=` in a `_min`
+ *  slot, `<=` in a `_max` slot, inclusive on the boundary. Send `{min, max}` for a real window —
+ *  a porosity window that excludes both tight rock and bad-hole spikes, say. A range that can
+ *  admit no value is refused by the backend rather than quietly booking zero net. */
+export type CutoffSpec = CutoffEntry | { min?: CutoffSpecBound; max?: CutoffSpecBound };
+
+/** SB-CUT-022. Which report tiers a cut-off is USED at.
+ *
+ *  An explicit flag per tier, never an inference. Geolog changed this trigger between two modules
+ *  of one product - one fires on the presence of the CURVE, the other on the presence of the
+ *  VALUE - and an inferred rule cannot be audited from a result, because the result does not
+ *  record what was inferred.
+ *
+ *  Omitting a slot takes the shipped ladder: VSH at all three tiers, PHIE at reservoir and pay,
+ *  SWE and PERM at pay only. Reservoir and pay share ONE value with independent flags. */
+export interface CutoffUse {
+  sand: boolean;
+  reservoir: boolean;
+  pay: boolean;
+}
+
 export interface PaySummaryRequest {
+  /** SB-CUT-001 (DEC-071): "CENTRED" (default) or "TOPS" (the legacy forward rule). */
+  discretisation?: "CENTRED" | "TOPS";
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   well_ids: string[];
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
-  perm_min: number | null;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min: CutoffSpec | null;
+  /** SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — `"VSH"`,
+   *  `"PHIE"` or `"SWE"` — which is the ROLE that curve plays in the summation, never the
+   *  mnemonic it happens to be stored under. Omit a slot to take the cited default: saturation
+   *  is porosity-weighted `Σ(Sw·φ·h)/Σ(φ·h)`, which all three vendors agree on, and the rest is
+   *  thickness-weighted. Omit the whole object for exactly the behaviour that shipped before. */
+  weighting?: Record<string, "thickness" | "porosity">;
+  /** SB-CUT-012. Depth frame to summate in; defaults to MD. Anything else is REFUSED with a
+   *  message naming the frame and what is missing — never served as MD numbers relabelled. */
+  frame?: "MD" | "TVD" | "TVDSS" | "TST";
+  /** SB-CUT-016. Cut-offs the user switched ON and left blank. Any name here REFUSES the run —
+   *  "I am not filtering on Sw" and "I meant to and have not said what" are different statements,
+   *  and only one may produce a number. */
+  enabled_unset?: string[];
   /** Write FLAG_* in place without creating a versioned log set, instead of versioning the pay
    *  flags (with the cutoffs in provenance) per well. Set by the report/composite render pass,
    *  whose flags are a render side-effect that should not churn the archive with a version per
@@ -2453,6 +3159,11 @@ export interface PaySummaryRequest {
    *  Dashboard sets this: it only reads the returned rows, so writing flags per well on every
    *  cutoff tweak was the dominant cost. Flag persistence stays with Cutoffs & Summary. */
   stats_only?: boolean;
+  /** Required for the explicit flag-writing run; read-only summaries omit it. */
+  custody?: RunCustody | null;
+  /** SB-CUT-022. Which report tiers each cutoff is used at, keyed by SLOT (`VSH`, `PHIE`, `SWE`,
+   *  `PERM`). Omit a slot for the shipped ladder; omit the whole map and nothing changes. */
+  cutoff_use?: Record<string, CutoffUse>;
 }
 
 export interface PaySummaryRow {
@@ -2464,6 +3175,47 @@ export interface PaySummaryRow {
   bottom: number;
   gross: number;
   net: number;
+  /** SB-CUT-003. Footage the classifier EVALUATED and rejected — it saw the sample and the sample
+   *  failed a cutoff. Deliberately separate from `unknown`: a zone reading 40 % net-to-gross
+   *  because 60 % is shale and one reading 40 % because 55 % was never logged print the same
+   *  number and are completely different rock. */
+  not_net: number;
+  /** SB-CUT-003. Footage whose flag could not be EVALUATED, so that
+   *  `gross === net + not_net + unknown` holds exactly. Covers both an in-zone sample with no
+   *  VSH/PHIE/SWE to judge AND footage carrying no sample at all — a logging gap, or a zone
+   *  bottomed on a marker below the TD of the run that logged it. */
+  unknown: number;
+  /** SB-CUT-004. Net-to-gross over the footage that could actually be judged —
+   *  `net / (gross - unknown)`, the chapter's `N:(G-Unknown)`. Reported BESIDE `ntg`, never
+   *  instead of it: the gap between the two is the null fraction, and over a washed-out or
+   *  partly-logged interval that gap is the whole argument about whether a net-to-gross is
+   *  defensible.
+   *
+   *  `null` where nothing was judged — there is no denominator, and a printed 0.00 would be a
+   *  claim about rock nobody looked at. (Backend f32::NAN crosses as JSON null.) */
+  ntg_known: number | null;
+  /** SB-CUT-005. Footage moved into the largest component so that
+   *  `gross === net + not_net + unknown` closes — reported rather than printed, which is the
+   *  point: a reconciliation whose correction is not recorded is indistinguishable from no
+   *  reconciliation. Zero on any run whose partition already closed, which is every ordinary run.
+   *  A residual beyond 1e-7 relative fails the summation instead of arriving here. */
+  residual_absorbed: number;
+  /** SB-CUT-030. True when a zonal average falls outside its quantity's physical bounds.
+   *  The value is emitted AS COMPUTED, not corrected - a corrected average is a number nobody
+   *  derived. Render it as a warning beside the value, never by rewriting the value. */
+  out_of_range?: boolean;
+  /** SB-CUT-012. The depth frame these weights were measured in — `"MD"`, `"TVD"`, `"TVDSS"` or
+   *  `"TST"`. Part of the result's IDENTITY, not a display option: the per-sample weight is `Δz`
+   *  in MD and `Δz·cos θ` in TVD, so the weights differ, by a factor of two in a 60° hold. Today
+   *  the engine computes MD only and refuses any other frame rather than relabelling. */
+  frame: "MD" | "TVD" | "TVDSS" | "TST";
+  /** SB-CUT-012. What the per-sample weights were differenced from. Naming the frame alone does
+   *  not say which depths produced the increments. */
+  weights_source: string;
+  /** SB-CUT-016. Cut-offs NOT applied to this summation, in VSH/PHIE/SWE/PERM order. An
+   *  unfiltered summation is reported AS unfiltered — a net that quietly stopped being filtered,
+   *  with nothing on the result to say so, is the failure this prevents. */
+  unfiltered: string[];
   ntg: number;
   // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
   // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.
@@ -2485,23 +3237,34 @@ export interface PaySummaryRow {
    *  It means "a cutoff was requested and this well has nothing to answer it with", never "this
    *  well has no permeability" — with no cutoff asked for there is nothing to report. */
   perm_cutoff_no_data: boolean;
+  /** SB-POR-057 / DEC-070: this well's only porosity is the quick-look comparison curve,
+   *  deliberately not summed - render the zeros as "not interpreted", never as wet. */
+  quicklook_phie_excluded: boolean;
 }
 
-export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryRow[]> {
-  return invoke<PaySummaryRow[]>("run_pay_summary", { req });
+export async function runPaySummary(
+  req: PaySummaryRequest,
+  scope: BackendWellScope,
+): Promise<PaySummaryRow[]> {
+  return invoke<PaySummaryRow[]>("run_pay_summary", { req, scope });
 }
 
 /** Cutoff-sensitivity sweep (Method 1 of the cutoff study): sweep one cutoff over a range,
  *  holding the other two fixed, and report the pay metric per well at each step. */
 export interface CutoffSweepRequest {
+  /** SB-CUT-001 (DEC-071): "CENTRED" (default) or "TOPS" (the legacy forward rule). */
+  discretisation?: "CENTRED" | "TOPS";
   /** Sweep against this log set's stored curves; omit for the current values. */
   input_set?: string;
   well_ids: string[];
   property: "VSH" | "PHIE" | "SWE";
-  vsh_max: number;
-  phie_min: number;
-  swe_max: number;
-  perm_min: number | null;
+  /** SB-CUT-016. `null` = UNFILTERED on this property; the result reports it as such. There is no
+   *  default: four shipped vendor sets disagree, two of them from one vendor, and delivered work
+   *  spans a wide range even within one field. */
+  vsh_max: CutoffSpec | null;
+  phie_min: CutoffSpec | null;
+  swe_max: CutoffSpec | null;
+  perm_min: CutoffSpec | null;
   sweep_min: number;
   sweep_max: number;
   steps: number;
@@ -2526,8 +3289,26 @@ export interface CutoffSweepResult {
   metric: string;
 }
 
-export async function runCutoffSweep(req: CutoffSweepRequest): Promise<CutoffSweepResult> {
-  return invoke<CutoffSweepResult>("run_cutoff_sweep", { req });
+export async function runCutoffSweep(
+  req: CutoffSweepRequest,
+  scope: BackendWellScope,
+): Promise<CutoffSweepResult> {
+  return invoke<CutoffSweepResult>("run_cutoff_sweep", { req, scope });
+}
+
+export interface DepthComparison {
+  left: number;
+  right: number;
+  difference: number;
+  datum: DepthDatum;
+}
+
+export function compareZoneTopToContact(
+  wellId: string,
+  zoneName: string,
+  contactId: string,
+): Promise<DepthComparison> {
+  return invoke<DepthComparison>("compare_zone_top_to_contact", { wellId, zoneName, contactId });
 }
 
 /** Full-resolution curve data for parameter-selection plots, optionally windowed to a
@@ -2538,17 +3319,14 @@ export async function getCurveData(
   depthMin: number | null,
   depthMax: number | null,
 ): Promise<TrackCurveSeries[]> {
-  const bindings = await resolvePlotBindings(
+  await resolvePlotBindings(
     curveNames.map((semantic_request, index) => ({
       channel: `curve:${index}`,
       semantic_request,
       required: true,
     })),
-    [wellId],
+    { kind: "explicit", well_ids: [wellId] },
   );
-  for (const binding of bindings) {
-    plotBindingRegistry.set(`${wellId}\u0000${binding.intent.semantic_request.toUpperCase()}`, binding);
-  }
   const buf = await invoke<ArrayBuffer>("get_curve_data", { wellId, curveNames, depthMin, depthMax });
   return decodeCurveBuffer(buf);
 }
@@ -2570,6 +3348,12 @@ export interface ResolvedPlotCurve {
   sample_count: number;
   resolution_reason: string;
   source_revision: string;
+  header_display?: StoredDisplayRange;
+}
+
+export interface StoredDisplayRange {
+  low: number;
+  high: number;
 }
 
 export interface PlotChannelBinding {
@@ -2577,34 +3361,96 @@ export interface PlotChannelBinding {
   resolved: ResolvedPlotCurve[];
 }
 
+export interface PersistedPlotState {
+  schema_version: 1;
+  plot_type: string;
+  well_ids: string[];
+  options: Record<string, unknown>;
+  bindings: PlotChannelBinding[];
+  /** Absent only in a pre-SB-PLT-002 legacy document; every new write carries this. */
+  axis_ranges: PlotAxisRangeExport[];
+}
+
+export interface PlotBindingExport {
+  schema_version: 1;
+  well_ids: string[];
+  bindings: PlotChannelBinding[];
+  axis_ranges: PlotAxisRangeExport[];
+}
+
 const plotBindingRegistry = new Map<string, PlotChannelBinding>();
+
+function rememberPlotBindings(bindings: PlotChannelBinding[]): void {
+  for (const binding of bindings) {
+    for (const resolved of binding.resolved) {
+      plotBindingRegistry.set(
+        `${resolved.well_id}\u0000${binding.intent.semantic_request.toUpperCase()}`,
+        { intent: binding.intent, resolved: [resolved] },
+      );
+    }
+  }
+}
+
+/** Rebuilds a channel-labelled binding record only from the concrete answers captured
+ * by the reads that produced the current plot. Missing required answers stay empty so
+ * typed persistence/export validation refuses them rather than resolving again. */
+export function plotBindingSnapshotForChannels(
+  wellIds: string[],
+  intents: PlotChannelIntent[],
+): PlotChannelBinding[] {
+  return intents.map((intent) => {
+    const resolved: ResolvedPlotCurve[] = [];
+    for (const wellId of wellIds) {
+      const binding = plotBindingRegistry.get(
+        `${wellId}\u0000${intent.semantic_request.toUpperCase()}`,
+      );
+      if (binding) resolved.push(...binding.resolved);
+    }
+    return { intent, resolved };
+  });
+}
 
 /** Concrete bindings accumulated by the plot reads in this session, suitable for
  * persisted plot state and provenance records without another curve-resolution pass. */
 export function plotBindingSnapshot(wellIds: string[], curveNames: string[]): PlotChannelBinding[] {
-  const out: PlotChannelBinding[] = [];
-  for (const curveName of curveNames) {
-    const resolved: ResolvedPlotCurve[] = [];
-    for (const wellId of wellIds) {
-      const binding = plotBindingRegistry.get(`${wellId}\u0000${curveName.toUpperCase()}`);
-      if (binding) resolved.push(...binding.resolved);
-    }
-    if (resolved.length > 0) {
-      out.push({
-        intent: { channel: curveName, semantic_request: curveName, required: true },
-        resolved,
-      });
-    }
-  }
-  return out;
+  return plotBindingSnapshotForChannels(
+    wellIds,
+    curveNames.map((curveName) => ({
+      channel: curveName,
+      semantic_request: curveName,
+      required: true,
+    })),
+  );
 }
 
 /** Resolves and validates the semantic plot request before numeric curve bytes are read. */
-export function resolvePlotBindings(
+export async function resolvePlotBindings(
   intents: PlotChannelIntent[],
-  wellIds: string[],
+  scope: BackendWellScope,
 ): Promise<PlotChannelBinding[]> {
-  return invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, wellIds });
+  const bindings = await invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, scope });
+  rememberPlotBindings(bindings);
+  return bindings;
+}
+
+export function serializePlotBindingExport(
+  wellIds: string[],
+  bindings: PlotChannelBinding[],
+  axisRanges: PlotAxisRangeExport[],
+  statisticsRecords: PlotStatisticsRecord[] = [],
+): Promise<string> {
+  return invoke<string>("serialize_plot_binding_export", { wellIds, bindings, axisRanges, statisticsRecords });
+}
+
+export function getCurveHeaderDisplayRange(curveId: string): Promise<StoredDisplayRange | null> {
+  return invoke<StoredDisplayRange | null>("get_curve_header_display_range", { curveId });
+}
+
+export function setCurveHeaderDisplayRange(
+  curveId: string,
+  range: StoredDisplayRange | null,
+): Promise<StoredDisplayRange | null> {
+  return invoke<StoredDisplayRange | null>("set_curve_header_display_range", { curveId, range });
 }
 
 export interface PlotWriteAxisBinding {
@@ -2674,8 +3520,14 @@ export interface CoreImportResult {
 
 /** Parses a core CSV (alias-resolved headers: DEPTH, CPOR/POR, CPERM/PERM, CGD, CSW)
  *  and replaces the given well's core plug data. */
-export function importCoreCsv(wellId: string, path: string, depthColumn?: number | null): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_core_csv", { wellId, path, depthColumn: depthColumn ?? null });
+export function importCoreCsv(
+  wellId: string,
+  path: string,
+  depthColumn: number | null,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum: string,
+): Promise<CoreImportResult> {
+  return invoke<CoreImportResult>("import_core_csv", { wellId, path, depthColumn: depthColumn ?? null, depthDatum });
 }
 
 // --- Core import v2 (T-IMP-07): probe → confirm mapping → commit -------------
@@ -2768,6 +3620,8 @@ export function importCoreTable(
   fallbackWellId: string | null,
   extrasDataset: string | null = null,
   setName: string | null = null,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
 ): Promise<CoreTableImportResult> {
   return invoke<CoreTableImportResult>("import_core_table", {
     path,
@@ -2776,6 +3630,7 @@ export function importCoreTable(
     fallbackWellId,
     extrasDataset,
     setName,
+    depthDatum,
   });
 }
 
@@ -2855,8 +3710,10 @@ export function importAuxData(
    *  not be moved. The result's notes say what happened, including samples that fell outside the
    *  cored interval and wells with no core to follow. */
   followCore = false,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
 ): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore });
+  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore, depthDatum });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {
@@ -2922,8 +3779,14 @@ export interface ScalPcRow {
 
 /** Imports a SCAL Pc/Sw CSV for the well and returns the Leverett-J fit (Sw = A·J^B)
  *  at the given lab sigma·cosθ, for carrying into the sw_height module. */
-export function importScalCsv(wellId: string, path: string, iftLab: number): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_csv", { wellId, path, iftLab });
+export function importScalCsv(
+  wellId: string,
+  path: string,
+  iftLab: number,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
+): Promise<ScalImportResult> {
+  return invoke<ScalImportResult>("import_scal_csv", { wellId, path, iftLab, depthDatum });
 }
 
 /** SCAL Pc file shapes the importer understands: "long" flat Pc/Sw rows, "porous_plate"
@@ -2946,8 +3809,10 @@ export function importScalFiles(
   /** Treat the plug depths as the ones the original core report used, and place them through the
    *  well's core depth record. SCAL plugs ARE core plugs, so they move with the core. */
   followCore = false,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore });
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore, depthDatum });
 }
 
 export interface ThomeerSampleFit {
@@ -2987,8 +3852,8 @@ export interface ThomeerResult {
 
 /** Thomeer Pc hyperbola fit per plug over the selected wells' scal_pc points:
  *  Bv = Bv∞·exp(−G/log10(Pc/Pd)) — the (Pd, G) plane for Thomeer-class rock typing. */
-export function runThomeerFit(wellIds: string[]): Promise<ThomeerResult> {
-  return invoke<ThomeerResult>("run_thomeer_fit", { req: { well_ids: wellIds } });
+export function runThomeerFit(scope: BackendWellScope): Promise<ThomeerResult> {
+  return invoke<ThomeerResult>("run_thomeer_fit", { req: { well_ids: [] }, scope });
 }
 
 export interface HfuCluster {
@@ -3031,9 +3896,10 @@ export interface HfuResult {
 export type HfuMethod = "ward" | "histogram";
 
 /** Cluster the scoped wells' core φ-k cloud into hydraulic flow units on log10(FZI). */
-export function runHfuCluster(wellIds: string[], nClusters: number, method: HfuMethod): Promise<HfuResult> {
+export function runHfuCluster(scope: BackendWellScope, nClusters: number, method: HfuMethod): Promise<HfuResult> {
   return invoke<HfuResult>("run_hfu_cluster", {
-    req: { well_ids: wellIds, n_clusters: nClusters, method },
+    req: { well_ids: [], n_clusters: nClusters, method },
+    scope,
   });
 }
 
@@ -3091,6 +3957,7 @@ export function runLorenz(
   nUnits: number,
   depthFrom?: number,
   depthTo?: number,
+  scope: BackendWellScope = { kind: "explicit", well_ids: [wellId] },
 ): Promise<LorenzResult> {
   return invoke<LorenzResult>("run_lorenz", {
     req: {
@@ -3101,6 +3968,7 @@ export function runLorenz(
       depth_from: depthFrom ?? null,
       depth_to: depthTo ?? null,
     },
+    scope,
   });
 }
 
@@ -3246,6 +4114,8 @@ export interface ImageImportRequest {
   /** Place the plate depths through the well's core depth record — a section is cut from a plug,
    *  so when that plug is re-registered the plate belongs with it. */
   follow_core?: boolean;
+  /** SB-DBM-031: the datum the plates' depths are quoted in, declared in the wizard. */
+  depth_datum: string;
   /** Delivery-level defaults. All absent by default, and absent is a real answer. */
   fov_um?: number | null;
   prepared?: string | null;
@@ -3590,6 +4460,8 @@ export interface CoreLogSpec {
   unfold_scan?: number | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
+  /** Required only when `write` persists CPHOTO curves. */
+  custody?: RunCustody | null;
 }
 
 /**
@@ -3975,6 +4847,8 @@ export interface CurveEditRequest {
   value?: number;
   mul?: number;
   add?: number;
+  /** Required by the backend when the target resolves to a computed curve. */
+  custody?: RunCustody;
 }
 
 /** `data` holds the CHANGED rows' previous samples as packed `depth[n] + value[n]`
@@ -3984,14 +4858,58 @@ export interface CurveEditResult {
   store: string;
   point_count: number;
   data: Uint8Array | number[];
+  edit_id: string;
+  curve_sha256: string;
+}
+
+export type CurveEditInterval =
+  | { kind: "WHOLE_CURVE" }
+  | { kind: "INCLUSIVE_DEPTH"; top: number; bottom: number };
+
+export interface CurveEditRecord {
+  edit_id: string;
+  well_id: string;
+  well_name: string;
+  requested_curve: string;
+  curve: string;
+  store: string;
+  storage_identity: string;
+  operation: string;
+  interval: CurveEditInterval;
+  parameters: Record<string, unknown>;
+  timestamp_utc_ms: number;
+  actor: string | null;
+  source_note: string | null;
+  before_sha256: string;
+  after_sha256: string;
 }
 
 export function editCurve(req: CurveEditRequest): Promise<CurveEditResult> {
   return invoke<CurveEditResult>("edit_curve", { req });
 }
 
-export function restoreCurveValues(wellId: string, curve: string, pointCount: number, data: number[]): Promise<number> {
-  return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data });
+export function restoreCurveValues(
+  wellId: string,
+  curve: string,
+  pointCount: number,
+  data: number[],
+  restoresEditId: string,
+  expectedCurveSha256: string,
+  custody: RunCustody,
+): Promise<number> {
+  return invoke<number>("restore_curve_values", {
+    wellId,
+    curve,
+    pointCount,
+    data,
+    restoresEditId,
+    expectedCurveSha256,
+    custody,
+  });
+}
+
+export function listCurveEditRecords(): Promise<CurveEditRecord[]> {
+  return invoke<CurveEditRecord[]>("list_curve_edit_records");
 }
 
 /** Engine-copies the project database to `destPath` (live rows only, so the export is
@@ -4093,13 +5011,86 @@ export interface TablePage {
   columns: string[];
   rows: (string | null)[][];
   total_rows: number;
-  /** True when `total_rows` is a display cap, not the true count (SQL console hit the row cap).
-   *  The paginated inspector path leaves this false — its `total_rows` is a real COUNT(*). */
+  /** Always false on the inspector path; total_rows is a real COUNT(*). */
+  truncated: boolean;
+}
+
+export interface QueryPage {
+  columns: string[];
+  rows: (string | null)[][];
+  returned_rows: number;
+  /** Explicitly false: returned_rows is a page count, not a true query-result total. */
+  count_is_total: false;
   truncated: boolean;
 }
 
 export function getTablePage(table: string, wellId: string | null, offset: number, limit: number): Promise<TablePage> {
   return invoke<TablePage>("get_table_page", { table, wellId, offset, limit });
+}
+
+export interface IntegrityClassReport {
+  class_id: string;
+  name: string;
+  count: number;
+  prunable_count: number;
+  can_prune: boolean;
+  action: string;
+}
+
+export interface IntegrityPruneOffer {
+  offered: boolean;
+  prunable_findings: number;
+  class_ids: string[];
+  recovery: string;
+}
+
+export interface RecoverableIntegrityPrune {
+  batch_id: string;
+  created_at: string;
+  class_ids: string[];
+  pruned_findings: number;
+}
+
+export interface IntegrityReport {
+  scope: "PROJECT_WIDE";
+  wells_touched: number;
+  classes: IntegrityClassReport[];
+  checked_class_count: number;
+  finding_count: number;
+  summary: string;
+  prune: IntegrityPruneOffer;
+  recoverable_prunes: RecoverableIntegrityPrune[];
+}
+
+export interface IntegrityPruneClassReceipt {
+  class_id: string;
+  pruned_findings: number;
+}
+
+export interface IntegrityPruneReceipt {
+  batch_id: string;
+  pruned_findings: number;
+  classes: IntegrityPruneClassReceipt[];
+}
+
+/** Read-only complete class inventory; never collapses a zero-finding result to bare "clean". */
+export function checkReferentialIntegrity(): Promise<IntegrityReport> {
+  return invoke<IntegrityReport>("check_referential_integrity");
+}
+
+/** Quarantines selected backend-whitelisted orphan classes. No SQL or row payload crosses IPC. */
+export function pruneReferentialIntegrity(classIds: string[]): Promise<IntegrityPruneReceipt> {
+  return invoke<IntegrityPruneReceipt>("prune_referential_integrity", { classIds });
+}
+
+/** Restores one persisted typed-quarantine batch exactly. */
+export function restoreReferentialIntegrityPrune(batchId: string): Promise<number> {
+  return invoke<number>("restore_referential_integrity_prune", { batchId });
+}
+
+/** Reapplies the exact restored batch; refuses if intervening edits changed its identities. */
+export function reapplyReferentialIntegrityPrune(batchId: string): Promise<number> {
+  return invoke<number>("reapply_referential_integrity_prune", { batchId });
 }
 
 export function updateWellField(wellId: string, field: string, value: string | null): Promise<void> {
@@ -4111,12 +5102,24 @@ export function updateStandardSample(wellId: string, depth: number, column: stri
   return invoke("update_standard_sample", { wellId, depth, column, value });
 }
 
-export function updateComputedSample(wellId: string, depth: number, curveName: string, value: number): Promise<void> {
-  return invoke("update_computed_sample", { wellId, depth, curveName, value });
+export function updateComputedSample(
+  wellId: string,
+  depth: number,
+  curveName: string,
+  value: number,
+  custody: RunCustody,
+): Promise<void> {
+  return invoke("update_computed_sample", { wellId, depth, curveName, value, custody });
 }
 
-export function upsertTop(wellId: string, topName: string, depth: number, color: string | null): Promise<void> {
-  return invoke("upsert_top", { wellId, topName, depth, color });
+export function upsertTop(
+  wellId: string,
+  topName: string,
+  depth: number,
+  color: string | null,
+  scope?: BackendWellScope,
+): Promise<void> {
+  return invoke("upsert_top", { wellId, topName, depth, color, scope });
 }
 
 export function deleteTop(wellId: string, topName: string): Promise<void> {
@@ -4124,8 +5127,8 @@ export function deleteTop(wellId: string, topName: string): Promise<void> {
 }
 
 /** Read-only SQL over the project database (full DuckDB SQL, SELECT-only). */
-export function runQuery(sql: string, limit = 1000): Promise<TablePage> {
-  return invoke<TablePage>("run_query", { sql, limit });
+export function runQuery(sql: string, limit = 1000): Promise<QueryPage> {
+  return invoke<QueryPage>("run_query", { sql, limit });
 }
 
 export interface LasOmission {
@@ -4146,9 +5149,16 @@ export interface LasExportResult {
   curves_held: number;
   omitted: LasOmission[];
   curve_states: LasCurveState[];
+  legacy_unrecorded_curves: number;
   precision: SamplePrecisionReport;
   /** Set only after SandiBumi's own LAS reader accepts the completed file. */
   self_checked: boolean;
+  /**
+   * Set when the index is not uniformly sampled, so `STEP` was written as `0` — LAS 2.0's
+   * own declaration for a non-uniform index. Names the depth where the spacing changes and
+   * both spacings. `null` means the index is uniform and `STEP` carries its real value.
+   */
+  nonuniform_step?: string | null;
 }
 
 export interface DataExportFormat {
@@ -4169,6 +5179,11 @@ export function listDataExportFormats(): Promise<DataExportFormat[]> {
 /** Exports one well as LAS 2.0, including exact held/written counts and named omissions. */
 export function exportLas(wellId: string, destPath: string): Promise<LasExportResult> {
   return invoke<LasExportResult>("export_las", { wellId, destPath });
+}
+
+/** SB-CORE-015: DLIS (RP66 V1) export, self-read through the dlisio importer. */
+export function exportDlis(wellId: string, destPath: string): Promise<LasExportResult> {
+  return invoke<LasExportResult>("export_dlis", { wellId, destPath });
 }
 
 /** One water-zone sample that entered the RtC calibration fit. */
@@ -4223,8 +5238,8 @@ export interface RtcFitResult {
 }
 
 /** Fits the RtC excess-conductivity coefficients to the selected water-bearing interval. */
-export function runRtcFit(req: RtcFitRequest): Promise<RtcFitResult> {
-  return invoke<RtcFitResult>("run_rtc_fit", { req });
+export function runRtcFit(req: RtcFitRequest, scope: BackendWellScope): Promise<RtcFitResult> {
+  return invoke<RtcFitResult>("run_rtc_fit", { req, scope });
 }
 
 /** One laboratory CEC plug paired with the clay content of the curves the run will use. */
@@ -4280,8 +5295,8 @@ export interface SFactorFitResult {
 }
 
 /** Fits the IMTS CEC scaling factor S to the selected wells' laboratory CEC measurements. */
-export function runSFactorFit(req: SFactorFitRequest): Promise<SFactorFitResult> {
-  return invoke<SFactorFitResult>("run_s_factor_fit", { req });
+export function runSFactorFit(req: SFactorFitRequest, scope: BackendWellScope): Promise<SFactorFitResult> {
+  return invoke<SFactorFitResult>("run_s_factor_fit", { req, scope });
 }
 
 /** One measurement name inside a point dataset, with what is actually stored under it. */
@@ -4380,6 +5395,12 @@ export interface GenericCurveInventoryEntry {
   set_name: string;
   source: string | null;
   run_no: number | null;
+  /** Version of this stored curve-set identity; changes when resolving metadata changes. */
+  set_version: number;
+  /** Curve-level Final designation used by the declared resolver. */
+  final_flag: boolean;
+  /** Monotonic metadata revision; null only on pre-SB-DBM-006 history. */
+  modified_seq: number | null;
   /** True when the user promoted this curve to win its (well, set, mnemonic) group. */
   pinned: boolean;
 }
@@ -4416,6 +5437,11 @@ export function promoteGenericCurve(curveId: string): Promise<void> {
   return invoke<void>("promote_generic_curve", { curveId });
 }
 
+/** Changes the curve-level Final designation and returns the previously Final identity, if any. */
+export function setGenericCurveFinal(curveId: string, isFinal: boolean): Promise<string | null> {
+  return invoke<string | null>("set_generic_curve_final", { curveId, isFinal });
+}
+
 /** A curve's editable identity — returned by `updateCurveMeta` as it was BEFORE the edit,
  *  which is exactly what an undo needs. */
 export interface CurveMetaEdit {
@@ -4432,8 +5458,18 @@ export function updateCurveMeta(
   mnemonic: string,
   unit: string | null,
   family: string | null,
+  operator: { identity: string; kind: AncestryActorKind },
+  view?: string,
 ): Promise<CurveMetaEdit> {
-  return invoke<CurveMetaEdit>("update_curve_meta", { curveId, mnemonic, unit, family });
+  return invoke<CurveMetaEdit>("update_curve_meta", {
+    curveId,
+    mnemonic,
+    unit,
+    family,
+    operator: operator.identity,
+    operatorKind: operator.kind,
+    view: view ?? null,
+  });
 }
 
 export interface CurveSamplePoint {
@@ -4528,8 +5564,10 @@ export interface TvdMaterializeResult {
  *  grid, so sw_height's TVD input, the SHF fits, and the TVDSS correlation view can fetch them.
  *  Deviation import already does this automatically; use this after importing logs later or
  *  editing the KB datum. Wells with no survey or no logs report samples = 0. */
-export function materializeTvd(wellIds: string[]): Promise<TvdMaterializeResult[]> {
-  return invoke<TvdMaterializeResult[]>("materialize_tvd", { wellIds });
+export function materializeTvd(
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<TvdMaterializeResult[]> {
+  return invoke<TvdMaterializeResult[]>("materialize_tvd", { scope });
 }
 
 export interface DlisImportResult {
@@ -4600,6 +5638,7 @@ export function importDlisFile(
   setName?: string | null,
   fileDepthUnit?: "M" | "FT" | null,
   msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
+  undeclaredDrhoUnit?: "g/cc" | "kg/m3" | null,
   outsideIntervalDecision?: "accept_outside_declared_interval" | null,
   duplicateDecisions?: DlisDuplicateDecision[] | null,
   lasSentinelExceptions?: string[] | null,
@@ -4611,6 +5650,7 @@ export function importDlisFile(
     setName: setName ?? null,
     fileDepthUnit: fileDepthUnit ?? null,
     msPerFtMeaning: msPerFtMeaning ?? null,
+    undeclaredDrhoUnit: undeclaredDrhoUnit ?? null,
     outsideIntervalDecision: outsideIntervalDecision ?? null,
     duplicateDecisions: duplicateDecisions ?? null,
     lasSentinelExceptions: lasSentinelExceptions ?? null,
@@ -4986,13 +6026,13 @@ export interface PlugQcResult {
 }
 
 /** What the two axis pickers can offer over the wells in scope. */
-export function listPlugChoices(wellIds: string[]): Promise<PlugChoice[]> {
-  return invoke<PlugChoice[]>("list_plug_choices", { wellIds });
+export function listPlugChoices(scope: BackendWellScope): Promise<PlugChoice[]> {
+  return invoke<PlugChoice[]>("list_plug_choices", { scope });
 }
 
 /** Pairs two plug-scale measurements by depth across the scoped wells. */
-export function runPlugQc(req: PlugQcRequest): Promise<PlugQcResult> {
-  return invoke<PlugQcResult>("run_plug_qc", { req });
+export function runPlugQc(req: PlugQcRequest, scope: BackendWellScope): Promise<PlugQcResult> {
+  return invoke<PlugQcResult>("run_plug_qc", { req, scope });
 }
 
 // ---------------------------------------------------------------------------
@@ -5031,8 +6071,9 @@ export interface CurveStatsRow {
 /** Returns the rows and the percentile list actually used, so a table labels its own columns. */
 export async function statsCurveSummary(
   req: CurveStatsRequest,
+  scope: BackendWellScope,
 ): Promise<[CurveStatsRow[], number[]]> {
-  return invoke<[CurveStatsRow[], number[]]>("stats_curve_summary", { req });
+  return invoke<[CurveStatsRow[], number[]]>("stats_curve_summary", { req, scope });
 }
 
 export interface PairStatsRequest {
@@ -5056,8 +6097,8 @@ export interface PairStatsRow {
   intercept: number | null;
 }
 
-export async function statsPairSummary(req: PairStatsRequest): Promise<PairStatsRow[]> {
-  return invoke<PairStatsRow[]>("stats_pair_summary", { req });
+export async function statsPairSummary(req: PairStatsRequest, scope: BackendWellScope): Promise<PairStatsRow[]> {
+  return invoke<PairStatsRow[]>("stats_pair_summary", { req, scope });
 }
 
 export interface VersusRequest {
@@ -5080,8 +6121,8 @@ export interface VersusRow {
   max_abs_diff: number | null;
 }
 
-export async function statsVersusSets(req: VersusRequest): Promise<VersusRow[]> {
-  return invoke<VersusRow[]>("stats_versus_sets", { req });
+export async function statsVersusSets(req: VersusRequest, scope: BackendWellScope): Promise<VersusRow[]> {
+  return invoke<VersusRow[]>("stats_versus_sets", { req, scope });
 }
 
 export interface ThicknessCondition {
@@ -5112,8 +6153,8 @@ export interface ThicknessRow {
   ntg: number | null;
 }
 
-export async function statsThickness(req: ThicknessRequest): Promise<ThicknessRow[]> {
-  return invoke<ThicknessRow[]>("stats_thickness", { req });
+export async function statsThickness(req: ThicknessRequest, scope: BackendWellScope): Promise<ThicknessRow[]> {
+  return invoke<ThicknessRow[]>("stats_thickness", { req, scope });
 }
 
 export interface FitRequest {
@@ -5139,8 +6180,8 @@ export interface FitResult {
   notes: string[];
 }
 
-export async function statsFit(req: FitRequest): Promise<FitResult> {
-  return invoke<FitResult>("stats_fit", { req });
+export async function statsFit(req: FitRequest, scope: BackendWellScope): Promise<FitResult> {
+  return invoke<FitResult>("stats_fit", { req, scope });
 }
 
 // ---------------------------------------------------------------------------
@@ -5211,6 +6252,8 @@ export interface IntakeCommit {
   extras_dataset?: string;
   fallback_well_id?: string;
   follow_core?: boolean;
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared in the pane. */
+  depth_datum: string;
 }
 
 export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportResult[]> {
@@ -5221,12 +6264,24 @@ export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportRe
 // Reframe — resampling a log set onto a different sampling as a new set
 // ---------------------------------------------------------------------------
 
+/** One output sample whose categorical resampling support spans unlike source codes. This is
+ * sparse reporting metadata, not a curve array; full depth/value arrays stay on the bytemuck IPC
+ * path. */
+export interface CategoryBoundaryCrossing {
+  output_depth: number;
+  source_start_depth: number;
+  source_end_depth: number;
+  from_code: number;
+  to_code: number;
+}
+
 /** One curve carried onto the new frame, with the averaging that was actually used. */
 export interface ReframeCurve {
   name: string;
   method: string;
   samples_in: number;
   samples_out: number;
+  category_boundary_crossings: CategoryBoundaryCrossing[];
 }
 
 export interface ReframeResult {
@@ -5247,6 +6302,38 @@ export interface ReframeResult {
 export interface ReframeSourceSpec {
   kind: "logset" | "import" | "standard";
   name: string | null;
+}
+
+export type ReframeMethod =
+  | "Mean"
+  | "Geometric"
+  | "Harmonic"
+  | "Median"
+  | "Interpolate"
+  | "Nearest"
+  | "Mode"
+  | "Auto";
+
+export interface ReframeRequest {
+  well_ids: string[];
+  source: ReframeSourceSpec;
+  selection_name: string;
+  substitutions: Array<{ requested: string; substitute: string; accepted: boolean }>;
+  target: {
+    kind: "step" | "regularize" | "match_well" | "match_set";
+    step: number | null;
+    align: boolean;
+    well_id: string | null;
+    set_name: string | null;
+    top: number | null;
+    base: number | null;
+  };
+  methods: Record<string, ReframeMethod>;
+  default_method: ReframeMethod;
+  output_set: string;
+  preview: boolean;
+  /** Required only when `preview` is false and a new set is written. */
+  custody?: RunCustody | null;
 }
 
 export interface CurveSelection {
@@ -5274,8 +6361,8 @@ export function reframeSourceCurves(wellId: string, source: ReframeSourceSpec): 
 }
 
 /** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
-export function runReframe(req: Record<string, unknown>): Promise<ReframeResult[]> {
-  return invoke<ReframeResult[]>("run_reframe", { req });
+export function runReframe(req: ReframeRequest, scope: BackendWellScope): Promise<ReframeResult[]> {
+  return invoke<ReframeResult[]>("run_reframe", { req, scope });
 }
 
 // ---------------------------------------------------------------------------
@@ -5366,6 +6453,9 @@ export function intakeProbeArrays(
 export interface CurveCommitRequest {
   paths: string[];
   roles: string[];
+  /** SB-DIO-007: `null_token` here is the file's DECLARED null — a matching cell is
+   * stored missing and masked "explicitly nulled", distinguishable from an empty cell. */
+  opts?: { delimiter?: string; skip_lines?: number; decimal?: string; null_token?: string };
   set_name?: string;
   depth_unit?: string;
   fallback_well_id?: string;

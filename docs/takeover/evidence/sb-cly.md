@@ -28,16 +28,10 @@
 
 ## SB-CLY-001 - Refuse and flag degenerate endpoints, never null silently
 
-- **Chapter evidence:** P0; historical status `PARTIAL`; T01/T24/T32; sections 4.1, 6 and 8.
-- **Atomic obligations:** validate every indicator endpoint pair before arithmetic; distinguish invalid endpoints from missing input; emit `ENDPOINT_INVALID`; name the parameters, zone and offending values in a run message.
-- **Current source:** `vsh_gr` rejects missing, equal or inverted GR endpoints and `vsh_dn` rejects a near-zero geometry denominator, but both only `continue` into pre-filled `f32::NAN`. Neither emits a CLY reason token or run message; the N-D flag is also left `NaN` on the degenerate branch.
-- **Qualifying acceptance tests:** none; T01/T24/T32 have no executable whole-contract body. Test class `MISSING`.
-- **Supporting tests:** `vsh_dn_degenerate_triangle_is_missing_not_inf` passed exactly once and proves no infinity escapes. It observes only internal numeric arrays and therefore is not an observable refusal test.
-- **Manual evidence:** shale-volume 0/17; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the guards are integrated at the accepted anchor; no CLY reason token or reporting surface was found in current or reachable source.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-CLY-031/SB-CLY-032 reason custody is absent; no endpoint value is open or inferred.
-- **Next action:** add one pre-evaluation guard result used by every indicator, then prove missing-input and invalid-endpoint controls produce distinct exported reasons and a named run message.
+- **Specified contract:** validate the endpoint pair before evaluation; distinguish IN THE OUTPUT an endpoint failure from absent input; on `GR_MA >= GR_SH` emit no computed value, set the SB-CLY-031 provenance curve to a distinct `ENDPOINT_INVALID` token, and surface a run-level message naming the parameter pair, THE ZONE and the offending values. DEC-036 (RULED 2026-08-17, confirmed by DEC-060(b)) authorized the narrow versioned registry this needs.
+- **Current implementation (2026-08-18):** DONE. Registry v1 in `param_sources.rs` (six things exactly: method identity and substitution as structure FIELDS - substitution_curve None, no substituting operation exists in the approved group - plus codes 0 COMPUTED / 1 MISSING_INPUT / 2 MASKED_INPUT / 3 ENDPOINT_INVALID / 4 COAL reserved). `vsh_gr` emits `VSH_PROV` (unit `flag`, class output); the endpoint condition stays declared but is TOKENIZED, not run-refused - the chapter's MUSTs cannot be met by a refusal that sets no token and discards valid zones; the guard's substance (no computed value ever leaves a degenerate pair) is pinned from both sides. The runner writes MASKED_INPUT where the mask fired, composes the zone-bearing message on the degradation channel (documented fifth kind `ENDPOINT_INVALID`; schema CHECK extended + migration), and refuses `VSH_PROV` as a MASK by name. Registry UI-readable via `cly_prov_registry`.
+- **Qualifying tests:** the in-output distinction + equality boundary + precedence + closed registry at module level; zone-named message, surviving masked token, valid-zone computation and MASK refusal through the production runner; the schema migration pinned both ways. Six mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-CLY-002 - Stieber as one generic shape parameter
 
@@ -457,29 +451,23 @@
 
 ## SB-CLY-034 - No magic sentinel for a rejected sample
 
-- **Chapter evidence:** P0; historical status `PARTIAL`; T35/T44; sections 4.2, 6 and 8.
-- **Atomic obligations:** rejected numeric sample is NaN plus provenance; export only the declared writer sentinel; warn and treat a known undeclared vendor sentinel as absent.
-- **Current source:** workflow masks use NaN and every registered exporter receives the project-declared sentinel. Import honors file-declared nulls, standard conventions and explicit per-channel rules; by deliberate SB-DIO discipline, an undeclared bare `-999` remains finite data and `NoNull` preserves it. CLY provenance is absent.
-- **Qualifying acceptance tests:** none; current DIO tests prove declared-sentinel custody, not the conflicting CLY undeclared-sentinel behavior. Test class `MISSING`.
-- **Supporting tests:** three export controls and three parser null-policy controls passed exactly once; together they prove the current declaration-based contract and prevent a global magic-value rewrite.
-- **Manual evidence:** shale-volume 0/17; las-export 0/2; processing-history 0/7.
-- **Git evidence:** declared-sentinel behavior is integrated; no CLY-scoped warning/quarantine path exists.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** T44 conflicts with the newer DIO declaration discipline. The fix cannot globally convert every undeclared `-999` to absence; the domains need an explicit scoped adjudication.
-- **Next action:** design a CLY-family import warning/quarantine that preserves original amplitudes and requires an explicit rule before conversion, then retain declared and `NoNull` controls from both sides.
+- **Specified contract:** never write a numeric sentinel to mean rejected; on import a value equal to a known vendor sentinel is handled even when undeclared. DEC-037 (RULED 2026-08-17) fixed the shape: QUARANTINE AND ASK - detection, a blocking import question naming value/curves/counts, conversion only on confirmation, both answers recorded, explicit `NoNull` always wins, `-999` on no global null list, the detector never decides.
+- **Current implementation (2026-08-18):** DONE. `parsers::VENDOR_BADHOLE_SENTINEL` detection runs before standard-column selection (a confirmed conversion reaches every view); an unanswered question BLOCKS pre-write with `ImportResult.sentinel_question` (zero rows, not even the well); the ribbon's modal asks once per batch and re-runs only blocked files; both answers land in the import warning (-> durable process history) and on each affected curve's `curve_meta.source`; a NoNull channel is never offered and its amplitude imports untouched. Export already never writes an undeclared sentinel - a rejected sample is absent and explained by SB-CLY-001's `VSH_PROV`.
+- **Qualifying test:** the four constraint surfaces on one real LAS delivery (block/convert/keep/NoNull), six mutations killed on distinct assertions, and the new reader wired into the malformed-corpus gate. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-CLY-035 - Discriminator tests are two-sided by default
 
 - **Chapter evidence:** P2; historical status `PARTIAL`; T36; sections 4.2, 6 and 8.
 - **Atomic obligations:** every rule supports minimum and maximum; caliper bad-hole detection covers over-gauge and under-gauge.
-- **Current source:** `badhole` uses absolute DRHO, but its caliper branch tests only positive enlargement. The manifest exposes only one maximum departure and cannot express the under-gauge side.
-- **Qualifying acceptance tests:** none; T36's under-gauge failure plus over-gauge/good-hole controls are missing. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho` passed exactly once for good, DRHO and over-gauge samples; it does not pin under-gauge behavior.
+- **Current source:** `badhole` now applies the explicit `DCAL_MAX` as a strict maximum absolute departure, `|CALI - bit size| > DCAL_MAX`, so one supplied magnitude defines symmetric minimum/maximum accepted gauge bounds. Its manifest and visible help use the same absolute-departure contract. The arbitrary per-indicator/per-zone rule-list generality remains owned by deferred SB-CLY-033 rather than being smuggled into this row.
+- **Qualifying acceptance tests:** `modules::tests::under_gauge_and_over_gauge_hole_both_fire_while_both_strict_boundaries_and_in_gauge_do_not` was witnessed RED with the cited T36 under-gauge sample returning clear, then passed after the absolute-departure change. It pins cited under-gauge, symmetric over-gauge, both strict boundaries, in-gauge and evaluated-state controls; test class `CORRECTNESS`.
+- **Supporting tests:** `badhole_flags_washout_and_drho`, the independent-term availability test and bit-size-source test remain green for DRHO, over-gauge, missing-geometry and measured/explicit bit-size paths.
 - **Manual evidence:** conditioning 0/27; shale-volume 0/17.
-- **Git evidence:** the one-sided caliper branch is integrated and reachable at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** any thresholds remain explicit user/source parameters; the required two-sided shape does not authorize a value.
-- **Next action:** express caliper acceptance as explicit lower/upper bounds in the shared rule model and add under-, over- and in-gauge controls.
+- **Git evidence:** implementation and exact T36 are prepared on current parent `bf35be67fb1f27c7ed42f44af2d1b3332e7bb39b`; no threshold magnitude, default, unit or DRHO behavior changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied built-in caliper contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for exact T36. `DCAL_MAX` remains an explicit user/source value with no shipped default; SB-CLY-033 still owns arbitrary discriminator-rule lists and is not claimed closed here.
+- **Next action:** preserve exact T36 and the strict-boundary controls, perform Visual/Manual/Field review separately, and continue SB-CLY-041.
 
 ## SB-CLY-036 - Per-indicator coal branch with its own provenance token
 
@@ -524,12 +512,12 @@
 
 - **Chapter evidence:** P2; historical status `PARTIAL`; T38; sections 4.3, 5, 6 and 8.
 - **Atomic obligations:** if offered, named preset with source; visibly a convention, not constant; record preset identity, pool and realized values.
-- **Current source:** the hidden saved-chain-compatible `gr_normalize` manifest still ships P3/P97 as numeric defaults and its documentation warns they are generic. It has no machine-readable source or preset identity and is not a CLY endpoint picker; ordinary run parameters do not record the realized percentiles as endpoint custody.
-- **Qualifying acceptance tests:** T38's CLY preset record is absent. Current default tests derive their oracle from the legacy manifest, so row test class is `CHARACTERIZATION`.
-- **Supporting tests:** the legacy default and mapping tests each passed exactly once; universal Normalize separately refuses an absent reference pair.
+- **Current source:** the hidden saved-chain-compatible `gr_normalize` manifest still ships P3/P97 as cited numeric defaults and identifies the convention. It has no preset identity and ordinary run parameters do not record the pool or realized percentiles as endpoint custody; the unrelated GR reference pair now ships absent.
+- **Qualifying acceptance tests:** T38's cited preset-identity, pool and realized-value record remains absent. The GR reference-pair absence test is an SB-CORE-004 control, not proof of this P3/P97 contract, so row test class is `MISSING`.
+- **Supporting tests:** mapping arithmetic and universal Normalize's absent-reference refusal remain narrower than the complete preset-custody contract.
 - **Manual evidence:** shale-volume 0/17; histogram 5/22; workflow 0/23; processing-history 0/7.
 - **Git evidence:** the legacy preset is integrated for saved-run compatibility and hidden from normal ribbon discovery; source/preset custody is absent.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
 - **Blocker or decision:** the chapter cites the convention but not any realized endpoint; saved-chain compatibility must not turn legacy defaults into physical authority.
 - **Next action:** represent P3/P97 as an explicitly cited CLY preset, record realized values/scope, and migrate legacy runs without silently promoting the old manifest.
 
@@ -550,27 +538,27 @@
 
 - **Chapter evidence:** P2; historical status `PRESENT-DIVERGENT`; T43; sections 4.3, 6 and 8.
 - **Atomic obligations:** ordered aliases prefer corrected over raw across every indicator; persist the resolved mnemonic.
-- **Current source:** `vsh_gr` requests literal `GR`. The family registry folds raw, corrected and normalized gamma aliases into one unordered family, so corrected-only preference cannot be expressed. Generic run input bindings record a chosen mnemonic only after external resolution; the CLY manifest defines no preferred order.
-- **Qualifying acceptance tests:** none; corrected-present/raw-present and corrected-absent controls plus run-record assertion are missing. Test class `MISSING`.
-- **Supporting tests:** family alias resolution passed and confirms `GRN` currently collapses into `GR`, which characterizes the structural conflict rather than satisfying preference.
+- **Current source:** VSH manifests now declare ordered per-input aliases: `GR_COR -> GR_EC -> GR`, `RHO_COR -> RHOB_EC -> RHOB` and `NPHI_COR -> NPHI_EC -> NPHI`. The shared per-well resolver is used by direct runs, preflight and saved-chain ancestry; an explicit interpreter selection still wins. Module and Workflow controls expose a distinct Auto choice and state that the resolved curve is recorded.
+- **Qualifying acceptance tests:** exact T43 `corrected_aliases_win_over_raw_and_normalized_inputs_raw_remains_the_fallback_and_each_resolved_curve_is_recorded` passed 1/0/0 after witnessed RED and a raw-first mutation. It independently computes corrected and raw VSH-GR values, uses T18's cited density-neutron witness, includes `GRN` as a losing control, proves vendor/native/raw fallback order and reads exact direct plus saved-chain ancestry. Test class `CORRECTNESS`.
+- **Supporting tests:** TypeScript compilation and cargo check are green. The fresh full project gate passed 1027 / 0 / 37 with 31 owned warnings, exercising the typed manifest/UI and all existing workflow routes without changing the unordered semantic-family registry. The full Monte Carlo module suite also passed 23 / 0 / 0 after the resolver kept raw manifest defaults for direct-context compatibility.
 - **Manual evidence:** shale-volume 0/17; generic-curve-store 0/18; workflow 0/23.
-- **Git evidence:** literal binding and merged family are integrated; no corrected-preference list was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** corrected and normalized meanings must first be separated in the family vocabulary; mnemonic coincidence cannot establish processing state.
-- **Next action:** define ordered, state-aware input aliases and prove corrected preference, raw fallback and exact resolved-curve custody across all CLY indicators.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit will carry manifest, resolver, direct/chain custody, UI and evidence changes together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated T43; Visual, Manual and Field evidence remain open.
+- **Next action:** preserve exact T43 and explicit-selection precedence, perform the mixed-well review separately, and continue SB-CLY-042 without turning picking advice into a default.
 
 ## SB-CLY-042 - Picking conventions stated as help text, not encoded as defaults
 
 - **Chapter evidence:** P3; historical status `ABSENT`; T33; sections 4.3, 5, 6 and 8.
 - **Atomic obligations:** sourced picking advice attached to the parameter; never convert advice into a numeric default.
-- **Current source:** CLY parameter descriptions contain no source-bearing picking guidance, while `vsh_gr`, `vsh_dn` and the legacy normalization preset still ship uncited numeric endpoint/reference defaults.
-- **Qualifying acceptance tests:** none; no whole-domain help/source/no-default inventory exists. Test class `MISSING`.
-- **Supporting tests:** the module dialog can render a generic source topic when supplied, but current CLY arguments supply none.
+- **Current source:** `ArgSpec.guidance` serializes advice and source separately from `default`. `vsh_gr`, `vsh_dn` and `gr_normalize` attach the F15/F17 crossplot, percentile and common-reference procedures to each relevant field. Module and Workflow editors render the same source-bearing hint. Endpoint/reference values remain empty with source state `ABSENT`; the separately cited RHO_MA/RHO_FL/NPHI_FL defaults and named P3/P97 percentile preset remain intact.
+- **Qualifying acceptance tests:** `documented_picking_conventions_are_sourced_help_and_never_numeric_defaults` was witnessed RED, passed 1/0/0, turned RED when `vsh_gr.GR_SH` lost guidance, and turned RED when the cited RHO_MA positive control was changed to ABSENT. It inventories every shipping endpoint/reference field, requires non-empty advice and source, and pins the value/default distinction from both sides. Test class `CORRECTNESS`.
+- **Supporting tests:** `source_bearing_picking_guidance_is_rendered_beside_the_parameter_without_becoming_its_value` was witnessed RED, passed 1/0/0, and turned RED when the renderer omitted guidance. TypeScript compilation is green; Module and Workflow use one hint renderer.
 - **Manual evidence:** shale-volume 0/17; histogram 5/22; crossplot 6/13.
-- **Git evidence:** uncited defaults and source-free descriptions are integrated; no CLY picking-help records were found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** every numeric endpoint remains cited user/study data or ABSENT; advice cannot authorize a number.
-- **Next action:** withdraw uncited defaults, attach sourced convention text to open fields, and add a registry test that guidance never populates the value slot.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit will carry the typed manifest field, CLY guidance, shared rendering, tests and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-042; Visual, Manual and Field evidence remain open.
+- **Next action:** preserve the source-bearing guidance/default separation, execute visual/manual review separately, and continue SB-CLY-043 without inferring quantity type from mnemonic.
 
 ## SB-CLY-043 - Shale volume and clay volume are distinct typed quantities
 
@@ -615,14 +603,14 @@
 
 - **Chapter evidence:** P1; historical status `ABSENT`; T43; sections 4.4, 6 and 8.
 - **Atomic obligations:** distinct clipped Vsh, unlimited Vsh, Vcl and flag/provenance families with vendor aliases; no emitted curve resolves to none.
-- **Current source:** `curves.rs::FAMILIES` has no CLY family despite `vsh_gr`/`vsh_dn` emitting four CLY names. Raw/corrected/normalized GR aliases are also folded together.
-- **Qualifying acceptance tests:** none; the complete emitted/vendor mnemonic inventory and four-family distinctness test is missing. Test class `MISSING`.
-- **Supporting tests:** `families_resolve_common_mnemonics` passed and proves the existing registry behavior, including merged GR aliases; it does not include CLY outputs.
+- **Current source:** the versioned unit registry now defines clipped `VSH`, unlimited `VSH_UNCLIPPED`, `VCL` and categorical `CLY_STATE` independently. Its exact aliases and vendor wildcard rules generate Rust, TypeScript, documentation and verification consumers. Exact aliases win before patterns; cited `VSHH*`/`VSHV*` shear-velocity and `VCLC*` calcite collisions are excluded, and ambiguous matches fail closed. UI plot-family lookup and the import vocabulary consume the generated resolver rather than maintaining a second dictionary.
+- **Qualifying acceptance tests:** exact T43 `every_emitted_and_vendor_clay_shale_mnemonic_resolves_to_one_of_four_distinct_families` was witnessed RED on live emitted `VSH_GR` and passes 1/0/0. It inventories every typed `LogOut`, the exact Geolog/IP aliases, the Techlog vendor-pattern positives, all three cited collision families, the four distinct identities and the mapping from unlimited VSH family to typed shale volume. Test class `CORRECTNESS`.
+- **Supporting tests:** the existing generated-registry parity/drift refusal is green with the new pattern and exclusion fields; TypeScript compilation proves the generated resolver is consumed by the UI. The full project gate is 1032 / 0 / 37 with 31 owned warnings.
 - **Manual evidence:** generic-curve-store 0/18; shale-volume 0/17.
-- **Git evidence:** current and reachable family registries contain no VSH/VCL/provenance entries.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** aliases must come from the chapter's held evidence; family identity must remain distinct from mnemonic preference.
-- **Next action:** add the four distinct families and exhaustive alias inventory before enforcing SB-CLY-043 or exporting provenance.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries the reviewed source registry, four generated consumers, exact-first fail-closed resolvers, UI integration, typed workflow bridge, owned proof and evidence updates.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-046; Visual, Manual and Field evidence remain open. This registration does not invent the categorical provenance vocabulary owned by deferred SB-CLY-031/032.
+- **Next action:** preserve source-held aliases, collision exclusions and generated-consumer parity; perform Visual/Manual/Field review separately, then continue SB-CLY-050 without calling family registration a provenance-curve implementation.
 
 ## SB-CLY-047 - Organic-shale pre-correction in renormalised form
 
@@ -667,27 +655,27 @@
 
 - **Chapter evidence:** P0; historical status `PRESENT-DIVERGENT`; T18-T20; sections 4.5, 5, 6 and 8.
 - **Atomic obligations:** no default for disputed values; refuse until set; show every competing value and artefact at entry; never interpolate or select silently.
-- **Current source:** `vsh_gr` and `vsh_dn` ship multiple numeric endpoint defaults, including values the chapter marks uncited or disputed. `ArgSpec::sources_topic` and a generic source panel exist, but every current CLY argument leaves the topic empty, so the dialog displays neither conflict nor source and runs without explicit entry.
-- **Qualifying acceptance tests:** none; the no-default refusal and competing-source UI inventory are missing. Test class `MISSING`.
-- **Supporting tests:** N-D and GR arithmetic tests use supplied/current values but do not establish source admissibility; the generic source-panel mechanism is unused by CLY.
+- **Current source:** every disputed endpoint on selected `vsh_gr` and `vsh_dn` opens empty, required and source-bearing. The shared registry distinguishes product, exact artefact path, value or explicit absence, and tier; Module and Workflow entry render it beside the empty field. Missing values refuse in declared-precondition validation before dispatch. Agreed `RHO_FL`/`NPHI_FL` and the cited `FLAG_TOL` diagnostic remain numeric.
+- **Qualifying acceptance tests:** exact `when_vendors_disagree_the_parameter_opens_empty_shows_all_sources_and_refuses_before_arithmetic` was witnessed RED on the live selected `RHO_MA`, then on a combined/wrong-tier source row, and passes 1/0/0. It inventories all eight disputed live fields, exact product/path/tier positions, missing-value refusal, the agreed positive controls, and the independently specified T18 outputs 0.4239 and 0.6000 without averaging. Exact frontend `a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_loading_stays_visible` was witnessed RED when the component could not render injected evidence and passes 1/0/0. Test class `CORRECTNESS`.
+- **Supporting tests:** prior picking-guidance separation, both `vsh_dn` guards, the shared source/persistence inventory and all 29 frontend acceptance tests remain green. T19/T20 retain the no-selection/refusal boundary for resistivity indicators that are absent and deferred; this increment did not invent those methods.
 - **Manual evidence:** shale-volume 0/17; workflow 0/23.
-- **Git evidence:** uncited defaults are integrated; the generic disagreement infrastructure commit is reachable but not wired to this domain.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** all fifteen chapter-ABSENT rows stay absent and the NON-ADOPTABLE value remains verification-only; no current default becomes a source.
-- **Next action:** withdraw every disputed/uncited default, wire each open parameter to its artefact records and make unsourced evaluation fail before module arithmetic.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries manifest defaults/topics, source records, visible failure honesty, exact tests and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-050 on the selected GR and density-neutron surfaces. All other chapter-ABSENT rows remain absent and the NON-ADOPTABLE value remains verification-only.
+- **Next action:** preserve empty-by-default endpoint entry, exact product/path/tier custody and pre-dispatch refusal; perform Visual/Manual/Field review separately, then continue SB-CLY-051 without treating a product name alone as a source.
 
 ## SB-CLY-051 - The vendor artefact path is the primary source string
 
 - **Chapter evidence:** P1; historical status `ABSENT`; T33; sections 4.5, 5, 6 and 8.
 - **Atomic obligations:** every shipped default carries a specific artefact/publication/record locator; product name alone is rejected; persist source with the run.
-- **Current source:** `ArgSpec` has a generic topic key, not a per-value primary source field. Current CLY parameters leave it empty, ship defaults, and serialize only numeric request values; no CLY source locator reaches the run record.
-- **Qualifying acceptance tests:** none; zero-exception source inventory, generic-name rejection and run persistence are missing. Test class `MISSING`.
-- **Supporting tests:** the generic parameter-source panel can render other domains' topics, but it is not evidence for any CLY default.
+- **Current source:** `ArgSpec::default_source` now gives every numeric CLY default machine-readable primary-source custody. The zero-exception live inventory is `vsh_dn.RHO_FL`, `vsh_dn.NPHI_FL` and `vsh_dn.FLAG_TOL`; each identifies the recorded Geolog `.info`, Techlog HTML or SandiBumi chapter locator. All disputed endpoints remain `ABSENT`. `validate_parameter_sources` rejects an empty or generic product-only CLY source both at catalog construction and before `effective_module_parameters` can construct the run record; accepted sources pass through unchanged with `DEFAULTED` resolution and manifest identity.
+- **Qualifying acceptance tests:** `every_shipping_clay_default_names_a_checkable_artefact_and_a_product_name_alone_fails_before_the_run_record` was witnessed RED on the incomplete NPHI locator and passes. It inventories both live CLY modules and exactly three numeric defaults; pins each chapter-recorded locator; rejects `Techlog` alone at registry and run-record boundaries; and proves all three locators survive in the effective parameter record. Expected identities and locators come from sections 4.5, 5 and 6. Test class `CORRECTNESS`.
+- **Supporting tests:** `a_registered_default_without_a_source_fails_the_build_gate` remains green for the empty-source side, and SB-CLY-050's disputed-endpoint refusal remains green. Neither substitutes for the exact CLY inventory and persistence proof.
 - **Manual evidence:** shale-volume 0/17; workflow 0/23; processing-history 0/7.
-- **Git evidence:** generic source infrastructure is integrated; domain adoption is absent and no CLY source locator was found.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** protected artefacts were not opened; the chapter's recorded locator is evidence, and missing locators keep values absent.
-- **Next action:** add a source-or-ABSENT field to CLY parameter custody and reject generic vendor labels and missing source at both entry and persisted-run validation.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries the exact source strings, catalog/runtime refusals, acceptance test and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-051. Protected vendor artefact contents were not independently opened: the chapter's recorded locators are admissible evidence here, so this proves specificity and persistence rather than revalidating vendor facts. Missing locators continue to keep values absent.
+- **Next action:** preserve the exact default inventory and fail-closed source gate, complete Visual/Manual/Field review separately, then continue SB-CLY-054 without inventing a source-unit conversion.
 
 ## SB-CLY-052 - Import by ordinal **and** semantic key
 
@@ -719,27 +707,21 @@
 
 - **Chapter evidence:** P0; historical status `PARTIAL`; T21/T42; sections 4.5, 5, 6 and 8.
 - **Atomic obligations:** every quantity has a manifest unit; named tested conversions; persist source unit and conversion; no unexplained scale factor.
-- **Current source:** current CLY args/outputs carry unit strings and the shared curve layer has named density/neutron/sonic conversions. However CLY parameter values do not carry source units or conversion records; a current density default appears only in house units after an unstated scale conversion.
-- **Qualifying acceptance tests:** none; complete CLY quantity inventory and source-unit run record are missing. Test class `MISSING`.
-- **Supporting tests:** `unit_conversions_only_when_needed` passed exactly once, including the independently known density-unit conversion, but no CLY parameter invokes or records it.
+- **Current source:** all 20 live CLY numeric parameters, inputs and outputs now use recognized registry tokens, including canonical `gAPI`. `ParameterUnitCustody` preserves the cited artefact value/unit, generated-registry identity, f64 affine terms/derivation and canonical value; `param_from_artefact` derives each shipping default through that record rather than repeating a canonical magic literal. `effective_module_parameters` persists a separate `@unit_custody` object for every defaulted or explicit CLY numeric value and none for ABSENT values. The dialog renders both values, both units, identity and derivation. `vsh_dn_rearrangement` is now the same f64 arithmetic path used by the module and the equivalence proof.
+- **Qualifying acceptance tests:** `every_clay_quantity_is_unit_typed_and_named_conversions_preserve_bilinear_results_and_run_custody` and `a_converted_clay_default_shows_its_artefact_unit_named_conversion_and_canonical_value` were witnessed RED and pass. They inventory all 20 quantities; reject a density/fraction bridge; prove `2645 k/m3 -> 2.645 g/cc` within `1e-9`; compare the live N-D rearrangement against the independently specified bilinear form across 10,000 deterministic samples in both unit systems at `1e-12`; prove all three defaults, an explicit canonical input and an ABSENT input from both sides; and render the complete conversion without mutating the value. Wrong-factor, one-default-only persistence and wrong-sign mutations each produced RED before restoration. Expected units, values, equations and tolerances come from sections 4.5, 5 and 6 T21/T42. Test class `CORRECTNESS`.
+- **Supporting tests:** `every_conversion_factor_carries_an_independent_arithmetic_derivation`, `unit_conversions_only_when_needed` and the startup typed-registry test remain supporting generic controls. They do not replace the exact CLY inventory, production arithmetic and run-custody proof.
 - **Manual evidence:** shale-volume 0/17; generic-curve-store 0/18; workflow 0/23.
-- **Git evidence:** manifest units and generic conversion identities are integrated; CLY source-unit custody is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no scale constant is open; the known unit identity may be used only through the named conversion with source-unit evidence.
-- **Next action:** type every CLY parameter/output, retain artefact units on entry, and persist the named conversion alongside the canonical value.
+- **Git evidence:** current topic-branch worktree; one requirement-scoped commit carries registry precision, CLY unit normalization, manifest/run custody, UI disclosure, acceptance tests and evidence together.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated SB-CLY-054. The known density conversion is registry-derived and source-bearing. The T42 `2645 k/m3` witness does not restore disputed `RHO_MA` as a default; SB-CLY-050 keeps it ABSENT. The separate Vsh/Vcl semantic bridge remains absent under SB-CLY-045.
+- **Next action:** retain typed units, registry-derived arithmetic and `@unit_custody`; complete Visual/Manual/Field review separately, then continue SB-CLY-055 without claiming a provenance curve that does not exist.
 
 ## SB-CLY-055 - LAS null discipline on every domain curve
 
-- **Chapter evidence:** P1; historical status `PARTIAL`; T35/T44; sections 4.5, 6 and 8.
-- **Atomic obligations:** values, flags and provenance round-trip with absences intact; declared sentinel in header; provenance tokens survive as a curve.
-- **Current source:** every registered exporter requires writer settings and emits the project-declared sentinel; the default LAS path re-imports numeric values correctly and parser rules preserve declared/per-channel null semantics. CLY has no provenance curve or family and no domain-wide values/flags/provenance round-trip fixture.
-- **Qualifying acceptance tests:** none; generic numeric round trip does not close missing CLY provenance or the T44 conflict. Test class `MISSING`.
-- **Supporting tests:** all three export controls and all three parser null-policy controls passed exactly once.
-- **Manual evidence:** las-export 0/2; shale-volume 0/17; processing-history 0/7.
-- **Git evidence:** generic declared-sentinel custody is integrated; CLY provenance export/import is unimplemented.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-CLY-031, SB-CLY-032 and SB-CLY-046; the writer sentinel remains project-declared, never hard-coded per format.
-- **Next action:** after typed provenance exists, add one all-output LAS round trip using explicit writer settings and prove values, NaNs, flags and tokens survive unchanged.
+- **Specified contract:** every curve this domain emits round-trips LAS export and re-import with absences preserved and provenance intact; the declared null is written in the header; provenance tokens survive as a curve. DEC-036 constraint 3 adds the reader's side: an unknown code on re-import refuses, naming the code and the registry version.
+- **Current implementation (2026-08-18):** DONE. Export already declared the null and carried every computed curve; `VSH_PROV` rides that path with integer codes fixed-decimal-exact. The new half is `prepare_generic_curves`' registry validation - pre-transaction in BOTH LAS paths, so a refused delivery writes nothing at all - refusing any finite code `cly_prov_token` cannot resolve, naming the code and registry v1. Absence is never a code: MISSING exports as the declared null and re-imports as SQL NULL.
+- **Qualifying tests:** the full round trip (every v1 code bit-exact, absence MISSING on token and volume curves, null declared in the header) and the refusal/acceptance pair (code 7 named + registry v1 named + zero rows written; all codes + NaN import untouched). Three mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## Test-intent classification summary
 

@@ -36,25 +36,59 @@ enum SentinelSupport {
     Incapable(&'static str),
 }
 
+/// SB-DBM-010: whether a registered format carries the machine-readable provenance
+/// sidecar (run records, parameter sources, SB-DBM-005 derivation citations) with its
+/// curves. A format that drops it DECLARES so here, the picker shows it BEFORE export,
+/// and the export result states it AT the point of export - never silently.
+#[derive(Debug, Clone, Copy)]
+enum ProvenanceSupport {
+    /// The deliverable itself carries the sidecar (LAS: the ~O ancestry lines).
+    Carries,
+    /// The format cannot carry it; the reason is stated to the user.
+    Drops(&'static str),
+}
+
 struct RegisteredWriter {
     id: &'static str,
     label: &'static str,
     extension: &'static str,
     is_default: bool,
     sentinel_support: SentinelSupport,
+    provenance_support: ProvenanceSupport,
     write: WriterFn,
     self_read: SelfReaderFn,
 }
 
-const REGISTERED_WRITERS: &[RegisteredWriter] = &[RegisteredWriter {
-    id: "las-2.0",
-    label: "LAS 2.0",
-    extension: "las",
-    is_default: true,
-    sentinel_support: SentinelSupport::Honours,
-    write: write_las,
-    self_read: validate_las_output,
-}];
+const REGISTERED_WRITERS: &[RegisteredWriter] = &[
+    RegisteredWriter {
+        id: "las-2.0",
+        label: "LAS 2.0",
+        extension: "las",
+        is_default: true,
+        sentinel_support: SentinelSupport::Honours,
+        provenance_support: ProvenanceSupport::Carries,
+        write: write_las,
+        self_read: validate_las_output,
+    },
+    // SB-CORE-015 / DEC-054: the RP66 V1 writer. Not the default; the sentinel limitation
+    // is a property of the format, stated rather than hidden — DLIS FSINGL carries the
+    // stored f32 bit for bit, so a missing sample is written as IEEE NaN natively and the
+    // project's numeric sentinel is never emitted (rule 2's NaN is the wire value).
+    RegisteredWriter {
+        id: "dlis-rp66v1",
+        label: "DLIS (RP66 V1)",
+        extension: "dlis",
+        is_default: false,
+        sentinel_support: SentinelSupport::Incapable(
+            "DLIS carries missing samples as IEEE NaN natively; the project's numeric sentinel is not written",
+        ),
+        provenance_support: ProvenanceSupport::Drops(
+            "DLIS (RP66 V1) carries no in-file provenance sidecar: the run records, parameter sources and derivation citations stay in the project and travel with the LAS deliverable instead",
+        ),
+        write: write_dlis,
+        self_read: validate_dlis_output,
+    },
+];
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportFormatInfo {
@@ -66,12 +100,22 @@ pub struct ExportFormatInfo {
     /// Present for a format that cannot honour the project sentinel. A format picker
     /// displays this instead of presenting the format as equivalent to a capable one.
     pub sentinel_limitation: Option<String>,
+    /// SB-DBM-010: true when the format's deliverable carries the machine-readable
+    /// provenance sidecar (run records + parameter sources + derivation citations).
+    pub carries_provenance: bool,
+    /// The stated reason a format drops provenance - shown BEFORE export, so the choice
+    /// is informed rather than discovered in the deliverable.
+    pub provenance_limitation: Option<String>,
 }
 
 fn format_info(writer: &RegisteredWriter) -> ExportFormatInfo {
     let (honours_project_sentinel, sentinel_limitation) = match writer.sentinel_support {
         SentinelSupport::Honours => (true, None),
         SentinelSupport::Incapable(reason) => (false, Some(reason.to_string())),
+    };
+    let (carries_provenance, provenance_limitation) = match writer.provenance_support {
+        ProvenanceSupport::Carries => (true, None),
+        ProvenanceSupport::Drops(reason) => (false, Some(reason.to_string())),
     };
     ExportFormatInfo {
         id: writer.id.to_string(),
@@ -80,6 +124,8 @@ fn format_info(writer: &RegisteredWriter) -> ExportFormatInfo {
         is_default: writer.is_default,
         honours_project_sentinel,
         sentinel_limitation,
+        carries_provenance,
+        provenance_limitation,
     }
 }
 
@@ -111,7 +157,8 @@ pub fn project_null_sentinel(conn: &Connection) -> Result<f32, String> {
             |row| row.get(0),
         )
         .ok();
-    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) };
+    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) ;
+    };
     let settings: DataIoSettings = serde_json::from_str(&json)
         .map_err(|e| format!("invalid project data-I/O settings: {e}"))?;
     if !settings.null_sentinel.is_finite() {
@@ -132,6 +179,7 @@ pub fn set_project_null_sentinel(conn: &Connection, null_sentinel: f32) -> Resul
 }
 
 const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
+const PROVENANCE_SUMMARY_PREFIX: &str = "SANDIBUMI_PROVENANCE_SUMMARY_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
 const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
 const PRECISION_PREFIX: &str = "SANDIBUMI_PRECISION_V1 ";
@@ -160,12 +208,24 @@ pub struct LasExportResult {
     pub curves_held: usize,
     pub omitted: Vec<LasOmission>,
     pub curve_states: Vec<LasCurveState>,
+    /// Number of exported computed curve identities whose stored rows do not resolve to a run
+    /// record. They remain in the file only under the explicit LEGACY_UNRECORDED label.
+    pub legacy_unrecorded_curves: usize,
     /// LAS text is currently written at four decimal places. This report declares that
     /// boundary and counts the stored f32 values whose written representation changes.
     pub precision: crate::parsers::SamplePrecisionReport,
     /// True only after the registered reader accepted the completed file and its declared
     /// depth unit, row count, and curve count matched what the writer says it emitted.
     pub self_checked: bool,
+    /// SB-DBM-010: an export whose format drops the provenance sidecar SAYS SO here, at
+    /// the point of export - never silently. `None` = the deliverable carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance_dropped: Option<String>,
+    /// Set when the index is not uniformly sampled and `STEP` was therefore written as `0`.
+    /// Names the first depth at which the spacing changes and both spacings, so the user can
+    /// tell real drift from a delivery defect. `None` means the index is uniform and `STEP`
+    /// carries its real value — a silent `0` would be a degraded result presented as clean.
+    pub nonuniform_step: Option<String>,
 }
 
 fn fixed_decimal_4_reduces(value: f32) -> bool {
@@ -209,9 +269,20 @@ fn provenance_lines(
     conn: &Connection,
     well_id: &str,
     curve_names: &[String],
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, usize), String> {
     let standard = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
     let mut lines = Vec::new();
+    let mut legacy_curves = std::collections::BTreeSet::new();
+    let mut groups_by_curve = std::collections::BTreeMap::<
+        String,
+        Vec<crate::equations::ComputedProvenanceGroup>,
+    >::new();
+    for group in crate::equations::computed_provenance_groups(conn, well_id)? {
+        groups_by_curve
+            .entry(group.curve_name.trim().to_uppercase())
+            .or_default()
+            .push(group);
+    }
 
     for name in curve_names {
         let upper = name.trim().to_uppercase();
@@ -222,69 +293,90 @@ fn provenance_lines(
             ));
             continue;
         }
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves
-                 WHERE well_id = ?1 AND upper(curve_name) = ?2",
-            )
-            .map_err(|e| e.to_string())?;
-        let set_ids: Vec<Option<String>> = stmt
-            .query_map(params![well_id, upper], |row| row.get(0))
-            .map_err(|e| e.to_string())?
-            .collect::<duckdb::Result<_>>()
-            .map_err(|e| e.to_string())?;
-        if set_ids.is_empty() {
+        let groups = groups_by_curve.remove(&upper).unwrap_or_default();
+        if groups.is_empty() {
             lines.push(format!(
                 "{PROVENANCE_PREFIX}{}",
                 serde_json::json!({ "curve": upper, "origin": "measured" })
             ));
             continue;
         }
-        if set_ids.len() != 1 || set_ids[0].is_none() {
-            return Err(format!(
-                "computed curve '{name}' has no single live ancestry record; export refused because its method and parameters cannot be carried"
-            ));
-        }
-        let set_id = set_ids[0].as_deref().expect("checked above");
-        let (set_name, version, module, params_json, inputs_json, created_at): (
-            String,
-            i64,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-        ) = conn
-            .query_row(
-                "SELECT set_name, version, module, params_json, inputs_json,
-                        strftime(created_at, '%Y-%m-%d %H:%M')
-                 FROM log_sets WHERE set_id = ?1",
-                params![set_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
-            )
-            .map_err(|_| {
+
+        for group in groups {
+            if group.provenance_class
+                == crate::equations::ComputedProvenanceClass::LegacyUnrecorded
+            {
+                legacy_curves.insert(upper.clone());
+                lines.push(format!(
+                    "{PROVENANCE_PREFIX}{}",
+                    serde_json::json!({
+                        "curve": upper,
+                        "origin": "computed",
+                        "provenance_class": crate::equations::LEGACY_UNRECORDED,
+                        "row_count": group.row_count,
+                        "state": "unprovenanced"
+                    })
+                ));
+                continue;
+            }
+
+            let set_id = group.set_id.as_deref().expect("recorded groups carry a set id");
+            let (set_name, version, module, params_json, inputs_json, custody, created_at): (
+                String,
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+            ) = conn
+                .query_row(
+                    "SELECT set_name, version, module, params_json, inputs_json, comment,
+                            strftime(created_at, '%Y-%m-%d %H:%M')
+                     FROM log_sets WHERE set_id = ?1",
+                    params![set_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                        ))
+                    },
+                )
+                .map_err(|_| {
+                    format!(
+                        "computed curve '{name}' cites missing log-set record '{set_id}'; export refused"
+                    )
+                })?;
+            let params_text = params_json
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| {
+                    format!("computed curve '{name}' has no recorded parameters; export refused")
+                })?;
+            let parameters: serde_json::Value = serde_json::from_str(params_text)
+                .map_err(|e| format!("computed curve '{name}' has invalid parameter JSON: {e}"))?;
+            let inputs: serde_json::Value = match inputs_json.as_deref().map(str::trim) {
+                Some(text) if !text.is_empty() => serde_json::from_str(text)
+                    .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
+                _ => serde_json::Value::Array(Vec::new()),
+            };
+            let ancestry = crate::equations::parse_curve_ancestry(params_text).map_err(|error| {
                 format!(
-                    "computed curve '{name}' cites missing log-set record '{set_id}'; export refused"
+                    "computed curve '{name}' cannot be exported without its complete ancestry: {error}"
                 )
             })?;
-        let params_text = params_json
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .ok_or_else(|| format!("computed curve '{name}' has no recorded parameters; export refused"))?;
-        let parameters: serde_json::Value = serde_json::from_str(params_text)
-            .map_err(|e| format!("computed curve '{name}' has invalid parameter JSON: {e}"))?;
-        let inputs: serde_json::Value = match inputs_json.as_deref().map(str::trim) {
-            Some(text) if !text.is_empty() => serde_json::from_str(text)
-                .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
-            _ => serde_json::Value::Array(Vec::new()),
-        };
-        let state = curve_state_for_set(&set_name);
-        lines.push(format!(
-            "{PROVENANCE_PREFIX}{}",
-            serde_json::json!({
+            let state = curve_state_for_set(&set_name);
+            let mut record = serde_json::json!({
                 "curve": upper,
                 "origin": "computed",
+                "provenance_class": "RECORDED",
+                "row_count": group.row_count,
                 "method": module,
                 "parameters": parameters,
                 "inputs": inputs,
@@ -292,39 +384,47 @@ fn provenance_lines(
                 "version": version,
                 "run_date": created_at,
                 "state": state,
-            })
-        ));
-
-        if module.starts_with("ml:") {
-            let mut model_ids = Vec::new();
-            collect_model_ids(&parameters, &mut model_ids);
-            if model_ids.is_empty() {
-                return Err(format!(
-                    "model-derived curve '{name}' has no saved model identity in its run record; export refused"
-                ));
+                "ancestry": ancestry,
+            });
+            // SB-POR-003: the run's custody comment (branches taken, limits bound) survives
+            // export on the same `~O` line as the parameters it qualifies.
+            if let Some(text) = custody.as_deref().map(str::trim).filter(|text| !text.is_empty())
+            {
+                record["custody"] = serde_json::json!(text);
             }
-            for model_id in model_ids {
-                let (info, artifact) = crate::db::get_ml_model(conn, &model_id).map_err(|_| {
-                    format!(
-                        "model-derived curve '{name}' cites unavailable model '{model_id}'; export refused"
-                    )
-                })?;
-                let mut record = serde_json::to_value(info).map_err(|e| e.to_string())?;
-                let object = record
-                    .as_object_mut()
-                    .ok_or_else(|| "saved model record did not serialize as an object".to_string())?;
-                object.insert(
-                    "artifact_sha256".into(),
-                    serde_json::Value::String(format!("{:x}", Sha256::digest(&artifact))),
-                );
-                lines.push(format!(
-                    "{MODEL_PROVENANCE_PREFIX}{}",
-                    serde_json::json!({ "curve": upper, "record": record })
-                ));
+            lines.push(format!("{PROVENANCE_PREFIX}{record}"));
+
+            if module.starts_with("ml:") {
+                let mut model_ids = Vec::new();
+                collect_model_ids(&parameters, &mut model_ids);
+                if model_ids.is_empty() {
+                    return Err(format!(
+                        "model-derived curve '{name}' has no saved model identity in its run record; export refused"
+                    ));
+                }
+                for model_id in model_ids {
+                    let (info, artifact) = crate::db::get_ml_model(conn, &model_id).map_err(|_| {
+                        format!(
+                            "model-derived curve '{name}' cites unavailable model '{model_id}'; export refused"
+                        )
+                    })?;
+                    let mut record = serde_json::to_value(info).map_err(|e| e.to_string())?;
+                    let object = record.as_object_mut().ok_or_else(|| {
+                        "saved model record did not serialize as an object".to_string()
+                    })?;
+                    object.insert(
+                        "artifact_sha256".into(),
+                        serde_json::Value::String(format!("{:x}", Sha256::digest(&artifact))),
+                    );
+                    lines.push(format!(
+                        "{MODEL_PROVENANCE_PREFIX}{}",
+                        serde_json::json!({ "curve": upper, "record": record })
+                    ));
+                }
             }
         }
     }
-    Ok(lines)
+    Ok((lines, legacy_curves.len()))
 }
 
 /// Adds generic-store curves only when their exact samples fit the LAS frame. Resolution is by
@@ -432,9 +532,149 @@ fn add_generic_curves(
     Ok((held, omitted, curve_states))
 }
 
+/// SB-DIO-007: what one delimited export did, and which curves could not carry states.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DelimitedExportResult {
+    pub path: String,
+    pub rows: usize,
+    pub curves: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// SB-DIO-007 (signed DRAFT_DIO007 under DEC-076): the delimited export is the mask's
+/// NATIVE round trip - a state-1 sample exports an EMPTY cell, a state-2 sample exports
+/// `null_token`, and a measured sample exports its value. A curve with no mask (a
+/// pre-contract import) exports every absent sample as the null token AND SAYS SO in the
+/// result notes - the distinction is unavailable, never silently invented. An unknown mask
+/// version refuses the STATES the same way (values still export). Deliberately not a
+/// `REGISTERED_WRITERS` entry: surfacing a new format in the export picker is a product
+/// decision that stays with Jauhar.
+pub fn export_delimited_set(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    dest_path: &str,
+    null_token: &str,
+) -> Result<DelimitedExportResult, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT curve_id, mnemonic FROM curve_meta
+             WHERE well_id = ?1 AND set_name = ?2 ORDER BY mnemonic",
+        )
+        .map_err(|e| e.to_string())?;
+    let curves: Vec<(String, String)> = stmt
+        .query_map(duckdb::params![well_id, set_name], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<duckdb::Result<_>>()
+        .map_err(|e| e.to_string())?;
+    if curves.is_empty() {
+        return Err(format!(
+            "well {well_id} has no curves in set {set_name}: nothing to export"
+        ));
+    }
+    let mut notes: Vec<String> = Vec::new();
+    // Per curve: samples in ascending depth order (the mask's own order) and the decoded
+    // states, where a mask exists and decodes against this exact sample count.
+    let mut per_curve: Vec<std::collections::HashMap<u32, (Option<f32>, Option<u8>)>> =
+        Vec::with_capacity(curves.len());
+    let mut depth_union: Vec<f32> = Vec::new();
+    for (curve_id, mnemonic) in &curves {
+        let mut sstmt = conn
+            .prepare(
+                "SELECT depth, value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth",
+            )
+            .map_err(|e| e.to_string())?;
+        let samples: Vec<(f32, Option<f32>)> = sstmt
+            .query_map(duckdb::params![curve_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<duckdb::Result<_>>()
+            .map_err(|e| e.to_string())?;
+        let states: Option<Vec<u8>> =
+            match crate::db::get_curve_state_mask(conn, curve_id).map_err(|e| e.to_string())? {
+                None => {
+                    notes.push(format!(
+                        "{mnemonic}: no source-cell states recorded (pre-contract import); \
+                         absent samples export as the null token (SB-DIO-007)"
+                    ));
+                    None
+                }
+                Some(blob) => match crate::db::decode_state_mask(&blob, samples.len()) {
+                    Ok(states) => Some(states),
+                    Err(reason) => {
+                        notes.push(format!("{mnemonic}: {reason}"));
+                        None
+                    }
+                },
+            };
+        let mut map = std::collections::HashMap::with_capacity(samples.len());
+        for (index, (depth, value)) in samples.iter().enumerate() {
+            map.insert(
+                depth.to_bits(),
+                (*value, states.as_ref().map(|s| s[index])),
+            );
+            depth_union.push(*depth);
+        }
+        per_curve.push(map);
+    }
+    depth_union.sort_by(f32::total_cmp);
+    depth_union.dedup();
+
+    let mut out = String::new();
+    out.push_str("DEPTH");
+    for (_, mnemonic) in &curves {
+        out.push(',');
+        out.push_str(mnemonic);
+    }
+    out.push('\n');
+    for depth in &depth_union {
+        out.push_str(&format!("{depth}"));
+        for map in &per_curve {
+            out.push(',');
+            match map.get(&depth.to_bits()) {
+                // A depth this curve never carried is an EMPTY cell - absence of a row,
+                // not a masked state.
+                None => {}
+                Some((value, state)) => match state {
+                    Some(s) if *s == crate::db::CELL_STATE_EMPTY => {}
+                    Some(s) if *s == crate::db::CELL_STATE_NULLED => out.push_str(null_token),
+                    _ => match value {
+                        Some(v) if v.is_finite() => out.push_str(&format!("{v}")),
+                        // Absent with no state to say why: the null token, per the
+                        // pre-contract note above.
+                        _ => out.push_str(null_token),
+                    },
+                },
+            }
+        }
+        out.push('\n');
+    }
+    std::fs::write(dest_path, &out)
+        .map_err(|e| format!("cannot write {dest_path}: {e}"))?;
+    Ok(DelimitedExportResult {
+        path: dest_path.to_string(),
+        rows: depth_union.len(),
+        curves: curves.into_iter().map(|(_, m)| m).collect(),
+        notes,
+    })
+}
+
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
     let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
     let writer = default_writer()?;
+    export_with_writer(conn, well_id, dest_path, settings, writer)
+}
+
+/// SB-CORE-015: exports one well as DLIS (RP66 V1) and self-reads the artifact through the
+/// same `dlisio` subprocess reader that imports client DLIS — "no artifact ships that
+/// SandiBumi's own reader rejects", proven on the actual file just written.
+pub fn export_dlis(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
+    let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
+    let writer = REGISTERED_WRITERS
+        .iter()
+        .find(|writer| writer.id == "dlis-rp66v1")
+        .ok_or_else(|| "the DLIS export format is not registered".to_string())?;
     export_with_writer(conn, well_id, dest_path, settings, writer)
 }
 
@@ -448,6 +688,11 @@ fn export_with_writer(
     let mut result = (writer.write)(conn, well_id, dest_path, settings)?;
     (writer.self_read)(conn, dest_path, &result)?;
     result.self_checked = true;
+    // SB-DBM-010: the point-of-export statement comes from the REGISTRY declaration, so
+    // a writer cannot forget to make it.
+    if let ProvenanceSupport::Drops(reason) = writer.provenance_support {
+        result.provenance_dropped = Some(reason.to_string());
+    }
     Ok(result)
 }
 
@@ -461,7 +706,7 @@ fn validate_las_output(
 ) -> Result<(), String> {
     let frame = crate::parsers::parse_las_2_all(dest_path)
         .map_err(|error| format!("LAS self-check failed: SandiBumi's LAS reader rejected the output: {error}"))?;
-    let expected_unit = crate::units::project_depth_unit_or_default(conn);
+    let expected_unit = crate::units::require_project_depth_unit(conn, "LAS self-check")?;
     let written_unit = frame
         .depth_unit
         .as_deref()
@@ -504,12 +749,145 @@ fn validate_las_output(
     Ok(())
 }
 
-fn write_las(
+/// SB-CORE-015 / DEC-054: writes one well as RP66 V1 DLIS. The byte assembly lives in
+/// `dlis_writer.rs` (pure, spec-cited); this half gathers the SAME export inventory the LAS
+/// writer renders, so the two formats are two renderings of one decision. DEC-054
+/// constraint 2 (nothing partial ships) is why the `dlisio` capability is required BEFORE a
+/// byte is written: the self-read is part of the artifact's definition here, and an export
+/// that cannot be self-read refuses by name instead of shipping unproven.
+fn write_dlis(
     conn: &Connection,
     well_id: &str,
     dest_path: &str,
-    settings: WriterSettings,
+    _settings: WriterSettings,
 ) -> Result<LasExportResult, String> {
+    let Some(python) = crate::python_engine::find_python() else {
+        return Err(crate::installation::capability_message(
+            crate::installation::CAPABILITY_DLIS_IMPORT,
+            None,
+            None,
+        ));
+    };
+    crate::installation::require_python_capability(&python, crate::installation::CAPABILITY_DLIS_IMPORT)?;
+
+    let gathered = gather_well_frame(conn, well_id)?;
+    let depth_unit = crate::units::require_project_depth_unit(conn, "DLIS export")?.code();
+    let mut channels = Vec::with_capacity(gathered.curve_names.len());
+    let mut columns = Vec::with_capacity(gathered.curve_names.len());
+    for (name, unit) in gathered.curve_names.iter().zip(gathered.units.iter()) {
+        let key = name.trim().to_uppercase();
+        let values = gathered
+            .columns
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| vec![f32::NAN; gathered.depth.len()]);
+        channels.push(crate::dlis_writer::DlisChannel {
+            mnemonic: name.clone(),
+            unit: unit.clone(),
+            description: name.clone(),
+        });
+        columns.push(values);
+    }
+    let spec = crate::dlis_writer::DlisFileSpec {
+        well_name: gathered.well_name.clone(),
+        field_name: gathered.field_name.clone().unwrap_or_default(),
+        depth_unit: depth_unit.to_string(),
+        depth: gathered.depth.clone(),
+        channels,
+        columns,
+    };
+    let bytes = crate::dlis_writer::write_storage_unit(&spec)?;
+    std::fs::write(dest_path, &bytes).map_err(|e| e.to_string())?;
+    Ok(LasExportResult {
+        rows: gathered.depth.len(),
+        curves_written: gathered.curve_names.len(),
+        curves_held: gathered.curves_held,
+        omitted: gathered.omitted,
+        curve_states: gathered.curve_states,
+        // DLIS carries no LEGACY_UNRECORDED labelling — no curve is labelled, so the count
+        // of labelled curves is zero, truthfully.
+        legacy_unrecorded_curves: 0,
+        // FSINGL is the stored f32 bit for bit (Appendix B code 2); nothing is reduced.
+        precision: crate::parsers::SamplePrecisionReport::new(
+            "f32 storage",
+            "DLIS FSINGL (bit-identical f32)",
+            0,
+        ),
+        self_checked: false,
+        provenance_dropped: None,
+        // The DLIS frame declares no SPACING (see dlis_writer.rs) — there is no STEP claim
+        // to caveat.
+        nonuniform_step: None,
+    })
+}
+
+/// The DLIS self-read: imports the just-written artifact into a scratch in-memory project
+/// through `dlis.rs` — the identical `dlisio` subprocess route every client DLIS takes —
+/// and requires a COMPLETE import whose row and curve counts match what the writer says it
+/// emitted. Sample-exact value equality is pinned by the round-trip test in this module
+/// (ignored: needs the optional `dlisio`, rule 5), which has the source well to compare
+/// against; this in-process check runs on every export.
+fn validate_dlis_output(
+    conn: &Connection,
+    dest_path: &str,
+    result: &LasExportResult,
+) -> Result<(), String> {
+    let scratch = Connection::open_in_memory().map_err(|e| e.to_string())?;
+    crate::db::create_schema(&scratch).map_err(|e| e.to_string())?;
+    let scratch_well = uuid::Uuid::new_v4();
+    crate::db::insert_well(&scratch, scratch_well, "DLIS-SELF-CHECK", None, None, None)
+        .map_err(|e| e.to_string())?;
+    let depth_unit = crate::units::require_project_depth_unit(conn, "DLIS self-check")?.code();
+    let import = crate::dlis::import_dlis_file(
+        &scratch,
+        &scratch_well.to_string(),
+        dest_path,
+        Some("RAW"),
+        Some(depth_unit),
+    );
+    if import.status != crate::dlis::DlisImportStatus::Complete {
+        return Err(format!(
+            "DLIS self-check failed: SandiBumi's DLIS reader did not accept the output: {}",
+            import.error.unwrap_or_else(|| format!("status {:?}", import.status))
+        ));
+    }
+    // The reader's accounting, verified against dlisio's own frame decomposition: the DEPT
+    // index channel imports as a curve alongside the data channels, and `rows` is the SUM
+    // of per-curve sample counts — so a clean round-trip reads (written + 1) curves and
+    // (written + 1) × frames samples. Anything else means a channel or frame was lost.
+    let expected_curves = result.curves_written + 1;
+    if import.curves_imported != expected_curves {
+        return Err(format!(
+            "DLIS self-check failed: writer emitted {} channel(s) beside the index, but its reader imported {} curve(s) where {} were expected",
+            result.curves_written, import.curves_imported, expected_curves
+        ));
+    }
+    let expected_samples = expected_curves * result.rows;
+    if import.rows != expected_samples {
+        return Err(format!(
+            "DLIS self-check failed: writer emitted {} frame(s) across {} channel(s) ({} samples), but its reader found {}",
+            result.rows, expected_curves, expected_samples, import.rows
+        ));
+    }
+    Ok(())
+}
+
+/// One well's export inventory on its standard depth frame — the SAME decision for every
+/// registered writer, gathered once here so a second format cannot silently drift from the
+/// LAS export's curve set (SB-CORE-007's one-definition rule applied to the gather).
+struct GatheredWellFrame {
+    well_name: String,
+    field_name: Option<String>,
+    curve_names: Vec<String>,
+    units: Vec<String>,
+    depth: Vec<f32>,
+    columns: std::collections::HashMap<String, Vec<f32>>,
+    omitted: Vec<LasOmission>,
+    curve_states: Vec<LasCurveState>,
+    curves_held: usize,
+}
+
+fn gather_well_frame(conn: &Connection, well_id: &str) -> Result<GatheredWellFrame, String> {
     let (well_name, field_name): (String, Option<String>) = conn
         .query_row(
             "SELECT well_name, field_name FROM wells WHERE well_id = ?1",
@@ -539,6 +917,11 @@ fn write_las(
             .map_err(|e| e.to_string())?;
         for r in rows {
             let (name, unit) = r.map_err(|e| e.to_string())?;
+            if crate::schema_vocab::standard_column(&name).is_some() {
+                return Err(format!(
+                    "computed curve '{name}' shadows a measured standard curve; export refused because the deliverable cannot distinguish their provenance"
+                ));
+            }
             // A unit DECLARED by whatever wrote the curve beats one inferred from an equation of
             // the same name (SB-MLA-035). The case this exists for is a prediction fitted in log
             // space: exported with a blank unit — or worse, with the units of the quantity it is a
@@ -564,9 +947,50 @@ fn write_las(
         &mut columns,
     )?;
     let curves_held = initially_written + generic_held;
-    let depth_unit = crate::units::project_depth_unit_or_default(conn).code();
-    let provenance = provenance_lines(conn, well_id, &curve_names)?;
-    let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
+    Ok(GatheredWellFrame {
+        well_name,
+        field_name,
+        curve_names,
+        units,
+        depth,
+        columns,
+        omitted,
+        curve_states,
+        curves_held,
+    })
+}
+
+fn write_las(
+    conn: &Connection,
+    well_id: &str,
+    dest_path: &str,
+    settings: WriterSettings,
+) -> Result<LasExportResult, String> {
+    let GatheredWellFrame {
+        well_name,
+        field_name,
+        curve_names,
+        units,
+        depth,
+        columns,
+        omitted,
+        curve_states,
+        curves_held,
+    } = gather_well_frame(conn, well_id)?;
+    let depth_unit = crate::units::require_project_depth_unit(conn, "LAS export")?.code();
+    let (provenance, legacy_unrecorded_curves) =
+        provenance_lines(conn, well_id, &curve_names)?;
+    // SB-DIO-056: the step is verified across the WHOLE index, on the fixed-decimal-4 text this
+    // writer is about to emit, and is declared as 0 when it varies — LAS 2.0's own provision for
+    // a non-uniform index (21_data-io.md:867). Declaring depth[1] - depth[0] tells a reader the
+    // file is uniformly sampled when it is not, and a conforming reader is then entitled to
+    // rebuild depths from STRT/STEP — silently re-gridding the data.
+    let written_depths: Vec<String> = depth.iter().map(|value| format!("{value:.4}")).collect();
+    let (step, nonuniform_step) = match crate::parsers::verify_written_step(&written_depths) {
+        crate::parsers::WrittenStep::Uniform(step) => (step.parse::<f32>().unwrap_or(0.0), None),
+        crate::parsers::WrittenStep::NoInterval => (0.0, None),
+        crate::parsers::WrittenStep::Varies(note) => (0.0, Some(note)),
+    };
     let mut values_reduced = depth.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
     for name in &curve_names {
         let key = name.trim().to_uppercase();
@@ -612,6 +1036,13 @@ fn write_las(
         writeln!(w, "# SandiBumi provenance: prefixed JSON Lines; convention version 1")?;
         writeln!(
             w,
+            " {PROVENANCE_SUMMARY_PREFIX}{}",
+            serde_json::json!({
+                "legacy_unrecorded_curves": legacy_unrecorded_curves
+            })
+        )?;
+        writeln!(
+            w,
             " {PRECISION_PREFIX}{}",
             serde_json::to_string(&precision).expect("serializing a precision report cannot fail")
         )?;
@@ -653,8 +1084,11 @@ fn write_las(
         curves_held,
         omitted,
         curve_states,
+        legacy_unrecorded_curves,
         precision,
         self_checked: false,
+        provenance_dropped: None,
+        nonuniform_step,
     })
 }
 
@@ -668,9 +1102,171 @@ mod tests {
         std::env::temp_dir().join(format!("sandibumi-export-{}-{}.las", tag, std::process::id()))
     }
 
+    /// CHARACTERIZATION — **Characterizes thirty wrapped LAS curves as aligned and every LAS
+    /// export as unwrapped.** `SB-DIO-040` / `SB-DIO-T58`. Source: 21_data-io.md D-24 and T58
+    /// specify the 30-curve `WRAP.YES` fixture; the chapter explicitly classifies T58 as `char`.
+    #[test]
+    fn characterizes_thirty_wrapped_las_curves_as_aligned_and_every_las_export_as_unwrapped() {
+        let source_path = tmp_path("wrapped-thirty-source");
+        let export_path = tmp_path("wrapped-thirty-export");
+        let mut las = String::from(
+            "~Version Information\nVERS. 2.0\nWRAP. YES\n~Well Information\nWELL. WRAPPED_THIRTY_CURVES\nNULL. -999.25\n~Curve Information\nDEPT.M : Depth\n",
+        );
+        for curve in 1..=30 {
+            las.push_str(&format!("C{curve:02}.UNIT : Wrapped curve {curve:02}\n"));
+        }
+        las.push_str("~ASCII\n");
+        for row in 1..=2 {
+            let mut tokens = vec![format!("{}", 1000 + row)];
+            tokens.extend((1..=30).map(|curve| format!("{}", curve * 100 + row)));
+            for chunk in tokens.chunks(7) {
+                las.push_str(&chunk.join(" "));
+                las.push('\n');
+            }
+        }
+        std::fs::write(&source_path, las).unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let result = crate::ingest::import_las_files(
+            &conn,
+            &[source_path.to_string_lossy().to_string()],
+            None,
+        )
+        .remove(0);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let well_id = result.well_id.expect("the wrapped delivery creates one imported object");
+        for curve in 1..=30 {
+            let mnemonic = format!("C{curve:02}");
+            let samples: Vec<(f32, f32)> = {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT s.depth, s.value FROM curve_samples s
+                         JOIN curve_meta m ON m.curve_id = s.curve_id
+                         WHERE m.well_id = ?1 AND m.mnemonic = ?2 ORDER BY s.depth",
+                    )
+                    .unwrap();
+                statement
+                    .query_map(params![&well_id, &mnemonic], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            assert_eq!(
+                samples,
+                vec![(1001.0, (curve * 100 + 1) as f32), (1002.0, (curve * 100 + 2) as f32)],
+                "{mnemonic} must keep both uniquely identifiable source-column values",
+            );
+        }
+
+        let exported = export_las(&conn, &well_id, export_path.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&export_path).unwrap();
+        let wrap = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("WRAP."))
+            .expect("the LAS version block declares its wrapping mode");
+        assert!(wrap.split(':').next().unwrap_or("").split_whitespace().any(|token| token == "NO"));
+        let data_rows: Vec<&str> = text
+            .split("~ASCII")
+            .nth(1)
+            .expect("the writer emits an ASCII data section")
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        assert_eq!(data_rows.len(), 2, "one physical line must carry each complete logical depth row");
+        assert!(
+            data_rows
+                .iter()
+                .all(|line| line.split_whitespace().count() == exported.curves_written + 1),
+            "each physical row must contain depth plus every exported curve",
+        );
+
+        std::fs::remove_file(source_path).unwrap();
+        std::fs::remove_file(export_path).unwrap();
+    }
+
+    /// Rule 5: the DLIS writer's self-read runs through the OPTIONAL dlisio package, so the
+    /// registry-exhaustive tests skip that one writer with a printed reason where dlisio is
+    /// absent — the green gate never depends on an optional package, and a machine that has
+    /// it (the reference machine does) still exercises the full loop.
+    fn dlisio_available() -> bool {
+        crate::python_engine::find_python().is_some_and(|python| {
+            crate::installation::require_python_capability(
+                &python,
+                crate::installation::CAPABILITY_DLIS_IMPORT,
+            )
+            .is_ok()
+        })
+    }
+
+    /// Reads the FDATA rows back out of a written RP66 storage unit with an independent
+    /// byte-walk (SUL, visible records, segment reassembly, then OBNAME + frame number +
+    /// FSINGL slots) — the SB-DIO-T35 native-sample inspection adapter for the DLIS writer.
+    fn dlis_fdata_rows(bytes: &[u8]) -> Vec<Vec<f32>> {
+        let read_uvari = |bytes: &[u8], at: &mut usize| -> u32 {
+            let first = bytes[*at];
+            if first < 0x80 {
+                *at += 1;
+                first as u32
+            } else if first & 0xC0 == 0x80 {
+                let value = u16::from_be_bytes([bytes[*at], bytes[*at + 1]]) & 0x3FFF;
+                *at += 2;
+                value as u32
+            } else {
+                let value = u32::from_be_bytes(bytes[*at..*at + 4].try_into().unwrap())
+                    & 0x3FFF_FFFF;
+                *at += 4;
+                value
+            }
+        };
+        let mut records: Vec<(u8, bool, Vec<u8>)> = Vec::new();
+        let mut cursor = 80usize; // the Storage Unit Label
+        while cursor < bytes.len() {
+            let vr_len = u16::from_be_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+            assert_eq!(bytes[cursor + 2], 0xFF);
+            assert_eq!(bytes[cursor + 3], 0x01);
+            let vr_end = cursor + vr_len;
+            let mut seg_at = cursor + 4;
+            while seg_at < vr_end {
+                let seg_len = u16::from_be_bytes([bytes[seg_at], bytes[seg_at + 1]]) as usize;
+                let attrs = bytes[seg_at + 2];
+                let lr_type = bytes[seg_at + 3];
+                let mut body_end = seg_at + seg_len;
+                if attrs & 0x01 != 0 {
+                    body_end -= bytes[body_end - 1] as usize;
+                }
+                let body = bytes[seg_at + 4..body_end].to_vec();
+                if attrs & 0x40 != 0 {
+                    records.last_mut().unwrap().2.extend(body);
+                } else {
+                    records.push((lr_type, attrs & 0x80 != 0, body));
+                }
+                seg_at += seg_len;
+            }
+            cursor = vr_end;
+        }
+        records
+            .into_iter()
+            .filter(|(lr_type, is_eflr, _)| *lr_type == 0 && !is_eflr)
+            .map(|(_, _, body)| {
+                let mut at = 0usize;
+                let _origin = read_uvari(&body, &mut at);
+                at += 1; // copy number (USHORT)
+                let name_len = body[at] as usize;
+                at += 1 + name_len;
+                let _frame_number = read_uvari(&body, &mut at);
+                body[at..]
+                    .chunks_exact(4)
+                    .map(|slot| f32::from_be_bytes(slot.try_into().unwrap()))
+                    .collect()
+            })
+            .collect()
+    }
+
     /// A well with one missing sample per curve, plus a MIXED-CASE computed curve.
     fn seed(conn: &Connection) -> (Uuid, Vec<f32>, Vec<f32>) {
         db::create_schema(conn).unwrap();
+        crate::units::set_project_depth_unit(conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         db::insert_well(conn, id, "SANDI-EXP", Some("Synthetic"), None, None).unwrap();
 
@@ -695,43 +1291,186 @@ mod tests {
 
         // Deliberately mixed case — see the regression note below.
         let vsh = vec![0.1f32, 0.25, 0.5, f32::NAN, 0.75, 0.9];
-        let set = crate::equations::create_log_set(
+        let custody = crate::workflow::test_run_custody();
+        let spec = crate::equations::complete_curve_run_spec(
             conn,
             &id.to_string(),
-            &crate::equations::LogSetSpec {
-                set_name: "INTERP".into(),
-                module: "vsh_gr".into(),
-                params_json: serde_json::json!({ "gr_clean": 25.0, "gr_shale": 125.0 }).to_string(),
-                inputs_json: serde_json::json!(["GR"]).to_string(),
-            },
-        )
+            "INTERP",
+                "vsh_gr",
+            &custody,
+            &[(id.to_string(), "GR".into(),
+                "GR".into())],
+            None,
+            serde_json::json!({ "gr_clean": 25.0, "gr_shale": 125.0 }),
+                crate::equations::AncestryZoneScope::WholeWell,
+            &["Vsh_final".into()]).unwrap();
+        let (set_id, _) =
+            crate::equations::create_complete_log_set(conn, &id.to_string()
+            , &spec)
         .unwrap();
-        crate::equations::write_computed_curves_versioned(
+        crate::equations::write_computed_curves_with_ancestry(
             conn,
             &id.to_string(),
             &depth,
             &[("Vsh_final", &vsh)],
-            &set.0,
+            &set_id,
         )
         .unwrap();
 
         (id, gr, vsh)
     }
 
-    /// SB-DIO-018 / SB-DIO-T29..T30. The fourteen canonical family units are
-    /// the code-resident T1 table cited in chapter §5.1.
+    /// CORRECTNESS — SB-CORE-015 / SB-CORE-T15 (DLIS arm) under DEC-054. The artifact is
+    /// proven on SandiBumi's OWN reader: the file just written is imported back through
+    /// `dlis.rs` — the identical dlisio subprocess route every client DLIS takes — and
+    /// every curve and sample must come back intact, NaN positions included. Ignored per
+    /// rule 5: the subject needs the optional `dlisio` package, so the green gate never
+    /// depends on it; run manually where dlisio is installed.
     #[test]
-    fn every_exported_family_unit_comes_from_the_one_canonical_table() {
-        let source = include_str!("export.rs");
-        let duplicate_definition = ["fn standard", "_units"].concat();
-        assert!(!source.contains(&duplicate_definition), "the duplicate writer table must stay deleted");
+    #[ignore = "needs the optional dlisio package (rule 5); run manually with --ignored"]
+    fn a_dlis_export_round_trips_through_sandibumis_own_reader_with_every_curve_and_sample_intact()
+    {
+        let conn = Connection::open_in_memory().unwrap();
+        let (well_id, gr, vsh) = seed(&conn);
+        // SB-CORE-015's fixture clause: the round-trip fixture must NOT share the writer's
+        // defaults. This project is re-declared in FEET — the writer must label what it
+        // actually wrote, and the re-import must come back to identical depths (T15's exact
+        // witness: the historical defect was foot values labelled metres, divided by 0.3048
+        // by our own importer on the way back in).
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Feet).unwrap();
+        let dest = std::env::temp_dir()
+            .join(format!("sandibumi-export-dlis-roundtrip-{}.dlis", std::process::id()));
+        let result = export_dlis(&conn, &well_id.to_string(), dest.to_str().unwrap())
+            .expect("the DLIS export must succeed where dlisio is installed");
         assert!(
-            source.contains("crate::curves::canonical_unit"),
-            "the writer must consult curves::canonical_unit"
+            result.self_checked,
+            "the export result must record that the dlisio self-read accepted the file"
+        );
+        assert_eq!(result.rows, 6);
+        assert_eq!(
+            result.precision.values_reduced, 0,
+            "FSINGL is the stored f32 bit for bit; nothing is reduced"
         );
 
+        // Independent of the in-export self-check: import into a fresh project and compare
+        // the values themselves.
+        let back = Connection::open_in_memory().unwrap();
+        db::create_schema(&back).unwrap();
+        crate::units::set_project_depth_unit(&back, crate::units::DepthUnit::Feet).unwrap();
+        let back_well = Uuid::new_v4();
+        db::insert_well(&back, back_well, "ROUNDTRIP", None, None, None).unwrap();
+        let import = crate::dlis::import_dlis_file(
+            &back,
+            &back_well.to_string(),
+            dest.to_str().unwrap(),
+            Some("RAW"),
+            Some("ft"),
+        );
+        assert_eq!(
+            import.status,
+            crate::dlis::DlisImportStatus::Complete,
+            "reader status: {:?}",
+            import.error
+        );
+        // The importer counts the DEPT index as a curve and `rows` as total samples —
+        // the same accounting the in-export self-check verifies.
+        assert_eq!(import.curves_imported, result.curves_written + 1);
+        assert_eq!(import.rows, (result.curves_written + 1) * result.rows);
+
+        let read_back = |mnemonic: &str| -> Vec<f32> {
+            let mut statement = back
+                .prepare(
+                    "SELECT s.value FROM curve_samples s
+                     JOIN curve_meta m ON m.curve_id = s.curve_id
+                     WHERE m.well_id = ?1 AND upper(m.mnemonic) = upper(?2)
+                     ORDER BY s.depth",
+                )
+                .unwrap();
+            statement
+                .query_map(params![back_well.to_string(), mnemonic], |row| {
+                    Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+                })
+                .unwrap()
+                .collect::<duckdb::Result<Vec<f32>>>()
+                .unwrap()
+        };
+        let same = |got: &[f32], want: &[f32], name: &str| {
+            assert_eq!(got.len(), want.len(), "{name} sample count");
+            for (index, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+                assert!(
+                    (g.is_nan() && w.is_nan()) || g == w,
+                    "{name} sample {index}: read {g}, wrote {w} — a NaN must come back NaN and a value bit-identical"
+                );
+            }
+        };
+        same(&read_back("GR"), &gr, "GR");
+        same(&read_back("Vsh_final"), &vsh, "Vsh_final");
+        // T15's depth witness: the foot-declared depths come back IDENTICAL — no silent
+        // 0.3048 division, because the writer labelled what it wrote.
+        let depths: Vec<f32> = {
+            let mut statement = back
+                .prepare(
+                    "SELECT DISTINCT s.depth FROM curve_samples s
+                     JOIN curve_meta m ON m.curve_id = s.curve_id
+                     WHERE m.well_id = ?1 ORDER BY s.depth",
+                )
+                .unwrap();
+            statement
+                .query_map(params![back_well.to_string()], |row| row.get::<_, f32>(0))
+                .unwrap()
+                .collect::<duckdb::Result<Vec<f32>>>()
+                .unwrap()
+        };
+        let expected: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        assert_eq!(depths, expected, "foot depths re-import bit-identical, never re-scaled");
+        let _ = std::fs::remove_file(&dest);
+    }
+
+    /// CORRECTNESS — SB-CORE-015 / SB-CORE-T16. The registered-writer table IS the shipped
+    /// data-writer inventory, and every member must have a non-default-fixture round-trip
+    /// test against its own reader. This pin makes adding a third writer without extending
+    /// that suite a named failure instead of a silent gap: LAS is covered by the
+    /// foot-declared LAS proofs, DLIS by the foot-declared dlisio round-trip above.
+    #[test]
+    fn every_registered_writer_is_in_the_round_trip_inventory() {
+        let ids: Vec<&str> = REGISTERED_WRITERS.iter().map(|writer| writer.id).collect();
+        assert_eq!(
+            ids,
+            vec!["las-2.0", "dlis-rp66v1"],
+            "a new registered writer must bring its own non-default-fixture round-trip test and then extend this list"
+        );
+    }
+
+    /// CORRECTNESS - SB-DIO-018 / SB-DIO-T29. The expected ownership boundary is
+    /// specified by `21_data-io.md` section 6 T29: no writer-owned table, and the
+    /// production writer must query `curves::canonical_unit`.
+    #[test]
+    fn the_las_writer_has_no_unit_table_and_queries_the_canonical_family_registry() {
+        let source = include_str!("export.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("export production source precedes its test module");
+        let duplicate_definition = ["fn standard", "_units"].concat();
+        let registry_call = ["crate::curves::", "canonical_unit"].concat();
+        assert!(
+            !production_source.contains(&duplicate_definition),
+            "the duplicate writer table must stay deleted"
+        );
+        assert!(
+            production_source.contains(&registry_call),
+            "the writer must consult curves::canonical_unit"
+        );
+    }
+
+    /// CORRECTNESS - SB-DIO-018 / SB-DIO-T30. The expected unit for each family
+    /// is the reviewed canonical family table cited by `21_data-io.md` section 5.1;
+    /// comparison is exact so spelling and case cannot drift at the file boundary.
+    #[test]
+    fn every_exported_family_declares_the_canonical_registry_unit_with_exact_case() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         let well_id = id.to_string();
         db::insert_well(&conn, id, "CANONICAL-UNITS", None, None, None).unwrap();
@@ -801,6 +1540,7 @@ mod tests {
     fn an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         db::insert_well(&conn, id, "IRREGULAR-EXPORT", None, None, None).unwrap();
         let stored_depth = vec![1000.0_f32, 1000.1, 1000.35, 1001.0];
@@ -819,29 +1559,65 @@ mod tests {
         )
         .unwrap();
 
-        let dest = tmp_path("irregular-default");
-        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
-        let text = crate::parsers::read_text_file(&dest).unwrap();
-        std::fs::remove_file(&dest).ok();
-        let rows: Vec<Vec<f32>> = text
-            .split("~ASCII")
-            .nth(1)
-            .unwrap()
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| line.split_whitespace().map(|field| field.parse::<f32>().unwrap()).collect())
-            .collect();
+        let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
+        for writer in REGISTERED_WRITERS {
+            if writer.id == "dlis-rp66v1" && !dlisio_available() {
+                println!("skipping {}: optional dlisio unavailable (rule 5)", writer.id);
+                continue;
+            }
+            let dest = tmp_path(&format!("irregular-default-{}", writer.id))
+                .with_extension(writer.extension);
+            let result = export_with_writer(
+                &conn,
+                &id.to_string(),
+                dest.to_str().unwrap(),
+                settings,
+                writer,
+            )
+            .unwrap();
+            assert!(result.self_checked, "{} must pass its registered reader", writer.id);
 
-        assert_eq!(
-            rows.iter().map(|row| row[0]).collect::<Vec<_>>(),
-            stored_depth,
-            "the default writer must not replace an irregular stored index with a regular grid"
-        );
-        assert_eq!(
-            rows.iter().map(|row| row[1]).collect::<Vec<_>>(),
-            stored_gr,
-            "the default writer must not interpolate stored values onto different samples"
-        );
+            // Test adapters are deliberately exhaustive over REGISTERED_WRITERS. Adding a
+            // format without teaching T35 to inspect its stored index must fail rather than
+            // silently reducing the universal writer contract to today's default LAS.
+            let rows: Vec<Vec<f32>> = match writer.id {
+                "las-2.0" => crate::parsers::read_text_file(&dest)
+                    .unwrap()
+                    .split("~ASCII")
+                    .nth(1)
+                    .unwrap()
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|line| {
+                        line.split_whitespace()
+                            .map(|field| field.parse::<f32>().unwrap())
+                            .collect()
+                    })
+                    .collect(),
+                "dlis-rp66v1" => {
+                    // FDATA slots carry the index first, then every channel — the same
+                    // two-column comparison as LAS, read by the independent byte-walk.
+                    dlis_fdata_rows(&std::fs::read(&dest).unwrap())
+                }
+                unknown => panic!(
+                    "registered writer '{unknown}' has no SB-DIO-T35 native-sample inspection adapter"
+                ),
+            };
+            std::fs::remove_file(&dest).ok();
+
+            assert_eq!(
+                rows.iter().map(|row| row[0]).collect::<Vec<_>>(),
+                stored_depth,
+                "{} must not replace an irregular stored index with a regular grid",
+                writer.id
+            );
+            assert_eq!(
+                rows.iter().map(|row| row[1]).collect::<Vec<_>>(),
+                stored_gr,
+                "{} must not interpolate stored values onto different samples",
+                writer.id
+            );
+        }
     }
 
     /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.
@@ -857,6 +1633,240 @@ mod tests {
     /// and the column exports as ALL NULL — a full-length curve of nothing, in a file that looks
     /// perfectly well formed. The exporter uppercases the key for exactly this reason; this test
     /// is what stops that line being "tidied" away.
+    /// SB-SAT-026 / exact SB-SAT-T40 persistence half (DEC-064 closed the naming ruling):
+    /// the per-sample SW_METHOD flag survives write, reload and LAS export AS THE
+    /// CATEGORICAL IT IS - codes bit-exact, an absence MISSING and never a code, and every
+    /// surviving code still resolving through the ONE shared model registry (the SB-SAT-003
+    /// alias table), so an exported flag can never drift into a number nobody can decode.
+    #[test]
+    fn the_sw_method_flag_survives_write_reload_and_las_export_as_the_categorical_it_is() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        // One code per shipped non-solver family member plus both Archie systems;
+        // depth[5] deliberately has NO row - an absence.
+        let codes = [3.0f32, 9.0, 10.0, 11.0, 12.0];
+        for (i, code) in codes.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+                 VALUES (?1, ?2, 'SW_METHOD', ?3, NULL)",
+                params![id.to_string(), depth[i], code],
+            )
+            .unwrap();
+        }
+        let dest = tmp_path("sat-t40-roundtrip");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&dest).unwrap();
+        assert!(text.contains("SW_METHOD"), "the flag survives as a curve");
+
+        let conn2 = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn2).unwrap();
+        let results =
+            crate::ingest::import_las_files(&conn2, &[dest.to_str().unwrap().to_string()], None);
+        let _ = std::fs::remove_file(&dest);
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+        let well2 = results[0].well_id.clone().expect("well imported");
+        let catalog = db::list_generic_curve_catalog(&conn2, &well2).unwrap();
+        let flag = catalog
+            .iter()
+            .find(|curve| curve.mnemonic == "SW_METHOD")
+            .expect("the flag is present after re-import");
+        let mut stmt = conn2
+            .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+            .unwrap();
+        let values: Vec<f32> = stmt
+            .query_map(params![flag.curve_id], |row| {
+                Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(&values[..5], &codes, "codes are bit-exact through export and re-import");
+        assert!(values[5].is_nan(), "the absence comes back MISSING, never a code");
+        for (code, expected) in codes.iter().zip([
+            "archie_total",
+            "archie_effective",
+            "sw_rtc",
+            "sw_imts",
+            "sw_height",
+        ]) {
+            assert_eq!(
+                crate::multimin2::sw_model_id_from_flag(*code),
+                Some(expected),
+                "a survived code must still resolve through the shared registry"
+            );
+        }
+    }
+
+    /// SB-CLY-055 (DEC-036): the domain's curves round-trip LAS - the declared null is in
+    /// the header, an absence comes back MISSING on both the volume and the token curve,
+    /// and every registry v1 provenance code survives as a curve bit-exact, ready for the
+    /// registry that decodes it.
+    #[test]
+    fn the_cly_token_curve_round_trips_las_with_absences_preserved_and_codes_bit_exact() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, vsh) = seed(&conn);
+        let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        // Every registry v1 code once; depth[5] deliberately has NO row - an absence.
+        for (i, code) in [0.0f32, 1.0, 2.0, 3.0, 4.0].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+                 VALUES (?1, ?2, 'VSH_PROV', ?3, NULL)",
+                params![id.to_string(), depth[i], code],
+            )
+            .unwrap();
+        }
+        let dest = tmp_path("cly-roundtrip");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&dest).unwrap();
+        assert!(text.contains("NULL."), "the declared null is in the header");
+        assert!(text.contains("VSH_PROV"), "the token curve survives as a curve");
+
+        // Re-import into a FRESH project: codes bit-exact, absences MISSING.
+        let conn2 = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn2).unwrap();
+        let results = crate::ingest::import_las_files(
+            &conn2,
+            &[dest.to_str().unwrap().to_string()],
+            None,
+        );
+        let _ = std::fs::remove_file(&dest);
+        assert!(results[0].error.is_none(), "{:?}", results[0].error);
+        let well2 = results[0].well_id.clone().expect("well imported");
+        let catalog = db::list_generic_curve_catalog(&conn2, &well2).unwrap();
+        let read = |curve_id: &str| -> Vec<f32> {
+            let mut stmt = conn2
+                .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+                .unwrap();
+            stmt.query_map(params![curve_id], |row| {
+                Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+        };
+        let prov = catalog
+            .iter()
+            .find(|curve| curve.mnemonic == "VSH_PROV")
+            .expect("the token curve is present after re-import");
+        let values = read(&prov.curve_id);
+        assert_eq!(&values[..5], &[0.0, 1.0, 2.0, 3.0, 4.0], "codes are bit-exact");
+        assert!(values[5].is_nan(), "the absence comes back MISSING, never a code");
+        let volume = catalog
+            .iter()
+            .find(|curve| curve.mnemonic.eq_ignore_ascii_case("VSH_FINAL"))
+            .expect("the volume curve is present after re-import");
+        let volume_values = read(&volume.curve_id);
+        assert!(
+            volume_values[3].is_nan(),
+            "the volume curve's absence survives the declared null: {volume_values:?}"
+        );
+        assert!((volume_values[0] - vsh[0]).abs() < 5e-4);
+    }
+
+    /// SB-DBM-010 / SB-DBM-T10 (unblocked by SB-DBM-005's signed derivation map): the
+    /// deliverable carries the machine-readable sidecar resolving a computed curve to
+    /// its run record - parameter SOURCES (SB-DBM-003) and the method's derivation
+    /// CITATION (SB-DBM-005) verbatim - and a format that drops provenance says so at
+    /// the point of export, never silently.
+    #[test]
+    fn an_export_that_carries_computed_curves_carries_their_run_records_and_a_format_that_drops_provenance_says_so(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let well = id.to_string();
+
+        // A computed curve whose ancestry names a catalog module: the run record carries
+        // the signed citation and one sourced parameter.
+        let citation = crate::equations::method_derivation_citation("vsh_gr")
+            .expect("vsh_gr is a signed Cited row");
+        let ancestry = crate::equations::CurveAncestry {
+            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: Some(citation.clone()),
+            module: "vsh_gr".into(),
+            module_version: "test".into(),
+            inputs: Vec::new(),
+            parameters: vec![crate::equations::AncestryParameter {
+                name: "GR_MA".into(),
+                value: serde_json::json!(12.0),
+                source: "Geolog vsh_gr.info L48".into(),
+                resolution: None,
+                manifest_version: None,
+                decision: None,
+            }],
+            parameter_state: None,
+            zone_scope: crate::equations::AncestryZoneScope::WholeWell,
+            actor: crate::equations::AncestryActor {
+                kind: crate::equations::AncestryActorKind::Automated,
+                identity: "rust-test".into(),
+            },
+            timestamp_utc_ms: 1_755_561_600_000,
+            outputs: vec![crate::equations::AncestryOutput {
+                curve: "VSH_T10".into(),
+                derivation: "vsh_gr:linear".into(),
+            }],
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
+        };
+        let spec = crate::equations::CompleteLogSetSpec::try_new("T10", ancestry).unwrap();
+        let (set_id, _) = crate::equations::create_complete_log_set(&conn, &well, &spec).unwrap();
+        let depths = [1000.0f32, 1000.5, 1001.0, 1001.5, 1002.0, 1002.5];
+        let values = [0.2f32, 0.3, 0.4, 0.5, 0.6, 0.7];
+        crate::equations::write_computed_curves_with_ancestry(
+            &conn, &well, &depths, &[("VSH_T10", &values)], &set_id,
+        )
+        .unwrap();
+
+        let dest = tmp_path("t10");
+        let result = export_las(&conn, &well, dest.to_str().unwrap()).unwrap();
+        assert!(result.provenance_dropped.is_none(), "LAS carries the sidecar");
+        let text = std::fs::read_to_string(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        let sidecar_line = text
+            .lines()
+            .find(|line| line.contains("VSH_T10") && line.contains("ancestry"))
+            .expect("the sidecar resolves the computed curve to its run record");
+        assert!(
+            sidecar_line.contains(&citation),
+            "the derivation citation reaches the deliverable verbatim"
+        );
+        assert!(
+            sidecar_line.contains("Geolog vsh_gr.info L48"),
+            "the parameter source string travels too"
+        );
+
+        // The format-wide contract: every registered writer DECLARES its provenance
+        // capability, shown before export; DLIS declares it drops the sidecar and names
+        // where the record lives instead.
+        let formats = export_formats();
+        let las = formats.iter().find(|f| f.id == "las-2.0").unwrap();
+        assert!(las.carries_provenance && las.provenance_limitation.is_none());
+        let dlis = formats.iter().find(|f| f.id == "dlis-rp66v1").unwrap();
+        assert!(!dlis.carries_provenance, "DLIS cannot claim a sidecar it does not write");
+        assert!(
+            dlis.provenance_limitation.as_deref().unwrap_or("").contains("no in-file provenance sidecar"),
+            "the limitation is stated, not implied"
+        );
+
+        // ...and at the point of export itself: the statement comes from the registry
+        // declaration inside export_with_writer, so a writer cannot forget to make it.
+        if dlisio_available() {
+            let ddest = tmp_path("t10d");
+            let dres = export_dlis(&conn, &well, ddest.to_str().unwrap()).unwrap();
+            let _ = std::fs::remove_file(&ddest);
+            assert!(
+                dres.provenance_dropped.as_deref().unwrap_or("").contains("sidecar"),
+                "a DLIS export states the drop at the point of export: {:?}",
+                dres.provenance_dropped
+            );
+        } else {
+            println!("skip: dlisio unavailable, point-of-export arm exercised via the registry declaration only");
+        }
+    }
+
     #[test]
     fn export_writes_missing_as_null_and_carries_mixed_case_computed_curves() {
         let conn = Connection::open_in_memory().unwrap();
@@ -918,23 +1928,198 @@ mod tests {
         set_project_null_sentinel(&conn, declared).unwrap();
         assert_eq!(project_null_sentinel(&conn).unwrap(), declared);
 
-        let dest = tmp_path("declared-sentinel");
-        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
-        let text = crate::parsers::read_text_file(&dest).unwrap();
-        let _ = std::fs::remove_file(&dest);
+        let settings = WriterSettings {
+            null_sentinel: project_null_sentinel(&conn).unwrap(),
+        };
+        for writer in REGISTERED_WRITERS {
+            if writer.id == "dlis-rp66v1" && !dlisio_available() {
+                println!("skipping {}: optional dlisio unavailable (rule 5)", writer.id);
+                continue;
+            }
+            let dest = tmp_path(&format!("declared-sentinel-{}", writer.id))
+                .with_extension(writer.extension);
+            let result = export_with_writer(
+                &conn,
+                &id.to_string(),
+                dest.to_str().unwrap(),
+                settings,
+                writer,
+            )
+            .unwrap();
 
-        assert!(text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")));
-        assert!(text.contains("-32767.0000"), "missing samples use the declared sentinel");
-        assert!(!text.contains("-999.2500"), "the LAS writer must not emit its former private default");
+            assert!(
+                result.self_checked,
+                "registered writer {} must pass its reader",
+                writer.id
+            );
+            match writer.sentinel_support {
+                SentinelSupport::Honours => {
+                    let text = crate::parsers::read_text_file(&dest).unwrap();
+                    let _ = std::fs::remove_file(&dest);
+                    assert!(
+                        text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")),
+                        "registered writer {} must declare the project sentinel",
+                        writer.id
+                    );
+                    assert!(
+                        text.contains("-32767.0000"),
+                        "registered writer {} must use the declared sentinel for missing samples",
+                        writer.id
+                    );
+                    assert!(
+                        !text.contains("-999.2500"),
+                        "registered writer {} must not emit a private default",
+                        writer.id
+                    );
+                }
+                // An incapable format must DECLARE its limitation (the picker shows it) and
+                // must not smuggle the sentinel in anyway: a missing sample travels as IEEE
+                // NaN in FSINGL, and neither the declared sentinel's FSINGL bytes nor its
+                // ASCII spelling appear in the artifact. Pinned from both sides: NaN present
+                // where the fixture's missing sample is, sentinel absent everywhere.
+                SentinelSupport::Incapable(reason) => {
+                    let bytes = std::fs::read(&dest).unwrap();
+                    let _ = std::fs::remove_file(&dest);
+                    assert_eq!(
+                        format_info(writer).sentinel_limitation.as_deref(),
+                        Some(reason),
+                        "registered writer {} must surface its sentinel limitation to the picker",
+                        writer.id
+                    );
+                    let nan_bytes = f32::NAN.to_be_bytes();
+                    let sentinel_bytes = declared.to_be_bytes();
+                    let contains = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+                    assert!(
+                        contains(&nan_bytes),
+                        "registered writer {} must carry the fixture's missing sample as IEEE NaN",
+                        writer.id
+                    );
+                    assert!(
+                        !contains(&sentinel_bytes),
+                        "registered writer {} must not encode the declared sentinel as a value",
+                        writer.id
+                    );
+                    assert!(
+                        !bytes.windows(6).any(|w| w == b"-32767"),
+                        "registered writer {} must not spell the sentinel into the artifact",
+                        writer.id
+                    );
+                }
+            }
+        }
     }
 
     /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
     /// non-optional `WriterSettings` argument from a writer makes this assignment and the
     /// registry constant fail to compile.
+    /// SB-DIO-056 / SB-DIO-T82, SB-DIO-T83. Source: `docs/PRD_v2/21_data-io.md:1861-1878` — the
+    /// writer MUST compute the step over every adjacent pair, MUST write `STEP` as `0` when the
+    /// interval is not constant, and MUST NOT declare the first interval as the step. The `STEP = 0`
+    /// mechanism is LAS 2.0's own provision for a non-uniform index and is cited by the chapter at
+    /// `:867`; it is not a convention invented here. DEC-055 supplies the one thing the chapter left
+    /// open — "within the stated tolerance" — as EXACT equality with no epsilon, matching the
+    /// read-side rule already stated at `parsers.rs:549-552`.
+    ///
+    /// The comparison is made on the fixed-decimal-4 text the writer actually emits, not on the
+    /// stored `f32`s, because that text is what a conforming reader sees when it reconstructs
+    /// depths from `STRT`/`STEP` instead of reading the `DEPT` column.
+    #[test]
+    fn a_las_export_declares_a_step_only_when_every_written_interval_is_identical_and_writes_zero_otherwise(
+    ) {
+        fn export(depths: &[f32], tag: &str) -> (String, Option<String>) {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, "SANDI-STEP", Some("Synthetic"), None, None).unwrap();
+            let n = depths.len();
+            let gr: Vec<f32> = (0..n).map(|i| 40.0 + i as f32).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depths.to_vec(),
+                gr,
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan,
+            )
+            .unwrap();
+            let dest = tmp_path(tag);
+            let result = export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+            let text = crate::parsers::read_text_file(&dest).unwrap();
+            let _ = std::fs::remove_file(&dest);
+            let line = text
+                .lines()
+                .find(|line| line.trim_start().starts_with("STEP."))
+                .expect("~W must always carry a STEP line")
+                .to_string();
+            (line, result.nonuniform_step)
+        }
+
+        // A. A genuinely uniform frame still declares its own step. This arm is why the
+        //    comparison cannot be f32 subtraction: at ~1000 m an f32 resolves to about
+        //    0.00006, so the successive differences of a perfect 0.1524 m frame do not come
+        //    out bit-identical, and an implementation that subtracts stored f32s would call
+        //    this log irregular and write 0 — losing a true step on the commonest frame there
+        //    is. Without this arm, "always write 0" passes.
+        let (uniform, uniform_note) = export(
+            &[1000.0, 1000.1524, 1000.3048, 1000.4572],
+            "step-uniform",
+        );
+        assert!(
+            uniform.contains("0.1524"),
+            "a uniform frame must declare its real step: {uniform}"
+        );
+        assert!(
+            uniform_note.is_none(),
+            "a uniform frame must not be reported as non-uniform: {uniform_note:?}"
+        );
+
+        // B. Irregular, but only from the THIRD interval. The first two are identical, so this
+        //    fails an implementation that reads depth[1] - depth[0] (the divergence the chapter
+        //    names at :862) and equally one that checks only the first two pairs.
+        let (drifts, drift_note) = export(
+            &[1000.0, 1000.1524, 1000.3048, 1000.5],
+            "step-drifts-late",
+        );
+        assert!(
+            !drifts.contains("0.1524"),
+            "the first interval must never be declared as the step: {drifts}"
+        );
+        let declared: f32 = drifts
+            .split_whitespace()
+            .find_map(|token| token.parse::<f32>().ok())
+            .expect("the STEP line must carry a number");
+        assert_eq!(declared, 0.0, "a non-constant index must declare STEP 0: {drifts}");
+
+        // C. The zero is explained, not silent. A file that declares STEP 0 with nothing said
+        //    is a degraded result presented as clean — the chapter's own SB-CORE-002 complaint
+        //    against the neighbouring SB-DIO-055. Both spacings and the depth are named so the
+        //    user can tell real drift from a delivery defect.
+        let note = drift_note.expect("writing STEP 0 must be reported, never silent");
+        assert!(note.contains("1000.3048"), "the depth where spacing changes must be named: {note}");
+        assert!(note.contains("0.1524"), "the prior spacing must be named: {note}");
+        assert!(note.contains("0.1952"), "the new spacing must be named: {note}");
+
+        // D. A single-sample export has no interval at all, so it declares no step and is not
+        //    reported as drifting — absence of evidence is not non-uniformity.
+        let (single, single_note) = export(&[1000.0], "step-single-sample");
+        let only: f32 = single
+            .split_whitespace()
+            .find_map(|token| token.parse::<f32>().ok())
+            .expect("the STEP line must carry a number");
+        assert_eq!(only, 0.0, "one sample cannot declare a step: {single}");
+        assert!(single_note.is_none(), "one sample is not a drift finding: {single_note:?}");
+    }
     #[test]
     fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
         let _: WriterFn = write_las;
-        let _: WriterFn = REGISTERED_WRITERS[0].write;
+        for writer in REGISTERED_WRITERS {
+            let _: WriterFn = writer.write;
+        }
     }
 
     /// SB-DIO-002 / SB-DIO-T03. `-32767` is the cited Baker waveform sentinel in
@@ -961,6 +2146,7 @@ mod tests {
             extension: "test",
             is_default: false,
             sentinel_support: SentinelSupport::Incapable("fixed null convention"),
+            provenance_support: ProvenanceSupport::Carries,
             write: cannot_write,
             self_read: validate_las_output,
         };
@@ -1041,6 +2227,10 @@ mod tests {
         let (id, _, _) = seed(&conn);
         let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
         for writer in REGISTERED_WRITERS {
+            if writer.id == "dlis-rp66v1" && !dlisio_available() {
+                println!("skipping {}: optional dlisio unavailable (rule 5)", writer.id);
+                continue;
+            }
             let dest = tmp_path(&format!("{}-self-read", writer.id));
             let result = export_with_writer(
                 &conn,
@@ -1062,7 +2252,7 @@ mod tests {
         ) -> Result<LasExportResult, String> {
             std::fs::write(
                 dest_path,
-                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000\n",
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. ROW-WIDTH-CONTROL :\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000\n",
             )
             .map_err(|error| error.to_string())?;
             Ok(LasExportResult {
@@ -1071,12 +2261,15 @@ mod tests {
                 curves_held: 1,
                 omitted: Vec::new(),
                 curve_states: Vec::new(),
+                legacy_unrecorded_curves: 0,
                 precision: crate::parsers::SamplePrecisionReport::new(
                     "f32 storage",
                     "fixed-decimal-4 LAS text",
                     0,
                 ),
                 self_checked: false,
+                provenance_dropped: None,
+                nonuniform_step: None,
             })
         }
         let corrupt = RegisteredWriter {
@@ -1085,6 +2278,7 @@ mod tests {
             extension: "las",
             is_default: false,
             sentinel_support: SentinelSupport::Honours,
+            provenance_support: ProvenanceSupport::Carries,
             write: write_corrupt,
             self_read: validate_las_output,
         };
@@ -1115,7 +2309,7 @@ mod tests {
         ) -> Result<LasExportResult, String> {
             std::fs::write(
                 dest_path,
-                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n",
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. UNIT-LABEL-CONTROL :\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n",
             )
             .map_err(|error| error.to_string())?;
             Ok(LasExportResult {
@@ -1124,12 +2318,15 @@ mod tests {
                 curves_held: 1,
                 omitted: Vec::new(),
                 curve_states: Vec::new(),
+                legacy_unrecorded_curves: 0,
                 precision: crate::parsers::SamplePrecisionReport::new(
                     "f32 storage",
                     "fixed-decimal-4 LAS text",
                     0,
                 ),
                 self_checked: false,
+                provenance_dropped: None,
+                nonuniform_step: None,
             })
         }
 
@@ -1142,6 +2339,7 @@ mod tests {
             extension: "las",
             is_default: false,
             sentinel_support: SentinelSupport::Honours,
+            provenance_support: ProvenanceSupport::Carries,
             write: write_metres_label,
             self_read: validate_las_output,
         };
@@ -1159,53 +2357,53 @@ mod tests {
         assert!(error.contains("declares M"), "the false declaration must be named: {error}");
     }
 
-    /// SB-DIO-017 / SB-DIO-T27..T28. The LAS unit spellings and the project-unit
-    /// source are specified in `docs/PRD_v2/21_data-io.md` §§4 and 5.1.
-    #[test]
-    fn the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres() {
-        for (unit, code, tag) in [
-            (crate::units::DepthUnit::Feet, "FT", "feet-unit"),
-            (crate::units::DepthUnit::Metres, "M", "metre-unit"),
-        ] {
-            let src = Connection::open_in_memory().unwrap();
-            let (id, _, _) = seed(&src);
-            crate::units::set_project_depth_unit(&src, unit).unwrap();
-            let dest = tmp_path(tag);
-            export_las(&src, &id.to_string(), dest.to_str().unwrap()).unwrap();
+    fn assert_las_depth_unit_round_trip(unit: crate::units::DepthUnit, code: &str, tag: &str) {
+        let src = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&src);
+        crate::units::set_project_depth_unit(&src, unit).unwrap();
+        let dest = tmp_path(tag);
+        export_las(&src, &id.to_string(), dest.to_str().unwrap()).unwrap();
 
-            let text = crate::parsers::read_text_file(&dest).unwrap();
-            for mnemonic in ["STRT", "STOP", "STEP", "DEPT"] {
-                assert!(
-                    text.lines().any(|line| line.trim_start().starts_with(&format!("{mnemonic}.{code}"))),
-                    "{mnemonic} must declare {code} when those are the depths written"
-                );
-            }
-            let other = if code == "FT" { "M" } else { "FT" };
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        for mnemonic in ["STRT", "STOP", "STEP", "DEPT"] {
             assert!(
-                !text.lines().any(|line| {
-                    ["STRT", "STOP", "STEP", "DEPT"]
-                        .iter()
-                        .any(|mnemonic| line.trim_start().starts_with(&format!("{mnemonic}.{other}")))
-                }),
-                "the opposite unit must not remain on any depth declaration"
+                text.lines().any(|line| line.trim_start().starts_with(&format!("{mnemonic}.{code}"))),
+                "{mnemonic} must declare {code} when those are the depths written"
             );
-
-            let dst = Connection::open_in_memory().unwrap();
-            db::create_schema(&dst).unwrap();
-            let imported = crate::ingest::import_las_files(
-                &dst,
-                &[dest.to_str().unwrap().to_string()],
-                None,
-            );
-            let _ = std::fs::remove_file(&dest);
-            assert!(imported[0].error.is_none(), "{code} round trip failed: {:?}", imported[0].error);
-            let imported_unit = crate::units::project_depth_unit(&dst).unwrap();
-            assert_eq!(imported_unit, Some(unit));
-            let first_depth: f32 = dst
-                .query_row("SELECT depth FROM standard_curves ORDER BY depth LIMIT 1", [], |row| row.get(0))
-                .unwrap();
-            assert!((first_depth - 2000.0).abs() < 1e-4, "{code} depths must survive unchanged");
         }
+        let other = if code == "FT" { "M" } else { "FT" };
+        assert!(
+            !text.lines().any(|line| {
+                ["STRT", "STOP", "STEP", "DEPT"]
+                    .iter()
+                    .any(|mnemonic| line.trim_start().starts_with(&format!("{mnemonic}.{other}")))
+            }),
+            "the opposite unit must not remain on any depth declaration"
+        );
+
+        let dst = Connection::open_in_memory().unwrap();
+        db::create_schema(&dst).unwrap();
+        let imported = crate::ingest::import_las_files(&dst, &[dest.to_str().unwrap().to_string()], None);
+        let _ = std::fs::remove_file(&dest);
+        assert!(imported[0].error.is_none(), "{code} round trip failed: {:?}", imported[0].error);
+        let imported_unit = crate::units::project_depth_unit(&dst).unwrap();
+        assert_eq!(imported_unit, Some(unit));
+        let first_depth: f32 = dst
+            .query_row("SELECT depth FROM standard_curves ORDER BY depth LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert!((first_depth - 2000.0).abs() < 1e-4, "{code} depths must survive unchanged");
+    }
+
+    #[test]
+    fn a_feet_project_las_round_trip_preserves_depths_and_declares_ft_on_every_depth_header() {
+        // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T27.
+        assert_las_depth_unit_round_trip(crate::units::DepthUnit::Feet, "FT", "feet-unit");
+    }
+
+    #[test]
+    fn characterizes_a_metre_project_las_round_trip_as_preserving_depths_and_declaring_m() {
+        // CHARACTERIZATION — docs/PRD_v2/21_data-io.md §6 labels SB-DIO-T28 as char.
+        assert_las_depth_unit_round_trip(crate::units::DepthUnit::Metres, "M", "metre-unit");
     }
 
     fn prefixed_json(text: &str, prefix: &str) -> Vec<serde_json::Value> {
@@ -1215,6 +2413,82 @@ mod tests {
             .collect()
     }
 
+    /// SB-DBM-001 / SB-DBM-T03. CORRECTNESS: the expected classes and counts come from
+    /// `docs/PRD_v2/22_database-model.md` sections 4.A and 6.2. The recorded and legacy sides
+    /// are both required: an unconditional "legacy" label and a resolver that silently drops
+    /// NULL `set_id` rows would each satisfy only one side.
+    #[test]
+    fn every_computed_value_resolves_to_one_run_or_is_counted_and_labelled_legacy_unrecorded() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, depth, _) = seed(&conn);
+        let well_id = id.to_string();
+        conn.execute(
+            "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+             VALUES (?1, ?2, 'LEGACY_PHIE', 0.17, NULL),
+                    (?1, ?3, 'LEGACY_PHIE', 0.19, NULL)",
+            params![well_id, depth[0], depth[1]],
+        )
+        .unwrap();
+
+        let catalog = serde_json::to_value(
+            crate::equations::list_computed_catalog(&conn, &well_id).unwrap(),
+        )
+        .unwrap();
+        let catalog = catalog.as_array().unwrap();
+        let recorded = catalog
+            .iter()
+            .find(|row| row["curve_name"] == "Vsh_final")
+            .expect("the current computed curve must remain catalogued");
+        assert_eq!(recorded["provenance_class"], "RECORDED");
+        assert_eq!(recorded["provenance_row_count"], depth.len());
+        assert!(recorded["ancestry"].is_object());
+        let legacy = catalog
+            .iter()
+            .find(|row| row["curve_name"] == "LEGACY_PHIE")
+            .expect("a legacy curve must not disappear from the catalog");
+        assert_eq!(legacy["provenance_class"], "LEGACY_UNRECORDED");
+        assert_eq!(legacy["provenance_row_count"], 2);
+        assert!(legacy["ancestry"].is_null());
+
+        let disclosures = serde_json::to_value(
+            crate::equations::curve_ancestry_disclosures(&conn, &[well_id.clone()], None)
+                .unwrap(),
+        )
+        .unwrap();
+        let disclosures = disclosures.as_array().unwrap();
+        assert!(disclosures.iter().any(|row| {
+            row["curve_name"] == "Vsh_final"
+                && row["provenance_class"] == "RECORDED"
+                && row["provenance_row_count"] == depth.len()
+        }));
+        assert!(disclosures.iter().any(|row| {
+            row["curve_name"] == "LEGACY_PHIE"
+                && row["provenance_class"] == "LEGACY_UNRECORDED"
+                && row["provenance_row_count"] == 2
+                && row["ancestry"].is_null()
+        }));
+
+        let dest = tmp_path("legacy-unrecorded");
+        let result = export_las(&conn, &well_id, dest.to_str().unwrap())
+            .expect("legacy computed values remain exportable only with an explicit label");
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        let provenance = prefixed_json(&text, PROVENANCE_PREFIX);
+        let legacy_line = provenance
+            .iter()
+            .find(|row| row["curve"] == "LEGACY_PHIE")
+            .expect("the exported legacy curve needs an in-file provenance line");
+        assert_eq!(legacy_line["origin"], "computed");
+        assert_eq!(legacy_line["provenance_class"], "LEGACY_UNRECORDED");
+        assert_eq!(legacy_line["row_count"], 2);
+        assert!(legacy_line.get("method").is_none());
+        assert!(legacy_line.get("parameters").is_none());
+        assert_eq!(result.legacy_unrecorded_curves, 1);
+        let summary = prefixed_json(&text, "SANDIBUMI_PROVENANCE_SUMMARY_V1 ");
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0]["legacy_unrecorded_curves"], 1);
+    }
+
     /// SB-DIO-051 / SB-DIO-T71..T73. Required fields are specified in
     /// `docs/PRD_v2/21_data-io.md` §4.10 and `04_CORE_REQUIREMENTS.md` SB-CORE-014.
     #[test]
@@ -1222,6 +2496,7 @@ mod tests {
         // The measured-only side: `~O` is not conditional on there being a computed curve.
         let measured = Connection::open_in_memory().unwrap();
         db::create_schema(&measured).unwrap();
+        crate::units::set_project_depth_unit(&measured, crate::units::DepthUnit::Metres).unwrap();
         let measured_id = Uuid::new_v4();
         db::insert_well(&measured, measured_id, "MEASURED-ONLY", None, None, None).unwrap();
         let measured_depth = vec![1000.0_f32, 1000.5];
@@ -1274,7 +2549,7 @@ mod tests {
         )
         .unwrap();
         let run_params = serde_json::json!({
-            "model_id": model_id,
+            "model_id": model_id.clone(),
             "model_name": model_name,
             "target": "VSH",
             "blind": { "performed": true, "metric": "R2", "value": 0.61,
@@ -1282,20 +2557,27 @@ mod tests {
             "train_hash": "training-row-hash",
             "trained_on": ["TRAIN-A", "TRAIN-B"],
         });
-        let (set_id, _) = crate::equations::create_log_set(
+        let custody = crate::workflow::test_run_custody() ;
+        let spec = crate::equations::complete_curve_run_spec(
             &conn,
             &well_id,
-            &crate::equations::LogSetSpec {
-                set_name: "PREDICTED".into(),
-                module: "ml:rf".into(),
-                params_json: run_params.to_string(),
-                inputs_json: serde_json::json!(["GR", "RHOB"]).to_string(),
-            },
-        )
+            "PREDICTED",
+                "ml:rf",
+                &custody,
+                &[(well_id.clone(), "feature_1".into(), "GR".into()),
+                (well_id.clone(), "feature_2".into(), "RHOB".into()),
+            ],
+            None,
+            run_params,
+            crate::equations::AncestryZoneScope::WholeWell,
+            &["VSH_PRED".into()]).unwrap()
+            ;
+        let (set_id, _) =
+            crate::equations::create_complete_log_set(&conn, &well_id, &spec)
         .unwrap();
         let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
         let predicted = vec![0.2_f32; depth.len()];
-        crate::equations::write_computed_curves_versioned(
+        crate::equations::write_computed_curves_with_ancestry(
             &conn,
             &well_id,
             &depth,
@@ -1317,6 +2599,19 @@ mod tests {
         assert_eq!(vsh["method"], "vsh_gr");
         assert_eq!(vsh["parameters"]["gr_clean"], 25.0);
         assert_eq!(vsh["parameters"]["gr_shale"], 125.0);
+        let stored_run_parameters: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE module = 'vsh_gr'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stored_run_parameters: serde_json::Value =
+            serde_json::from_str(&stored_run_parameters).unwrap();
+        assert_eq!(
+            vsh["parameters"], stored_run_parameters,
+            "every stored run parameter and value must cross into the deliverable"
+        );
 
         let models = prefixed_json(&text, MODEL_PROVENANCE_PREFIX);
         let model = models.iter().find(|row| row["curve"] == "VSH_PRED").unwrap();
@@ -1326,21 +2621,96 @@ mod tests {
         assert_eq!(model["record"]["runtime_json"], r#"{"python":"3.12","sklearn":"1.7"}"#);
         let artifact_hash = model["record"]["artifact_sha256"].as_str().unwrap();
         assert_eq!(artifact_hash.len(), 64, "the fitted artifact has its own SHA-256 identity");
+        let (stored_model, stored_artifact) = crate::db::get_ml_model(&conn, &model_id).unwrap();
+        assert_eq!(stored_artifact, model_bytes, "the fixture's saved artifact is the cited one");
+        let mut expected_model_record = serde_json::to_value(stored_model).unwrap();
+        expected_model_record.as_object_mut().unwrap().insert(
+            "artifact_sha256".into(),
+            serde_json::Value::String(format!("{:x}", Sha256::digest(model_bytes))),
+        );
+        assert_eq!(
+            model["record"], expected_model_record,
+            "the complete saved-model record, not a selected subset, must cross into the file"
+        );
 
-        // The refusal side: a legacy/unversioned computed curve cannot be relabelled as measured
-        // or exported with invented ancestry merely to make the file complete.
-        crate::equations::write_computed_curves_batch(
+        // SB-DBM-001 deliberately strengthens the legacy side: an unversioned computed curve must
+        // not be relabelled as measured or receive invented ancestry, but it remains exportable
+        // under the explicit LEGACY_UNRECORDED class and exact row count.
+        let mut appender = conn.appender("computed_curves").unwrap();
+        for (sample_depth,
+            value) in depth.iter().zip(predicted.iter()) {
+            appender
+                .append_row(params![well_id,
+                    sample_depth,
+                    "LEGACY_NO_PROVENANCE", value,
+                    None::<String>
+                ],
+        )
+                .unwrap();
+        }
+        appender.flush()
+        .unwrap();
+        let legacy_dest = tmp_path("missing-provenance");
+        let _ = std::fs::remove_file(&legacy_dest);
+        let result = export_las(&conn, &well_id, legacy_dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&legacy_dest).unwrap();
+        let _ = std::fs::remove_file(&legacy_dest);
+        let rows = prefixed_json(&text, PROVENANCE_PREFIX);
+        let legacy = rows
+            .iter()
+            .find(|row| row["curve"] == "LEGACY_NO_PROVENANCE")
+            .expect("legacy computed curve needs an in-file provenance record");
+        assert_eq!(legacy["origin"], "computed");
+        assert_eq!(legacy["provenance_class"], crate::equations::LEGACY_UNRECORDED);
+        assert_eq!(legacy["row_count"], depth.len());
+        assert!(legacy.get("method").is_none(), "legacy ancestry must never be invented");
+        assert_eq!(result.legacy_unrecorded_curves, 1);
+
+        crate::db::delete_ml_model(&conn, &model_id).unwrap();
+        let missing_model_dest = tmp_path("unavailable-model-provenance");
+        let error = export_las(&conn, &well_id, missing_model_dest.to_str().unwrap())
+            .expect_err("a model-derived curve whose saved record is unavailable must be refused");
+        let _ = std::fs::remove_file(&missing_model_dest);
+        assert!(error.contains("VSH_PRED"), "the refusal must name the model-derived curve: {error}");
+        assert!(error.contains(&model_id), "the refusal must name the unavailable model: {error}");
+        assert!(error.contains("refused"), "the result must be an explicit refusal: {error}");
+
+        // The opposite side: a computed identity that shadows a measured standard mnemonic cannot
+        // be described truthfully as one LAS curve. SB-DIO-051 requires the file to distinguish
+        // measured from computed; exporting two GR columns as "measured" would satisfy the happy
+        // fixture above while lying about the second column. Refusal is the only truthful result.
+        let shadow_spec = crate::equations::complete_curve_run_spec(
+            &conn,
+            &well_id,
+            "RECONSTRUCTED",
+            "synthetic:reconstruction",
+            &custody,
+            &[(well_id.clone(), "SOURCE".into(), "GR".into())],
+            None,
+            serde_json::json!({ "operation": "identity" }),
+            crate::equations::AncestryZoneScope::WholeWell,
+            &["GR".into()],
+        )
+        .unwrap();
+        let (shadow_set_id, _) =
+            crate::equations::create_complete_log_set(&conn, &well_id, &shadow_spec).unwrap();
+        crate::equations::write_computed_curves_with_ancestry(
             &conn,
             &well_id,
             &depth,
-            &[("LEGACY_NO_PROVENANCE", &predicted)],
+            &[("GR", predicted.as_slice())],
+            &shadow_set_id,
         )
         .unwrap();
-        let refused_dest = tmp_path("missing-provenance");
-        let _ = std::fs::remove_file(&refused_dest);
-        let refused = export_las(&conn, &well_id, refused_dest.to_str().unwrap()).unwrap_err();
-        assert!(refused.contains("no single live ancestry record"), "{refused}");
-        assert!(!refused_dest.exists(), "a refused export must not leave a partial file");
+        let shadow_dest = tmp_path("shadowed-standard-provenance");
+        let error = export_las(&conn, &well_id, shadow_dest.to_str().unwrap())
+            .expect_err("a measured/computed mnemonic collision must be refused");
+        let _ = std::fs::remove_file(&shadow_dest);
+        assert!(error.contains("GR"), "the refusal must name the ambiguous curve: {error}");
+        assert!(
+            error.contains("measured") && error.contains("computed"),
+            "the refusal must explain the provenance conflict: {error}"
+        );
     }
 
     /// SB-DIO-052 / T74. `curve_meta` declares FINAL as QC'd for delivery and RAW as
@@ -1350,6 +2720,7 @@ mod tests {
     fn a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         let well_id = id.to_string();
         db::insert_well(&conn, id, "PHIE-STATES", None, None, None).unwrap();
@@ -1377,7 +2748,8 @@ mod tests {
             None,
         )
         .unwrap();
-        db::insert_curve_samples(&conn, &working, &depth, &[0.10, 0.11, 0.12]).unwrap();
+        let working_values = vec![0.10_f32, 0.11, 0.12];
+        db::insert_curve_samples(&conn, &working, &depth, &working_values).unwrap();
         let final_curve = db::upsert_curve_meta(
             &conn,
             &well_id,
@@ -1389,7 +2761,8 @@ mod tests {
             None,
         )
         .unwrap();
-        db::insert_curve_samples(&conn, &final_curve, &depth, &[0.20, 0.21, 0.22]).unwrap();
+        let final_values = vec![0.20_f32, 0.21, 0.22];
+        db::insert_curve_samples(&conn, &final_curve, &depth, &final_values).unwrap();
 
         let dest = tmp_path("phie-final-working");
         let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
@@ -1400,6 +2773,16 @@ mod tests {
         let exported: Vec<&str> = frame.curves.iter().map(|curve| curve.mnemonic.as_str()).collect();
         assert!(exported.contains(&"PHIE"), "the working PHIE must remain in the file: {exported:?}");
         assert!(exported.contains(&"PHIE_FINAL"), "the final collision must be retained with its state: {exported:?}");
+        let exported_working = frame.curves.iter().find(|curve| curve.mnemonic == "PHIE").unwrap();
+        let exported_final = frame.curves.iter().find(|curve| curve.mnemonic == "PHIE_FINAL").unwrap();
+        assert_eq!(
+            exported_working.values, working_values,
+            "the working identity must carry the working samples, not a copy of the final curve"
+        );
+        assert_eq!(
+            exported_final.values, final_values,
+            "the final identity must carry the final samples, not a renamed working curve"
+        );
         assert!(
             !result.omitted.iter().any(|omission| omission.curve.starts_with("PHIE ")),
             "neither state may be hidden as a duplicate: {:?}",
@@ -1433,6 +2816,7 @@ mod tests {
     fn every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         let well_id = id.to_string();
         db::insert_well(&conn, id, "FORTY-CURVES", None, None, None).unwrap();
@@ -1492,9 +2876,23 @@ mod tests {
         let dest = tmp_path("forty-curves");
         let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
         let text = crate::parsers::read_text_file(&dest).unwrap();
-        let _ = std::fs::remove_file(&dest);
+        let parsed = crate::parsers::parse_las_2_all(&dest).unwrap();
+        // CORRECTNESS: T80 supplies forty imported curves. The six standard columns and two
+        // deliberately unwriteable controls are fixtures stated above, so 46 written of 48 held
+        // is independently derived from the input rather than copied from the implementation.
+        assert_eq!(parsed.curves.len(), 46, "the recipient-facing LAS must contain every reported written curve");
         for i in 0..40 {
-            assert!(text.contains(&format!(" X{i:02}")), "aligned generic curve X{i:02} was omitted");
+            let mnemonic = format!("X{i:02}");
+            let curve = parsed
+                .curves
+                .iter()
+                .find(|curve| curve.mnemonic == mnemonic)
+                .unwrap_or_else(|| panic!("aligned generic curve {mnemonic} was not written as a LAS column"));
+            assert_eq!(
+                curve.values,
+                vec![i as f32; depth.len()],
+                "{mnemonic} must carry its own supplied samples, not merely appear in metadata"
+            );
         }
         assert_eq!(result.curves_written, 46, "six standard plus all forty aligned curves");
         assert_eq!(result.curves_held, 48, "written plus the two deliberately unwriteable curves");
@@ -1509,5 +2907,16 @@ mod tests {
                 row["curve"] == omission.curve && row["reason"] == omission.reason
             }));
         }
+
+        let ribbon = include_str!("../../src/ui/ribbon.ts");
+        assert!(
+            ribbon.contains("${result.curves_written} of ${result.curves_held} held curves written."),
+            "T81 counts must remain user-visible rather than stopping at the IPC result"
+        );
+        assert!(
+            ribbon.contains(r#"result.omitted.map((item) => `${item.curve}: ${item.reason}`)"#),
+            "the exact omitted identity and reason must remain user-visible"
+        );
+        let _ = std::fs::remove_file(&dest);
     }
 }

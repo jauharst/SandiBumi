@@ -1,28 +1,39 @@
-import { getCurveData, plotBindingSnapshot, type ResolvedPlotCurve, type WellSummary } from "../ipc";
-import { histogram as canonicalBinCounts } from "../distribution";
+import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import {
+  HISTOGRAM_BINS_DEFAULT,
+  HISTOGRAM_BINS_MAX,
+  HISTOGRAM_BINS_MIN,
+  canonicalHistogram,
+  normalizeHistogramBinCount,
+  type HistogramContract,
+} from "../distribution";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachKeyboardPanZoom,
-  attachResizeRedraw,
   attachZoomPan,
   basicStats,
+  buildPlotStatisticsRecord,
   fitCanvasBackingStore,
+  formatPlotStatisticsRecord,
   makeCanvasAccessible,
   percentile,
+  plotStatisticsInterval,
   PlotCanvas,
   canvasFont,
   readTheme,
   type BasicStats,
+  type PlotStatisticsRecord,
   type Viewport,
   type ViewportRef,
 } from "./plotCanvas";
 import {
   buildPlotTemplateBar,
+  buildPersistedPlotState,
+  buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
   contextReductionExport,
-  CONTEXT_LEGEND_ROWS,
   contextZoneWindow,
   curveSelect,
   defaultPickParams,
@@ -30,6 +41,7 @@ import {
   fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
+  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -40,10 +52,21 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
-import { renderPlotToSvg } from "./svgExport";
-import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { buildWellScope } from "./wellScope";
+import { renderPlotToPaperSvg } from "./svgExport";
+import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
 import { parsePercentileP, type PlotReductionExport } from "./plotTypes";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type AxisDisplayRange,
+  type PlotAxisRangeExport,
+} from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
 
 export type HistogramMode = "bars" | "line";
 
@@ -71,11 +94,15 @@ export interface HistogramOptions {
   /** Show the pick → zone-parameter rows. Off by default — the histogram is a
    *  general-purpose tool; parameter picking is opted into via Properties. */
   showPicks: boolean;
+  /** Scientific validity exclusion is opt-in and never supplies the display axis. */
+  validityFilter: boolean;
+  validMin: number | null;
+  validMax: number | null;
 }
 
 export const DEFAULT_HISTOGRAM_OPTIONS: HistogramOptions = {
   mode: "bars",
-  bins: 50,
+  bins: HISTOGRAM_BINS_DEFAULT,
   normalize: false,
   stats: ["p5", "p50", "p95", "count"],
   cumulative: false,
@@ -84,6 +111,9 @@ export const DEFAULT_HISTOGRAM_OPTIONS: HistogramOptions = {
   percentiles: [],
   statsPlacement: "outside",
   showPicks: false,
+  validityFilter: false,
+  validMin: null,
+  validMax: null,
 };
 
 const STAT_DEFS: { key: StatKey; label: string; fmt: (s: BasicStats) => string; marker: boolean }[] = [
@@ -97,8 +127,7 @@ const STAT_DEFS: { key: StatKey; label: string; fmt: (s: BasicStats) => string; 
   { key: "count", label: "n", fmt: (s) => String(s.count), marker: false },
 ];
 
-const clampBins = (v: number): number =>
-  Math.max(1, Math.min(200, Math.round(v) || DEFAULT_HISTOGRAM_OPTIONS.bins));
+const clampBins = normalizeHistogramBinCount;
 
 /** Parses "10, 50, 90"-style user input into clean percentiles (bounded, deduped, sorted). */
 export function parsePercentiles(text: string): number[] {
@@ -133,26 +162,79 @@ export function normalizeHistogramOptions(raw: Partial<HistogramOptions>): Histo
   if (!["outside", "inside", "both"].includes(opts.statsPlacement)) {
     opts.statsPlacement = DEFAULT_HISTOGRAM_OPTIONS.statsPlacement;
   }
+  const validPair = typeof opts.validMin === "number" && Number.isFinite(opts.validMin)
+    && typeof opts.validMax === "number" && Number.isFinite(opts.validMax)
+    && opts.validMin !== opts.validMax;
+  if (!validPair) {
+    opts.validMin = null;
+    opts.validMax = null;
+    opts.validityFilter = false;
+  } else {
+    opts.validityFilter = !!opts.validityFilter;
+  }
   return opts;
 }
 
-/** Computes histogram bin counts over [min, max]; NaN values are skipped. */
+function histogramValidityRange(opts: HistogramOptions): AxisDisplayRange | null {
+  return opts.validMin !== null && opts.validMax !== null
+    ? { min: opts.validMin, max: opts.validMax }
+    : null;
+}
+
+export function screenHistogramPopulation(
+  values: ArrayLike<number>,
+  opts: HistogramOptions,
+  display: AxisDisplayRange | null,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([{
+    values,
+    display,
+    validity: histogramValidityRange(opts),
+  }], opts.validityFilter);
+}
+
+function valuesAtIndices(values: ArrayLike<number>, indices: readonly number[]): Float32Array {
+  return Float32Array.from(indices.map((index) => values[index]));
+}
+
+/** Reporting-surface adapter for the canonical histogram contract. */
 export function computeHistogram(
   values: ArrayLike<number>,
   min: number,
   max: number,
   bins = DEFAULT_HISTOGRAM_OPTIONS.bins,
-): { counts: number[]; edges: number[]; n: number; nonFiniteExcluded: number } {
-  const binCount = clampBins(bins);
-  const counts = canonicalBinCounts(values, min, max, binCount);
-  const n = counts.reduce((sum, count) => sum + count, 0);
-  let nonFiniteExcluded = 0;
-  for (let i = 0; i < values.length; i++) {
-    if (!Number.isFinite(values[i])) nonFiniteExcluded++;
-  }
-  const width = (max - min) / binCount;
-  const edges = Array.from({ length: binCount + 1 }, (_, i) => min + i * width);
-  return { counts, edges, n, nonFiniteExcluded };
+): HistogramContract {
+  return canonicalHistogram(values, min, max, bins);
+}
+
+/** Live Histogram adapter: the values and every population decision become one record. */
+export function buildHistogramStatisticsRecord(
+  values: ArrayLike<number>,
+  opts: HistogramOptions,
+  curveName: string,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  selectionLabel = "all eligible",
+  display: AxisDisplayRange | null = null,
+): PlotStatisticsRecord | null {
+  const policy = screenHistogramPopulation(values, opts, display);
+  if (policy.analysisCount === 0) return null;
+  return buildPlotStatisticsRecord(
+    valuesAtIndices(values, policy.indices),
+    {
+      binding_channel: "value",
+      channel: `value:${curveName}`,
+      population: "active_well",
+      well_ids: [wellId],
+      interval: plotStatisticsInterval(intervalLow, intervalHigh),
+      selection: { kind: "all_eligible", selection_id: null, label: selectionLabel, applied: false },
+      policy,
+      selection_excluded: 0,
+      unpaired_or_unclassified_excluded: 0,
+      standard_deviation: "sample_n_minus_one",
+    },
+  );
 }
 
 /** Compact percentile label ("P10", "P97.5"). */
@@ -186,14 +268,22 @@ export function drawHistogram(
   view: Viewport | null = null,
   brushValues: ArrayLike<number> | null = null,
   context: HistogramContext | null = null,
+  axisBinding: PlotChannelBinding | null = null,
+  onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
+  statisticsRecord: PlotStatisticsRecord | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
+  const preliminary = screenHistogramPopulation(values, opts, null);
+  const analysisValues = valuesAtIndices(values, preliminary.indices);
+  if (analysisValues.length === 0) return null;
   // With context wells the auto range covers the pooled field spread, so a shifted
   // neighbour (the GR-normalization case) isn't clipped by the active well's window.
   const hasCtx = !!context && context.layers.length > 0;
+  const contextValues = context?.layers.map((layer) =>
+    valuesAtIndices(layer.values, screenHistogramPopulation(layer.values, opts, null).indices)) ?? [];
   const rangeValues = hasCtx
-    ? concatValues(Float32Array.from(values as ArrayLike<number>), context!.layers.map((l) => l.values))
-    : values;
+    ? concatValues(analysisValues, contextValues)
+    : analysisValues;
   const p2 = percentile(rangeValues, 2);
   const p98 = percentile(rangeValues, 98);
   if (Number.isNaN(p2) || Number.isNaN(p98)) return null;
@@ -205,15 +295,25 @@ export function drawHistogram(
   // visible X window (the axis), so bars keep their identity as you zoom in.
   const min = p2 - pad;
   const max = p98 + pad;
-  const xMin = view ? view.xMin : min;
-  const xMax = view ? view.xMax : max;
+
+  const xResolution = resolveBoundAxisRange({
+    binding: axisBinding,
+    user: view ? { min: view.xMin, max: view.xMax } : null,
+    finiteData: { min, max },
+    validity: histogramValidityRange(opts),
+  });
+  if (!xResolution) return null;
+  const population = screenHistogramPopulation(values, opts, {
+    min: xResolution.min,
+    max: xResolution.max,
+  });
 
   const bins = clampBins(opts.bins);
-  const { counts, edges, n, nonFiniteExcluded } = computeHistogram(values, min, max, bins);
-  if (n === 0) return null;
+  const { counts, edges, displayedTotal } = computeHistogram(analysisValues, min, max, bins);
+  if (displayedTotal === 0) return null;
 
-  const stats = basicStats(values);
-  const yScale = opts.normalize ? 100 / n : 1;
+  const stats = statisticsRecord?.values ?? basicStats(analysisValues);
+  const yScale = opts.normalize ? 100 / displayedTotal : 1;
 
   // Context wells: each is binned over the SAME edges and normalized to its OWN sample
   // count, then scaled to the active axis — a neighbour with 3× the samples must not
@@ -222,10 +322,11 @@ export function drawHistogram(
   // well's true per-well percentage. Computed before the axis so yMax covers them.
   const ctxCurves: { color: string; pts: [number, number][]; peak: number }[] = [];
   if (hasCtx) {
-    for (const layer of context!.layers) {
-      const { counts: cc, n: cn } = computeHistogram(layer.values, min, max, bins);
-      if (cn === 0) continue;
-      const scale = (n * yScale) / cn;
+    for (let layerIndex = 0; layerIndex < context!.layers.length; layerIndex++) {
+      const layer = context!.layers[layerIndex];
+      const { counts: cc, displayedTotal: contextDisplayedTotal } = computeHistogram(contextValues[layerIndex], min, max, bins);
+      if (contextDisplayedTotal === 0) continue;
+      const scale = (displayedTotal * yScale) / contextDisplayedTotal;
       let layerPeak = 0;
       const pts: [number, number][] = [];
       for (let i = 0; i < cc.length; i++) {
@@ -242,16 +343,40 @@ export function drawHistogram(
   // The P2–P98 axis window can clip tail samples, so the in-window n is below the total valid
   // count that the stats chips show. Surface both ("n = X of Y") so the two never silently
   // disagree — a real QC trap for anyone standardizing GR on P3/P97 tails.
-  const nLabel = stats.count > n ? `${n} of ${stats.count}` : `${n}`;
-  const excludedLabel = nonFiniteExcluded ? `; non-finite excluded=${nonFiniteExcluded}` : "";
-  const yLabel = opts.normalize ? `% of samples (n=${nLabel}${excludedLabel})` : `Count (n=${nLabel}${excludedLabel})`;
+  const yLabel = opts.normalize
+    ? `% of displayed samples (displayed n=${displayedTotal} of analysis n=${stats.count})`
+    : `Count (displayed n=${displayedTotal} of analysis n=${stats.count})`;
+  const yResolution = resolveBoundAxisRange({
+    binding: null,
+    user: null,
+    finiteData: { min: 0, max: yMax },
+  });
+  if (!yResolution) return null;
+  const xInvert = xResolution.min > xResolution.max;
+  const resolvedRanges = [
+    axisRangeExportRecord("x", xResolution),
+    axisRangeExportRecord("y", yResolution),
+  ];
+  onAxisRanges?.(resolvedRanges);
 
   const plot = new PlotCanvas(
     canvas,
-    { label: curveName, min: xMin, max: xMax, log: false, invert: false },
-    { label: yLabel, min: 0, max: yMax, log: false, invert: false },
+    { label: curveName, min: Math.min(xResolution.min, xResolution.max), max: Math.max(xResolution.min, xResolution.max), log: false, invert: xInvert },
+    { label: yLabel, min: Math.min(yResolution.min, yResolution.max), max: Math.max(yResolution.min, yResolution.max), log: false, invert: yResolution.min > yResolution.max },
   );
   plot.drawFrame();
+  plot.ctx.save();
+  plot.ctx.font = canvasFont(plot.theme, 9);
+  plot.ctx.fillStyle = plot.theme.axis;
+  plot.ctx.textAlign = "left";
+  plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.textAlign = "right";
+  plot.ctx.fillText(
+    formatPlotRangePolicySummary(population, { statistics: true }),
+    plot.plotRect.x0 + plot.plotRect.w,
+    plot.plotRect.y0 + plot.plotRect.h + 31,
+  );
+  plot.ctx.restore();
   const barColor = opts.color || plot.theme.accent;
 
   // Context wells first (stepped outlines), so the active well's bars read on top.
@@ -283,7 +408,11 @@ export function drawHistogram(
   // Brushed sub-distribution (linked selection): the selected samples' counts in the SAME bins,
   // over-painted in accent2 so you see where a brushed crossplot cloud falls in this property.
   if (brushValues && brushValues.length) {
-    const bc = computeHistogram(brushValues, min, max, bins).counts;
+    const eligibleBrush = valuesAtIndices(
+      brushValues,
+      screenHistogramPopulation(brushValues, opts, null).indices,
+    );
+    const bc = computeHistogram(eligibleBrush, min, max, bins).counts;
     const { ctx } = plot;
     ctx.save();
     ctx.fillStyle = plot.theme.accent2;
@@ -303,7 +432,7 @@ export function drawHistogram(
     let running = 0;
     for (let i = 0; i < counts.length; i++) {
       running += counts[i];
-      points.push([edges[i + 1], (running / n) * yMax]);
+      points.push([edges[i + 1], (running / displayedTotal) * yMax]);
     }
     plot.drawLine(points, plot.theme.accent2, 1.8);
     const { ctx } = plot;
@@ -326,8 +455,8 @@ export function drawHistogram(
 
   // Box-and-whisker strip across the top of the plot area.
   if (opts.boxPlot) {
-    const q1 = percentile(values, 25);
-    const q3 = percentile(values, 75);
+    const q1 = stats.p25;
+    const q3 = stats.p75;
     if (![q1, q3, stats.p5, stats.p50, stats.p95].some(Number.isNaN)) {
       const { ctx } = plot;
       const r = plot.plotRect;
@@ -378,7 +507,7 @@ export function drawHistogram(
     if (!Number.isNaN(v)) plot.drawVMarker(v, plot.theme.text, `${def.label} ${v.toPrecision(4)}`);
   }
   for (const p of opts.percentiles) {
-    const v = percentile(values, p);
+    const v = percentile(analysisValues, p);
     if (!Number.isNaN(v)) plot.drawVMarker(v, plot.theme.text, `${pLabel(p)} ${v.toPrecision(4)}`);
   }
   for (const pick of picks) {
@@ -395,7 +524,7 @@ export function drawHistogram(
       if (opts.stats.includes(def.key)) lines.push(`${def.label}  ${def.fmt(stats)}`);
     }
     for (const p of opts.percentiles) {
-      const v = percentile(values, p);
+      const v = percentile(analysisValues, p);
       if (!Number.isNaN(v)) lines.push(`${pLabel(p)}  ${v.toPrecision(4)}`);
     }
     if (lines.length > 0) {
@@ -426,7 +555,6 @@ export function drawHistogram(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);
@@ -460,12 +588,24 @@ export function drawHistogram(
       ctx.fillText(label, boxX + 16, boxY + 10);
       boxY += rowH;
     };
-    row(barColor, true, `${trunc(context!.activeName)} (active)`);
+    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
+    row(barColor, true, `${activeName} (active)`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, false, trunc(layer.name));
-    if (layers.length > CONTEXT_LEGEND_ROWS) {
+    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+    for (const layer of visibleLegend.displayed) {
+      row(
+        layer.color,
+        false,
+        reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed,
+      );
+    }
+    if (visibleLegend.item) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
+      ctx.fillText(
+        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
+        boxX + 16,
+        boxY + 10,
+      );
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -486,13 +626,14 @@ export async function buildHistogramContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const curveNames = await loadCurveNames();
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, initial?.zone);
   const opts = normalizeHistogramOptions(await loadPlotProps<HistogramOptions>("histogram"));
   const plotId = initial?.plotId ?? crypto.randomUUID();
 
   const content = document.createElement("div");
   content.className = "plot-content";
+  const contextDepthHandoff = buildDepthReframeHandoff(setStatus);
   const curveSel = curveSelect(curveNames, initial?.curve ?? "GR");
 
   const propsBtn = document.createElement("button");
@@ -527,7 +668,7 @@ export async function buildHistogramContent(
     "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
   const scopeInfo = document.createElement("p");
   scopeInfo.className = "modal-hint";
-  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo, contextDepthHandoff.el);
   scopeBtn.addEventListener("click", () => {
     scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
   });
@@ -535,6 +676,27 @@ export async function buildHistogramContent(
     scopeBtn.textContent = `Wells: ${scope.describe()}`;
     scopeInfo.textContent = ctxInfo;
     scopeInfo.style.display = ctxInfo ? "" : "none";
+  };
+  const plotIntents = () => [{ channel: "value", semantic_request: curveSel.value, required: true }];
+  const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBinding = (): PlotChannelBinding | null =>
+    plotBindingSnapshotForChannels(representedWellIds(), plotIntents())[0] ?? null;
+  const selectionState = (): Record<string, string> => ({
+    plotId,
+    curve: curveSel.value,
+    zone: zoneSel.select.value,
+    wells: scope.serialize(),
+  });
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState("histogram", options, representedWellIds(), plotIntents(), axisRanges);
+  const persist = () => {
+    try {
+      void savePlotProps("histogram", persistedState({ ...opts }))
+        .catch((error) => setStatus(`Histogram state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Histogram state not saved: ${error}`);
+    }
   };
 
   const selRow = document.createElement("div");
@@ -549,7 +711,7 @@ export async function buildHistogramContent(
     buildPlotTemplateBar<HistogramOptions>(
       "histogram",
       "Histogram",
-      () => ({ ...opts }),
+      () => persistedState({ ...opts }),
       (t) => {
         Object.assign(opts, normalizeHistogramOptions({ ...opts, ...t }));
         persist();
@@ -560,14 +722,25 @@ export async function buildHistogramContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(
+  const exportGroup = buildImageExportButtons(
     () => canvas,
     "Histogram",
     setStatus,
-    () => getSvg(),
-    () => getPdf(),
+    (scope) => getSvg(scope),
+    (scope) => getPdf(scope),
     () => ctxReductionManifest,
-  ));
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: [curveSel.value],
+        plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
+        statisticsRecords: currentStatisticsRecords(),
+      };
+    },
+  );
+  selRow.appendChild(exportGroup);
   content.appendChild(selRow);
   content.appendChild(scopeRow);
 
@@ -578,6 +751,8 @@ export async function buildHistogramContent(
   chipsRow.className = "stat-chips";
   content.appendChild(chipsRow);
   let stats: BasicStats | null = null;
+  let statisticsRecord: PlotStatisticsRecord | null = null;
+  const currentStatisticsRecords = (): PlotStatisticsRecord[] => statisticsRecord ? [statisticsRecord] : [];
 
   const renderChips = () => {
     chipsRow.style.display = opts.statsPlacement === "inside" ? "none" : "";
@@ -599,7 +774,7 @@ export async function buildHistogramContent(
     for (const p of opts.percentiles) {
       const chip = document.createElement("button");
       chip.className = "stat-chip active";
-      const v = percentile(values, p);
+      const v = percentile(currentAnalysisValues(), p);
       chip.textContent = Number.isNaN(v) ? pLabel(p) : `${pLabel(p)} ${v.toPrecision(4)}`;
       chip.title = "User percentile — click to remove (add more via Properties)";
       chip.addEventListener("click", () => {
@@ -617,6 +792,10 @@ export async function buildHistogramContent(
   canvas.height = 380;
   canvas.className = "plot-canvas";
   content.appendChild(canvas);
+
+  const statisticsInfo = document.createElement("p");
+  statisticsInfo.className = "modal-hint";
+  content.appendChild(statisticsInfo);
 
   const hint = document.createElement("p");
   hint.className = "modal-hint";
@@ -662,6 +841,38 @@ export async function buildHistogramContent(
   let brushValues: number[] = []; // this curve's values at the shared-brush depths (this well)
   const viewRef: ViewportRef = { current: null };
 
+  function currentAnalysisValues(): Float32Array {
+    return valuesAtIndices(values, screenHistogramPopulation(values, opts, null).indices);
+  }
+
+  function refreshStatistics(display: AxisDisplayRange | null = null): void {
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const zone = zoneSel.current();
+    statisticsRecord = buildHistogramStatisticsRecord(
+      values,
+      opts,
+      curveSel.value,
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      selectionLabel,
+      display,
+    );
+    if (!statisticsRecord) {
+      statisticsRecord = null;
+      stats = basicStats([]);
+      statisticsInfo.textContent = "No governed statistics population.";
+      renderChips();
+      return;
+    }
+    stats = statisticsRecord.values;
+    statisticsInfo.textContent = formatPlotStatisticsRecord(statisticsRecord);
+    renderChips();
+  }
+
   const resolvedBinding = (curveName: string): ResolvedPlotCurve | null =>
     plotBindingSnapshot([well.well_id], [curveName])
       .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
@@ -701,8 +912,6 @@ export async function buildHistogramContent(
     };
   }
 
-  const persist = () => savePlotProps("histogram", opts);
-
   /** Recomputes the brushed subset's values for this curve (only when the brush targets THIS well). */
   const recomputeBrushValues = (sel: BrushSelection | null): void => {
     brushValues = [];
@@ -716,9 +925,9 @@ export async function buildHistogramContent(
   };
 
   // --- Context-well data (multi-well overlay) — same budget rule as the crossplot.
-  const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: HistogramContextLayer[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
+  let ctxWellIds: string[] = [];
   let ctxInfo = "";
   let ctxGen = 0;
   const histContext = (): HistogramContext | null =>
@@ -728,13 +937,24 @@ export async function buildHistogramContent(
    *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
-    const gen = ++ctxGen;
-    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    const token = beginPlotAsyncGeneration("histogram-context-refetch", ++ctxGen);
+    contextDepthHandoff.clear();
+    let resolvedIds: string[];
+    try {
+      resolvedIds = await resolveWellScope(scope.backend());
+    } catch (error) {
+      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Histogram scope refused: ${error}`);
+      return;
+    }
+    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
+    const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
+      contextDepthHandoff.clear();
       updateScopeUi();
       if (had) redraw();
       return;
@@ -742,8 +962,7 @@ export async function buildHistogramContent(
     ctxReductionManifest = contextReductionExport(
       "histogram",
       null,
-      scope.getWellIds().length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      resolvedIds.length,
     );
     setStatus(`Histogram: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
@@ -751,22 +970,24 @@ export async function buildHistogramContent(
       names: scope.namesFor(ids),
       curves: [curveSel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: MAX_CONTEXT_POINTS,
-      isStale: () => gen !== ctxGen,
+      budget: plotRecordLimit("context_point_budget").maximum,
+      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
     ctxReductionManifest = contextReductionExport(
       "histogram",
       outcome,
-      scope.getWellIds().length,
-      WELL_SCOPE_NAME_PREVIEW_ROWS,
+      resolvedIds.length,
+      { wellId: well.well_id, name: well.well_name },
     );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,
       color: l.color,
       values: l.series.get(curveSel.value.toUpperCase())!,
     }));
+    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
+    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
     updateScopeUi();
     setStatus(`Histogram ${ctxInfo.toLowerCase()}`);
     redraw();
@@ -775,6 +996,7 @@ export async function buildHistogramContent(
 
   const redraw = () => {
     canvas.setAttribute("aria-label", `Histogram of ${curveSel.value}`); // a11y label follows the curve
+    axisRanges = [];
     plot = drawHistogram(
       canvas,
       values,
@@ -790,6 +1012,11 @@ export async function buildHistogramContent(
       viewRef.current,
       brushValues,
       histContext(),
+      currentAxisBinding(),
+      (ranges) => {
+        axisRanges = ranges;
+      },
+      statisticsRecord,
     );
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -799,7 +1026,9 @@ export async function buildHistogramContent(
       ctx.fillStyle = th.text;
       ctx.textAlign = "center";
       ctx.fillText("No valid data for this curve/zone.", canvas.width / 2, canvas.height / 2);
+      return;
     }
+    refreshStatistics({ min: plot.x.min, max: plot.x.max });
   };
 
   // Vector export: re-run the same static draw (no hover marker, no brush overlay) into a
@@ -821,9 +1050,16 @@ export async function buildHistogramContent(
       viewRef.current,
       null,
       histContext(),
+      currentAxisBinding(),
+      (ranges) => {
+        axisRanges = ranges;
+      },
+      statisticsRecord,
     );
-  const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
-  const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
+  const getSvg = (scope: PlotAncestryScope): string | null =>
+    plot ? renderPlotToPaperSvg(plot.width, plot.height, drawStatic, scope) : null;
+  const getPdf = (scope: PlotAncestryScope): PlotPdf | null =>
+    plot ? renderPlotToPaperPdf(plot.width, plot.height, drawStatic, scope) : null;
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
   // switching) can't overwrite the newer data. `preserveView` keeps the zoom/pan on a
@@ -834,28 +1070,27 @@ export async function buildHistogramContent(
   // actually commits, so a background bump can't strand the new curve at the old zoom.
   let resetPending = false;
   const reload = async (preserveView = false) => {
-    const gen = ++reloadGen;
+    const token = beginPlotAsyncGeneration("histogram-data-refetch", ++reloadGen);
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     try {
       const series = await getCurveData(well.well_id, [curveSel.value], zone.depthMin, zone.depthMax);
-      if (gen !== reloadGen) return; // a newer reload started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       values = series[0]?.value ?? new Float32Array(0);
       depths = series[0]?.depth ?? new Float32Array(0);
     } catch (err) {
-      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       setStatus(`Histogram data load failed: ${err}`);
       values = new Float32Array(0);
       depths = new Float32Array(0);
     }
-    stats = basicStats(values);
     hoverValue = null; // the old hover marker points at a stale value after new data
     recomputeBrushValues(appState.brushedDepths.get()); // depths grid changed — re-map the brush
     if (resetPending) {
       viewRef.current = null; // new data → reset any zoom/pan
       resetPending = false;
     }
-    renderChips();
+    refreshStatistics();
     redraw();
   };
 
@@ -879,8 +1114,8 @@ export async function buildHistogramContent(
     const binsIn = document.createElement("input");
     binsIn.className = "form-control";
     binsIn.type = "number";
-    binsIn.min = "5";
-    binsIn.max = "400";
+    binsIn.min = String(HISTOGRAM_BINS_MIN);
+    binsIn.max = String(HISTOGRAM_BINS_MAX);
     binsIn.value = String(opts.bins);
 
     const chk = (label: string, checked: boolean): { el: HTMLElement; input: HTMLInputElement } => {
@@ -938,6 +1173,22 @@ export async function buildHistogramContent(
 
     const picksChk = chk("Show parameter pickers (Pick A/B → zone parameter)", opts.showPicks);
     picksChk.el.style.margin = "2px 0 8px";
+    const validityChk = chk("Apply validity range to n and statistics", opts.validityFilter);
+    const validityNumber = (value: number | null, placeholder: string): HTMLInputElement => {
+      const input = document.createElement("input");
+      input.className = "form-control";
+      input.type = "number";
+      input.step = "any";
+      input.placeholder = placeholder;
+      input.value = value === null ? "" : String(value);
+      return input;
+    };
+    const validMinIn = validityNumber(opts.validMin, "min");
+    const validMaxIn = validityNumber(opts.validMax, "max");
+    const validityRange = document.createElement("div");
+    validityRange.style.display = "flex";
+    validityRange.style.gap = "8px";
+    validityRange.append(validMinIn, validMaxIn);
 
     body.appendChild(formRow("Display", modeSel));
     body.appendChild(formRow("Bins", binsIn));
@@ -945,6 +1196,8 @@ export async function buildHistogramContent(
     body.appendChild(formRow("Color", colorWrap));
     body.appendChild(formRow("Percentiles", pctIn, "Extra user percentiles, comma-separated (0–100)"));
     body.appendChild(formRow("Statistics", placeSel));
+    body.appendChild(validityChk.el);
+    body.appendChild(formRow("Valid range", validityRange, "Explicit opt-in: changes n/statistics; display clipping does not"));
     body.appendChild(picksChk.el);
 
     const applyBtn = document.createElement("button");
@@ -955,6 +1208,16 @@ export async function buildHistogramContent(
 
     const close = openModal("Histogram Properties", body, 420);
     applyBtn.addEventListener("click", () => {
+      const validMinText = validMinIn.value.trim();
+      const validMaxText = validMaxIn.value.trim();
+      const validMin = validMinText === "" ? null : Number(validMinText);
+      const validMax = validMaxText === "" ? null : Number(validMaxText);
+      const validPair = validMin !== null && validMax !== null
+        && Number.isFinite(validMin) && Number.isFinite(validMax) && validMin !== validMax;
+      if ((validMinText !== "" || validMaxText !== "" || validityChk.input.checked) && !validPair) {
+        setStatus("Histogram validity requires two distinct finite limits, or two blanks while disabled");
+        return;
+      }
       opts.mode = modeSel.value as HistogramMode;
       opts.bins = clampBins(parseInt(binsIn.value, 10));
       opts.normalize = normChk.input.checked;
@@ -964,8 +1227,11 @@ export async function buildHistogramContent(
       opts.percentiles = parsePercentiles(pctIn.value);
       opts.statsPlacement = placeSel.value as StatsPlacement;
       opts.showPicks = picksChk.input.checked;
+      opts.validityFilter = validityChk.input.checked;
+      opts.validMin = validPair ? validMin : null;
+      opts.validMax = validPair ? validMax : null;
       persist();
-      renderChips();
+      refreshStatistics();
       applyPicksVisibility();
       redraw();
       setStatus("Histogram properties applied");
@@ -1022,21 +1288,15 @@ export async function buildHistogramContent(
   // Wheel-zoom + drag-pan on the X axis only (Y is the count axis); double-click resets.
   makeCanvasAccessible(canvas, `Histogram of ${curveSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
-  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
-  const detachResize = attachResizeRedraw(canvas, redraw);
-  const unsubTheme = appState.themeVersion.subscribe(() => redraw());
-
-  // Re-fetch when computed curves change (module/equation run, import, undo) so the
-  // histogram never shows stale data; keep the current zoom/pan. The primed flag drops
-  // subscribe's immediate fire so the trailing `await reload()` stays the only build load.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void reload(true);
-    void reloadContext(); // a module run may have rewritten the context wells' curves too
+  const detachKeys = attachKeyboardPanZoom({
+    canvas,
+    getPlot: () => plot,
+    view: viewRef,
+    redraw,
+    axes: "x",
+    getLabel: () => `Histogram of ${curveSel.value}`,
+    openProperties: () => openProps(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
   });
 
   // Synchronized hover: mark this curve's value at the depth under any log view's cursor.
@@ -1055,37 +1315,53 @@ export async function buildHistogramContent(
     }
   });
 
-  // Linked brushing: highlight this curve's sub-distribution for the shared brush's samples.
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
-    recomputeBrushValues(sel);
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+  const invalidation = registerPlotInvalidationContract(canvas, {
+    theme: () => redraw(),
+    dataRevision: () => {
+      // The active and context populations share one data revision; preserve zoom while both
+      // refetch so neither layer remains stale after a module/equation run, import or undo.
+      void reload(true);
+      void reloadContext();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    selection: (selection) => {
+      recomputeBrushValues(selection);
+      refreshStatistics();
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          redraw();
+        });
+      }
+    },
+    size: () => redraw(),
+    cancelPending: () => {
+      reloadGen++;
+      ctxGen++;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
         rafId = 0;
-        redraw();
-      });
-    }
+      }
+    },
   });
 
   await reload();
   // Not awaited: a big scope must not block the panel build — the active well's plot
   // appears immediately and the context outlines fade in when ready.
-  void reloadContext();
+  const bindingReady = reloadContext();
   return {
     el: content,
     dispose: () => {
-      ctxGen++; // cancel any in-flight context fetch
+      invalidation.dispose();
       scope.dispose();
       unsubHover();
-      unsubTheme();
-      unsubData();
-      unsubBrush();
       detachZoomPan();
-      detachKeys();
-      detachResize();
-      if (rafId) cancelAnimationFrame(rafId);
+      detachKeys.dispose();
       zoneSel.dispose();
     },
-    getState: () => ({ plotId, curve: curveSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
     openProperties: openProps,
   };
 }

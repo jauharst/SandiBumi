@@ -2,35 +2,37 @@ mod chain;
 mod composite;
 mod condition;
 mod contacts;
-mod coreimage;
+#[cfg(test)]
+mod core_ancestry_tests;
+#[cfg(test)]
+mod core_determinism_tests;
 #[cfg(test)]
 mod core_reporting_tests;
+mod coreimage;
 mod curve_edit;
 mod curves;
 mod db;
 mod decimate;
 mod deviation;
 mod distribution;
+mod biff5;
 mod dlis;
+mod dlis_writer;
 mod equations;
 #[cfg(test)]
 mod example_data_test;
 mod export;
+mod facies;
+mod facies_tie;
 #[cfg(test)]
 mod field_fixtures;
 mod frame;
-mod reframe;
-mod facies;
-mod facies_tie;
 mod geo;
 mod health;
 mod hfu;
 mod images;
-pub mod installation;
-mod petrography;
-mod plugqc;
-mod plotting;
 mod ingest;
+pub mod installation;
 mod intake;
 mod jobs;
 mod layout;
@@ -48,22 +50,29 @@ mod office;
 mod param_sources;
 pub mod parameter_pack;
 mod parsers;
+mod petrography;
 #[cfg(test)]
 mod pipeline_field_test;
+mod plotting;
+mod plugqc;
 mod project;
+mod python_engine;
+mod reframe;
 mod registration;
 mod report;
 mod resultsqc;
 mod rocktyping;
+mod robust;
 mod satheight;
+mod schema_vocab;
 mod shf_fit;
-mod thomeer;
 mod ssc;
 mod statistics;
-mod python_engine;
+mod thomeer;
 mod tops;
 mod unconventional;
 mod units;
+mod well_scope;
 mod workflow;
 
 use duckdb::Connection;
@@ -362,16 +371,35 @@ fn set_project_null_sentinel(db: tauri::State<DbState>, null_sentinel: f32) -> R
     export::set_project_null_sentinel(&conn, null_sentinel)
 }
 
-/// Lists every well in the project, for the object tree panel.
+/// Lists the wells in the backend-resolved scope, for the object tree and scoped tools.
 #[tauri::command]
-fn list_wells(db: tauri::State<DbState>) -> Result<Vec<db::WellSummary>, String> {
+fn list_wells(
+    db: tauri::State<DbState>,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<db::WellSummary>, String> {
     let conn = db.0.lock().unwrap();
-    db::list_wells(&conn).map_err(|e| e.to_string())
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "well inventory")?;
+    db::list_wells_by_ids(&conn, &well_ids).map_err(|e| e.to_string())
 }
 
 /// Parses and ingests a batch of LAS 2.0 files (parsed concurrently via `rayon`), inserting
 /// one well + its standard curves per file. Per-file failures are reported individually
 /// rather than aborting the whole batch.
+#[tauri::command]
+fn probe_las_well_identities(
+    paths: Vec<String>,
+) -> Result<Vec<parsers::LasWellIdentityProbe>, String> {
+    paths
+        .into_iter()
+        .map(|path| {
+            let mut probe = parsers::probe_las_well_identity(&path)
+                .map_err(|error| error.to_string())?;
+            probe.path = path;
+            Ok(probe)
+        })
+        .collect()
+}
+
 #[tauri::command]
 async fn import_las_files(
     db: tauri::State<'_, DbState>,
@@ -385,6 +413,11 @@ async fn import_las_files(
     non_monotonic_index: Option<ingest::NonMonotonicIndexDecision>,
     duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
     ms_per_ft_meanings: Option<std::collections::HashMap<String, curves::MsPerFtMeaning>>,
+    undeclared_drho_unit: Option<String>,
+    confirmed_well_names: Option<std::collections::HashMap<String, String>>,
+    sampling_style: Option<schema_vocab::SamplingStyle>,
+    sampling_style_verify_tolerance: Option<units::DepthTolerance>,
+    undeclared_sentinel_decision: Option<ingest::SentinelDecision>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
@@ -397,6 +430,11 @@ async fn import_las_files(
         non_monotonic_index,
         duplicate_depth_policy,
         ms_per_ft_meanings: ms_per_ft_meanings.unwrap_or_default(),
+        undeclared_drho_unit,
+        confirmed_well_names: confirmed_well_names.unwrap_or_default(),
+        sampling_style,
+        sampling_style_verify_tolerance,
+        undeclared_sentinel_decision,
     };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths
@@ -422,12 +460,13 @@ async fn import_core_csv(
     well_id: String,
     path: String,
     depth_column: Option<usize>,
+    depth_datum: String,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import core", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_core_csv_with_depth_column(&c, &well_id, &path, depth_column))
+        Ok(ingest::import_core_csv_with_depth_column(&c, &well_id, &path, depth_column, &depth_datum))
     })
     .await
 }
@@ -456,6 +495,7 @@ fn import_core_table(
     extras_dataset: Option<String>,
     set_name: Option<String>,
     #[allow(non_snake_case)] followCore: Option<bool>,
+    depth_datum: String,
 ) -> Result<ingest::CoreTableImportResult, String> {
     let conn = db.0.lock().unwrap();
     Ok(ingest::import_core_table(
@@ -467,6 +507,7 @@ fn import_core_table(
         extras_dataset.as_deref(),
         set_name.as_deref(),
         followCore.unwrap_or(false),
+        &depth_datum,
     ))
 }
 
@@ -500,13 +541,14 @@ async fn import_aux_data(
     path: String,
     set_name: Option<String>,
     follow_core: Option<bool>,
+    depth_datum: String,
 ) -> Result<ingest::AuxImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let follow_core = follow_core.unwrap_or(false);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core))
+        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core, &depth_datum))
     })
     .await
 }
@@ -860,9 +902,16 @@ async fn export_report_batch(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     spec: report::ReportSpec,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     dest_dir: String,
 ) -> Result<Vec<String>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "PDF report batch")?
+    };
+    if well_ids.is_empty() {
+        return Err("PDF report batch: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} report(s)", well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
@@ -888,9 +937,17 @@ async fn office_support() -> Result<office::OfficeSupport, String> {
 async fn export_deck(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    spec: office::DeckSpec,
+    mut spec: office::DeckSpec,
+    scope: well_scope::WellScopeSelection,
     dest_path: String,
 ) -> Result<office::DeckResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        spec.well_ids = well_scope::resolve_well_scope(&conn, &scope, "PowerPoint deck")?;
+    }
+    if spec.well_ids.is_empty() {
+        return Err("PowerPoint deck: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} well(s)", spec.well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Deck", label, move || {
@@ -922,9 +979,16 @@ async fn export_report_docx_batch(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     spec: report::ReportSpec,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     dest_dir: String,
 ) -> Result<Vec<String>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "Word report batch")?
+    };
+    if well_ids.is_empty() {
+        return Err("Word report batch: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} Word report(s)", well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
@@ -943,9 +1007,17 @@ async fn export_report_docx_batch(
 async fn export_workbook(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    spec: office::WorkbookSpec,
+    mut spec: office::WorkbookSpec,
+    scope: well_scope::WellScopeSelection,
     dest_path: String,
 ) -> Result<office::WorkbookResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        spec.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Excel workbook")?;
+    }
+    if spec.well_ids.is_empty() {
+        return Err("Excel workbook: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} well(s)", spec.well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Workbook", label, move || {
@@ -957,12 +1029,158 @@ async fn export_workbook(
 /// Writes a base64-encoded PNG (rasterized by the frontend from a report/composite SVG
 /// page) to the user-picked `dest_path` — same whitelisted-write pattern as the PDF/SVG
 /// exports.
+fn scoped_curve_ancestry(
+    conn: &duckdb::Connection,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+) -> Result<Option<Vec<equations::CurveAncestryDisclosure>>, String> {
+    let scoped =
+        ancestry_all_project || ancestry_well_ids.is_some() || ancestry_curve_names.is_some();
+    if !scoped {
+        return Ok(None);
+    }
+    if ancestry_curve_names.as_ref().is_some_and(Vec::is_empty) {
+        return Ok(Some(Vec::new()));
+    }
+    let well_ids = if ancestry_all_project {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT CAST(well_id AS VARCHAR) FROM computed_curves ORDER BY 1")
+            .map_err(|error| error.to_string())?;
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?
+            .collect::<duckdb::Result<Vec<_>>>()
+            .map_err(|error| error.to_string())?
+    } else {
+        ancestry_well_ids.unwrap_or_default()
+    };
+    let mut disclosures = equations::curve_ancestry_disclosures(conn, &well_ids, None)?;
+    if let Some(curves) = ancestry_curve_names {
+        let curves = curves
+            .into_iter()
+            .map(|curve| curve.trim().to_uppercase())
+            .collect::<std::collections::BTreeSet<_>>();
+        disclosures.retain(|entry| curves.contains(&entry.curve_name.to_uppercase()));
+    }
+    Ok(Some(disclosures))
+}
+
 #[tauri::command]
-fn save_png(dest_path: String, data_base64: String) -> Result<String, String> {
+fn get_curve_ancestry_disclosures(
+    db: tauri::State<DbState>,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+) -> Result<Vec<equations::CurveAncestryDisclosure>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(scoped_curve_ancestry(
+        &conn,
+        ancestry_well_ids,
+        ancestry_curve_names,
+        ancestry_all_project,
+    )?
+    .unwrap_or_default())
+}
+
+#[tauri::command]
+fn save_png(db: tauri::State<DbState>,
+    dest_path: String, data_base64: String,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+    plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
+    axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
+    statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
+    chart_render_record: Option<plotting::ChartRenderRecord>,
+    paper_export_record: Option<plotting::PaperExportRecord>,
+) -> Result<String, String> {
     use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD
+    let mut bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| format!("bad PNG payload: {e}"))?;
+    let statistics_records = statistics_records.unwrap_or_default();
+    let chart_render_json = if chart_render_record.is_some() {
+        plotting::validate_chart_render_record(chart_render_record.as_ref())?;
+        Some(serde_json::to_string(&chart_render_record).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
+    let paper_export_json = if let Some(record) = paper_export_record.as_ref() {
+        plotting::validate_paper_export_record(record)?;
+        Some(serde_json::to_string(record).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
+    let plot_binding_json = match (plot_bindings, axis_ranges) {
+        (Some(bindings), Some(axis_ranges)) => Some(plotting::serialize_plot_binding_export(
+            ancestry_well_ids
+                .as_deref()
+                .ok_or_else(|| "plot binding export requires represented well ids".to_string())?,
+            &bindings,
+            &axis_ranges,
+            &statistics_records,
+        )?),
+        (Some(_), None) => return Err("plot binding export requires resolved axis ranges".into()),
+        (None, Some(_)) => return Err("axis-range export requires concrete plot bindings".into()),
+        (None, None) if statistics_records.is_empty() => None,
+        (None, None) => return Err("statistics export requires concrete plot bindings".into()),
+    };
+    let conn = db.0.lock().unwrap();
+    if let Some(ancestry) = scoped_curve_ancestry(
+        &conn,
+        ancestry_well_ids,
+        ancestry_curve_names,
+        ancestry_all_project,
+    )? {
+        let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bytes = composite::embed_ancestry_json_in_png(&bytes, &json)?;
+        } else {
+            let svg = String::from_utf8(bytes).map_err(|_| {
+                "ancestry-scoped image export is neither PNG nor UTF-8 SVG".to_string()
+            })?;
+            bytes = composite::embed_ancestry_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
+    if let Some(json) = plot_binding_json {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bytes = composite::embed_plot_bindings_json_in_png(&bytes, &json)?;
+        } else {
+            let svg = String::from_utf8(bytes).map_err(|_| {
+                "plot-binding image export is neither PNG nor UTF-8 SVG".to_string()
+            })?;
+            bytes = composite::embed_plot_bindings_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
+    if let Some(json) = chart_render_json {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bytes = composite::embed_chart_render_record_json_in_png(&bytes, &json)?;
+        } else {
+            let svg = String::from_utf8(bytes).map_err(|_| {
+                "chart-record image export is neither PNG nor UTF-8 SVG".to_string()
+            })?;
+            bytes = composite::embed_chart_render_record_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
+    if let Some(json) = paper_export_json {
+        let record = paper_export_record.as_ref().unwrap();
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            if record.medium != "print-raster" {
+                return Err("PNG paper custody must identify a raster output".into());
+            }
+            bytes = composite::embed_paper_export_record_json_in_png(&bytes, &json)?;
+        } else {
+            if record.medium != "svg-vector" {
+                return Err("SVG paper custody must identify a vector output".into());
+            }
+            let svg = String::from_utf8(bytes)
+                .map_err(|_| "paper export is neither PNG nor UTF-8 SVG".to_string())?;
+            if !svg.contains(&record.provenance_footer) {
+                return Err("paper SVG is missing its visible provenance footer".into());
+            }
+            bytes = composite::embed_paper_export_record_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -972,8 +1190,71 @@ fn save_png(dest_path: String, data_base64: String) -> Result<String, String> {
 /// `dest_path`. Same whitelisted-write pattern as `save_png`; the PDF document scaffolding is
 /// shared with the composite-log exporter (`composite::assemble_single_page_pdf`).
 #[tauri::command]
-fn save_plot_pdf(dest_path: String, content: String, width_pt: f64, height_pt: f64) -> Result<String, String> {
-    let bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+fn save_plot_pdf(db: tauri::State<DbState>,
+    dest_path: String, content: String, width_pt: f64, height_pt: f64,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+    plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
+    axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
+    statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
+    chart_render_record: Option<plotting::ChartRenderRecord>,
+    paper_export_record: Option<plotting::PaperExportRecord>,
+) -> Result<String, String> {
+    let paper_export_record = paper_export_record
+        .ok_or_else(|| "plot PDF export requires paper geometry and a no-crop proof".to_string())?;
+    plotting::validate_paper_export_record(&paper_export_record)?;
+    if paper_export_record.medium != "pdf-vector" {
+        return Err("plot PDF paper custody must identify a vector PDF".into());
+    }
+    let record_width = paper_export_record.page_bounds.max_x - paper_export_record.page_bounds.min_x;
+    let record_height = paper_export_record.page_bounds.max_y - paper_export_record.page_bounds.min_y;
+    if width_pt != record_width || height_pt != record_height {
+        return Err("plot PDF page size disagrees with its no-crop record".into());
+    }
+    if !content.contains(&paper_export_record.provenance_footer) {
+        return Err("plot PDF is missing its visible provenance footer".into());
+    }
+    let mut bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+    let statistics_records = statistics_records.unwrap_or_default();
+    let chart_render_json = if chart_render_record.is_some() {
+        plotting::validate_chart_render_record(chart_render_record.as_ref())?;
+        Some(serde_json::to_string(&chart_render_record).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
+    let plot_binding_json = match (plot_bindings, axis_ranges) {
+        (Some(bindings), Some(axis_ranges)) => Some(plotting::serialize_plot_binding_export(
+            ancestry_well_ids
+                .as_deref()
+                .ok_or_else(|| "plot binding export requires represented well ids".to_string())?,
+            &bindings,
+            &axis_ranges,
+            &statistics_records,
+        )?),
+        (Some(_), None) => return Err("plot binding export requires resolved axis ranges".into()),
+        (None, Some(_)) => return Err("axis-range export requires concrete plot bindings".into()),
+        (None, None) if statistics_records.is_empty() => None,
+        (None, None) => return Err("statistics export requires concrete plot bindings".into()),
+    };
+    let conn = db.0.lock().unwrap();
+    if let Some(ancestry) = scoped_curve_ancestry(
+        &conn,
+        ancestry_well_ids,
+        ancestry_curve_names,
+        ancestry_all_project,
+    )? {
+        let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
+        bytes = composite::embed_ancestry_json_in_pdf(bytes, &json)?;
+    }
+    if let Some(json) = plot_binding_json {
+        bytes = composite::embed_plot_bindings_json_in_pdf(bytes, &json)?;
+    }
+    if let Some(json) = chart_render_json {
+        bytes = composite::embed_chart_render_record_json_in_pdf(bytes, &json)?;
+    }
+    let paper_export_json = serde_json::to_string(&paper_export_record).map_err(|error| error.to_string())?;
+    bytes = composite::embed_paper_export_record_json_in_pdf(bytes, &paper_export_json)?;
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -1015,12 +1296,13 @@ async fn import_scal_csv(
     well_id: String,
     path: String,
     ift_lab: f64,
+    depth_datum: String,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_csv(&c, &well_id, &path, ift_lab))
+        Ok(ingest::import_scal_csv(&c, &well_id, &path, ift_lab, &depth_datum))
     })
     .await
 }
@@ -1040,6 +1322,7 @@ async fn import_scal_files(
     ift_lab: f64,
     set_name: Option<String>,
     follow_core: Option<bool>,
+    depth_datum: String,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let follow_core = follow_core.unwrap_or(false);
@@ -1050,7 +1333,7 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core))
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core, &depth_datum))
     })
     .await
 }
@@ -1104,17 +1387,22 @@ async fn run_equation(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     equation_id: String,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
+    custody: equations::RunCustody,
 ) -> Result<Vec<equations::EquationRunResult>, String> {
-    let (equation, items) = {
+    let (equation, items, well_ids) = {
         let conn = db.0.lock().unwrap();
+        let well_ids = well_scope::resolve_well_scope(&conn, &scope, "equation run")?;
+        if well_ids.is_empty() {
+            return Err("equation run: the backend-resolved well scope is empty".into());
+        }
         let equation = equations::list_equations(&conn)
             .map_err(|e| e.to_string())?
             .into_iter()
             .find(|e| e.equation_id == equation_id)
             .ok_or_else(|| format!("equation {equation_id} not found"))?;
         let items = well_items(&conn, &well_ids);
-        (equation, items)
+        (equation, items, well_ids)
     };
     let total = well_ids.len();
     let conn = db.0.clone();
@@ -1122,9 +1410,9 @@ async fn run_equation(
     let label = format!("equation: {}", equation.name);
     jobs::run_job(reg, "Equation", label, items, total, true, move |job| {
         if equation.language == "python" {
-            python_engine::run_python_equation(&conn, &equation, &well_ids, Some(&job))
+            python_engine::run_python_equation(&conn, &equation, &well_ids, &custody, Some(&job))
         } else {
-            equations::run_equation(&conn, &equation, &well_ids, Some(&job))
+            equations::run_equation(&conn, &equation, &well_ids, &custody, Some(&job))
         }
     })
     .await
@@ -1160,6 +1448,15 @@ fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equat
     equations::list_log_sets(&conn, &well_id).map_err(|e| e.to_string())
 }
 
+/// DEC-045/DEC-039: set the free-text comment on ONE log-set version — the record of what this
+/// run did (the branch a module took, every limit that bound, or the user's own annotation).
+/// An explicit whitelisted write per rule 6; versions never inherit it.
+#[tauri::command]
+fn set_log_set_comment(db: tauri::State<DbState>, set_id: String, comment: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    equations::set_log_set_comment(&conn, &set_id, &comment)
+}
+
 /// Distinct constellation (log-set) names across the project — powers the input/output
 /// constellation pickers in the module and workflow dialogs (which run across many wells).
 #[tauri::command]
@@ -1168,20 +1465,23 @@ fn list_log_set_names(db: tauri::State<DbState>) -> Result<Vec<String>, String> 
     equations::list_log_set_names(&conn).map_err(|e| e.to_string())
 }
 
-/// P1-c: copies one archived set version back into the current store (its curves become
-/// the values every panel shows again). Returns the number of restored rows.
+/// P1-c: restores one archived set as a new version and returns the complete source/new-version
+/// receipt. The selected source and every intervening version remain immutable.
 #[tauri::command]
-fn restore_log_set(db: tauri::State<DbState>, set_id: String) -> Result<usize, String> {
+fn restore_log_set(
+    db: tauri::State<DbState>,
+    set_id: String,
+) -> Result<equations::RestoreLogSetResult, String> {
     let conn = db.0.lock().unwrap();
-    equations::restore_log_set(&conn, &set_id).map_err(|e| e.to_string())
+    equations::restore_log_set(&conn, &set_id)
 }
 
-/// P1-c: deletes one set version's history rows (current values are kept, provenance tag
-/// cleared) — for pruning old versions once they're no longer needed.
+/// Retained as an explicit refusal for stale frontends: ordinary deletion is not an authorized
+/// archive-retention policy and cannot mutate immutable version history.
 #[tauri::command]
 fn delete_log_set(db: tauri::State<DbState>, set_id: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    equations::delete_log_set(&conn, &set_id).map_err(|e| e.to_string())
+    equations::delete_log_set(&conn, &set_id)
 }
 
 /// P1-c: per-well catalog of current computed curves with provenance (set/version/module/
@@ -1235,6 +1535,18 @@ fn promote_generic_curve(db: tauri::State<DbState>, curve_id: String) -> Result<
     db::promote_generic_curve(&conn, &curve_id).map_err(|e| e.to_string())
 }
 
+/// Marks or clears one imported curve's Final status. Returns the previously Final curve in the
+/// same well/family so the frontend can make this metadata edit undoable.
+#[tauri::command]
+fn set_generic_curve_final(
+    db: tauri::State<DbState>,
+    curve_id: String,
+    is_final: bool,
+) -> Result<Option<String>, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_generic_curve_final(&conn, &curve_id, is_final).map_err(|e| e.to_string())
+}
+
 /// Renames / re-units / re-families one imported curve, returning its PREVIOUS identity so
 /// the caller can push an undo. Metadata only — no sample is touched — but the mnemonic and
 /// family are what module inputs resolve by, so this repoints what modules read.
@@ -1245,10 +1557,24 @@ fn update_curve_meta(
     mnemonic: String,
     unit: Option<String>,
     family: Option<String>,
+    operator: String,
+    operator_kind: String,
+    view: Option<String>,
 ) -> Result<db::CurveMetaEdit, String> {
     let conn = db.0.lock().unwrap();
-    db::update_curve_meta_fields(&conn, &curve_id, &mnemonic, unit.as_deref(), family.as_deref())
-        .map_err(|e| e.to_string())
+    // SB-DBM-011: a mnemonic change audits as RENAME; unit/family edits audit as the
+    // dotted-name ATTRIBUTE case.
+    db::update_curve_meta_audited(
+        &conn,
+        &curve_id,
+        &mnemonic,
+        unit.as_deref(),
+        family.as_deref(),
+        &operator,
+        &operator_kind,
+        view.as_deref().unwrap_or("Curve Catalog"),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Phase 6: imports a deviation-survey CSV for one well, computing minimum-curvature
@@ -1344,8 +1670,12 @@ struct TvdMaterialize {
 #[tauri::command]
 async fn materialize_tvd(
     db: tauri::State<'_, DbState>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<TvdMaterialize>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "TVD materialization")?
+    };
     let handle = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = handle.lock().unwrap();
@@ -1377,6 +1707,7 @@ async fn import_dlis_file(
     set_name: Option<String>,
     file_depth_unit: Option<String>,
     ms_per_ft_meaning: Option<curves::MsPerFtMeaning>,
+    undeclared_drho_unit: Option<String>,
     outside_interval_decision: Option<dlis::DlisOutsideIntervalDecision>,
     duplicate_decisions: Option<Vec<dlis::DlisDuplicateDecision>>,
     las_sentinel_exceptions: Option<Vec<String>>,
@@ -1393,6 +1724,7 @@ async fn import_dlis_file(
             set_name.as_deref(),
             file_depth_unit.as_deref(),
             ms_per_ft_meaning,
+            undeclared_drho_unit.as_deref(),
             outside_interval_decision,
             duplicate_decisions.as_deref().unwrap_or(&[]),
             las_sentinel_exceptions.as_deref().unwrap_or(&[]),
@@ -1419,8 +1751,79 @@ fn list_layouts() -> Vec<layout::Layout> {
 /// plot property sets, and similar per-item saves.
 #[tauri::command]
 fn save_document(db: tauri::State<DbState>, doc_type: String, name: String, json: String) -> Result<(), String> {
+    if doc_type == "session" || doc_type == "plotprops" || doc_type.starts_with("plottmpl:") {
+        return Err(format!(
+            "document type '{doc_type}' requires its typed persistence command"
+        ));
+    }
     let conn = db.0.lock().unwrap();
     db::save_document(&conn, &doc_type, &name, &json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_plot_state(
+    db: tauri::State<DbState>,
+    doc_type: String,
+    name: String,
+    state: plotting::PersistedPlotState,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    plotting::save_persisted_plot_state(&conn, &doc_type, &name, &state)
+}
+
+#[tauri::command]
+fn save_session_document(
+    db: tauri::State<DbState>,
+    name: String,
+    json: String,
+) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("session requires a document name".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(&json).map_err(|error| format!("session is unreadable: {error}"))?;
+    if let Some(plot_states) = value.get("plotStates") {
+        let states = plot_states
+            .as_object()
+            .ok_or_else(|| "session plotStates must be an object keyed by panel id".to_string())?;
+        for (panel_id, raw_state) in states {
+            let state: plotting::PersistedPlotState = serde_json::from_value(raw_state.clone())
+                .map_err(|error| format!("session plot '{panel_id}' is unreadable: {error}"))?;
+            plotting::validate_persisted_plot_state(&state)
+                .map_err(|error| format!("session plot '{panel_id}' refused: {error}"))?;
+        }
+    }
+    let conn = db.0.lock().unwrap();
+    db::save_document(&conn, "session", &name, &json).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn serialize_plot_binding_export(
+    well_ids: Vec<String>,
+    bindings: Vec<plotting::PlotChannelBinding>,
+    axis_ranges: Vec<plotting::PlotAxisRange>,
+    statistics_records: Vec<plotting::PlotStatisticsRecord>,
+) -> Result<String, String> {
+    plotting::serialize_plot_binding_export(&well_ids, &bindings, &axis_ranges, &statistics_records)
+}
+
+#[tauri::command]
+fn get_curve_header_display_range(
+    db: tauri::State<DbState>,
+    curve_id: String,
+) -> Result<Option<plotting::DisplayRange>, String> {
+    let conn = db.0.lock().unwrap();
+    plotting::curve_header_display_range(&conn, &curve_id)
+}
+
+#[tauri::command]
+fn set_curve_header_display_range(
+    db: tauri::State<DbState>,
+    curve_id: String,
+    range: Option<plotting::DisplayRange>,
+) -> Result<Option<plotting::DisplayRange>, String> {
+    let conn = db.0.lock().unwrap();
+    plotting::set_curve_header_display_range(&conn, &curve_id, range)
 }
 
 /// Lists every saved document of one type (e.g. "layout").
@@ -1544,10 +1947,23 @@ fn get_curve_data(
 fn resolve_plot_bindings(
     db: tauri::State<DbState>,
     intents: Vec<plotting::PlotChannelIntent>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<plotting::PlotChannelBinding>, String> {
     let conn = db.0.lock().unwrap();
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "multi-well plot binding")?;
     plotting::resolve_plot_bindings(&conn, intents, &well_ids)
+}
+
+/// Resolves a multi-well selector against the live project. Read-only views use this for their
+/// current display set; mutating and export commands resolve the same selector inside their own
+/// command so this preview can never become their authority.
+#[tauri::command]
+fn resolve_well_scope(
+    db: tauri::State<DbState>,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    well_scope::resolve_well_scope(&conn, &scope, "well-scope preview")
 }
 
 /// Validates and canonicalizes a plot-derived parameter source note. User and time
@@ -1579,14 +1995,11 @@ fn list_modules() -> Vec<modules::ModuleSpec> {
 /// well_id → (well_id, well_name) pairs for a job's item list, so the Processing panel shows
 /// well names instead of UUIDs. One cheap query; ids without a matching row fall back to the id.
 fn well_items(conn: &duckdb::Connection, well_ids: &[String]) -> Vec<(String, String)> {
-    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
-        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
-            for row in rows.flatten() {
-                names.insert(row.0, row.1);
-            }
-        }
-    }
+    let names: std::collections::HashMap<String, String> = db::list_wells_by_ids(conn, well_ids)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|well| (well.well_id, well.well_name))
+        .collect();
     well_ids
         .iter()
         .map(|id| (id.clone(), names.get(id).cloned().unwrap_or_else(|| id.clone())))
@@ -1609,6 +2022,66 @@ fn module_output_names(
     workflow::preview_output_names(&module, &log_inputs, &opts)
 }
 
+/// Reports which selected LogIn arguments have at least one finite sample for each scoped well,
+/// using the runner's exact input-set and curve-resolution path. Curve arrays stay in Rust; the
+/// dialog receives only argument names and can mark an un-evaluable sourced condition before Run.
+#[tauri::command]
+async fn module_input_availability(
+    db: tauri::State<'_, DbState>,
+    module: String,
+    scope: well_scope::WellScopeSelection,
+    log_inputs: std::collections::HashMap<String, String>,
+    input_set: Option<String>,
+) -> Result<Vec<workflow::ModuleInputAvailability>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "module input preflight")?
+    };
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        workflow::module_input_availability(
+            &conn,
+            &module,
+            &well_ids,
+            &log_inputs,
+            input_set.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Computes the despike estimator branches and their mathematical contamination ceilings for the
+/// currently selected wells. Curve arrays remain in Rust; the dialog receives only branch names,
+/// percentages and counts, and the work runs off the IPC thread like the other data preflight.
+#[tauri::command]
+async fn despike_contamination_preview(
+    db: tauri::State<'_, DbState>,
+    scope: well_scope::WellScopeSelection,
+    log_inputs: std::collections::HashMap<String, String>,
+    params: std::collections::HashMap<String, f64>,
+    opts: std::collections::HashMap<String, String>,
+    input_set: Option<String>,
+) -> Result<workflow::DespikeContaminationPreview, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "despike contamination preview")?
+    };
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        workflow::despike_contamination_preview(
+            &conn,
+            &well_ids,
+            &log_inputs,
+            &params,
+            &opts,
+            input_set.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Runs one deterministic module across the given wells (rayon-parallel), resolving interval
 /// parameters per zone and writing outputs to computed_curves. Async + off-thread via the job
 /// registry, so it reports live per-well progress and a Cancel in the Processing panel and never
@@ -1617,12 +2090,17 @@ fn module_output_names(
 async fn run_workflow_module(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: workflow::RunModuleRequest,
+    mut req: workflow::RunModuleRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<workflow::ModuleRunResult>, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "module run")?;
         well_items(&conn, &req.well_ids)
     };
+    if req.well_ids.is_empty() {
+        return Err("module run: the backend-resolved well scope is empty".into());
+    }
     let total = req.well_ids.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
@@ -1691,6 +2169,7 @@ async fn intake_commit(
                 req.extras_dataset.as_deref(),
                 req.set_name.as_deref(),
                 req.follow_core,
+                &req.depth_datum,
             ));
         }
         Ok(out)
@@ -1769,8 +2248,13 @@ async fn intake_commit_curves(
 #[tauri::command]
 async fn stats_curve_summary(
     db: tauri::State<'_, DbState>,
-    req: statistics::CurveStatsRequest,
+    mut req: statistics::CurveStatsRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<(Vec<statistics::CurveStatsRow>, Vec<f32>), String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "curve statistics")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::curve_summary(&conn, &req))
         .await
@@ -1781,8 +2265,13 @@ async fn stats_curve_summary(
 #[tauri::command]
 async fn stats_pair_summary(
     db: tauri::State<'_, DbState>,
-    req: statistics::PairStatsRequest,
+    mut req: statistics::PairStatsRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<statistics::PairStatsRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "pair statistics")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::pair_summary(&conn, &req))
         .await
@@ -1794,8 +2283,13 @@ async fn stats_pair_summary(
 #[tauri::command]
 async fn stats_versus_sets(
     db: tauri::State<'_, DbState>,
-    req: statistics::VersusRequest,
+    mut req: statistics::VersusRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<statistics::VersusRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "log-set comparison")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::versus_sets(&conn, &req))
         .await
@@ -1806,8 +2300,13 @@ async fn stats_versus_sets(
 #[tauri::command]
 async fn stats_thickness(
     db: tauri::State<'_, DbState>,
-    req: statistics::ThicknessRequest,
+    mut req: statistics::ThicknessRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<statistics::ThicknessRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "thickness statistics")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::thickness(&conn, &req))
         .await
@@ -1818,8 +2317,13 @@ async fn stats_thickness(
 #[tauri::command]
 async fn stats_fit(
     db: tauri::State<'_, DbState>,
-    req: statistics::FitRequest,
+    mut req: statistics::FitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<statistics::FitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "statistical fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::fit_curves(&conn, &req))
         .await
@@ -1831,8 +2335,16 @@ async fn stats_fit(
 async fn run_pay_summary(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: workflow::PaySummaryRequest,
+    mut req: workflow::PaySummaryRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<workflow::PaySummaryRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "pay summary")?;
+    }
+    if req.well_ids.is_empty() {
+        return Err("pay summary: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     // A stats-only pay summary persists nothing (workflow.rs gates every FLAG_* write behind
     // !stats_only), so it is a pure read — run it silently off-thread rather than posting a
@@ -1857,8 +2369,16 @@ async fn run_pay_summary(
 async fn run_cutoff_sweep(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: workflow::CutoffSweepRequest,
+    mut req: workflow::CutoffSweepRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<workflow::CutoffSweepResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "cutoff sweep")?;
+    }
+    if req.well_ids.is_empty() {
+        return Err("cutoff sweep: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("cutoff sweep: {}", req.property);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Cutoff sweep", label, move || {
@@ -1875,10 +2395,16 @@ async fn run_cutoff_sweep(
 async fn run_monte_carlo(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: montecarlo::McRequest,
+    mut req: montecarlo::McRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<montecarlo::McResult, String> {
+    // SB-CUT-019: refuse a bare or impossible cut-off HERE, where the user's value first
+    // arrives, so the message reaches them. `run_monte_carlo` cannot return an error - the job
+    // registry fixes its return type - so this is the entry point that owns the refusal.
+    montecarlo::validate_cutoffs(&req)?;
     let items = {
         let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Monte Carlo run")?;
         well_items(&conn, &req.well_ids)
     };
     let total = req.well_ids.len();
@@ -1897,10 +2423,16 @@ async fn run_monte_carlo(
 async fn run_ml(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: ml::MlRequest,
+    mut req: ml::MlRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<ml::MlResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        let resolved = well_scope::resolve_well_scope(&conn, &scope, "machine-learning run")?;
+        req.apply_well_ids = resolved.clone();
+        if !req.train_well_ids.is_empty() {
+            req.train_well_ids = resolved;
+        }
         well_items(&conn, &req.apply_well_ids)
     };
     let total = req.apply_well_ids.len();
@@ -1918,10 +2450,13 @@ async fn run_ml(
 async fn apply_ml_model(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: ml::MlApplyRequest,
+    mut req: ml::MlApplyRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<ml::MlResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.apply_well_ids =
+            well_scope::resolve_well_scope(&conn, &scope, "saved-model application")?;
         well_items(&conn, &req.apply_well_ids)
     };
     let total = req.apply_well_ids.len();
@@ -1973,12 +2508,71 @@ fn param_sources(topic: String) -> Vec<param_sources::ParamSource> {
     param_sources::sources_for(&topic).to_vec()
 }
 
+/// SB-DBM-025: the cross-module constant registry, inspectable from the UI - a registry
+/// nobody can read is a comment. Serialized as (name, value, unit, consumers, source) rows.
+/// SB-DBM-017 / DEC-025: declare the neutron matrix basis on one curve - stated by the user
+/// at (or after) import, NEVER inferred from contractor, tool, salinity or a matrix default.
+/// Both the basis and its source are required; absence stays absent.
+#[tauri::command]
+fn set_curve_neutron_basis(
+    state: tauri::State<DbState>,
+    curve_id: String,
+    basis: String,
+    source: String,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|_| "database busy".to_string())?;
+    db::set_curve_neutron_basis(&conn, &curve_id, &basis, &source).map_err(|e| e.to_string())
+}
+
+/// SB-CLY-001 (DEC-036): the CLY provenance registry, readable by the UI so a stored token
+/// curve can be decoded against the exact versioned vocabulary that wrote it.
+#[tauri::command]
+fn cly_prov_registry() -> (u32, String, Option<String>, Vec<(f64, String, String)>) {
+    let registry = &param_sources::CLY_PROV_V1;
+    (
+        registry.version,
+        registry.method.to_string(),
+        registry.substitution_curve.map(|curve| curve.to_string()),
+        registry
+            .codes
+            .iter()
+            .map(|entry| {
+                (
+                    entry.code as f64,
+                    entry.token.to_string(),
+                    entry.meaning.to_string(),
+                )
+            })
+            .collect(),
+    )
+}
+
+#[tauri::command]
+fn cross_module_constants() -> Vec<(String, f64, String, String, String)> {
+    param_sources::CROSS_MODULE_CONSTANTS
+        .iter()
+        .map(|constant| {
+            (
+                constant.name.to_string(),
+                constant.value,
+                constant.unit.to_string(),
+                constant.consumers.to_string(),
+                constant.source.to_string(),
+            )
+        })
+        .collect()
+}
+
 #[tauri::command]
 async fn curve_sampling(
     db: tauri::State<'_, DbState>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     curves: Vec<String>,
 ) -> Result<Vec<(String, Vec<equations::CurveSampling>)>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "curve-sampling QC")?
+    };
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let c = conn.lock().unwrap();
@@ -2078,8 +2672,14 @@ fn delete_ml_model(
 #[tauri::command]
 async fn run_ml_eval(
     db: tauri::State<'_, DbState>,
-    req: ml::MlEvalRequest,
+    mut req: ml::MlEvalRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<ml::MlEvalResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.train_well_ids =
+            well_scope::resolve_well_scope(&conn, &scope, "machine-learning evaluation")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || ml::run_ml_eval(&conn, &req))
         .await
@@ -2092,8 +2692,13 @@ async fn run_ml_eval(
 #[tauri::command]
 async fn run_cuddy_foil(
     db: tauri::State<'_, DbState>,
-    req: shf_fit::CuddyFoilRequest,
+    mut req: shf_fit::CuddyFoilRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<shf_fit::CuddyFoilResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Cuddy FOIL fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || shf_fit::run_cuddy_foil(&conn, &req))
         .await
@@ -2107,8 +2712,13 @@ async fn run_cuddy_foil(
 #[tauri::command]
 async fn run_rtc_fit(
     db: tauri::State<'_, DbState>,
-    req: lrlc::RtcFitRequest,
+    mut req: lrlc::RtcFitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<lrlc::RtcFitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "RtC fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || lrlc::run_rtc_fit(&conn, &req))
         .await
@@ -2121,8 +2731,13 @@ async fn run_rtc_fit(
 #[tauri::command]
 async fn run_s_factor_fit(
     db: tauri::State<'_, DbState>,
-    req: lrlc::SFactorFitRequest,
+    mut req: lrlc::SFactorFitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<lrlc::SFactorFitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "S-factor fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || lrlc::run_s_factor_fit(&conn, &req))
         .await
@@ -2134,8 +2749,13 @@ async fn run_s_factor_fit(
 #[tauri::command]
 async fn run_shf_fit(
     db: tauri::State<'_, DbState>,
-    req: shf_fit::ShfFitRequest,
+    mut req: shf_fit::ShfFitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<shf_fit::ShfFitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "saturation-height fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || shf_fit::run_shf_fit(&conn, &req))
         .await
@@ -2148,8 +2768,13 @@ async fn run_shf_fit(
 #[tauri::command]
 async fn run_thomeer_fit(
     db: tauri::State<'_, DbState>,
-    req: thomeer::ThomeerRequest,
+    mut req: thomeer::ThomeerRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<thomeer::ThomeerResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Thomeer fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || thomeer::run_thomeer_fit(&conn, &req))
         .await
@@ -2162,8 +2787,13 @@ async fn run_thomeer_fit(
 #[tauri::command]
 async fn run_hfu_cluster(
     db: tauri::State<'_, DbState>,
-    req: hfu::HfuRequest,
+    mut req: hfu::HfuRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<hfu::HfuResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "HFU clustering")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || hfu::run_hfu_cluster(&conn, &req))
         .await
@@ -2177,7 +2807,18 @@ async fn run_hfu_cluster(
 async fn run_lorenz(
     db: tauri::State<'_, DbState>,
     req: lorenz::LorenzRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<lorenz::LorenzResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        let allowed = well_scope::resolve_well_scope(&conn, &scope, "Lorenz plot")?;
+        if !allowed.contains(&req.well_id) {
+            return Err(format!(
+                "Lorenz plot: well '{}' is outside the backend-resolved scope; refresh the well picker",
+                req.well_id
+            ));
+        }
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || lorenz::run_lorenz(&conn, &req))
         .await
@@ -2189,8 +2830,13 @@ async fn run_lorenz(
 #[tauri::command]
 async fn run_facies_confusion(
     db: tauri::State<'_, DbState>,
-    req: facies_tie::FaciesConfusionRequest,
+    mut req: facies_tie::FaciesConfusionRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<facies_tie::FaciesConfusionResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "facies tie")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || facies_tie::run_facies_confusion(&conn, &req))
         .await
@@ -2205,10 +2851,12 @@ async fn run_facies_confusion(
 async fn run_multimin(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: multimin2::MultiminRequest,
+    mut req: multimin2::MultiminRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<multimin2::MultiminResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.apply_well_ids = well_scope::resolve_well_scope(&conn, &scope, "SandiMin run")?;
         well_items(&conn, &req.apply_well_ids)
     };
     let total = req.apply_well_ids.len();
@@ -2224,6 +2872,15 @@ async fn run_multimin(
 #[tauri::command]
 fn multimin_library() -> Vec<multimin2::Component> {
     multimin2::multimin_library()
+}
+
+/// Canonical SandiMin saturation equation ids and the labels shown for them. The backend owns this
+/// catalog so the UI cannot silently rename an equation while the solver persists a different id.
+#[tauri::command]
+fn multimin_sw_models() -> Vec<multimin2::SwModelChoice> {
+    // SB-SAT-026: the DIALOG sees only what the solver implements; the full catalog is the
+    // flag registry every saturation module resolves through.
+    multimin2::solver_selectable_models()
 }
 
 /// Derived fluid quantities (Cw, Cmf, Cbw, α, w, CT/CXO auto-uncertainties) for the
@@ -2261,9 +2918,24 @@ fn list_zones(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::Zone
 
 /// Creates or updates a zone.
 #[tauri::command]
-fn upsert_zone(db: tauri::State<DbState>, well_id: String, zone_name: String, top_depth: f32, bottom_depth: f32) -> Result<(), String> {
+fn upsert_zone(
+    db: tauri::State<DbState>,
+    well_id: String,
+    zone_name: String,
+    top_depth: f32,
+    bottom_depth: f32,
+    depth_datum: schema_vocab::DepthDatum,
+) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::upsert_zone(&conn, &well_id, &zone_name, top_depth, bottom_depth).map_err(|e| e.to_string())
+    db::upsert_zone_with_datum(
+        &conn,
+        &well_id,
+        &zone_name,
+        top_depth,
+        bottom_depth,
+        depth_datum,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Deletes a zone and its parameters.
@@ -2321,20 +2993,25 @@ fn upsert_fluid_contact(
     contact_type: String,
     depth: f64,
     is_tvdss: bool,
+    depth_datum: Option<schema_vocab::DepthDatum>,
     color: Option<String>,
     label: Option<String>,
     compartment: Option<String>,
     zones: Option<Vec<String>>,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::upsert_fluid_contact(
+    db::upsert_fluid_contact_with_datum(
         &conn,
         &contact_id,
         field_name.as_deref(),
         well_id.as_deref(),
         &contact_type,
         depth,
-        is_tvdss,
+        depth_datum.unwrap_or(if is_tvdss {
+            schema_vocab::DepthDatum::Tvdss
+        } else {
+            schema_vocab::DepthDatum::Md
+        }),
         color.as_deref(),
         label.as_deref(),
         compartment.as_deref(),
@@ -2365,6 +3042,8 @@ fn list_zone_params(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db
 }
 
 /// Sets (or clears, when both values are null) one per-zone parameter value.
+/// SB-DBM-011: an AUDITED surface - the write and its structured audit entry are one
+/// gesture record, with DEC-020's explicit operator and DEC-023's zone-set identity.
 #[tauri::command]
 fn set_zone_param(
     db: tauri::State<DbState>,
@@ -2373,9 +3052,44 @@ fn set_zone_param(
     param_name: String,
     value_num: Option<f32>,
     value_text: Option<String>,
+    operator: String,
+    operator_kind: String,
+    view: Option<String>,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::set_zone_param(&conn, &well_id, &zone_name, &param_name, value_num, value_text.as_deref()).map_err(|e| e.to_string())
+    db::set_zone_param_audited(
+        &conn,
+        &well_id,
+        &zone_name,
+        &param_name,
+        value_num,
+        value_text.as_deref(),
+        &operator,
+        &operator_kind,
+        view.as_deref().unwrap_or("Zones"),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// SB-DBM-015: "re-run this set" - verify the manifest, replay, compare byte for byte.
+#[tauri::command]
+fn rerun_log_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    set_id: String,
+    custody: equations::RunCustody,
+) -> Result<workflow::RerunReport, String> {
+    workflow::rerun_log_set(&db.0, &well_id, &set_id, &custody)
+}
+
+/// SB-DBM-011: the structured audit, newest first, on demand.
+#[tauri::command]
+fn list_audit_entries(
+    db: tauri::State<DbState>,
+    limit: Option<usize>,
+) -> Result<Vec<db::AuditEntryView>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_audit_entries(&conn, limit.unwrap_or(200)).map_err(|e| e.to_string())
 }
 
 /// Every whole-well parameter override in the project, for the per-well parameter grid.
@@ -2391,8 +3105,16 @@ fn list_well_param_overrides(db: tauri::State<DbState>) -> Result<Vec<db::WellPa
 fn set_well_param_overrides(
     db: tauri::State<DbState>,
     entries: Vec<(String, String, Option<f32>)>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<usize, String> {
     let mut conn = db.0.lock().unwrap();
+    let allowed = well_scope::resolve_well_scope(&conn, &scope, "per-well parameter edit")?;
+    let allowed = allowed.into_iter().collect::<std::collections::HashSet<_>>();
+    if let Some((well_id, _, _)) = entries.iter().find(|(well_id, _, _)| !allowed.contains(well_id)) {
+        return Err(format!(
+            "per-well parameter edit: well '{well_id}' is outside the backend-resolved scope; refresh the grid"
+        ));
+    }
     db::set_well_param_overrides(&mut conn, &entries).map_err(|e| e.to_string())
 }
 
@@ -2409,6 +3131,52 @@ fn set_zone_param_batch(
     db::set_zone_param_batch(&mut conn, &zone_name, &entries).map_err(|e| e.to_string())
 }
 
+/// SB-DIO-057: records the interpreter's keep/convert word for exact zeros on a log-scale
+/// curve. The import gate refuses an undecided zero-bearing resistivity curve by name; this
+/// is the one path that records the decision it asks for, after which the re-import commits.
+#[tauri::command]
+fn confirm_log_scale_zeros(
+    db: tauri::State<DbState>,
+    well_id: String,
+    mnemonic: String,
+    keep: bool,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::confirm_log_scale_zeros(&conn, &well_id, &mnemonic, keep).map_err(|e| e.to_string())
+}
+
+/// SB-ENV-005: the applied-step manifest for one log-set version. Retrieval never re-runs
+/// anything; a pre-contract version answers "unknown", never an empty step list.
+#[tauri::command]
+fn get_log_set_manifest(
+    db: tauri::State<DbState>,
+    set_id: String,
+) -> Result<serde_json::Value, String> {
+    let conn = db.0.lock().unwrap();
+    let record = equations::get_applied_steps(&conn, &set_id)?;
+    serde_json::to_value(&record).map_err(|e| e.to_string())
+}
+
+/// SB-DIO-007: delimited export of one curve set - the source-cell-state mask's native
+/// round trip. An empty source cell exports empty; an explicitly nulled cell exports the
+/// null token; a pre-contract curve exports absents as the token and the notes say so.
+#[tauri::command]
+async fn export_delimited_set(
+    db: tauri::State<'_, DbState>,
+    well_id: String,
+    set_name: String,
+    dest_path: String,
+    null_token: String,
+) -> Result<export::DelimitedExportResult, String> {
+    let db = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db.lock().unwrap();
+        export::export_delimited_set(&conn, &well_id, &set_name, &dest_path, &null_token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -2420,6 +3188,41 @@ fn get_table_page(
 ) -> Result<db::TablePage, String> {
     let conn = db.0.lock().unwrap();
     db::get_table_page(&conn, &table, well_id.as_deref(), offset, limit)
+}
+
+/// Complete, read-only project integrity inventory. Every class is returned even at zero.
+#[tauri::command]
+fn check_referential_integrity(
+    db: tauri::State<DbState>,
+) -> Result<well_scope::ProjectWideResult<db::IntegrityReport>, String> {
+    let conn = db.0.lock().unwrap();
+    let report = db::check_referential_integrity(&conn)?;
+    well_scope::declare_project_wide(&conn, "referential-integrity check", report)
+}
+
+/// Explicitly quarantines only the caller-selected, backend-whitelisted orphan classes.
+/// Duplicate keys and unresolved ML provenance are report-only and cannot enter this path.
+#[tauri::command]
+fn prune_referential_integrity(
+    db: tauri::State<DbState>,
+    class_ids: Vec<String>,
+) -> Result<db::IntegrityPruneReceipt, String> {
+    let conn = db.0.lock().unwrap();
+    db::prune_referential_integrity(&conn, &class_ids)
+}
+
+/// Restores one persisted quarantine batch exactly; used by Ctrl+Z and post-restart recovery.
+#[tauri::command]
+fn restore_referential_integrity_prune(db: tauri::State<DbState>, batch_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::restore_referential_integrity_prune(&conn, &batch_id)
+}
+
+/// Reapplies the exact restored batch for Ctrl+Y; refuses if any row changed after undo.
+#[tauri::command]
+fn reapply_referential_integrity_prune(db: tauri::State<DbState>, batch_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::reapply_referential_integrity_prune(&conn, &batch_id)
 }
 
 /// Edits one wells-table field (well_name/field_name as text, td/kb as numbers).
@@ -2453,9 +3256,14 @@ async fn import_well_locations(
 /// `[[x, y], …]` ring in UTM metres) — the "draw a polygon → select wells" hit test
 /// behind assigning a map lasso to a well group. Wells without coordinates are excluded.
 #[tauri::command]
-fn wells_in_polygon(db: tauri::State<DbState>, polygon: Vec<[f64; 2]>) -> Result<Vec<db::WellSummary>, String> {
+fn wells_in_polygon(
+    db: tauri::State<DbState>,
+    polygon: Vec<[f64; 2]>,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<db::WellSummary>, String> {
     let conn = db.0.lock().unwrap();
-    let wells = db::list_wells(&conn).map_err(|e| e.to_string())?;
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "map polygon selection")?;
+    let wells = db::list_wells_by_ids(&conn, &well_ids).map_err(|e| e.to_string())?;
     let ring: Vec<(f64, f64)> = polygon.iter().map(|p| (p[0], p[1])).collect();
     Ok(geo::wells_in_polygon(&wells, &ring))
 }
@@ -2467,11 +3275,13 @@ fn update_standard_sample(db: tauri::State<DbState>, well_id: String, depth: f32
     db::update_standard_sample(&conn, &well_id, depth, &column, value)
 }
 
-/// Edits one computed-curve sample.
+/// Edits one computed-curve sample as a new ancestry-bearing curve version.
 #[tauri::command]
-fn update_computed_sample(db: tauri::State<DbState>, well_id: String, depth: f32, curve_name: String, value: f32) -> Result<(), String> {
+fn update_computed_sample(db: tauri::State<DbState>, well_id: String, depth: f32, curve_name: String, value: f32,
+    custody: equations::RunCustody,
+) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::update_computed_sample(&conn, &well_id, depth, &curve_name, value)
+    curve_edit::update_computed_sample(&conn, &well_id, depth, &curve_name, value, &custody)
 }
 
 /// Edits one core-plug sample (NaN = missing).
@@ -2637,9 +3447,10 @@ fn stain_schemes() -> Vec<(String, Vec<petrography::StainClass>)> {
 #[tauri::command]
 fn list_plug_choices(
     db: tauri::State<DbState>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<plugqc::PlugChoice>, String> {
     let conn = db.0.lock().unwrap();
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "plug-QC choices")?;
     plugqc::list_plug_choices(&conn, &well_ids)
 }
 
@@ -2648,9 +3459,11 @@ fn list_plug_choices(
 #[tauri::command]
 async fn run_plug_qc(
     db: tauri::State<'_, DbState>,
-    req: plugqc::PlugQcRequest,
+    mut req: plugqc::PlugQcRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<plugqc::PlugQcResult, String> {
     let conn = db.0.lock().unwrap();
+    req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "plug QC")?;
     plugqc::run_plug_qc(&conn, &req)
 }
 
@@ -2662,9 +3475,11 @@ async fn run_plug_qc(
 #[tauri::command]
 async fn run_reframe(
     db: tauri::State<'_, DbState>,
-    req: reframe::ReframeRequest,
+    mut req: reframe::ReframeRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<reframe::ReframeResult>, String> {
     let conn = db.0.lock().unwrap();
+    req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Reframe")?;
     Ok(reframe::run_reframe(&conn, &req))
 }
 
@@ -2879,16 +3694,53 @@ fn restore_curve_values(
     curve: String,
     point_count: usize,
     data: Vec<u8>,
+    restores_edit_id: String,
+    expected_curve_sha256: String,
+    custody: equations::RunCustody,
 ) -> Result<usize, String> {
     let (depth, values) = curve_edit::unpack_pairs(point_count, &data)?;
     let conn = db.0.lock().unwrap();
-    curve_edit::restore_curve_values(&conn, &well_id, &curve, &depth, &values)
+    curve_edit::restore_curve_values(
+        &conn,
+        &well_id,
+        &curve,
+        &depth,
+        &values,
+        &restores_edit_id,
+        &expected_curve_sha256,
+        Some(&custody),
+    )
+}
+
+/// Immutable per-curve edit provenance, including computed-curve ancestry and the standard/raw
+/// records that outlive the frontend's session undo stack.
+#[tauri::command]
+fn list_curve_edit_records(
+    db: tauri::State<DbState>,
+) -> Result<Vec<curve_edit::CurveEditRecord>, String> {
+    let conn = db.0.lock().unwrap();
+    curve_edit::list_curve_edit_records(&conn)
 }
 
 /// Creates or updates a formation top.
 #[tauri::command]
-fn upsert_top(db: tauri::State<DbState>, well_id: String, top_name: String, depth: f32, color: Option<String>) -> Result<(), String> {
+fn upsert_top(
+    db: tauri::State<DbState>,
+    well_id: String,
+    top_name: String,
+    depth: f32,
+    color: Option<String>,
+    scope: Option<well_scope::WellScopeSelection>,
+) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
+    if let Some(scope) = scope {
+        let allowed = well_scope::resolve_well_scope(&conn, &scope, "formation-top edit")?;
+        if !allowed.contains(&well_id) {
+            return Err(format!(
+                "formation-top edit: well '{well_id}' is outside the backend-resolved scope; refresh the correlation"
+            ));
+        }
+    }
     db::upsert_top(&conn, &well_id, &top_name, depth, color.as_deref()).map_err(|e| e.to_string())
 }
 
@@ -2902,9 +3754,19 @@ fn delete_top(db: tauri::State<DbState>, well_id: String, top_name: String) -> R
 /// Stratigraphic crossing check: warnings for top pairs in this well whose depth order
 /// contradicts the majority of other wells (run after every interactive pick/drag).
 #[tauri::command]
-fn check_top_order(db: tauri::State<DbState>, well_id: String) -> Result<Vec<String>, String> {
+fn check_top_order(
+    db: tauri::State<DbState>,
+    well_id: String,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<String>, String> {
     let conn = db.0.lock().unwrap();
-    tops::check_top_order(&conn, &well_id)
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "top-order check")?;
+    if !well_ids.contains(&well_id) {
+        return Err(format!(
+            "top-order check: well '{well_id}' is outside the backend-resolved scope"
+        ));
+    }
+    tops::check_top_order(&conn, &well_id, &well_ids)
 }
 
 /// Proposes marker depths in target wells by correlating a log shape around the source
@@ -2913,8 +3775,14 @@ fn check_top_order(db: tauri::State<DbState>, well_id: String) -> Result<Vec<Str
 async fn autocorrelate_top(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: tops::AutoCorrRequest,
+    mut req: tops::AutoCorrRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<tops::AutoCorrResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.target_well_ids = well_scope::resolve_well_scope(&conn, &scope, "top autocorrelation")?;
+        req.target_well_ids.retain(|well_id| well_id != &req.source_well_id);
+    }
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Autocorrelate", "top correlation", move || {
         let c = conn.lock().unwrap();
@@ -2929,8 +3797,15 @@ async fn autocorrelate_top(
 async fn autocorrelate_multi(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: tops::MultiAutoCorrRequest,
+    mut req: tops::MultiAutoCorrRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<tops::MultiAutoCorrResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.target_well_ids =
+            well_scope::resolve_well_scope(&conn, &scope, "multi-marker autocorrelation")?;
+        req.target_well_ids.retain(|well_id| well_id != &req.source_well_id);
+    }
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Autocorrelate", "multi-marker correlation", move || {
         let c = conn.lock().unwrap();
@@ -2960,15 +3835,33 @@ fn check_contact_consistency(
     compartment: Option<String>,
     zones: Option<Vec<String>>,
     flag_abs: Option<f32>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<contacts::ContactConsistency, String> {
     let conn = db.0.lock().unwrap();
+    let well_ids =
+        well_scope::resolve_well_scope(&conn, &scope, "contact-consistency check")?;
     Ok(contacts::check_contact_consistency(
         &conn,
         &contact_type,
         compartment.as_deref(),
         &zones.unwrap_or_default(),
         flag_abs.unwrap_or(3.0),
+        &well_ids,
     ))
+}
+
+/// Compares one stored zone top with one stored contact. Cross-datum comparison is refused unless
+/// the selected well's active survey provides the reference transform; the refusal names both
+/// datums rather than silently treating MD as TVDSS.
+#[tauri::command]
+fn compare_zone_top_to_contact(
+    db: tauri::State<DbState>,
+    well_id: String,
+    zone_name: String,
+    contact_id: String,
+) -> Result<contacts::DepthComparison, String> {
+    let conn = db.0.lock().unwrap();
+    contacts::compare_zone_top_to_contact(&conn, &well_id, &zone_name, &contact_id)
 }
 
 /// Every (contact type, marker) pair in the project, so a QC pane can check them all.
@@ -2983,9 +3876,15 @@ fn contact_groups(db: tauri::State<DbState>) -> Result<Vec<contacts::ContactGrou
 fn check_fwl_agreement(
     db: tauri::State<DbState>,
     tolerance: Option<f32>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<contacts::FwlCheck>, String> {
     let conn = db.0.lock().unwrap();
-    Ok(contacts::check_fwl_agreement(&conn, tolerance.unwrap_or(0.1)))
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "FWL-agreement check")?;
+    Ok(contacts::check_fwl_agreement(
+        &conn,
+        tolerance.unwrap_or(0.1),
+        &well_ids,
+    ))
 }
 
 /// Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
@@ -3019,7 +3918,7 @@ async fn run_query(
     db: tauri::State<'_, DbState>,
     sql: String,
     limit: usize,
-) -> Result<db::TablePage, String> {
+) -> Result<db::QueryPage, String> {
     let handle = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = handle.lock().unwrap();
@@ -3051,6 +3950,22 @@ async fn export_las(
     .await
 }
 
+/// SB-CORE-015: exports one well as DLIS (RP66 V1), self-read through the dlisio importer.
+#[tauri::command]
+async fn export_dlis(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    dest_path: String,
+) -> Result<export::LasExportResult, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Export DLIS", "write DLIS", move || {
+        let c = conn.lock().unwrap();
+        export::export_dlis(&c, &well_id, &dest_path)
+    })
+    .await
+}
+
 /// Runs a saved workflow chain (ordered modules) across the given wells. The frontend
 /// supplies the `job_id` up front so it can poll `get_chain_status` for live progress while
 /// this command runs on its own worker thread. Returns when the chain finishes; progress and
@@ -3062,14 +3977,20 @@ fn run_workflow_chain(
     jobs_reg: tauri::State<jobs::JobRegistry>,
     job_id: String,
     steps: Vec<chain::ChainStep>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     output_set: Option<String>,
-    input_set: Option<String>,
+    input_set: Option<String>
+,
+    custody: equations::RunCustody,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&job_id).map_err(|e| format!("bad job id: {e}"))?;
     if steps.is_empty() {
         return Err("workflow has no steps".into());
     }
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "workflow chain")?
+    };
     if well_ids.is_empty() {
         return Err("no wells selected".into());
     }
@@ -3079,16 +4000,12 @@ fn run_workflow_chain(
     // panel shows "WELL_12" rather than a UUID.
     let items: Vec<(String, String)> = {
         let conn = db.0.lock().unwrap();
-        let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
-            if let Ok(rows) =
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-            {
-                for row in rows.flatten() {
-                    names.insert(row.0, row.1);
-                }
-            }
-        }
+        let names: std::collections::HashMap<String, String> =
+            db::list_wells_by_ids(&conn, &well_ids)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|well| (well.well_id, well.well_name))
+                .collect();
         well_ids
             .iter()
             .map(|id| (id.clone(), names.get(id).cloned().unwrap_or_else(|| id.clone())))
@@ -3133,6 +4050,7 @@ fn run_workflow_chain(
                 &well_ids,
                 output_set.as_deref(),
                 input_set.as_deref(),
+                &custody,
                 Some(&job),
             );
         }));
@@ -3373,6 +4291,12 @@ pub fn run() {
     // `project.duckdb` in the cwd — so existing installs open exactly as before.
     let startup = project::startup_path();
 
+    // Unit conversion is a static shipping contract, not per-project data. Refuse launch before
+    // constructing the desktop runtime if any recognised bridge crosses quantity kinds or names
+    // an unregistered canonical token; a test-only validator cannot protect an installed build.
+    curves::validate_unit_registry()
+        .unwrap_or_else(|error| panic!("invalid canonical unit registry: {error}"));
+
     // The window is built on an EMPTY IN-MEMORY database and the real project is opened on a
     // background thread. This is what turns a slow first open from "the app didn't launch"
     // into "the app is open and telling me what it's doing". Nothing reads this placeholder:
@@ -3429,12 +4353,14 @@ pub fn run() {
             open_project,
             new_project,
             list_wells,
+            probe_las_well_identities,
             import_las_files,
             save_equation,
             list_equations,
             run_equation,
             list_curve_catalog,
             list_log_sets,
+            set_log_set_comment,
             list_log_set_names,
             restore_log_set,
             delete_log_set,
@@ -3444,6 +4370,7 @@ pub fn run() {
             get_generic_curve_samples,
             delete_generic_curve,
             promote_generic_curve,
+            set_generic_curve_final,
             update_curve_meta,
             import_deviation_csv,
             list_core_sets,
@@ -3458,9 +4385,12 @@ pub fn run() {
             list_tops,
             list_layouts,
             save_document,
+            save_plot_state,
+            save_session_document,
             list_documents,
             delete_document,
             list_well_groups,
+            resolve_well_scope,
             create_well_group,
             rename_well_group,
             delete_well_group,
@@ -3474,8 +4404,12 @@ pub fn run() {
             resolve_plot_bindings,
             finalize_plot_write_provenance,
             list_modules,
+            parameter_pack::get_parameter_module_schema,
+            parameter_pack::load_parameter_pack,
             run_workflow_module,
             module_output_names,
+            module_input_availability,
+            despike_contamination_preview,
             run_reframe,
             reframe_source_curves,
             save_curve_selection,
@@ -3507,10 +4441,19 @@ pub fn run() {
             zones_from_tops,
             list_zone_params,
             set_zone_param,
+            list_audit_entries,
+            rerun_log_set,
             list_well_param_overrides,
             set_well_param_overrides,
             set_zone_param_batch,
+            confirm_log_scale_zeros,
+            get_log_set_manifest,
+            export_delimited_set,
             get_table_page,
+            check_referential_integrity,
+            prune_referential_integrity,
+            restore_referential_integrity_prune,
+            reapply_referential_integrity_prune,
             update_well_field,
             update_standard_sample,
             update_computed_sample,
@@ -3545,6 +4488,7 @@ pub fn run() {
             propose_registration,
             edit_curve,
             restore_curve_values,
+            list_curve_edit_records,
             upsert_top,
             delete_top,
             check_top_order,
@@ -3552,6 +4496,7 @@ pub fn run() {
             autocorrelate_multi,
             suggest_contacts,
             check_contact_consistency,
+            compare_zone_top_to_contact,
             contact_groups,
             check_fwl_agreement,
             apply_fwl_to_zone_params,
@@ -3559,6 +4504,7 @@ pub fn run() {
             run_query,
             list_data_export_formats,
             export_las,
+            export_dlis,
             python_status,
             installation_support,
             run_ml,
@@ -3568,6 +4514,9 @@ pub fn run() {
             ml_determinism_note,
             curve_sampling,
             param_sources,
+            cross_module_constants,
+            cly_prov_registry,
+            set_curve_neutron_basis,
             rename_ml_model,
             delete_ml_model,
             ml_model_citations,
@@ -3583,6 +4532,7 @@ pub fn run() {
             run_facies_confusion,
             run_multimin,
             multimin_library,
+            multimin_sw_models,
             multimin_fluid_calc,
             multimin_dry_clay,
             multimin_fluid_from_precalc,
@@ -3637,8 +4587,12 @@ pub fn run() {
             export_report_docx,
             export_report_docx_batch,
             export_deck,
+            get_curve_ancestry_disclosures,
             save_png,
             save_plot_pdf,
+            serialize_plot_binding_export,
+            get_curve_header_display_range,
+            set_curve_header_display_range,
             save_plot_reduction_manifest,
             get_core_data
         ])

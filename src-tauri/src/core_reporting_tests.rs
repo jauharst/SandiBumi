@@ -33,19 +33,32 @@ fn seed_gas_correction_inputs(conn: &Connection) -> String {
 
 fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
     McRequest {
+        discretisation: crate::workflow::DiscretisationModel::Forward,
         well_ids: vec![well_id.to_string()],
         steps: vec![ChainStep {
             module: "gascorr".to_string(),
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
-            opts: [("OPT_GATE".to_string(), gate.to_string())].into_iter().collect(),
+            // CHARACTERIZATION fixture: former manifest inputs are explicit so this test reaches
+            // its reporting-surface subject (the missing FLAGGED gate). They are not defaults.
+            params: HashMap::from([
+                ("RHO_MA".to_string(), 2.65),
+                ("RHO_FL".to_string(), 1.0),
+                ("SG_GAS".to_string(), 0.65),
+                ("A".to_string(), 1.0),
+                ("M".to_string(), 2.0),
+                ("N".to_string(), 2.0),
+                ("RW".to_string(), 0.1),
+            ]),
+            opts: [("OPT_GATE".to_string(), gate.to_string())]
+                .into_iter()
+                .collect(),
         }],
         mc_params: Vec::new(),
         iterations: 2,
         seed: 7,
-        vsh_max: 0.5,
-        phie_min: 0.08,
-        swe_max: 0.6,
+        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
         perm_min: None,
         bins: 4,
         low_pctl: 0.10,
@@ -58,7 +71,9 @@ fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
         converge_tol: 0.005,
         persist: false,
         persist_realizations: false,
-        realization_cap: None,
+        realization_cap: None
+    ,
+        custody: Some(crate::workflow::test_run_custody()),
     }
 }
 

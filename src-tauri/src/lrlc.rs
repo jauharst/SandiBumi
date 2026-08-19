@@ -12,7 +12,9 @@
 //!   iteration with Qv_eff = Qv_bulk/(1−Swirr) built from XRD clay volumes scaled by
 //!   a lab-CEC calibration factor S, and shaly-sand exponents m*, n*.
 
-use crate::modules::{log_in, log_out, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_in_one_of, log_out, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
@@ -80,9 +82,8 @@ pub fn sw_rtc_spec() -> ModuleSpec {
               and removed from the measured conductivity before Archie: \
               Sw = [Rw·(1/Rt − Cex)/PHIT^M]^(1/N). Qv comes from the QV input log when \
               present, else from CEC·RHOG·(1−PHIT)/(100·PHIT). \
-              THE DEFAULT COEFFICIENTS ARE ONE STUDY'S CALIBRATION (0.45, 0.0057, −0.0071, \
-              RSF 2.25) FROM ONE FIELD — they are a starting point, not a constant, and a \
-              foreign calibration here does not announce itself: it yields a smooth, plausible \
+              NO CALIBRATION COEFFICIENTS SHIP AS DEFAULTS. A foreign calibration here does not \
+              announce itself: it yields a smooth, plausible \
               Sw that is simply wrong. Fit your own with Advance ▸ Calibrate RtC…, which \
               regresses A_CAP/B_QV/C0 from excess conductivity over an interval you declare \
               water-bearing. CAPBW pairs naturally with SSC's CWSH or \
@@ -90,25 +91,53 @@ pub fn sw_rtc_spec() -> ModuleSpec {
               conductivity so Rt_corr stays finite."
             .into(),
         args: vec![
-            param("RW", "Formation water resistivity at FT", "ohm.m", 0.3, 0.001, 100.0),
-            param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
-            param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
-            param("A_CAP", "Capillary water coefficient", "", 0.45, -10.0, 10.0),
-            param("B_QV", "Qv coefficient", "", 0.0057, -1.0, 1.0),
-            param("C0", "Regression intercept", "", -0.0071, -1.0, 1.0),
-            param("RSF", "Resistivity scaling factor", "", 2.25, 0.0, 20.0),
-            param("CEC", "CEC when no QV log (meq/100g)", "meq/100g", 0.0, 0.0, 100.0),
-            param("RHOG", "Grain density for Qv", "g/cc", 2.65, 2.0, 3.2),
+            param_open(
+                "RW",
+                "Formation water resistivity at FT",
+                "ohm.m",
+                0.001,
+                100.0,
+                true,
+            ),
+            param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
+            param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+            param_open(
+                "A_CAP",
+                "Capillary water coefficient",
+                "",
+                -10.0,
+                10.0,
+                true,
+            ),
+            param_open("B_QV", "Qv coefficient", "", -1.0, 1.0, true),
+            param_open("C0", "Regression intercept", "", -1.0, 1.0, true),
+            param_open("RSF", "Resistivity scaling factor", "", 0.0, 20.0, true),
+            param_open(
+                "CEC",
+                "CEC when no QV log (meq/100g)",
+                "meq/100g",
+                0.0,
+                100.0,
+                true,
+            ),
+            param_open("RHOG", "Grain density for Qv", "g/cc", 2.0, 3.2, true),
             log_in("RT", "Deep resistivity", "ohm.m", "RES_DEEP", true),
-            log_in("PHIT", "Total porosity", "v/v", "PHIT_SSC", true),
+            log_in_one_of("PHIT", "Total porosity", "v/v", "PHIT_SSC", &["PHIT_SSPW"]),
             log_in("CAPBW", "Capillary-bound water volume", "v/v", "CWSH", false),
             log_in("QV", "Qv log (meq/cm3), optional", "meq/cm3", "QV", false),
             log_in("CBW", "Clay-bound water (for SWE), optional", "v/v", "CBW", false),
             log_in("PHIT_SSPW", "Total porosity — SSPW fallback (used where PHIT is absent)", "v/v", "PHIT_SSPW", false),
             log_in("CAPBW_SSPW", "Capillary water — SSPW fallback", "v/v", "CAPBW_SSPW", false),
             log_in("CBW_SSPW", "Clay-bound water — SSPW fallback", "v/v", "CBW_SSPW", false),
-            log_out("SWT_RTC", "Total water saturation, RtC", "v/v"),
-            log_out("SWE_RTC", "Effective water saturation, RtC", "v/v"),
+            // SB-SAT-025: the method-named curves are the UNCLIPPED diagnostics, per the
+            // family convention (SWT_ARCH, SWE_INDO, SWE_SIM); the plain pair is clipped and
+            // carries exactly the values this module always emitted under the method names.
+            log_out("SWT_RTC", "SWT from RtC (unlimited)", "v/v"),
+            log_out("SWE_RTC", "SWE from RtC (unlimited)", "v/v"),
+            log_out("SWT", "Limited total water saturation", "v/v"),
+            log_out("SWE", "Limited effective water saturation", "v/v"),
+            log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
+            log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("RT_CORR", "Clay/capillary-corrected resistivity", "ohm.m"),
             log_out("CEX_RTC", "Excess conductivity removed", "mho/m"),
         ],
@@ -127,6 +156,9 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
+    let mut swt_raw_o = vec![f32::NAN; ctx.n];
+    let mut swe_raw_o = vec![f32::NAN; ctx.n];
+    let mut vol_uwat_o = vec![f32::NAN; ctx.n];
     let mut rtc_o = vec![f32::NAN; ctx.n];
     let mut cex_o = vec![f32::NAN; ctx.n];
 
@@ -150,7 +182,11 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         let ct_corr = ct - cex_applied;
         let rt_corr = 1.0 / ct_corr;
 
-        let swt = limit((rw * ct_corr / pt.powf(m)).powf(1.0 / n_exp), 0.0, 1.0);
+        // SB-SAT-025: raw first, clip second. The clipped pair carries exactly the values
+        // this module always produced; the diagnostics keep what the model actually said.
+        let swt_raw = (rw * ct_corr / pt.powf(m)).powf(1.0 / n_exp);
+        let swt = limit(swt_raw, 0.0, 1.0);
+        swt_raw_o[i] = swt_raw as f32;
         swt_o[i] = swt as f32;
         rtc_o[i] = rt_corr as f32;
         cex_o[i] = cex_applied as f32;
@@ -158,15 +194,31 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         let cb = cbw[i] as f64;
         if !cb.is_nan() && pt > cb {
             let swb = limit(cb / pt, 0.0, 0.99);
+            swe_raw_o[i] = ((swt_raw - swb) / (1.0 - swb)) as f32;
             swe_o[i] = limit((swt - swb) / (1.0 - swb), 0.0, 1.0) as f32;
+            // SB-SAT-026 (DEC-064): the effective-volume identity - unflushed water volume
+            // is PHIE x limited SWE with PHIE = PHIT - CBW, which equals PHIT*SWT - CBW
+            // wherever the clip does not bind.
+            vol_uwat_o[i] = ((pt - cb) * swe_o[i] as f64) as f32;
         } else {
+            swe_raw_o[i] = swt_raw as f32;
             swe_o[i] = swt as f32;
+            vol_uwat_o[i] = (pt * swt) as f32;
         }
     }
 
+    // SB-SAT-026: a finite result names its producer; a missing one claims none.
+    let method_flag = swt_o
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwRtc.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
-        ("SWT_RTC".to_string(), swt_o),
-        ("SWE_RTC".to_string(), swe_o),
+        ("SWT_RTC".to_string(), swt_raw_o),
+        ("SWE_RTC".to_string(), swe_raw_o),
+        ("SWT".to_string(), swt_o),
+        ("SWE".to_string(), swe_o),
+        ("SW_METHOD".to_string(), method_flag),
+        ("VOL_UWAT".to_string(), vol_uwat_o),
         ("RT_CORR".to_string(), rtc_o),
         ("CEX_RTC".to_string(), cex_o),
     ])
@@ -186,27 +238,74 @@ pub fn sw_imts_spec() -> ModuleSpec {
               is built from clay volumes (kaolinite/illite) times literature CEC constants \
               (8 / 25 meq/100g), calibrated to lab CEC by scaling factor S. Iterates \
               Ct = SwT^N*/F*·(Cw + B·Qv_eff/SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) \
-              until SwT is stable. SWE from CBW. VKAOL/VILL default to SSC's VDCL and a \
-              zero illite curve. \
+              until SwT is stable. SWE from CBW. VKAOL/VILL resolve from the selected clay curves. \
               S = measured lab CEC / XRD-theoretical CEC, so it is A PROPERTY OF THE ROCK AND \
-              OF THE CLAY CURVES IT IS PAIRED WITH — the shipped 0.5 is a placeholder standing \
-              in for the study's observation that lab CEC runs below the XRD-theoretical value, \
-              not a value measured anywhere. S multiplies the whole clay-charge term, so getting \
+              OF THE CLAY CURVES IT IS PAIRED WITH and ships absent. S multiplies the whole \
+              clay-charge term, so getting \
               it wrong scales Qv_eff directly and moves Sw with no outward sign. Fit your own \
               with Advance ▸ Calibrate S…, which regresses S from lab CEC measurements against \
               the clay content of the very curves this run will use."
             .into(),
         args: vec![
-            param("RW", "Formation water resistivity at FT", "ohm.m", 0.3, 0.001, 100.0),
-            param("TEMP_C", "Formation temperature", "degC", 60.0, 15.0, 200.0),
-            param("A", "Tortuosity factor a", "", 1.0, 0.5, 3.0),
-            param("MSTAR", "Shaly-sand cementation exponent m*", "", 1.9, 1.0, 4.0),
-            param("NSTAR", "Shaly-sand saturation exponent n*", "", 1.9, 1.0, 4.0),
-            param("S_FACTOR", "CEC scaling factor S (lab/XRD)", "", 0.5, 0.01, 2.0),
-            param("CEC_KAOL", "Kaolinite CEC constant", "meq/100g", 8.0, 0.0, 50.0),
-            param("CEC_ILL", "Illite CEC constant", "meq/100g", 25.0, 0.0, 100.0),
-            param("RHOG", "Grain density", "g/cc", 2.65, 2.0, 3.2),
-            param("SWIRR_DEF", "Swirr fallback when no SWIRR log", "v/v", 0.2, 0.0, 0.95),
+            param_open(
+                "RW",
+                "Formation water resistivity at FT",
+                "ohm.m",
+                0.001,
+                100.0,
+                true,
+            ),
+            param_open("TEMP_C", "Formation temperature", "degC", 15.0, 200.0, true),
+            param_open("A", "Tortuosity factor a", "", 0.5, 3.0, true),
+            param_open(
+                "MSTAR",
+                "Shaly-sand cementation exponent m*",
+                "",
+                1.0,
+                4.0,
+                true,
+            ),
+            param_open(
+                "NSTAR",
+                "Shaly-sand saturation exponent n*",
+                "",
+                1.0,
+                4.0,
+                true,
+            ),
+            param_open(
+                "S_FACTOR",
+                "CEC scaling factor S (lab/XRD)",
+                "",
+                0.01,
+                2.0,
+                true,
+            ),
+            param_open(
+                "CEC_KAOL",
+                "Kaolinite CEC constant",
+                "meq/100g",
+                0.0,
+                50.0,
+                true,
+            ),
+            param_open(
+                "CEC_ILL",
+                "Illite CEC constant",
+                "meq/100g",
+                0.0,
+                100.0,
+                true,
+            ),
+            param_open("RHOG", "Grain density", "g/cc", 2.0, 3.2, true),
+            param_open(
+                "SWIRR_DEF",
+                "Swirr fallback when no SWIRR log",
+                "v/v",
+                0.0,
+                0.95,
+                true,
+            ),
             log_in("RT", "Deep resistivity", "ohm.m", "RES_DEEP", true),
             log_in("PHIT", "Total porosity", "v/v", "PHIT_SSC", true),
             log_in("VKAOL", "Kaolinite volume fraction", "v/v", "VDCL", false),
@@ -215,8 +314,14 @@ pub fn sw_imts_spec() -> ModuleSpec {
             log_in("CBW", "Clay-bound water (for SWE), optional", "v/v", "CBW", false),
             log_in("PHIT_SSPW", "Total porosity — SSPW fallback (used where PHIT is absent)", "v/v", "PHIT_SSPW", false),
             log_in("CBW_SSPW", "Clay-bound water — SSPW fallback", "v/v", "CBW_SSPW", false),
-            log_out("SWT_IMTS", "Total water saturation, IMTS", "v/v"),
-            log_out("SWE_IMTS", "Effective water saturation, IMTS", "v/v"),
+            // SB-SAT-025: method-named = unclipped diagnostic, plain pair = clipped, as
+            // across the whole saturation family.
+            log_out("SWT_IMTS", "SWT from IMTS (unlimited)", "v/v"),
+            log_out("SWE_IMTS", "SWE from IMTS (unlimited)", "v/v"),
+            log_out("SWT", "Limited total water saturation", "v/v"),
+            log_out("SWE", "Limited effective water saturation", "v/v"),
+            log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
+            log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
             log_out("QVEFF", "Effective Qv (meq/cm3)", "meq/cm3"),
         ],
     }
@@ -233,6 +338,9 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
+    let mut swt_raw_o = vec![f32::NAN; ctx.n];
+    let mut swe_raw_o = vec![f32::NAN; ctx.n];
+    let mut vol_uwat_o = vec![f32::NAN; ctx.n];
     let mut qveff_o = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
@@ -268,6 +376,13 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Iterate SwT^n*/F*·(Cw + B·Qv_eff/SwT) = Ct, seeded with the Archie-like value.
         let mut sw = limit((fstar * ct / cw).powf(1.0 / nstar), 0.01, 1.0);
+        // SB-SAT-028: a solver that exhausts its iteration budget MUST return null, never the
+        // last iterate. A partial iterate is a finite saturation in the right range, so it is
+        // indistinguishable from a converged answer on the log — it is read, mapped and booked.
+        // `gascorr` (modules.rs) already refuses to write its 20th pass for the same reason,
+        // calling it "an internally inconsistent triple masquerading as a converged answer";
+        // this is SandiBumi's own method finally doing what its vendor-derived one always did.
+        let mut converged = false;
         for _ in 0..100 {
             // Waxman-Smits form: the excess-conductivity term is referenced to the ACTIVE
             // water, so it DIVIDES by Sw — it grows as hydrocarbon displaces water instead of
@@ -281,27 +396,48 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
             let next = limit((fstar * ct / denom).powf(1.0 / nstar), 0.0, 1.0);
             if (next - sw).abs() < 1e-6 {
                 sw = next;
+                converged = true;
                 break;
             }
             sw = next;
         }
-        if sw.is_nan() {
+        // A non-converged sample stays MISSING rather than shipping its last iterate.
+        if sw.is_nan() || !converged {
             continue;
         }
+        // SB-SAT-025: the diagnostic is the converged evaluation UNPROJECTED — the fixed point
+        // the iteration landed on, without the final [0,1] clamp. Interior fixed points are
+        // unchanged; a solve that converged AT the bound shows how far past it the model reads.
+        let denom = cw + b * qv_eff / sw.max(1e-6);
+        let sw_raw = (fstar * ct / denom).powf(1.0 / nstar);
+        swt_raw_o[i] = sw_raw as f32;
         swt_o[i] = sw as f32;
 
         let cb = cbw[i] as f64;
         if !cb.is_nan() && pt > cb {
             let swb = limit(cb / pt, 0.0, 0.99);
+            swe_raw_o[i] = ((sw_raw - swb) / (1.0 - swb)) as f32;
             swe_o[i] = limit((sw - swb) / (1.0 - swb), 0.0, 1.0) as f32;
+            // SB-SAT-026 (DEC-064): same effective-volume identity as sw_rtc.
+            vol_uwat_o[i] = ((pt - cb) * swe_o[i] as f64) as f32;
         } else {
+            swe_raw_o[i] = sw_raw as f32;
             swe_o[i] = sw as f32;
+            vol_uwat_o[i] = (pt * sw) as f32;
         }
     }
 
+    let method_flag = swt_o
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwImts.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
-        ("SWT_IMTS".to_string(), swt_o),
-        ("SWE_IMTS".to_string(), swe_o),
+        ("SWT_IMTS".to_string(), swt_raw_o),
+        ("SWE_IMTS".to_string(), swe_raw_o),
+        ("SWT".to_string(), swt_o),
+        ("SWE".to_string(), swe_o),
+        ("SW_METHOD".to_string(), method_flag),
+        ("VOL_UWAT".to_string(), vol_uwat_o),
         ("QVEFF".to_string(), qveff_o),
     ])
 }
@@ -1192,13 +1328,192 @@ mod tests {
     use super::*;
     use crate::modules::ArgKind;
 
+    /// SB-SAT-026 (DEC-064): `VOL_UWAT` on the LRLC pair is the EFFECTIVE-volume identity -
+    /// PHIE x limited SWE with PHIE = PHIT - CBW, the same identity the Archie family
+    /// already emits - so it equals PHIT*SWT - CBW wherever the clip does not bind, and
+    /// degenerates to PHIT*SWT when no clay-bound water is supplied. A missing saturation
+    /// carries no water volume.
+    #[test]
+    fn vol_uwat_is_the_effective_volume_identity_on_both_lrlc_modules() {
+        let spec = sw_rtc_spec();
+        let out = sw_rtc(&ctx_with(
+            vec![
+                ("RT", vec![4.0, 4.0, f32::NAN]),
+                ("PHIT", vec![0.25, 0.25, 0.25]),
+                ("CBW", vec![0.05, f32::NAN, 0.05]),
+            ],
+            &spec,
+            3,
+        ));
+        let (pt, cb) = (0.25f64, 0.05f64);
+        let expected = ((pt - cb) * out["SWE"][0] as f64) as f32;
+        assert!(
+            (out["VOL_UWAT"][0] - expected).abs() < 1e-6,
+            "with CBW: VOL_UWAT {} must be PHIE x SWE {expected}",
+            out["VOL_UWAT"][0]
+        );
+        let expected_nocbw = (pt * out["SWT"][1] as f64) as f32;
+        assert!(
+            (out["VOL_UWAT"][1] - expected_nocbw).abs() < 1e-6,
+            "without CBW: VOL_UWAT {} must be PHIT x SWT {expected_nocbw}",
+            out["VOL_UWAT"][1]
+        );
+        assert!(out["VOL_UWAT"][2].is_nan(), "no saturation, no water volume");
+
+        // Clip-binding sample: RT 0.1 drives the raw SWT far past 1, the limited pair
+        // lands on the clamp, and VOL_UWAT must follow the LIMITED curve - the raw
+        // excursion belongs to the diagnostics, never to a water volume.
+        let clipped = sw_rtc(&ctx_with(
+            vec![
+                ("RT", vec![0.1]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.05]),
+            ],
+            &sw_rtc_spec(),
+            1,
+        ));
+        assert!(clipped["SWT_RTC"][0] > 1.0, "the fixture must actually bind the clip");
+        let expected_clip = ((pt - cb) * clipped["SWE"][0] as f64) as f32;
+        assert!(
+            (clipped["VOL_UWAT"][0] - expected_clip).abs() < 1e-6,
+            "at the clip VOL_UWAT {} must follow limited SWE: {expected_clip}",
+            clipped["VOL_UWAT"][0]
+        );
+        assert!(
+            clipped["VOL_UWAT"][0] <= (pt - cb) as f32 + 1e-6,
+            "a water volume can never exceed the effective porosity"
+        );
+
+        let spec = sw_imts_spec();
+        let out = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![4.0]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.05]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &spec,
+            1,
+        ));
+        let expected = ((pt - cb) * out["SWE"][0] as f64) as f32;
+        assert!(
+            (out["VOL_UWAT"][0] - expected).abs() < 1e-6,
+            "sw_imts: VOL_UWAT {} must be PHIE x SWE {expected}",
+            out["VOL_UWAT"][0]
+        );
+
+        // sw_imts clip-binding sample: a very low RT converges AT the bound, the raw
+        // diagnostic reads past it, and VOL_UWAT follows the LIMITED curve.
+        let clipped = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![0.05]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.05]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &sw_imts_spec(),
+            1,
+        ));
+        assert!(
+            clipped["SWT_IMTS"][0] > 1.0,
+            "the fixture must land the solve on the bound with a raw excursion, got {}",
+            clipped["SWT_IMTS"][0]
+        );
+        let expected_clip = ((pt - cb) * clipped["SWE"][0] as f64) as f32;
+        assert!(
+            (clipped["VOL_UWAT"][0] - expected_clip).abs() < 1e-6,
+            "sw_imts at the clip: VOL_UWAT {} must follow limited SWE {expected_clip}",
+            clipped["VOL_UWAT"][0]
+        );
+    }
+
+    /// SB-SAT-028 (P0). `12_saturation.md:1399-1410` — a saturation solver that fails to converge
+    /// within its iteration budget MUST return null for that sample, and MUST NOT emit the last
+    /// iterate.
+    ///
+    /// A partial iterate is a finite saturation in the right range. It is not a visible error: it
+    /// is a plausible number a petrophysicist reads, maps and books, indistinguishable on the log
+    /// from one the equation actually solved. That is why no pre-existing test caught it — every
+    /// assertion about finiteness or bounds passes on a partial iterate.
+    #[test]
+    fn a_non_converged_imts_sample_is_missing_rather_than_its_last_iterate() {
+        let spec = sw_imts_spec();
+
+        // A — the ordinary path is untouched: a converging sample still carries its value. The
+        // guard must refuse non-convergence, not refuse everything.
+        let out = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![4.0]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.03]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &spec,
+            1,
+        ));
+        assert!(
+            out["SWT_IMTS"][0].is_finite(),
+            "a converging sample must keep its value, got {}",
+            out["SWT_IMTS"][0]
+        );
+
+        // B — the structural guard. A behavioural non-convergent input could not be constructed:
+        // the iteration is a contraction over the whole admissible parameter range, which is why
+        // the defect survived. Rather than contrive one — or quietly drop the arm — the write is
+        // pinned to sit behind the convergence flag, so removing the guard fails here.
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lrlc.rs"))
+            .expect("lrlc.rs is readable");
+        let production = source.split_once("#[cfg(test)]").map(|(a, _)| a).unwrap_or(&source);
+        let guard = production
+            .find("if sw.is_nan() || !converged {")
+            .expect("the non-convergence guard is gone — sw_imts would ship its last iterate");
+        let write = production
+            .find("swt_o[i] = sw as f32;")
+            .expect("sw_imts no longer writes SWT_IMTS");
+        assert!(
+            guard < write,
+            "the convergence guard must come BEFORE the write, or a non-converged iterate still ships"
+        );
+        assert!(
+            production.contains("converged = true;"),
+            "nothing ever sets the convergence flag, so the guard would reject every sample"
+        );
+    }
+
     fn ctx_with(logs: Vec<(&str, Vec<f32>)>, spec: &ModuleSpec, n: usize) -> ModuleContext {
         let mut params = HashMap::new();
         let mut opts = HashMap::new();
+        // CHARACTERIZATION INPUTS — these are the pre-SB-CORE-004 study fixtures that the
+        // existing LRLC equation tests were written against. They are explicit test data now,
+        // never shipping defaults. Source: the former manifests recorded in git immediately
+        // before SB-CORE-004 and the equations/inputs named by each test below.
+        let fixture_value = |name: &str| match (spec.name.as_str(), name) {
+            ("sw_rtc", "RW") => 0.3,
+            ("sw_rtc", "M") | ("sw_rtc", "N") => 2.0,
+            ("sw_rtc", "A_CAP") => 0.45,
+            ("sw_rtc", "B_QV") => 0.0057,
+            ("sw_rtc", "C0") => -0.0071,
+            ("sw_rtc", "RSF") => 2.25,
+            ("sw_rtc", "CEC") => 0.0,
+            ("sw_rtc", "RHOG") => 2.65,
+            ("sw_imts", "RW") => 0.3,
+            ("sw_imts", "TEMP_C") => 60.0,
+            ("sw_imts", "A") => 1.0,
+            ("sw_imts", "MSTAR") | ("sw_imts", "NSTAR") => 1.9,
+            ("sw_imts", "S_FACTOR") => 0.5,
+            ("sw_imts", "CEC_KAOL") => 8.0,
+            ("sw_imts", "CEC_ILL") => 25.0,
+            ("sw_imts", "RHOG") => 2.65,
+            ("sw_imts", "SWIRR_DEF") => 0.2,
+            _ => panic!("no explicit LRLC test fixture for {}.{name}", spec.name),
+        };
         for arg in &spec.args {
             match arg.kind {
                 ArgKind::Param => {
-                    params.insert(arg.name.clone(), vec![arg.default.parse::<f64>().unwrap(); n]);
+                    params.insert(arg.name.clone(), vec![fixture_value(&arg.name); n]);
                 }
                 ArgKind::Option => {
                     opts.insert(arg.name.clone(), arg.default.clone());
@@ -1235,7 +1550,10 @@ mod tests {
         let archie = (0.3 * (1.0 / 4.0) / 0.25_f64.powf(2.0)).powf(0.5);
         assert!(swt < archie, "RtC must lower Sw vs Archie: {swt} vs {archie}");
         assert!(out["RT_CORR"][0] > 4.0, "corrected Rt must rise");
-        assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
+        // SB-SAT-025 moved the clipped values to the plain pair (bit-identical); the method-
+        // named curves are now unclipped diagnostics, which legitimately break this inequality
+        // above 1 - that is exactly the out-of-range evidence they exist to carry.
+        assert!(out["SWE"][0] <= out["SWT"][0], "SWE <= SWT");
         assert!(out["CEX_RTC"][0] > 0.0);
     }
 
@@ -1262,7 +1580,10 @@ mod tests {
             "SWT_RTC must be computed from the SSPW fallback curves, got NaN"
         );
         assert!(out["RT_CORR"][0] > 4.0, "capillary correction (via CAPBW_SSPW) must raise Rt");
-        assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
+        // SB-SAT-025 moved the clipped values to the plain pair (bit-identical); the method-
+        // named curves are now unclipped diagnostics, which legitimately break this inequality
+        // above 1 - that is exactly the out-of-range evidence they exist to carry.
+        assert!(out["SWE"][0] <= out["SWT"][0], "SWE <= SWT");
     }
 
     /// T-ADV-10 — the SSPW fallback, for **sw_imts** and applied per SAMPLE.

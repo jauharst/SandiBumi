@@ -51,7 +51,7 @@ export async function buildThomeerContent(
     statusLine.textContent = "Fitting…";
     const t0 = performance.now();
     try {
-      const res = await runThomeerFit(wellIds);
+      const res = await runThomeerFit(scope.backend());
       const ms = Math.round(performance.now() - t0);
       if (res.error) {
         statusLine.textContent = `Failed: ${res.error}`;

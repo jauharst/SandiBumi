@@ -506,7 +506,15 @@ export async function buildUnconventionalContent(
   overlayCanvas.className = "plot-canvas";
   overlayCanvas.style.width = "100%";
   overlayCanvas.style.height = "520px";
-  overlayBar.appendChild(buildImageExportButtons(() => overlayCanvas, "DeltaLogR", setStatus));
+  overlayBar.appendChild(buildImageExportButtons(
+    () => overlayCanvas,
+    "DeltaLogR",
+    setStatus,
+    undefined,
+    undefined,
+    undefined,
+    () => ({ wellIds: [well.well_id], curves: [resSel.value, porSel.value] }),
+  ));
   leftCol.appendChild(overlayBar);
   leftCol.appendChild(overlayCanvas);
 
@@ -539,7 +547,15 @@ export async function buildUnconventionalContent(
   langCanvas.className = "plot-canvas";
   langCanvas.style.width = "100%";
   langCanvas.style.height = "520px";
-  langBar.appendChild(buildImageExportButtons(() => langCanvas, "Langmuir", setStatus));
+  langBar.appendChild(buildImageExportButtons(
+    () => langCanvas,
+    "Langmuir",
+    setStatus,
+    undefined,
+    undefined,
+    undefined,
+    () => ({ wellIds: [], curves: [] }),
+  ));
   rightCol.appendChild(langBar);
   rightCol.appendChild(langCanvas);
 

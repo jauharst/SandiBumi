@@ -1121,6 +1121,11 @@ pub struct ImageImportRequest {
     /// Unit the depths in `items` are expressed in; converted to the project unit on commit.
     #[serde(default)]
     pub depth_unit: Option<String>,
+    /// SB-DBM-031: the datum the plates' depths are quoted in, declared by the user in
+    /// the wizard. Serde-defaulted to empty so an older payload REFUSES at the vocabulary
+    /// check rather than silently declaring MD.
+    #[serde(default)]
+    pub depth_datum: String,
     #[serde(default)]
     pub max_px: Option<u32>,
     #[serde(default)]
@@ -1160,6 +1165,14 @@ pub struct ImageImportResult {
 
 /// Commits a confirmed image delivery: normalize, convert depths, store as a named set.
 pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<ImageImportResult, String> {
+    // SB-DBM-031: refuse an undeclared or unknown datum BEFORE the conditioning
+    // subprocess runs, not after the plates are stored.
+    if crate::schema_vocab::DepthDatum::parse(&req.depth_datum).is_none() {
+        return Err(format!(
+            "'{}' is not a depth datum; the vocabulary is MD | TVD | TVDSS | TVDKB | TWT | OWT | CDEPTH (SB-DBM-031)",
+            req.depth_datum
+        ));
+    }
     if req.items.is_empty() {
         return Err("no images selected".into());
     }
@@ -1186,7 +1199,7 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
     let stain_name = clean(&req.stain);
 
     // Depth unit: the wizard says what the numbers mean, the project decides what is stored.
-    let project_unit = units::project_depth_unit_or_default(conn);
+    let project_unit = units::require_project_depth_unit(conn, "image import")?;
     let entered_unit = req.depth_unit.as_deref().and_then(DepthUnit::from_code).unwrap_or(project_unit);
     let convert = |d: f32| -> f32 { units::convert_depth(d as f64, entered_unit, project_unit) as f32 };
 
@@ -1277,6 +1290,9 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
 
     let source = req.items.first().map(|i| i.path.clone());
     let imported = crate::db::insert_well_images(conn, &req.well_id, &dataset, &target_set, source.as_deref(), &rows)
+        .map_err(|e| e.to_string())?;
+    // SB-DBM-031: the delivery declares its datum once, on the set row.
+    crate::db::declare_set_datum(conn, "image_sets", &req.well_id, Some(&dataset), &target_set, &req.depth_datum)
         .map_err(|e| e.to_string())?;
     // Record the depth basis, so a later core registration knows whether these plates move too.
     if req.follow_core {
@@ -1623,6 +1639,7 @@ mod tests {
     fn a_plate_with_no_declared_scale_or_preparation_stores_neither() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
         let w = wid.to_string();
@@ -1631,6 +1648,7 @@ mod tests {
         std::fs::write(&p, real_jpeg()).unwrap();
 
         let req = ImageImportRequest {
+            depth_datum: "MD".into(),
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             set_name: "LAB".into(),
@@ -1658,6 +1676,7 @@ mod tests {
     fn a_delivery_scale_fills_the_blanks_and_one_plate_can_overrule_it() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
         let w = wid.to_string();
@@ -1669,6 +1688,7 @@ mod tests {
         std::fs::write(&b, real_jpeg()).unwrap();
 
         let req = ImageImportRequest {
+            depth_datum: "MD".into(),
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             set_name: "LAB".into(),
@@ -1724,6 +1744,7 @@ mod tests {
     fn plates_can_follow_the_core_they_were_cut_from() {
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-PLATE-FOLLOW", None, None, None).unwrap();
         let w = wid.to_string();
@@ -1749,6 +1770,7 @@ mod tests {
         std::fs::write(&cp, real_jpeg()).unwrap();
 
         let req = ImageImportRequest {
+            depth_datum: "MD".into(),
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             set_name: "LAB".into(),
@@ -1800,12 +1822,14 @@ mod tests {
     fn following_a_core_that_is_not_there_says_so() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-PLATE-NOCORE", None, None, None).unwrap();
 
         let p = std::env::temp_dir().join("sandi_plate_nocore.jpg");
         std::fs::write(&p, real_jpeg()).unwrap();
         let req = ImageImportRequest {
+            depth_datum: "MD".into(),
             well_id: wid.to_string(),
             dataset: "THIN SECTION".into(),
             set_name: "LAB".into(),

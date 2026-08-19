@@ -20,7 +20,7 @@ GRN = (GR_well − P3_well)·(P97_ref − P3_ref)/(P97_well − P3_well) + P3_re
 taken over a reference interval. Rokan reference values: P3 = 53.68 GAPI, P97 = 133.93
 GAPI (from 562 wells). QC via average maps (bullseye check).
 
-## Mnemonic standardization (Bunga table — merged into `curves.rs` FAMILIES)
+## Mnemonic standardization (project table — governed by `registry/unit-registry.json`)
 
 GR: CGR preferred, else GR. RDEEP: ILD, PSR##(deepest), ATR, BDAV, RING, phase-shift res
 as last resort. RSHAL: SN, AHT##(shallowest), SFLU, R25P, BSAV. RMIC: MSFL.

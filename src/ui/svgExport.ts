@@ -1,6 +1,16 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { savePng } from "../ipc";
+import { savePng, type PaperExportBounds, type PaperExportRecord, type PlotAncestryScope } from "../ipc";
 import type { PlotCanvas } from "./plotCanvas";
+import {
+  buildPaperExportRecord,
+  PAPER_MARGIN_PT,
+  PAPER_PROVENANCE_FONT_PT,
+  paperPageHeight,
+  paperPageWidth,
+  paperProvenanceFooter,
+  measurePaperText,
+  validatePaperExportRecord,
+} from "./paperExport";
 
 /** True-vector export for the Canvas-2D plots (crossplot, histogram, Pickett). Rather than
  *  re-implementing each chart in SVG (which would drift from the on-screen version), we drive
@@ -62,6 +72,7 @@ export class SvgRecorder {
   private d = "";
   private circles: { cx: number; cy: number; r: number }[] = [];
   private pendingRect: { x: number; y: number; w: number; h: number } | null = null;
+  private bounds: PaperExportBounds;
 
   m: Mat = [...IDENTITY] as Mat;
   fillStyle = "#000000";
@@ -76,7 +87,25 @@ export class SvgRecorder {
   constructor(
     readonly width: number,
     readonly height: number,
-  ) {}
+  ) {
+    this.bounds = { min_x: 0, min_y: 0, max_x: width, max_y: height };
+  }
+
+  private includePoint(x: number, y: number, pad = 0): void {
+    this.bounds.min_x = Math.min(this.bounds.min_x, x - pad);
+    this.bounds.min_y = Math.min(this.bounds.min_y, y - pad);
+    this.bounds.max_x = Math.max(this.bounds.max_x, x + pad);
+    this.bounds.max_y = Math.max(this.bounds.max_y, y + pad);
+  }
+
+  private includeRect(x: number, y: number, w: number, h: number, pad = 0): void {
+    this.includePoint(Math.min(x, x + w), Math.min(y, y + h), pad);
+    this.includePoint(Math.max(x, x + w), Math.max(y, y + h), pad);
+  }
+
+  getContentBounds(): PaperExportBounds {
+    return { ...this.bounds };
+  }
 
   // --- transforms -----------------------------------------------------------
   save(): void {
@@ -145,10 +174,12 @@ export class SvgRecorder {
   }
   moveTo(x: number, y: number): void {
     const [px, py] = this.apply(x, y);
+    this.includePoint(px, py, (this.lineWidth * this.scaleFactor()) / 2);
     this.d += `M${n(px)} ${n(py)} `;
   }
   lineTo(x: number, y: number): void {
     const [px, py] = this.apply(x, y);
+    this.includePoint(px, py, (this.lineWidth * this.scaleFactor()) / 2);
     this.d += `L${n(px)} ${n(py)} `;
   }
   closePath(): void {
@@ -158,6 +189,7 @@ export class SvgRecorder {
     const rr = r * this.scaleFactor();
     if (Math.abs(a1 - a0) >= Math.PI * 2 - 1e-6) {
       const [px, py] = this.apply(cx, cy);
+      this.includeRect(px - rr, py - rr, rr * 2, rr * 2, (this.lineWidth * this.scaleFactor()) / 2);
       this.circles.push({ cx: px, cy: py, r: rr });
       return;
     }
@@ -166,6 +198,7 @@ export class SvgRecorder {
     for (let i = 0; i <= steps; i++) {
       const a = a0 + ((a1 - a0) * i) / steps;
       const [px, py] = this.apply(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      this.includePoint(px, py, (this.lineWidth * this.scaleFactor()) / 2);
       this.d += `${i === 0 ? "M" : "L"}${n(px)} ${n(py)} `;
     }
   }
@@ -173,6 +206,7 @@ export class SvgRecorder {
     // In this codebase rect() is only ever used to build a clip region.
     const [x0, y0] = this.apply(x, y);
     const [x1, y1] = this.apply(x + w, y + h);
+    this.includeRect(x0, y0, x1 - x0, y1 - y0);
     this.pendingRect = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
   }
   clip(): void {
@@ -215,6 +249,7 @@ export class SvgRecorder {
   fillRect(x: number, y: number, w: number, h: number): void {
     const [x0, y0] = this.apply(x, y);
     const [x1, y1] = this.apply(x + w, y + h);
+    this.includeRect(x0, y0, x1 - x0, y1 - y0);
     this.body.push(
       `<rect x="${n(Math.min(x0, x1))}" y="${n(Math.min(y0, y1))}" width="${n(Math.abs(x1 - x0))}" height="${n(Math.abs(y1 - y0))}" fill="${esc(this.fillStyle)}"${this.alphaAttr()}/>`,
     );
@@ -222,6 +257,7 @@ export class SvgRecorder {
   strokeRect(x: number, y: number, w: number, h: number): void {
     const [x0, y0] = this.apply(x, y);
     const [x1, y1] = this.apply(x + w, y + h);
+    this.includeRect(x0, y0, x1 - x0, y1 - y0, (this.lineWidth * this.scaleFactor()) / 2);
     this.body.push(
       `<rect x="${n(Math.min(x0, x1))}" y="${n(Math.min(y0, y1))}" width="${n(Math.abs(x1 - x0))}" height="${n(Math.abs(y1 - y0))}" fill="none" stroke="${esc(this.strokeStyle)}" stroke-width="${n(this.lineWidth)}"${this.dashAttr()}${this.alphaAttr()}/>`,
     );
@@ -236,10 +272,6 @@ export class SvgRecorder {
     if (!mm) return ` style="font:${esc(this.font)}"`;
     const weight = mm[1] ? ` font-weight="${mm[1]}"` : "";
     return ` font-size="${mm[2]}" font-family="${esc(mm[3])}"${weight}`;
-  }
-  private fontSizePx(): number {
-    const mm = /(\d+(?:\.\d+)?)px/.exec(this.font);
-    return mm ? parseFloat(mm[1]) : 10;
   }
   fillText(text: string, x: number, y: number): void {
     const anchor = this.textAlign === "center" ? "middle" : this.textAlign === "right" || this.textAlign === "end" ? "end" : "start";
@@ -258,27 +290,172 @@ export class SvgRecorder {
                 ? ' dominant-baseline="ideographic"'
                 : "";
     const t = `matrix(${this.m.map((v) => n(v)).join(",")})`;
+    const metrics = measurePaperText(
+      this.font,
+      String(text),
+      this.textAlign as CanvasTextAlign,
+      this.textBaseline as CanvasTextBaseline,
+    );
+    for (const [tx, ty] of [
+      [x - metrics.left, y - metrics.ascent],
+      [x + metrics.right, y - metrics.ascent],
+      [x - metrics.left, y + metrics.descent],
+      [x + metrics.right, y + metrics.descent],
+    ]) {
+      const [px, py] = this.apply(tx, ty);
+      this.includePoint(px, py);
+    }
     this.body.push(
       `<text transform="${t}" x="${n(x)}" y="${n(y)}" text-anchor="${anchor}"${baseline}${this.fontAttrs()} fill="${esc(this.fillStyle)}"${this.alphaAttr()}>${esc(String(text))}</text>`,
     );
   }
   measureText(text: string): { width: number } {
-    // Approximation — used only to size a small legend background chip.
-    return { width: 0.6 * this.fontSizePx() * String(text).length };
+    const metrics = measurePaperText(
+      this.font,
+      String(text),
+      this.textAlign as CanvasTextAlign,
+      this.textBaseline as CanvasTextBaseline,
+    );
+    return { width: metrics.width };
   }
 
   /** Serialise everything drawn so far into a standalone SVG document. `bg`, when given,
    *  paints a full-viewport background rectangle first (to match the panel's themed backdrop). */
-  toSvg(bg?: string): string {
+  toSvg(bg?: string, paperRecord?: PaperExportRecord): string {
+    if (paperRecord) validatePaperExportRecord(paperRecord);
     let tail = "";
     for (let i = 0; i < this.openGroups; i++) tail += "</g>";
     const defs = this.defs.length ? `<defs>${this.defs.join("")}</defs>` : "";
     const bgRect = bg ? `<rect x="0" y="0" width="${n(this.width)}" height="${n(this.height)}" fill="${esc(bg)}"/>` : "";
+    const metadata = paperRecord
+      ? `<metadata id="sandibumi-paper-export-v1">${esc(JSON.stringify(paperRecord))}</metadata>`
+      : "";
+    const minX = paperRecord?.page_bounds.min_x ?? 0;
+    const minY = paperRecord?.page_bounds.min_y ?? 0;
+    const rootWidth = paperRecord ? paperPageWidth(paperRecord) : this.width;
+    const rootHeight = paperRecord ? paperPageHeight(paperRecord) : this.height;
+    const width = paperRecord ? `${n(rootWidth)}pt` : String(n(rootWidth));
+    const height = paperRecord ? `${n(rootHeight)}pt` : String(n(rootHeight));
     return (
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${n(this.width)}" height="${n(this.height)}" ` +
-      `viewBox="0 0 ${n(this.width)} ${n(this.height)}">${defs}${bgRect}${this.body.join("")}${tail}</svg>`
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
+      `viewBox="${n(minX)} ${n(minY)} ${n(rootWidth)} ${n(rootHeight)}">${metadata}${defs}${bgRect}${this.body.join("")}${tail}</svg>`
     );
   }
+}
+
+export interface PaperDrawMeasurement {
+  recorder: SvgRecorder;
+  bounds: PaperExportBounds;
+  footer: string;
+  footerX: number;
+  footerY: number;
+  plot: PlotCanvas;
+}
+
+/** Runs the exact scientific draw in a recording context, measures every recorded vector mark,
+ *  and adds the visible provenance footer below those marks. */
+export function measurePlotForPaper(
+  width: number,
+  height: number,
+  draw: (canvas: HTMLCanvasElement) => PlotCanvas | null,
+  scope: PlotAncestryScope,
+): PaperDrawMeasurement | null {
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(width));
+  c.height = Math.max(1, Math.round(height));
+  const recorder = new SvgRecorder(c.width, c.height);
+  const holder = c as unknown as { __recordingCtx2d?: CanvasRenderingContext2D };
+  holder.__recordingCtx2d = recorder as unknown as CanvasRenderingContext2D;
+  let plot: PlotCanvas | null;
+  try {
+    plot = draw(c);
+  } finally {
+    delete holder.__recordingCtx2d;
+  }
+  if (!plot) return null;
+  const beforeFooter = recorder.getContentBounds();
+  const footer = paperProvenanceFooter(scope);
+  const footerX = beforeFooter.min_x;
+  const footerY = beforeFooter.max_y + PAPER_MARGIN_PT;
+  recorder.font = `${PAPER_PROVENANCE_FONT_PT}px monospace`;
+  recorder.fillStyle = plot.theme?.text ?? "#000000";
+  recorder.textAlign = "left";
+  recorder.textBaseline = "top";
+  recorder.fillText(footer, footerX, footerY);
+  return { recorder, bounds: recorder.getContentBounds(), footer, footerX, footerY, plot };
+}
+
+/** Paper-space SVG: same draw callback, point-sized root, visible footer and measured no-crop page. */
+export function renderPlotToPaperSvg(
+  width: number,
+  height: number,
+  draw: (canvas: HTMLCanvasElement) => PlotCanvas | null,
+  scope: PlotAncestryScope,
+): string | null {
+  const measured = measurePlotForPaper(width, height, draw, scope);
+  if (!measured) return null;
+  const record = buildPaperExportRecord("svg-vector", width, height, measured.bounds, measured.footer);
+  return measured.recorder.toSvg(measured.plot.theme?.bg, record);
+}
+
+/** Recovers and validates the custody record generated by renderPlotToPaperSvg before the SVG
+ *  crosses IPC. The backend receives the same typed record rather than trusting an opaque string. */
+export function paperExportRecordFromSvg(svg: string): PaperExportRecord {
+  const match = /<metadata id="sandibumi-paper-export-v1">([\s\S]*?)<\/metadata>/.exec(svg);
+  if (!match) throw new Error("paper SVG export lacks its crop and provenance record");
+  const json = match[1]
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
+  const record = JSON.parse(json) as PaperExportRecord;
+  validatePaperExportRecord(record);
+  if (record.medium !== "svg-vector") throw new Error("paper SVG record names the wrong medium");
+  return record;
+}
+
+/** Wraps a third-party vector renderer's measured scenegraph in the same paper record used by
+ *  Canvas plots. Vega supplies the actual scenegraph bounds, including outside legends and labels;
+ *  the nested SVG is marked overflow-visible and the outer point-sized page encloses those bounds. */
+export function paperizeMeasuredSvg(
+  svg: string,
+  sourceWidth: number,
+  sourceHeight: number,
+  measuredBounds: PaperExportBounds,
+  scope: PlotAncestryScope,
+): string {
+  const baseBounds: PaperExportBounds = {
+    min_x: Math.min(0, measuredBounds.min_x),
+    min_y: Math.min(0, measuredBounds.min_y),
+    max_x: Math.max(sourceWidth, measuredBounds.max_x),
+    max_y: Math.max(sourceHeight, measuredBounds.max_y),
+  };
+  const footer = paperProvenanceFooter(scope);
+  const footerX = baseBounds.min_x;
+  const footerY = baseBounds.max_y + PAPER_MARGIN_PT;
+  const footerMetrics = measurePaperText(
+    `${PAPER_PROVENANCE_FONT_PT}px monospace`,
+    footer,
+    "left",
+    "top",
+  );
+  const contentBounds: PaperExportBounds = {
+    min_x: Math.min(baseBounds.min_x, footerX - footerMetrics.left),
+    min_y: Math.min(baseBounds.min_y, footerY - footerMetrics.ascent),
+    max_x: Math.max(baseBounds.max_x, footerX + footerMetrics.right),
+    max_y: Math.max(baseBounds.max_y, footerY + footerMetrics.descent),
+  };
+  const record = buildPaperExportRecord("svg-vector", sourceWidth, sourceHeight, contentBounds, footer);
+  validatePaperExportRecord(record);
+  const inner = svg
+    .replace(/^\s*<\?xml[^>]*>\s*/i, "")
+    .replace(/<svg\b/, '<svg overflow="visible"');
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(paperPageWidth(record))}pt" height="${n(paperPageHeight(record))}pt" ` +
+    `viewBox="${n(record.page_bounds.min_x)} ${n(record.page_bounds.min_y)} ${n(paperPageWidth(record))} ${n(paperPageHeight(record))}">` +
+    `<metadata id="sandibumi-paper-export-v1">${esc(JSON.stringify(record))}</metadata>${inner}` +
+    `<text x="${n(footerX)}" y="${n(footerY)}" dominant-baseline="text-before-edge" font-size="${PAPER_PROVENANCE_FONT_PT}" font-family="monospace">${esc(footer)}</text></svg>`
+  );
 }
 
 /** Drives a panel's static-draw callback through an SvgRecorder and returns the SVG string,
@@ -308,7 +485,7 @@ export function renderPlotToSvg(
 /** Writes an SVG string to a user-picked path (Tauri save dialog + backend). savePng writes
  *  the decoded bytes verbatim, so it serves for any text payload. Returns the path or null if
  *  the dialog was cancelled. */
-export async function saveSvg(svg: string, defaultName: string): Promise<string | null> {
+export async function saveSvg(svg: string, defaultName: string, scope?: PlotAncestryScope): Promise<string | null> {
   const dest = await save({
     title: "Export plot as SVG (vector)",
     defaultPath: `${defaultName.replace(/[^\w.-]+/g, "_")}.svg`,
@@ -319,5 +496,5 @@ export async function saveSvg(svg: string, defaultName: string): Promise<string 
   const bytes = new TextEncoder().encode(svg);
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
-  return savePng(dest, btoa(bin));
+  return savePng(dest, btoa(bin), scope);
 }

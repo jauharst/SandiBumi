@@ -8,6 +8,8 @@ import {
   runReframe,
   saveCurveSelection,
   type CurveSelection,
+  type ReframeMethod,
+  type ReframeRequest,
   type ReframeResult,
   type ReframeSourceSpec,
   type WellSummary,
@@ -17,6 +19,7 @@ import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { pushUndo } from "../undo";
+import { requestRunCustody } from "./runCustody";
 
 /**
  * **Reframe** — resample a log set onto a different sampling, as a new set.
@@ -355,7 +358,7 @@ export async function buildReframeContent(
       if (disposed) return;
       fill(srcName, srcKind.value === "import" ? deliveries : logSets, srcName.value);
       fill(matchSet, logSets, matchSet.value);
-      allWells = await listWells().catch(() => allWells);
+      allWells = await listWells({ kind: "all" }).catch(() => allWells);
       if (disposed) return;
       fill(
         matchWell,
@@ -380,7 +383,7 @@ export async function buildReframeContent(
   const unsubWell = appState.selectedWell.subscribe(() => void refreshNames());
   const unsubData = appState.dataVersion.subscribe(() => void refreshNames());
 
-  function buildRequest(preview: boolean): Record<string, unknown> | null {
+  function buildRequest(preview: boolean): ReframeRequest | null {
     const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
       status.textContent = "No wells in scope — pick a group, pin/select wells, or choose All.";
@@ -429,11 +432,14 @@ export async function buildReframeContent(
     }
     return {
       well_ids: wellIds,
-      source: { kind: srcKind.value, name: srcKind.value === "standard" ? null : srcName.value },
+      source: {
+        kind: srcKind.value as ReframeSourceSpec["kind"],
+        name: srcKind.value === "standard" ? null : srcName.value,
+      },
       selection_name: selection.name,
       substitutions,
       target: {
-        kind: tgtKind.value,
+        kind: tgtKind.value as ReframeRequest["target"]["kind"],
         step: (tgtKind.value === "step" || tgtKind.value === "regularize") && stepGiven ? parseFloat(stepInput.value) : null,
         align: alignBox.checked,
         well_id: allWells.find((w) => w.well_name === matchWell.value)?.well_id ?? null,
@@ -442,9 +448,10 @@ export async function buildReframeContent(
         base: null,
       },
       methods: {},
-      default_method: method.value,
+      default_method: method.value as ReframeMethod,
       output_set: outSet.value.trim(),
       preview,
+      custody: null,
     };
   }
 
@@ -463,13 +470,26 @@ export async function buildReframeContent(
     table.appendChild(head);
     for (const r of results) {
       const tr = document.createElement("tr");
+      const curveLabels = r.curves.map((curve) => {
+        const reported = curve.category_boundary_crossings.length;
+        return `${curve.name} (${curve.method.toLowerCase()}${
+          reported > 0 ? `; ${reported} category-boundary sample${reported === 1 ? "" : "s"} reported` : ""
+        })`;
+      });
+      const categoryReports = r.curves.flatMap((curve) =>
+        curve.category_boundary_crossings.map(
+          (crossing) =>
+            `${curve.name} at ${num(crossing.output_depth)} crosses source codes ${crossing.from_code} → ${crossing.to_code} ` +
+            `between ${num(crossing.source_start_depth)} and ${num(crossing.source_end_depth)}.`,
+        ),
+      );
       const cells = [
         r.well_name,
         num(r.source_step),
         num(r.target_step),
         r.error ? "—" : String(r.rows),
-        r.error ? "—" : r.curves.map((c) => `${c.name} (${c.method.toLowerCase()})`).join(", "),
-        r.error ?? r.notes.join(" "),
+        r.error ? "—" : curveLabels.join(", "),
+        r.error ?? [...r.notes, ...categoryReports].join(" "),
       ];
       for (const [i, c] of cells.entries()) {
         const td = document.createElement("td");
@@ -497,11 +517,16 @@ export async function buildReframeContent(
   async function go(preview: boolean): Promise<void> {
     const req = buildRequest(preview);
     if (!req) return;
+    if (!preview) {
+      const custody = await requestRunCustody("Write reframed set");
+      if (!custody) return;
+      req.custody = custody;
+    }
     probeBtn.disabled = true;
     runBtn.disabled = true;
     status.textContent = preview ? "Checking…" : "Re-framing…";
     try {
-      const results = await runReframe(req);
+      const results = await runReframe(req, scope.backend());
       if (disposed) return;
       renderReport(results, preview);
       const ok = results.filter((r) => !r.error).length;

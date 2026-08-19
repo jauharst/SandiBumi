@@ -29,7 +29,8 @@
 //! fraction, which is most of what gets blocked.
 
 use crate::modules::{
-    log_in, log_out_as, opt_labelled, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_out_as, opt_labelled, param, param_open, param_open_when, ModuleContext,
+    ModuleOutputs, ModuleSpec, PROJECT_DEPTH_UNIT_TOKEN,
 };
 use std::collections::HashMap;
 
@@ -168,8 +169,9 @@ fn detect_beds(vals: &[f32], depth: &[f32], sens: f64, min_bed: f64) -> Vec<f32>
     let noise = if diffs.is_empty() {
         0.0
     } else {
-        // 1.4826 x MAD-about-zero of |Δ|, then / sqrt(2) for the two-sample difference.
-        (1.4826 * crate::distribution::percentile(&diffs, 50.0) as f64) / std::f64::consts::SQRT_2
+        // C_MAD x MAD-about-zero of |Δ|, then / sqrt(2) for the two-sample difference.
+        (crate::robust::C_MAD * crate::distribution::percentile(&diffs, 50.0) as f64)
+            / std::f64::consts::SQRT_2
     };
     let sens = if sens.is_finite() && sens > 0.0 { sens } else { 2.0 };
     let threshold = noise * sens;
@@ -243,10 +245,33 @@ pub fn block_spec() -> ModuleSpec {
               0.3 mD geometrically and 0.02 mD harmonically."
             .into(),
         args: vec![
-            param_open("INTERVAL", "Block thickness (OPT_BEDS = INTERVAL)", "depth", 0.0, 10000.0, false),
-            param_open("MIN_BED", "Thinnest bed worth calling a bed (OPT_BEDS = AUTO)", "depth", 0.0, 10000.0, false),
+            param_open_when(
+                "INTERVAL",
+                "Block thickness (OPT_BEDS = INTERVAL)",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                10000.0,
+                &[("OPT_BEDS", "INTERVAL")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
+            ),
+            param_open_when(
+                "MIN_BED",
+                "Thinnest bed worth calling a bed (OPT_BEDS = AUTO)",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                10000.0,
+                &[("OPT_BEDS", "AUTO")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
+            ),
             // Generic statistical multiplier, like the Hampel K — round, and not a calibration.
-            param("SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 2.0, 0.5, 20.0),
+            // Read only on the AUTO branch; with a default it is simply inert elsewhere.
+            param(
+                "SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 2.0,
+                0.5, 20.0,
+                "Two-noise-units convention for change detection (same family as the Hampel K in \
+                 condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar \
+                 adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
+            ),
             opt_labelled(
                 "OPT_BEDS",
                 "What counts as one bed",
@@ -404,8 +429,25 @@ pub fn bed_detect_spec() -> ModuleSpec {
               tool and the rock."
             .into(),
         args: vec![
-            param_open("MIN_BED", "Thinnest bed worth calling a bed", "depth", 0.0, 10000.0, true),
-            param("SENS", "How far off the bed's mean is a new bed, in noise units", "", 2.0, 0.5, 20.0),
+            param_open(
+                "MIN_BED",
+                "Thinnest bed worth calling a bed",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                0.0,
+                10000.0,
+                true,
+            ),
+            param(
+                "SENS",
+                "How far off the bed's mean is a new bed, in noise units",
+                "",
+                2.0,
+                0.5,
+                20.0,
+                "Two-noise-units convention for change detection (same family as the Hampel K in \
+                 condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar \
+                 adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
+            ),
             log_in("CURVE", "Curve to segment", "", "GR", true),
             log_out_as("OUT_CURVE", "{CURVE}_BED", "Bed index", ""),
         ],

@@ -7,19 +7,19 @@ This matrix is generated mechanically from `REVIEW.md` and
 against real well data. **Ledger date** is the date on the newest dated review section
 containing a checked scenario; it is not a more precise test timestamp.
 
-Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
+Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 57 | — | 21 |
-| `dlis-import` | DLIS import | Not exercised | 0 / 11 | — | 8 |
-| `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
-| `core-point-import` | Core and point-data import | Not exercised | 0 / 52 | — | 9 |
+| `las-import` | LAS import | Not exercised | 0 / 136 | — | 44 |
+| `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
+| `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
+| `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
-| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Not exercised | 0 / 45 | — | 25 |
-| `reframe` | Reframe and sampling alignment | Not exercised | 0 / 34 | — | 4 |
-| `conditioning` | Log conditioning and masking | Not exercised | 0 / 27 | — | 4 |
+| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 154 | 2026-08-13 | 59 |
+| `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 94 | 2026-08-13 | 21 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -27,41 +27,41 @@ Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
 | `core-depth-registration` | Core-depth registration | Not exercised | 0 / 39 | — | 6 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
-| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 17 | — | 3 |
-| `porosity` | Porosity interpretation | Not exercised | 0 / 33 | — | 10 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 2 / 97 | 2026-07-19 | 25 |
+| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 39 | — | 8 |
+| `porosity` | Porosity interpretation | Not exercised | 0 / 71 | — | 20 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 141 | 2026-08-13 | 38 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
-| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 28 | — | 18 |
+| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 31 | — | 19 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
-| `machine-learning` | Machine-learning models | Partially exercised | 7 / 189 | 2026-07-19 | 32 |
-| `equation-engine` | Rhai and Python equation engines | Not exercised | 0 / 11 | — | 4 |
-| `workflow` | Multi-well workflow chains | Not exercised | 0 / 23 | — | 3 |
+| `machine-learning` | Machine-learning models | Partially exercised | 7 / 193 | 2026-07-19 | 33 |
+| `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
+| `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
-| `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
-| `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
-| `well-scope` | Well scope, groups and multi-selection | Partially exercised | 3 / 9 | 2026-07-19 | 4 |
-| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 37 | 2026-07-19 | 7 |
-| `histogram` | Histogram | Partially exercised | 5 / 22 | 2026-07-20 | 5 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 13 | 2026-07-20 | 6 |
-| `pickett` | Pickett plot | Not exercised | 0 / 8 | — | 3 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 36 | — | 10 |
-| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 53 | 2026-07-20 | 15 |
-| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 2 | — | 7 |
+| `field-dashboard` | Field Dashboard | Not exercised | 0 / 13 | — | 5 |
+| `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 31 | — | 11 |
+| `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
+| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
+| `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
+| `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 58 | — | 16 |
+| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 66 | 2026-07-20 | 18 |
+| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
-| `report` | Report deliverables | Partially exercised | 6 / 53 | 2026-07-18 | 13 |
+| `report` | Report deliverables | Partially exercised | 8 / 84 | 2026-08-14 | 22 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
-| `las-export` | LAS export | Not exercised | 0 / 2 | — | 2 |
+| `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
-| `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 24 | 2026-07-19 | 7 |
+| `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
-| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
-| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
-| `security-integrity` | Security and data-integrity guards | Not exercised | 0 / 63 | — | 27 |
-| `verification-stewardship` | Verification, provenance and stewardship | Not exercised | 0 / 24 | — | 12 |
+| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
+| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 159 | 2026-08-13 | 54 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 168 | 2026-08-13 | 50 |

@@ -25,7 +25,7 @@ import {
   type TopEntry,
   type WellSummary,
 } from "../ipc";
-import { appState, bumpDataVersion, filterByActiveGroup, setStatus } from "../state";
+import { appState, bumpDataVersion, setStatus } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { FACIES_PALETTE, faciesColor } from "./plotCanvas";
 import { formRow } from "./modal";
@@ -34,6 +34,7 @@ import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { buildImageExportButtons } from "./plotExport";
 import { reportMlWriteOutcome } from "./reportingHonesty";
+import { requestRunCustody } from "./runCustody";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -338,7 +339,7 @@ export async function buildMlContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, catalog] = await Promise.all([
-    listWells().then(filterByActiveGroup).catch(() => [] as WellSummary[]),
+    listWells({ kind: "all" }).catch(() => [] as WellSummary[]),
     listCurveCatalog().catch(() => []),
   ]);
   const curveNames = catalog.map((c) => c.name);
@@ -1772,13 +1773,16 @@ export async function buildMlContent(
     const curves = task.supervised ? [...feats, targetSel.value] : feats;
     let rows: CurveStatsRow[];
     try {
-      [rows] = await statsCurveSummary({
-        well_ids: wellIds,
-        curves,
-        input_set: setPicker.inputSet(),
-        mask_curve: maskSel.value || null,
-        percentiles: [],
-      });
+      [rows] = await statsCurveSummary(
+        {
+          well_ids: wellIds,
+          curves,
+          input_set: setPicker.inputSet(),
+          mask_curve: maskSel.value || null,
+          percentiles: [],
+        },
+        scope.backend(),
+      );
     } catch (e) {
       if (gen !== qcGen) return;
       qcHead.textContent = `Could not measure the data: ${e}`;
@@ -1790,7 +1794,7 @@ export async function buildMlContent(
     // behind every QC open. Failing it is not fatal — the coverage findings still stand.
     let sampling: [string, CurveSampling[]][] = [];
     try {
-      sampling = await curveSampling(wellIds, curves);
+      sampling = await curveSampling(scope.backend(), curves);
     } catch {
       /* the sampling findings are simply absent, not wrong */
     }
@@ -1924,27 +1928,30 @@ export async function buildMlContent(
     compareStatus.textContent = "Comparing… (blind-well CV over all combos)";
     const t0 = performance.now();
     try {
-      const res = await runMlEval({
-        task: task.id as "regression" | "classification",
-        feature_curves: features,
-        target_curve: targetSel.value,
-        mask_curve: maskSel.value || null,
-        train_well_ids: trainIds,
-        input_set: setPicker.inputSet(),
-        algorithms: task.algos.map((a) => a.id),
-        // The settings currently on screen, and the algorithm they belong to. The leaderboard must
-        // rank the model the run will fit, not the same id at library defaults.
-        params: Object.fromEntries(paramInputs.map(({ spec, get }) => [spec.key, get()])),
-        params_for: algo.id,
-        subsets: buildSubsets(features, subsetSel.value),
-        enumerate_subsets: subsetSel.value === "every",
-        standardize: stdCb.checked,
-        seed: Math.round(parseFloat(seedInput.value) || 42),
-        folds: 5,
-        // The leaderboard has to rank the model the run will fit. Ranked in linear space while the
-        // run fits log10, the table would recommend a different winner than the one that wins.
-        target_transform: task.id === "regression" && targetXf ? targetXf : null,
-      });
+      const res = await runMlEval(
+        {
+          task: task.id as "regression" | "classification",
+          feature_curves: features,
+          target_curve: targetSel.value,
+          mask_curve: maskSel.value || null,
+          train_well_ids: trainIds,
+          input_set: setPicker.inputSet(),
+          algorithms: task.algos.map((a) => a.id),
+          // The settings currently on screen, and the algorithm they belong to. The leaderboard must
+          // rank the model the run will fit, not the same id at library defaults.
+          params: Object.fromEntries(paramInputs.map(({ spec, get }) => [spec.key, get()])),
+          params_for: algo.id,
+          subsets: buildSubsets(features, subsetSel.value),
+          enumerate_subsets: subsetSel.value === "every",
+          standardize: stdCb.checked,
+          seed: Math.round(parseFloat(seedInput.value) || 42),
+          folds: 5,
+          // The leaderboard has to rank the model the run will fit. Ranked in linear space while the
+          // run fits log10, the table would recommend a different winner than the one that wins.
+          target_transform: task.id === "regression" && targetXf ? targetXf : null,
+        },
+        scope.backend(),
+      );
       const ms = Math.round(performance.now() - t0);
       if (res.error) {
         compareStatus.textContent = `Failed: ${res.error}`;
@@ -2102,19 +2109,25 @@ export async function buildMlContent(
       distStatus.textContent = "Give the distributed curve a name.";
       return;
     }
+    const custody = await requestRunCustody("Distribute saved model");
+    if (!custody) return;
     distBtn.disabled = true;
     distStatus.textContent = `Distributing '${m.name}' to ${wellIds.length} well(s)…`;
     const t0 = performance.now();
     try {
-      const res = await applyMlModel({
-        model_id: m.model_id,
-        apply_well_ids: wellIds,
-        output_curve: distOut.value.trim(),
-        input_set: distSetPicker.inputSet(),
-        output_set: distSetPicker.outputSet(),
-        mask_curve: distMask.value || null,
-        interval: distInterval.getWindow(),
-      });
+      const res = await applyMlModel(
+        {
+          model_id: m.model_id,
+          apply_well_ids: wellIds,
+          output_curve: distOut.value.trim(),
+          input_set: distSetPicker.inputSet(),
+          output_set: distSetPicker.outputSet(),
+          mask_curve: distMask.value || null,
+          interval: distInterval.getWindow(),
+          custody,
+        },
+        distScope.backend(),
+      );
       const ms = Math.round(performance.now() - t0);
       if (res.error) {
         distStatus.textContent = `Failed: ${res.error}`;
@@ -2261,17 +2274,23 @@ export async function buildMlContent(
           setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
           return;
         }
+        const custody = await requestRunCustody("Apply saved model");
+        if (!custody) return;
         applyBtn.disabled = true;
         statusLine.textContent = `Applying '${m.name}' to ${applyIds.length} well(s)…`;
         try {
-          const res: MlResult = await applyMlModel({
-            model_id: m.model_id,
-            apply_well_ids: applyIds,
-            output_curve: outInput.value,
-            input_set: setPicker.inputSet(),
-            output_set: setPicker.outputSet(),
-            mask_curve: maskSel.value || null,
-          });
+          const res: MlResult = await applyMlModel(
+            {
+              model_id: m.model_id,
+              apply_well_ids: applyIds,
+              output_curve: outInput.value,
+              input_set: setPicker.inputSet(),
+              output_set: setPicker.outputSet(),
+              mask_curve: maskSel.value || null,
+              custody,
+            },
+            scope.backend(),
+          );
           if (res.error) {
             statusLine.textContent = `Failed: ${res.error}`;
           } else {
@@ -2389,6 +2408,8 @@ export async function buildMlContent(
         return;
       }
     }
+    const custody = await requestRunCustody("Run machine-learning model");
+    if (!custody) return;
     const req: MlRequest = {
       task: task.id,
       algorithm: algo.id,
@@ -2425,6 +2446,7 @@ export async function buildMlContent(
       feature_transforms: features
         .filter((curve) => (featTransforms.get(curve) ?? "none") !== "none")
         .map((curve) => ({ curve, transform: featTransforms.get(curve) as string })),
+      custody,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -2451,7 +2473,7 @@ export async function buildMlContent(
           output_curve: multi ? `${base}_${a.id.toUpperCase()}` : base,
           save_model_as: task.supervised && saveBase ? (multi ? `${saveBase}_${a.id.toUpperCase()}` : saveBase) : null,
         };
-        runs.push({ algo: a, res: await runMl(one) });
+        runs.push({ algo: a, res: await runMl(one, scope.backend()) });
       }
       const res = runs[0].res;
       const ms = Math.round(performance.now() - t0);
@@ -4323,7 +4345,16 @@ function buildIntervalPicker(
     none.value = "-1";
     none.textContent = w ? "(whole well)" : "(no well selected — type depths)";
     sel.appendChild(none);
-    tops = w ? await listTops(w.well_id).catch(() => [] as TopEntry[]) : [];
+    if (w) {
+      try {
+        tops = await listTops(w.well_id);
+      } catch (err) {
+        tops = [] as TopEntry[];
+        setStatus(`ML interval tops unavailable: ${String(err)}`);
+      }
+    } else {
+      tops = [];
+    }
     tops.sort((a, b) => a.depth - b.depth);
     tops.forEach((t, i) => {
       const o = document.createElement("option");
@@ -4444,6 +4475,9 @@ function attachChartExport(host: HTMLElement, svg: SVGSVGElement, name: string):
     name,
     setStatus,
     () => inlineSvgPaint(svg),
+    undefined,
+    undefined,
+    () => ({ wellIds: [], curves: [] }),
   );
   const refresh = () => {
     void svgToCanvas(svg).then((c) => (lastRaster = c)).catch(() => undefined);

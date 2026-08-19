@@ -4,7 +4,12 @@
  *  Returns a close function; Escape (scoped to this dialog) and the ✕ button close. */
 let activeClose: (() => void) | null = null;
 
-export function openModal(title: string, content: HTMLElement, widthPx = 520): () => void {
+export function openModal(
+  title: string,
+  content: HTMLElement,
+  widthPx = 520,
+  onClose?: () => void,
+): () => void {
   const root = document.querySelector<HTMLElement>("#modal-root");
   if (!root) return () => {};
 
@@ -76,11 +81,13 @@ export function openModal(title: string, content: HTMLElement, widthPx = 520): (
   });
 
   const close = () => {
+    if (root.hidden) return;
     root.hidden = true;
     root.innerHTML = "";
     document.removeEventListener("keydown", onKey);
     dragCleanup?.(); // detach any in-flight title-bar drag listeners
     if (activeClose === close) activeClose = null;
+    onClose?.();
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;

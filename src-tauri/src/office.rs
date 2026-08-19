@@ -217,6 +217,61 @@ impl Sheet {
     }
 }
 
+/// Human-readable SB-CORE-010 ancestry shared by the spreadsheet, editable report,
+/// and presentation exports. Keeping one row builder prevents those deliverables
+/// from silently presenting different custody detail for the same computed curve.
+fn ancestry_sheet(
+    disclosures: &[crate::equations::CurveAncestryDisclosure],
+    wells: &[(String, String)],
+) -> Sheet {
+    let mut sheet = Sheet::new(
+        "Curve ancestry",
+        "Computed curve ancestry",
+        vec![
+            Column::new("Well", 20.0, CellFormat::Text),
+            Column::new("Curve / set", 24.0, CellFormat::Text),
+            Column::new("Ancestry field", 24.0, CellFormat::Text),
+            Column::new("Recorded value", 70.0, CellFormat::Text),
+        ],
+    );
+    let labels = [
+        "Curve / set",
+        "Module",
+        "Inputs",
+        "Parameters / source",
+        "Zones / source",
+        "Operator / time",
+        "Derivation",
+    ];
+    for disclosure in disclosures {
+        let well = wells
+            .iter()
+            .find(|(id, _)| id == &disclosure.well_id)
+            .map(|(_, name)| name.as_str())
+            .unwrap_or(&disclosure.well_id);
+        let curve_set = match (&disclosure.set_name, disclosure.version) {
+            (Some(set_name), Some(version)) => {
+                format!("{} / {} v{}", disclosure.curve_name, set_name, version)
+            }
+            _ => format!(
+                "{} / {} ({} rows)",
+                disclosure.curve_name,
+                crate::equations::LEGACY_UNRECORDED,
+                disclosure.provenance_row_count
+            ),
+        };
+        for (label, value) in labels.iter().zip(disclosure.cells()) {
+            sheet.rows.push(vec![
+                text(well),
+                text(&curve_set),
+                text(*label),
+                text(value),
+            ]);
+        }
+    }
+    sheet
+}
+
 // ---------------------------------------------------------------------------
 // The xlsxwriter runner
 // ---------------------------------------------------------------------------
@@ -371,11 +426,14 @@ fn yes() -> bool {
 pub struct WorkbookSpec {
     pub well_ids: Vec<String>,
     /// Pay cutoffs, pay-summary convention (see `cutoffs.ts` for the single source of defaults).
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
+    /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
+    /// rather than printing a number that was never applied. No default: four shipped
+    /// vendor sets disagree, two of them from one vendor.
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -431,11 +489,20 @@ pub fn pay_sheet(rows: &[PaySummaryRow], unit: &str) -> Sheet {
             Column::new("SWE (v/v)", 10.0, CellFormat::Num2),
             Column::new(&format!("HPV ({unit})"), 11.0, CellFormat::Num2),
             Column::new("Samples", 10.0, CellFormat::Int),
+            // SB-CUT-002: the result identity travels WITH the numbers it qualifies — per row,
+            // because wells in one workbook can run on different frames.
+            Column::new("Model", 10.0, CellFormat::Text),
+            Column::new(&format!("Step ({unit})"), 10.0, CellFormat::Num3),
         ],
     );
     sheet.notes.push(
         "Fractions are v/v, matching the report PDF. A BLANK means the well was not interpreted over \
          that zone - it is not a zero, and Excel's AVERAGE/COUNT skip it."
+            .into(),
+    );
+    sheet.notes.push(
+        "Model/Step name the discretisation rule and the sample interval each row was computed on. \
+         Net-to-gross is not scale-invariant, so rows at different steps are different statements."
             .into(),
     );
     sheet.shade = Some(Shade { col: 2, equals: "PAY".into() });
@@ -457,6 +524,10 @@ pub fn pay_sheet(rows: &[PaySummaryRow], unit: &str) -> Sheet {
             if judged { num(r.avg_swe) } else { Cell::Blank },
             if judged { num(r.hpv) } else { Cell::Blank },
             Cell::Num(r.n_classified as f64),
+            // SB-CUT-002: the identity travels with the numbers it qualifies - the model as
+            // text, the step as a NUMBER so it can be filtered and compared in Excel.
+            text(&r.discretisation_model),
+            num(r.sample_interval),
         ]);
     }
     sheet
@@ -629,12 +700,46 @@ fn summary_sheet(
     row("Wells requested", Cell::Num(wells.len() as f64));
     row("Wells with results", Cell::Num((wells.len() - without.len()) as f64));
     row("", Cell::Blank);
-    row("Cutoff - VSH max (v/v)", Cell::Num(spec.vsh_max));
-    row("Cutoff - PHIE min (v/v)", Cell::Num(spec.phie_min));
-    row("Cutoff - SWE max (v/v)", Cell::Num(spec.swe_max));
-    match spec.perm_min {
-        Some(p) => row("Cutoff - PERM min (mD)", Cell::Num(p)),
-        None => row("Cutoff - PERM min (mD)", text("not applied")),
+    // SB-CUT-016: a cut-off that was not applied is a WORD, not a blank and not a number. A blank
+    // reads as "no data" in a spreadsheet, which is a different statement from "not filtered".
+    // SB-CUT-019: the number stays a NUMBER so the sheet can still be pivoted, and the unit it
+    // was entered in becomes part of the row label rather than being dropped.
+    // SB-CUT-020: a two-sided range is TWO rows, one per bound, rather than one text cell holding
+    // both numbers. The blank-is-not-zero rule and the numbers-stay-numbers rule are the same rule
+    // here: a spreadsheet exists to be pivoted and re-averaged, and a range collapsed into prose
+    // cannot be. Each bound's row names its own operator, so the boundary convention survives too.
+    let cut_rows = |label: &str, v: &Option<crate::workflow::CutoffSpec>| {
+        let Some(spec) = v else {
+            return vec![(label.to_string(), text("unfiltered"))];
+        };
+        let bound_row = |side: &str, b: &crate::workflow::CutoffSpecBound| {
+            let inclusivity = match b.operator {
+                crate::workflow::BoundOperator::Inclusive => "inclusive",
+                crate::workflow::BoundOperator::Exclusive => "exclusive",
+            };
+            (
+                format!("{label}{side} ({}, {inclusivity})", b.entry.unit),
+                Cell::Num(b.entry.value),
+            )
+        };
+        match (&spec.min, &spec.max, &spec.single) {
+            (_, _, Some(single)) => vec![bound_row("", single)],
+            (low, high, None) => low
+                .iter()
+                .map(|b| bound_row(" lower", b))
+                .chain(high.iter().map(|b| bound_row(" upper", b)))
+                .collect(),
+        }
+    };
+    for (label, cell) in [
+        cut_rows("Cutoff - VSH max", &spec.vsh_max),
+        cut_rows("Cutoff - PHIE min", &spec.phie_min),
+        cut_rows("Cutoff - SWE max", &spec.swe_max),
+        cut_rows("Cutoff - PERM min", &spec.perm_min),
+    ]
+    .concat()
+    {
+        row(&label, cell);
     }
     row("", Cell::Blank);
     row(
@@ -668,26 +773,34 @@ pub fn export_workbook(
         run_pay_summary(
             db_lock,
             &PaySummaryRequest {
+                // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+                discretisation: Default::default(),
                 well_ids: spec.well_ids.clone(),
-                vsh_max: spec.vsh_max,
-                phie_min: spec.phie_min,
-                swe_max: spec.swe_max,
-                perm_min: spec.perm_min,
+                vsh_max: spec.vsh_max.clone(),
+                phie_min: spec.phie_min.clone(),
+                swe_max: spec.swe_max.clone(),
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+                perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
-                stats_only: true,
+                stats_only: true
+            ,
+                custody: None,
+                frame: Default::default(),
+                weighting: Default::default(),
             },
         )?
     } else {
         Vec::new()
     };
 
-    let (stamp, unit, wells) = {
+    let (stamp, unit, wells, ancestry) = {
         let conn = db_lock.lock().map_err(|e| e.to_string())?;
         let stamp: String = conn
             .query_row("SELECT strftime(now(), '%Y-%m-%d %H:%M')", [], |r| r.get(0))
             .unwrap_or_else(|_| String::new());
-        let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+        let unit = units::require_project_depth_unit(&conn, "workbook export")?.label().to_string();
         let mut wells: Vec<(String, String)> = Vec::with_capacity(spec.well_ids.len());
         for id in &spec.well_ids {
             let name: String = conn
@@ -695,7 +808,12 @@ pub fn export_workbook(
                 .unwrap_or_else(|_| id.clone());
             wells.push((id.clone(), name));
         }
-        (stamp, unit, wells)
+        let ancestry = crate::equations::curve_ancestry_disclosures(
+            &conn,
+            &spec.well_ids,
+            spec.input_set.as_deref(),
+        )?;
+        (stamp, unit, wells, ancestry)
     };
 
     let with_results: Vec<&str> = {
@@ -721,6 +839,9 @@ pub fn export_workbook(
     if spec.include_zone_params {
         let conn = db_lock.lock().map_err(|e| e.to_string())?;
         sheets.push(zone_param_sheet(&conn, &wells)?);
+    }
+    if !ancestry.is_empty() {
+        sheets.push(ancestry_sheet(&ancestry, &wells));
     }
 
     let written = write_workbook(&sheets, dest)?;
@@ -1001,22 +1122,36 @@ pub fn build_report_blocks(
     let pay_rows = run_pay_summary(
         db_lock,
         &PaySummaryRequest {
+                // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+                discretisation: Default::default(),
             well_ids: vec![well_id.clone()],
-            vsh_max: spec.vsh_max,
-            phie_min: spec.phie_min,
-            swe_max: spec.swe_max,
-            perm_min: spec.perm_min,
+            vsh_max: spec.vsh_max.clone(),
+            phie_min: spec.phie_min.clone(),
+            swe_max: spec.swe_max.clone(),
+            enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
+            perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: true,
-            stats_only: true,
+            stats_only: true
+        ,
+            custody: None,
+            frame: Default::default(),
+            weighting: Default::default(),
         },
     )
     .unwrap_or_default();
 
     let conn = db_lock.lock().map_err(|e| e.to_string())?;
     let header = crate::composite::fetch_header(&conn, &well_id)?;
-    let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+    let unit = units::require_project_depth_unit(&conn, "report export")?.label().to_string();
     let zones = db::list_zones(&conn, &well_id).map_err(|e| e.to_string())?;
+
+    let ancestry = crate::equations::curve_ancestry_disclosures(
+        &conn,
+        std::slice::from_ref(&well_id),
+        spec.input_set.as_deref(),
+    )?;
 
     // The evaluated interval comes from the well's own zones rather than from a composite
     // render: this document carries no log plots, so paginating one just to print a depth
@@ -1070,6 +1205,13 @@ pub fn build_report_blocks(
     }
     blocks.push(table(m));
 
+    if !ancestry.is_empty() {
+        blocks.push(table(ancestry_sheet(
+            &ancestry,
+            &[(well_id.clone(), header.name.clone())],
+        )));
+    }
+
     // 1b — ML provenance (SB-MLA-010), the twin of the PDF's section and built from the SAME rows,
     // headers and caveat (`crate::ml::ML_PROV_*`). The editable document is the one a client
     // actually edits, so a caveat that appeared only in the PDF would be the one sentence in the
@@ -1105,11 +1247,14 @@ pub fn build_report_blocks(
     blocks.push(Block::PageBreak);
     let mut p = pay_sheet(&pay_rows, &unit);
     p.title = format!(
-        "Pay Summary  (VSH <= {:.2}, PHIE >= {:.2}, SWE <= {:.2}{})",
-        spec.vsh_max,
-        spec.phie_min,
-        spec.swe_max,
-        spec.perm_min.map(|v| format!(", PERM >= {v:.1} mD")).unwrap_or_default()
+        "Pay Summary  (VSH <= {}, PHIE >= {}, SWE <= {}{})",
+        crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+        crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+        crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+        match crate::workflow::cutoff_phrase(spec.perm_min.as_ref(), crate::workflow::CutoffSense::Minimum, 1).as_str() {
+            "" => String::new(),
+            phrase => format!(", PERM {phrase}"),
+        }
     );
     if pay_rows.is_empty() {
         // Never a silent gap in a client document: say the section could not be supported.
@@ -1489,11 +1634,14 @@ fn write_deck(slides: &[Slide], dest: &str) -> Result<usize, String> {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DeckSpec {
     pub well_ids: Vec<String>,
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
+    /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
+    /// rather than printing a number that was never applied. No default: four shipped
+    /// vendor sets disagree, two of them from one vendor.
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -1628,8 +1776,14 @@ pub fn build_deck_slides(
 
     // 1 — what the numbers mean, before any number is shown.
     let mut items = vec![
-        format!("Cutoffs: VSH <= {:.2}, PHIE >= {:.2}, SWE <= {:.2}{}", spec.vsh_max, spec.phie_min, spec.swe_max,
-            spec.perm_min.map(|p| format!(", PERM >= {p:.1} mD")).unwrap_or_default()),
+        format!("Cutoffs: VSH <= {}, PHIE >= {}, SWE <= {}{}",
+            crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+            match crate::workflow::cutoff_phrase(spec.perm_min.as_ref(), crate::workflow::CutoffSense::Minimum, 1).as_str() {
+                "" => String::new(),
+                phrase => format!(", PERM {phrase}"),
+            }),
         format!("Summarised at the {flag} level; SAND and RESERVOIR are in the workbook."),
         format!("Wells in scope: {}  ·  interpreted: {}", well_names.len(), with_results.len()),
         format!("Thicknesses and HPV in {unit}; VSH, PHIE and SWE as v/v fractions."),
@@ -1749,23 +1903,31 @@ pub fn export_deck(
     let rows = run_pay_summary(
         db_lock,
         &PaySummaryRequest {
+                // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+                discretisation: Default::default(),
             well_ids: spec.well_ids.clone(),
-            vsh_max: spec.vsh_max,
-            phie_min: spec.phie_min,
-            swe_max: spec.swe_max,
-            perm_min: spec.perm_min,
+            vsh_max: spec.vsh_max.clone(),
+            phie_min: spec.phie_min.clone(),
+            swe_max: spec.swe_max.clone(),
+            enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
+            perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: true,
-            stats_only: true,
+            stats_only: true
+        ,
+            custody: None,
+            frame: Default::default(),
+            weighting: Default::default(),
         },
     )?;
 
-    let (stamp, unit, wells) = {
+    let (stamp, unit, wells, ancestry) = {
         let conn = db_lock.lock().map_err(|e| e.to_string())?;
         let stamp: String = conn
             .query_row("SELECT strftime(now(), '%Y-%m-%d')", [], |r| r.get(0))
             .unwrap_or_default();
-        let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+        let unit = units::require_project_depth_unit(&conn, "deck export")?.label().to_string();
         let mut wells: Vec<(String, String)> = Vec::with_capacity(spec.well_ids.len());
         for id in &spec.well_ids {
             let name: String = conn
@@ -1773,10 +1935,21 @@ pub fn export_deck(
                 .unwrap_or_else(|_| id.clone());
             wells.push((id.clone(), name));
         }
-        (stamp, unit, wells)
+        let ancestry = crate::equations::curve_ancestry_disclosures(
+            &conn,
+            &spec.well_ids,
+            spec.input_set.as_deref(),
+        )?;
+        (stamp, unit, wells, ancestry)
     };
 
-    let slides = build_deck_slides(&rows, spec, &unit, &stamp, &wells);
+    let mut slides = build_deck_slides(&rows, spec, &unit, &stamp, &wells);
+    if !ancestry.is_empty() {
+        slides.extend(table_slides(
+            "Computed curve ancestry",
+            &ancestry_sheet(&ancestry, &wells),
+        ));
+    }
     let written = write_deck(&slides, dest)?;
     let mut with_results: Vec<&str> = rows
         .iter()
@@ -1804,6 +1977,8 @@ mod tests {
     fn row(well: &str, zone: &str, flag: &str, net: f32, phie: f32, n: usize) -> PaySummaryRow {
         PaySummaryRow {
             well_id: format!("id-{well}"),
+            discretisation_model: crate::workflow::DiscretisationModel::default().token().to_string(),
+            sample_interval: 0.5,
             well_name: well.into(),
             zone: zone.into(),
             flag: flag.into(),
@@ -1811,6 +1986,18 @@ mod tests {
             bottom: 1100.0,
             gross: 100.0,
             net,
+            // SB-CUT-003: the fixture assumes every sample was judged, so nothing is unknown and
+            // the rest is not-net. It keeps the partition closing, which is what a reader of this
+            // helper would otherwise have to check for themselves.
+            not_net: 100.0 - net,
+            unknown: 0.0,
+            // Nothing unknown, so both ratios coincide.
+            ntg_known: net / 100.0,
+            residual_absorbed: 0.0,
+            out_of_range: false,
+            frame: crate::workflow::SummationFrame::Md,
+            weights_source: crate::workflow::MD_WEIGHTS_SOURCE.to_string(),
+            unfiltered: Vec::new(),
             ntg: net / 100.0,
             avg_vsh: 0.3,
             avg_phie: phie,
@@ -1818,6 +2005,7 @@ mod tests {
             hpv: net * phie * 0.6,
             n_classified: n,
             perm_cutoff_no_data: false,
+            quicklook_phie_excluded: false,
         }
     }
 
@@ -1952,8 +2140,8 @@ mod tests {
         let id = uuid::Uuid::new_v4();
         db::insert_well(&conn, id, "SANDI-01", Some("Sandi Field"), Some(1800.0), Some(12.0)).unwrap();
         let well = id.to_string();
-        db::upsert_zone(&conn, &well, "MENGGALA", 1500.0, 1560.0).unwrap();
-        db::upsert_zone(&conn, &well, "BEKASAP", 1600.0, 1680.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "MENGGALA", 1500.0, 1560.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "BEKASAP", 1600.0, 1680.0).unwrap();
         db::set_zone_param(&conn, &well, "MENGGALA", "RW", Some(0.35), None).unwrap();
         db::set_zone_param(&conn, &well, "MENGGALA", "M", Some(1.8), None).unwrap();
         (conn, well)
@@ -2047,13 +2235,18 @@ mod tests {
         const READBACK: &str = r#"
 import json, sys
 from docx import Document
-doc = Document(sys.argv[1])
+req = json.loads(sys.stdin.buffer.read())
+doc = Document(req["path"])
 sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], ensure_ascii=True).encode("ascii"))
 "#;
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", READBACK, &dest_s]).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(["-c", READBACK]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
-        let out = cmd.output().expect("readback ran");
+        let mut child = cmd.spawn().expect("readback started");
+        let request = serde_json::to_vec(&serde_json::json!({ "path": dest_s })).unwrap();
+        child.stdin.as_mut().expect("readback stdin").write_all(&request).unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().expect("readback ran");
         let paras: Vec<String> = serde_json::from_slice(&out.stdout).expect("readback json");
         assert!(
             paras.iter().any(|p| p == needle),
@@ -2062,15 +2255,86 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
         let _ = std::fs::remove_file(&dest);
     }
 
+    /// SB-DIO-063 / SB-DIO-T96. `docs/PRD_v2/21_data-io.md` requires one non-ASCII
+    /// path and source-well payload to survive the DLIS, Office and image subprocesses.
+    #[test]
+    #[ignore = "needs numpy, python-docx and Pillow"]
+    fn a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars() {
+        // CHARACTERIZATION — SB-DIO-T96 names the input and exact unchanged output.
+        let root = std::env::temp_dir().join(format!("sb_t96_ñ_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).expect("Unicode temporary directory created");
+        let source_name = "NONASCII–ρ";
+
+        let dlis_path = root.join("córé–ρ.dlis");
+        let dlis_path = dlis_path.to_str().expect("test path is Unicode");
+        let (received_path, received_name) =
+            crate::dlis::probe_non_ascii_sidecar_boundary(dlis_path, source_name)
+                .expect("DLIS byte boundary round-tripped");
+        assert_eq!(received_path, dlis_path, "the DLIS path changed across the subprocess boundary");
+        assert_eq!(received_name, source_name, "the DLIS source-well payload changed across stdout");
+
+        let docx_path = root.join("réport–ρ.docx");
+        let docx_path = docx_path.to_str().expect("test path is Unicode");
+        let blocks = vec![Block::Cover {
+            title: "Encoding boundary".into(),
+            well: source_name.into(),
+            field: "Condition: synthetic".into(),
+            meta: String::new(),
+            author: String::new(),
+        }];
+        write_docx(&blocks, docx_path).expect("Word sidecar wrote the Unicode path");
+
+        const READBACK: &str = r#"
+import json, sys
+from docx import Document
+req = json.loads(sys.stdin.buffer.read())
+doc = Document(req["path"])
+sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], ensure_ascii=True).encode("ascii"))
+"#;
+        let python = find_python().expect("Python is available");
+        let mut cmd = Command::new(&python);
+        cmd.args(["-c", READBACK]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        hide_console(&mut cmd);
+        let mut child = cmd.spawn().expect("Word readback started");
+        let request = serde_json::to_vec(&serde_json::json!({ "path": docx_path })).unwrap();
+        child.stdin.as_mut().expect("Word readback stdin").write_all(&request).unwrap();
+        drop(child.stdin.take());
+        let output = child.wait_with_output().expect("Word readback completed");
+        assert!(output.status.success(), "Word readback failed: {}", String::from_utf8_lossy(&output.stderr));
+        let paragraphs: Vec<String> = serde_json::from_slice(&output.stdout).expect("Word readback JSON");
+        assert!(paragraphs.iter().any(|text| text == source_name), "Word payload changed: {paragraphs:?}");
+
+        let image_path = root.join("pláte–ρ.png");
+        let png = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC",
+        )
+        .expect("embedded PNG decoded");
+        std::fs::write(&image_path, png).expect("Unicode image path created");
+        let image_path = image_path.to_str().expect("test path is Unicode").to_string();
+        let prepared = crate::images::prepare_images(
+            std::slice::from_ref(&image_path),
+            crate::images::DEFAULT_MAX_PX,
+            crate::images::DEFAULT_QUALITY,
+        );
+        assert_eq!(prepared.len(), 1, "one image request must produce one result");
+        assert!(prepared[0].error.is_none(), "Pillow did not open the Unicode path: {:?}", prepared[0].error);
+        assert_eq!(prepared[0].mime, "image/jpeg", "the Pillow sidecar did not perform the conversion");
+
+        std::fs::remove_file(&image_path).expect("test image removed");
+        std::fs::remove_file(docx_path).expect("test document removed");
+        std::fs::remove_dir(&root).expect("test directory removed");
+    }
+
     // --- The deck ----------------------------------------------------------
 
     fn deck_spec() -> DeckSpec {
         DeckSpec {
             input_set: None,
             well_ids: vec!["id-A".into()],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             title: "Sandi Field".into(),
             author: String::new(),
@@ -2240,7 +2504,8 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
         const READBACK: &str = r#"
 import json, sys
 from pptx import Presentation
-prs = Presentation(sys.argv[1])
+req = json.loads(sys.stdin.buffer.read())
+prs = Presentation(req["path"])
 out = []
 for s in prs.slides:
     kinds = [sh.shape_type is not None and str(sh.shape_type) for sh in s.shapes]
@@ -2252,9 +2517,13 @@ for s in prs.slides:
 sys.stdout.buffer.write(json.dumps(out, ensure_ascii=True).encode("ascii"))
 "#;
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", READBACK, &dest_s]).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(["-c", READBACK]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
-        let out = cmd.output().expect("readback ran");
+        let mut child = cmd.spawn().expect("readback started");
+        let request = serde_json::to_vec(&serde_json::json!({ "path": dest_s })).unwrap();
+        child.stdin.as_mut().expect("readback stdin").write_all(&request).unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().expect("readback ran");
         #[derive(Deserialize)]
         struct SlideInfo {
             pics: usize,

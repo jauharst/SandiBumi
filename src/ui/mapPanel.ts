@@ -263,7 +263,7 @@ export async function buildMapContent(
   // "count" (the ResizeObserver does the real fit once layout lands).
   let didFit = false;
   const loadWells = async (refit: boolean) => {
-    const all = await listWells().catch(() => []);
+    const all = await listWells({ kind: "all" }).catch(() => []);
     wells = all
       .filter((w) => Number.isFinite(w.surface_x ?? NaN) && Number.isFinite(w.surface_y ?? NaN))
       .map((w) => ({ id: w.well_id, name: w.well_name, x: w.surface_x as number, y: w.surface_y as number, zone: w.utm_zone ?? null }));
@@ -476,7 +476,7 @@ async function openAssignDialog(
 ): Promise<void> {
   let selected: Awaited<ReturnType<typeof wellsInPolygon>> = [];
   try {
-    selected = await wellsInPolygon(poly);
+    selected = await wellsInPolygon(poly, { kind: "all" });
   } catch (err) {
     setStatus(`Well selection failed: ${err}`);
     return;

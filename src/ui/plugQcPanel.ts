@@ -66,7 +66,7 @@ export async function buildPlugQcContent(
 
   /** Refills both pickers from what the scoped wells actually hold, keeping the current picks. */
   const reloadChoices = async (ids: string[]): Promise<void> => {
-    choices = ids.length ? await listPlugChoices(ids).catch(() => [] as PlugChoice[]) : [];
+    choices = ids.length ? await listPlugChoices(scope.backend()).catch(() => [] as PlugChoice[]) : [];
     for (const sel of [xSel, ySel]) {
       const had = sel.value;
       sel.textContent = "";
@@ -311,7 +311,7 @@ export async function buildPlugQcContent(
     };
     runBtn.disabled = true;
     statusLine.textContent = "Pairing…";
-    void runPlugQc(req)
+    void runPlugQc(req, scope.backend())
       .then((r) => {
         render(r);
         statusLine.textContent = `${r.n_pairs} pair(s)`;

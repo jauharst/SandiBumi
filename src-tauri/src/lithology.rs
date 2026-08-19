@@ -29,7 +29,9 @@
 //! samples drift toward the kaolinite and illite points, which Lith-6 plots, so the drift
 //! is itself the reading.
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 /// Density-tool calibration: the tool measures electron density rho_e and reports
@@ -195,21 +197,36 @@ pub fn midplot_spec() -> ModuleSpec {
             // The chart's three matrix lines, in the density scale the tool reports (the
             // chart's own y-axis). Exposed because a arkosic or heavy-mineral sand is not
             // 2.65 — the same reason every porosity module here takes RHO_MA.
-            param("RHO_MA_SS", "Sandstone matrix line, CHART lookup", "g/cc", 2.65, 2.0, 3.2),
-            param("RHO_MA_LS", "Limestone matrix line, CHART lookup", "g/cc", 2.71, 2.0, 3.2),
-            param("RHO_MA_DOL", "Dolomite matrix line, CHART lookup", "g/cc", 2.87, 2.0, 3.2),
+            param(
+                "RHO_MA_SS", "Sandstone matrix line, CHART lookup", "g/cc", 2.65, 2.0, 3.2,
+                "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param(
+                "RHO_MA_LS", "Limestone matrix line, CHART lookup", "g/cc", 2.71, 2.0, 3.2,
+                "IP/Techlog/SandiMin limestone matrix endpoint 2.71 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("RHO_MA_DOL", "Dolomite matrix line, CHART lookup", "g/cc", 2.0, 3.2, true),
             // 2.71 (limestone), NOT the 2.645 sandstone default the porosity modules use: the
             // neutron leg is apparent-LIMESTONE porosity, so the density leg has to be on the
             // same apparent-limestone basis or averaging the two is meaningless.
-            param("RHO_MA_A", "Apparent matrix density for the density leg (limestone basis)", "g/cc", 2.71, 2.0, 3.2),
-            param("RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5),
+            param(
+                "RHO_MA_A", "Apparent matrix density for the density leg (limestone basis)", "g/cc", 2.71, 2.0, 3.2,
+                "IP/Techlog/SandiMin limestone matrix endpoint 2.71 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            crate::modules::with_sources(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FLUID_DENSITY,
+            ),
             // Fresh water: Pe 0.358 x rho_e 1.111 = 0.398 b/cm3. Saline filtrate is higher
             // (chlorine is a strong photoelectric absorber), so the range allows well past it.
-            param("U_FL", "Fluid volumetric photoelectric factor (0.398 = fresh water)", "b/cm3", 0.398, 0.0, 3.0),
+            param_open("U_FL", "Fluid volumetric photoelectric factor", "b/cm3", 0.0, 3.0, true),
             // (1 - phi) is the denominator of both outputs; near phi = 1 it explodes into values
             // that would wreck the crossplot's auto-range without meaning anything. A matrix
             // property read from a >50% porosity sample is not a rock property anyway.
-            param("PHIA_MAX", "Reject samples whose apparent porosity exceeds this", "v/v", 0.5, 0.1, 0.9),
+            param_open("PHIA_MAX", "Reject samples whose apparent porosity exceeds this", "v/v", 0.1, 0.9, true),
             log_in("RHOB", "Bulk density log, as logged", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log, apparent limestone", "v/v", "NPHI", true),
             log_in("PEF", "Photoelectric factor", "b/e", "PEF", true),

@@ -15,11 +15,15 @@ use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::multimin2::{
-    fluid_calc, sw_archie, sw_dual_nonlinear, sw_indonesia, sw_juhasz, sw_simandoux,
-    sw_waxman_smits, waxman_b, FluidProps,
+    fluid_calc, sw_archie, sw_dual_nonlinear, sw_indonesia, sw_juhasz,
+    sw_simandoux_bardon_pied, sw_simandoux_modified_slb, sw_waxman_smits, waxman_b,
+    FluidProps,
 };
 
 /// Default Sw-unit gap above which a depth counts as "the model choice matters here".
+/// DEC-077 (2026-08-19): a QC display convention, not rock — ruled the owner's starting value
+/// with practitioner attribution per DEC-059 (0.10 Sw units is one decile of the answer's own
+/// scale); every request may override it, and the request's value always wins.
 const DEFAULT_DIVERGENCE: f64 = 0.10;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,6 +103,8 @@ struct SpreadParams {
     a: f64,
     rsh: f64,
     phit_sh: f64,
+    indonesia_k: f64,
+    simandoux_c: f64,
     threshold: f64,
 }
 
@@ -123,6 +129,8 @@ impl SpreadParams {
             a: f.archie_a,
             rsh: f.rsh,
             phit_sh: f.phit_sh,
+            indonesia_k: f.indonesia_k,
+            simandoux_c: f.simandoux_c,
             threshold,
         }
     }
@@ -183,25 +191,48 @@ fn compute_spread(
     };
 
     // Archie — clean-sand baseline (ignores clay); the reference every clay-aware model is compared to.
-    consider("Archie", has_rt && has_phi, &|i| {
+    consider("archie_total", has_rt && has_phi, &|i| {
         sw_archie(at(rt, i), phit_at(phit, phie, i), p.rw, p.m, p.n, p.a)
     });
-    // Simandoux / Indonesia — effective-porosity shaly-sand forms (need VSH).
-    consider("Simandoux", has_rt && phie.is_some() && has_vsh, &|i| {
-        sw_simandoux(at(rt, i), at(phie, i), at(vsh, i), p.rw, p.rsh, p.m, p.n, p.a)
+    // Both typed Simandoux equations and Indonesia are effective-porosity shaly-sand forms.
+    consider("simandoux_bardon_pied", has_rt && phie.is_some() && has_vsh, &|i| {
+        sw_simandoux_bardon_pied(at(rt, i), at(phie, i), at(vsh, i), p.rw, p.rsh, p.m, p.n, p.a)
     });
-    consider("Indonesia", has_rt && phie.is_some() && has_vsh, &|i| {
-        sw_indonesia(at(rt, i), at(phie, i), at(vsh, i), p.rw, p.rsh, p.m, p.n, p.a)
+    consider("simandoux_modified_slb", has_rt && phie.is_some() && has_vsh, &|i| {
+        sw_simandoux_modified_slb(
+            at(rt, i),
+            at(phie, i),
+            at(vsh, i),
+            p.rw,
+            p.rsh,
+            p.m,
+            p.n,
+            p.a,
+            p.simandoux_c,
+        )
+    });
+    consider("indonesia", has_rt && phie.is_some() && has_vsh, &|i| {
+        sw_indonesia(
+            at(rt, i),
+            at(phie, i),
+            at(vsh, i),
+            p.rw,
+            p.rsh,
+            p.m,
+            p.n,
+            p.a,
+            p.indonesia_k,
+        )
     });
     // Juhász — normalized Waxman-Smits from the shale point (total-φ, needs VSH; φ_sh is a Fluid default).
-    consider("Juhasz", has_rt && has_phi && has_vsh, &|i| {
+    consider("juhasz", has_rt && has_phi && has_vsh, &|i| {
         sw_juhasz(at(rt, i), phit_at(phit, phie, i), at(vsh, i), p.cw, p.rsh, p.phit_sh, p.m, p.n)
     });
     // Waxman-Smits — only with a Qv curve, and only where the Qv sample is finite and non-negative. A
     // null Qv (NaN or a −999.25 sentinel) must yield NaN here: `sw_waxman_smits` folds Qv through
     // `(B·Qv).max(0)`, so a null would otherwise collapse to the clean-sand (Archie) branch and both
     // mislabel WS as evaluated and understate the spread in exactly the shaly zone that matters.
-    consider("Waxman-Smits", has_rt && has_phi && qv.is_some(), &|i| {
+    consider("waxman_smits", has_rt && has_phi && qv.is_some(), &|i| {
         let q = at(qv, i);
         if !(q.is_finite() && q >= 0.0) {
             return f64::NAN;
@@ -209,7 +240,7 @@ fn compute_spread(
         sw_waxman_smits(at(rt, i), phit_at(phit, phie, i), q, p.cw, p.b, p.m, p.n)
     });
     // Dual-Water — only when a bound-water-saturation curve is supplied (no Swb fabrication).
-    consider("Dual-Water", has_rt && has_phi && swb.is_some(), &|i| {
+    consider("dual_water_nonlinear", has_rt && has_phi && swb.is_some(), &|i| {
         sw_dual_nonlinear(at(rt, i), phit_at(phit, phie, i), at(swb, i), p.cw, p.cwb, p.m, p.n, 1.0)
     });
 
@@ -425,6 +456,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 2.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.10,
             ws_b: 0.0,
         }
@@ -443,13 +476,13 @@ mod tests {
         let vsh = vec![0.40f32, 0.40, 0.40];
         let p = params();
         let r = compute_spread(&depth, Some(&rt), Some(&phie), None, Some(&vsh), None, None, &p, vec![]);
-        // Archie, Simandoux, Indonesia, Juhász all active (no Qv/Swb → WS/DW skipped).
-        assert_eq!(r.methods.len(), 4, "notes: {:?}", r.notes);
+        // Archie, both typed Simandoux equations, Indonesia, and Juhász are active.
+        assert_eq!(r.methods.len(), 5, "notes: {:?}", r.notes);
         // Rw is temperature-corrected by fluid_calc (0.1 @ 75 °F → ~0.047 @ 167 °F), so these are the
         // formation-temperature Sw values, not the surface-Rw hand figures.
-        let archie = &r.methods.iter().find(|m| m.name == "Archie").unwrap().values[0];
-        let sima = &r.methods.iter().find(|m| m.name == "Simandoux").unwrap().values[0];
-        let juh = &r.methods.iter().find(|m| m.name == "Juhasz").unwrap().values[0];
+        let archie = &r.methods.iter().find(|m| m.name == "archie_total").unwrap().values[0];
+        let sima = &r.methods.iter().find(|m| m.name == "simandoux_modified_slb").unwrap().values[0];
+        let juh = &r.methods.iter().find(|m| m.name == "juhasz").unwrap().values[0];
         assert!(*archie > 0.45 && *archie < 0.52, "Archie {archie}");
         assert!(*sima > 0.28 && *sima < 0.34, "Simandoux {sima}");
         assert!(*juh > 0.33 && *juh < 0.41, "Juhasz {juh}"); // numeric guard against a Cw/Rw swap
@@ -468,7 +501,7 @@ mod tests {
         let vsh = vec![0.0f32, 0.0];
         let p = params();
         let r = compute_spread(&depth, Some(&rt), Some(&phie), None, Some(&vsh), None, None, &p, vec![]);
-        assert_eq!(r.methods.len(), 4);
+        assert_eq!(r.methods.len(), 5);
         assert!(r.max_spread < 1e-3, "clean sand should not diverge: {}", r.max_spread);
         assert_eq!(r.frac_divergent, 0.0);
     }
@@ -494,10 +527,10 @@ mod tests {
             &p,
             vec![],
         );
-        // All six models now active.
-        assert_eq!(r.methods.len(), 6, "notes: {:?}", r.notes);
-        assert!(r.methods.iter().any(|m| m.name == "Waxman-Smits"));
-        assert!(r.methods.iter().any(|m| m.name == "Dual-Water"));
+        // All seven typed equations now active.
+        assert_eq!(r.methods.len(), 7, "notes: {:?}", r.notes);
+        assert!(r.methods.iter().any(|m| m.name == "waxman_smits"));
+        assert!(r.methods.iter().any(|m| m.name == "dual_water_nonlinear"));
         // every model finite here
         for m in &r.methods {
             assert!(m.values[0].is_finite(), "{} NaN", m.name);
@@ -515,9 +548,9 @@ mod tests {
         let swb = vec![0.0f32];
         let p = params();
         let r = compute_spread(&depth, Some(&rt), Some(&phit), Some(&phit), None, Some(&qv), Some(&swb), &p, vec![]);
-        let archie = r.methods.iter().find(|m| m.name == "Archie").unwrap().values[0];
-        let ws = r.methods.iter().find(|m| m.name == "Waxman-Smits").unwrap().values[0];
-        let dw = r.methods.iter().find(|m| m.name == "Dual-Water").unwrap().values[0];
+        let archie = r.methods.iter().find(|m| m.name == "archie_total").unwrap().values[0];
+        let ws = r.methods.iter().find(|m| m.name == "waxman_smits").unwrap().values[0];
+        let dw = r.methods.iter().find(|m| m.name == "dual_water_nonlinear").unwrap().values[0];
         assert!((ws - archie).abs() < 1e-5, "WS at Qv=0 must equal Archie: {ws} vs {archie}");
         assert!((dw - archie).abs() < 1e-5, "DW at Swb=0 must equal Archie: {dw} vs {archie}");
     }
@@ -531,7 +564,7 @@ mod tests {
         let qv = vec![f32::NAN, 0.5]; // first sample null
         let p = params();
         let r = compute_spread(&depth, Some(&rt), Some(&phit), Some(&phit), None, Some(&qv), None, &p, vec![]);
-        let ws = &r.methods.iter().find(|m| m.name == "Waxman-Smits").unwrap().values;
+        let ws = &r.methods.iter().find(|m| m.name == "waxman_smits").unwrap().values;
         assert!(!ws[0].is_finite(), "WS at null Qv must be NaN, was {}", ws[0]);
         assert!(ws[1].is_finite(), "WS at valid Qv must be finite");
     }
@@ -547,7 +580,7 @@ mod tests {
         let p = params();
         let r = compute_spread(&depth, Some(&rt), Some(&phie), None, Some(&vsh), None, None, &p, vec![]);
         assert_eq!(r.methods.len(), 1, "only Archie survives; got {:?}", r.methods.iter().map(|m| &m.name).collect::<Vec<_>>());
-        assert_eq!(r.methods[0].name, "Archie");
+        assert_eq!(r.methods[0].name, "archie_total");
         assert_eq!(r.n_samples, 0);
         assert!(r.notes.iter().any(|s| s.contains("all-null")), "should report the dropped column: {:?}", r.notes);
         assert!(r.notes.iter().any(|s| s.contains("No comparable depths")), "should warn insufficient: {:?}", r.notes);

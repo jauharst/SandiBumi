@@ -41,16 +41,24 @@ pub struct ReportSpec {
     #[serde(default)]
     pub methodology: Vec<MethodRow>,
     /// Pay-summary cutoffs (pay-summary convention).
-    pub vsh_max: f64,
-    pub phie_min: f64,
-    pub swe_max: f64,
+    /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
+    /// rather than printing a number that was never applied. No default: four shipped
+    /// vendor sets disagree, two of them from one vendor.
+    pub vsh_max: Option<crate::workflow::CutoffSpec>,
+    pub phie_min: Option<crate::workflow::CutoffSpec>,
+    pub swe_max: Option<crate::workflow::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<f64>,
+    pub perm_min: Option<crate::workflow::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
     #[serde(default)]
     pub input_set: Option<String>,
+    /// Explicit operator and source/reference for the pay-summary FLAG curves that
+    /// the PDF report has historically persisted. Editable Office exports are
+    /// read-only and do not consume this field.
+    #[serde(default)]
+    pub custody: Option<crate::equations::RunCustody>,
     /// Skip the composite pages (tables-only report).
     #[serde(default)]
     pub tables_only: bool,
@@ -75,11 +83,20 @@ pub(crate) fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
             "Cutoffs",
             "VSH / PHIE / SWE flags → SAND, RESERVOIR, PAY",
             &format!(
-                "VSH ≤ {:.2}, PHIE ≥ {:.2}, SWE ≤ {:.2}{}",
-                spec.vsh_max,
-                spec.phie_min,
-                spec.swe_max,
-                spec.perm_min.map(|p| format!(", PERM ≥ {p:.1} mD")).unwrap_or_default()
+                "VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}{}",
+                crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+                crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+                crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+                match crate::workflow::cutoff_phrase(
+                    spec.perm_min.as_ref(),
+                    crate::workflow::CutoffSense::Minimum,
+                    1,
+                )
+                .as_str()
+                {
+                    "" => String::new(),
+                    phrase => format!(", PERM {phrase}"),
+                }
             ),
         ),
     ]
@@ -376,6 +393,38 @@ fn report_pages_with_degradations(
         (cpages, pw, ph, name, header, zones, zparams, logged, ml_prov)
     };
 
+    // The PDF's pay-summary pass is a real persisted computation. Run it before
+    // collecting disclosures so the report carries the ancestry of the exact FLAG
+    // curves it just produced (or reused), never the snapshot from one moment earlier.
+    let pay_result = run_pay_summary(
+        db,
+        &PaySummaryRequest {
+            // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+            discretisation: Default::default(),
+            well_ids: vec![spec.composite.well_id.clone()],
+            vsh_max: spec.vsh_max.clone(),
+            phie_min: spec.phie_min.clone(),
+            swe_max: spec.swe_max.clone(),
+            enabled_unset: Vec::new(),
+            cutoff_use: Default::default(),
+            perm_min: spec.perm_min.clone(),
+            input_set: spec.input_set.clone(),
+            skip_version: false,
+            stats_only: false,
+            custody: spec.custody.clone(),
+            frame: Default::default(),
+            weighting: Default::default(),
+        },
+    );
+    let ancestry = {
+        let conn = db.lock().map_err(|error| error.to_string())?;
+        crate::equations::curve_ancestry_disclosures(
+            &conn,
+            std::slice::from_ref(&spec.composite.well_id),
+            spec.input_set.as_deref(),
+        )?
+    };
+
     {
         // What the composite actually paginated. Equal to the logged interval unless a depth
         // window was set on the render.
@@ -414,6 +463,41 @@ fn report_pages_with_degradations(
             ("Remarks", usable * 0.38, Anchor::Start),
         ];
         pages.extend(table_pages("Methodology", &well_name, None, &m_cols, &m_rows, pw, ph, 2.7));
+
+        // SB-CORE-010. A report that carries a computed value also carries the full
+        // record needed to identify who ran it, from which curves and zones, with
+        // which sourced parameters, and by which derivation.
+        if !ancestry.is_empty() {
+            let labels = [
+                "Curve / set",
+                "Module",
+                "Inputs",
+                "Parameters / source",
+                "Zones / source",
+                "Operator / time",
+                "Derivation",
+            ];
+            let mut a_rows = Vec::with_capacity(ancestry.len() * labels.len());
+            for disclosure in &ancestry {
+                for (label, value) in labels.iter().zip(disclosure.cells()) {
+                    a_rows.push(vec![(*label).to_string(), value]);
+                }
+            }
+            let a_cols: [(&str, f64, Anchor); 2] = [
+                ("Ancestry field", usable * 0.23, Anchor::Start),
+                ("Recorded value", usable * 0.77, Anchor::Start),
+            ];
+            pages.extend(table_pages(
+                "Computed curve ancestry",
+                &well_name,
+                None,
+                &a_cols,
+                &a_rows,
+                pw,
+                ph,
+                2.5,
+            ));
+        }
 
         // 2b — ML provenance (SB-MLA-010), only where a model-derived curve is actually live on
         // this well. This is the point of the whole provenance group: a parameter that carries the
@@ -493,23 +577,36 @@ fn report_pages_with_degradations(
         // silently missing section — this is a client PDF, and dropping a table it cannot support
         // (unwrap_or_default previously collapsed both Err and empty into "no section at all") is
         // exactly the cardinal-rule failure the report path must not allow.
+        // SB-CUT-002: the printed table names its discretisation identity in the heading.
+        // The step is stated only when every row shares one; wells on different frames say so
+        // rather than quoting one well's step as everyone's.
         let pay_section = format!(
-            "Pay Summary  (VSH ≤ {:.2}, PHIE ≥ {:.2}, SWE ≤ {:.2})",
-            spec.vsh_max, spec.phie_min, spec.swe_max
+            "Pay Summary  (VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}, {} model{})",
+            crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
+            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+            pay_result
+                .as_ref()
+                .ok()
+                .and_then(|rows| rows.first())
+                .map(|row| row.discretisation_model.clone())
+                .unwrap_or_else(|| crate::workflow::DiscretisationModel::default().token().to_string()),
+            match pay_result.as_ref().ok().and_then(|rows| {
+                let mut steps: Vec<f32> =
+                    rows.iter().map(|r| r.sample_interval).filter(|s| s.is_finite()).collect();
+                steps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                steps.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+                match steps.as_slice() {
+                    [only] => Some(format!(", step {only:.4}")),
+                    [] => None,
+                    _ => Some(", mixed steps — see workbook".to_string()),
+                }
+            }) {
+                Some(s) => s,
+                None => String::new(),
+            }
         );
-        match run_pay_summary(
-            db,
-            &PaySummaryRequest {
-                well_ids: vec![spec.composite.well_id.clone()],
-                vsh_max: spec.vsh_max,
-                phie_min: spec.phie_min,
-                swe_max: spec.swe_max,
-                perm_min: spec.perm_min,
-                input_set: spec.input_set.clone(),
-                skip_version: true, // report render side-effect — don't version the pay flags
-                stats_only: false,  // report persists FLAG_* in place (unchanged behavior)
-            },
-        ) {
+        match pay_result {
             Ok(pay_rows) if !pay_rows.is_empty() => {
                 // A permeability cutoff this well has nothing to answer with. Stated on the page
                 // rather than only in the row struct, because the deliverable is where a reader
@@ -521,10 +618,17 @@ fn report_pages_with_degradations(
                     .then(|| {
                         format!(
                             "Note: this well carries no permeability curve, so every sample fails the \
-                             PERM ≥ {:.1} mD cutoff for want of data. The zero net pay below records an \
+                             PERM {} cutoff for want of data. The zero net pay below records an \
                              absence of evidence, not a dry reservoir — compute or import a permeability \
                              curve, or lift the cutoff, before reading these rows.",
-                            spec.perm_min.unwrap_or(0.0)
+                            // SB-CUT-020: the comparison comes from the cut-off itself. The note
+                            // used to hard-code `≥`, which an exclusive bound or a two-sided
+                            // window makes untrue — and this note exists to be read literally.
+                            crate::workflow::cutoff_phrase(
+                                spec.perm_min.as_ref(),
+                                crate::workflow::CutoffSense::Minimum,
+                                1,
+                            )
                         )
                     });
                 let p_rows: Vec<Vec<String>> = pay_rows
@@ -619,7 +723,11 @@ pub fn render_report(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Compos
         page_width_mm: pw,
         page_height_mm: ph,
         scale: spec.composite.scale,
-        well_name,
+        well_name
+    ,
+        // Report ancestry is already visible as complete table pages. This IPC
+        // field belongs to standalone composite metadata and is not duplicated.
+        ancestry: Vec::new(),
     })
 }
 
@@ -729,6 +837,57 @@ mod tests {
     use crate::equations;
     use uuid::Uuid;
 
+    /// Structural computed-input fixture for report tests. The numeric values belong to
+    /// each owning test; this helper supplies only the complete custody record required
+    /// to persist them, using the fixture well's imported standard curves as named inputs.
+    fn write_report_inputs(
+        conn: &Connection,
+        well_id: &str,
+        depth: &[f32],
+        curves: &[(&str, &[f32])],
+    ) {
+        let mut inputs = Vec::new();
+        for curve in ["GR", "RES_DEEP", "NPHI"] {
+            if let Ok(input) =
+                equations::resolve_ancestry_input(conn, well_id, curve, curve, None, None)
+            {
+                inputs.push(input);
+            }
+        }
+        assert!(
+            !inputs.is_empty(),
+            "the structural fixture must name at least one imported input"
+        );
+        let ancestry = equations::CurveAncestry {
+            schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: None,
+            module: "report_test_fixture".into(),
+            module_version: env!("CARGO_PKG_VERSION").into(),
+            inputs,
+            parameters: vec![],
+            parameter_state: Some(equations::ProvenanceAbsentState::NotApplicable),
+            zone_scope: equations::AncestryZoneScope::WholeWell,
+            actor: crate::workflow::test_run_custody().actor,
+            timestamp_utc_ms: equations::ancestry_timestamp_utc_ms().unwrap(),
+            outputs: curves
+                .iter()
+                .map(|(curve, _)| equations::AncestryOutput {
+                    curve: (*curve).to_string(),
+                    derivation: format!("structural report fixture:{curve}"),
+                })
+                .collect(),
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
+        };
+        let spec = equations::CompleteLogSetSpec::try_new("REPORT_INPUTS", ancestry).unwrap();
+        let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec).unwrap();
+        equations::write_computed_curves_with_ancestry(conn, well_id, depth, curves, &set_id)
+            .unwrap();
+    }
+
     /// A well with curves renders; one without is the "broken well" the batch step puts in
     /// scope. Deliberately the same shape as the composite tests' fixture so the two agree
     /// about what a renderable well is.
@@ -750,6 +909,16 @@ mod tests {
                 vec![f32::NAN; n],
             )
             .unwrap();
+        write_report_inputs(
+                conn,
+                &wid.to_string(),
+                &(0..n).map(|i| 1000.0 + i as f32 * 0.5).collect::<Vec<_>>(),
+                &[
+                    ("VSH", vec![0.20f32; n].as_slice()),
+                    ("PHIE", vec![0.20f32; n].as_slice()),
+                    ("SWE", vec![0.30f32; n].as_slice()),
+                ],
+            );
         }
         wid.to_string()
     }
@@ -757,6 +926,7 @@ mod tests {
     fn batch_spec() -> ReportSpec {
         ReportSpec {
             input_set: None,
+            custody: Some(crate::workflow::test_run_custody()),
             composite: composite::CompositeSpec {
                 well_id: String::new(),
                 layout: crate::layout::standard_layout(),
@@ -768,9 +938,9 @@ mod tests {
             title: "Petrophysical Evaluation".into(),
             author: "Tester".into(),
             methodology: vec![],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             tables_only: true,
         }
@@ -969,10 +1139,11 @@ mod tests {
         )
         .unwrap();
         // Pay rock, and deliberately NO PERM curve anywhere in the well.
-        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
-            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
-        }
-
+        write_report_inputs(&conn, &w,
+            &depth,
+            &[("VSH", vec![0.2f32; n].as_slice()), ("PHIE", vec![0.20f32; n].as_slice()), ("SWE", vec![0.30f32; n].as_slice()),
+            ],
+        );
         let dbm = Mutex::new(conn);
         let mut spec = batch_spec();
         spec.composite.well_id = w;
@@ -998,7 +1169,7 @@ mod tests {
         let quiet = pay_text(&spec);
         assert!(!quiet.contains("no permeability curve"), "no cutoff requested, no note: {quiet}");
 
-        spec.perm_min = Some(1000.0);
+        spec.perm_min = Some(crate::workflow::CutoffEntry { value: 1000.0, unit: "mD".into() }.into());
         let noted = pay_text(&spec);
         assert!(noted.contains("no permeability curve"), "the reason must be stated: {noted}");
         assert!(noted.contains("1000.0 mD"), "and name the cutoff it could not answer: {noted}");
@@ -1050,10 +1221,12 @@ mod tests {
             vec![2.4; n], nan.clone(), nan,
         )
         .unwrap();
-        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
-            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
-        }
-        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        write_report_inputs(&conn, &w,
+            &depth,
+            &[("VSH", vec![0.2f32; n].as_slice()), ("PHIE", vec![0.20f32; n].as_slice()), ("SWE", vec![0.30f32; n].as_slice()),
+            ],
+        );
+        db::upsert_md_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
 
         let dbm = Mutex::new(conn);
         let text_of = |ops: &Vec<DrawOp>| -> String {
@@ -1072,12 +1245,19 @@ mod tests {
         let (tables, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("tables-only render");
         let t_texts: Vec<String> = tables.iter().map(text_of).collect();
 
-        // Exactly the four sections, in order, and nothing after the pay summary.
-        assert_eq!(tables.len(), 4, "cover + methodology + zone params + pay summary: {t_texts:#?}");
+        // Exactly the five sections, in order, with the complete ancestry table
+        // spanning two pages and nothing after the pay summary.
+        assert_eq!(tables.len(), 6, "cover + methodology + computed ancestry + zone params + pay summary: {t_texts:#?}"
+        );
         assert!(t_texts[0].contains("Well: SANDI-REP-09"), "page 1 is the cover: {}", t_texts[0]);
         assert!(t_texts[1].contains("Methodology"), "{}", t_texts[1]);
-        assert!(t_texts[2].contains("Zone Parameters"), "{}", t_texts[2]);
-        assert!(t_texts[3].contains("Pay Summary"), "{}", t_texts[3]);
+        assert!(t_texts[2].contains("Computed curve ancestry"), "{}", t_texts[2]);
+        assert!(t_texts[3].contains("Computed curve ancestry"),
+            "{}",
+            t_texts[3]
+        );
+        assert!(t_texts[4].contains("Zone Parameters"), "{}", t_texts[4]);
+        assert!(t_texts[5].contains("Pay Summary"), "{}", t_texts[5]);
 
         // The cover dates the study to the rock that was actually logged.
         assert!(
@@ -1128,11 +1308,13 @@ mod tests {
             vec![2.4; n], nan.clone(), nan,
         )
         .unwrap();
-        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
-            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
-        }
+        write_report_inputs(&conn, &w,
+            &depth,
+            &[("VSH", vec![0.2f32; n].as_slice()), ("PHIE", vec![0.20f32; n].as_slice()), ("SWE", vec![0.30f32; n].as_slice()),
+            ],
+        );
         // One zone, wholly OUTSIDE the print window below.
-        db::upsert_zone(&conn, &w, "DEEP", 1012.0, 1019.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "DEEP", 1012.0, 1019.0).unwrap();
 
         let dbm = Mutex::new(conn);
         let mut spec = batch_spec();
@@ -1224,11 +1406,11 @@ mod tests {
                 _ => { vsh.push(0.20); phie.push(0.20); swe.push(0.30); } // pay
             }
         }
-        for (name, values) in [("VSH", &vsh), ("PHIE", &phie), ("SWE", &swe)] {
-            equations::write_computed_curve(&conn, &w, &depth, name, values).unwrap();
-        }
-        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
-        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+        write_report_inputs(&conn, &w,
+            &depth,
+            &[("VSH", vsh.as_slice()), ("PHIE", phie.as_slice()), ("SWE", swe.as_slice())] );
+        db::upsert_md_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
         db::set_zone_param(&conn, &w, "UPPER", "RW", Some(0.02), None).unwrap();
 
         let dbm = Mutex::new(conn);
@@ -1241,14 +1423,22 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+            // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+            discretisation: Default::default(),
                 well_ids: vec![w.clone()],
-                vsh_max: spec.vsh_max,
-                phie_min: spec.phie_min,
-                swe_max: spec.swe_max,
-                perm_min: spec.perm_min,
+                vsh_max: spec.vsh_max.clone(),
+                phie_min: spec.phie_min.clone(),
+                swe_max: spec.swe_max.clone(),
+                enabled_unset: Vec::new(),
+                cutoff_use: Default::default(),
+                perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
-                stats_only: true,
+                stats_only: true
+            ,
+                custody: None,
+                frame: Default::default(),
+                weighting: Default::default(),
             },
         )
         .expect("pay summary");
@@ -1301,7 +1491,10 @@ mod tests {
 
         // Then methodology, zone parameters, pay summary — in that order. Located by first
         // occurrence rather than by index, so a table that paginates does not break the check.
-        let pay_section = "Pay Summary  (VSH \u{2264} 0.50, PHIE \u{2265} 0.10, SWE \u{2264} 0.60)";
+        // SB-CUT-019 tightened this: the deliverable names the UNIT beside every cut-off, so a
+        // client PDF can never say "PHIE ≥ 0.10" without saying in what.
+        let pay_section =
+            "Pay Summary  (VSH \u{2264} 0.50 v/v, PHIE \u{2265} 0.10 v/v, SWE \u{2264} 0.60 v/v, CENTRED model, step 0.5000)";
         let (m, z, p) = (first_with("Methodology"), first_with("Zone Parameters"), first_with(pay_section));
         assert!(0 < m && m < z && z < p, "page order was cover {m} methodology, {z} zones, {p} pay");
 
@@ -1377,22 +1570,33 @@ mod tests {
             for p in phie.iter_mut().take(8).skip(3) {
                 *p = phie_streak;
             }
-            equations::write_computed_curve(&conn, &w, &depth, "VSH", &vec![0.10f32; n]).unwrap();
-            equations::write_computed_curve(&conn, &w, &depth, "PHIE", &phie).unwrap();
-            equations::write_computed_curve(&conn, &w, &depth, "SWE", &vec![0.30f32; n]).unwrap();
-            db::upsert_zone(&conn, &w, "SAND-A", 1000.0, 1005.0).unwrap();
+            write_report_inputs(&conn, &w, &depth, &[
+                    ("VSH", vec![0.10f32; n].as_slice()),
+                    ("PHIE", phie.as_slice()),
+                    ("SWE", vec![0.30f32; n].as_slice()),
+                ],
+            );
+            db::upsert_md_zone(&conn, &w, "SAND-A", 1000.0, 1005.0).unwrap();
             let dbm = Mutex::new(conn);
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+            // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
+            discretisation: Default::default(),
                     input_set: None,
                     well_ids: vec![w],
-                    vsh_max: 0.5,
-                    phie_min: 0.1,
-                    swe_max: 0.6,
+                    vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                    phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                    swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+                    enabled_unset: Vec::new(),
+                    cutoff_use: Default::default(),
                     perm_min: None,
                     skip_version: true,
-                    stats_only: true,
+                    stats_only: true
+                ,
+                    custody: None,
+                    frame: Default::default(),
+                    weighting: Default::default(),
                 },
             )
             .expect("pay summary")
@@ -1469,7 +1673,7 @@ mod tests {
         // The section header and the note text must both render — this is what stops a failed or
         // empty pay run from leaving no trace at all in the client PDF.
         let ops = note_page(
-            "Pay Summary  (VSH ≤ 0.50, PHIE ≥ 0.10, SWE ≤ 0.60)",
+            "Pay Summary  (VSH ≤ 0.50 v/v, PHIE ≥ 0.10 v/v, SWE ≤ 0.60 v/v)",
             "SANDI-001",
             "Pay Summary unavailable — read-only database",
             210.0,
@@ -1492,6 +1696,7 @@ mod tests {
     fn cover_page_carries_title_and_well() {
         let spec = ReportSpec {
             input_set: None,
+            custody: None,
             composite: serde_json::from_str(
                 r#"{"well_id":"w1","layout":{"name":"t","tracks":[]},"scale":200,"page_size":"a4"}"#,
             )
@@ -1499,9 +1704,9 @@ mod tests {
             title: "Petrophysical Evaluation — Sandi Field".into(),
             author: "Jauhar".into(),
             methodology: vec![],
-            vsh_max: 0.5,
-            phie_min: 0.1,
-            swe_max: 0.6,
+            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             tables_only: true,
         };

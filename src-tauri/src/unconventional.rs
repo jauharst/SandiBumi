@@ -1,14 +1,17 @@
 //! Unconventional / shale suite (enrichment #7) — organic-richness, kerogen, gas-in-place, and
-//! brittleness modules. All method math + primary-source citations + Tier-A vendor default seeds are
-//! banked in `docs/ref_unconventional.md` (portable, not machine-local memory). Every method here is
-//! Tier B (published science, reimplemented from the primary paper); default parameter values are
-//! Tier-A IP/Techlog seeds, exposed as per-well-overridable params.
+//! brittleness modules. Method math, primary-source citations and compared vendor seeds are banked
+//! in `docs/ref_unconventional.md` (portable, not machine-local memory). Only values individually
+//! supported by the parameter registry ship as defaults; measured and study-specific values are
+//! explicitly absent.
 //!
 //! Increment 1 — `toc_passey`: total organic carbon from the Passey (1990) ΔlogR overlay (deep
 //! resistivity vs a baselined porosity curve) with the LOM→TOC maturity conversion, plus the
 //! Schmoker-Hester (1983) density-TOC as a cross-check. See `docs/ref_unconventional.md` §1.
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_open, param_open_when, ModuleContext, ModuleOutputs,
+    ModuleSpec,
+};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -35,11 +38,19 @@ pub fn toc_passey_spec() -> ModuleSpec {
         args: vec![
             opt("OVERLAY", "Porosity curve paired with resistivity for ΔlogR", "sonic",
                 &["sonic", "density"]),
-            param("R_BASE", "Baseline resistivity (non-source interval)", "ohm.m", 2.0, 0.001, 100000.0),
-            param("DT_BASE", "Baseline sonic Δt (sonic overlay)", "us/ft", 70.0, 40.0, 200.0),
-            param("RHOB_BASE", "Baseline bulk density (density overlay)", "g/cc", 2.65, 1.5, 3.5),
-            param("LOM", "Level of organic maturity (Hood scale, 6..12)", "-", 10.6, 6.0, 12.0),
-            param("TOC_BG", "Background TOC of the baseline rock", "wt%", 0.0, 0.0, 10.0),
+            param_open("R_BASE", "Baseline resistivity (non-source interval)", "ohm.m", 0.001, 100000.0, true),
+            param_open_when(
+                "DT_BASE", "Baseline sonic Δt (sonic overlay)", "us/ft", 40.0, 200.0,
+                &[("OVERLAY", "sonic")],
+                "docs/PRD_v2/19_toc-unconventional.md §5 resistivity/porosity baselines",
+            ),
+            param_open_when(
+                "RHOB_BASE", "Baseline bulk density (density overlay)", "g/cc", 1.5, 3.5,
+                &[("OVERLAY", "density")],
+                "docs/PRD_v2/19_toc-unconventional.md §5 resistivity/porosity baselines",
+            ),
+            param_open("LOM", "Level of organic maturity (Hood scale, 6..12)", "-", 6.0, 12.0, true),
+            param_open("TOC_BG", "Background TOC of the baseline rock", "wt%", 0.0, 10.0, true),
             log_in("RES", "Deep resistivity", "ohm.m", "RT", true),
             log_in("DT", "Sonic Δt (sonic overlay)", "us/ft", "DT", false),
             log_in("RHOB", "Bulk density (density overlay + Schmoker)", "g/cc", "RHOB", false),
@@ -130,8 +141,14 @@ pub fn kerogen_spec() -> ModuleSpec {
               Cite: Passey et al. 2010 (SPE 131350); Vernik & Nur 1992. See docs/ref_unconventional.md §2."
             .into(),
         args: vec![
-            param("RHO_KERO", "Kerogen (organic-matter) grain density", "g/cc", 1.10, 0.9, 1.6),
-            param("K_TOC2OM", "TOC→organic-matter factor (1.2 immature .. 1.35 mature)", "-", 1.2, 1.0, 1.6),
+            param(
+                "RHO_KERO", "Kerogen (organic-matter) grain density", "g/cc", 1.10, 0.9, 1.6,
+                "Like-for-like IP endpoint and matching shipped mineral endpoint; docs/PRD_v2/19_toc-unconventional.md §5",
+            ),
+            param(
+                "K_TOC2OM", "TOC→organic-matter factor (1.2 immature .. 1.35 mature)", "-", 1.2, 1.0, 1.6,
+                "Techlog and two Geolog modules; docs/PRD_v2/19_toc-unconventional.md §5",
+            ),
             log_in("TOC", "Total organic carbon", "wt%", "TOC", true),
             log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
             log_in("PHIT", "Total porosity to OM-correct (optional)", "v/v", "PHIT", false),
@@ -254,23 +271,34 @@ pub fn gip_spec() -> ModuleSpec {
               GIP_FREE = 32.0368·φ·(1−Sw)/(RHOB·Bg) with Bg = 0.02827·z·T/P (T in Rankine); \
               GIP_TOTAL = free + adsorbed. MODE=cbm applies the dry-ash-free correction \
               GIP_ADS·(1−F_ASH−F_MOIST) and, given a measured in-situ gas content GC, emits the \
-              critical desorption pressure PCD = PL·GC/(VL−GC). Langmuir VL/PL default to shale \
-              placeholders — override with core desorption/isotherm data (IP seeds 60 cm³/g ≈ 1920 \
-              scf/ton and 7000 kPaa ≈ 1015 psia for coal). Ambrose pore-volume correction deferred. \
+              critical desorption pressure PCD = PL·GC/(VL−GC). Langmuir VL/PL ship absent and \
+              require matching core desorption/isotherm data. Ambrose pore-volume correction deferred. \
               Cite: Langmuir 1918; Ambrose et al. 2010; GRI/Mavor-Nelson 1996. See \
               docs/ref_unconventional.md §3."
             .into(),
         args: vec![
             opt("MODE", "Reservoir type (cbm adds ash/moisture + critical desorption)", "shale",
                 &["shale", "cbm"]),
-            param("RES_P", "Reservoir (pore) pressure", "psia", 3000.0, 1.0, 30000.0),
-            param("TEMP_F", "Reservoir temperature", "degF", 200.0, 32.0, 600.0),
-            param("Z_FAC", "Gas deviation (compressibility) factor z", "-", 0.9, 0.2, 2.0),
-            param("VL", "Langmuir volume (max sorption)", "scf/ton", 100.0, 0.0, 5000.0),
-            param("PL", "Langmuir pressure (Gs = VL/2)", "psia", 1000.0, 1.0, 30000.0),
-            param("F_ASH", "Ash weight fraction (cbm)", "-", 0.0, 0.0, 1.0),
-            param("F_MOIST", "Moisture weight fraction (cbm)", "-", 0.0, 0.0, 1.0),
-            param("GC", "In-situ gas content for PCD (cbm; 0 = saturated)", "scf/ton", 0.0, 0.0, 5000.0),
+            param_open("RES_P", "Reservoir (pore) pressure", "psia", 1.0, 30000.0, true),
+            param_open("TEMP_F", "Reservoir temperature", "degF", 32.0, 600.0, true),
+            param_open("Z_FAC", "Gas deviation (compressibility) factor z", "-", 0.2, 2.0, true),
+            param_open("VL", "Langmuir volume (max sorption)", "scf/ton", 0.0, 5000.0, true),
+            param_open("PL", "Langmuir pressure (Gs = VL/2)", "psia", 1.0, 30000.0, true),
+            param_open_when(
+                "F_ASH", "Ash weight fraction (cbm)", "-", 0.0, 1.0,
+                &[("MODE", "cbm")],
+                "docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5",
+            ),
+            param_open_when(
+                "F_MOIST", "Moisture weight fraction (cbm)", "-", 0.0, 1.0,
+                &[("MODE", "cbm")],
+                "docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5",
+            ),
+            param_open_when(
+                "GC", "In-situ gas content for PCD (cbm; 0 = saturated)", "scf/ton", 0.0, 5000.0,
+                &[("MODE", "cbm")],
+                "docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5",
+            ),
             log_in("PHI", "Porosity (effective, or OM-corrected total)", "v/v", "PHIE", true),
             log_in("SW", "Water saturation", "v/v", "SWE", true),
             log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
@@ -506,17 +534,29 @@ pub fn brittleness_spec() -> ModuleSpec {
         args: vec![
             opt("METHOD", "Brittleness basis", "elastic",
                 &["elastic", "mineral_jarvie", "mineral_wanggale"]),
-            param("E_LO", "Young's modulus at BI=0 (ductile)", "Mpsi", 1.0, 0.0, 20.0),
-            param("E_HI", "Young's modulus at BI=1 (brittle)", "Mpsi", 8.0, 0.0, 20.0),
-            param("NU_LO", "Poisson's ratio at BI=0 (ductile)", "-", 0.4, 0.0, 0.5),
-            param("NU_HI", "Poisson's ratio at BI=1 (brittle)", "-", 0.15, 0.0, 0.5),
+            param(
+                "E_LO", "Young's modulus at BI=0 (ductile)", "Mpsi", 1.0, 0.0, 20.0,
+                "IP equation and cited publication; docs/PRD_v2/19_toc-unconventional.md §5",
+            ),
+            param(
+                "E_HI", "Young's modulus at BI=1 (brittle)", "Mpsi", 8.0, 0.0, 20.0,
+                "IP equation and Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md §5",
+            ),
+            param(
+                "NU_LO", "Poisson's ratio at BI=0 (ductile)", "-", 0.4, 0.0, 0.5,
+                "IP equation and Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md §5",
+            ),
+            param(
+                "NU_HI", "Poisson's ratio at BI=1 (brittle)", "-", 0.15, 0.0, 0.5,
+                "IP equation and Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md §5",
+            ),
             log_in("DT", "Compressional Δt (elastic)", "us/ft", "DT", false),
             log_in("DTS", "Shear Δt (elastic)", "us/ft", "DTS", false),
             log_in("RHOB", "Bulk density (elastic)", "g/cc", "RHOB", false),
             log_in("VQTZ", "Quartz volume (mineral)", "v/v", "VOL_QUARTZ", false),
             log_in("VCARB", "Calcite volume (mineral)", "v/v", "VOL_CALCITE", false),
             log_in("VDOL", "Dolomite volume (mineral)", "v/v", "VOL_DOLOMITE", false),
-            log_in("VCLAY", "Clay / shale volume (mineral)", "v/v", "VSH", false),
+            log_in("VCLAY", "Clay volume (mineral)", "v/v", "VCL", false),
             log_in("VORG", "Organic / kerogen volume (Wang-Gale)", "v/v", "VKER", false),
             log_out("BI", "Brittleness index (0 ductile .. 1 brittle)", "-"),
             log_out("YME", "Dynamic Young's modulus (elastic)", "Mpsi"),

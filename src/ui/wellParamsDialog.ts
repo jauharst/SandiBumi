@@ -4,6 +4,7 @@ import {
   listWellParamOverrides,
   setWellParamOverrides,
   type ArgSpec,
+  type BackendWellScope,
   type ChainStep,
   type ModuleSpec,
   type WellSummary,
@@ -131,7 +132,7 @@ export async function openWellParamsDialog(steps: ChainStep[]): Promise<void> {
   const specList = await listModules().catch(() => [] as ModuleSpec[]);
   const specs = new Map(specList.map((s) => [s.name, s] as const));
   const columns = buildParamColumns(steps, specs);
-  const allWells: WellSummary[] = await listWells().catch(() => []);
+  const allWells: WellSummary[] = await listWells({ kind: "all" }).catch(() => []);
   const wellName = new Map(allWells.map((w) => [w.well_id, w.well_name] as const));
   let overrides = indexOverrides(await listWellParamOverrides().catch(() => []));
 
@@ -215,8 +216,12 @@ export async function openWellParamsDialog(steps: ChainStep[]): Promise<void> {
       param,
       overrides.get(wellId)?.get(param) ?? null,
     ]);
-    const write = async (batch: [string, string, number | null][]) => {
-      await setWellParamOverrides(batch);
+    const explicitScope = (batch: [string, string, number | null][]): BackendWellScope => ({
+      kind: "explicit",
+      well_ids: [...new Set(batch.map(([wellId]) => wellId))],
+    });
+    const write = async (batch: [string, string, number | null][], backendScope: BackendWellScope) => {
+      await setWellParamOverrides(batch, backendScope);
       for (const [wellId, param, value] of batch) {
         let byParam = overrides.get(wellId);
         if (!byParam) {
@@ -229,7 +234,7 @@ export async function openWellParamsDialog(steps: ChainStep[]): Promise<void> {
       renderRows();
     };
     try {
-      await write(entries);
+      await write(entries, scope.backend());
     } catch (err) {
       setStatus(`Per-well parameters: write failed — ${err}`);
       return;
@@ -238,8 +243,9 @@ export async function openWellParamsDialog(steps: ChainStep[]): Promise<void> {
     setStatus(`${label} — ${entries.length} well${entries.length === 1 ? "" : "s"}`);
     pushUndo({
       label,
-      undo: () => write(before),
-      redo: () => write(entries),
+      // Undo/redo reverses the exact historical rows, not whatever a saved group contains later.
+      undo: () => write(before, explicitScope(before)),
+      redo: () => write(entries, explicitScope(entries)),
     });
   }
 

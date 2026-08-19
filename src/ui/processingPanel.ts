@@ -54,7 +54,7 @@ export async function buildProcessingContent(
     return jobs
       .map((j) => {
         const c = counts(j);
-        return `${j.id}:${j.phase}:${j.done}/${j.total}:${j.current ?? ""}:${c.running},${c.warned},${c.failed}`;
+        return `${j.id}:${j.phase}:${j.outcome ?? "pending"}:${j.done}/${j.total}:${j.current ?? ""}:${c.running},${c.warned},${c.failed}`;
       })
       .join("|") + `#${[...expanded].sort().join(",")}`;
   }
@@ -181,8 +181,13 @@ export async function buildProcessingContent(
     label.textContent = job.label;
     label.title = job.label;
     const phase = document.createElement("span");
-    phase.className = `proc-phase proc-phase-${job.phase}`;
-    phase.textContent = PHASE_LABEL[job.phase];
+    phase.className = `proc-phase proc-phase-${job.phase}${job.outcome ? ` proc-outcome-${job.outcome}` : ""}`;
+    phase.textContent =
+      job.phase === "completed" && job.outcome === "degraded"
+        ? "Done with warnings"
+        : job.phase === "completed" && job.outcome === "failed"
+          ? "Done with failures"
+          : PHASE_LABEL[job.phase];
     head.append(kind, label, phase);
     card.appendChild(head);
 

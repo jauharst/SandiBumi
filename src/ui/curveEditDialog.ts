@@ -1,8 +1,8 @@
 import { editCurve, restoreCurveValues, type CurveEditRequest } from "../ipc";
-import { recordProcess } from "../processLog";
 import { bumpDataVersion, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
+import { requestRunCustody } from "./runCustody";
 
 const OPS: { id: CurveEditRequest["op"]; label: string; hint: string }[] = [
   { id: "shift", label: "Wireline shift", hint: "Move the whole curve in depth (resampled onto its own grid; + is down hole)" },
@@ -125,6 +125,8 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         return;
       }
       errEl.style.display = "none";
+      const custody = await requestRunCustody(`Apply ${curveName} edit`);
+      if (!custody) return;
       const req: CurveEditRequest = {
         well_id: wellId,
         curve: curveName,
@@ -135,6 +137,7 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         value: num(valueInput.value),
         mul: num(mulInput.value, 1),
         add: num(addInput.value),
+        custody,
       };
       applyBtn.disabled = true;
       try {
@@ -149,18 +152,40 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         const pointCount = res.point_count;
         const opLabel = OPS.find((o) => o.id === op)?.label ?? op;
         const label = `${opLabel} ${curveName} (${wellName})`;
+        const undoCustody = {
+          actor: custody.actor,
+          source_note: `Undo of prior curve edit; original source/reference: ${custody.source_note}`,
+        };
+        let undoVersion = {
+          editId: res.edit_id,
+          curveSha256: res.curve_sha256,
+        };
         pushUndo({
           label,
           undo: async () => {
-            await restoreCurveValues(wellId, curveName, pointCount, prevBytes);
+            await restoreCurveValues(
+              wellId,
+              curveName,
+              pointCount,
+              prevBytes,
+              undoVersion.editId,
+              undoVersion.curveSha256,
+              undoCustody,
+            );
             bumpDataVersion();
           },
           redo: async () => {
-            await editCurve(req);
+            const reapplied = await editCurve(req);
+            if (reapplied.affected === 0 || !reapplied.edit_id) {
+              throw new Error("redo did not recreate the curve edit");
+            }
+            undoVersion = {
+              editId: reapplied.edit_id,
+              curveSha256: reapplied.curve_sha256,
+            };
             bumpDataVersion();
           },
         });
-        recordProcess("Edit", `${label}: ${res.affected} samples (${res.store} store)`, wellName);
         bumpDataVersion();
         setStatus(`${label} — ${res.affected} samples changed (Ctrl+Z undoes)`);
         close();

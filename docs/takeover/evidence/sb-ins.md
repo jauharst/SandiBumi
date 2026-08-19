@@ -37,9 +37,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 
 ## Live result
 
-- As built: 6 ABSENT, 12 PARTIAL, 4 PRESENT-OK, 3 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
+- As built: 5 ABSENT, 9 PARTIAL, 9 PRESENT-OK, 2 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
 - Release: 22 PILOT-BLOCKER, 4 UNDECIDED, 0 DEFERRED.
-- Test class: 4 CORRECTNESS, 3 CHARACTERIZATION, 19 MISSING qualifying whole-contract proofs.
+- Test class: 9 CORRECTNESS, 1 CHARACTERIZATION, 16 MISSING qualifying whole-contract proofs.
 - Risk: 13 DEPLOYMENT, 7 DATA-INTEGRITY, 2 RECOVERY, 4 SILENT-WRONGNESS.
 - Mechanically after this receipt: 879 adjudicated, 52 unadjudicated, 584 pilot blockers, 198 undecided, 149 deferred.
 
@@ -49,9 +49,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 2. The offline Python route is a product decision and a prose/schema contract. The signed pack, exact package lock, digests, zero-network capture, vulnerability review, and real probe results do not exist in the repository.
 3. The capability manifest covers six named features but not the complete Python-backed product surface. A test that expects those same six rows proves internal consistency, not completeness.
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
-5. Parameter-pack validation is production-orphaned. Its unit tests are useful, but no live capability calls the loader; an unreachable safe loader does not protect a customer run.
-6. Raw encoding/unit evidence is not retained end to end. Global case folding currently makes `mV` and `mv` equivalent without an explicit alias, contrary to the specified observable-drift contract.
-7. The unit-registry validator is unused outside tests. A correct validator that is never enforced cannot block a bad release registry.
+5. Parameter-pack identity and ambiguity refusal are now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
+6. Raw encoding/unit evidence now crosses the product boundary before interpretation. Exact registry rows replace hidden global case folding; `mV` and unknown `mv` remain distinct with a drift warning, while absent, empty and placeholder forms converge on one explicit missing-unit state and cannot register mappings. A declared CP1252 parameter pack exports its raw declaration, detected decoder and reversible source bytes. Manual/field review remains open.
+7. The versioned curve/unit registry now generates the Rust runtime, the LAS import UI, documentation and the test manifest, and its release check refuses stale output or dimension disagreement before compilation. This closes the parallel-vocabulary engineering gap without adding any alias, factor or default; visual/manual/field vocabulary review remains open.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
 9. Public prerequisite fragments generated from `installation.rs` agree with one another, but other public documents still describe Python distribution/prerequisite decisions as open or user-supplied. One synchronized subset is not one source of truth.
 10. All 16 installer-specific manual scenarios remain unchecked, and installation/deployment is absent from the capability matrix. The software has no field evidence for the deployment claim.
@@ -77,15 +77,15 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T13 | SB-INS-011 | MISSING |
 | SB-INS-T14 | SB-INS-012, SB-INS-013 | MISSING |
 | SB-INS-T15 | SB-INS-013 | MISSING |
-| SB-INS-T16 | SB-INS-014 | MISSING |
-| SB-INS-T17 | SB-INS-015 | MISSING |
-| SB-INS-T18 | SB-INS-015 | MISSING |
+| SB-INS-T16 | SB-INS-014 | CORRECTNESS |
+| SB-INS-T17 | SB-INS-015 | CORRECTNESS |
+| SB-INS-T18 | SB-INS-015 | CORRECTNESS |
 | SB-INS-T19 | SB-INS-016 | CORRECTNESS |
 | SB-INS-T20 | SB-INS-016 | CORRECTNESS |
-| SB-INS-T21 | SB-INS-017 | CHARACTERIZATION |
-| SB-INS-T22 | SB-INS-017 | CHARACTERIZATION |
-| SB-INS-T23 | SB-INS-018 | CHARACTERIZATION |
-| SB-INS-T24 | SB-INS-019 | MISSING |
+| SB-INS-T21 | SB-INS-017 | CORRECTNESS |
+| SB-INS-T22 | SB-INS-017 | CORRECTNESS |
+| SB-INS-T23 | SB-INS-018 | CORRECTNESS |
+| SB-INS-T24 | SB-INS-019 | CORRECTNESS |
 | SB-INS-T25 | SB-INS-020 | MISSING |
 | SB-INS-T26 | SB-INS-021 | CHARACTERIZATION |
 | SB-INS-T27 | SB-INS-022 | MISSING |
@@ -93,7 +93,7 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T29 | SB-INS-024 | MISSING |
 | SB-INS-T30 | SB-INS-025 | MISSING |
 
-The live requirement-level test total counts one class per requirement, not one per table row above: 4 correctness requirements, 3 characterization requirements, and 19 requirements missing a qualifying whole-contract proof. T05/T06 and T19/T20 remain two test intentions under one correctness-classified requirement.
+The live requirement-level test total counts one class per requirement, not one per table row above: 6 correctness requirements, 3 characterization requirements, and 17 requirements missing a qualifying whole-contract proof. T05/T06, T17/T18 and T19/T20 remain two test intentions under one correctness-classified requirement.
 
 ## Parameter, open-item, and source custody
 
@@ -290,80 +290,80 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-014
 
 - Specified contract: Key parameters by semantic identifier and ordinal. Chapter test: SB-INS-T16.
-- Current implementation: `parameter_pack.rs` parses schema version, stable semantic ID, ordinal, and duplicate labels with unique keys. No production caller loads or activates a parameter pack.
-- Verdict: `PARTIAL`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `MISSING` at the whole-product contract — the direct loader test correctly pins duplicate-label identity, but an internal unreachable loader does not prove a run is protected.
+- Current implementation: `parameter_pack.rs` derives a backend-owned schema from the shipping module manifest, reuses stable module/argument wire IDs, assigns configurable-row ordinals, deterministically versions that manifest, and exposes schema/load commands through registered Tauri and typed TypeScript IPC. Duplicate labels never participate in selection.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
+- Automated evidence: `CORRECTNESS` — `two_identically_labelled_loaded_parameter_rows_remain_separately_addressable_by_semantic_identifier_and_ordinal` loads the T16 fixture through the product function, proves both exact keys and the crossed-key refusal, and pins both IPC registrations.
 - Manual evidence: SB-INS 0/16; the parameter-pack identity scenario is unchecked; security integrity 0/63.
-- Source/parameter boundary: Display labels never become selectors; module schema must supply the semantic identity and ordinal.
-- Deployment/UI/provenance surface: Loader structures exist; pack selection, production activation, provenance, computation, and visible refusal do not.
-- History/reachability: Accepted anchor is reachable; source dependents show no production caller outside the module/tests.
-- Decision/dependency: Safe code that no live path calls cannot prevent a positional join elsewhere.
-- Next action: Wire the typed loader into the governed pack activation path and add an observable T16 that proves the activated rows remain separately addressable.
+- Source/parameter boundary: Display labels never become selectors; semantic identity, ordinal and schema version all come from the shipping module manifest. Fixture values are opaque markers and no pack value becomes a default.
+- Deployment/UI/provenance surface: The governed load boundary is product-reachable; no selection UI or automatic computation application is claimed.
+- History/reachability: The prior orphan is closed by registered backend commands and typed frontend wrappers, both pinned by T16.
+- Decision/dependency: Applying loaded values remains gated by SB-INS-015 through SB-INS-020; this increment does not bypass those safety contracts.
+- Next action: Retain T16 and continue with observable ambiguity refusals through the same governed load path under SB-INS-015.
 
 ### SB-INS-015
 
 - Specified contract: Refuse registry mismatch and ambiguity. Chapter tests: SB-INS-T17 and T18.
-- Current implementation: The isolated loader refuses ID/ordinal disagreement, missing ordinal, duplicate key, unsupported schema, and empty key, naming file/row conflicts. No live pack activation calls it.
-- Verdict: `PARTIAL`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `MISSING` at the whole-product contract — two direct tests cover the loader's refusal matrix but not a customer-reachable activation-before-computation boundary.
+- Current implementation: The registered product loader obtains the selected shipping module's schema in the backend, then refuses ID/ordinal disagreement, missing ordinal, duplicate key, unsupported schema and empty key before returning any pack, with file/row and conflicting-schema detail.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
+- Automated evidence: `CORRECTNESS` — T17 crosses two real shipping-schema rows through the product command and requires both to be named; T18 routes all four remaining refusal fixtures through that command and proves no partial pack is returned.
 - Manual evidence: SB-INS 0/16; the ambiguous-pack refusal scenario is unchecked; security integrity 0/63.
 - Source/parameter boundary: No positional/name guess and no partial activation are allowed.
-- Deployment/UI/provenance surface: Internal refusal exists; product selection, visible error, run prevention, and audit/provenance are absent.
-- History/reachability: Accepted anchor is reachable; no production caller closes the contract.
-- Decision/dependency: The refusal must sit on the actual activation path, not beside it.
-- Next action: Route all pack activation through the loader, surface the exact refusal before computation, and implement observable T17-T18.
+- Deployment/UI/provenance surface: The refusal sits on registered Tauri and typed IPC load boundaries; no selection UI, automatic computation application or field evidence is claimed.
+- History/reachability: The formerly isolated guards now execute behind the product command and the acceptance tests no longer supply their own schema.
+- Decision/dependency: Applying a successfully loaded value remains closed until SB-INS-016 through SB-INS-020 are satisfied; this refusal contract does not bypass them.
+- Next action: Retain T17/T18 and continue with product-path typed-unit enforcement under SB-INS-016.
 
 ### SB-INS-016
 
 - Specified contract: Use a canonical typed unit registry. Chapter tests: SB-INS-T19 and T20.
-- Current implementation: `curves.rs` resolves quantity kinds/canonical units, refuses permeability-to-length, and performs cited length/slowness conversions while preserving missing values.
+- Current implementation: `curves.rs` resolves quantity kinds/canonical units, refuses permeability-to-length, and performs cited length/slowness conversions while preserving missing values; `lib.rs` validates every shipping token and bridge before constructing Tauri.
 - Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `CORRECTNESS` — the named tests pin the wrong-kind refusal before arithmetic and the independently derived same-kind factors from both sides.
+- Automated evidence: `CORRECTNESS` — T19 pins the wrong-kind refusal before arithmetic; `startup_validates_the_typed_unit_registry_and_only_same_kind_bridges_convert` pins startup enforcement plus the independently derived same-kind factors and NaN custody.
 - Manual evidence: SB-INS 0/16; the typed-unit scenario is unchecked; data conventions 0/45.
 - Source/parameter boundary: Only registered, source-derived same-kind bridges compute; no physical-family value is invented.
-- Deployment/UI/provenance surface: Registry and conversions are live in ingest paths; release-wide registry validation remains unenforced because `validate_unit_registry` is otherwise unused.
-- History/reachability: Accepted anchor is reachable and current tests prove the numerical/refusal core.
-- Decision/dependency: Preserve the typed guard, then enforce validation at startup/build/release rather than tests only.
-- Next action: Keep T19-T20 and connect registry validation to a product/release gate without weakening unknown-unit preservation.
+- Deployment/UI/provenance surface: Registry and conversions are live in ingest; invalid compiled registry content now refuses installed startup before any project or conversion path can run.
+- History/reachability: The formerly dead validator is production-reachable; its exact warning owner is removed and the maintained warning inventory is 55.
+- Decision/dependency: No open engineering dependency remains for the typed bridge contract; manual/field conversion-provenance review remains separate.
+- Next action: Retain T19/T20 and preserve unknown-unit custody while SB-INS-017 addresses raw observed tokens and encoding evidence.
 
 ### SB-INS-017
 
 - Specified contract: Preserve observed unit and encoding tokens. Chapter tests: SB-INS-T21 and T22.
-- Current implementation: Parser results expose raw unit spelling and selected decoded encoding, but persistence/export provenance is incomplete; global normalization case-folds `mV` and `mv` without an explicit alias.
-- Verdict: `PRESENT-DIVERGENT`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
-- Automated evidence: `CHARACTERIZATION` — `characterizes_raw_unit_and_encoding_preservation_before_the_current_case_fold` explicitly records the current partial/raw behavior and divergence; it is not correctness proof.
+- Current implementation: LAS product results and stored curve metadata retain raw unit spellings; exact registry rows alone supply canonical interpretations, and unaliased case variants emit drift warnings. Parameter-pack provenance exports the raw declared encoding, detected decoding and reversible exact source bytes.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
+- Automated evidence: `CORRECTNESS` — T21 proves stored `mV`/`mv` identity, canonical versus absent interpretation and drift warning; T22 proves declared CP1252 byte `0x92` round trips through typed exported provenance and a contradictory UTF-8 declaration refuses.
 - Manual evidence: SB-INS 0/16; the raw-token/encoding scenario is unchecked; data conventions 0/45 and LAS export 0/2.
 - Source/parameter boundary: No universal encoding or case policy is selected; raw evidence must precede format-specific aliases.
-- Deployment/UI/provenance surface: Parse-time observation exists; stored provenance, drift warning, explicit alias record, and export round trip are absent.
-- History/reachability: Accepted anchor is reachable; current source confirms global case folding.
-- Decision/dependency: Silent case equivalence erases evidence even when numerical samples survive.
-- Next action: Preserve raw bytes/token/encoding through storage and export, require explicit format aliases, emit drift warnings, and add correctness T21-T22.
+- Deployment/UI/provenance surface: Tauri import and parameter-pack results expose the structured evidence; raw unit spelling is also stored as curve metadata. No visual/manual evidence is claimed.
+- History/reachability: Accepted anchor is product-reachable through registered LAS import and parameter-pack load commands; the former characterization was replaced by two correctness tests.
+- Decision/dependency: No source or product decision remains for this contract; exact registries avoid choosing a universal case or encoding policy.
+- Next action: Retain T21/T22 and carry an explicit missing-unit state through SB-INS-018 without registering any empty mapping.
 
 ### SB-INS-018
 
 - Specified contract: Reject missing and empty unit mappings. Chapter test: SB-INS-T23.
-- Current implementation: Characterized absent/empty/placeholder spellings resolve to no registry mapping. One typed missing-unit state across all intake/mapping forms does not exist.
-- Verdict: `PARTIAL`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
-- Automated evidence: `CHARACTERIZATION` — `characterizes_all_missing_unit_spellings_as_no_registry_mapping` pins current no-mapping behavior and explicitly does not claim the richer specified state.
+- Current implementation: One serialized `MissingUnit` state classifies absent, empty and placeholder tokens. Generic import preparation stores all of them as absent metadata, and mapping-row load returns that state without creating a bridge whenever either side is missing.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
+- Automated evidence: `CORRECTNESS` — `absent_empty_placeholder_and_empty_to_empty_units_share_one_missing_state_and_register_zero_mappings` sends all four T23 fixtures through classification, serialized product representation, storage preparation and mapping load, requires zero registrations, and uses a valid same-kind row to prove the loader does not label every row missing.
 - Manual evidence: SB-INS 0/16; the missing-unit scenario is unchecked; data conventions 0/45.
 - Source/parameter boundary: Empty-to-empty mappings and placeholder tokens must never become successful conversions.
-- Deployment/UI/provenance surface: Registry lookup refuses implicitly; explicit state, ingest convergence, warning/provenance, and export representation remain incomplete.
-- History/reachability: Accepted anchor is reachable; no unified missing-unit type was found.
-- Decision/dependency: “No mapping” is safer than a false mapping but is not the complete observable contract.
-- Next action: Add one explicit missing-unit representation through intake/storage/UI/export and implement T23 across all four fixtures.
+- Deployment/UI/provenance surface: The structured state crosses the typed import IPC and raw placeholder evidence remains observable there; stored curve metadata receives absence rather than a placeholder. No visual/manual evidence is claimed.
+- History/reachability: The former characterization is replaced by T23 correctness evidence on the product import preparation and governed mapping loader.
+- Decision/dependency: No source or product decision remains for missing-unit classification; generated consumer equality is separately owned by SB-INS-019.
+- Next action: Retain T23 and finish G2-T02 with the one-registry generation and drift-refusal contract under SB-INS-019.
 
 ### SB-INS-019
 
 - Specified contract: Generate aliases, families, and units from one registry. Chapter test: SB-INS-T24.
-- Current implementation: Unit families/aliases remain code-resident; no versioned canonical source generates runtime, UI, documentation, and tests. `validate_unit_registry` is test-only and no release drift gate exists.
-- Verdict: `ABSENT`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `MISSING` — no generated-population equality or release-failure test exists.
+- Current implementation: `registry/unit-registry.json` is the reviewed versioned source for the accepted 15 families, 42 unit tokens and 10 conversion rules. The generator emits Rust runtime tables, the LAS import UI vocabulary, Markdown reference and verification manifest with one version/digest; the full release gate checks the proof and byte freshness before build/test.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
+- Automated evidence: `CORRECTNESS` — `one_versioned_registry_generates_equal_runtime_ui_documentation_and_test_populations_and_release_refuses_drift` compares every family and unit across all four generated consumers, then corrupts one artifact and one declared family dimension to prove both release refusals.
 - Manual evidence: SB-INS 0/16; data conventions 0/45; verification stewardship 0/24.
-- Source/parameter boundary: Registry content and aliases need reviewed source custody; current code tables cannot self-certify completeness.
-- Deployment/UI/provenance surface: Runtime lookup exists, but shared version identity, generated UI/docs, and release enforcement do not.
-- History/reachability: Accepted anchor is reachable; no generator or checked artifact family was found.
-- Decision/dependency: Multiple hand-maintained vocabularies can drift silently while unit tests remain green.
-- Next action: Establish one reviewed versioned registry source, generate every consumer artifact, and add T24 as a release gate.
+- Source/parameter boundary: The accepted live vocabulary and exact conversion arithmetic moved without expansion. Future aliases, families, units, factors and defaults remain source-gated; opaque material is not interpreted.
+- Deployment/UI/provenance surface: The collapsed LAS import disclosure consumes the generated full population and names its version; generated documentation carries the same rows and digest. Automated equality does not claim the dialog is visually accepted.
+- History/reachability: Rust lookup and startup validation use the generated data; the release check is wired into `tools/check.ps1`, not left as an example command.
+- Decision/dependency: No engineering or source decision remains for the accepted population. Jauhar retains visual/manual/field acceptance and any later vocabulary change requires reviewed custody.
+- Next action: Retain T24 and its freshness gate; continue with G2-T03 project-store custody under SB-DBM-001.
 
 ### SB-INS-020
 

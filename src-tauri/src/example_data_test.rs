@@ -242,7 +242,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         extras,
     };
     let res =
-        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None, None, false);
+        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None, None, false, "MD");
     assert!(res.error.is_none(), "{:?}", res.error);
     assert_eq!(res.wells_imported, 3, "all three wells routed by name: {:?}", res.outcomes);
     for r in &results {
@@ -270,6 +270,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         &example("xrd_multiwell.txt"),
         None,
         false,
+        "MD",
     );
     assert!(aux.error.is_none(), "{:?}", aux.error);
     assert_eq!(aux.wells_imported, 3, "rows routed to all three wells: {:?}", aux.notes);
@@ -321,7 +322,7 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "intake::probe",
     "intake::probe_arrays",
     "intake::read_wide",
-    "parsers::extract_well_name",
+    "parsers::probe_las_well_identity",
     "parsers::parse_core_csv",
     "parsers::parse_core_csv_with_depth_column",
     "parsers::parse_core_table_mapped",
@@ -335,6 +336,7 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "parsers::parse_las_2_with_channel_nulls",
     "parsers::parse_las_2_with_null_rules",
     "parsers::parse_las_2_with_unit_designation",
+    "parsers::parse_las_2_import",
     "parsers::parse_las_directory",
     "parsers::parse_locations_file",
     "parsers::parse_scal_centrifuge_csv",
@@ -346,6 +348,307 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "parsers::read_text_file_with_encoding",
     "parsers::sniff_scal_format",
 ];
+
+const REGISTERED_SAMPLED_READERS: &[&str] = &[
+    "intake::probe_arrays",
+    "intake::read_wide",
+    "parsers::parse_core_csv",
+    "parsers::parse_core_csv_with_depth_column",
+    "parsers::parse_core_table_mapped",
+    "parsers::parse_csv_export",
+    "parsers::parse_deviation_csv",
+    "parsers::parse_interval_file",
+    "parsers::parse_las_2",
+    "parsers::parse_las_2_all",
+    "parsers::parse_las_2_all_with_channel_nulls",
+    "parsers::parse_las_2_all_with_null_rules",
+    "parsers::parse_las_2_with_channel_nulls",
+    "parsers::parse_las_2_with_null_rules",
+    "parsers::parse_las_2_with_unit_designation",
+    "parsers::parse_las_2_import",
+    "parsers::parse_las_directory",
+    "parsers::parse_tops_file",
+];
+
+const REGISTERED_NON_SAMPLED_READERS: &[&str] = &[
+    "intake::probe",
+    "parsers::probe_las_well_identity",
+    "parsers::parse_locations_file",
+    "parsers::parse_scal_centrifuge_csv",
+    "parsers::parse_scal_csv",
+    "parsers::parse_scal_wide_csv",
+    "parsers::probe_core_table",
+    "parsers::read_text_file",
+    "parsers::read_text_file_with_encoding",
+    "parsers::sniff_scal_format",
+];
+
+struct NativeSpacingFixtures {
+    directory: PathBuf,
+    las: PathBuf,
+    csv_export: PathBuf,
+    core: PathBuf,
+    deviation: PathBuf,
+    interval: PathBuf,
+    tops: PathBuf,
+    array: PathBuf,
+}
+
+impl NativeSpacingFixtures {
+    fn new() -> Self {
+        let directory = std::env::temp_dir().join(format!(
+            "sandibumi-native-spacing-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir(&directory).expect("create isolated native-spacing fixture directory");
+        let write = |name: &str, body: &str| {
+            let path = directory.join(name);
+            std::fs::write(&path, body).expect("write native-spacing fixture");
+            path
+        };
+        let las = write(
+            "native-spacing.las",
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. NATIVE-SPACING :\nSTEP.M 0.1 :\n\
+             ~CURVE\nDEPT.M :\nGR.GAPI :\n~ASCII\n\
+             1000.0 10.0\n1000.1 20.0\n1000.3 30.0\n",
+        );
+        let csv_export = write(
+            "native-spacing-export.csv",
+            "depth,gr,res,nphi,rhob,dt,sp\n\
+             1000.0,10,1,0.1,2.4,80,5\n\
+             1000.1,20,2,0.2,2.5,90,6\n\
+             1000.3,30,3,0.3,2.6,100,7\n",
+        );
+        let core = write(
+            "native-spacing-core.csv",
+            "DEPTH,CPOR\n1000.0,0.10\n1000.1,0.20\n1000.3,0.30\n",
+        );
+        let deviation = write(
+            "native-spacing-deviation.csv",
+            "MD,INC,AZI\n1000.0,0,0\n1000.1,1,10\n1000.3,2,20\n",
+        );
+        let interval = write(
+            "native-spacing-interval.csv",
+            "DEPTH,VALUE\n1000.0,A\n1000.1,B\n1000.3,C\n",
+        );
+        let tops = write(
+            "native-spacing-tops.csv",
+            "TOP,DEPTH\nMARKER_A,1000.0\nMARKER_B,1000.1\nMARKER_C,1000.3\n",
+        );
+        let array = write(
+            "native-spacing-array.csv",
+            "DEPTH,1,2\n1000.0,10,20\n1000.1,30,40\n1000.3,50,60\n",
+        );
+        Self { directory, las, csv_export, core, deviation, interval, tops, array }
+    }
+
+    fn sampled_depths(&self, reader: &str) -> Vec<f32> {
+        let channel_nulls = parsers::ChannelNullValues::new();
+        let core_mapping = parsers::CoreMapping {
+            well: None,
+            depth: 0,
+            cpor: Some(1),
+            cperm: None,
+            cgd: None,
+            csw: None,
+            extras: vec![],
+        };
+        let array_roles = vec!["DEPTH".to_string(), String::new(), String::new()];
+        match reader {
+            "parsers::parse_csv_export" => parsers::parse_csv_export(&self.csv_export).unwrap().depth,
+            "parsers::parse_las_2" => parsers::parse_las_2(&self.las).unwrap().depth,
+            "parsers::parse_las_2_with_channel_nulls" => {
+                parsers::parse_las_2_with_channel_nulls(&self.las, &channel_nulls).unwrap().depth
+            }
+            "parsers::parse_las_2_with_null_rules" => {
+                parsers::parse_las_2_with_null_rules(&self.las, &channel_nulls, &[]).unwrap().depth
+            }
+            "parsers::parse_las_2_with_unit_designation" => {
+                parsers::parse_las_2_with_unit_designation(&self.las, &channel_nulls, &[], None)
+                    .unwrap()
+                    .depth
+            }
+            "parsers::parse_las_2_import" => {
+                parsers::parse_las_2_import(&self.las, &channel_nulls, &[], None, false)
+                    .unwrap()
+                    .depth
+            }
+            "parsers::parse_las_2_all" => parsers::parse_las_2_all(&self.las).unwrap().depth,
+            "parsers::parse_las_2_all_with_channel_nulls" => {
+                parsers::parse_las_2_all_with_channel_nulls(&self.las, &channel_nulls).unwrap().depth
+            }
+            "parsers::parse_las_2_all_with_null_rules" => {
+                parsers::parse_las_2_all_with_null_rules(&self.las, &channel_nulls, &[]).unwrap().depth
+            }
+            "parsers::parse_las_directory" => parsers::parse_las_directory(&self.directory)
+                .unwrap()
+                .into_iter()
+                .next()
+                .expect("the isolated directory contains one LAS")
+                .1
+                .unwrap()
+                .depth,
+            "parsers::parse_core_csv" => parsers::parse_core_csv(&self.core).unwrap().depth,
+            "parsers::parse_core_csv_with_depth_column" => {
+                parsers::parse_core_csv_with_depth_column(&self.core, None).unwrap().depth
+            }
+            "parsers::parse_core_table_mapped" => parsers::parse_core_table_mapped(&self.core, &core_mapping)
+                .unwrap()
+                .rows
+                .into_iter()
+                .map(|row| row.depth)
+                .collect(),
+            "parsers::parse_deviation_csv" => parsers::parse_deviation_csv(&self.deviation).unwrap().md,
+            "parsers::parse_interval_file" => parsers::parse_interval_file(&self.interval)
+                .unwrap()
+                .rows
+                .into_iter()
+                .map(|(top, _, _)| top)
+                .collect(),
+            "parsers::parse_tops_file" => parsers::parse_tops_file(&self.tops)
+                .unwrap()
+                .1
+                .into_iter()
+                .map(|record| record.depth)
+                .collect(),
+            "intake::read_wide" => crate::intake::read_wide(
+                self.array.to_str().unwrap(),
+                &crate::intake::TableOptions::default(),
+                &array_roles,
+                false,
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.depth.unwrap() as f32)
+            .collect(),
+            "intake::probe_arrays" => crate::intake::probe_arrays(
+                self.array.to_str().unwrap(),
+                &crate::intake::TableOptions::default(),
+                &array_roles,
+                false,
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.depth.unwrap() as f32)
+            .collect(),
+            _ => panic!("sampled reader '{reader}' has no native-spacing adapter"),
+        }
+    }
+}
+
+impl Drop for NativeSpacingFixtures {
+    fn drop(&mut self) {
+        for path in [
+            &self.las,
+            &self.csv_export,
+            &self.core,
+            &self.deviation,
+            &self.interval,
+            &self.tops,
+            &self.array,
+        ] {
+            let _ = std::fs::remove_file(path);
+        }
+        let _ = std::fs::remove_dir(&self.directory);
+    }
+}
+
+/// CHARACTERIZATION - SB-DIO-021 / SB-DIO-T34. The 0.1 m input is specified by
+/// `21_data-io.md` section 6 T34; the missing 1000.2 station independently prevents a
+/// regular-grid reader from passing by coincidence. This records shipped default behavior,
+/// not a sourced scientific expected value.
+#[test]
+fn characterizes_every_registered_sampled_reader_and_shipping_store_as_preserving_native_depths_until_reframe_is_explicit() {
+    use std::collections::BTreeSet;
+
+    let registered = REGISTERED_FILE_READERS.iter().copied().collect::<BTreeSet<_>>();
+    let sampled = REGISTERED_SAMPLED_READERS.iter().copied().collect::<BTreeSet<_>>();
+    let non_sampled = REGISTERED_NON_SAMPLED_READERS.iter().copied().collect::<BTreeSet<_>>();
+    assert!(sampled.is_disjoint(&non_sampled), "a reader cannot be both sampled and non-sampled");
+    assert_eq!(
+        sampled.union(&non_sampled).copied().collect::<BTreeSet<_>>(),
+        registered,
+        "every source-discovered file reader must be classified before it can ship"
+    );
+
+    let fixtures = NativeSpacingFixtures::new();
+    let expected = vec![1000.0_f32, 1000.1_f32, 1000.3_f32];
+    assert_ne!(
+        expected[1] - expected[0],
+        expected[2] - expected[1],
+        "the fixture must contain a missing 0.1 m station or a default regularizer could pass"
+    );
+    for reader in REGISTERED_SAMPLED_READERS {
+        assert_eq!(
+            fixtures.sampled_depths(reader),
+            expected,
+            "{reader} changed the delivered index at default settings"
+        );
+    }
+
+    let conn = duckdb::Connection::open_in_memory().unwrap();
+    crate::db::create_schema(&conn).unwrap();
+    let las_path = fixtures.las.to_string_lossy().into_owned();
+    let imported = crate::ingest::import_las_files(&conn, &[las_path], None).remove(0);
+    assert!(imported.error.is_none(), "the native-spacing LAS imports: {:?}", imported.error);
+    let well_id = imported.well_id.expect("the LAS import creates one well");
+    let mut standard = conn
+        .prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+        .unwrap();
+    let stored_standard = standard
+        .query_map(duckdb::params![&well_id], |row| row.get::<_, f32>(0))
+        .unwrap()
+        .collect::<duckdb::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(stored_standard, expected, "the standard LAS projection keeps source depths");
+
+    let core_path = fixtures.core.to_string_lossy().into_owned();
+    let core = crate::ingest::import_core_csv(&conn, &well_id, &core_path, "MD");
+    assert!(core.error.is_none(), "the native-spacing core table imports: {:?}", core.error);
+    let mut core_rows = conn
+        .prepare("SELECT depth FROM core_data WHERE well_id = ?1 ORDER BY depth")
+        .unwrap();
+    let stored_core = core_rows
+        .query_map(duckdb::params![&well_id], |row| row.get::<_, f32>(0))
+        .unwrap()
+        .collect::<duckdb::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(stored_core, expected, "the delimited core path keeps source depths");
+
+    let array_path = fixtures.array.to_string_lossy().into_owned();
+    let array = crate::intake::commit_arrays(
+        &conn,
+        &crate::intake::ArrayCommit {
+            paths: vec![array_path],
+            roles: vec!["DEPTH".into(), String::new(), String::new()],
+            layout: "wide".into(),
+            opts: crate::intake::TableOptions::default(),
+            curve_name: "NATIVE_SPACING".into(),
+            set_name: Some("RAW".into()),
+            depth_unit: Some("m".into()),
+            fallback_well_id: Some(well_id.clone()),
+        },
+    );
+    assert_eq!(array.len(), 1);
+    assert!(array[0].error.is_none(), "the native-spacing array imports: {:?}", array[0].error);
+    let stored_array = crate::db::read_array_log(&conn, &well_id, Some("RAW"), "NATIVE_SPACING")
+        .unwrap()
+        .into_iter()
+        .map(|row| row.depth)
+        .collect::<Vec<_>>();
+    assert_eq!(stored_array, expected, "the delimited array path keeps source depths");
+
+    let own_frames: i64 = conn
+        .query_row("SELECT COUNT(*) FROM log_sets WHERE frame = 'OWN'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        own_frames, 0,
+        "default reads cannot manufacture an explicit Reframe output or operation record"
+    );
+}
 
 fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<(), String> {
     let text_path = path.to_string_lossy();
@@ -392,6 +695,17 @@ fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<()
             .map(|_| ())
             .map_err(|e| e.to_string())
         }
+        "parsers::parse_las_2_import" => {
+            parsers::parse_las_2_import(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+                None,
+                false,
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
         "parsers::parse_las_2_all_with_channel_nulls" => {
             parsers::parse_las_2_all_with_channel_nulls(
                 path,
@@ -409,7 +723,9 @@ fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<()
             .map(|_| ())
             .map_err(|e| e.to_string())
         }
-        "parsers::extract_well_name" => parsers::extract_well_name(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::probe_las_well_identity" => {
+            parsers::probe_las_well_identity(path).map(|_| ()).map_err(|e| e.to_string())
+        }
         "parsers::parse_core_csv" => parsers::parse_core_csv(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_core_csv_with_depth_column" => {
             parsers::parse_core_csv_with_depth_column(path, None)
@@ -558,4 +874,44 @@ fn malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_co
         std::fs::remove_file(&path).unwrap();
     }
     std::fs::remove_dir(&temp).unwrap();
+}
+
+/// SB-DIO-061 (diagnostics half, with the DEC-052 memory contract landed separately):
+/// malformed input is LOCATED, COUNTED and NAMED. Every delimited reader's failure must
+/// name the fixture it came from — the probe that blocked this row found 23 reader
+/// failures that could not say which delivery broke. The row-level LOCATOR is pinned by
+/// the existing bad_truncated.las arm above (filename + "line " + affected row); this
+/// regression pins the NAMED half across the delimited readers on the corpus fixtures.
+#[test]
+fn every_delimited_reader_failure_names_the_fixture_it_came_from() {
+    let core = parsers::parse_core_csv_with_depth_column(example("bad_core_no_depth.csv"), None)
+        .expect_err("a core table with no depth column must refuse")
+        .to_string();
+    assert!(
+        core.contains("bad_core_no_depth.csv"),
+        "the core refusal names its delivery: {core}"
+    );
+
+    let dev = parsers::parse_deviation_csv(example("bad_dev_no_md.csv"))
+        .expect_err("a survey with no measured-depth column must refuse")
+        .to_string();
+    assert!(
+        dev.contains("bad_dev_no_md.csv"),
+        "the deviation refusal names its delivery: {dev}"
+    );
+
+    let scal = parsers::parse_scal_csv(example("bad_scal_empty.csv"))
+        .expect_err("an empty SCAL delivery must refuse")
+        .to_string();
+    assert!(
+        scal.contains("bad_scal_empty.csv"),
+        "the SCAL refusal names its delivery: {scal}"
+    );
+
+    // Both sides: a healthy fixture through the same wrapped entries still parses — the
+    // naming wrap must never turn a good delivery into a refusal.
+    parsers::parse_deviation_csv(example("deviation_SANDI-02.csv"))
+        .expect("the healthy survey fixture still parses through the named entry");
+    parsers::parse_scal_csv(example("scal_pc_long_SANDI-01.csv"))
+        .expect("the healthy SCAL fixture still parses through the named entry");
 }

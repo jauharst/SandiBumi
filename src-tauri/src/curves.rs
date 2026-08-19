@@ -3,8 +3,8 @@
 //! decides which family bucket it belongs to (so the catalog can group and the modules can
 //! find it) and rescales its samples into SandiBumi's canonical unit for that family.
 //!
-//! This mirrors what commercial tool/curve dictionaries and IP's CurveAlias.txt do, but kept
-//! small and code-resident (no external reference file to drift out of sync).
+//! Runtime tables are generated from `registry/unit-registry.json`; the release gate refuses
+//! drift between that reviewed source and its Rust, TypeScript, documentation and test consumers.
 
 /// Canonical family + its canonical unit. Families are deliberately coarse — enough to
 /// group the catalog and let modules ask "give me the GR" without caring whether the file
@@ -12,34 +12,15 @@
 pub struct FamilySpec {
     pub family: &'static str,
     pub canonical_unit: &'static str,
+    pub quantity_kind: QuantityKind,
     /// Uppercased mnemonic aliases that map to this family.
     pub aliases: &'static [&'static str],
+    /// Uppercased vendor wildcard rules. Exact aliases always win before patterns are considered.
+    pub alias_patterns: &'static [&'static str],
+    /// More-specific non-family rules from the same source vocabulary. A matching exclusion keeps
+    /// a broad vendor prefix from silently swallowing a different physical quantity.
+    pub excluded_alias_patterns: &'static [&'static str],
 }
-
-/// The dictionary. First match wins, checked in order, so put the more specific families
-/// before the generic ones if aliases ever overlap.
-pub const FAMILIES: &[FamilySpec] = &[
-    FamilySpec { family: "GR", canonical_unit: "gAPI", aliases: &["GR", "GRN", "GRD", "CGR", "SGR", "GRGC", "GRKT"] },
-    FamilySpec { family: "SP", canonical_unit: "mV", aliases: &["SP", "SPC", "SPR"] },
-    FamilySpec { family: "CALI", canonical_unit: "in", aliases: &["CALI", "CAL", "CALS", "CALX", "CALY", "HCAL", "LCAL", "DCAL", "HORD"] },
-    FamilySpec { family: "BS", canonical_unit: "in", aliases: &["BS", "BITSIZE", "BIT"] },
-    FamilySpec { family: "RHOB", canonical_unit: "g/cc", aliases: &["RHOB", "RHOZ", "RHOBED", "DEN", "ZDEN", "ROBB", "SBD2"] },
-    FamilySpec { family: "DRHO", canonical_unit: "g/cc", aliases: &["DRHO", "HDRA", "ZCOR", "DCOR"] },
-    FamilySpec { family: "PEF", canonical_unit: "b/e", aliases: &["PEF", "PE", "PEFZ", "PEB", "PDPE"] },
-    FamilySpec { family: "NPHI", canonical_unit: "v/v", aliases: &["NPHI", "TNPH", "NPHIED", "NPHI_LS", "NPOR", "NEUT", "APLC", "FPLC", "SNP", "HNPO", "FSTP"] },
-    FamilySpec { family: "DT", canonical_unit: "us/ft", aliases: &["DT", "DTC", "DTCO", "AC", "DT24", "DTP", "DTCOMP"] },
-    FamilySpec { family: "DTS", canonical_unit: "us/ft", aliases: &["DTS", "DTSM", "DTSH", "DTSHEAR", "DT_S"] },
-    FamilySpec { family: "TEMP", canonical_unit: "DEGC", aliases: &["FTEMP"] },
-    // Resistivity: deep first, then medium/shallow/micro so the primary Rt wins the "RES" bucket.
-    FamilySpec { family: "RES_DEEP", canonical_unit: "ohm.m", aliases: &["RES_DEEP", "RESD", "RT", "RDEEP", "RDEP", "DRES", "ILD", "LLD", "AT90", "AHT90", "RLA5", "ATR", "BDAV", "RING", "PSR"] },
-    FamilySpec { family: "RES_MED", canonical_unit: "ohm.m", aliases: &["RES_MED", "RESM", "RMED", "ILM", "LLM", "AT30", "AHT30", "RLA3"] },
-    FamilySpec { family: "RES_SHAL", canonical_unit: "ohm.m", aliases: &["RES_SHAL", "RESS", "RSHAL", "SFL", "SFLU", "LL8", "SN", "AT10", "AHT10", "RLA1", "R25P", "BSAV"] },
-    FamilySpec { family: "RXO", canonical_unit: "ohm.m", aliases: &["RXO", "RXOZ", "MSFL", "RMLL"] },
-];
-
-/// The exact quantity families for which at least one reviewed numeric transform exists.
-/// This is a capability list, not a claim that every spelling within the family converts.
-pub const CONVERTIBLE_FAMILIES: &[&str] = &["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"];
 
 /// One independently checkable affine conversion rule. `derivation` is mandatory data,
 /// not a nearby comment: a factor cannot enter the table without carrying the arithmetic
@@ -48,28 +29,12 @@ pub struct UnitRule {
     pub families: &'static [&'static str],
     pub from_unit: &'static str,
     pub to_unit: &'static str,
-    pub factor: f32,
-    pub offset: f32,
+    pub factor: f64,
+    pub offset: f64,
     pub derivation: &'static str,
     /// False where the arithmetic is known but the incoming label is not trustworthy
     /// enough to apply without a per-file user confirmation.
     pub automatic: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QuantityKind {
-    GammaRay,
-    ElectricPotential,
-    Length,
-    BulkDensity,
-    PhotoelectricFactor,
-    Fraction,
-    Slowness,
-    Temperature,
-    Resistivity,
-    ChargePerVolume,
-    Permeability,
 }
 
 /// One recognised spelling and its typed canonical interpretation. This table carries no
@@ -80,36 +45,136 @@ pub struct UnitTokenSpec {
     pub canonical_unit: &'static str,
 }
 
-pub const UNIT_TOKENS: &[UnitTokenSpec] = &[
-    UnitTokenSpec { token: "gAPI", quantity_kind: QuantityKind::GammaRay, canonical_unit: "gAPI" },
-    UnitTokenSpec { token: "mV", quantity_kind: QuantityKind::ElectricPotential, canonical_unit: "mV" },
-    UnitTokenSpec { token: "m", quantity_kind: QuantityKind::Length, canonical_unit: "m" },
-    UnitTokenSpec { token: "mm", quantity_kind: QuantityKind::Length, canonical_unit: "mm" },
-    UnitTokenSpec { token: "cm", quantity_kind: QuantityKind::Length, canonical_unit: "cm" },
-    UnitTokenSpec { token: "in", quantity_kind: QuantityKind::Length, canonical_unit: "in" },
-    UnitTokenSpec { token: "g/cc", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "g/cc" },
-    UnitTokenSpec { token: "kg/m3", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "kg/m3" },
-    UnitTokenSpec { token: "b/e", quantity_kind: QuantityKind::PhotoelectricFactor, canonical_unit: "b/e" },
-    UnitTokenSpec { token: "v/v", quantity_kind: QuantityKind::Fraction, canonical_unit: "v/v" },
-    UnitTokenSpec { token: "pu", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
-    UnitTokenSpec { token: "%", quantity_kind: QuantityKind::Fraction, canonical_unit: "%" },
-    UnitTokenSpec { token: "p.u.", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
-    UnitTokenSpec { token: "us/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
-    UnitTokenSpec { token: "usec/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
-    UnitTokenSpec { token: "us/ft", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/ft" },
-    UnitTokenSpec { token: "DEGF", quantity_kind: QuantityKind::Temperature, canonical_unit: "degF" },
-    UnitTokenSpec { token: "DEGC", quantity_kind: QuantityKind::Temperature, canonical_unit: "degC" },
-    UnitTokenSpec { token: "ohm.m", quantity_kind: QuantityKind::Resistivity, canonical_unit: "ohm.m" },
-    UnitTokenSpec { token: "MEQ/L", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/L" },
-    UnitTokenSpec { token: "meq/mL", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/mL" },
-    UnitTokenSpec { token: "md", quantity_kind: QuantityKind::Permeability, canonical_unit: "mD" },
-];
+include!("generated/unit_registry.rs");
 
 pub fn resolve_unit_token(token: &str) -> Option<&'static UnitTokenSpec> {
-    let normalized = normalize_unit(token);
-    UNIT_TOKENS
+    let observed = token.trim();
+    UNIT_TOKENS.iter().find(|entry| entry.token == observed)
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitTokenState {
+    MissingUnit,
+    Recognized,
+    Unrecognized,
+}
+
+pub fn unit_token_state(token: Option<&str>) -> UnitTokenState {
+    let observed = token.map(str::trim);
+    if matches!(observed, None | Some("" | "-" | "?")) {
+        UnitTokenState::MissingUnit
+    } else if resolve_unit_token(observed.unwrap()).is_some() {
+        UnitTokenState::Recognized
+    } else {
+        UnitTokenState::Unrecognized
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct UnitTokenObservation {
+    pub curve: String,
+    pub state: UnitTokenState,
+    pub raw_token: Option<String>,
+    pub canonical_unit: Option<String>,
+    pub quantity_kind: Option<QuantityKind>,
+    /// Present only when a reviewed registry row explicitly maps this spelling to another
+    /// canonical spelling. Similar typography alone never creates an alias.
+    pub explicit_alias: Option<String>,
+}
+
+/// Preserve each observed spelling before interpretation and report look-alike vocabulary that
+/// has no explicit equivalence row. The comparison is warning-only; it never selects a unit.
+pub fn observe_unit_tokens(
+    tokens: &[(String, Option<String>)],
+) -> (Vec<UnitTokenObservation>, Vec<String>) {
+    let observations = tokens
         .iter()
-        .find(|entry| normalize_unit(entry.token) == normalized)
+        .map(|(curve, token)| {
+            let raw = token.as_deref().map(str::trim);
+            let state = unit_token_state(raw);
+            let resolved = (state == UnitTokenState::Recognized)
+                .then(|| resolve_unit_token(raw.unwrap()))
+                .flatten();
+            UnitTokenObservation {
+                curve: curve.clone(),
+                state,
+                raw_token: raw.filter(|token| !token.is_empty()).map(str::to_string),
+                canonical_unit: resolved.map(|entry| entry.canonical_unit.to_string()),
+                quantity_kind: resolved.map(|entry| entry.quantity_kind),
+                explicit_alias: resolved
+                    .filter(|entry| entry.token != entry.canonical_unit)
+                    .map(|entry| format!("{} -> {}", entry.token, entry.canonical_unit)),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut warnings = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, left) in observations.iter().enumerate() {
+        for right in observations.iter().skip(index + 1) {
+            let (Some(left_token), Some(right_token)) =
+                (left.raw_token.as_deref(), right.raw_token.as_deref())
+            else {
+                continue;
+            };
+            if left.state == UnitTokenState::MissingUnit
+                || right.state == UnitTokenState::MissingUnit
+                || left_token == right_token
+                || !left_token.eq_ignore_ascii_case(right_token)
+            {
+                continue;
+            }
+            let explicitly_equivalent = match (
+                resolve_unit_token(left_token),
+                resolve_unit_token(right_token),
+            ) {
+                (Some(left), Some(right)) => {
+                    left.quantity_kind == right.quantity_kind
+                        && left.canonical_unit == right.canonical_unit
+                }
+                _ => false,
+            };
+            if explicitly_equivalent {
+                continue;
+            }
+            let key = if left_token < right_token {
+                (left_token.to_string(), right_token.to_string())
+            } else {
+                (right_token.to_string(), left_token.to_string())
+            };
+            if seen.insert(key) {
+                warnings.push(format!(
+                    "unit-token drift: observed '{}' and '{}' remain distinct because no explicit alias declares them equivalent",
+                    left_token, right_token
+                ));
+            }
+        }
+    }
+    (observations, warnings)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitMappingRowState {
+    MissingUnit,
+    Registered(ValidatedUnitBridge),
+}
+
+/// Load mapping rows without letting absent/empty/placeholder spellings create bridges. A valid
+/// row still registers normally, which keeps `MissingUnit` from becoming a catch-all success.
+pub fn load_unit_mapping_rows(
+    rows: &[(Option<&str>, Option<&str>)],
+) -> Result<Vec<UnitMappingRowState>, UnitRegistryError> {
+    rows.iter()
+        .map(|(from, to)| {
+            if unit_token_state(*from) == UnitTokenState::MissingUnit
+                || unit_token_state(*to) == UnitTokenState::MissingUnit
+            {
+                return Ok(UnitMappingRowState::MissingUnit);
+            }
+            validate_unit_bridge(from.unwrap(), to.unwrap()).map(UnitMappingRowState::Registered)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,18 +187,31 @@ pub struct ValidatedUnitBridge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitRegistryError {
     UnknownUnit { token: String },
+    InvalidRegistryIdentity,
+    MissingUnitMapping {
+        from_unit: Option<String>,
+        to_unit: Option<String>,
+    },
     QuantityKindMismatch {
         from_unit: String,
         from_kind: QuantityKind,
         to_unit: String,
         to_kind: QuantityKind,
     },
+    MissingNumericConversion { from_unit: String, to_unit: String },
 }
 
 impl std::fmt::Display for UnitRegistryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownUnit { token } => write!(formatter, "unknown unit token {token}"),
+            Self::InvalidRegistryIdentity => {
+                write!(formatter, "unit registry has no valid generated version and SHA-256")
+            }
+            Self::MissingUnitMapping { from_unit, to_unit } => write!(
+                formatter,
+                "unit mapping is missing a unit: from={from_unit:?}, to={to_unit:?}"
+            ),
             Self::QuantityKindMismatch {
                 from_unit,
                 from_kind,
@@ -142,6 +220,10 @@ impl std::fmt::Display for UnitRegistryError {
             } => write!(
                 formatter,
                 "quantity-kind mismatch: {from_unit} is {from_kind:?}, but {to_unit} is {to_kind:?}"
+            ),
+            Self::MissingNumericConversion { from_unit, to_unit } => write!(
+                formatter,
+                "no reviewed automatic numeric conversion from {from_unit} to {to_unit}"
             ),
         }
     }
@@ -173,112 +255,42 @@ pub fn validate_unit_bridge(
 }
 
 pub fn validate_unit_registry() -> Result<(), UnitRegistryError> {
+    if UNIT_REGISTRY_VERSION.is_empty()
+        || UNIT_REGISTRY_SHA256.len() != 64
+        || !UNIT_REGISTRY_SHA256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(UnitRegistryError::InvalidRegistryIdentity);
+    }
     for family in FAMILIES {
-        resolve_unit_token(family.canonical_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
+        let canonical = resolve_unit_token(family.canonical_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
             token: family.canonical_unit.to_string(),
         })?;
+        if canonical.quantity_kind != family.quantity_kind {
+            return Err(UnitRegistryError::QuantityKindMismatch {
+                from_unit: family.family.to_string(),
+                from_kind: family.quantity_kind,
+                to_unit: canonical.canonical_unit.to_string(),
+                to_kind: canonical.quantity_kind,
+            });
+        }
     }
-    for rule in UNIT_RULES {
-        validate_unit_bridge(rule.from_unit, rule.to_unit)?;
+    let mapping_rows = UNIT_RULES
+        .iter()
+        .map(|rule| (Some(rule.from_unit), Some(rule.to_unit)))
+        .collect::<Vec<_>>();
+    for ((from_unit, to_unit), state) in mapping_rows
+        .iter()
+        .zip(load_unit_mapping_rows(&mapping_rows)?)
+    {
+        if state == UnitMappingRowState::MissingUnit {
+            return Err(UnitRegistryError::MissingUnitMapping {
+                from_unit: from_unit.map(str::to_string),
+                to_unit: to_unit.map(str::to_string),
+            });
+        }
     }
     Ok(())
 }
-
-pub const UNIT_RULES: &[UnitRule] = &[
-    UnitRule {
-        families: &["CALI", "BS"],
-        from_unit: "mm",
-        to_unit: "in",
-        factor: 1.0 / 25.4,
-        offset: 0.0,
-        derivation: "1 in = 25.4 mm exactly; mm -> in divides by 25.4",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["CALI", "BS"],
-        from_unit: "cm",
-        to_unit: "in",
-        factor: 1.0 / 2.54,
-        offset: 0.0,
-        derivation: "1 in = 2.54 cm exactly; cm -> in divides by 2.54",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["DT", "DTS"],
-        from_unit: "us/m",
-        to_unit: "us/ft",
-        factor: 0.3048,
-        offset: 0.0,
-        derivation: "1 international ft = 0.3048 m; (us/m) x (m/ft) = us/ft",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["DT", "DTS"],
-        from_unit: "usec/m",
-        to_unit: "us/ft",
-        factor: 0.3048,
-        offset: 0.0,
-        derivation: "1 usec = 1 us and 1 international ft = 0.3048 m; factor = 0.3048",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["RHOB", "DRHO"],
-        from_unit: "kg/m3",
-        to_unit: "g/cc",
-        factor: 0.001,
-        offset: 0.0,
-        derivation: "1 g/cc = 1000 kg/m3; kg/m3 -> g/cc divides by 1000",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["NPHI"],
-        from_unit: "pu",
-        to_unit: "v/v",
-        factor: 0.01,
-        offset: 0.0,
-        derivation: "1 porosity unit = 1 percent = 0.01 v/v",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["NPHI"],
-        from_unit: "%",
-        to_unit: "v/v",
-        factor: 0.01,
-        offset: 0.0,
-        derivation: "1 percent = 1/100 = 0.01 v/v",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["NPHI"],
-        from_unit: "p.u.",
-        to_unit: "v/v",
-        factor: 0.01,
-        offset: 0.0,
-        derivation: "p.u. denotes porosity percent; 1 percent = 0.01 v/v",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["TEMP"],
-        from_unit: "DEGF",
-        to_unit: "DEGC",
-        factor: 1.0 / 1.8,
-        offset: -32.0,
-        derivation: "T42 fixes degC = (degF - 32) / 1.8; factor = 1/1.8 and offset = -32 degF",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["QV"],
-        from_unit: "MEQ/L",
-        to_unit: "meq/mL",
-        factor: 1.0e-3,
-        offset: 0.0,
-        derivation: "1 L = 10^3 mL; meq/L -> meq/mL therefore multiplies by 10^-3",
-        // Chapter §7.1 O-2: files affected by the vendor defect may already hold
-        // meq/mL values under the wrong MEQ/L label, so the correct arithmetic still
-        // requires per-file confirmation before it may touch values.
-        automatic: false,
-    },
-];
 
 pub fn convertible_unit_families() -> Vec<String> {
     CONVERTIBLE_FAMILIES.iter().map(|family| (*family).to_string()).collect()
@@ -327,7 +339,7 @@ impl UnitDesignation {
 }
 
 pub fn is_ms_per_ft(unit: Option<&str>) -> bool {
-    matches!(unit.map(normalize_unit).as_deref(), Some("ms/ft" | "msft"))
+    matches!(unit.map(str::trim), Some("MS/FT" | "ms/ft" | "MSFT" | "msft"))
 }
 
 pub fn ms_per_ft_designation(
@@ -355,11 +367,128 @@ pub fn ms_per_ft_designation(
 }
 
 /// Returns the canonical family for a mnemonic, or `None` if it isn't recognized (the
+/// SB-DIO-057 / DEC-076: the SIGNED logarithmic-family registry. On a curve whose family
+/// is logarithmic, an exact zero cannot be a reading — it is an exporter's encoding of
+/// "no reading" (the requirement's P-tier source, `reference_mudlog_gas_curve_traps`,
+/// cited at 21_data-io.md §5.6), and structurally every catalog saturation method consumes
+/// resistivity through log/ratio forms. Membership is the signed classification in
+/// `docs/takeover/DRAFT_DIO057_log_family_registry.md` (DEC-076): the four resistivity
+/// families are LOG; the fifteen linear families and CLY_STATE are not gated. GAS and PERM
+/// are NAMED registration gaps — they have no family bucket until Jauhar supplies their
+/// vocabularies, and this list must not grow without a signed registry change.
+pub const LOG_SCALE_FAMILIES: [&str; 4] = ["RES_DEEP", "RES_MED", "RES_SHAL", "RXO"];
+
 /// curve is still imported — it just goes in the catalog family-less, and modules that
 /// need a family won't auto-pick it).
 pub fn family_for(mnemonic: &str) -> Option<&'static FamilySpec> {
     let m = mnemonic.trim().to_uppercase();
-    FAMILIES.iter().find(|f| f.aliases.iter().any(|a| *a == m))
+    if let Some(exact) = FAMILIES
+        .iter()
+        .find(|family| family.aliases.iter().any(|alias| *alias == m))
+    {
+        return Some(exact);
+    }
+
+    let mut resolved = None;
+    for family in FAMILIES {
+        if family
+            .excluded_alias_patterns
+            .iter()
+            .any(|pattern| alias_pattern_matches(pattern, &m))
+            || !family
+                .alias_patterns
+                .iter()
+                .any(|pattern| alias_pattern_matches(pattern, &m))
+        {
+            continue;
+        }
+        if resolved.is_some() {
+            return None;
+        }
+        resolved = Some(family);
+    }
+    resolved
+}
+
+/// One named scalar conversion derived from the generated unit registry. Parameter manifests use
+/// this f64 path because their cited values and acceptance tolerances are f64; imported curve
+/// arrays remain f32 and deliberately cast only at their storage boundary.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
+pub struct NamedUnitConversion {
+    pub identity: String,
+    pub from_unit: String,
+    pub to_unit: String,
+    pub factor: f64,
+    pub offset: f64,
+    pub derivation: String,
+}
+
+impl NamedUnitConversion {
+    pub fn apply(&self, source_value: f64) -> f64 {
+        (source_value + self.offset) * self.factor
+    }
+}
+
+/// Resolve a same-quantity scalar conversion by its generated registry identity. Same-unit values
+/// still receive an explicit identity record so a canonical input cannot be confused with a
+/// silently converted artefact value later.
+pub fn named_unit_conversion(
+    from_unit: &str,
+    to_unit: &str,
+) -> Result<NamedUnitConversion, UnitRegistryError> {
+    let bridge = validate_unit_bridge(from_unit, to_unit)?;
+    let identity = format!(
+        "{}:{}->{}",
+        UNIT_REGISTRY_VERSION, bridge.from_unit, bridge.to_unit
+    );
+    if bridge.from_unit == bridge.to_unit {
+        return Ok(NamedUnitConversion {
+            identity,
+            from_unit: bridge.from_unit.into(),
+            to_unit: bridge.to_unit.into(),
+            factor: 1.0,
+            offset: 0.0,
+            derivation: format!("identity: {} = {}", bridge.from_unit, bridge.to_unit),
+        });
+    }
+    let rule = UNIT_RULES
+        .iter()
+        .find(|rule| {
+            rule.automatic
+                && validate_unit_bridge(rule.from_unit, rule.to_unit).is_ok_and(|candidate| {
+                    candidate.from_unit == bridge.from_unit && candidate.to_unit == bridge.to_unit
+                })
+        })
+        .ok_or_else(|| UnitRegistryError::MissingNumericConversion {
+            from_unit: bridge.from_unit.into(),
+            to_unit: bridge.to_unit.into(),
+        })?;
+    Ok(NamedUnitConversion {
+        identity,
+        from_unit: bridge.from_unit.into(),
+        to_unit: bridge.to_unit.into(),
+        factor: rule.factor,
+        offset: rule.offset,
+        derivation: rule.derivation.into(),
+    })
+}
+
+fn alias_pattern_matches(pattern: &str, value: &str) -> bool {
+    let pieces = pattern.split('*').collect::<Vec<_>>();
+    let mut cursor = 0;
+    for (index, piece) in pieces.iter().enumerate() {
+        if piece.is_empty() {
+            continue;
+        }
+        let Some(found) = value[cursor..].find(piece) else {
+            return false;
+        };
+        if index == 0 && !pattern.starts_with('*') && found != 0 {
+            return false;
+        }
+        cursor += found + piece.len();
+    }
+    pattern.ends_with('*') || pieces.last().is_none_or(|tail| value.ends_with(tail))
 }
 
 /// Canonical unit string SandiBumi stores a given family in.
@@ -427,7 +556,14 @@ pub fn unconverted_unit(
     }
     if family
         .and_then(canonical_unit)
-        .is_some_and(|canonical| normalize_unit(canonical) == normalize_unit(declared))
+        .is_some_and(|canonical| {
+            matches!(
+                (resolve_unit_token(canonical), resolve_unit_token(declared)),
+                (Some(expected), Some(observed))
+                    if expected.quantity_kind == observed.quantity_kind
+                        && expected.canonical_unit == observed.canonical_unit
+            )
+        })
     {
         return None;
     }
@@ -457,7 +593,7 @@ pub fn family_for_import(
 ) -> (Option<&'static FamilySpec>, Option<UnconvertedUnit>) {
     let inferred = family_for(curve);
     let declared = src_unit.map(str::trim).unwrap_or_default();
-    if normalize_unit(declared) == "meq/l" {
+    if matches!(declared, "MEQ/L" | "meq/L") {
         return (
             None,
             Some(UnconvertedUnit {
@@ -471,7 +607,7 @@ pub fn family_for_import(
             }),
         );
     }
-    if normalize_unit(declared) != "ppg" {
+    if declared != "PPG" {
         return (inferred, None);
     }
     (
@@ -504,21 +640,31 @@ pub fn convert_to_canonical(
         return None;
     }
     let typed_bridge = validate_unit_bridge(declared, target).ok()?;
-    let src = normalize_unit(declared);
-    let tgt = normalize_unit(target);
-    if src == tgt {
+    let target_token = resolve_unit_token(target)?;
+    let declared_token = resolve_unit_token(declared)?;
+    if declared_token.quantity_kind == target_token.quantity_kind
+        && declared_token.canonical_unit == target_token.canonical_unit
+    {
         return None;
     }
 
     let rule = UNIT_RULES.iter().find(|rule| {
+        let from = resolve_unit_token(rule.from_unit);
+        let to = resolve_unit_token(rule.to_unit);
         rule.automatic
             && rule.families.contains(&family)
-            && normalize_unit(rule.from_unit) == src
-            && normalize_unit(rule.to_unit) == tgt
+            && from.is_some_and(|entry| {
+                entry.quantity_kind == declared_token.quantity_kind
+                    && entry.canonical_unit == declared_token.canonical_unit
+            })
+            && to.is_some_and(|entry| {
+                entry.quantity_kind == target_token.quantity_kind
+                    && entry.canonical_unit == target_token.canonical_unit
+            })
             && validate_unit_bridge(rule.from_unit, rule.to_unit)
                 .is_ok_and(|rule_bridge| rule_bridge.quantity_kind == typed_bridge.quantity_kind)
     })?;
-    let (factor, offset) = (rule.factor, rule.offset);
+    let (factor, offset) = (rule.factor as f32, rule.offset as f32);
     for v in values.iter_mut() {
         if v.is_finite() {
             *v = (*v + offset) * factor;
@@ -532,16 +678,6 @@ pub fn convert_to_canonical(
         offset,
         derivation: rule.derivation.to_string(),
     })
-}
-
-/// Lowercases and strips punctuation/spacing so "US/FT", "us/ft", "usft", "US / FT" all
-/// compare equal.
-fn normalize_unit(u: &str) -> String {
-    u.trim()
-        .to_lowercase()
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect()
 }
 
 #[cfg(test)]
@@ -560,32 +696,314 @@ mod tests {
         assert!(family_for("ZZ_UNKNOWN").is_none());
     }
 
+    /// SB-CLY-046 / SB-CLY-T43. CORRECTNESS. SandiBumi output names come from the live
+    /// `modules::list_modules` manifest rather than a second copied inventory. Vendor expectations
+    /// come independently from Geolog V14 `vsh_*.info` OUTPUT rows, IP 2018 `clayvolume.htm`
+    /// (`VCL`, `VCLAV`, `VCLMIX`), and Techlog 2018 `A_family_assignment.json`
+    /// (`VSH*`, `VSH*UNCL*`, `VCL*`, with the `VSHH*`, `VSHV*`, and `VCLC*` collisions assigned
+    /// elsewhere). Chapter 10 section 6 T43 requires the four family identities to remain distinct.
+    #[test]
+    fn every_emitted_and_vendor_clay_shale_mnemonic_resolves_to_one_of_four_distinct_families() {
+        let family = |mnemonic: &str| {
+            family_for(mnemonic)
+                .unwrap_or_else(|| panic!("{mnemonic} must resolve to a clay/shale family"))
+                .family
+        };
+
+        for module in crate::modules::list_modules() {
+            for output in module.args.iter().filter(|argument| {
+                argument.kind == crate::modules::ArgKind::LogOut
+                    && argument.output_shale_clay_quantity.is_some()
+            }) {
+                let resolved = family(&output.name);
+                match output.output_shale_clay_quantity {
+                    Some(crate::modules::ShaleClayQuantity::ShaleVolume) => assert!(
+                        matches!(resolved, "VSH" | "VSH_UNCLIPPED"),
+                        "typed shale output {}.{} resolved to {resolved}",
+                        module.name,
+                        output.name
+                    ),
+                    Some(crate::modules::ShaleClayQuantity::ClayVolume) => assert_eq!(
+                        resolved, "VCL",
+                        "typed clay output {}.{} resolved to {resolved}",
+                        module.name, output.name
+                    ),
+                    None => unreachable!(),
+                }
+            }
+        }
+
+        for mnemonic in ["VSH", "VSH_NMR", "VDSH"] {
+            assert_eq!(family(mnemonic), "VSH", "{mnemonic} must be clipped shale volume");
+        }
+        for mnemonic in [
+            "VSH_GR",
+            "VSH_DN",
+            "VSH_DS",
+            "VSH_NS",
+            "VSH_RES",
+            "VSH_MN",
+            "VSH_NPHI",
+            "VSH_SP",
+            "VSH_AVG",
+            "VSH_HL",
+            "VSH_MIN",
+            "VSH_METHOD_UNCLIPPED",
+        ] {
+            assert_eq!(
+                family(mnemonic),
+                "VSH_UNCLIPPED",
+                "{mnemonic} must be unlimited shale volume"
+            );
+        }
+        for mnemonic in ["VCL", "VCLAV", "VCLMIX", "VCL_NMR", "VCL_METHOD"] {
+            assert_eq!(family(mnemonic), "VCL", "{mnemonic} must be clay volume");
+        }
+        for mnemonic in ["MTH_VSH", "VSH_DN_FLAG"] {
+            assert_eq!(
+                family(mnemonic),
+                "CLY_STATE",
+                "{mnemonic} must be a clay/shale flag or provenance curve"
+            );
+        }
+
+        assert_eq!(family("VSH_METHOD"), "VSH");
+        assert!(family_for("VSHH_METHOD").is_none());
+        assert!(family_for("VSHV_METHOD").is_none());
+        assert!(family_for("VCLC_METHOD").is_none());
+        assert_eq!(
+            crate::workflow::shale_clay_quantity_from_family(Some("VSH_UNCLIPPED")),
+            Some(crate::modules::ShaleClayQuantity::ShaleVolume)
+        );
+        assert_eq!(
+            crate::workflow::shale_clay_quantity_from_family(Some("CLY_STATE")),
+            None
+        );
+
+        let distinct = ["VSH", "VSH_UNCLIPPED", "VCL", "CLY_STATE"]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(distinct.len(), 4);
+    }
+
     /// SB-DIO-025 / SB-DIO-T41. The query must expose exactly the families backed by
     /// the code-resident transforms above; a vocabulary entry without arithmetic is not
     /// conversion coverage (chapter finding D-9).
     #[test]
     fn the_unit_system_reports_the_exact_families_it_can_convert() {
+        let queried = crate::list_convertible_unit_families();
         assert_eq!(
-            convertible_unit_families(),
+            queried,
             ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"]
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         );
-        assert_eq!(convertible_unit_families().len(), CONVERTIBLE_FAMILIES.len());
+        assert_eq!(queried.len(), CONVERTIBLE_FAMILIES.len());
+
+        let backend = include_str!("lib.rs");
+        let (_, handler_tail) = backend
+            .split_once("tauri::generate_handler![")
+            .expect("shipping Tauri command registry");
+        let (registered_commands, _) = handler_tail
+            .split_once("])")
+            .expect("end of shipping Tauri command registry");
+        assert!(
+            registered_commands
+                .lines()
+                .any(|line| line.trim() == "list_convertible_unit_families,"),
+            "the exact family query must remain registered on the shipping Tauri surface"
+        );
+
+        let frontend = include_str!("../../src/ipc.ts");
+        let (_, wrapper_tail) = frontend
+            .split_once("export function listConvertibleUnitFamilies(): Promise<string[]> {")
+            .expect("typed frontend family-query wrapper");
+        let (wrapper_body, _) = wrapper_tail
+            .split_once('}')
+            .expect("end of typed frontend family-query wrapper");
+        assert!(
+            wrapper_body.contains("invoke<string[]>(\"list_convertible_unit_families\")"),
+            "the typed frontend wrapper must invoke the registered family query"
+        );
     }
 
-    /// SB-DIO-028 / SB-DIO-T44. Chapter §5.1 independently derives the corrected
-    /// MEQ/L factor from 1 L = 10^3 mL. Every other numeric rule must meet the same
-    /// standard: arithmetic lives in the row, not only in a vendor citation or comment.
+    /// SB-DIO-028 / SB-DIO-T44. CORRECTNESS. Chapter §5.1 cites NIST SP 811 for the
+    /// exact international-foot
+    /// identity, uses exact SI-prefix and percent identities, fixes the affine
+    /// temperature transform through T42, and derives MEQ/L -> meq/mL from
+    /// 1 L = 10^3 mL. The expected table below is independent of the generated
+    /// registry, so a wrong factor plus a matching wrong sentence fails.
     #[test]
     fn every_conversion_factor_carries_an_independent_arithmetic_derivation() {
-        assert!(!UNIT_RULES.is_empty());
-        for rule in UNIT_RULES {
-            assert!(rule.factor.is_finite() && rule.factor != 0.0, "invalid factor for {} -> {}", rule.from_unit, rule.to_unit);
-            assert!(rule.offset.is_finite(), "invalid offset for {} -> {}", rule.from_unit, rule.to_unit);
-            assert!(!rule.derivation.trim().is_empty(), "missing derivation for {} -> {}", rule.from_unit, rule.to_unit);
-            assert!(rule.derivation.contains('='), "derivation must show its arithmetic: {}", rule.derivation);
+        struct ExpectedRule {
+            families: &'static [&'static str],
+            from_unit: &'static str,
+            to_unit: &'static str,
+            factor: f64,
+            offset: f64,
+            derivation_terms: &'static [&'static str],
+            automatic: bool,
+        }
+
+        let expected = [
+            ExpectedRule {
+                families: &["CALI", "BS"],
+                from_unit: "mm",
+                to_unit: "in",
+                factor: 1.0 / 25.4,
+                offset: 0.0,
+                derivation_terms: &["25.4 mm", "divides by 25.4"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["CALI", "BS"],
+                from_unit: "cm",
+                to_unit: "in",
+                factor: 1.0 / 2.54,
+                offset: 0.0,
+                derivation_terms: &["2.54 cm", "divides by 2.54"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["DT", "DTS"],
+                from_unit: "us/m",
+                to_unit: "us/ft",
+                factor: 0.3048,
+                offset: 0.0,
+                derivation_terms: &["0.3048 m", "us/ft"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["DT", "DTS"],
+                from_unit: "usec/m",
+                to_unit: "us/ft",
+                factor: 0.3048,
+                offset: 0.0,
+                derivation_terms: &["1 usec = 1 us", "0.3048"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["RHOB", "DRHO"],
+                from_unit: "kg/m3",
+                to_unit: "g/cc",
+                factor: 1.0 / 1_000.0,
+                offset: 0.0,
+                derivation_terms: &["1000 kg/m3", "divides by 1000"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["NPHI"],
+                from_unit: "pu",
+                to_unit: "v/v",
+                factor: 1.0 / 100.0,
+                offset: 0.0,
+                derivation_terms: &["1 percent", "0.01 v/v"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["NPHI"],
+                from_unit: "%",
+                to_unit: "v/v",
+                factor: 1.0 / 100.0,
+                offset: 0.0,
+                derivation_terms: &["1/100", "0.01 v/v"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["NPHI"],
+                from_unit: "p.u.",
+                to_unit: "v/v",
+                factor: 1.0 / 100.0,
+                offset: 0.0,
+                derivation_terms: &["1 percent", "0.01 v/v"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["TEMP"],
+                from_unit: "DEGF",
+                to_unit: "DEGC",
+                factor: 5.0 / 9.0,
+                offset: -32.0,
+                derivation_terms: &["degF - 32", "1/1.8"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["QV"],
+                from_unit: "MEQ/L",
+                to_unit: "meq/mL",
+                factor: 1.0 / 1_000.0,
+                offset: 0.0,
+                derivation_terms: &["10^3 mL", "10^-3"],
+                automatic: false,
+            },
+        ];
+
+        assert_eq!(
+            UNIT_RULES.len(),
+            expected.len(),
+            "every numeric rule must be independently enumerated here"
+        );
+        for expected_rule in &expected {
+            let rule = UNIT_RULES
+                .iter()
+                .find(|rule| {
+                    rule.from_unit == expected_rule.from_unit
+                        && rule.to_unit == expected_rule.to_unit
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing independently derived rule {} -> {}",
+                        expected_rule.from_unit, expected_rule.to_unit
+                    )
+                });
+            assert_eq!(rule.families, expected_rule.families);
+            assert!(
+                (rule.factor - expected_rule.factor).abs() <= f64::EPSILON,
+                "wrong factor for {} -> {}: expected {}, got {}",
+                rule.from_unit,
+                rule.to_unit,
+                expected_rule.factor,
+                rule.factor
+            );
+            assert_eq!(
+                rule.offset, expected_rule.offset,
+                "wrong affine offset for {} -> {}",
+                rule.from_unit, rule.to_unit
+            );
+            assert_eq!(rule.automatic, expected_rule.automatic);
+            assert!(
+                rule.factor.is_finite() && rule.factor != 0.0,
+                "invalid factor for {} -> {}",
+                rule.from_unit,
+                rule.to_unit
+            );
+            assert!(
+                rule.offset.is_finite(),
+                "invalid offset for {} -> {}",
+                rule.from_unit,
+                rule.to_unit
+            );
+            assert!(
+                !rule.derivation.trim().is_empty(),
+                "missing derivation for {} -> {}",
+                rule.from_unit,
+                rule.to_unit
+            );
+            assert!(
+                rule.derivation.contains('='),
+                "derivation must show its arithmetic: {}",
+                rule.derivation
+            );
+            for term in expected_rule.derivation_terms {
+                assert!(
+                    rule.derivation.contains(term),
+                    "derivation for {} -> {} omits independently required term '{term}': {}",
+                    rule.from_unit,
+                    rule.to_unit,
+                    rule.derivation
+                );
+            }
             assert!(
                 !rule.derivation.to_ascii_lowercase().contains("copied from")
                     && !rule.derivation.to_ascii_lowercase().contains("vendor factor"),
@@ -659,8 +1077,19 @@ mod tests {
     /// derivations already cited on curves.rs rules 64-80. Both conversions must stay within
     /// their declared quantity kind, and NaN remains missing.
     #[test]
-    fn recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind() {
+    fn startup_validates_the_typed_unit_registry_and_only_same_kind_bridges_convert() {
         validate_unit_registry().expect("every runtime token and rule is typed");
+        let startup = include_str!("lib.rs");
+        let validation = startup
+            .find("curves::validate_unit_registry()")
+            .expect("startup must validate the shipping registry");
+        let builder = startup
+            .find("tauri::Builder::default()")
+            .expect("the desktop builder must remain visible");
+        assert!(
+            validation < builder,
+            "the registry must be validated before the desktop runtime is constructed"
+        );
         assert_eq!(
             validate_unit_bridge("mm", "in")
                 .unwrap()
@@ -688,30 +1117,4 @@ mod tests {
         assert!((slowness[0] - 0.3048).abs() < f32::EPSILON);
     }
 
-    /// CHARACTERIZATION — SB-INS-018 / SB-INS-T23 supplies absent, empty and placeholder
-    /// unit encodings plus the empty-to-empty mapping row. They all produce no registry
-    /// mapping today; `None` is the current PARTIAL state, not the specified richer typed state.
-    #[test]
-    fn characterizes_all_missing_unit_spellings_as_no_registry_mapping() {
-        let encodings = [None, Some(""), Some("-"), Some("?")];
-        let resolved = encodings
-            .iter()
-            .map(|token| token.and_then(resolve_unit_token))
-            .collect::<Vec<_>>();
-        assert!(resolved.iter().all(Option::is_none));
-
-        for token in ["", "-", "?"] {
-            assert!(matches!(
-                validate_unit_bridge(token, "m"),
-                Err(UnitRegistryError::UnknownUnit { .. })
-            ));
-        }
-        assert!(matches!(
-            validate_unit_bridge("", ""),
-            Err(UnitRegistryError::UnknownUnit { .. })
-        ));
-        assert!(UNIT_TOKENS
-            .iter()
-            .all(|entry| !["", "-", "?"].contains(&entry.token)));
-    }
 }

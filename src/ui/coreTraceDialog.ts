@@ -22,6 +22,7 @@ import { loadCurveNames } from "./plotCommon";
 import { buildPlateStrip } from "./plateStrip";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
+import { requestRunCustody } from "./runCustody";
 
 /**
  * Reading a log off core photographs (Advance ▸ Core Imaging ▸ Photo Log…).
@@ -896,6 +897,8 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
   };
 
   const runRead = async (write: boolean): Promise<void> => {
+    const custody = write ? await requestRunCustody("Write core-photo curves") : null;
+    if (write && !custody) return;
     readBtn.disabled = true;
     writeBtn.disabled = true;
     logNote.textContent = write ? "Saving…" : "Reading…";
@@ -916,6 +919,7 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
         lith_cut: lithCut.value.trim() ? Number(lithCut.value) : null,
         lith_min_bed: lithMinBed.value.trim() ? Number(lithMinBed.value) : null,
         write,
+        custody,
       });
       trace.hidden = false;
       drawTrace(res);
@@ -1017,6 +1021,7 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
           output_set: setPicker.outputSet(),
           unfold_scan: width,
           write: false,
+          custody: null,
         });
         if (res.unfold_scan) {
           drawScan(res.unfold_scan);

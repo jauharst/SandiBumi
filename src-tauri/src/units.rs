@@ -36,8 +36,27 @@ pub const M_PER_FT: f64 = 0.3048;
 /// The depth-index units field data actually arrives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DepthUnit {
+    #[serde(rename = "M", alias = "Metres", alias = "metres")]
     Metres,
+    #[serde(rename = "FT", alias = "Feet", alias = "feet")]
     Feet,
+}
+
+/// An explicitly supplied depth offset. It has no default: callers must provide both magnitude
+/// and unit before a point-data duplicate may be perturbed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DepthOffset {
+    pub value: f64,
+    pub unit: DepthUnit,
+}
+
+/// An explicitly supplied tolerance for checking whether a declared depth increment is regular.
+/// This is deliberately a distinct type from [`DepthOffset`]: SB-DBM-028 forbids borrowing a snap
+/// or duplicate-perturbation distance for sampling-style verification.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DepthTolerance {
+    pub value: f64,
+    pub unit: DepthUnit,
 }
 
 /// Metres — the unit the whole codebase assumed before units existed, and the unit
@@ -194,12 +213,18 @@ pub fn set_project_depth_unit_checked(conn: &Connection, target: DepthUnit) -> R
     set_project_depth_unit(conn, target).map_err(|error| error.to_string())
 }
 
-/// The project's depth unit, defaulting to metres when undeclared. Read path for code
-/// that needs an answer rather than an option (the saturation-height Pc conversion, the
-/// depth-scale ratio). Metres is the default because `wells.kb`/`td` and the Field Map's
-/// UTM easting/northing are already documented and stored as metres.
-pub fn project_depth_unit_or_default(conn: &Connection) -> DepthUnit {
-    project_depth_unit(conn).ok().flatten().unwrap_or(DepthUnit::Metres)
+/// Returns the project's declared depth unit or an actionable refusal. A caller that
+/// handles physical depths must use this rather than manufacture a default: an
+/// undeclared legacy frame can contain either feet or metres, and both interpretations
+/// produce plausible-looking numbers.
+pub fn require_project_depth_unit(conn: &Connection, operation: &str) -> Result<DepthUnit, String> {
+    project_depth_unit(conn)
+        .map_err(|error| format!("{operation} cannot read the project's declared depth unit: {error}"))?
+        .ok_or_else(|| {
+            format!(
+                "{operation} requires a declared project depth unit; set it in Data Conventions before continuing"
+            )
+        })
 }
 
 /// Resolves what to do with an imported file's index unit, given the project's state.
@@ -320,8 +345,31 @@ mod tests {
         assert!(resolve_index_unit(None, None).is_err());
     }
 
-    /// SB-DIO-019 / SB-DIO-T31. The requirement permits either an explicit
-    /// migration or refusal while data exists; this project deliberately chooses refusal.
+    /// SB-CORE-T02. CORRECTNESS. Source: SB-CORE-001 in
+    /// `docs/PRD_v2/04_CORE_REQUIREMENTS.md`: an undeclared unit refuses rather
+    /// than becoming metres. The declared-feet side prevents a lazy implementation
+    /// from always refusing.
+    #[test]
+    fn an_undeclared_project_depth_unit_refuses_instead_of_becoming_metres() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        let error = require_project_depth_unit(&conn, "depth-bearing operation")
+            .expect_err("an undeclared project must refuse");
+        assert!(error.contains("depth-bearing operation") && error.contains("Data Conventions"));
+
+        set_project_depth_unit(&conn, DepthUnit::Feet).unwrap();
+        assert_eq!(
+            require_project_depth_unit(&conn, "depth-bearing operation").unwrap(),
+            DepthUnit::Feet,
+            "a declaration must be carried exactly, never normalized to the old metres default"
+        );
+    }
+
+    /// CORRECTNESS - SB-DIO-019 / SB-DIO-T31. `21_data-io.md` section 6 T31
+    /// permits either an explicit counted migration or refusal while committed data
+    /// exists; this project deliberately chooses refusal. The depths are test inputs,
+    /// not sourced physical defaults, and their packed bytes are the expected custody.
     #[test]
     fn changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled() {
         let conn = Connection::open_in_memory().unwrap();
@@ -343,17 +391,32 @@ mod tests {
         )
         .unwrap();
 
-        let refusal = set_project_depth_unit_checked(&conn, DepthUnit::Feet).unwrap_err();
-        assert!(refusal.contains("1 well(s)"), "the affected well count is named: {refusal}");
-        assert!(refusal.contains("reinterpret"), "the refusal explains the failure mode: {refusal}");
-        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
-        let stored: Vec<f32> = conn
+        let stored_before: Vec<f32> = conn
             .prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
             .unwrap()
             .query_map(params![well.to_string()], |row| row.get(0))
             .unwrap()
             .collect::<duckdb::Result<_>>()
             .unwrap();
-        assert_eq!(stored, depth, "a refused declaration change cannot rescale stored samples");
+        set_project_depth_unit_checked(&conn, DepthUnit::Metres)
+            .expect("reasserting the stored unit remains a safe no-op");
+        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
+
+        let refusal = set_project_depth_unit_checked(&conn, DepthUnit::Feet).unwrap_err();
+        assert!(refusal.contains("1 well(s)"), "the affected well count is named: {refusal}");
+        assert!(refusal.contains("reinterpret"), "the refusal explains the failure mode: {refusal}");
+        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
+        let stored_after: Vec<f32> = conn
+            .prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![well.to_string()], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            bytemuck::cast_slice::<f32, u8>(&stored_after),
+            bytemuck::cast_slice::<f32, u8>(&stored_before),
+            "a refused declaration change cannot alter any stored depth byte"
+        );
     }
 }

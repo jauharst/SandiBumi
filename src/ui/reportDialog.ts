@@ -20,7 +20,9 @@ import { appState, bumpDataVersion } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import { buildWellScope } from "./wellScope";
+import { requestRunCustody } from "./runCustody";
 
 const TEMPLATE_DOC_TYPE = "report_template";
 const TEMPLATE_NAME = "default";
@@ -131,9 +133,9 @@ export async function buildReportContent(
   const sweIn = mkNum(String(cuts.swe_max), "SWE ≤ (pay)");
   const permIn = mkNum(cuts.perm_min != null ? String(cuts.perm_min) : "", "PERM ≥ mD (optional)");
   permIn.placeholder = "PERM (off)";
-  cutoffWrap.appendChild(vshIn);
-  cutoffWrap.appendChild(phieIn);
-  cutoffWrap.appendChild(sweIn);
+  cutoffWrap.appendChild(withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax));
+  cutoffWrap.appendChild(withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin));
+  cutoffWrap.appendChild(withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax));
   cutoffWrap.appendChild(permIn);
 
   const tablesOnly = document.createElement("input");
@@ -252,12 +254,20 @@ export async function buildReportContent(
   const buildSpec = (): ReportSpec | string => {
     const layout = layouts.find((l) => l.name === layoutSel.value);
     if (!layout) return "No layout selected.";
-    const vsh = Number(vshIn.value);
-    const phie = Number(phieIn.value);
-    const swe = Number(sweIn.value);
-    if ([vsh, phie, swe].some(Number.isNaN)) return "Cutoffs must be numbers.";
-    const perm = permIn.value.trim() === "" ? null : Number(permIn.value);
-    if (perm !== null && Number.isNaN(perm)) return "PERM cutoff must be a number or blank.";
+    // SB-CUT-019: a cut-off carries the unit it was entered in; a blank box is ABSENT, which the
+    // report prints as "unfiltered" rather than as a number that was never applied.
+    const cutOf = (i: HTMLInputElement, unit: string) => {
+      if (i.value.trim() === "") return null;
+      const v = Number(i.value);
+      return Number.isFinite(v) ? { value: v, unit } : undefined;
+    };
+    const vsh = cutOf(vshIn, "v/v");
+    const phie = cutOf(phieIn, "v/v");
+    const swe = cutOf(sweIn, "v/v");
+    const perm = cutOf(permIn, "mD");
+    if ([vsh, phie, swe, perm].some((c) => c === undefined)) {
+      return "Cutoffs must be numbers, or blank to leave that property unfiltered.";
+    }
     return {
       composite: {
         well_id: well.well_id,
@@ -270,10 +280,10 @@ export async function buildReportContent(
       title: titleIn.value.trim() || "Petrophysical Evaluation",
       author: authorIn.value.trim(),
       methodology: textToRows(methodTa.value),
-      vsh_max: vsh,
-      phie_min: phie,
-      swe_max: swe,
-      perm_min: perm,
+      vsh_max: vsh ?? null,
+      phie_min: phie ?? null,
+      swe_max: swe ?? null,
+      perm_min: perm ?? null,
       input_set: setPicker.inputSet(),
       tables_only: tablesOnly.checked,
     };
@@ -314,6 +324,12 @@ export async function buildReportContent(
       status.textContent = spec;
       return;
     }
+    const custody = await requestRunCustody("render the report and compute its pay-summary flags");
+    if (!custody) {
+      status.textContent = "Report render cancelled — run custody was not supplied.";
+      return;
+    }
+    spec.custody = custody;
     renderBtn.disabled = true;
     status.textContent = "Rendering report…";
     try {
@@ -354,6 +370,12 @@ export async function buildReportContent(
       return;
     }
     if (!dest) return;
+    const custody = await requestRunCustody("export the PDF and compute its pay-summary flags");
+    if (!custody) {
+      status.textContent = "PDF export cancelled — run custody was not supplied.";
+      return;
+    }
+    spec.custody = custody;
     pdfBtn.disabled = true;
     status.textContent = "Writing PDF…";
     try {
@@ -438,7 +460,7 @@ export async function buildReportContent(
       g.drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
       const base64 = canvas.toDataURL("image/png").split(",")[1];
-      const path = await savePng(dest, base64);
+      const path = await savePng(dest, base64, { wellIds: [well.well_id] });
       status.textContent = `Wrote ${path.split(/[\\/]/).pop()}`;
       setStatus(`Report page PNG exported for ${well.well_name}.`);
     } catch (err) {
@@ -469,12 +491,22 @@ export async function buildReportContent(
     }
     if (!dir) return;
     const asWord = batchFmt.value === "docx";
+    if (!asWord) {
+      const custody = await requestRunCustody(
+        `export ${wellIds.length} PDF report(s) and compute their pay-summary flags`,
+      );
+      if (!custody) {
+        status.textContent = "Batch PDF export cancelled — run custody was not supplied.";
+        return;
+      }
+      spec.custody = custody;
+    }
     batchBtn.disabled = true;
     status.textContent = `Exporting ${wellIds.length} ${asWord ? "Word document" : "report"}(s)…`;
     try {
       const paths = asWord
-        ? await exportReportDocxBatch(spec, wellIds, dir)
-        : await exportReportBatch(spec, wellIds, dir);
+        ? await exportReportDocxBatch(spec, scope.backend(), dir)
+        : await exportReportBatch(spec, scope.backend(), dir);
       status.textContent = `Wrote ${paths.length} report ${asWord ? "Word document" : "PDF"}(s) to ${dir}`;
       setStatus(`Batch report export: ${paths.length} well(s).`);
       // Only the PDF path writes FLAG curves per well; the Word path exports without touching

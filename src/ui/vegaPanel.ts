@@ -32,23 +32,96 @@
 //     Layered spec — the selection params sit on the points layer, the variable signals top-level.
 import vegaEmbed, { type VisualizationSpec, type Result as VegaResult } from "vega-embed";
 import type { EditorView } from "codemirror";
-import { getCurveData, listZones, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
+import {
+  HISTOGRAM_BINS_DEFAULT,
+  canonicalHistogram,
+  type HistogramContract,
+} from "../distribution";
+import { getCurveData, listZones, plotBindingSnapshotForChannels, type PlotChannelBinding, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
-import { buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
+import { buildPersistedPlotState, buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { applyPlotRecordLimit } from "./plotLimits";
 import { messageNode } from "./safeDom";
-import { saveSvg } from "./svgExport";
+import { paperExportRecordFromSvg, paperizeMeasuredSvg, saveSvg } from "./svgExport";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type AxisDisplayRange,
+  type PlotAxisRangeExport,
+} from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
+import {
+  applyPlotChannelPolicy,
+  type PlotRangeEdge,
+  type PlotReductionExport,
+  type ReductionExportItem,
+} from "./plotTypes";
+import {
+  beginPlotAsyncGeneration,
+  isPlotAsyncGenerationCurrent,
+  type PlotAsyncGenerationToken,
+} from "./plotAsync";
+import {
+  attachAccessiblePlotKeyboard,
+  basicStats,
+  buildPlotStatisticsRecord,
+  formatPlotStatisticsRecord,
+  plotStatisticsInterval,
+  type PlotAccessibilityBinding,
+  type PlotStatisticsRecord,
+  type PlotViewKeyboardCommand,
+} from "./plotCanvas";
 
-type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
+export type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
 
-interface Row {
+/** Preserve only interactive X/Y domains across a theme re-embed; colour is not a viewport. */
+export function captureVegaViewportDomains(
+  ranges: PlotAxisRangeExport[],
+): Partial<Record<"x" | "y", [number, number]>> {
+  const domains: Partial<Record<"x" | "y", [number, number]>> = {};
+  for (const range of ranges) {
+    if (range.axis === "x" || range.axis === "y") domains[range.axis] = [range.min, range.max];
+  }
+  return domains;
+}
+
+export interface Row {
   x: number;
   y?: number;
   z?: number;
+  /** Display-only Z after SB-PLT-013 endpoint clamping. Raw `z` remains in the tooltip. */
+  zDisplay?: number;
+  /** Endpoint marker for a clamped Z value. */
+  zEdge?: PlotRangeEdge;
   depth: number;
   /** Raincloud only: the categorical lane this sample belongs to (a zone or a class value). */
   group?: string;
+}
+
+export interface VegaHistogramData extends HistogramContract {
+  rows: { binStart: number; binEnd: number; count: number }[];
+}
+
+/** Pre-bin Vega data through the same contract as Canvas plots; Vega renders these rows verbatim. */
+export function buildVegaHistogramData(
+  values: ArrayLike<number>,
+  min: number,
+  max: number,
+  bins = HISTOGRAM_BINS_DEFAULT,
+): VegaHistogramData {
+  const contract = canonicalHistogram(values, min, max, bins);
+  return {
+    ...contract,
+    rows: contract.counts.map((count, index) => ({
+      binStart: contract.edges[index],
+      binEnd: contract.edges[index + 1],
+      count,
+    })),
+  };
 }
 
 /** Options threaded through buildSpec: the scatter trend overlay, and the raincloud group ordering. */
@@ -59,6 +132,8 @@ interface SpecOpts {
   groupOrder?: string[];
   /** Raincloud: what the grouping represents ("zone" or a curve mnemonic) — for tooltips. */
   groupLabel?: string;
+  /** Governed source-curve domains. Aggregate/synthetic axes are read back from Vega after render. */
+  axisDomains?: Partial<Record<"x" | "y" | "colour", [number, number]>>;
 }
 
 /** Types with per-sample point marks that take part in linked brushing (emit + consume). Histogram,
@@ -73,27 +148,28 @@ function cssVar(name: string, fallback: string): string {
 
 const dKey = (d: number): number => Math.round(d * 1000); // mm resolution — depths are in metres
 
-/** Join X/Y (and optional Z) curve series on shared depth into finite rows. Curves ride the same
- *  standard grid, but they are joined by depth (not index) so a curve with its own sampling still
- *  lines up; non-finite values are dropped so vega never sees NaN. */
+/** Join X/Y (and optional Z) curve series by depth while retaining incomplete pairs until the
+ * governed population screen counts and excludes them. */
 function joinXYZ(series: TrackCurveSeries[], xName: string, yName: string, zName: string | null): Row[] {
   const xs = series.find((s) => s.curve_name === xName);
   const ys = series.find((s) => s.curve_name === yName);
   if (!xs || !ys) return [];
   const zs = zName ? (series.find((s) => s.curve_name === zName) ?? null) : null;
-  const yByD = new Map<number, number>();
-  for (let i = 0; i < ys.depth.length; i++) if (Number.isFinite(ys.value[i])) yByD.set(dKey(ys.depth[i]), ys.value[i]);
+  const xByD = new Map<number, { value: number; depth: number }>();
+  for (let i = 0; i < xs.depth.length; i++) xByD.set(dKey(xs.depth[i]), { value: xs.value[i], depth: xs.depth[i] });
+  const yByD = new Map<number, { value: number; depth: number }>();
+  for (let i = 0; i < ys.depth.length; i++) yByD.set(dKey(ys.depth[i]), { value: ys.value[i], depth: ys.depth[i] });
   const zByD = zs ? new Map<number, number>() : null;
   if (zs) for (let i = 0; i < zs.depth.length; i++) if (Number.isFinite(zs.value[i])) zByD!.set(dKey(zs.depth[i]), zs.value[i]);
   const out: Row[] = [];
-  for (let i = 0; i < xs.depth.length; i++) {
-    const xv = xs.value[i];
-    if (!Number.isFinite(xv)) continue;
-    const yv = yByD.get(dKey(xs.depth[i]));
-    if (yv === undefined) continue;
-    const row: Row = { x: xv, y: yv, depth: xs.depth[i] };
+  const depthKeys = [...new Set([...xByD.keys(), ...yByD.keys()])].sort((a, b) => a - b);
+  for (const key of depthKeys) {
+    const x = xByD.get(key);
+    const y = yByD.get(key);
+    const depth = x?.depth ?? y!.depth;
+    const row: Row = { x: x?.value ?? Number.NaN, y: y?.value ?? Number.NaN, depth };
     if (zByD) {
-      const zv = zByD.get(dKey(xs.depth[i]));
+      const zv = zByD.get(key);
       if (zv !== undefined) row.z = zv;
     }
     out.push(row);
@@ -101,13 +177,151 @@ function joinXYZ(series: TrackCurveSeries[], xName: string, yName: string, zName
   return out;
 }
 
-/** Finite X samples only — the data for a distribution (histogram) view. */
+/** Raw X samples for a distribution view; the governed screen owns exclusion accounting. */
 function xValues(series: TrackCurveSeries[], xName: string): Row[] {
   const xs = series.find((s) => s.curve_name === xName);
   if (!xs) return [];
   const out: Row[] = [];
-  for (let i = 0; i < xs.depth.length; i++) if (Number.isFinite(xs.value[i])) out.push({ x: xs.value[i], depth: xs.depth[i] });
+  // Preserve raw non-finite samples until screenVegaPopulation counts and excludes them.
+  for (let i = 0; i < xs.depth.length; i++) out.push({ x: xs.value[i], depth: xs.depth[i] });
   return out;
+}
+
+interface VegaValidityPolicy {
+  apply: boolean;
+  x: AxisDisplayRange | null;
+  y: AxisDisplayRange | null;
+}
+
+export function screenVegaPopulation(
+  rows: readonly Row[],
+  type: ChartType,
+  policy: VegaValidityPolicy,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+): PlotRangePolicyReport {
+  const usesY = type === "scatter" || type === "line" || type === "density";
+  return applyPlotRangePolicy([
+    { values: rows.map((row) => row.x), display: xDisplay, validity: policy.x },
+    ...(usesY ? [{
+      values: rows.map((row) => row.y ?? Number.NaN),
+      display: yDisplay,
+      validity: policy.y,
+    }] : []),
+  ], policy.apply);
+}
+
+export interface VegaColourPolicy {
+  rows: Row[];
+  included: Uint8Array;
+  nonFiniteExcluded: number;
+  logDomainExcluded: number;
+  excluded: number;
+  clamped: number;
+}
+
+/** SB-PLT-013's generated-Vega Z adapter. It carries both the raw tooltip value and a
+ * derived display value, so endpoint colour/edge treatment can never rewrite source data. */
+export function applyVegaColourPolicy(
+  rows: readonly Row[],
+  display: AxisDisplayRange,
+  logAxis = false,
+): VegaColourPolicy {
+  const policy = applyPlotChannelPolicy(
+    Float32Array.from(rows, (row) => row.z ?? Number.NaN),
+    "colour",
+    display,
+    logAxis,
+  );
+  return {
+    rows: rows.map((row, index) => ({
+      ...row,
+      zDisplay: policy.included[index] ? policy.values[index] : undefined,
+      zEdge: policy.included[index] ? policy.edgeMarks[index] : "none",
+    })),
+    included: policy.included,
+    nonFiniteExcluded: policy.nonFiniteExcluded,
+    logDomainExcluded: policy.logDomainExcluded,
+    excluded: policy.nonFiniteExcluded + policy.logDomainExcluded,
+    clamped: policy.clamped,
+  };
+}
+
+/** Live Vega adapter: the generated grammar and every export use the same complete records. */
+export function buildVegaStatisticsRecords(
+  rows: readonly Row[],
+  type: ChartType,
+  policy: VegaValidityPolicy,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  xName: string,
+  yName: string,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+  selectionLabel = "all eligible",
+  unpairedOrUnclassifiedExcluded = 0,
+): PlotStatisticsRecord[] {
+  const classifiedRows = type === "raincloud"
+    ? rows.filter((row) => typeof row.group === "string" && row.group.trim() !== "")
+    : [...rows];
+  const totalUnpairedOrUnclassifiedExcluded = unpairedOrUnclassifiedExcluded
+    + (rows.length - classifiedRows.length);
+  const screened = screenVegaPopulation(classifiedRows, type, policy, xDisplay, yDisplay);
+  if (screened.analysisCount === 0) return [];
+  const context = {
+    binding_channel: "x",
+    population: "active_well" as const,
+    well_ids: [wellId],
+    interval: plotStatisticsInterval(intervalLow, intervalHigh),
+    selection: { kind: "all_eligible" as const, selection_id: null, label: selectionLabel, applied: false },
+    policy: screened,
+    selection_excluded: 0,
+    unpaired_or_unclassified_excluded: totalUnpairedOrUnclassifiedExcluded,
+    standard_deviation: "sample_n_minus_one" as const,
+  };
+  if (type === "raincloud") {
+    const byGroup = new Map<string, number[]>();
+    for (const index of screened.indices) {
+      const row = classifiedRows[index];
+      const group = row.group!;
+      const values = byGroup.get(group) ?? [];
+      values.push(row.x);
+      byGroup.set(group, values);
+    }
+    return [...byGroup.entries()].map(([group, values], groupIndex) => {
+      const groupDisplayHidden = applyPlotRangePolicy([
+        { values, display: xDisplay, validity: null },
+      ], false).displayHidden;
+      return buildPlotStatisticsRecord(values, {
+        ...context,
+        channel: `x:${xName}:group:${groupIndex}`,
+        selection: {
+          kind: "named",
+          selection_id: `raincloud-group:${group}`,
+          label: `group ${group}; ${selectionLabel}`,
+          applied: true,
+        },
+        policy: { ...screened, displayHidden: groupDisplayHidden },
+        selection_excluded: screened.analysisCount - values.length,
+      });
+    });
+  }
+  const channels: { bindingChannel: string; channel: string; values: number[] }[] = [
+    { bindingChannel: "x", channel: `x:${xName}`, values: screened.indices.map((index) => classifiedRows[index].x) },
+  ];
+  if (type === "scatter" || type === "line" || type === "density") {
+    channels.push({
+      bindingChannel: "y",
+      channel: `y:${yName}`,
+      values: screened.indices.map((index) => classifiedRows[index].y as number),
+    });
+  }
+  return channels.map(({ bindingChannel, channel, values }) => buildPlotStatisticsRecord(values, {
+    ...context,
+    binding_channel: bindingChannel,
+    channel,
+  }));
 }
 
 // ---- Raincloud (PtitPrince-style) geometry -------------------------------------------------
@@ -123,8 +337,6 @@ const LANE = 2,
   BOX_LO = -0.3,
   RAIN_HI = -0.38,
   RAIN_LO = -0.95;
-const MAX_GROUPS = 24;
-
 function quantileSorted(s: number[], p: number): number {
   const n = s.length;
   if (n === 0) return NaN;
@@ -171,15 +383,18 @@ interface BoxStat {
   yb1: number;
   ymid: number;
 }
-function boxStats(values: number[]): { q1: number; med: number; q3: number; lo: number; hi: number; n: number } {
-  const s = [...values].sort((a, b) => a - b);
-  const q1 = quantileSorted(s, 0.25),
-    med = quantileSorted(s, 0.5),
-    q3 = quantileSorted(s, 0.75);
-  const iqr = q3 - q1,
-    loF = q1 - 1.5 * iqr,
-    hiF = q3 + 1.5 * iqr;
-  return { q1, med, q3, lo: s.find((v) => v >= loF) ?? s[0], hi: [...s].reverse().find((v) => v <= hiF) ?? s[s.length - 1], n: s.length };
+export function buildVegaBoxStatistics(
+  values: ArrayLike<number>,
+): { q1: number; med: number; q3: number; lo: number; hi: number; n: number } {
+  const stats = basicStats(values, "sample_n_minus_one");
+  return {
+    q1: stats.p25,
+    med: stats.p50,
+    q3: stats.p75,
+    lo: stats.p5,
+    hi: stats.p95,
+    n: stats.count,
+  };
 }
 interface Raincloud {
   cloud: { group: string; x: number; yTop: number; yBase: number }[];
@@ -217,20 +432,20 @@ function buildRaincloud(rows: Row[], groupOrder: string[]): Raincloud {
     const dens = kde(vals, xMin - pad, xMax + pad, 64);
     const maxD = Math.max(...dens.map((p) => p.d)) || 1;
     for (const p of dens) cloud.push({ group: g, x: p.v, yTop: gy + (p.d / maxD) * CLOUD_H, yBase: gy });
-    box.push({ group: g, ...boxStats(vals), yb0: gy + BOX_LO, yb1: gy + BOX_HI, ymid: gy + (BOX_LO + BOX_HI) / 2 });
+    box.push({ group: g, ...buildVegaBoxStatistics(vals), yb0: gy + BOX_LO, yb1: gy + BOX_HI, ymid: gy + (BOX_LO + BOX_HI) / 2 });
     for (const r of rs) rain.push({ group: g, x: r.x, y: gy + RAIN_HI - Math.random() * (RAIN_HI - RAIN_LO), depth: r.depth });
     labels.push({ group: g, x: xMin - pad, y: gy + CLOUD_H * 0.45 });
   });
   return { cloud, box, rain, labels, yMin: -1.0, yMax: (groups.length - 1) * LANE + CLOUD_H + 0.15, xMin: xMin - pad, xMax: xMax + pad };
 }
 
-/** Assign each finite X sample to the zone whose [top, bottom) contains its depth. Samples outside
+/** Assign each X sample to the zone whose [top, bottom) contains its depth. Samples outside
  *  every zone form an honest "(outside zones)" lane rather than being dropped; with no zones defined
- *  the whole well is one "(all)" lane. */
+ *  the whole well is one "(all)" lane. Non-finite X stays until the population screen counts it. */
 function groupByZone(xs: TrackCurveSeries, zones: ZoneEntry[]): { rows: Row[]; order: string[] } {
   const rows: Row[] = [];
   if (zones.length === 0) {
-    for (let i = 0; i < xs.depth.length; i++) if (Number.isFinite(xs.value[i])) rows.push({ x: xs.value[i], group: "(all)", depth: xs.depth[i] });
+    for (let i = 0; i < xs.depth.length; i++) rows.push({ x: xs.value[i], group: "(all)", depth: xs.depth[i] });
     return { rows, order: ["(all)"] };
   }
   const sorted = [...zones].sort((a, b) => a.top_depth - b.top_depth);
@@ -238,7 +453,6 @@ function groupByZone(xs: TrackCurveSeries, zones: ZoneEntry[]): { rows: Row[]; o
   let outside = false;
   for (let i = 0; i < xs.depth.length; i++) {
     const v = xs.value[i];
-    if (!Number.isFinite(v)) continue;
     const d = xs.depth[i];
     const z = sorted.find((zz) => d >= zz.top_depth && d < zz.bottom_depth);
     if (z) rows.push({ x: v, group: z.zone_name, depth: d });
@@ -258,7 +472,14 @@ function groupByCurve(
   xs: TrackCurveSeries,
   gs: TrackCurveSeries,
   label: string,
-): { rows: Row[]; order: string[]; note: string; error?: string } {
+): {
+  rows: Row[];
+  order: string[];
+  note: string;
+  excluded: number;
+  reductionItem: ReductionExportItem | null;
+  error?: string;
+} {
   const gByD = new Map<number, number>();
   for (let i = 0; i < gs.depth.length; i++) if (Number.isFinite(gs.value[i])) gByD.set(dKey(gs.depth[i]), gs.value[i]);
   const rows: Row[] = [];
@@ -266,7 +487,6 @@ function groupByCurve(
   let missing = 0;
   for (let i = 0; i < xs.depth.length; i++) {
     const v = xs.value[i];
-    if (!Number.isFinite(v)) continue;
     const g = gByD.get(dKey(xs.depth[i]));
     if (g === undefined) {
       missing++;
@@ -277,10 +497,24 @@ function groupByCurve(
     seen.add(key);
   }
   const order = [...seen].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
-  if (order.length > MAX_GROUPS) {
-    return { rows: [], order: [], note: "", error: `'${label}' has ${order.length} distinct values — pick a categorical curve (rock-type / facies / RT), not a continuous one.` };
+  const limited = applyPlotRecordLimit("vega_categorical_groups", order, "categorical_groups");
+  if (limited.refusal) {
+    return {
+      rows: [],
+      order: [],
+      note: "",
+      excluded: missing,
+      reductionItem: limited.item,
+      error: `'${label}' has ${order.length} distinct values and exceeds the registered hard maximum — pick a categorical curve (rock-type / facies / RT), not a continuous one. ${limited.refusal}.`,
+    };
   }
-  return { rows, order, note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "" };
+  return {
+    rows,
+    order: limited.displayed,
+    note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "",
+    excluded: missing,
+    reductionItem: null,
+  };
 }
 
 /** A themed Vega-Lite spec for one chart type. Colours are pulled from the active theme's CSS vars
@@ -301,7 +535,15 @@ function buildSpec(
   const dim = cssVar("--text-dim", "#888888");
   const border = cssVar("--border", "#cccccc");
   const accent = cssVar("--accent", "#b5651d");
+  const accent2 = cssVar("--accent-2", "#247a78");
+  const warn = cssVar("--warn", "#c0392b");
   const axis = { labelColor: dim, titleColor: text, gridColor: border, domainColor: border, tickColor: border };
+  const scale = (channel: "x" | "y", extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...extra,
+    ...(opts?.axisDomains?.[channel]
+      ? { domain: opts.axisDomains[channel], nice: false }
+      : {}),
+  });
   const base = {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     background: "transparent",
@@ -313,15 +555,27 @@ function buildSpec(
   };
 
   if (type === "histogram") {
+    const governedDomain = opts?.axisDomains?.x ?? null;
+    const finite = rows.map((row) => row.x).filter(Number.isFinite);
+    const derivedDomain = finite.length > 0
+      ? [Math.min(...finite), Math.max(...finite)] as [number, number]
+      : null;
+    const domain = governedDomain ?? derivedDomain;
+    const histogram = domain && domain[0] !== domain[1]
+      ? buildVegaHistogramData(rows.map((row) => row.x), domain[0], domain[1])
+      : { counts: [], edges: [], displayedTotal: 0, nonFiniteExcluded: 0, rows: [] };
     return {
       ...base,
+      data: { values: histogram.rows },
       mark: { type: "bar", color: accent, opacity: 0.85 },
       encoding: {
-        x: { field: "x", bin: true, type: "quantitative", title: xName, axis },
-        y: { aggregate: "count", type: "quantitative", title: "count", axis },
+        x: { field: "binStart", type: "quantitative", title: xName, scale: scale("x"), axis },
+        x2: { field: "binEnd" },
+        y: { field: "count", type: "quantitative", title: `count (displayed n=${histogram.displayedTotal})`, axis },
         tooltip: [
-          { field: "x", bin: true, type: "quantitative", title: xName },
-          { aggregate: "count", type: "quantitative", title: "count" },
+          { field: "binStart", type: "quantitative", title: `${xName} start` },
+          { field: "binEnd", type: "quantitative", title: `${xName} end` },
+          { field: "count", type: "quantitative", title: "count" },
         ],
       },
     } as VisualizationSpec;
@@ -335,8 +589,8 @@ function buildSpec(
       ...base,
       mark: { type: "rect" },
       encoding: {
-        x: { field: "x", bin, type: "quantitative", title: xName, axis },
-        y: { field: "y", bin, type: "quantitative", title: yName, axis },
+        x: { field: "x", bin, type: "quantitative", title: xName, scale: scale("x"), axis },
+        y: { field: "y", bin, type: "quantitative", title: yName, scale: scale("y"), axis },
         color: {
           aggregate: "count",
           type: "quantitative",
@@ -365,7 +619,7 @@ function buildSpec(
       ...base,
       data: { values: [] }, // each layer carries its own precomputed data; no shared top-level rows
       encoding: {
-        x: { type: "quantitative", scale: { domain: [geo.xMin, geo.xMax], nice: false }, axis: { title: xName, ...axis } },
+        x: { type: "quantitative", scale: scale("x", { domain: [geo.xMin, geo.xMax], nice: false }), axis: { title: xName, ...axis } },
       },
       layer: [
         // cloud — half-violin KDE band, filled from the lane baseline up to the density
@@ -405,7 +659,7 @@ function buildSpec(
           mark: { type: "rule", color: text, strokeWidth: 2 },
           encoding: { x: { field: "med", type: "quantitative" }, y: y("yb0"), y2: { field: "yb1" } },
         },
-        // box — whiskers (Tukey 1.5·IQR fences)
+        // box — governed P5/P95 whiskers, matching the Histogram and SB-PLT-T13
         {
           data: { values: geo.box },
           mark: { type: "rule", color: dim },
@@ -436,8 +690,8 @@ function buildSpec(
   }
 
   const encoding: Record<string, unknown> = {
-    x: { field: "x", type: "quantitative", title: xName, scale: { zero: false }, axis },
-    y: { field: "y", type: "quantitative", title: yName, scale: { zero: false }, axis },
+    x: { field: "x", type: "quantitative", title: xName, scale: scale("x", { zero: false }), axis },
+    y: { field: "y", type: "quantitative", title: yName, scale: scale("y", { zero: false }), axis },
     tooltip: [
       { field: "x", type: "quantitative", title: xName, format: ".3f" },
       { field: "y", type: "quantitative", title: yName, format: ".3f" },
@@ -447,11 +701,29 @@ function buildSpec(
   };
   if (zName) {
     encoding.color = {
-      field: "z",
+      field: "zDisplay",
       type: "quantitative",
       title: zName,
-      scale: { scheme: "viridis" },
+      scale: {
+        scheme: "viridis",
+        ...(opts?.axisDomains?.colour ? { domain: opts.axisDomains.colour } : {}),
+      },
       legend: { labelColor: dim, titleColor: text },
+    };
+    encoding.shape = {
+      condition: [{ test: "datum.zEdge !== 'none'", value: "diamond" }],
+      value: "circle",
+    };
+    encoding.stroke = {
+      condition: [
+        { test: "datum.zEdge === 'low'", value: accent2 },
+        { test: "datum.zEdge === 'high'", value: warn },
+      ],
+      value: null,
+    };
+    encoding.strokeWidth = {
+      condition: [{ test: "datum.zEdge !== 'none'", value: 2 }],
+      value: 0,
     };
   }
   if (type === "line") encoding.order = { field: "depth", type: "quantitative" };
@@ -546,8 +818,8 @@ function buildSpec(
   return { ...base, params, mark, encoding } as VisualizationSpec;
 }
 
-/** A labelled select for the control bar. */
-function field(label: string, sel: HTMLSelectElement): HTMLElement {
+/** A labelled control for the control bar. */
+function field(label: string, sel: HTMLElement): HTMLElement {
   const l = document.createElement("label");
   l.className = "vega-field";
   const t = document.createElement("span");
@@ -611,7 +883,7 @@ export async function buildVegaContent(
   // rebuild via getState) so a re-selected well keeps its exact settings.
   const saved = await loadPlotProps<Record<string, string>>("vega");
   const seed = { ...saved, ...(initial ?? {}) };
-  const zoneSel = await buildZoneSelect(well);
+  const zoneSel = await buildZoneSelect(well, { followSelectedInterval: false });
   trySelect(zoneSel.select, seed.zone);
 
   const container = document.createElement("div");
@@ -673,22 +945,144 @@ export async function buildVegaContent(
   trendLabelText.textContent = "Trend";
   trendField.append(trendLabelText, trendChk, trendMethodSel);
 
+  const validityNumber = (value: string | undefined, placeholder: string): HTMLInputElement => {
+    const input = document.createElement("input");
+    input.className = "form-control";
+    input.type = "number";
+    input.step = "any";
+    input.placeholder = placeholder;
+    const parsed = value === undefined || value.trim() === "" ? null : Number(value);
+    input.value = parsed !== null && Number.isFinite(parsed) ? String(parsed) : "";
+    input.style.width = "68px";
+    return input;
+  };
+  const xValidMin = validityNumber(seed.xValidMin, "min");
+  const xValidMax = validityNumber(seed.xValidMax, "max");
+  const yValidMin = validityNumber(seed.yValidMin, "min");
+  const yValidMax = validityNumber(seed.yValidMax, "max");
+  const rangeControl = (low: HTMLInputElement, high: HTMLInputElement): HTMLElement => {
+    const wrap = document.createElement("span");
+    wrap.style.display = "flex";
+    wrap.style.gap = "4px";
+    wrap.append(low, high);
+    return wrap;
+  };
+  const xValidityField = field("X valid", rangeControl(xValidMin, xValidMax));
+  const yValidityField = field("Y valid", rangeControl(yValidMin, yValidMax));
+  const validityChk = document.createElement("input");
+  validityChk.type = "checkbox";
+  validityChk.checked = seed.validity === "1";
+  const validityField = document.createElement("label");
+  validityField.className = "vega-field";
+  const validityLabel = document.createElement("span");
+  validityLabel.textContent = "Validity";
+  validityField.append(validityLabel, validityChk);
+  const parsedRange = (low: HTMLInputElement, high: HTMLInputElement): AxisDisplayRange | null => {
+    const minimum = low.value.trim() === "" ? null : Number(low.value);
+    const maximum = high.value.trim() === "" ? null : Number(high.value);
+    return minimum !== null && maximum !== null
+      && Number.isFinite(minimum) && Number.isFinite(maximum) && minimum !== maximum
+      ? { min: minimum, max: maximum }
+      : null;
+  };
+  const currentValidityPolicy = (): VegaValidityPolicy => ({
+    apply: validityChk.checked,
+    x: parsedRange(xValidMin, xValidMax),
+    y: parsedRange(yValidMin, yValidMax),
+  });
+
   const toolbar = document.createElement("div");
   toolbar.className = "vega-toolbar";
   const yField = field("Y", ySel);
   const zField = field("Color", zSel);
   const groupField = field("Group", groupSel);
-  toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, groupField, field("Zone", zoneSel.select));
+  const plotIntents = () => {
+    const type = typeSel.value as ChartType;
+    if (type === "histogram") {
+      return [{ channel: "x", semantic_request: xSel.value, required: true }];
+    }
+    if (type === "raincloud") {
+      return [
+        { channel: "x", semantic_request: xSel.value, required: true },
+        ...(groupSel.value !== GROUP_ZONE && groupSel.value !== xSel.value
+          ? [{ channel: "group", semantic_request: groupSel.value, required: true }]
+          : []),
+      ];
+    }
+    return [
+      { channel: "x", semantic_request: xSel.value, required: true },
+      { channel: "y", semantic_request: ySel.value, required: true },
+      ...(type === "scatter" && zSel.value
+        ? [{ channel: "colour", semantic_request: zSel.value, required: true }]
+        : []),
+    ];
+  };
+  const selectionState = (): Record<string, string> => ({
+    type: typeSel.value,
+    x: xSel.value,
+    y: ySel.value,
+    z: zSel.value,
+    zone: zoneSel.select.value,
+    trend: trendChk.checked ? "1" : "",
+    trendMethod: trendMethodSel.value,
+    group: groupSel.value,
+    validity: validityChk.checked ? "1" : "",
+    xValidMin: xValidMin.value,
+    xValidMax: xValidMax.value,
+    yValidMin: yValidMin.value,
+    yValidMax: yValidMax.value,
+    histogramBins: typeSel.value === "histogram" ? String(HISTOGRAM_BINS_DEFAULT) : "",
+  });
+  let baseAxisRanges: PlotAxisRangeExport[] = [];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBindings = (): PlotChannelBinding[] =>
+    plotBindingSnapshotForChannels([well.well_id], plotIntents());
+  const finiteRange = (rows: Row[], field: "x" | "y" | "z"): { min: number; max: number } | null => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const row of rows) {
+      const value = row[field];
+      if (value === undefined || !Number.isFinite(value)) continue;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    return Number.isFinite(min) && Number.isFinite(max) && min !== max ? { min, max } : null;
+  };
+  const persistedState = (options: Record<string, unknown>) =>
+    (syncRuntimeAxisRanges(), buildPersistedPlotState("vega", options, [well.well_id], plotIntents(), axisRanges));
+  toolbar.append(
+    field("Type", typeSel),
+    field("X", xSel),
+    yField,
+    zField,
+    trendField,
+    groupField,
+    field("Zone", zoneSel.select),
+    validityField,
+    xValidityField,
+    yValidityField,
+  );
 
   const chartHost = document.createElement("div");
   chartHost.className = "vega-chart-host";
-  container.append(toolbar, chartHost);
+  const rangeInfo = document.createElement("p");
+  rangeInfo.className = "modal-hint";
+  const statisticsInfo = document.createElement("details");
+  statisticsInfo.className = "modal-hint";
+  statisticsInfo.hidden = true;
+  const statisticsHeading = document.createElement("summary");
+  const statisticsBody = document.createElement("pre");
+  statisticsBody.style.whiteSpace = "pre-wrap";
+  statisticsBody.style.margin = "6px 0 0";
+  statisticsInfo.append(statisticsHeading, statisticsBody);
+  container.append(toolbar, rangeInfo, statisticsInfo, chartHost);
 
   // Dim the controls that don't apply to the active type so the toolbar reads honestly: Y is
   // irrelevant to a histogram; colour and the trend overlay are meaningful only on a scatter.
   const syncControls = (): void => {
     const t = typeSel.value as ChartType;
     const isRC = t === "raincloud";
+    const usesY = t !== "histogram" && !isRC;
     // Raincloud uses X as the distribution variable and the Group picker; Y / Colour / Trend don't
     // apply. Histogram also has no Y. Group applies only to raincloud.
     ySel.disabled = t === "histogram" || isRC;
@@ -697,22 +1091,54 @@ export async function buildVegaContent(
     trendChk.disabled = !trendable;
     trendMethodSel.disabled = !trendable || !trendChk.checked;
     groupSel.disabled = !isRC;
+    yValidMin.disabled = !usesY;
+    yValidMax.disabled = !usesY;
     yField.classList.toggle("vega-field-off", ySel.disabled);
     zField.classList.toggle("vega-field-off", zSel.disabled);
     trendField.classList.toggle("vega-field-off", !trendable);
     groupField.classList.toggle("vega-field-off", !isRC);
+    yValidityField.classList.toggle("vega-field-off", !usesY);
   };
   syncControls();
+  {
+    const policy = currentValidityPolicy();
+    const type = typeSel.value as ChartType;
+    const usesY = type === "scatter" || type === "line" || type === "density";
+    if (policy.apply && !policy.x && !(usesY && policy.y)) validityChk.checked = false;
+  }
 
   let current: VegaResult | null = null;
   let disposed = false;
   let gen = 0;
+  let selectorGen = 0;
+  let editorGen = 0;
+  let resizeGen = 0;
+  let accessibility: PlotAccessibilityBinding | null = null;
+  let settleBindingReady!: () => void;
+  let refuseBindingReady!: (error: unknown) => void;
+  let bindingReadySettled = false;
+  const bindingReady = new Promise<void>((resolve, reject) => {
+    settleBindingReady = resolve;
+    refuseBindingReady = reject;
+  });
+  void bindingReady.catch(() => {});
+  const bindingReadyOk = (): void => {
+    if (bindingReadySettled) return;
+    bindingReadySettled = true;
+    settleBindingReady();
+  };
+  const bindingReadyError = (error: unknown): void => {
+    if (bindingReadySettled) return;
+    bindingReadySettled = true;
+    refuseBindingReady(error);
+  };
   // True once the panel has been measured non-zero and the first embed has fired. Declared up here
   // (not by the ResizeObserver) because themeVersion.subscribe below fires synchronously on
   // subscribe and reads it — a `let` declared later would be in the temporal dead zone.
   let embedded = false;
   // Cache of the last-rendered view so a theme switch can re-embed without re-fetching.
   let lastRows: Row[] | null = null;
+  let lastSourceRows: Row[] | null = null;
   let lastType: ChartType = "scatter";
   let lastX = "";
   let lastY = "";
@@ -721,9 +1147,179 @@ export async function buildVegaContent(
   let lastMethod = "linear";
   let lastGroupOrder: string[] = [];
   let lastGroupLabel = "";
+  let lastUnpairedOrUnclassifiedExcluded = 0;
+  let lastColourPolicy: Pick<VegaColourPolicy, "excluded" | "clamped"> | null = null;
+  let reductionManifest: PlotReductionExport | null = null;
+  let statisticsRecords: PlotStatisticsRecord[] = [];
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
   let specOverride: VisualizationSpec | null = null;
+  const updateRangeInfo = (): void => {
+    if (specOverride) {
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
+      statisticsBody.textContent = "";
+      rangeInfo.textContent = "Custom spec active: governed display clipping is unavailable, so persistence and export are refused.";
+      return;
+    }
+    if (axisRanges.length === 0 || !lastSourceRows) {
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
+      statisticsBody.textContent = "";
+      return;
+    }
+    const x = axisRanges.find((range) => range.axis === "x") ?? null;
+    const y = axisRanges.find((range) => range.axis === "y") ?? null;
+    const population = screenVegaPopulation(
+      lastSourceRows,
+      lastType,
+      currentValidityPolicy(),
+      x ? { min: x.min, max: x.max } : null,
+      y ? { min: y.min, max: y.max } : null,
+    );
+    const zone = zoneSel.current();
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const previousStatisticsCount = statisticsRecords.length;
+    statisticsRecords = buildVegaStatisticsRecords(
+      lastSourceRows,
+      lastType,
+      currentValidityPolicy(),
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      lastX,
+      lastY,
+      x ? { min: x.min, max: x.max } : null,
+      y ? { min: y.min, max: y.max } : null,
+      selectionLabel,
+      lastUnpairedOrUnclassifiedExcluded,
+    );
+    statisticsInfo.hidden = statisticsRecords.length === 0;
+    statisticsHeading.textContent = `Statistics custody — ${statisticsRecords.length} record${statisticsRecords.length === 1 ? "" : "s"}`;
+    statisticsBody.textContent = statisticsRecords
+      .map((record) => formatPlotStatisticsRecord(record))
+      .join("\n");
+    if (statisticsRecords.length !== previousStatisticsCount) {
+      statisticsInfo.open = statisticsRecords.length <= 2;
+    }
+    const histogramDomain = lastType === "histogram"
+      ? baseAxisRanges.find((range) => range.axis === "x") ?? null
+      : null;
+    const histogram = histogramDomain && lastRows
+      ? buildVegaHistogramData(
+          lastRows.map((row) => row.x),
+          histogramDomain.min,
+          histogramDomain.max,
+          HISTOGRAM_BINS_DEFAULT,
+        )
+      : null;
+    const histogramSummary = histogram
+      ? ` · histogram bins=${histogram.counts.length} · displayed total=${histogram.displayedTotal}`
+      : "";
+    const colourSummary = lastZ && lastColourPolicy
+      ? `${lastColourPolicy.excluded ? ` · Z excluded=${lastColourPolicy.excluded}` : ""}${lastColourPolicy.clamped ? ` · Z clamped/edge-marked=${lastColourPolicy.clamped}` : ""}`
+      : "";
+    rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, {
+      statistics: true,
+      fitInputs: lastType === "scatter" && lastTrend ? population.analysisCount : null,
+    })}${histogramSummary}${colourSummary}`;
+  };
+  const prepareAxisRanges = (type: ChartType, rows: Row[], zName: string | null): boolean => {
+    if (specOverride) {
+      baseAxisRanges = [];
+      axisRanges = [];
+      rangeInfo.textContent = "Custom spec active: governed axis custody is unavailable, so persistence and export are refused.";
+      return true;
+    }
+    const bindings = currentAxisBindings();
+    const xBinding = bindings.find((binding) => binding.intent.channel === "x") ?? null;
+    const yBinding = bindings.find((binding) => binding.intent.channel === "y") ?? null;
+    const colourBinding = bindings.find((binding) => binding.intent.channel === "colour") ?? null;
+    const xRange = resolveBoundAxisRange({
+      binding: xBinding,
+      user: null,
+      finiteData: finiteRange(rows, "x"),
+      validity: currentValidityPolicy().x,
+    });
+    const needsY = type === "scatter" || type === "line" || type === "density";
+    const yRange = needsY
+      ? resolveBoundAxisRange({
+          binding: yBinding,
+          user: null,
+          finiteData: finiteRange(rows, "y"),
+          validity: currentValidityPolicy().y,
+        })
+      : null;
+    const colourRange = type === "scatter" && zName
+      ? resolveBoundAxisRange({
+          binding: colourBinding,
+          user: null,
+          finiteData: finiteRange(rows, "z"),
+        })
+      : null;
+    if (!xRange || (needsY && !yRange) || (type === "scatter" && zName && !colourRange)) {
+      baseAxisRanges = [];
+      axisRanges = [];
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
+      rangeInfo.textContent = "Axis range unavailable: this chart has no complete header, audited-family, or finite-data range.";
+      return false;
+    }
+    baseAxisRanges = [
+      axisRangeExportRecord("x", xRange),
+      ...(yRange ? [axisRangeExportRecord("y", yRange)] : []),
+      ...(colourRange ? [axisRangeExportRecord("colour", colourRange)] : []),
+    ];
+    axisRanges = [...baseAxisRanges];
+    updateRangeInfo();
+    return true;
+  };
+  function syncRuntimeAxisRanges(): void {
+    if (!current || specOverride || baseAxisRanges.length === 0) return;
+    const channels: Array<"x" | "y"> = lastType === "histogram" ? ["x", "y"] : ["x", ...(baseAxisRanges.some((range) => range.axis === "y") ? ["y" as const] : [])];
+    const resolved: PlotAxisRangeExport[] = [];
+    for (const channel of channels) {
+      const base = baseAxisRanges.find((range) => range.axis === channel) ?? null;
+      try {
+        const runtimeScale = (current.view as unknown as { scale: (name: string) => { domain: () => unknown[] } }).scale(channel);
+        const domain = runtimeScale?.domain();
+        const min = Number(domain?.[0]);
+        const max = Number(domain?.[domain.length - 1]);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+          if (base) resolved.push(base);
+          continue;
+        }
+        const unchanged = !!base && base.min === min && base.max === max;
+        resolved.push({
+          axis: channel,
+          min,
+          max,
+          tier: base ? (unchanged ? base.tier : "user") : "finite_data",
+        });
+      } catch {
+        if (base) resolved.push(base);
+      }
+    }
+    if (resolved.length > 0) {
+      const colour = baseAxisRanges.find((range) => range.axis === "colour");
+      if (colour) resolved.push(colour);
+      axisRanges = resolved;
+      updateRangeInfo();
+    }
+  }
+  let axisSyncRaf = 0;
+  const syncAxesAfterInteraction = (): void => {
+    if (axisSyncRaf) return;
+    axisSyncRaf = requestAnimationFrame(() => {
+      axisSyncRaf = 0;
+      syncRuntimeAxisRanges();
+    });
+  };
+  chartHost.addEventListener("wheel", syncAxesAfterInteraction, { passive: true });
+  chartHost.addEventListener("pointerup", syncAxesAfterInteraction);
   const specFor = (
     type: ChartType,
     rows: Row[],
@@ -731,10 +1327,16 @@ export async function buildVegaContent(
     yName: string,
     zName: string | null,
     opts: SpecOpts,
-  ): VisualizationSpec =>
-    specOverride
-      ? ({ ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec)
-      : buildSpec(type, rows, xName, yName, zName, opts);
+  ): VisualizationSpec => {
+    if (specOverride) {
+      return { ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec;
+    }
+    return buildSpec(type, rows, xName, yName, zName, {
+      ...opts,
+      axisDomains: opts.axisDomains
+        ?? Object.fromEntries(baseAxisRanges.map((range) => [range.axis, [range.min, range.max]])),
+    });
+  };
 
   // --- Linked brushing -------------------------------------------------------
   // Emit: publish the depths inside the Vega brush rectangle. rAF-coalesced during a drag, with a
@@ -802,9 +1404,17 @@ export async function buildVegaContent(
       pushBrush(pendingSel);
     });
   };
+  const clearCurrent = (): void => {
+    resizeGen++;
+    accessibility?.dispose();
+    accessibility = null;
+    current?.finalize();
+    current = null;
+    chartHost.innerHTML = "";
+  };
 
   /** Embed `rows` for `type`, wiring the brush emit listener and syncing the current shared brush.
-   *  `myGen` guards against a newer render/repaint having superseded this one mid-await. */
+   *  The token guards against a newer render/repaint having superseded this one mid-await. */
   async function embedRows(
     type: ChartType,
     rows: Row[],
@@ -812,50 +1422,91 @@ export async function buildVegaContent(
     yName: string,
     zName: string | null,
     opts: SpecOpts,
-    myGen: number,
-  ): Promise<void> {
-    current?.finalize();
-    current = null;
-    chartHost.innerHTML = "";
+    token: PlotAsyncGenerationToken,
+  ): Promise<boolean> {
     if (rows.length === 0) {
+      clearCurrent();
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
+      baseAxisRanges = [];
+      axisRanges = [];
+      const population = screenVegaPopulation(lastSourceRows ?? [], type, currentValidityPolicy(), null, null);
+      rangeInfo.textContent = formatPlotRangePolicySummary(population, {
+        statistics: true,
+        fitInputs: type === "scatter" && !!opts.trend ? population.analysisCount : null,
+      });
       const what = type === "histogram" || type === "raincloud" ? xName : `${xName} / ${yName}`;
       const zc = zoneSel.current();
       // `well.well_name` and the curve mnemonics in `what` are LAS-supplied and stored verbatim;
       // building this line as textContent (not innerHTML) keeps a hostile `~W WELL` value inert.
       const scope = zc.zoneName !== "*" ? ` · ${zc.zoneName}` : "";
       chartHost.replaceChildren(
-        messageNode("logview-message", `No finite ${what} samples in ${well.well_name}${scope}.`),
+        messageNode("logview-message", `No eligible ${what} samples in ${well.well_name}${scope}; review validity and finite-data exclusions.`),
       );
       setStatus("Vega — no data");
-      return;
+      return true;
     }
+    lastColourPolicy = null;
+    if (!prepareAxisRanges(type, rows, zName)) {
+      clearCurrent();
+      chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed display range is available for every source-curve axis."));
+      setStatus("Vega — axis range refused");
+      return true;
+    }
+    let renderRows = rows;
+    if (type === "scatter" && zName) {
+      const colourRange = baseAxisRanges.find((range) => range.axis === "colour");
+      if (!colourRange) {
+        clearCurrent();
+        chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed colour range is available for the selected Z curve."));
+        setStatus("Vega — colour range refused");
+        return true;
+      }
+      const colourPolicy = applyVegaColourPolicy(rows, { min: colourRange.min, max: colourRange.max });
+      lastColourPolicy = { excluded: colourPolicy.excluded, clamped: colourPolicy.clamped };
+      renderRows = colourPolicy.rows.filter((_row, index) => colourPolicy.included[index] === 1);
+    }
+    lastRows = renderRows;
+    updateRangeInfo();
     try {
-      const result = await vegaEmbed(chartHost, specFor(type, rows, xName, yName, zName, opts), {
+      // vegaEmbed mutates its host before its Promise resolves. Build in a detached host so an
+      // old generation cannot touch the active panel before the freshness check runs.
+      const stagingHost = document.createElement("div");
+      const result = await vegaEmbed(stagingHost, specFor(type, renderRows, xName, yName, zName, opts), {
         actions: false,
         renderer: "canvas",
         tooltip: true,
       });
-      if (disposed || myGen !== gen) {
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) {
         result.finalize();
-        return;
+        return false;
       }
+      clearCurrent();
       current = result;
+      chartHost.replaceChildren(...Array.from(stagingHost.childNodes));
+      bindVegaAccessibility();
+      syncRuntimeAxisRanges();
       if (brushable(type)) {
         result.view.addSignalListener("brush", () => scheduleEmit());
         pushBrush(appState.brushedDepths.get()); // reflect any selection already active elsewhere
       }
       const zc = zoneSel.current();
       const scope = zc.zoneName !== "*" ? ` · ${zc.zoneName}` : "";
-      setStatus(`Vega — ${type}, ${rows.length.toLocaleString()} points${scope}`);
+      setStatus(`Vega — ${type}, ${renderRows.length.toLocaleString()} points${scope}`);
+      return true;
     } catch (err) {
-      if (disposed || myGen !== gen) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return false;
+      clearCurrent();
       chartHost.replaceChildren(messageNode("logview-message", `Vega render failed: ${err}`));
       setStatus("Vega — render failed");
+      return true;
     }
   }
 
   async function render(): Promise<void> {
-    const myGen = ++gen;
+    accessibility?.refresh();
+    const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
+    reductionManifest = null;
     const type = typeSel.value as ChartType;
     const xName = xSel.value;
     const yName = ySel.value;
@@ -873,19 +1524,21 @@ export async function buildVegaContent(
       try {
         series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
       } catch (err) {
-        if (disposed || myGen !== gen) return;
+        if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
+        bindingReadyError(err);
         chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
         setStatus("Vega — load failed");
         return;
       }
-      if (disposed || myGen !== gen) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
       const xs = series.find((s) => s.curve_name === xName);
       if (!xs) {
+        bindingReadyError(new Error(`required channel '${xName}' is unresolved`));
         chartHost.replaceChildren(messageNode("logview-message", `No ${xName} data in ${well.well_name}.`));
         setStatus("Vega — no data");
         return;
       }
-      let rows: Row[], order: string[], note = "", groupLabel: string;
+      let rows: Row[], order: string[], note = "", groupLabel: string, unpairedOrUnclassifiedExcluded = 0;
       if (byZone) {
         let zones: ZoneEntry[] = [];
         try {
@@ -893,25 +1546,41 @@ export async function buildVegaContent(
         } catch {
           zones = [];
         }
-        if (disposed || myGen !== gen) return;
+        if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
         ({ rows, order } = groupByZone(xs, zones));
         groupLabel = "zone";
       } else {
         const gs = series.find((s) => s.curve_name === groupBy);
         if (!gs) {
+          bindingReadyError(new Error(`required channel '${groupBy}' is unresolved`));
           chartHost.replaceChildren(messageNode("logview-message", `No ${groupBy} data in ${well.well_name}.`));
           setStatus("Vega — no data");
           return;
         }
         const res = groupByCurve(xs, gs, groupBy);
         if (res.error) {
+          bindingReadyError(new Error(res.error));
+          clearCurrent();
+          reductionManifest = {
+            schema_version: 1,
+            plot_type: "vega",
+            items: res.reductionItem ? [res.reductionItem] : [],
+            absent: [],
+            refusal: res.error,
+          };
           chartHost.replaceChildren(messageNode("logview-message", res.error));
           setStatus("Vega — too many groups");
           return;
         }
-        ({ rows, order, note } = res);
+        ({ rows, order, note, excluded: unpairedOrUnclassifiedExcluded } = res);
         groupLabel = groupBy;
       }
+      const sourceRows = rows;
+      const screened = screenVegaPopulation(sourceRows, type, currentValidityPolicy(), null, null);
+      rows = screened.indices.map((index) => sourceRows[index]);
+      const presentGroups = new Set(rows.map((row) => row.group));
+      order = order.filter((group) => presentGroups.has(group));
+      lastSourceRows = sourceRows;
       lastRows = rows;
       lastType = type;
       lastX = xName;
@@ -921,9 +1590,17 @@ export async function buildVegaContent(
       lastMethod = method;
       lastGroupOrder = order;
       lastGroupLabel = groupLabel;
-      await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, myGen);
+      lastUnpairedOrUnclassifiedExcluded = unpairedOrUnclassifiedExcluded;
+      if (!(await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, token))) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
+      if (!current) {
+        bindingReadyError(new Error("Vega refused: the initial chart did not render"));
+        return;
+      }
+      bindingReadyOk();
+      persist();
       // embedRows sets a generic status; refine it with the group count and any dropped-sample note.
-      if (current && !disposed && myGen === gen) {
+      if (current && isPlotAsyncGenerationCurrent(token, gen, disposed)) {
         setStatus(`Vega — raincloud · ${order.length} group(s) · ${rows.length.toLocaleString()} pts${note}`);
       }
       return;
@@ -935,13 +1612,17 @@ export async function buildVegaContent(
     try {
       series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
     } catch (err) {
-      if (disposed || myGen !== gen) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
+      bindingReadyError(err);
       chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
       setStatus("Vega — load failed");
       return;
     }
-    if (disposed || myGen !== gen) return; // a newer render (or close) already won
-    const rows = type === "histogram" ? xValues(series, xName) : joinXYZ(series, xName, yName, useZ);
+    if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
+    const sourceRows = type === "histogram" ? xValues(series, xName) : joinXYZ(series, xName, yName, useZ);
+    const screened = screenVegaPopulation(sourceRows, type, currentValidityPolicy(), null, null);
+    const rows = screened.indices.map((index) => sourceRows[index]);
+    lastSourceRows = sourceRows;
     lastRows = rows;
     lastType = type;
     lastX = xName;
@@ -949,41 +1630,130 @@ export async function buildVegaContent(
     lastZ = useZ;
     lastTrend = useTrend;
     lastMethod = method;
-    await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, myGen);
+    lastUnpairedOrUnclassifiedExcluded = 0;
+    if (!(await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, token))) return;
+    if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
+    if (!current) {
+      bindingReadyError(new Error("Vega refused: the initial chart did not render"));
+      return;
+    }
+    bindingReadyOk();
+    persist();
   }
 
-  /** Re-embed the cached rows with the new theme's colours (a theme switch resets zoom/pan — a rare,
-   *  deliberate trade for repainting without a re-fetch). No-op until the first render has cached. */
-  async function repaint(): Promise<void> {
-    if (!lastRows) return;
-    const myGen = ++gen;
-    await embedRows(lastType, lastRows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod, groupOrder: lastGroupOrder, groupLabel: lastGroupLabel }, myGen);
+  /** Re-embed cached rows with new theme colours, restoring current runtime X/Y domains. */
+  async function repaint(
+    requestedDomains?: Partial<Record<"x" | "y", [number, number]>>,
+  ): Promise<void> {
+    if (!lastSourceRows) return;
+    if (!requestedDomains) syncRuntimeAxisRanges();
+    const axisDomains = requestedDomains ?? captureVegaViewportDomains(axisRanges);
+    const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
+    const screened = screenVegaPopulation(lastSourceRows, lastType, currentValidityPolicy(), null, null);
+    const rows = screened.indices.map((index) => lastSourceRows![index]);
+    await embedRows(lastType, rows, lastX, lastY, lastZ, {
+      trend: lastTrend,
+      method: lastMethod,
+      groupOrder: lastGroupOrder,
+      groupLabel: lastGroupLabel,
+      axisDomains,
+    }, token);
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------
-  const persist = (): void =>
-    savePlotProps("vega", {
-      type: typeSel.value,
-      x: xSel.value,
-      y: ySel.value,
-      z: zSel.value,
-      zone: zoneSel.select.value,
-      trend: trendChk.checked ? "1" : "",
-      trendMethod: trendMethodSel.value,
-      group: groupSel.value,
-    });
+  const persist = (): void => {
+    try {
+      void savePlotProps("vega", persistedState(selectionState()))
+        .catch((error) => setStatus(`Vega state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Vega state not saved: ${error}`);
+    }
+  };
 
   // Export. Vega renders to a <canvas>, so the shared PNG copy/save/print buttons work against it;
   // SVG comes from vega's own vector renderer.
   const getCanvas = (): HTMLCanvasElement | null => chartHost.querySelector<HTMLCanvasElement>("canvas");
+
+  const accessibleLabel = (): string => {
+    const type = typeSel.options[typeSel.selectedIndex]?.textContent ?? typeSel.value;
+    const usesY = typeSel.value === "scatter" || typeSel.value === "line" || typeSel.value === "density";
+    return `Vega ${type}: ${xSel.value}${usesY ? ` versus ${ySel.value}` : ""}${zSel.value ? `, coloured by ${zSel.value}` : ""}`;
+  };
+
+  const changeVegaView = (command: PlotViewKeyboardCommand): boolean => {
+    if (!current || !lastRows) return false;
+    if (command.kind === "reset") {
+      const base = captureVegaViewportDomains(baseAxisRanges);
+      if (!base.x && !base.y) return false;
+      void repaint(base);
+      return true;
+    }
+    syncRuntimeAxisRanges();
+    const domains = captureVegaViewportDomains(axisRanges);
+    if (command.kind === "pan") {
+      const domain = domains[command.axis];
+      if (!domain) return false;
+      const span = domain[1] - domain[0];
+      const delta = span * (command.large ? 0.2 : 0.08) * command.direction;
+      domains[command.axis] = [domain[0] + delta, domain[1] + delta];
+    } else {
+      let changed = false;
+      for (const axis of ["x", "y"] as const) {
+        const domain = domains[axis];
+        if (!domain) continue;
+        const center = (domain[0] + domain[1]) / 2;
+        const half = ((domain[1] - domain[0]) / 2) * (command.direction === "in" ? 0.83 : 1.2);
+        domains[axis] = [center - half, center + half];
+        changed = true;
+      }
+      if (!changed) return false;
+    }
+    void repaint(domains);
+    return true;
+  };
+
+  function bindVegaAccessibility(): void {
+    accessibility?.dispose();
+    const canvas = getCanvas();
+    if (!canvas) {
+      accessibility = null;
+      return;
+    }
+    accessibility = attachAccessiblePlotKeyboard({
+      surface: canvas,
+      getLabel: accessibleLabel,
+      changeView: changeVegaView,
+      openProperties: () => typeSel.focus(),
+      focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+    });
+  }
+
   const exportSvg = async (): Promise<void> => {
     if (!current) {
       setStatus("No Vega chart to export yet");
       return;
     }
     try {
-      const svg = await current.view.toSVG();
-      const path = await saveSvg(svg, "Vega chart");
+      const state = persistedState(selectionState());
+      const scope = {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
+        statisticsRecords,
+      };
+      const measured = current.view.scenegraph().bounds;
+      const svg = paperizeMeasuredSvg(
+        await current.view.toSVG(),
+        current.view.width(),
+        current.view.height(),
+        { min_x: measured.x1, min_y: measured.y1, max_x: measured.x2, max_y: measured.y2 },
+        scope,
+      );
+      const path = await saveSvg(svg, "Vega chart", {
+        ...scope,
+        paperExportRecord: paperExportRecordFromSvg(svg),
+      });
       if (path) {
         setStatus(`Vega chart SVG saved to ${path}`);
         recordProcess("Export", `Vega chart SVG (vector) → ${path}`);
@@ -992,7 +1762,24 @@ export async function buildVegaContent(
       setStatus(`SVG export failed: ${err}`);
     }
   };
-  const exportGroup = buildImageExportButtons(getCanvas, "Vega chart", setStatus);
+  const exportGroup = buildImageExportButtons(
+    getCanvas,
+    "Vega chart",
+    setStatus,
+    undefined,
+    undefined,
+    () => reductionManifest,
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
+        statisticsRecords,
+      };
+    },
+  );
   const svgBtn = document.createElement("button");
   svgBtn.className = "plot-export-btn";
   svgBtn.textContent = "⭳ SVG";
@@ -1048,18 +1835,21 @@ export async function buildVegaContent(
   const refreshTemplate = (): void => {
     if (editor) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: templateJson() } });
   };
-  const ensureEditor = async (): Promise<void> => {
-    if (editor || disposed) return;
+  const ensureEditor = async (): Promise<boolean> => {
+    if (editor) return true;
+    if (disposed) return false;
+    const token = beginPlotAsyncGeneration("vega-editor-load", ++editorGen);
     const { EditorView: CM, basicSetup } = await import("codemirror");
-    if (disposed) return; // the panel closed while the (lazy) editor module loaded
+    if (!isPlotAsyncGenerationCurrent(token, editorGen, disposed)) return false;
     editor = new CM({ parent: editorHost, doc: templateJson(), extensions: [basicSetup, CM.lineWrapping] });
+    return true;
   };
   let specOpen = false;
   specToggle.addEventListener("click", () => {
     specOpen = !specOpen;
     specWrap.style.display = specOpen ? "" : "none";
     specToggle.classList.toggle("active", specOpen);
-    if (specOpen) void ensureEditor().then(() => !specOverride && refreshTemplate());
+    if (specOpen) void ensureEditor().then((applied) => applied && !specOverride && refreshTemplate());
   });
   applyBtn.addEventListener("click", () => {
     if (!editor) return;
@@ -1085,8 +1875,19 @@ export async function buildVegaContent(
 
   // Control-bar changes. A chart-type change is structural, so it drops any spec override; the other
   // controls only change which curves/zone fill the plot and keep an override in place.
+  const ensureValidityApplicable = (): boolean => {
+    if (!validityChk.checked) return true;
+    const policy = currentValidityPolicy();
+    const type = typeSel.value as ChartType;
+    const usesY = type === "scatter" || type === "line" || type === "density";
+    if (policy.x || (usesY && policy.y)) return true;
+    validityChk.checked = false;
+    setStatus("Vega validity disabled: supply at least one complete applicable X or Y range before enabling it");
+    return false;
+  };
   typeSel.addEventListener("change", () => {
     syncControls();
+    ensureValidityApplicable();
     if (specOverride) {
       specOverride = null;
       setStatus("Vega — spec override reset (chart type changed)");
@@ -1111,6 +1912,15 @@ export async function buildVegaContent(
   };
   trendChk.addEventListener("change", onTrendChange);
   trendMethodSel.addEventListener("change", onTrendChange);
+  const onValidityChange = (): void => {
+    ensureValidityApplicable();
+    persist();
+    void render();
+  };
+  validityChk.addEventListener("change", onValidityChange);
+  for (const input of [xValidMin, xValidMax, yValidMin, yValidMax]) {
+    input.addEventListener("change", onValidityChange);
+  }
 
   // A plain (non-Shift) drag on the chart is a brush; remember it so pointer-up can flush the final
   // extent. Shift-drag is a pan (grid param) and must not publish a selection.
@@ -1128,72 +1938,95 @@ export async function buildVegaContent(
   };
   window.addEventListener("pointerup", onPointerUp);
 
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => applyBrush(sel));
-  const unsubTheme = appState.themeVersion.subscribe(() => {
-    if (embedded && lastRows) void repaint();
-  });
-
-  // Re-fetch and refill the curve dropdowns when computed curves change (a module/equation run,
-  // import, or undo) so the panel never keeps plotting pre-run values while every sibling plot
-  // beside it has already redrawn — and so newly written curves (e.g. MM_PHIE/MM_SW) appear in the
-  // X/Y/Colour/Group lists without reopening the panel. Mirrors the primed dataVersion subscription
-  // every sibling plot carries; the synchronous first fire is swallowed so build doesn't double-load.
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    void (async () => {
-      try {
-        const names = await loadCurveNames();
-        if (disposed) return;
-        refillCurveSelect(xSel, names);
-        refillCurveSelect(ySel, names);
-        refillCurveSelect(zSel, names, [{ value: "", label: "— None —" }]);
-        refillCurveSelect(groupSel, names, [{ value: GROUP_ZONE, label: "By zone" }]);
-      } catch {
-        // Catalog refill failed; still re-render below so the plot reflects the new data version.
+  const invalidation = registerPlotInvalidationContract(chartHost, {
+    selection: (selection) => {
+      applyBrush(selection);
+      updateRangeInfo();
+    },
+    theme: () => {
+      if (embedded && lastRows) void repaint();
+    },
+    dataRevision: () => {
+      // Refill selectors and re-fetch after module/equation runs, imports and undo, so the
+      // grammar cannot keep stale rows while sibling plots already show the new revision.
+      const token = beginPlotAsyncGeneration("vega-selector-refetch", ++selectorGen);
+      void (async () => {
+        try {
+          const names = await loadCurveNames();
+          if (!isPlotAsyncGenerationCurrent(token, selectorGen, disposed)) return;
+          refillCurveSelect(xSel, names);
+          refillCurveSelect(ySel, names);
+          refillCurveSelect(zSel, names, [{ value: "", label: "— None —" }]);
+          refillCurveSelect(groupSel, names, [{ value: GROUP_ZONE, label: "By zone" }]);
+        } catch {
+          // Catalog refill failed; still re-render below so the plot reflects the new revision.
+        }
+        if (isPlotAsyncGenerationCurrent(token, selectorGen, disposed) && embedded) await render();
+      })();
+    },
+    interval: (interval) => zoneSel.applySelectedInterval(interval, true),
+    size: ({ width, height }) => {
+      if (disposed || width <= 0 || height <= 0) return;
+      if (!embedded) {
+        embedded = true;
+        void render();
+        return;
       }
-      if (!disposed && embedded) await render();
-    })();
+      if (current) {
+        const resized = current;
+        const token = beginPlotAsyncGeneration("vega-resize", ++resizeGen);
+        void resized.view.resize().runAsync().then(() => {
+          if (
+            isPlotAsyncGenerationCurrent(token, resizeGen, disposed) &&
+            current === resized
+          ) syncRuntimeAxisRanges();
+        }).catch(() => {});
+      }
+    },
+    cancelPending: () => {
+      disposed = true;
+      gen++;
+      selectorGen++;
+      editorGen++;
+      resizeGen++;
+      if (emitRaf) {
+        cancelAnimationFrame(emitRaf);
+        emitRaf = 0;
+      }
+      if (applyRaf) {
+        cancelAnimationFrame(applyRaf);
+        applyRaf = 0;
+      }
+      if (axisSyncRaf) {
+        cancelAnimationFrame(axisSyncRaf);
+        axisSyncRaf = 0;
+      }
+    },
   });
 
-  // vega's container sizing needs the host attached with a non-zero size, which only happens once
-  // the dock appends this panel. Embed on the first non-zero measurement; vega tracks resizes after.
-  const ro = new ResizeObserver(() => {
-    if (embedded || disposed) return;
-    if (chartHost.clientWidth > 0 && chartHost.clientHeight > 0) {
-      embedded = true;
-      void render();
-    }
-  });
-  ro.observe(chartHost);
+  // The dock normally attaches after this builder returns, so the shared size source performs
+  // the initial render on the first 0→non-zero change. Handle an already-attached host too.
+  if (chartHost.clientWidth > 0 && chartHost.clientHeight > 0) {
+    embedded = true;
+    void render();
+  }
 
   return {
     el: container,
     dispose: () => {
-      disposed = true;
-      if (emitRaf) cancelAnimationFrame(emitRaf);
-      if (applyRaf) cancelAnimationFrame(applyRaf);
+      invalidation.dispose();
       window.removeEventListener("pointerup", onPointerUp);
-      unsubBrush();
-      unsubTheme();
-      unsubData();
-      ro.disconnect();
+      chartHost.removeEventListener("wheel", syncAxesAfterInteraction);
+      chartHost.removeEventListener("pointerup", syncAxesAfterInteraction);
       zoneSel.dispose();
+      accessibility?.dispose();
+      accessibility = null;
       editor?.destroy();
       current?.finalize();
       current = null;
     },
-    getState: () => ({
-      type: typeSel.value,
-      x: xSel.value,
-      y: ySel.value,
-      z: zSel.value,
-      zone: zoneSel.select.value,
-      trend: trendChk.checked ? "1" : "",
-      trendMethod: trendMethodSel.value,
-    }),
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
   };
 }

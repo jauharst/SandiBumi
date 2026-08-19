@@ -22,6 +22,8 @@ import { formRow } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { requestRunCustody } from "./runCustody";
+import { buildParamSources, PARAM_SOURCE_TOPICS } from "./paramSources";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const DEFAULT_STEPS = ["vsh_gr", "phi_dn", "sw_indo"];
@@ -51,6 +53,7 @@ interface ParamCandidate {
   default: number;
   unit: string;
   desc: string;
+  sourcesTopic: string;
 }
 
 /** One imported default uncertainty width. `pct` → the width is a percentage of the parameter's
@@ -208,6 +211,7 @@ export async function buildMonteCarloContent(
           default: step.params[arg.name] ?? parseFloat(arg.default),
           unit: arg.unit,
           desc: arg.desc,
+          sourcesTopic: arg.sources_topic ?? "",
         });
       }
     }
@@ -352,6 +356,9 @@ export async function buildMonteCarloContent(
       rm.classList.add("mc-rm");
 
       el.append(paramSel, kindSel, seedTag(row.param), fields, spark.el, zoneInp, rm);
+      const evidence = buildParamSources(candidateFor(row.param)?.sourcesTopic ?? "");
+      evidence.classList.add("mc-param-evidence");
+      el.appendChild(evidence);
       mcList.appendChild(el);
     });
     renderCorrRows(); // param renames/removals must reflect in the correlation editor
@@ -464,6 +471,9 @@ export async function buildMonteCarloContent(
   const vshMax = numField("VSH ≤", cuts.vsh_max, 0, 1);
   const phieMin = numField("PHIE ≥", cuts.phie_min, 0, 1);
   const sweMax = numField("SWE ≤", cuts.swe_max, 0, 1);
+  vshMax.el.appendChild(buildParamSources(PARAM_SOURCE_TOPICS.cutoffVshMax));
+  phieMin.el.appendChild(buildParamSources(PARAM_SOURCE_TOPICS.cutoffPhieMin));
+  sweMax.el.appendChild(buildParamSources(PARAM_SOURCE_TOPICS.cutoffSweMax));
   const permMin = numField("PERM ≥ (blank=off)", cuts.perm_min ?? NaN, 0, 1e6);
   const sampSel = document.createElement("select");
   for (const [v, label] of [
@@ -555,17 +565,23 @@ export async function buildMonteCarloContent(
       .filter((r) => r.a && r.b && r.a !== r.b && Number.isFinite(r.rho) && r.rho !== 0)
       .map((r) => ({ param_a: r.a, param_b: r.b, rho: r.rho }));
     const pm = permMin.value();
+    // SB-CUT-019: a cut-off travels with the unit it was entered in; a blank box is ABSENT.
+    const entered = (v: number) => (Number.isFinite(v) ? { value: v, unit: "v/v" } : null);
     const [loP, hiP] = pctlSel.value();
+    const persist = persistChk.checked();
+    const custody = persist ? await requestRunCustody("Persist Monte Carlo curves") : null;
+    if (persist && !custody) return;
     const req: McRequest = {
       well_ids: wellIds,
       steps,
       mc_params: mcParams,
       iterations: Math.round(iters.value()),
       seed: Math.round(seed.value()),
-      vsh_max: vshMax.value(),
-      phie_min: phieMin.value(),
-      swe_max: sweMax.value(),
-      perm_min: Number.isFinite(pm) ? pm : null,
+      // SB-CUT-019: entered with a unit, never a bare number. A non-finite box is ABSENT.
+      vsh_max: entered(vshMax.value()),
+      phie_min: entered(phieMin.value()),
+      swe_max: entered(sweMax.value()),
+      perm_min: Number.isFinite(pm) ? { value: pm, unit: "mD" } : null,
       bins: Math.round(bins.value()),
       low_pctl: loP,
       high_pctl: hiP,
@@ -574,14 +590,15 @@ export async function buildMonteCarloContent(
       sampling: sampSel.value as "lhs" | "random",
       correlations,
       converge: convChk.checked(),
-      persist: persistChk.checked(),
-      persist_realizations: persistChk.checked() && realChk.checked(),
+      persist,
+      persist_realizations: persist && realChk.checked(),
+      custody,
     };
     runBtn.disabled = true;
     statusLine.textContent = `Running ${req.iterations.toLocaleString()} realizations × ${wellIds.length} well(s)…`;
     const t0 = performance.now();
     try {
-      const res = await runMonteCarlo(req);
+      const res = await runMonteCarlo(req, scope.backend());
       const ms = Math.round(performance.now() - t0);
       const used = res.zones[0]?.iterations ?? req.iterations;
       const extras = [
@@ -1519,13 +1536,15 @@ function distSparkPath(
   return { d, label: `triangular(min=${num(lo)}, mode=${num(mode)}, max=${num(hi)})` };
 }
 
-function numField(label: string, def: number, min: number, max: number): { el: HTMLElement; value: () => number } {
+// SB-CUT-016: `def` is absent-capable, because a cut-off has no shipped value. A null opens the
+// field BLANK rather than pre-filling somebody's number.
+function numField(label: string, def: number | null, min: number, max: number): { el: HTMLElement; value: () => number } {
   const inp = document.createElement("input");
   inp.type = "number";
   inp.step = "any";
   if (Number.isFinite(min)) inp.min = String(min);
   if (Number.isFinite(max)) inp.max = String(max);
-  inp.value = Number.isFinite(def) ? String(def) : "";
+  inp.value = typeof def === "number" && Number.isFinite(def) ? String(def) : "";
   const el = wrap(label, inp);
   return { el, value: () => parseFloat(inp.value) };
 }

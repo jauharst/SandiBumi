@@ -24,6 +24,7 @@ export function parseRangePositionPct(value: number): RangePositionPct {
 
 export type PlotChannelPolicy = "cartesian" | "colour" | "array_waveform";
 export type PlotRangeEdge = "none" | "low" | "high";
+export type PlotChannelExclusion = "none" | "non_finite" | "log_domain";
 
 export interface PlotDisplayRange {
   min: number;
@@ -35,6 +36,9 @@ export interface PlotChannelPolicyReport {
   values: Float32Array;
   /** Zero means the sample is excluded for this channel. */
   included: Uint8Array;
+  exclusionReasons: PlotChannelExclusion[];
+  /** One means the finite, domain-valid source value lies outside the display range. */
+  displayOverflow: Uint8Array;
   edgeMarks: PlotRangeEdge[];
   nonFiniteExcluded: number;
   logDomainExcluded: number;
@@ -48,30 +52,35 @@ export interface PlotChannelPolicyReport {
 export function applyPlotChannelPolicy(
   source: Float32Array,
   policy: PlotChannelPolicy,
-  display: PlotDisplayRange,
+  display: PlotDisplayRange | null,
   logAxis = false,
 ): PlotChannelPolicyReport {
   const values = source.slice();
   const included = new Uint8Array(source.length);
+  const exclusionReasons: PlotChannelExclusion[] = new Array(source.length).fill("none");
+  const displayOverflow = new Uint8Array(source.length);
   const edgeMarks: PlotRangeEdge[] = new Array(source.length).fill("none");
   let nonFiniteExcluded = 0;
   let logDomainExcluded = 0;
   let displayClipped = 0;
   let clamped = 0;
-  const low = Math.min(display.min, display.max);
-  const high = Math.max(display.min, display.max);
+  const low = display ? Math.min(display.min, display.max) : Number.NEGATIVE_INFINITY;
+  const high = display ? Math.max(display.min, display.max) : Number.POSITIVE_INFINITY;
   for (let index = 0; index < source.length; index++) {
     const value = source[index];
     if (!Number.isFinite(value)) {
       nonFiniteExcluded++;
+      exclusionReasons[index] = "non_finite";
       continue;
     }
     if (logAxis && value <= 0) {
       logDomainExcluded++;
+      exclusionReasons[index] = "log_domain";
       continue;
     }
     included[index] = 1;
     if (value < low) {
+      displayOverflow[index] = 1;
       if (policy === "cartesian") displayClipped++;
       else {
         values[index] = low;
@@ -79,6 +88,7 @@ export function applyPlotChannelPolicy(
         clamped++;
       }
     } else if (value > high) {
+      displayOverflow[index] = 1;
       if (policy === "cartesian") displayClipped++;
       else {
         values[index] = high;
@@ -90,6 +100,8 @@ export function applyPlotChannelPolicy(
   return {
     values,
     included,
+    exclusionReasons,
+    displayOverflow,
     edgeMarks,
     nonFiniteExcluded,
     logDomainExcluded,
@@ -138,6 +150,10 @@ export interface ReductionExportItem {
   original_count: number;
   displayed_count: number;
   algorithm: string;
+  /** Exact stride for a stride reduction; null when the named algorithm is not stride-based. */
+  stride: number | null;
+  /** Whether the final eligible source index was appended; null for non-index reductions. */
+  endpoints_forced: boolean | null;
 }
 
 export interface PlotReductionExport {
@@ -210,13 +226,26 @@ export interface DepthGridReconciliation {
 
 export type DepthStepManifest = Omit<DepthGridReconciliation, "depth" | "channels">;
 
+export class DepthGridReconciliationError extends RangeError {
+  readonly route = "reframe" as const;
+  readonly actionLabel = "Open Reframe" as const;
+  readonly automaticResampling = false as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DepthGridReconciliationError";
+  }
+}
+
 function exactDepthStep(depth: Float32Array): number {
   if (depth.length < 2) throw new RangeError("at least two depth samples are required to identify a step");
   const step = depth[1] - depth[0];
   if (!Number.isFinite(step) || step <= 0) throw new RangeError("depth step must be finite and positive");
   for (let index = 2; index < depth.length; index++) {
     if (depth[index] - depth[index - 1] !== step) {
-      throw new RangeError("depth grid is not exact and regular; route this plot to the DIO resampling workflow");
+      throw new DepthGridReconciliationError(
+        "depth grid is not exact and regular; use Reframe to create an explicit shared depth frame",
+      );
     }
   }
   return step;
@@ -230,8 +259,8 @@ export function reconcileDepthSteps(steps: number[]): { coarsestStep: number; de
   const decimationFactors = steps.map((step) => {
     const ratio = coarsestStep / step;
     if (!Number.isInteger(ratio) || ratio < 1) {
-      throw new RangeError(
-        `depth steps are not exact integer multiples; route this plot to the DIO resampling workflow (${step} versus ${coarsestStep})`,
+      throw new DepthGridReconciliationError(
+        `depth steps are not exact integer multiples; use Reframe to create an explicit shared depth frame (${step} versus ${coarsestStep})`,
       );
     }
     return ratio;
@@ -248,16 +277,13 @@ export function reconcileDepthChannels(inputs: DepthChannelInput[]): DepthGridRe
       throw new RangeError("depth and value arrays must have identical lengths");
     }
   }
+  const steps = inputs.map((input) => exactDepthStep(input.depth));
   const referenceDepth = inputs[0].depth;
   const identicalGrids = inputs.every((input) =>
     input.depth.length === referenceDepth.length
     && input.depth.every((depth, index) => depth === referenceDepth[index]));
   if (identicalGrids) {
-    if (referenceDepth.length < 2) throw new RangeError("at least two depth samples are required to identify a step");
-    const coarsestStep = referenceDepth[1] - referenceDepth[0];
-    if (!Number.isFinite(coarsestStep) || coarsestStep <= 0) {
-      throw new RangeError("depth step must be finite and positive");
-    }
+    const coarsestStep = steps[0];
     return {
       depth: referenceDepth.slice(),
       channels: inputs.map((input) => input.values.slice()),
@@ -267,7 +293,6 @@ export function reconcileDepthChannels(inputs: DepthChannelInput[]): DepthGridRe
       intervalClosure: "[lo,hi)",
     };
   }
-  const steps = inputs.map((input) => exactDepthStep(input.depth));
   const { coarsestStep, decimationFactors } = reconcileDepthSteps(steps);
   const targetIndex = steps.findIndex((step) => step === coarsestStep);
   const targetDepth = inputs[targetIndex].depth;

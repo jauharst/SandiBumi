@@ -1,7 +1,9 @@
-import { listWells, runPaySummary, type PaySummaryRow } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { resolveWellScope, runPaySummary, type BackendWellScope, type PaySummaryRow } from "../ipc";
+import { appState } from "../state";
+import { loadCutoffDefaults } from "./cutoffs";
 import { escapeHtml } from "./safeDom";
 import { reportDashboardCompletion } from "./reportingHonesty";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 
 /** Field Dashboard: multi-well × zone pay statistics in one panel.
  *  Reuses the existing pay-summary engine (`run_pay_summary`) across every well, then
@@ -27,7 +29,18 @@ const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean }[
   { key: "bottom", label: "Bottom", digits: 1, num: true },
   { key: "gross", label: "Gross", digits: 1, num: true },
   { key: "net", label: "Net", digits: 1, num: true },
+  // SB-CUT-003: the four-way partition, reported side by side because that is the only way to
+  // read it. Gross = Net + Not net + Unknown exactly, and "Unknown" is footage nothing could
+  // judge — no VSH/PHIE/SWE at the sample, or no sample at all. A zone that is 40 % net because
+  // the rest is shale and one that is 40 % net because the rest was never logged print the same
+  // N/G, and only these two columns separate them.
+  { key: "not_net", label: "Not net", digits: 1, num: true },
+  { key: "unknown", label: "Unknown", digits: 1, num: true },
   { key: "ntg", label: "N/G", digits: 2, num: true },
+  // SB-CUT-004: the same net measured against only the footage that could be judged. Both are
+  // labelled because they answer different questions; where nothing was judged this is MISSING
+  // and renders "—", never 0.00.
+  { key: "ntg_known", label: "N/G excl. Unk", digits: 2, num: true },
   { key: "avg_vsh", label: "Avg VSH", digits: 2, num: true },
   { key: "avg_phie", label: "Avg PHIE", digits: 3, num: true },
   { key: "avg_swe", label: "Avg SWE", digits: 3, num: true },
@@ -55,10 +68,24 @@ export async function buildDashboardContent(
     i.className = "dash-num";
     return i;
   };
-  const vshIn = num("0.5");
-  const phieIn = num("0.1");
-  const sweIn = num("0.6");
-  const permIn = num("", "(off)");
+  // SB-CUT-016: no cut-off ships a value. A blank box means the summation is UNFILTERED on that
+  // property, which the result then reports; it does not mean "use ours".
+  // SB-CUT-018: and the values come from the ONE shared authority, never from a literal here. This
+  // pane was the last bypass - it seeded its own copies, so it could disagree with every other
+  // pane about the same project's cutoffs.
+  const saved = await loadCutoffDefaults();
+  const seed = (v: number | null) => (v === null ? "" : String(v));
+  const vshIn = num(seed(saved.vsh_max), "(unfiltered)");
+  const phieIn = num(seed(saved.phie_min), "(unfiltered)");
+  const sweIn = num(seed(saved.swe_max), "(unfiltered)");
+  const permIn = num(seed(saved.perm_min), "(off)");
+  /** SB-CUT-016: a blank cut-off box is ABSENT, never a shipped number. */
+  const cutoffOf = (i: HTMLInputElement, unit = "v/v"): { value: number; unit: string } | null => {
+    const v = parseFloat(i.value);
+    // SB-CUT-019: the unit travels with the number, so the engine never has to guess whether a
+    // porosity cut-off was typed in v/v or porosity units - a 350x difference.
+    return Number.isFinite(v) ? { value: v, unit } : null;
+  };
 
   // Flag / Metric are Organic segmented pills (design 1b) — same semantics the
   // old <select>s had, one value each, change re-renders from the held rows.
@@ -137,9 +164,9 @@ export async function buildDashboardContent(
     },
   );
   controls.append(
-    field("VSH ≤", vshIn),
-    field("PHIE ≥", phieIn),
-    field("SWE ≤", sweIn),
+    field("VSH ≤", withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax)),
+    field("PHIE ≥", withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin)),
+    field("SWE ≤", withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax)),
     field("PERM ≥", permIn),
     field("Flag", flagSeg),
     field("Metric", metricSeg),
@@ -362,8 +389,10 @@ export async function buildDashboardContent(
 
   runBtn.addEventListener("click", async () => {
     let wellIds: string[];
+    const displayGroup = appState.activeWellGroup.get();
+    const backendScope: BackendWellScope = { kind: "active_group" };
     try {
-      wellIds = filterByActiveGroup(await listWells()).map((w) => w.well_id);
+      wellIds = await resolveWellScope(backendScope);
     } catch (err) {
       statusEl.textContent = `Failed to list wells: ${err}`;
       return;
@@ -376,23 +405,26 @@ export async function buildDashboardContent(
     runBtn.disabled = true;
     statusEl.textContent = `Computing ${wellIds.length} well(s)…`;
     try {
-      allRows = await runPaySummary({
-        well_ids: wellIds,
-        vsh_max: parseFloat(vshIn.value),
-        phie_min: parseFloat(phieIn.value),
-        swe_max: parseFloat(sweIn.value),
-        perm_min: Number.isNaN(permRaw) ? null : permRaw,
-        // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
-        // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.
-        stats_only: true,
-      });
+      allRows = await runPaySummary(
+        {
+          well_ids: wellIds,
+          vsh_max: cutoffOf(vshIn),
+          phie_min: cutoffOf(phieIn),
+          swe_max: cutoffOf(sweIn),
+          perm_min: Number.isNaN(permRaw) ? null : { value: permRaw, unit: "mD" },
+          // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
+          // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.
+          stats_only: true,
+        },
+        backendScope,
+      );
       const flags = new Set(allRows.map((r) => r.flag));
-      reportDashboardCompletion(statusEl, wellIds.length, allRows.length, flags.size);
-      setStatus(`Field dashboard: ${allRows.length} rows over ${wellIds.length} wells`);
+      const resolvedWellCount = new Set(allRows.map((row) => row.well_id)).size;
+      reportDashboardCompletion(statusEl, resolvedWellCount, allRows.length, flags.size);
+      setStatus(`Field dashboard: ${allRows.length} rows over ${resolvedWellCount} wells`);
       // Scope tag (design 1b): which group these numbers describe, and how many
       // wells actually went in — set only once a Compute has made that true.
-      const group = appState.activeWellGroup.get();
-      scopeTag.textContent = `${group ? `Group: ${group.name}` : "All wells"} · ${wellIds.length} well${wellIds.length === 1 ? "" : "s"}`;
+      scopeTag.textContent = `${displayGroup ? `Group: ${displayGroup.name}` : "All wells"} · ${resolvedWellCount} well${resolvedWellCount === 1 ? "" : "s"}`;
       scopeTag.hidden = false;
       render();
     } catch (err) {

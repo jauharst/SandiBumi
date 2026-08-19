@@ -61,8 +61,9 @@ export class TopsEditor {
     }
     try {
       this.tops = (await listTops(wellId)).slice().sort((a, b) => a.depth - b.depth);
-    } catch {
-      this.tops = []; // no backend — overlay stays empty
+    } catch (err) {
+      this.tops = [];
+      setStatus(`Tops unavailable: ${String(err)}`);
     }
     this.draw();
   }
@@ -103,7 +104,11 @@ export class TopsEditor {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const label = `${t.top_name}  ${depth.toFixed(1)}`;
+      const sourceLabel =
+        t.source_depth_datum && t.source_depth_datum !== "MD"
+          ? ` MD ← ${t.source_depth.toFixed(1)} ${t.source_depth_datum}`
+          : " MD";
+      const label = `${t.top_name}  ${depth.toFixed(1)}${sourceLabel}`;
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.9;
@@ -291,6 +296,12 @@ export class TopsEditor {
   private openEditDialog(top: TopEntry): void {
     const wellId = this.wellId;
     if (!wellId) return;
+    if (top.source_depth_datum && top.source_depth_datum !== "MD") {
+      setStatus(
+        `${top.source_depth_datum}-referenced top ${top.top_name} is read-only in the MD tops editor; use a source-reference-aware workflow`,
+      );
+      return;
+    }
     const before = { ...top };
     const content = document.createElement("div");
     const nameInput = document.createElement("input");

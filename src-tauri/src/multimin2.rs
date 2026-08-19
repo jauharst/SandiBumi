@@ -33,7 +33,7 @@
 //! user can see WHICH log the model fails to honour. The reconstruction only discriminates when the
 //! system is over-determined — the reported `dof` says whether that holds.
 
-use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
+use crate::equations::fetch_curve_frame;
 
 /// The log set SandiMin output lands in when the caller names none — the value that used to be
 /// hardcoded, so an older payload writes exactly where it always did.
@@ -62,6 +62,13 @@ pub struct Component {
     pub fluid_type: String,
     /// Tool-key → endpoint response, in display units (g/cc, v/v, us/ft, API, ...).
     pub endpoints: HashMap<String, f64>,
+    /// Tool-key → per-value provenance (SB-MIN-009 / SB-CORE-005, DEC-078). Also carries
+    /// `CEC` and `WCP` entries for the two row scalars, and `VP`/`VS` entries recording the
+    /// derivation. The library fills this; the run dialog replaces an edited value's entry
+    /// with a user-supplied marker, and the whole map rides `params_json` with the
+    /// submitted components so every run record carries its endpoint custody.
+    #[serde(default)]
+    pub endpoint_sources: HashMap<String, String>,
     /// Cation exchange capacity, meq/g (clays; drives the bound-water constraint under the CEC
     /// porosity source).
     #[serde(default)]
@@ -83,7 +90,7 @@ fn default_one() -> f64 {
 /// is a RESISTIVITY curve (ohmm) converted to conductivity (mho/m) per sample; their
 /// endpoints come from the fluid properties, not from the endpoints table. `sigma <= 0`
 /// on CT/CXO means "auto" (0.03·C^(1/w)).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub key: String,
     pub curve: String,
@@ -98,7 +105,7 @@ pub struct ToolSpec {
 /// runs on the lithology tools with NO conductivity row, then Sw is computed from the closed form
 /// using the solved effective porosity + shale volume and the deep resistivity, and the U-zone
 /// water/HC volumes are redistributed to honour it (so PHIE is unchanged and SWE = the model Sw).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SwModel {
     /// Linearised dual-water, in-inversion. Default — nothing moves.
@@ -108,11 +115,21 @@ pub enum SwModel {
     /// solved by bisection). Post-solve; the bound-water saturation comes from the solved v_bw.
     DualWaterNonlinear,
     /// Archie (1942) clean-sand, total-porosity form. Post-solve; ignores the clay conductivity term.
-    Archie,
+    #[serde(alias = "archie")]
+    ArchieTotal,
+    /// Archie (1942) clean-sand, EFFECTIVE-porosity form (SB-SAT-002): Sw = (a*Rw/(Rt*phie^m))^(1/n)
+    /// directly on phie, so bound water never enters the equation and no total->effective back-out
+    /// exists. On the dossier reference case it sits 25.0 saturation units from `ArchieTotal` -
+    /// the two are separately named because nothing else distinguishes them in an output.
+    ArchieEffective,
     /// Poupon-Leveaux "Indonesia" (1971), effective-porosity form. Non-linear in Sw, post-solve.
     Indonesia,
-    /// Modified Simandoux (Bardon-Pied), effective-porosity form. Non-linear in Sw, post-solve.
-    Simandoux,
+    /// Simandoux / Bardon-Pied form without a `(1-Vsh)` divisor. Post-solve.
+    SimandouxBardonPied,
+    /// Modified Simandoux / Schlumberger form with a `(1-Vsh)` divisor. The legacy serialized
+    /// `simandoux` id selected this equation, so it remains an input-only alias.
+    #[serde(alias = "simandoux")]
+    SimandouxModifiedSlb,
     /// Juhász (1981) normalized Waxman-Smits, wet-shale excess-conductivity form. Post-solve; the excess
     /// conductivity comes from the shale point (Rsh, φ_sh) rather than a temperature-form Cwb.
     Juhasz,
@@ -120,9 +137,64 @@ pub enum SwModel {
     /// Qv from the solved clay volumes (Qv = Σ v_clay·CEC·ρ / φt) and B from the Juhász B(T,Rw) fit
     /// (`waxman_b`) unless overridden by FluidProps.ws_b.
     WaxmanSmits,
+    /// SB-SAT-026: RtC excess-conductivity (docs/method_lrlc_rtc_imts.md), Jauhar's own method,
+    /// computed by `lrlc::sw_rtc` — NOT a SandiMin solver model. It lives in this registry only so
+    /// its `SW_METHOD` flag code resolves through the one shared vocabulary.
+    SwRtc,
+    /// SB-SAT-026: iterative mineral-textural-scaled Waxman-Smits (docs/method_lrlc_rtc_imts.md),
+    /// computed by `lrlc::sw_imts` — registry identity only, never solver-selectable.
+    SwImts,
+    /// SB-SAT-026: saturation-height function (Leverett-J / Skelt-Harrison, `satheight::sw_height`)
+    /// — registry identity only, never solver-selectable.
+    SwHeight,
 }
 
 impl SwModel {
+    pub fn id(self) -> &'static str {
+        match self {
+            SwModel::LinearDw => "linear_dw",
+            SwModel::DualWaterNonlinear => "dual_water_nonlinear",
+            SwModel::ArchieTotal => "archie_total",
+            SwModel::ArchieEffective => "archie_effective",
+            SwModel::Indonesia => "indonesia",
+            SwModel::SimandouxBardonPied => "simandoux_bardon_pied",
+            SwModel::SimandouxModifiedSlb => "simandoux_modified_slb",
+            SwModel::Juhasz => "juhasz",
+            SwModel::WaxmanSmits => "waxman_smits",
+            SwModel::SwRtc => "sw_rtc",
+            SwModel::SwImts => "sw_imts",
+            SwModel::SwHeight => "sw_height",
+        }
+    }
+
+    /// SB-SAT-026: whether the SandiMin solver implements this model. The registry deliberately
+    /// carries MORE identities than the solver — every saturation method's `SW_METHOD` flag
+    /// resolves through one vocabulary — so the solver must refuse the ones it does not compute
+    /// rather than let a deserialized request reach a post-solve branch that does not exist.
+    pub fn solver_selectable(self) -> bool {
+        !matches!(self, SwModel::SwRtc | SwModel::SwImts | SwModel::SwHeight)
+    }
+
+    /// Stable numeric encoding used only because computed curve samples are `f32`. These are
+    /// categorical identifiers, not petrophysical parameters: callers must resolve them through
+    /// [`sw_model_id_from_flag`] and must never perform arithmetic on them.
+    pub fn flag_code(self) -> f32 {
+        match self {
+            SwModel::LinearDw => 1.0,
+            SwModel::DualWaterNonlinear => 2.0,
+            SwModel::ArchieTotal => 3.0,
+            SwModel::Indonesia => 4.0,
+            SwModel::SimandouxBardonPied => 5.0,
+            SwModel::SimandouxModifiedSlb => 6.0,
+            SwModel::Juhasz => 7.0,
+            SwModel::WaxmanSmits => 8.0,
+            SwModel::ArchieEffective => 9.0,
+            SwModel::SwRtc => 10.0,
+            SwModel::SwImts => 11.0,
+            SwModel::SwHeight => 12.0,
+        }
+    }
+
     /// Every model except the default linearised dual-water replaces the in-inversion conductivity row
     /// with a post-solve Sw computed from the solved volumes.
     fn is_post_solve(self) -> bool {
@@ -130,8 +202,132 @@ impl SwModel {
     }
 }
 
+/// One user-facing saturation-model identity. The id is the value persisted in a new run; the
+/// label deliberately leads with that id so a result and the selector can be matched without
+/// translating a vendor adjective whose meaning changes between products.
+#[derive(Debug, Clone, Serialize)]
+pub struct SwModelChoice {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Exact class code written to the per-sample `SW_METHOD` curve. It is an encoding whose
+    /// meaning comes from `id`; it is not a saturation value and is declared as a class curve.
+    pub flag_code: f32,
+}
+
+pub fn sw_model_catalog() -> Vec<SwModelChoice> {
+    vec![
+        SwModelChoice {
+            id: SwModel::LinearDw.id(),
+            label: "linear_dw — linearized dual-water",
+            flag_code: SwModel::LinearDw.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::DualWaterNonlinear.id(),
+            label: "dual_water_nonlinear — Clavier dual-water (m and n separate)",
+            flag_code: SwModel::DualWaterNonlinear.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::ArchieTotal.id(),
+            label: "archie_total — Archie on total porosity",
+            flag_code: SwModel::ArchieTotal.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::ArchieEffective.id(),
+            label: "archie_effective — Archie on effective porosity",
+            flag_code: SwModel::ArchieEffective.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::Indonesia.id(),
+            label: "indonesia — Poupon-Leveaux",
+            flag_code: SwModel::Indonesia.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SimandouxBardonPied.id(),
+            label: "simandoux_bardon_pied — Simandoux / Bardon-Pied form",
+            flag_code: SwModel::SimandouxBardonPied.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SimandouxModifiedSlb.id(),
+            label: "simandoux_modified_slb — Modified Simandoux / Schlumberger form",
+            flag_code: SwModel::SimandouxModifiedSlb.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::Juhasz.id(),
+            label: "juhasz — normalized Qv",
+            flag_code: SwModel::Juhasz.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::WaxmanSmits.id(),
+            label: "waxman_smits — B·Qv",
+            flag_code: SwModel::WaxmanSmits.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SwRtc.id(),
+            label: "sw_rtc — RtC excess-conductivity (LRLC)",
+            flag_code: SwModel::SwRtc.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SwImts.id(),
+            label: "sw_imts — iterative mineral-textural-scaled Waxman-Smits (LRLC)",
+            flag_code: SwModel::SwImts.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SwHeight.id(),
+            label: "sw_height — saturation-height function",
+            flag_code: SwModel::SwHeight.flag_code(),
+        },
+    ]
+}
+
+/// The models the SandiMin dialog may OFFER — the registry minus the identities other modules own.
+/// The one wording of the SB-SAT-026 refusal, shared by the solver and its test probe so the
+/// message the user reads is the message the proof pins.
+fn solver_refusal(model: SwModel) -> String {
+    format!("'{}' is another module's method identity, not a SandiMin solver model", model.id())
+}
+
+/// Test seam: the refusal `run_multimin` issues for a registry-only identity, without a database.
+#[cfg(test)]
+pub(crate) fn run_multimin_selectability_probe(model: SwModel) -> String {
+    if model.solver_selectable() {
+        return String::new();
+    }
+    solver_refusal(model)
+}
+
+pub fn solver_selectable_models() -> Vec<SwModelChoice> {
+    sw_model_catalog()
+        .into_iter()
+        .filter(|choice| {
+            !matches!(choice.id, "sw_rtc" | "sw_imts" | "sw_height")
+        })
+        .collect()
+}
+
+/// Resolve a stored method-flag sample to the canonical equation identifier. Exact equality is
+/// intentional: writers emit the small integer class codes above, so a fractional value is corrupt
+/// categorical data rather than something to round to the nearest method.
+pub fn sw_model_id_from_flag(flag: f32) -> Option<&'static str> {
+    sw_model_catalog().into_iter().find(|entry| entry.flag_code == flag).map(|entry| entry.id)
+}
+
+/// Build the per-sample method-flag curve used by SandiMin. A missing saturation has no producing
+/// result to identify and therefore carries `f32::NAN`, matching the product-wide missing-data
+/// contract; every produced sample carries the exact categorical code for `model`.
+pub(crate) fn saturation_method_flag_curve(
+    prefix: &str,
+    model: SwModel,
+    produced: &[bool],
+) -> (String, Vec<f32>) {
+    let name = if prefix.is_empty() { "SW_METHOD".to_string() } else { format!("{prefix}_SW_METHOD") };
+    let code = model.flag_code();
+    debug_assert_eq!(sw_model_id_from_flag(code), Some(model.id()));
+    let values = produced.iter().map(|present| if *present { code } else { f32::NAN }).collect();
+    (name, values)
+}
+
 /// What drives the clay bound-water (BNDWAT) constraint (Jauhar field review, image 2 "Porosity Source").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PorositySource {
     /// Cation exchange capacity: v_bw = α·96·CEC·ρ/(T+298)·v_dryclay. Default — nothing moves.
@@ -142,16 +338,26 @@ pub enum PorositySource {
     WetClayPorosity,
 }
 
-/// Poupon-Leveaux ("Indonesia", 1971) water saturation, effective-porosity form, solved for Sw∈[0,1]:
-///   1/√Rt = [ Vsh^(1 − Vsh/2)/√Rsh + √(φe^m / (a·Rw)) ] · Sw^(n/2)
+/// Poupon-Leveaux (`indonesia`) water saturation, effective-porosity form, solved for Sw∈[0,1]:
+///   1/√Rt = [ Vsh^(1 − k·Vsh/2)/√Rsh + √(φe^m / (a·Rw)) ] · Sw^(n/2)
 /// Rw and Rsh are at formation temperature. Returns NaN on non-physical inputs.
-pub fn sw_indonesia(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: f64, a: f64) -> f64 {
-    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
+pub fn sw_indonesia(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+    k: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) || !k.is_finite() {
         return f64::NAN;
     }
     let vsh = vsh.clamp(0.0, 1.0);
     let a = a.max(1e-9);
-    let term_sh = if rsh > 0.0 { vsh.powf(1.0 - vsh / 2.0) / rsh.sqrt() } else { 0.0 };
+    let term_sh = if rsh > 0.0 { vsh.powf(1.0 - k * vsh / 2.0) / rsh.sqrt() } else { 0.0 };
     let term_sand = (phie.powf(m) / (a * rw)).sqrt();
     let denom = term_sh + term_sand;
     if !(denom > 0.0) {
@@ -161,18 +367,7 @@ pub fn sw_indonesia(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: 
     sw_half.powf(2.0 / n).clamp(0.0, 1.0)
 }
 
-/// Modified Simandoux (Bardon-Pied) water saturation, effective-porosity form, solved for Sw∈[0,1]:
-///   1/Rt = φe^m·Sw^n / (a·Rw·(1 − Vsh)) + Vsh·Sw / Rsh
-/// Closed-form quadratic when n == 2; monotone bisection otherwise. Rw/Rsh at formation temperature.
-pub fn sw_simandoux(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: f64, a: f64) -> f64 {
-    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
-        return f64::NAN;
-    }
-    let vsh = vsh.clamp(0.0, 0.999);
-    let a = a.max(1e-9);
-    let ct = 1.0 / rt;
-    let coef_sand = phie.powf(m) / (a * rw * (1.0 - vsh)); // coefficient of Sw^n
-    let coef_sh = if rsh > 0.0 { vsh / rsh } else { 0.0 }; // coefficient of Sw^1
+fn solve_simandoux_root(ct: f64, coef_sand: f64, coef_sh: f64, n: f64) -> f64 {
     if !(coef_sand > 0.0) {
         // Degenerate: no sand term — the shale term alone gives Sw (or NaN if no shale either).
         return if coef_sh > 0.0 { (ct / coef_sh).clamp(0.0, 1.0) } else { f64::NAN };
@@ -200,6 +395,55 @@ pub fn sw_simandoux(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: 
         }
     }
     (0.5 * (lo + hi)).clamp(0.0, 1.0)
+}
+
+/// `simandoux_bardon_pied`, effective-porosity form, solved for Sw∈[0,1]:
+///   1/Rt = φe^m·Sw^n / (a·Rw) + Vsh·Sw / Rsh
+/// Geolog calls this `MODIFIED`; IP calls it plain `Simandoux`. The equation id above is the
+/// SandiBumi identity and neither vendor adjective is persisted as the method name.
+pub fn sw_simandoux_bardon_pied(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
+        return f64::NAN;
+    }
+    let vsh = vsh.clamp(0.0, 1.0);
+    let coef_sand = phie.powf(m) / (a.max(1e-9) * rw);
+    let coef_sh = if rsh > 0.0 { vsh / rsh } else { 0.0 };
+    solve_simandoux_root(1.0 / rt, coef_sand, coef_sh, n)
+}
+
+/// `simandoux_modified_slb`, effective-porosity form, solved for Sw∈[0,1]:
+///   1/Rt = φe^m·Sw^n / (a·Rw·(1 − Vsh)) + Vsh^C·Sw / Rsh
+/// IP and Techlog call this `Modified Simandoux`; Geolog calls it `SCHLUM`. `C=1` reproduces IP E64.
+pub fn sw_simandoux_modified_slb(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+    c: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) || !(c > 0.0) {
+        return f64::NAN;
+    }
+    if vsh >= 1.0 {
+        return 1.0;
+    }
+    let vsh = vsh.clamp(0.0, 1.0);
+    let coef_sand = phie.powf(m) / (a.max(1e-9) * rw * (1.0 - vsh));
+    let coef_sh = if rsh > 0.0 { vsh.powf(c) / rsh } else { 0.0 };
+    solve_simandoux_root(1.0 / rt, coef_sand, coef_sh, n)
 }
 
 /// Clavier-Coates-Dumanoir dual-water TOTAL water saturation (SPEJ 1984), exact form honouring m and
@@ -272,6 +516,72 @@ pub fn sw_archie(rt: f64, phit: f64, rw: f64, m: f64, n: f64, a: f64) -> f64 {
     ((a * rw) / (phit.powf(m) * rt)).powf(1.0 / n).clamp(0.0, 1.0)
 }
 
+/// SB-SAT-023: the effective back-out, `SWE = MAX((SWT − Swb)/(1 − Swb), 0)`. `Swb = 1` is all
+/// bound water and yields SWE = 1, never a division by zero (IP E78; Geolog `sw_ws.lls:296` is the
+/// algebraically identical form).
+pub fn swe_from_swt(swt: f64, swb: f64) -> f64 {
+    if swb >= 1.0 {
+        return 1.0;
+    }
+    ((swt - swb) / (1.0 - swb)).max(0.0)
+}
+
+/// SB-SAT-023: the inverse lift, `SwT = Sw(1 − Swb) + Swb` — and `SxoT = Sxo(1 − Swb) + Swb` is
+/// the SAME published formula applied to Sxo, deliberately one implementation. A round trip
+/// through the pair is the identity for Swb < 1; at Swb = 1 the map is non-invertible because
+/// everything is bound water, and both directions return 1.
+pub fn swt_from_swe(swe: f64, swb: f64) -> f64 {
+    if swb >= 1.0 {
+        return 1.0;
+    }
+    swe * (1.0 - swb) + swb
+}
+
+/// SB-SAT-023: Juhász's own bound-water term — `Qvn = clamp(Vsh·φt_sh/φt, 0, 1)` from the shale
+/// point (Geolog `sw_juha.lls:262`; Techlog agrees) — NOT `1 − φe/φt`, and on the dossier fixture
+/// the two differ by tens of saturation units.
+pub fn juhasz_qvn(vsh: f64, phit_sh: f64, phit: f64) -> f64 {
+    if !(phit > 0.0) {
+        return f64::NAN;
+    }
+    (vsh * phit_sh / phit).clamp(0.0, 1.0)
+}
+
+/// SB-SAT-023: which `Swb` rule a model's effective back-out uses. Recorded on the run result —
+/// the solver's construction makes φt ≡ φe + v_bw, which COLLAPSES `1 − φe/φt` with `v_bw/φt`,
+/// so the name is the only place the distinction survives.
+pub fn effective_backout_rule(model: SwModel) -> &'static str {
+    match model {
+        SwModel::Juhasz => "juhasz_qvn",
+        _ => "porosity_volume_1_minus_phie_over_phit",
+    }
+}
+
+/// SB-SAT-023: the per-model effective back-out itself. Returns `(SWE, rule name)`.
+pub fn effective_backout(
+    model: SwModel,
+    swt: f64,
+    phie: f64,
+    phit: f64,
+    vsh: f64,
+    phit_sh: f64,
+) -> (f64, &'static str) {
+    let rule = effective_backout_rule(model);
+    let swb = match model {
+        SwModel::Juhasz => juhasz_qvn(vsh, phit_sh, phit),
+        _ => {
+            if !(phit > 0.0) {
+                return (f64::NAN, rule);
+            }
+            1.0 - (phie / phit).clamp(0.0, 1.0)
+        }
+    };
+    if !swb.is_finite() {
+        return (f64::NAN, rule);
+    }
+    (swe_from_swt(swt, swb), rule)
+}
+
 /// Juhász (1981) "normalized Waxman-Smits" TOTAL water saturation — the wet-shale excess-conductivity
 /// form Jauhar groups with the "use wet parameters straight away" methods. Instead of dual water's
 /// temperature-form Cwb, the clay excess conductivity is read straight from the SHALE point:
@@ -336,7 +646,7 @@ pub fn waxman_b(t_c: f64, rw: f64) -> f64 {
 }
 
 /// Fluid / saturation parameters (needed when CT or CXO participates).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FluidProps {
     /// Formation water resistivity sample (ohmm) + its temperature (°F).
     pub rw: f64,
@@ -356,9 +666,22 @@ pub struct FluidProps {
     /// shaly-sand Sw models (Indonesia/Simandoux). Ignored by the dual-water models. Default 4.0.
     #[serde(default = "default_rsh")]
     pub rsh: f64,
-    /// Archie tortuosity factor a (Indonesia/Simandoux). The dual-water models use a = 1. Default 1.0.
-    #[serde(default = "default_archie_a")]
+    /// Archie tortuosity factor a (Indonesia/Simandoux). The dual-water models use a = 1 by
+    /// construction, but they are not the only callers of this field, so it carries NO default.
+    // SB-SAT-034: `a` ships NoDefault. IP publishes no default for a/m/n at all - the
+    // 1.0/2.0/2.0 commonly quoted are Basic Log Analysis values only - and a cementation
+    // exponent is a rock property measured on core. A shipped exponent is the
+    // highest-consequence silent default in petrophysics, so this field is REQUIRED and
+    // deserialization refuses without it, naming the parameter, exactly as `rw` already does.
     pub archie_a: f64,
+    /// Indonesia shale exponent coefficient in `Vsh^(2-k·Vsh)`. Geolog's FULL/SIMPLE/TAR_SAND
+    /// presets are k=1/0/2; k=1 is the cited FULL default.
+    #[serde(default = "default_indonesia_k")]
+    pub indonesia_k: f64,
+    /// `simandoux_modified_slb` shale exponent C. Geolog validates 1..2 and ships C=1, which
+    /// reproduces IP E64. Ignored by `simandoux_bardon_pied`, whose shale term is linear Vsh.
+    #[serde(default = "default_simandoux_c")]
+    pub simandoux_c: f64,
     /// Wet-clay (shale) total porosity φ_sh — the "wet clay porosity" used by Juhász's normalized Qv
     /// (QVN = Vsh·φ_sh/φt) and shale-point conductivity (Cwsh = 1/(Rsh·φ_sh^m)). Only Juhász reads it.
     /// Default 0.10.
@@ -377,7 +700,10 @@ fn default_mud() -> String {
 fn default_rsh() -> f64 {
     4.0
 }
-fn default_archie_a() -> f64 {
+fn default_indonesia_k() -> f64 {
+    1.0
+}
+fn default_simandoux_c() -> f64 {
     1.0
 }
 fn default_phit_sh() -> f64 {
@@ -424,6 +750,7 @@ pub struct MultiminRequest {
     /// hardcoded — so an older payload writes exactly where it always did.
     #[serde(default)]
     pub output_set: Option<String>,
+    pub custody: crate::equations::RunCustody,
     #[serde(default = "default_true")]
     pub unity: bool,
     /// Required when CT or CXO is among the tools.
@@ -508,6 +835,9 @@ pub struct MultiminWellResult {
 
 #[derive(Debug, Serialize)]
 pub struct MultiminResult {
+    /// SB-SAT-023: which effective back-out Swb rule this run's model applies — recorded because
+    /// the solver's construction collapses the first group's two algebraic spellings.
+    pub swb_rule: Option<String>,
     pub outputs: Vec<String>,
     pub wells: Vec<MultiminWellResult>,
     /// Model degrees of freedom = (tools + soft constraints + unity) − components. 0 = exactly
@@ -520,7 +850,7 @@ pub struct MultiminResult {
 }
 
 fn fail(msg: &str) -> MultiminResult {
-    MultiminResult { outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
+    MultiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
 }
 
 /// Curve-safe token for a component name: uppercase, non-alphanumeric → '_'.
@@ -996,7 +1326,8 @@ fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)]) -> Option<CoreFi
     let mut sse = 0.0f64;
     let mut sum = 0.0f64;
     for &(d, cv) in plugs {
-        let Some(i) = nearest_solved(depth, model, d) else { continue };
+        let Some(i) = nearest_solved(depth, model, d) else { continue ;
+        };
         let e = model[i] as f64 - cv as f64;
         sse += e * e;
         sum += e;
@@ -1018,6 +1349,11 @@ pub fn run_multimin(
         return fail("select at least two components");
     }
     let model = req.sw_model;
+    // SB-SAT-026: the registry carries identities the solver does not implement; refuse them by
+    // name instead of reaching a post-solve branch that cannot exist.
+    if !model.solver_selectable() {
+        return fail(&solver_refusal(model));
+    }
     let post_solve = model.is_post_solve();
     let tools: Vec<&ToolSpec> = req.tools.iter().filter(|t| !t.curve.trim().is_empty()).collect();
     if tools.is_empty() {
@@ -1449,10 +1785,42 @@ pub fn run_multimin(
                 let sw_of = |rt: f64, phie: f64, cw: f64, cwb: f64, v_bw: f64| -> f64 {
                     match model {
                         SwModel::Indonesia => {
-                            sw_indonesia(rt, phie, vsh, 1.0 / cw.max(1e-9), rsh, m_exp, n_exp, a_arch)
+                            sw_indonesia(
+                                rt,
+                                phie,
+                                vsh,
+                                1.0 / cw.max(1e-9),
+                                rsh,
+                                m_exp,
+                                n_exp,
+                                a_arch,
+                                fp.indonesia_k,
+                            )
                         }
-                        SwModel::Simandoux => {
-                            sw_simandoux(rt, phie, vsh, 1.0 / cw.max(1e-9), rsh, m_exp, n_exp, a_arch)
+                        SwModel::SimandouxBardonPied => {
+                            sw_simandoux_bardon_pied(
+                                rt,
+                                phie,
+                                vsh,
+                                1.0 / cw.max(1e-9),
+                                rsh,
+                                m_exp,
+                                n_exp,
+                                a_arch,
+                            )
+                        }
+                        SwModel::SimandouxModifiedSlb => {
+                            sw_simandoux_modified_slb(
+                                rt,
+                                phie,
+                                vsh,
+                                1.0 / cw.max(1e-9),
+                                rsh,
+                                m_exp,
+                                n_exp,
+                                a_arch,
+                                fp.simandoux_c,
+                            )
                         }
                         SwModel::DualWaterNonlinear => {
                             // Total-basis dual water: bound-water saturation from the solved v_bw, then
@@ -1467,9 +1835,11 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            // SB-SAT-023: the shared per-model back-out (first group, where the
+                            // construction collapses 1−φe/φt with v_bw/φt).
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
-                        SwModel::Archie => {
+                        SwModel::ArchieTotal => {
                             // Clean-sand Archie on total porosity, then free-water/φe (same conversion as
                             // dual water; the total water Swt·φt includes the solved v_bw as bound water).
                             let phit = phie + v_bw;
@@ -1480,8 +1850,23 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
+                        SwModel::ArchieEffective => {
+                            // SB-SAT-002: Archie directly on phie. The result IS the free-water/phie
+                            // fraction - bound water never enters the equation, so unlike every other
+                            // post-solve branch there is no total->effective conversion to apply, and
+                            // applying one here would be the 25-saturation-unit trap the row names.
+                            if !(phie > 1e-9) {
+                                return f64::NAN;
+                            }
+                            let swe = sw_archie(rt, phie, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
+                            if !swe.is_finite() {
+                                return f64::NAN;
+                            }
+                            swe.clamp(0.0, 1.0)
+                        }
+                        SwModel::SwRtc | SwModel::SwImts | SwModel::SwHeight => f64::NAN,
                         SwModel::Juhasz => {
                             // Normalized Waxman-Smits on total porosity: excess conductivity from the
                             // shale point (Cwsh, QVN=Vsh·φ_sh/φt), then free-water/φe (same split as dual
@@ -1494,7 +1879,10 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            // SB-SAT-023: Juhász's back-out is Qvn from the shale point. The
+                            // correct Qvn used to be computed and then OVERRIDDEN by the blanket
+                            // porosity-volume conversion — the exact defect the row names.
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
                         SwModel::WaxmanSmits => {
                             // Total-porosity B·Qv form: Qv from the solved clay volumes, B from the
@@ -1511,7 +1899,7 @@ pub fn run_multimin(
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
-                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
                         }
                         SwModel::LinearDw => f64::NAN,
                     }
@@ -1661,10 +2049,13 @@ pub fn run_multimin(
                 core_phie = core_fit(&depth, &phie, &por_plugs);
                 core_phit = core_fit(&depth, &phit, &por_plugs);
             }
+            let produced: Vec<bool> = swe.iter().map(|value| value.is_finite()).collect();
+            let method_flag = saturation_method_flag_curve(&prefix, model, &produced);
             curves.push((format!("{prefix}_PHIE"), phie));
             curves.push((format!("{prefix}_PHIT"), phit));
             curves.push((format!("{prefix}_SWE"), swe));
             curves.push((format!("{prefix}_SWT"), swt));
+            curves.push(method_flag);
         }
         if zs.has_split {
             let sxot = make(&|i| {
@@ -1696,36 +2087,73 @@ pub fn run_multimin(
             out_names = curves.iter().map(|(n, _)| n.clone()).collect();
         }
         let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
-        let spec = crate::equations::LogSetSpec {
-            set_name: req
+        let set_name= req
                 .output_set
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_SANDIMIN_SET)
-                .to_string(),
-            module: "sandimin".into(),
-            params_json: serde_json::to_string(&serde_json::json!({
-                "components": req.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-                "prefix": prefix,
-                "sw_model": match model {
-                    SwModel::LinearDw => "linear_dw",
-                    SwModel::DualWaterNonlinear => "dual_water_nonlinear",
-                    SwModel::Archie => "archie",
-                    SwModel::Indonesia => "indonesia",
-                    SwModel::Simandoux => "simandoux",
-                    SwModel::Juhasz => "juhasz",
-                    SwModel::WaxmanSmits => "waxman_smits",
-                },
-            }))
-            .unwrap_or_default(),
-            inputs_json: serde_json::to_string(&req.tools.iter().map(|t| t.curve.as_str()).collect::<Vec<_>>())
-                .unwrap_or_default(),
-        };
-        let write_err = crate::equations::create_log_set(&conn, well_id, &spec)
-            .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id))
-            .err()
-            .map(|e| e.to_string());
+                ;
+        let mut inputs = req
+            .tools
+            .iter()
+            .filter(|tool| !tool.curve.trim().is_empty())
+            .map(|tool| (well_id.clone(),
+            tool.key.clone(), tool.curve.clone()))
+            .collect::<Vec<_>>();
+        if let Some(curve) = req
+            .ftemp_curve
+            .as_deref()
+            .map(str::trim)
+            .filter(|curve| !curve.is_empty())
+        {
+            inputs.push((well_id.clone(), "FTEMP".into(),
+            curve.to_string()));
+        }
+        let parameters = serde_json::json!({
+                "components": req.components,
+            "tools": req.tools,
+                "output_prefix": prefix,
+            "unity": req.unity,
+            "fluid": req.fluid.as_ref().map(serde_json::to_value).transpose().ok().flatten().unwrap_or_else(|| serde_json::json!("ABSENT")),
+            "ftemp_curve": req.ftemp_curve.clone().unwrap_or_else(|| "ABSENT".into()),
+            "recon_qc": req.recon_qc,
+                "sw_model": req.sw_model,
+            "porosity_source": req.porosity_source,
+            "enforce_porosity": req.enforce_porosity,
+            "enforce_bndwat": req.enforce_bndwat,
+            "enforce_water_mud": req.enforce_water_mud,
+            "sigma_constraint": req.sigma_constraint,
+        });
+        let spec = crate::equations::complete_curve_run_spec(
+            &conn,
+            well_id,
+            set_name,
+            "sandimin",
+            &req.custody,
+            &inputs,
+            req.input_set.as_deref(),
+            parameters,
+            crate::equations::AncestryZoneScope::WholeWell,
+            &out_names,
+        );
+        let write_err = spec
+            .and_then(|spec| {
+                crate::equations::create_complete_log_set(&conn, well_id, &spec)
+            .map(|(id, _)| id)
+            })
+            .and_then(|set_id| {
+                crate::equations::write_computed_curves_with_ancestry(&conn, well_id, &depth, &refs, &set_id)})
+            .err();
+        if write_err.is_none() && has_u_fluids {
+            let method_flag_name = format!("{prefix}_SW_METHOD");
+            let _ = crate::db::declare_class_curves(
+                &conn,
+                well_id,
+                &[method_flag_name],
+                &format!("sandimin:{}", model.id()),
+            );
+        }
         if let Some(p) = progress {
             // A write failure is Failed; a solve that produced nothing is a Warned caveat; else Ok.
             let (state, msg) = if let Some(e) = &write_err {
@@ -1748,7 +2176,15 @@ pub fn run_multimin(
         });
     }
 
-    MultiminResult { outputs: out_names, wells, dof, dof_note, error: None }
+    MultiminResult {
+        // SB-SAT-023: the applied Swb rule travels with the result, never implicit.
+        swb_rule: post_solve.then(|| effective_backout_rule(model).to_string()),
+        outputs: out_names,
+        wells,
+        dof,
+        dof_note,
+        error: None,
+    }
 }
 
 /// Rebuilds a tool's measurement in its DISPLAY domain from the solved native prediction:
@@ -2040,7 +2476,14 @@ fn solve_linear_opt(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint library — reference §6.2 + IP2018 MINDEF.PAR defaults, merged.
+// Endpoint library — Jauhar's default component library (owner adjudication
+// DEC-078, 2026-08-19; custody history is recorded in docs/IP_PROVENANCE.md
+// §2.2 and docs/takeover/DECISIONS.md — it is deliberately not restated here).
+// Every value carries per-value provenance via `LibRow::src`: values the
+// Schlumberger Log Interpretation Charts (2013 ed.) state in print are cited
+// to their page; every other value is the owner's default. Values were
+// verified against the book page by page on 2026-08-19 — a citation code may
+// only be used where the printed page states the library's exact number.
 // Display units: RHOB g/cc, NPHI v/v, DT us/ft, GR API, PEF b/e, U b/cc,
 // THOR ppm, POTA %, URAN ppm, VP km/s, VS km/s, EPT ns/m, EATT dB/m, SIGMA c.u.
 // CT/CXO endpoints are computed from the fluid properties at run time.
@@ -2056,61 +2499,96 @@ struct LibRow {
     zone: &'static str,
     fluid_type: &'static str,
     cec: f64,
-    /// Wet-clay total porosity φ_clay (clays; the Wet-Clay-Porosity bound-water source). Techlog WCLP
-    /// defaults from QElan_PostProcess_Using_Conductivities.py; 0 for non-clays.
+    /// Wet-clay total porosity φ_clay (clays; the Wet-Clay-Porosity bound-water source).
+    /// Owner default per DEC-078; custody history in docs/IP_PROVENANCE.md §2.2. 0 for non-clays.
     wcp: f64,
     max_vol: f64,
     /// [RHOB, NPHI, DT, GR, PEF, U, THOR, POTA, URAN, EPT, SIGMA]  (VP/VS derived from DT)
     v: [f64; 11],
+    /// Per-value provenance code, one ASCII char per `v` slot (same order):
+    /// `B` = stated in Schlumberger Log Interpretation Charts (2013), Appendix B pp. 279–280;
+    /// `C` = stated in Appendix C p. 281; `A` = Appendix B states it as an approximate value;
+    /// `W` = carried from chart Por-1 p. 212's stated fluid velocity (5,300 ft/s = 188.7 µs/ft);
+    /// `J` = Jauhar's default (owner adjudication DEC-078) — the book does not state this number.
+    /// A `B`/`C` code is only legal where the printed page states the exact library value; the
+    /// owned test pins the complete matrix and spot-checks cited cells against the printed numbers.
+    src: &'static str,
 }
 
-const fn m(name: &'static str, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "mineral", zone: "", fluid_type: "", cec: 0.0, wcp: 0.0, max_vol: 1.0, v }
+const fn m(name: &'static str, v: [f64; 11], src: &'static str) -> LibRow {
+    LibRow { name, kind: "mineral", zone: "", fluid_type: "", cec: 0.0, wcp: 0.0, max_vol: 1.0, v, src }
 }
-const fn clay(name: &'static str, cec: f64, wcp: f64, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "clay", zone: "", fluid_type: "", cec, wcp, max_vol: 1.0, v }
+const fn clay(name: &'static str, cec: f64, wcp: f64, v: [f64; 11], src: &'static str) -> LibRow {
+    LibRow { name, kind: "clay", zone: "", fluid_type: "", cec, wcp, max_vol: 1.0, v, src }
 }
-const fn fl(name: &'static str, zone: &'static str, fluid_type: &'static str, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, wcp: 0.0, max_vol: 0.5, v }
+const fn fl(name: &'static str, zone: &'static str, fluid_type: &'static str, v: [f64; 11], src: &'static str) -> LibRow {
+    LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, wcp: 0.0, max_vol: 0.5, v, src }
 }
 
-/// Merged reference/IP default library, in IP's mineral-dropdown order (Jauhar's screenshot).
+/// Expand a [`LibRow::src`] code into the full machine-readable source string (SB-MIN-009).
+const SRC_APPENDIX_B: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), Appendix B Logging Tool Response in Sedimentary Minerals, pp. 279-280";
+const SRC_APPENDIX_C: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), Appendix C Acoustic Characteristics of Common Formations and Fluids, p. 281";
+const SRC_APPENDIX_B_APPROX: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), Appendix B pp. 279-280, stated as an approximate value";
+const SRC_POR1_FLUID: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), chart Por-1 p. 212 stated fluid velocity 5,300 ft/s (= 188.7 us/ft, carried as 189)";
+const SRC_OWNER: &str =
+    "Jauhar default endpoint library, owner adjudication DEC-078 (2026-08-19); docs/takeover/DECISIONS.md";
+const SRC_DERIVED_FROM_DT: &str =
+    "derived at library build: VP = 304.8/DT, VS = VP/1.7 for non-fluids (0 for fluids); provenance follows DT";
+
+fn endpoint_source_text(code: u8) -> &'static str {
+    match code {
+        b'B' => SRC_APPENDIX_B,
+        b'C' => SRC_APPENDIX_C,
+        b'A' => SRC_APPENDIX_B_APPROX,
+        b'W' => SRC_POR1_FLUID,
+        _ => SRC_OWNER,
+    }
+}
+
+/// Jauhar's default component library (owner adjudication DEC-078), in the dropdown order of
+/// his screenshot. Values are unchanged by the custody work; each row's `src` string records,
+/// slot by slot, whether the 2013 chartbook states the number in print or the value is his own.
 #[rustfmt::skip]
 const LIB: &[LibRow] = &[
     //                       RHOB   NPHI    DT     GR    PEF     U    THOR  POTA  URAN   EPT  SIGMA
-    m("Calcite",           [2.71,  0.000,  47.5, 11.0,  5.08, 13.8,  0.0,  0.00,  1.4,  9.1,  7.4]),
-    m("Quartz",            [2.65, -0.050,  55.5,  1.0,  1.81,  4.8,  0.0,  0.00,  0.1,  7.2,  4.7]),
-    m("Dolomite",          [2.85,  0.025,  43.5,  8.0,  3.14,  9.0,  0.1,  0.00,  0.9,  8.7,  6.9]),
-    m("Orthoclase",        [2.57, -0.010,  69.0,171.0,  2.86,  8.7,  1.1, 10.21,  0.4,  7.6, 15.3]),
-    m("Albite",            [2.60, -0.005,  49.0,  8.0,  1.68,  5.6,  0.0,  0.50,  0.0,  7.6, 11.4]),
-    m("Anhydrite",         [2.98, -0.020,  50.0,  5.0,  5.05, 14.95, 0.2,  0.00,  0.4,  8.4, 12.0]),
-    m("Halite",            [2.04, -0.030,  67.0,  5.0,  4.65,  9.7,  0.2,  0.00,  0.0,  8.2,750.0]),
-    m("Gypsum",            [2.35,  0.540,  52.0,  5.0,  3.99,  9.46, 0.0,  0.00,  0.3,  6.8, 20.0]),
-    m("Pyrite",            [4.99,  0.000,  39.2,  5.0, 16.97, 82.0,  0.0,  0.00,  0.0,  0.0, 90.0]),
-    m("Siderite",          [3.88,  0.180,  44.0,  6.0, 14.70, 72.0,  0.4,  0.00,  0.5,  8.9, 54.2]),
-    m("Muscovite",         [2.85,  0.240,  49.0,130.0,  2.40, 11.5,  0.0,  7.80,  0.7,  8.9, 95.3]),
-    m("Biotite",           [3.04,  0.130,  50.8,127.0,  6.27, 21.6,  1.5,  7.20,  0.7,  7.8, 54.1]),
-    clay("Glauconite", 0.20, 0.156, [2.96, 0.410,  49.4,150.0,  5.32, 16.5,  2.8,  5.60,  5.1, 12.0, 89.6]),
-    clay("Kaolinite",  0.10, 0.058, [2.62, 0.451,  85.3,104.0,  1.83,  5.38,18.9,  0.08,  3.1,  8.0, 20.1]),
-    clay("Chlorite",   0.15, 0.101, [2.81, 0.520,  85.3, 56.0,  6.30, 21.7, 11.0,  0.67,  3.5,  8.0, 43.7]),
-    clay("Illite",     0.25, 0.104, [2.78, 0.247,  85.3,160.0,  4.00, 11.12,12.3,  4.48,  4.8,  8.0, 40.6]),
-    clay("Montmorillonite",1.0, 1.0,[2.63,0.218, 85.3,168.0,  2.70,  7.61,20.6,  0.58,  7.1,  8.0, 20.2]),
-    clay("Clay",       0.00, 0.120, [2.65, 0.350, 100.0,152.0,  3.50, 10.0,  6.0,  2.00, 12.0,  8.0, 30.0]),
-    m("Coal",              [1.19,  0.520, 160.0, 10.0,  0.20,  0.24, 0.0,  0.00,  0.0,  0.0,  0.0]),
-    m("Kerogen",           [1.10,  0.600, 150.0,100.0,  0.24,  0.26, 0.0,  0.00, 10.0,  0.0,  0.0]),
-    fl("Water Sxo", "X", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0]),
-    fl("Water Sw",  "U", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0]),
-    fl("BoundWater", "", "bound_water", [1.00, 1.00, 189.0, 0.0, 0.36, 0.39, 0.0, 0.0, 0.0, 30.0, 50.0]),
-    fl("Oil Sxo",   "X", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0]),
-    fl("Oil Sw",    "U", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0]),
-    fl("Gas Sxo",   "X", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0]),
-    fl("Gas Sw",    "U", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0]),
+    m("Calcite",           [2.71,  0.000,  47.5, 11.0,  5.08, 13.8,  0.0,  0.00,  1.4,  9.1,  7.4], "BBJJJBJJJBJ"),
+    m("Quartz",            [2.65, -0.050,  55.5,  1.0,  1.81,  4.8,  0.0,  0.00,  0.1,  7.2,  4.7], "JJJJJBJJJBJ"),
+    m("Dolomite",          [2.85,  0.025,  43.5,  8.0,  3.14,  9.0,  0.1,  0.00,  0.9,  8.7,  6.9], "BJCJJBJJJBJ"),
+    m("Orthoclase",        [2.57, -0.010,  69.0,171.0,  2.86,  8.7,  1.1, 10.21,  0.4,  7.6, 15.3], "JJBJJJJJJJJ"),
+    m("Albite",            [2.60, -0.005,  49.0,  8.0,  1.68,  5.6,  0.0,  0.50,  0.0,  7.6, 11.4], "JJBJJJJJJJJ"),
+    m("Anhydrite",         [2.98, -0.020,  50.0,  5.0,  5.05, 14.95, 0.2,  0.00,  0.4,  8.4, 12.0], "BBBJJJJJJBB"),
+    m("Halite",            [2.04, -0.030,  67.0,  5.0,  4.65,  9.7,  0.2,  0.00,  0.0,  8.2,750.0], "BBBJJJJJJJJ"),
+    m("Gypsum",            [2.35,  0.540,  52.0,  5.0,  3.99,  9.46, 0.0,  0.00,  0.3,  6.8, 20.0], "BJBJJJJJJBJ"),
+    m("Pyrite",            [4.99,  0.000,  39.2,  5.0, 16.97, 82.0,  0.0,  0.00,  0.0,  0.0, 90.0], "BJBJJJJJJJB"),
+    m("Siderite",          [3.88,  0.180,  44.0,  6.0, 14.70, 72.0,  0.4,  0.00,  0.5,  8.9, 54.2], "JJJJJJJJJJJ"),
+    m("Muscovite",         [2.85,  0.240,  49.0,130.0,  2.40, 11.5,  0.0,  7.80,  0.7,  8.9, 95.3], "JJBJBJJJJJJ"),
+    m("Biotite",           [3.04,  0.130,  50.8,127.0,  6.27, 21.6,  1.5,  7.20,  0.7,  7.8, 54.1], "JJBJJJJJJJJ"),
+    clay("Glauconite", 0.20, 0.156, [2.96, 0.410,  49.4,150.0,  5.32, 16.5,  2.8,  5.60,  5.1, 12.0, 89.6], "JJJJJJJJJJJ"),
+    clay("Kaolinite",  0.10, 0.058, [2.62, 0.451,  85.3,104.0,  1.83,  5.38,18.9,  0.08,  3.1,  8.0, 20.1], "BJJJJJJJJAJ"),
+    clay("Chlorite",   0.15, 0.101, [2.81, 0.520,  85.3, 56.0,  6.30, 21.7, 11.0,  0.67,  3.5,  8.0, 43.7], "JBJJBJJJJAJ"),
+    clay("Illite",     0.25, 0.104, [2.78, 0.247,  85.3,160.0,  4.00, 11.12,12.3,  4.48,  4.8,  8.0, 40.6], "JJJJJJJJJAJ"),
+    clay("Montmorillonite",1.0, 1.0,[2.63,0.218, 85.3,168.0,  2.70,  7.61,20.6,  0.58,  7.1,  8.0, 20.2], "JJJJJJJJJAJ"),
+    clay("Clay",       0.00, 0.120, [2.65, 0.350, 100.0,152.0,  3.50, 10.0,  6.0,  2.00, 12.0,  8.0, 30.0], "JJJJJJJJJJJ"),
+    m("Coal",              [1.19,  0.520, 160.0, 10.0,  0.20,  0.24, 0.0,  0.00,  0.0,  0.0,  0.0], "BBBJBBJJJJJ"),
+    m("Kerogen",           [1.10,  0.600, 150.0,100.0,  0.24,  0.26, 0.0,  0.00, 10.0,  0.0,  0.0], "JJJJJJJJJJJ"),
+    fl("Water Sxo", "X", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0], "JJWJJJJJJJJ"),
+    fl("Water Sw",  "U", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0], "JJWJJJJJJJJ"),
+    fl("BoundWater", "", "bound_water", [1.00, 1.00, 189.0, 0.0, 0.36, 0.39, 0.0, 0.0, 0.0, 30.0, 50.0], "JJWJJJJJJJJ"),
+    fl("Oil Sxo",   "X", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0], "JJJJJJJJJJJ"),
+    fl("Oil Sw",    "U", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0], "JJJJJJJJJJJ"),
+    fl("Gas Sxo",   "X", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0], "JJJJJJJJJJJ"),
+    fl("Gas Sw",    "U", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0], "JJJJJJJJJJJ"),
 ];
 
 pub fn multimin_library() -> Vec<Component> {
     LIB.iter()
         .map(|r| {
             let mut endpoints: HashMap<String, f64> = HashMap::new();
+            let mut endpoint_sources: HashMap<String, String> = HashMap::new();
             let [rhob, nphi, dt, gr, pef, u, thor, pota, uran, ept, sigma] = r.v;
             let is_fluid = r.kind == "fluid";
             let vp = if dt > 0.0 { 304.8 / dt } else { 0.0 };
@@ -2133,12 +2611,31 @@ pub fn multimin_library() -> Vec<Component> {
             ] {
                 endpoints.insert(k.to_string(), val);
             }
+            // Per-value provenance (SB-MIN-009): the 11 stored slots expand their row code;
+            // VP/VS record the derivation; EATT's structural zero and the two row scalars
+            // (CEC, WCP) are the owner's defaults per DEC-078.
+            let codes = r.src.as_bytes();
+            debug_assert_eq!(codes.len(), 11, "one provenance code per stored slot");
+            for (slot, k) in ["RHOB", "NPHI", "DT", "GR", "PEF", "U", "THOR", "POTA", "URAN", "EPT", "SIGMA"]
+                .iter()
+                .enumerate()
+            {
+                endpoint_sources
+                    .insert(k.to_string(), endpoint_source_text(codes[slot]).to_string());
+            }
+            for k in ["VP", "VS"] {
+                endpoint_sources.insert(k.to_string(), SRC_DERIVED_FROM_DT.to_string());
+            }
+            for k in ["EATT", "CEC", "WCP"] {
+                endpoint_sources.insert(k.to_string(), SRC_OWNER.to_string());
+            }
             Component {
                 name: r.name.to_string(),
                 kind: r.kind.to_string(),
                 zone: r.zone.to_string(),
                 fluid_type: r.fluid_type.to_string(),
                 endpoints,
+                endpoint_sources,
                 cec: r.cec,
                 wet_clay_porosity: r.wcp,
                 max_vol: r.max_vol,
@@ -2153,6 +2650,128 @@ mod tests {
 
     fn lib_get(name: &str) -> Component {
         multimin_library().into_iter().find(|c| c.name == name).unwrap()
+    }
+
+    /// CORRECTNESS — SB-MIN-T09, discharged for SB-CORE-005 under DEC-078 (2026-08-19):
+    /// the endpoint library is Jauhar's default library, and every value carries a
+    /// machine-readable source. A chartbook citation is only legal where the printed page
+    /// states the library's exact number — verified page by page against the owner's copy
+    /// of the 2013 edition on 2026-08-19 (Appendix B pp. 279-280, Appendix C p. 281,
+    /// chart Por-1 p. 212). The complete 27-row provenance matrix is pinned by
+    /// set-equality, so a silent reclassification in either direction fails here by name;
+    /// custody history stays recorded in docs/IP_PROVENANCE.md §2.2, never in shipped
+    /// source strings.
+    #[test]
+    fn every_shipped_endpoint_value_carries_a_source_and_a_chartbook_citation_appears_only_where_the_printed_page_states_the_value(
+    ) {
+        // A — completeness: every endpoint of every component has a non-empty source,
+        // and the two row scalars carry their own entries.
+        for component in multimin_library() {
+            for key in component.endpoints.keys() {
+                let source = component.endpoint_sources.get(key).map(String::as_str).unwrap_or("");
+                assert!(
+                    !source.trim().is_empty(),
+                    "{}.{key} ships without a source",
+                    component.name
+                );
+            }
+            for scalar in ["CEC", "WCP"] {
+                assert!(
+                    component
+                        .endpoint_sources
+                        .get(scalar)
+                        .is_some_and(|source| !source.trim().is_empty()),
+                    "{}.{scalar} ships without a source",
+                    component.name
+                );
+            }
+        }
+
+        // B — the complete provenance matrix, pinned by set-equality. One line per row,
+        // one code per stored slot (RHOB NPHI DT GR PEF U THOR POTA URAN EPT SIGMA).
+        let expected: std::collections::BTreeMap<&str, &str> = [
+            ("Calcite", "BBJJJBJJJBJ"),
+            ("Quartz", "JJJJJBJJJBJ"),
+            ("Dolomite", "BJCJJBJJJBJ"),
+            ("Orthoclase", "JJBJJJJJJJJ"),
+            ("Albite", "JJBJJJJJJJJ"),
+            ("Anhydrite", "BBBJJJJJJBB"),
+            ("Halite", "BBBJJJJJJJJ"),
+            ("Gypsum", "BJBJJJJJJBJ"),
+            ("Pyrite", "BJBJJJJJJJB"),
+            ("Siderite", "JJJJJJJJJJJ"),
+            ("Muscovite", "JJBJBJJJJJJ"),
+            ("Biotite", "JJBJJJJJJJJ"),
+            ("Glauconite", "JJJJJJJJJJJ"),
+            ("Kaolinite", "BJJJJJJJJAJ"),
+            ("Chlorite", "JBJJBJJJJAJ"),
+            ("Illite", "JJJJJJJJJAJ"),
+            ("Montmorillonite", "JJJJJJJJJAJ"),
+            ("Clay", "JJJJJJJJJJJ"),
+            ("Coal", "BBBJBBJJJJJ"),
+            ("Kerogen", "JJJJJJJJJJJ"),
+            ("Water Sxo", "JJWJJJJJJJJ"),
+            ("Water Sw", "JJWJJJJJJJJ"),
+            ("BoundWater", "JJWJJJJJJJJ"),
+            ("Oil Sxo", "JJJJJJJJJJJ"),
+            ("Oil Sw", "JJJJJJJJJJJ"),
+            ("Gas Sxo", "JJJJJJJJJJJ"),
+            ("Gas Sw", "JJJJJJJJJJJ"),
+        ]
+        .into_iter()
+        .collect();
+        let actual: std::collections::BTreeMap<&str, &str> =
+            LIB.iter().map(|row| (row.name, row.src)).collect();
+        assert_eq!(actual, expected, "the shipped provenance matrix moved");
+
+        // C — a citation code means the printed page states the exact library number.
+        // Coal is the book's Lignite row; Dolomite's DT is Appendix C; the water rows'
+        // 189 us/ft carries Por-1's stated 5,300 ft/s.
+        let coal = lib_get("Coal");
+        for (key, printed) in
+            [("RHOB", 1.19), ("NPHI", 0.52), ("DT", 160.0), ("PEF", 0.20), ("U", 0.24)]
+        {
+            assert_eq!(coal.endpoints[key], printed, "Coal.{key} drifted from the printed value");
+            assert!(
+                coal.endpoint_sources[key].contains("Appendix B"),
+                "Coal.{key} lost its citation: {}",
+                coal.endpoint_sources[key]
+            );
+        }
+        let dolomite = lib_get("Dolomite");
+        assert_eq!(dolomite.endpoints["DT"], 43.5);
+        assert!(dolomite.endpoint_sources["DT"].contains("Appendix C"));
+        let anhydrite = lib_get("Anhydrite");
+        assert_eq!(anhydrite.endpoints["SIGMA"], 12.0);
+        assert!(anhydrite.endpoint_sources["SIGMA"].contains("Appendix B"));
+        let water = lib_get("Water Sxo");
+        assert_eq!(water.endpoints["DT"], 189.0);
+        assert!(
+            water.endpoint_sources["DT"].contains("Por-1")
+                && water.endpoint_sources["DT"].contains("5,300"),
+            "the water slowness must cite the chart's stated velocity: {}",
+            water.endpoint_sources["DT"]
+        );
+        let illite = lib_get("Illite");
+        assert_eq!(illite.endpoints["EPT"], 8.0);
+        assert!(
+            illite.endpoint_sources["EPT"].contains("approximate"),
+            "a value the book states only approximately must say so: {}",
+            illite.endpoint_sources["EPT"]
+        );
+
+        // D — near-miss values stay the owner's: the book prints 5.1 / 2.64 / 754 where
+        // the library carries 5.08 / 2.65 / 750, so citing it would be false custody.
+        for (name, key) in [("Calcite", "PEF"), ("Quartz", "RHOB"), ("Halite", "SIGMA")] {
+            let source = &lib_get(name).endpoint_sources[key];
+            assert!(
+                source.contains("DEC-078") && !source.contains("Appendix"),
+                "{name}.{key} must stay owner-attributed, not book-cited: {source}"
+            );
+        }
+
+        // E — derived slots record their derivation and follow DT.
+        assert!(lib_get("Quartz").endpoint_sources["VP"].contains("follows DT"));
     }
 
     /// Weighted rows for a set of components over plain (non-conductivity) tools.
@@ -2236,6 +2855,7 @@ mod tests {
                 &MultiminRequest {
                     input_set: None,
                     output_set: None,
+                    custody: crate::workflow::test_run_custody(),
                     components: comps,
                     tools: vec![
                         ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -2379,6 +2999,7 @@ mod tests {
                 &MultiminRequest {
                     input_set: None,
                     output_set: None,
+                    custody: crate::workflow::test_run_custody(),
                     components: comps,
                     tools: tools(),
                     apply_well_ids: vec![ids.clone()],
@@ -2462,6 +3083,7 @@ mod tests {
             &MultiminRequest {
                 input_set: None,
                 output_set: None,
+                custody: crate::workflow::test_run_custody(),
                 components: vec![q, ill, wat],
                 tools: vec![
                     ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -2542,6 +3164,7 @@ mod tests {
                 &MultiminRequest {
                     input_set: None,
                     output_set: None,
+                    custody: crate::workflow::test_run_custody(),
                     components: comps,
                     tools,
                     apply_well_ids: vec![wid.to_string()],
@@ -2715,6 +3338,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -2875,7 +3500,8 @@ mod tests {
         // (and every reviewed number) solves exactly as before. This guards the "absent = unchanged"
         // invariant the whole increment rests on.
         let req: MultiminRequest =
-            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[]}"#).unwrap();
+            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},"source_note":"test fixture values declared in the owning test"}}"#,
+        ).unwrap();
         assert!(req.unity, "UNITY defaults on");
         assert!(req.enforce_porosity, "POROSITY defaults on");
         assert!(req.enforce_bndwat, "BNDWAT defaults on");
@@ -2884,7 +3510,8 @@ mod tests {
         assert_eq!(req.porosity_source, PorositySource::Cec);
         // A stray non-positive σ must not blow up the row weight; the solver falls back to the default.
         let bad: MultiminRequest =
-            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"sigma_constraint":0}"#).unwrap();
+            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"sigma_constraint":0,"custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},"source_note":"test fixture values declared in the owning test"}}"#,
+        ).unwrap();
         let sigma = if bad.sigma_constraint > 0.0 { bad.sigma_constraint } else { SIGMA_CONSTRAINT };
         assert!((sigma - SIGMA_CONSTRAINT).abs() < 1e-12, "non-positive σ falls back to default");
     }
@@ -2903,6 +3530,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -2985,6 +3614,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, ill, cal, wat],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -3033,12 +3663,15 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, ill, wx],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -3217,6 +3850,7 @@ mod tests {
             let req = MultiminRequest {
                 input_set: None,
                 output_set: None,
+                custody: crate::workflow::test_run_custody(),
                 components: comps.clone(),
                 tools,
                 apply_well_ids: vec![well_id.clone()],
@@ -3375,6 +4009,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -3449,13 +4085,13 @@ mod tests {
         let d = vsh.powf(1.0 - vsh / 2.0) / rsh.sqrt() + (phie.powf(m) / (a * rw)).sqrt();
         for sw_true in [0.15f64, 0.35, 0.55, 0.8, 1.0] {
             let rt = 1.0 / (d * d * sw_true.powf(n)); // 1/Rt = D²·Sw^n
-            let sw = sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a);
+            let sw = sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a, 1.0);
             assert!((sw - sw_true).abs() < 1e-6, "Indonesia round-trip: got {sw}, want {sw_true}");
         }
         // A non-2 saturation exponent inverts exactly too (Sw^(n/2) is isolated in closed form).
         let (n2, sw_true): (f64, f64) = (1.8, 0.4);
         let rt = 1.0 / (d * d * sw_true.powf(n2));
-        assert!((sw_indonesia(rt, phie, vsh, rw, rsh, m, n2, a) - sw_true).abs() < 1e-6);
+        assert!((sw_indonesia(rt, phie, vsh, rw, rsh, m, n2, a, 1.0) - sw_true).abs() < 1e-6);
     }
 
     #[test]
@@ -3466,7 +4102,7 @@ mod tests {
         for &n in &[2.0f64, 1.7, 2.3] {
             for sw_true in [0.2f64, 0.45, 0.7, 0.95] {
                 let ct = phie.powf(m) * sw_true.powf(n) / (a * rw * (1.0 - vsh)) + vsh * sw_true / rsh;
-                let sw = sw_simandoux(1.0 / ct, phie, vsh, rw, rsh, m, n, a);
+                let sw = sw_simandoux_modified_slb(1.0 / ct, phie, vsh, rw, rsh, m, n, a, 1.0);
                 assert!((sw - sw_true).abs() < 1e-4, "Simandoux n={n} round-trip: got {sw}, want {sw_true}");
             }
         }
@@ -3474,13 +4110,13 @@ mod tests {
 
     #[test]
     fn sw_equations_reject_nonphysical_inputs() {
-        assert!(sw_indonesia(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0).is_nan(), "Rt<=0");
-        assert!(sw_indonesia(10.0, 0.0, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0).is_nan(), "phie<=0");
-        assert!(sw_simandoux(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0).is_nan(), "Rt<=0");
-        assert!(sw_simandoux(10.0, 0.2, 0.1, 0.0, 4.0, 2.0, 2.0, 1.0).is_nan(), "Rw<=0");
+        assert!(sw_indonesia(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "Rt<=0");
+        assert!(sw_indonesia(10.0, 0.0, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "phie<=0");
+        assert!(sw_simandoux_modified_slb(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "Rt<=0");
+        assert!(sw_simandoux_modified_slb(10.0, 0.2, 0.1, 0.0, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "Rw<=0");
         // A very conductive Rt (fresh, high-φ) clamps Sw to 1, never above.
-        assert!((sw_indonesia(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0) - 1.0).abs() < 1e-9);
-        assert!((sw_simandoux(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0) - 1.0).abs() < 1e-9);
+        assert!((sw_indonesia(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0) - 1.0).abs() < 1e-9);
+        assert!((sw_simandoux_modified_slb(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0) - 1.0).abs() < 1e-9);
     }
 
     #[test]
@@ -3491,18 +4127,18 @@ mod tests {
 
         // Clean sand (Vsh=0, m=n=2, a=1) reduces to Archie: Sw² = Rw/(φ²·Rt).
         // φ=0.2, Rw=0.05, Rt=20 ⇒ Sw² = 0.05/(0.04·20) = 0.0625 ⇒ Sw = 0.25 (exact by hand).
-        assert!((sw_indonesia(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0) - 0.25).abs() < 1e-6, "Indonesia→Archie");
-        assert!((sw_simandoux(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0) - 0.25).abs() < 1e-6, "Simandoux→Archie");
+        assert!((sw_indonesia(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0, 1.0) - 0.25).abs() < 1e-6, "Indonesia→Archie");
+        assert!((sw_simandoux_modified_slb(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0, 1.0) - 0.25).abs() < 1e-6, "Simandoux→Archie");
 
         // Indonesia WITH shale (exercises Vsh^(1−Vsh/2)/√Rsh): Vsh=0.5, Rsh=4, φ=0.2, Rw=0.1, m=n=2.
         //   term_sh = 0.5^0.75/2 = 0.297302 ; term_sand = √(0.04/0.1) = 0.632456 ; denom = 0.929758
         //   Sw=0.4 ⇒ 1/√Rt = 0.929758·0.4 = 0.371903 ⇒ Rt = 7.230045 (hand-computed).
-        assert!((sw_indonesia(7.230045, 0.2, 0.5, 0.1, 4.0, 2.0, 2.0, 1.0) - 0.4).abs() < 1e-3, "Indonesia shale point");
+        assert!((sw_indonesia(7.230045, 0.2, 0.5, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0) - 0.4).abs() < 1e-3, "Indonesia shale point");
 
         // Modified Simandoux WITH shale (exercises the Vsh·Sw/Rsh term): Vsh=0.4, Rsh=3, φ=0.25,
         // Rw=0.08, m=n=2. coef_sand=0.0625/0.048=1.302083 ; coef_sh=0.133333 ; Sw=0.5 ⇒
         //   1/Rt = 1.302083·0.25 + 0.133333·0.5 = 0.392188 ⇒ Rt = 2.549795 (hand-computed).
-        assert!((sw_simandoux(2.549795, 0.25, 0.4, 0.08, 3.0, 2.0, 2.0, 1.0) - 0.5).abs() < 1e-3, "Simandoux shale point");
+        assert!((sw_simandoux_modified_slb(2.549795, 0.25, 0.4, 0.08, 3.0, 2.0, 2.0, 1.0, 1.0) - 0.5).abs() < 1e-3, "Simandoux shale point");
     }
 
     #[test]
@@ -3554,12 +4190,15 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3682,6 +4321,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q.clone(), w.clone()],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3771,8 +4411,77 @@ mod tests {
         assert!(sw_archie(10.0, 0.2, 0.0, 2.0, 2.0, 1.0).is_nan());
         // Archie ≡ Indonesia with Vsh=0 (both reduce to the clean-sand power law).
         let arch = sw_archie(15.0, 0.22, 0.08, 2.0, 2.0, 1.0);
-        let indo0 = sw_indonesia(15.0, 0.22, 0.0, 0.08, 4.0, 2.0, 2.0, 1.0);
+        let indo0 = sw_indonesia(15.0, 0.22, 0.0, 0.08, 4.0, 2.0, 2.0, 1.0, 1.0);
         assert!((arch - indo0).abs() < 1e-9, "Archie vs Indonesia(Vsh=0): {arch} vs {indo0}");
+    }
+
+    /// SB-SAT-023 / SB-SAT-T34-T36. Source: `12_saturation.md:1337-1354` — the effective back-out
+    /// `SWE = MAX((SWT − Swb)/(1 − Swb), 0)` takes a PER-MODEL `Swb`: `1 − φe/φt` for the
+    /// Archie/Waxman-Smits/dual-water group, **`Qvn = clamp(Vsh·φt_sh/φt, 0, 1)` for Juhász**
+    /// (Geolog `sw_juha.lls:262`, Techlog agree; the two forms are NOT equal). `Swb = 1` yields
+    /// `SWE = 1`, never a divide-by-zero. The inverse pair `SwT = Sw(1−Swb) + Swb` ships, and a
+    /// round trip through the pair is the identity.
+    ///
+    /// The dossier fixture is the arm that proves the back-out is genuinely per model: Qvn 0.42
+    /// against `1 − φe/φt` 0.20 moves SWE by tens of saturation units **while SWT matches
+    /// exactly** — the defect was precisely that the correct Qvn was computed at `:456` and then
+    /// overridden by the blanket porosity-volume conversion.
+    #[test]
+    fn the_effective_backout_swb_is_per_model_and_the_inverse_pair_round_trips_as_the_identity() {
+        // A. Swb = 1 is all bound water: SWE = 1, not a division by zero, in both directions.
+        assert_eq!(swe_from_swt(0.73, 1.0), 1.0);
+        assert_eq!(swt_from_swe(0.73, 1.0), 1.0);
+
+        // B. The pair is the inverse pair, and the round trip is the identity (Swb < 1 — at
+        //    Swb = 1 the map is deliberately non-invertible: everything is bound water).
+        for swb in [0.0, 0.2, 0.42, 0.9] {
+            for sw in [0.0, 0.31, 0.5, 1.0] {
+                let there = swt_from_swe(sw, swb);
+                assert!(
+                    (swe_from_swt(there, swb) - sw).abs() < 1e-12,
+                    "round trip must be the identity at Swb {swb}, Sw {sw}"
+                );
+            }
+        }
+        // The floor is MAX(.., 0): an SWT below Swb reads all-bound, never negative.
+        assert_eq!(swe_from_swt(0.1, 0.2), 0.0);
+
+        // C. The dossier fixture: φt 0.25, φe 0.20 → porosity-volume Swb 0.20; Vsh 0.35 with
+        //    φt_sh 0.30 → Qvn 0.42. One SWT, two rules, two answers tens of units apart.
+        let (phit, phie, vsh, phit_sh) = (0.25, 0.20, 0.35, 0.30);
+        assert!((juhasz_qvn(vsh, phit_sh, phit) - 0.42).abs() < 1e-12);
+        let swt = 0.60;
+        let (swe_arch, rule_arch) =
+            effective_backout(SwModel::ArchieTotal, swt, phie, phit, vsh, phit_sh);
+        let (swe_juh, rule_juh) = effective_backout(SwModel::Juhasz, swt, phie, phit, vsh, phit_sh);
+        assert!((swe_arch - 0.50).abs() < 1e-9, "porosity-volume rule: (0.60-0.20)/0.80");
+        assert!((swe_juh - (0.60 - 0.42) / 0.58).abs() < 1e-9, "Juhász rule uses Qvn");
+        assert!(
+            (swe_arch - swe_juh) > 0.15,
+            "the two rules must disagree by tens of saturation units on the same SWT"
+        );
+
+        // D. Which rule applied is RECORDED, never implicit — the solver's construction collapses
+        //    1 − φe/φt with v_bw/φt, so the name is the only place the distinction survives.
+        assert_eq!(rule_arch, "porosity_volume_1_minus_phie_over_phit");
+        assert_eq!(rule_juh, "juhasz_qvn");
+        assert_eq!(effective_backout_rule(SwModel::WaxmanSmits), "porosity_volume_1_minus_phie_over_phit");
+        assert_eq!(effective_backout_rule(SwModel::DualWaterNonlinear), "porosity_volume_1_minus_phie_over_phit");
+        assert_eq!(effective_backout_rule(SwModel::Juhasz), "juhasz_qvn");
+
+        // E. The SxoT lift is the SAME published formula on Sxo — one implementation, stated.
+        assert!((swt_from_swe(0.85, 0.2) - (0.85 * 0.8 + 0.2)).abs() < 1e-12);
+
+        // F. The rule is recorded ON THE RESULT of a real run, not merely derivable — this is the
+        //    "record which rule was applied" clause, and it survives to the UI.
+        let (db, wid, _phie) = ftemp_test_well("MM-SWBRULE", 100.0, 0.40);
+        let res = run_multimin(&db, &ftemp_req(wid, 100.0, None), None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert_eq!(
+            res.swb_rule.as_deref(),
+            Some("porosity_volume_1_minus_phie_over_phit"),
+            "a post-solve run must state its effective back-out rule"
+        );
     }
 
     #[test]
@@ -3903,12 +4612,15 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3994,12 +4706,15 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4096,12 +4811,15 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, clay, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4159,6 +4877,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -4231,12 +4951,15 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
         MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![
                 lib_get("Quartz"),
                 lib_get("Water Sxo"),
@@ -4257,7 +4980,7 @@ mod tests {
             fluid: Some(props),
             ftemp_curve,
             recon_qc: false,
-            sw_model: SwModel::Archie,
+            sw_model: SwModel::ArchieTotal,
             porosity_source: PorositySource::Cec,
             enforce_porosity: true,
             enforce_bndwat: true,

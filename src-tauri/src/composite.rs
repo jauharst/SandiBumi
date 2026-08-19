@@ -11,6 +11,7 @@
 
 use crate::equations;
 use crate::layout::{Layout, ScaleType};
+use crate::plotting::{apply_plot_channel_policy, DisplayRange, PlotChannelPolicy};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use duckdb::{params, Connection};
@@ -77,7 +78,12 @@ pub struct CompositeResult {
     pub page_width_mm: f64,
     pub page_height_mm: f64,
     pub scale: u32,
-    pub well_name: String,
+    pub well_name: String
+,
+    /// Complete ancestry for every current computed curve carried by this well's
+    /// number-bearing composite deliverable. The same JSON is embedded in SVG/PDF
+    /// exports so it survives outside the application.
+    pub ancestry: Vec<equations::CurveAncestryDisclosure>,
 }
 
 pub(crate) struct WellHeader {
@@ -357,24 +363,282 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
 /// Renders the composite to one vector SVG per page.
 pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<CompositeResult, String> {
     let (pages, pw, ph, well_name) = render_pages(conn, spec)?;
+    let ancestry =
+        equations::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
+    let ancestry_json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
     let out = pages
         .into_iter()
-        .map(|p| CompositePage {
-            svg: svg_page(&p.ops, pw, ph),
+        .map(|p| -> Result<CompositePage , String> {
+            let mut svg= svg_page(&p.ops, pw, ph);
+            if !ancestry.is_empty() {
+                svg = embed_ancestry_json_in_svg(&svg, &ancestry_json)?;
+            }
+            Ok(CompositePage {
+                svg,
             top_depth: p.top,
             bottom_depth: p.bot,
             index: p.idx,
         })
-        .collect();
-    Ok(CompositeResult { pages: out, page_width_mm: pw, page_height_mm: ph, scale: spec.scale, well_name })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CompositeResult { pages: out, page_width_mm: pw, page_height_mm: ph, scale: spec.scale, well_name ,
+        ancestry,
+    })
 }
 
 /// Renders the composite to a single multi-page PDF (bytes).
 pub fn render_composite_pdf(conn: &Connection, spec: &CompositeSpec) -> Result<Vec<u8>, String> {
     let (pages, pw, ph, _) = render_pages(conn, spec)?;
+    let ancestry =
+        equations::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
     let streams: Vec<String> = pages.iter().map(|p| pdf_content(&p.ops, pw, ph)).collect();
     let op_pages: Vec<&[DrawOp]> = pages.iter().map(|p| p.ops.as_slice()).collect();
-    Ok(assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages)))
+    let mut pdf = assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages));
+    if !ancestry.is_empty() {
+        let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
+        pdf = embed_ancestry_json_in_pdf(pdf, &json)?;
+    }
+    Ok(pdf)
+}
+
+/// Embeds the complete record inside SVG bytes. The metadata is machine-readable and does not
+/// alter the rendered chart; XML escaping keeps arbitrary source notes from breaking the file.
+fn embed_json_in_svg(
+    svg: &str,
+    metadata_id: &str,
+    json: &str,
+    subject: &str,
+) -> Result<String, String> {
+    let insert_at = svg
+        .find('>')
+        .map(|index| index + 1)
+        .ok_or_else(|| format!("cannot embed {subject}: SVG has no root element"))?;
+    let mut out = svg.to_string();
+    out.insert_str(
+        insert_at,
+        &format!("<metadata id=\"{metadata_id}\">{}</metadata>", esc(json)),
+    );
+    Ok(out)
+}
+
+pub(crate) fn embed_ancestry_json_in_svg(svg: &str, ancestry_json: &str) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-curve-ancestry-v1",
+        ancestry_json,
+        "ancestry",
+    )
+}
+
+pub(crate) fn embed_plot_bindings_json_in_svg(
+    svg: &str,
+    bindings_json: &str,
+) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-plot-bindings-v1",
+        bindings_json,
+        "plot bindings",
+    )
+}
+
+pub(crate) fn embed_chart_render_record_json_in_svg(
+    svg: &str,
+    chart_record_json: &str,
+) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-chart-render-record-v1",
+        chart_record_json,
+        "chart render record",
+    )
+}
+
+pub(crate) fn embed_paper_export_record_json_in_svg(
+    svg: &str,
+    paper_record_json: &str,
+) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-paper-export-validated-v1",
+        paper_record_json,
+        "paper export record",
+    )
+}
+
+/// Embeds the complete record in a PDF comment immediately before EOF. This preserves every xref
+/// offset in the already-assembled document and is the same durable marker used by composites.
+fn embed_json_in_pdf(
+    mut pdf: Vec<u8>,
+    marker_name: &str,
+    json: &str,
+    subject: &str,
+) -> Result<Vec<u8>, String> {
+    let marker = format!(
+        "% {marker_name}:{}\n",
+        B64.encode(json.as_bytes())
+    );
+    let eof = pdf
+        .windows(5)
+        .rposition(|window| window == b"%%EOF")
+        .ok_or_else(|| format!("cannot embed {subject}: generated PDF has no EOF marker"))?;
+    pdf.splice(eof..eof, marker.bytes());
+    Ok(pdf)
+}
+
+pub(crate) fn embed_ancestry_json_in_pdf(
+    pdf: Vec<u8>,
+    ancestry_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_CURVE_ANCESTRY_V1_BASE64",
+        ancestry_json,
+        "ancestry",
+    )
+}
+
+pub(crate) fn embed_plot_bindings_json_in_pdf(
+    pdf: Vec<u8>,
+    bindings_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_PLOT_BINDINGS_V1_BASE64",
+        bindings_json,
+        "plot bindings",
+    )
+}
+
+pub(crate) fn embed_chart_render_record_json_in_pdf(
+    pdf: Vec<u8>,
+    chart_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_CHART_RENDER_RECORD_V1_BASE64",
+        chart_record_json,
+        "chart render record",
+    )
+}
+
+pub(crate) fn embed_paper_export_record_json_in_pdf(
+    pdf: Vec<u8>,
+    paper_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_PAPER_EXPORT_V1_BASE64",
+        paper_record_json,
+        "paper export record",
+    )
+}
+
+fn png_crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &byte in bytes {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+/// Adds one standards-compliant PNG `tEXt` chunk before IEND. A raster export therefore keeps the
+/// complete record even when copied into a slide or detached from the project database.
+fn embed_json_in_png(
+    png: &[u8],
+    keyword: &[u8],
+    json: &str,
+    subject: &str,
+) -> Result<Vec<u8>, String> {
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if png.get(..8) != Some(SIGNATURE) {
+        return Err(format!("cannot embed {subject}: payload is not a PNG"));
+    }
+    let mut iend = None;
+    let mut offset = 8usize;
+    while offset + 12 <= png.len() {
+        let length = u32::from_be_bytes(png[offset..offset + 4].try_into().unwrap()) as usize;
+        let end = offset
+            .checked_add(12 + length)
+            .filter(|end| *end <= png.len())
+            .ok_or_else(|| format!("cannot embed {subject}: malformed PNG chunk length"))?;
+        if &png[offset + 4..offset + 8] == b"IEND" {
+            iend = Some(offset);
+            break;
+        }
+        offset = end;
+    }
+    let iend = iend.ok_or_else(|| format!("cannot embed {subject}: PNG has no IEND chunk"))?;
+    let mut data = keyword.to_vec();
+    data.push(0);
+    data.extend_from_slice(json.as_bytes());
+    let length: u32 = data
+        .len()
+        .try_into()
+        .map_err(|_| format!("cannot embed {subject}: PNG metadata is too large"))?;
+    let mut chunk = Vec::with_capacity(data.len() + 12);
+    chunk.extend_from_slice(&length.to_be_bytes());
+    chunk.extend_from_slice(b"tEXt");
+    chunk.extend_from_slice(&data);
+    let mut crc_bytes = b"tEXt".to_vec();
+    crc_bytes.extend_from_slice(&data);
+    chunk.extend_from_slice(&png_crc32(&crc_bytes).to_be_bytes());
+
+    let mut out = Vec::with_capacity(png.len() + chunk.len());
+    out.extend_from_slice(&png[..iend]);
+    out.extend_from_slice(&chunk);
+    out.extend_from_slice(&png[iend..]);
+    Ok(out)
+}
+
+pub(crate) fn embed_ancestry_json_in_png(
+    png: &[u8],
+    ancestry_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(png, b"SandiBumiCurveAncestry", ancestry_json, "ancestry")
+}
+
+pub(crate) fn embed_plot_bindings_json_in_png(
+    png: &[u8],
+    bindings_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(
+        png,
+        b"SandiBumiPlotBindings",
+        bindings_json,
+        "plot bindings",
+    )
+}
+
+pub(crate) fn embed_chart_render_record_json_in_png(
+    png: &[u8],
+    chart_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(
+        png,
+        b"SandiBumiChartRecord",
+        chart_record_json,
+        "chart render record",
+    )
+}
+
+pub(crate) fn embed_paper_export_record_json_in_png(
+    png: &[u8],
+    paper_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(
+        png,
+        b"SandiBumiPaperExport",
+        paper_record_json,
+        "paper export record",
+    )
 }
 
 /// Writes the rendered pages to disk as SVG. A single page goes to `dest_path` as given;
@@ -558,7 +822,8 @@ fn build_page(
                     curve_name: cs.curve_name.clone(),
                     set_name: cs.set_name.clone(),
                 };
-                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue };
+                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue ;
+                };
                 // Crossover shading needs the reference curve's samples AND its own min/max,
                 // taken from the same track — compatible scaling is the whole point.
                 let xover = cs.fill_to.as_deref().and_then(|to| {
@@ -959,13 +1224,15 @@ fn draw_crossover(
         if d0 < page_top || d0 > page_bot || d1 < page_top || d1 > page_bot {
             continue;
         }
-        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue };
+        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue ;
+        };
         // A stepped curve holds its value across the interval, so both edges stay vertical
         // and the pair can never cross inside one interval.
         let (a1, b1) = if step {
             (a0, b0)
         } else {
-            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue };
+            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue ;
+            };
             (a1, b1)
         };
         let (y0, y1) = (y_of(d0), y_of(d1));
@@ -1351,7 +1618,8 @@ fn draw_point_series(
                     continue;
                 }
                 let (blo, bhi) = ps.box_edges();
-                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue };
+                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue ;
+                };
                 let box_h = (h * 0.6).clamp(1.0, 4.0);
                 if let (Some(wl), Some(wh)) = (x_at(st.whisker_lo), x_at(st.whisker_hi)) {
                     ops.push(DrawOp::Line { x1: wl, y1: mid, x2: wh, y2: mid, stroke: "#555555".into(), sw: 0.2 });
@@ -1445,10 +1713,33 @@ fn draw_array_series(
     match as_.display_kind() {
         "spaghetti" => {
             let width = visible.iter().map(|r| r.samples.len()).max().unwrap_or(0);
-            for r_idx in even_indices(width, as_.traces.unwrap_or(40) as usize) {
+            let traces = even_indices(width, as_.traces.unwrap_or(40) as usize);
+            let mut source = Vec::with_capacity(traces.len() * visible.len());
+            for r_idx in &traces {
+                for row in &visible {
+                    source.push(row.samples.get(*r_idx).copied().unwrap_or(f32::NAN));
+                }
+            }
+            let policy = apply_plot_channel_policy(
+                &source,
+                PlotChannelPolicy::ArrayWaveform {
+                    log_axis: scale == ScaleType::Log,
+                    display: DisplayRange { low: as_.min, high: as_.max },
+                },
+            );
+            let mut display_index = 0usize;
+            for _r_idx in traces {
                 let mut run: Vec<(f64, f64)> = Vec::new();
                 for row in &visible {
-                    match row.samples.get(r_idx).copied().and_then(x_at) {
+                    let x = policy
+                        .included
+                        .get(display_index)
+                        .copied()
+                        .unwrap_or(false)
+                        .then(|| policy.values[display_index])
+                        .and_then(x_at);
+                    display_index += 1;
+                    match x {
                         Some(x) => run.push((x, y_of(row.depth))),
                         // A realization that produced nothing here BREAKS its own trace. Bridging
                         // the gap would draw a path down the well that this realization never took.
@@ -1469,6 +1760,18 @@ fn draw_array_series(
                     ops.push(DrawOp::Poly { pts: run, stroke: color.clone(), sw: 0.08 });
                 }
             }
+            ops.push(DrawOp::Text {
+                x: tx0 + 0.8,
+                y: y_of(page_top) + 2.5,
+                size: 2.1,
+                anchor: Anchor::Start,
+                color: "#555555".into(),
+                bold: false,
+                s: format!(
+                    "waveform clamped={} · non-finite excluded={} · log-domain excluded={}",
+                    policy.clamped, policy.non_finite_excluded, policy.log_domain_excluded
+                ),
+            });
         }
         "heatmap" => {
             let bins = as_.hist_bins.unwrap_or(32).max(1) as usize;
@@ -2085,7 +2388,7 @@ mod tests {
         let rhob: Vec<f32> = vec![2.4; n];
         db::insert_standard_curves(conn, wid, depths, gr, res, nphi, rhob, vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
         db::upsert_top(conn, &w, "Top Reservoir", 1050.0, Some("#b0413e")).unwrap();
-        db::upsert_zone(conn, &w, "ZoneA", 1040.0, 1120.0).unwrap();
+        db::upsert_md_zone(conn, &w, "ZoneA", 1040.0, 1120.0).unwrap();
         w
     }
 

@@ -2,14 +2,17 @@ import {
   deleteDocument,
   finalizePlotWriteProvenance,
   getCurveData,
+  plotBindingSnapshotForChannels,
   listCurveCatalog,
   listDocuments,
   listTops,
   listZoneParams,
   listZones,
-  saveDocument,
+  savePlotState,
   setZoneParam,
   type PlotWriteProvenanceInput,
+  type PersistedPlotState,
+  type PlotChannelIntent,
   type ResolvedPlotCurve,
   type TrackCurveSeries,
   type WellSummary,
@@ -22,6 +25,7 @@ import { formRow, openModal } from "./modal";
 import { FACIES_PALETTE } from "./plotCanvas";
 import {
   allocateFinitePairBudget,
+  DepthGridReconciliationError,
   halfOpenDepthIndices,
   reconcileDepthChannels,
   type DepthGridReconciliation,
@@ -29,7 +33,15 @@ import {
   type PlotReductionExport,
   type ReductionManifest,
 } from "./plotTypes";
+import type { PlotAxisRangeExport } from "./axisRange";
+import {
+  applyPlotRecordLimit,
+  plotRecordCountReduction,
+  plotRecordLimit,
+  reducePlotLabel,
+} from "./plotLimits";
 
+import { ensureSessionOperator } from "./runCustody";
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
 
@@ -41,10 +53,202 @@ export interface PlotContent {
   /** Current user selections (curves/zone) so the workspace can rebuild the plot for a
    *  newly selected well without losing them. */
   getState?: () => Record<string, string>;
+  /** Complete typed state used by named sessions and exports. It throws while a
+   * required represented-well binding is absent, so callers refuse instead of guess. */
+  getPersistedState?: () => PersistedPlotState;
+  /** Resolves after every channel represented by the initial panel state has completed
+   * its first binding pass. Session restore waits for this before comparing custody. */
+  bindingReady?: Promise<void>;
   /** Opens this plot's Properties dialog. The workspace puts it at the top of the pane's
    *  right-click menu — the canvas no longer swallows right-click to open it directly,
    *  which had hidden the window actions (split/float/export) on every plot. */
   openProperties?: () => void;
+}
+
+export interface DepthReframeHandoff {
+  event: "sandibumi:open-reframe";
+  actionLabel: "Open Reframe";
+  reason: string;
+  wellIds: string[];
+  curves: string[];
+  automaticResampling: false;
+}
+
+export interface DepthReframeHandoffControl {
+  el: HTMLDivElement;
+  show: (handoff: DepthReframeHandoff | null) => void;
+  clear: () => void;
+}
+
+export function depthReframeHandoff(
+  error: unknown,
+  wellIds: string[],
+  curves: string[],
+): DepthReframeHandoff | null {
+  if (!(error instanceof DepthGridReconciliationError)) return null;
+  return {
+    event: "sandibumi:open-reframe",
+    actionLabel: error.actionLabel,
+    reason: error.message,
+    wellIds: [...new Set(wellIds.map((wellId) => wellId.trim()).filter(Boolean))],
+    curves: [...new Set(curves.map((curve) => curve.trim()).filter(Boolean))],
+    automaticResampling: error.automaticResampling,
+  };
+}
+
+export function mergeDepthReframeHandoffs(
+  handoffs: DepthReframeHandoff[],
+): DepthReframeHandoff | null {
+  if (handoffs.length === 0) return null;
+  if (handoffs.length === 1) return handoffs[0];
+  return {
+    event: "sandibumi:open-reframe",
+    actionLabel: "Open Reframe",
+    reason:
+      `${handoffs.length} selected wells have irregular depth grids or steps that are not exact integer multiples; ` +
+      "use Reframe to create explicit shared depth frames",
+    wellIds: [...new Set(handoffs.flatMap((handoff) => handoff.wellIds))],
+    curves: [...new Set(handoffs.flatMap((handoff) => handoff.curves))],
+    automaticResampling: false,
+  };
+}
+
+export function buildDepthReframeHandoff(
+  setStatus: (text: string) => void,
+): DepthReframeHandoffControl {
+  const el = document.createElement("div");
+  el.className = "depth-reframe-handoff";
+  el.style.display = "none";
+  const message = document.createElement("span");
+  message.className = "depth-reframe-handoff-message";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "plot-export-btn";
+  let current: DepthReframeHandoff | null = null;
+  const clear = () => {
+    current = null;
+    message.textContent = "";
+    button.textContent = "";
+    el.style.display = "none";
+  };
+  button.addEventListener("click", () => {
+    if (!current) return;
+    window.dispatchEvent(new CustomEvent(current.event, { detail: current }));
+    setStatus("Opening Reframe for an explicit depth-grid decision; no plot data were resampled.");
+  });
+  el.append(message, button);
+  return {
+    el,
+    show: (handoff) => {
+      if (!handoff) {
+        clear();
+        return;
+      }
+      current = handoff;
+      message.textContent = `Plot refused: ${handoff.reason} No data were resampled.`;
+      button.textContent = handoff.actionLabel;
+      el.style.display = "";
+    },
+    clear,
+  };
+}
+
+export function registerDepthReframeRoute(openReframe: () => void): () => void {
+  const listener = () => openReframe();
+  window.addEventListener("sandibumi:open-reframe", listener);
+  return () => window.removeEventListener("sandibumi:open-reframe", listener);
+}
+
+function bindingKey(binding: PersistedPlotState["bindings"][number]): string {
+  return binding.intent.channel.trim().toUpperCase();
+}
+
+function canonicalBindings(state: PersistedPlotState): string {
+  return JSON.stringify(
+    [...state.bindings]
+      .sort((left, right) => bindingKey(left).localeCompare(bindingKey(right)))
+      .map((binding) => ({
+        intent: binding.intent,
+        resolved: [...binding.resolved].sort((left, right) => left.well_id.localeCompare(right.well_id)),
+      })),
+  );
+}
+
+function canonicalAxisRanges(state: PersistedPlotState): string {
+  return JSON.stringify(
+    [...(state.axis_ranges ?? [])].sort((left, right) => left.axis.localeCompare(right.axis)),
+  );
+}
+
+export function buildPersistedPlotState(
+  plotType: string,
+  options: Record<string, unknown>,
+  wellIds: string[],
+  intents: PlotChannelIntent[],
+  axisRanges: PlotAxisRangeExport[],
+): PersistedPlotState {
+  const represented = [...new Set(wellIds.map((wellId) => wellId.trim()).filter(Boolean))];
+  if (represented.length === 0) throw new Error("plot state has no represented wells");
+  const bindings = plotBindingSnapshotForChannels(represented, intents);
+  for (const binding of bindings) {
+    if (!binding.intent.required) continue;
+    const resolved = new Set(binding.resolved.map((curve) => curve.well_id));
+    const missing = represented.filter((wellId) => !resolved.has(wellId));
+    if (missing.length > 0) {
+      throw new Error(
+        `required channel '${binding.intent.semantic_request}' is unresolved for represented well(s): ${missing.join(", ")}`,
+      );
+    }
+  }
+  if (axisRanges.length === 0) throw new Error("plot state has no resolved axis ranges");
+  const axes = new Set<string>();
+  for (const range of axisRanges) {
+    const axis = range.axis.trim().toLowerCase();
+    if (!axis) throw new Error("plot state has an unnamed axis range");
+    if (axes.has(axis)) throw new Error(`plot state repeats axis '${range.axis}'`);
+    axes.add(axis);
+    if (!Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min === range.max) {
+      throw new Error(`plot axis '${range.axis}' requires two distinct finite display limits`);
+    }
+  }
+  return {
+    schema_version: 1,
+    plot_type: plotType,
+    well_ids: represented,
+    options,
+    bindings,
+    axis_ranges: axisRanges,
+  };
+}
+
+/** A named session may reopen only onto the same concrete curve answers. Templates
+ * intentionally skip this comparison and re-resolve their semantic requests. */
+export function assertPlotStateRestored(
+  expected: PersistedPlotState,
+  actual: PersistedPlotState,
+): void {
+  if (
+    expected.plot_type !== actual.plot_type ||
+    canonicalBindings(expected) !== canonicalBindings(actual) ||
+    ((expected.axis_ranges?.length ?? 0) > 0 && canonicalAxisRanges(expected) !== canonicalAxisRanges(actual))
+  ) {
+    throw new Error(
+      `saved ${expected.plot_type} refused: a concrete curve binding, source revision, or resolved axis range changed`,
+    );
+  }
+}
+
+function persistedOptions<T>(raw: unknown): Partial<T> {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "schema_version" in raw &&
+    "options" in raw &&
+    (raw as { schema_version?: unknown }).schema_version === 1
+  ) {
+    return (raw as PersistedPlotState).options as Partial<T>;
+  }
+  return (raw ?? {}) as Partial<T>;
 }
 
 /** Maps a log curve mnemonic to the core measurement it's calibrated against, so
@@ -84,7 +288,7 @@ export async function loadPlotProps<T>(kind: string): Promise<Partial<T>> {
   try {
     const docs = await listDocuments("plotprops");
     const doc = docs.find((d) => d.name === kind);
-    return doc ? (JSON.parse(doc.json) as Partial<T>) : {};
+    return doc ? persistedOptions<T>(JSON.parse(doc.json)) : {};
   } catch {
     return {};
   }
@@ -92,8 +296,8 @@ export async function loadPlotProps<T>(kind: string): Promise<Partial<T>> {
 
 /** Fire-and-forget save of a plot kind's properties — new panels of that kind open
  *  with them. */
-export function savePlotProps(kind: string, props: unknown): void {
-  void saveDocument("plotprops", kind, JSON.stringify(props)).catch(() => {});
+export function savePlotProps(kind: string, state: PersistedPlotState): Promise<void> {
+  return savePlotState("plotprops", kind, state);
 }
 
 // --- Named plot templates ---------------------------------------------------
@@ -114,8 +318,8 @@ export async function listPlotTemplates(kind: string): Promise<{ name: string; j
   }
 }
 
-export async function savePlotTemplate(kind: string, name: string, opts: unknown): Promise<void> {
-  await saveDocument(plotTemplateDocType(kind), name, JSON.stringify(opts));
+export async function savePlotTemplate(kind: string, name: string, state: PersistedPlotState): Promise<void> {
+  await savePlotState(plotTemplateDocType(kind), name, state);
 }
 
 export async function deletePlotTemplate(kind: string, name: string): Promise<void> {
@@ -129,7 +333,7 @@ export async function deletePlotTemplate(kind: string, name: string): Promise<vo
 export function buildPlotTemplateBar<T>(
   kind: string,
   niceName: string,
-  getOpts: () => T,
+  getState: () => PersistedPlotState,
   applyOpts: (opts: Partial<T>) => void,
   setStatus: (text: string) => void,
 ): HTMLElement {
@@ -162,7 +366,7 @@ export function buildPlotTemplateBar<T>(
     const doc = templates.find((t) => t.name === name);
     if (!doc) return;
     try {
-      applyOpts(JSON.parse(doc.json) as Partial<T>);
+      applyOpts(persistedOptions<T>(JSON.parse(doc.json)));
       setStatus(`Applied ${niceName} template "${name}"`);
     } catch {
       setStatus(`Template "${name}" is unreadable`);
@@ -191,7 +395,7 @@ export function buildPlotTemplateBar<T>(
       const name = nameInput.value.trim();
       if (!name) return;
       try {
-        await savePlotTemplate(kind, name, getOpts());
+        await savePlotTemplate(kind, name, getState());
         recordProcess("Template", `Saved ${niceName} template "${name}"`);
         setStatus(`${niceName} template "${name}" saved`);
         close();
@@ -327,8 +531,15 @@ export async function loadCurveUnits(): Promise<Map<string, string>> {
 export interface ZoneSelect {
   select: HTMLSelectElement;
   current: () => ZoneChoice;
+  /** Apply the application's selected top interval; governed plot invalidation owns later changes. */
+  applySelectedInterval: (interval: TopInterval | null, fireChange: boolean) => void;
   /** Unsubscribes the top-interval follower — call from the panel's dispose. */
   dispose: () => void;
+}
+
+export interface ZoneSelectOptions {
+  /** Defaults true for legacy/non-governed consumers. Governed plots subscribe through SB-PLT-019. */
+  followSelectedInterval?: boolean;
 }
 
 /** The zone select's option value for the Wells & Tops pane's selected top interval.
@@ -340,7 +551,10 @@ export const TOP_OPTION = "@top";
  *  and targets that zone for parameter writes. When a top is selected in the Wells &
  *  Tops pane, a "Top X (min–max)" option appears, is auto-selected, and fires `change`
  *  so the plot reloads windowed to it. */
-export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
+export async function buildZoneSelect(
+  well: WellSummary,
+  options: ZoneSelectOptions = {},
+): Promise<ZoneSelect> {
   let zones: ZoneEntry[] = [];
   try {
     zones = await listZones(well.well_id);
@@ -389,14 +603,17 @@ export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
   applyInterval(appState.selectedInterval.get(), false);
   // subscribe() fires immediately with the current value, which applyInterval above
   // already handled — skip that first call so building a panel never fires `change`.
-  let first = true;
-  const unsub = appState.selectedInterval.subscribe((iv) => {
-    if (first) {
-      first = false;
-      return;
-    }
-    applyInterval(iv, true);
-  });
+  let unsub = (): void => {};
+  if (options.followSelectedInterval !== false) {
+    let first = true;
+    unsub = appState.selectedInterval.subscribe((iv) => {
+      if (first) {
+        first = false;
+        return;
+      }
+      applyInterval(iv, true);
+    });
+  }
 
   const current = (): ZoneChoice => {
     if (select.value === TOP_OPTION && interval) {
@@ -407,7 +624,7 @@ export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
       ? { zoneName: zone.zone_name, depthMin: zone.top_depth, depthMax: zone.bottom_depth }
       : { zoneName: "*", depthMin: null, depthMax: null };
   };
-  return { select, current, dispose: unsub };
+  return { select, current, applySelectedInterval: applyInterval, dispose: unsub };
 }
 
 // --- Multi-well plot context (shared by crossplot + histogram) ---------------
@@ -444,7 +661,7 @@ export async function contextZoneWindow(
   if (zoneSel.select.value === TOP_OPTION) {
     const iv = appState.selectedInterval.get();
     if (!iv) return null;
-    const tops = await listTops(wellId).catch(() => []);
+    const tops = await listTops(wellId);
     const sorted = [...tops].sort((a, b) => a.depth - b.depth);
     const i = sorted.findIndex((t) => t.top_name === iv.topName);
     if (i < 0) return null;
@@ -476,12 +693,11 @@ export interface ContextFetchOutcome {
   skipped: number;
   /** Per-well absence is explicit; an all-NaN required curve is not represented. */
   absent: { wellId: string; reason: string; quota: 0 }[];
+  /** Incompatible depth grids remain absent until the user explicitly opens Reframe. */
+  depthReframeHandoffs: DepthReframeHandoff[];
   /** Present only when the total budget cannot retain required endpoints. */
   refusal: string | null;
 }
-
-/** Context-well rows visible in the on-plot legends; every hidden remainder is disclosed. */
-export const CONTEXT_LEGEND_ROWS = 10;
 
 /** Fetches the context wells' curves, concurrency-limited and cancellable: `isStale()`
  *  is checked after every await, and a stale call returns null without touching anything.
@@ -493,7 +709,6 @@ export async function fetchContextLayers(args: {
   curves: string[];
   windowFor: (wellId: string) => Promise<[number | null, number | null] | null>;
   budget: number;
-  concurrency?: number;
   isStale: () => boolean;
 }): Promise<ContextFetchOutcome | null> {
   const { ids, names, curves, windowFor, budget, isStale } = args;
@@ -506,6 +721,7 @@ export async function fetchContextLayers(args: {
     depthStep: DepthStepManifest;
   }
   const candidates: (Candidate | null)[] = new Array(ids.length).fill(null);
+  const depthReframeByIndex: (DepthReframeHandoff | null)[] = new Array(ids.length).fill(null);
   const absent: { wellId: string; reason: string; quota: 0 }[] = [];
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -533,6 +749,7 @@ export async function fetchContextLayers(args: {
             present.map((item) => ({ depth: item.depth, values: item.value })),
           );
         } catch (error) {
+          depthReframeByIndex[i] = depthReframeHandoff(error, [ids[i]], curves);
           absent.push({ wellId: ids[i], reason: String(error), quota: 0 });
           continue;
         }
@@ -558,7 +775,8 @@ export async function fetchContextLayers(args: {
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(args.concurrency ?? 8, ids.length) }, () => worker()));
+  const workerCount = Math.min(plotRecordLimit("context_fetch_concurrency").maximum, ids.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
   if (isStale()) return null;
   const fetched = candidates.filter((candidate): candidate is Candidate => candidate !== null);
   const allocation = allocateFinitePairBudget(
@@ -577,6 +795,9 @@ export async function fetchContextLayers(args: {
       decimated: false,
       skipped: absent.length,
       absent,
+      depthReframeHandoffs: depthReframeByIndex.filter(
+        (handoff): handoff is DepthReframeHandoff => handoff !== null,
+      ),
       refusal: allocation.refusal,
     };
   }
@@ -612,6 +833,9 @@ export async function fetchContextLayers(args: {
     decimated,
     skipped: absent.length,
     absent,
+    depthReframeHandoffs: depthReframeByIndex.filter(
+      (handoff): handoff is DepthReframeHandoff => handoff !== null,
+    ),
     refusal: null,
   };
 }
@@ -628,6 +852,7 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
   const depthText = depthFactors.some((factor) => factor > 1)
     ? ` · depth decimation factor${depthFactors.length === 1 ? "" : "s"} ${depthFactors.join("/")} to coarsest exact step`
     : "";
+  const reframeCount = o.depthReframeHandoffs?.length ?? 0;
   return (
     `Context: ${o.layers.length} well${o.layers.length === 1 ? "" : "s"} · ~${o.shown.toLocaleString()} pts` +
     (o.decimated
@@ -635,7 +860,8 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
       : "") +
     depthText +
     (o.layers.length ? " · interval [lo,hi)" : "") +
-    (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "")
+    (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "") +
+    (reframeCount ? ` · ${reframeCount} require explicit Reframe` : "")
   );
 }
 
@@ -646,40 +872,44 @@ export function contextReductionExport(
   plotType: string,
   outcome: ContextFetchOutcome | null,
   scopedWellCount: number,
-  visibleScopeWellRows: number,
+  activeWell?: { wellId: string; name: string },
 ): PlotReductionExport | null {
+  const layers = outcome?.layers ?? [];
   const pointReduced = outcome?.layers.some(
     (layer) => layer.reduction.displayedCount < layer.reduction.originalCount,
   ) ?? false;
-  const legendReduced = (outcome?.layers.length ?? 0) > CONTEXT_LEGEND_ROWS;
-  const scopePreviewReduced = scopedWellCount > visibleScopeWellRows;
-  if (!pointReduced && !legendReduced && !scopePreviewReduced && !outcome?.refusal) return null;
+  const legend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+  const scopePreview = plotRecordCountReduction(
+    "well_scope_name_preview_rows",
+    scopedWellCount,
+    "well_scope_name_preview",
+  );
+  const labelItems = legend.displayed.flatMap((layer) => {
+    const item = reducePlotLabel("context_well_name_characters", layer.name, layer.wellId).item;
+    return item ? [item] : [];
+  });
+  if (activeWell && layers.length > 0) {
+    const activeItem = reducePlotLabel(
+      "context_well_name_characters",
+      activeWell.name,
+      activeWell.wellId,
+    ).item;
+    if (activeItem) labelItems.unshift(activeItem);
+  }
+  if (!pointReduced && !legend.item && !scopePreview && labelItems.length === 0 && !outcome?.refusal) return null;
 
-  const items: PlotReductionExport["items"] = (outcome?.layers ?? []).map((layer) => ({
+  const items: PlotReductionExport["items"] = layers.map((layer) => ({
     subject_kind: "points",
     subject_id: layer.wellId,
     original_count: layer.reduction.originalCount,
     displayed_count: layer.reduction.displayedCount,
     algorithm: layer.reduction.algorithm,
+    stride: layer.reduction.stride,
+    endpoints_forced: layer.reduction.endpointsForced,
   }));
-  if (scopePreviewReduced) {
-    items.push({
-      subject_kind: "wells",
-      subject_id: "well_scope_name_preview",
-      original_count: scopedWellCount,
-      displayed_count: visibleScopeWellRows,
-      algorithm: "first_well_names_with_remainder_count",
-    });
-  }
-  if (legendReduced) {
-    items.push({
-      subject_kind: "legend",
-      subject_id: "well_legend",
-      original_count: outcome!.layers.length,
-      displayed_count: CONTEXT_LEGEND_ROWS,
-      algorithm: "first_context_well_rows_with_reported_remainder",
-    });
-  }
+  if (scopePreview) items.push(scopePreview);
+  if (legend.item) items.push(legend.item);
+  items.push(...labelItems);
   return {
     schema_version: 1,
     plot_type: plotType,
@@ -755,20 +985,34 @@ export async function writePlotParameter(args: {
   ]);
   const before = current.find((entry) =>
     entry.zone_name === args.zone.zoneName && entry.param_name === parameter);
-  const applyNew = () => setZoneParam(
-    args.well.well_id,
-    args.zone.zoneName,
-    parameter,
-    args.value,
-    sourceNote,
-  );
-  const applyOld = () => setZoneParam(
-    args.well.well_id,
-    args.zone.zoneName,
-    parameter,
-    before?.value_num ?? null,
-    before?.value_text ?? null,
-  );
+  // SB-DBM-011: an audited surface. Uninterrupted drags of the same handle collapse into
+  // ONE audit entry backend-side, so this can fire per gesture without flooding the audit.
+  const applyNew = async () => {
+    const op = await ensureSessionOperator("Crossplot parameter pick");
+    if (!op) throw new Error("edit cancelled: no session operator entered");
+    return setZoneParam(
+      args.well.well_id,
+      args.zone.zoneName,
+      parameter,
+      args.value,
+      sourceNote,
+      op,
+      "Crossplot",
+    );
+  };
+  const applyOld = async () => {
+    const op = await ensureSessionOperator("Crossplot parameter undo");
+    if (!op) throw new Error("edit cancelled: no session operator entered");
+    return setZoneParam(
+      args.well.well_id,
+      args.zone.zoneName,
+      parameter,
+      before?.value_num ?? null,
+      before?.value_text ?? null,
+      op,
+      "Crossplot",
+    );
+  };
   await applyNew();
   pushUndo({
     label: `set ${parameter} from ${args.source.plot_type}`,

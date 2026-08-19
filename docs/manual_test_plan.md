@@ -1826,8 +1826,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Now the washout-repair case: TARGET = RHOB, OPT_COMBINE = **MAX_RAW**, **Mask = BADHOLE**. **Run**. Inspect RHOB_SYN inside a BADHOLE = 1 washout.
 4. Negative: run with TARGET = a curve with under 10 valid samples (or scope a nearly-empty well).
    **Expected:** Step 2: filled values are plausible DT (within the well's DT range, tracking lithology — high in shale/coal, low in tight streaks); no extrapolated nonsense outside predictor coverage. Step 4: all-MISSING output reported as ⚠ "no finite output", not green success. Step 3 SHOULD show a finite repaired RHOB inside the washout (that is the module's purpose), but see below.
-   **Known issue:** AUDIT-2026-07-21 finding "log_predict's MAX_RAW/repaired-synthetic value is unconditionally re-blanked at masked (washout) depths by workflow.rs's output-masking step" (§Prep statistical #1, CONFIRMED; still unfixed — listed in REVIEW.md Round 4 under "6 findings that … await your sign-off"). Expect step 3 to FAIL: RHOB_SYN will be NaN exactly inside the masked washout it exists to fill. Log as known.
-   **Automated coverage - pinned (pile B, 2026-07-31):** `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (modules.rs) plus `a_masked_washout_defeats_the_very_module_meant_to_repair_it` (workflow.rs). The second one pins the audited defect AS-IS, not as correct behaviour.
+   **Fixed (SB-ENV-027 / DEC-033, 2026-08-18):** the AUDIT-2026-07-21 finding (repaired value re-blanked at masked depths) is closed. The ONE declared repair - `log_predict.SYN` under OPT_COMBINE = MAX_RAW - is exempt from BOTH mask passes, so step 3 now shows a finite repaired RHOB inside the washout, plus a companion `RHOB_SYN_RECON_FLAG` = 1 exactly there ("reconstructed, not measured"). SYNTHETIC and FILL_MISSING stay masked normally - the exemption is per output AND per mode.
+   **Automated coverage - pinned:** `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (modules.rs), `the_masked_washout_is_now_repaired_by_the_declared_exemption_it_once_defeated` (workflow.rs, the inverted former defect pin) and `the_one_declared_repair_survives_the_mask_and_wears_its_marker_while_other_modes_stay_masked` (workflow.rs).
 
    **Result — T-PREP-16:**
 
@@ -5864,8 +5864,10 @@ project copy that still has the old computed_curves PRIMARY KEY.
 1. Open your current project; check its folder in Explorer.
 2. (Optional) Open the old copy; watch its folder and the console.
    **Expected:** step 1: NO new `*-backup.duckdb` appears, launch is not slower — absence is
-   the pass. Step 2: a `<name>.pre-1-backup.duckdb` appears BEFORE the rebuild and the launch
-   log announces it; the backup opens as a valid project if pointed at directly.
+   the pass. Step 2: an unstamped legacy source produces
+   `<name>.pre-0-backup.duckdb` BEFORE the rebuild (a stamped source uses its own version),
+   and the launch log announces that exact path; the backup opens as a valid project if
+   pointed at directly.
    **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
 
    **Result — T-SHIP-05:**

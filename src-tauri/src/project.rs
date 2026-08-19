@@ -167,6 +167,11 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
 
     let t = std::time::Instant::now();
     db::migrate_array_logs_store(&conn).map_err(|e| format!("array-log migration failed: {e}"))?;
+    // SB-DBM-009 / DEC-022: legacy WIB provenance timestamps become UTC instants, once.
+    db::migrate_run_degradations_endpoint_invalid(&conn)
+        .map_err(|e| format!("run-degradation vocabulary migration failed: {e}"))?;
+    db::migrate_log_set_timestamps_to_utc(&conn)
+        .map_err(|e| format!("timestamp migration failed: {e}"))?;
     eprintln!("[boot] migrate_array_logs_store: {:?}", t.elapsed());
 
     // Must run AFTER migrate_point_data_sets, which rebuilds core_data for its primary key —

@@ -1,0 +1,558 @@
+{
+  "schema_version": 1,
+  "registry_version": "curve-units-v2",
+  "source_sha256": "ee552f348a656549391e9d8cc3f0e77bf5d8addf7eaf65fe93f27046010591f1",
+  "populations": {
+    "families": 20,
+    "aliases": 151,
+    "alias_patterns": 3,
+    "alias_exclusions": 4,
+    "units": 46,
+    "rules": 10
+  },
+  "families": [
+    {
+      "family": "GR",
+      "canonical_unit": "gAPI",
+      "quantity_kind": "gamma_ray",
+      "aliases": [
+        "GR",
+        "GRN",
+        "GRD",
+        "CGR",
+        "SGR",
+        "GRGC",
+        "GRKT"
+      ]
+    },
+    {
+      "family": "SP",
+      "canonical_unit": "mV",
+      "quantity_kind": "electric_potential",
+      "aliases": [
+        "SP",
+        "SPC",
+        "SPR"
+      ]
+    },
+    {
+      "family": "CALI",
+      "canonical_unit": "in",
+      "quantity_kind": "length",
+      "aliases": [
+        "CALI",
+        "CAL",
+        "CALS",
+        "CALX",
+        "CALY",
+        "HCAL",
+        "LCAL",
+        "DCAL",
+        "HORD"
+      ]
+    },
+    {
+      "family": "BS",
+      "canonical_unit": "in",
+      "quantity_kind": "length",
+      "aliases": [
+        "BS",
+        "BITSIZE",
+        "BIT"
+      ]
+    },
+    {
+      "family": "RHOB",
+      "canonical_unit": "g/cc",
+      "quantity_kind": "bulk_density",
+      "aliases": [
+        "RHOB",
+        "RHOZ",
+        "RHOBED",
+        "DEN",
+        "ZDEN",
+        "ROBB",
+        "SBD2"
+      ]
+    },
+    {
+      "family": "DRHO",
+      "canonical_unit": "g/cc",
+      "quantity_kind": "bulk_density",
+      "aliases": [
+        "DRHO",
+        "HDRA",
+        "ZCOR",
+        "DCOR"
+      ]
+    },
+    {
+      "family": "PEF",
+      "canonical_unit": "b/e",
+      "quantity_kind": "photoelectric_factor",
+      "aliases": [
+        "PEF",
+        "PE",
+        "PEFZ",
+        "PEB",
+        "PDPE"
+      ]
+    },
+    {
+      "family": "NPHI",
+      "canonical_unit": "v/v",
+      "quantity_kind": "fraction",
+      "aliases": [
+        "NPHI",
+        "TNPH",
+        "NPHIED",
+        "NPHI_LS",
+        "NPOR",
+        "NEUT",
+        "APLC",
+        "FPLC",
+        "SNP",
+        "HNPO",
+        "FSTP"
+      ]
+    },
+    {
+      "family": "POR",
+      "canonical_unit": "v/v",
+      "quantity_kind": "fraction",
+      "aliases": [
+        "PHIE",
+        "PHIT",
+        "PHIA",
+        "DPHI",
+        "NPHI_COR",
+        "PHIE_LIM",
+        "PHIE_DEN",
+        "PHIT_DEN",
+        "PHIE_DN",
+        "PHIT_DN",
+        "PHIE_DN_LIM",
+        "PHIT_DN_LIM",
+        "PHIT_SON",
+        "PHIE_SON",
+        "PHI_CAP",
+        "PHI_MAX",
+        "PHIT_SSC",
+        "PHIE_SSC",
+        "PHIFF_SSC",
+        "PHIFF_GR",
+        "PHIE_GR",
+        "PHIT_GR",
+        "PHIT_SSPW",
+        "PHIE_SSPW",
+        "PHIFF_SSPW"
+      ]
+    },
+    {
+      "family": "VSH",
+      "canonical_unit": "v/v",
+      "quantity_kind": "fraction",
+      "aliases": [
+        "VSH",
+        "VSH_NMR",
+        "VDSH",
+        "VSH_SSC",
+        "VSHGR",
+        "VSHND",
+        "VSH_MM"
+      ],
+      "alias_patterns": [
+        "VSH*"
+      ],
+      "excluded_alias_patterns": [
+        "VSH*UNCL*",
+        "VSHH*",
+        "VSHV*"
+      ]
+    },
+    {
+      "family": "VSH_UNCLIPPED",
+      "canonical_unit": "v/v",
+      "quantity_kind": "fraction",
+      "aliases": [
+        "VSH_GR",
+        "VSH_DN",
+        "VSH_DS",
+        "VSH_NS",
+        "VSH_RES",
+        "VSH_MN",
+        "VSH_NPHI",
+        "VSH_SP",
+        "VSH_AVG",
+        "VSH_HL",
+        "VSH_MIN"
+      ],
+      "alias_patterns": [
+        "VSH*UNCL*"
+      ],
+      "excluded_alias_patterns": []
+    },
+    {
+      "family": "VCL",
+      "canonical_unit": "v/v",
+      "quantity_kind": "fraction",
+      "aliases": [
+        "VCL",
+        "VCLAV",
+        "VCLMIX",
+        "VCL_NMR",
+        "VOL_CLAY"
+      ],
+      "alias_patterns": [
+        "VCL*"
+      ],
+      "excluded_alias_patterns": [
+        "VCLC*"
+      ]
+    },
+    {
+      "family": "CLY_STATE",
+      "canonical_unit": "flag",
+      "quantity_kind": "categorical",
+      "aliases": [
+        "MTH_VSH",
+        "VSH_DN_FLAG"
+      ],
+      "alias_patterns": [],
+      "excluded_alias_patterns": []
+    },
+    {
+      "family": "DT",
+      "canonical_unit": "us/ft",
+      "quantity_kind": "slowness",
+      "aliases": [
+        "DT",
+        "DTC",
+        "DTCO",
+        "AC",
+        "DT24",
+        "DTP",
+        "DTCOMP"
+      ]
+    },
+    {
+      "family": "DTS",
+      "canonical_unit": "us/ft",
+      "quantity_kind": "slowness",
+      "aliases": [
+        "DTS",
+        "DTSM",
+        "DTSH",
+        "DTSHEAR",
+        "DT_S"
+      ]
+    },
+    {
+      "family": "TEMP",
+      "canonical_unit": "DEGC",
+      "quantity_kind": "temperature",
+      "aliases": [
+        "FTEMP"
+      ]
+    },
+    {
+      "family": "RES_DEEP",
+      "canonical_unit": "ohm.m",
+      "quantity_kind": "resistivity",
+      "aliases": [
+        "RES_DEEP",
+        "RESD",
+        "RT",
+        "RDEEP",
+        "RDEP",
+        "DRES",
+        "ILD",
+        "LLD",
+        "AT90",
+        "AHT90",
+        "RLA5",
+        "ATR",
+        "BDAV",
+        "RING",
+        "PSR"
+      ]
+    },
+    {
+      "family": "RES_MED",
+      "canonical_unit": "ohm.m",
+      "quantity_kind": "resistivity",
+      "aliases": [
+        "RES_MED",
+        "RESM",
+        "RMED",
+        "ILM",
+        "LLM",
+        "AT30",
+        "AHT30",
+        "RLA3"
+      ]
+    },
+    {
+      "family": "RES_SHAL",
+      "canonical_unit": "ohm.m",
+      "quantity_kind": "resistivity",
+      "aliases": [
+        "RES_SHAL",
+        "RESS",
+        "RSHAL",
+        "SFL",
+        "SFLU",
+        "LL8",
+        "SN",
+        "AT10",
+        "AHT10",
+        "RLA1",
+        "R25P",
+        "BSAV"
+      ]
+    },
+    {
+      "family": "RXO",
+      "canonical_unit": "ohm.m",
+      "quantity_kind": "resistivity",
+      "aliases": [
+        "RXO",
+        "RXOZ",
+        "MSFL",
+        "RMLL"
+      ]
+    }
+  ],
+  "unit_tokens": [
+    {
+      "token": "gAPI",
+      "quantity_kind": "gamma_ray",
+      "canonical_unit": "gAPI"
+    },
+    {
+      "token": "GAPI",
+      "quantity_kind": "gamma_ray",
+      "canonical_unit": "gAPI"
+    },
+    {
+      "token": "mV",
+      "quantity_kind": "electric_potential",
+      "canonical_unit": "mV"
+    },
+    {
+      "token": "m",
+      "quantity_kind": "length",
+      "canonical_unit": "m"
+    },
+    {
+      "token": "M",
+      "quantity_kind": "length",
+      "canonical_unit": "m"
+    },
+    {
+      "token": "mm",
+      "quantity_kind": "length",
+      "canonical_unit": "mm"
+    },
+    {
+      "token": "MM",
+      "quantity_kind": "length",
+      "canonical_unit": "mm"
+    },
+    {
+      "token": "cm",
+      "quantity_kind": "length",
+      "canonical_unit": "cm"
+    },
+    {
+      "token": "CM",
+      "quantity_kind": "length",
+      "canonical_unit": "cm"
+    },
+    {
+      "token": "in",
+      "quantity_kind": "length",
+      "canonical_unit": "in"
+    },
+    {
+      "token": "IN",
+      "quantity_kind": "length",
+      "canonical_unit": "in"
+    },
+    {
+      "token": "g/cc",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "g/cc"
+    },
+    {
+      "token": "G/CC",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "g/cc"
+    },
+    {
+      "token": "G/C3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "g/cc"
+    },
+    {
+      "token": "kg/m3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "kg/m3"
+    },
+    {
+      "token": "KG/M3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "kg/m3"
+    },
+    {
+      "token": "k/m3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "kg/m3"
+    },
+    {
+      "token": "K/M3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "kg/m3"
+    },
+    {
+      "token": "b/e",
+      "quantity_kind": "photoelectric_factor",
+      "canonical_unit": "b/e"
+    },
+    {
+      "token": "B/E",
+      "quantity_kind": "photoelectric_factor",
+      "canonical_unit": "b/e"
+    },
+    {
+      "token": "v/v",
+      "quantity_kind": "fraction",
+      "canonical_unit": "v/v"
+    },
+    {
+      "token": "V/V",
+      "quantity_kind": "fraction",
+      "canonical_unit": "v/v"
+    },
+    {
+      "token": "pu",
+      "quantity_kind": "fraction",
+      "canonical_unit": "pu"
+    },
+    {
+      "token": "PU",
+      "quantity_kind": "fraction",
+      "canonical_unit": "pu"
+    },
+    {
+      "token": "%",
+      "quantity_kind": "fraction",
+      "canonical_unit": "%"
+    },
+    {
+      "token": "p.u.",
+      "quantity_kind": "fraction",
+      "canonical_unit": "pu"
+    },
+    {
+      "token": "P.U.",
+      "quantity_kind": "fraction",
+      "canonical_unit": "pu"
+    },
+    {
+      "token": "flag",
+      "quantity_kind": "categorical",
+      "canonical_unit": "flag"
+    },
+    {
+      "token": "us/m",
+      "quantity_kind": "slowness",
+      "canonical_unit": "us/m"
+    },
+    {
+      "token": "US/M",
+      "quantity_kind": "slowness",
+      "canonical_unit": "us/m"
+    },
+    {
+      "token": "usec/m",
+      "quantity_kind": "slowness",
+      "canonical_unit": "us/m"
+    },
+    {
+      "token": "USEC/M",
+      "quantity_kind": "slowness",
+      "canonical_unit": "us/m"
+    },
+    {
+      "token": "us/ft",
+      "quantity_kind": "slowness",
+      "canonical_unit": "us/ft"
+    },
+    {
+      "token": "US/FT",
+      "quantity_kind": "slowness",
+      "canonical_unit": "us/ft"
+    },
+    {
+      "token": "degF",
+      "quantity_kind": "temperature",
+      "canonical_unit": "degF"
+    },
+    {
+      "token": "DEGF",
+      "quantity_kind": "temperature",
+      "canonical_unit": "degF"
+    },
+    {
+      "token": "degC",
+      "quantity_kind": "temperature",
+      "canonical_unit": "degC"
+    },
+    {
+      "token": "DEGC",
+      "quantity_kind": "temperature",
+      "canonical_unit": "degC"
+    },
+    {
+      "token": "ohm.m",
+      "quantity_kind": "resistivity",
+      "canonical_unit": "ohm.m"
+    },
+    {
+      "token": "OHM.M",
+      "quantity_kind": "resistivity",
+      "canonical_unit": "ohm.m"
+    },
+    {
+      "token": "meq/L",
+      "quantity_kind": "charge_per_volume",
+      "canonical_unit": "meq/L"
+    },
+    {
+      "token": "MEQ/L",
+      "quantity_kind": "charge_per_volume",
+      "canonical_unit": "meq/L"
+    },
+    {
+      "token": "meq/mL",
+      "quantity_kind": "charge_per_volume",
+      "canonical_unit": "meq/mL"
+    },
+    {
+      "token": "MEQ/ML",
+      "quantity_kind": "charge_per_volume",
+      "canonical_unit": "meq/mL"
+    },
+    {
+      "token": "md",
+      "quantity_kind": "permeability",
+      "canonical_unit": "mD"
+    },
+    {
+      "token": "mD",
+      "quantity_kind": "permeability",
+      "canonical_unit": "mD"
+    }
+  ]
+}

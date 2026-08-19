@@ -13,6 +13,7 @@ import {
 import { appState } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import {
   attachResizeRedraw,
   canvasFont,
@@ -27,8 +28,9 @@ import { type PlotContent } from "./plotCommon";
  *
  *  A per-zone QC scorecard (increment 2) plus a detail view (increment 3):
  *
- *   • **Sw-method spread** — the `sw_method_spread` backend: how far Archie/Simandoux/Indonesia/Juhász
- *     (+Waxman-Smits/Dual-Water when Qv/Swb exist) disagree over the zone. A wide spread means the
+ *   • **Sw-method spread** — the `sw_method_spread` backend: how far the canonical Archie,
+ *     typed Simandoux, Indonesia, and Juhász equations (+ Waxman-Smits/dual-water when Qv/Swb exist)
+ *     disagree over the zone. A wide spread means the
  *     model choice changes the answer — the classic fresh-water Mahakam-sand trap.
  *   • **Buckles / bulk-volume-water** — BVW = SWE·PHIE. In rock at irreducible saturation BVW is roughly
  *     constant; a high coefficient of variation flags either a genuine transition or an inconsistent Sw.
@@ -65,8 +67,16 @@ const MC_REL_WARN = 0.35;
 /** Fractional net-pay move for a ±0.02 v/v PHIE-cutoff nudge — the cutoff-sensitivity thresholds. */
 const CUT_SENS_OK = 0.15;
 const CUT_SENS_WARN = 0.4;
-/** Model draw order → stable colour per model across zones (Archie first so it reads as the baseline). */
-const MODEL_ORDER = ["Archie", "Simandoux", "Indonesia", "Juhasz", "Waxman-Smits", "Dual-Water"];
+/** Canonical equation-id draw order → stable colour per model across zones. */
+const MODEL_ORDER = [
+  "archie_total",
+  "simandoux_bardon_pied",
+  "simandoux_modified_slb",
+  "indonesia",
+  "juhasz",
+  "waxman_smits",
+  "dual_water_nonlinear",
+];
 
 interface BucklesResult {
   status: CheckStatus;
@@ -130,13 +140,14 @@ function modelColor(name: string): string {
   return faciesColor(i >= 0 ? i : MODEL_ORDER.length);
 }
 
-function numInput(value: number, step = "any", width = "5.5em"): HTMLInputElement {
+// SB-CUT-016: absent-capable, so a cut-off with no value opens blank instead of showing "null".
+function numInput(value: number | null, step = "any", width = "5.5em"): HTMLInputElement {
   const i = document.createElement("input");
   i.className = "form-control";
   i.type = "number";
   i.step = step;
   i.style.width = width;
-  i.value = String(value);
+  i.value = typeof value === "number" && Number.isFinite(value) ? String(value) : "";
   return i;
 }
 
@@ -365,32 +376,47 @@ async function computeMc(
 async function computeCutoff(
   wellId: string,
   zoneName: string | null,
-  vshMax: number,
-  phieMin: number,
-  sweMax: number,
+  vshMax: number | null,
+  phieMin: number | null,
+  sweMax: number | null,
 ): Promise<CutoffResultRow> {
   const empty = (status: CheckStatus, detail: string, tooltip: string): CutoffResultRow => ({
     status, detail, tooltip, property: "PHIE", net: NaN, sens: NaN, peak: NaN,
   });
+  // SB-CUT-016: this probe sweeps ±0.02 AROUND the operating PHIE cutoff. With no cutoff set
+  // there is no centre to sweep around, so it says so rather than inventing one.
+  if (phieMin === null) {
+    return empty(
+      "na",
+      "no PHIE cutoff set",
+      "The cutoff-sensitivity probe sweeps around your operating PHIE cutoff. Set one above and " +
+        "it will run — SandiBumi ships no cutoff value of its own.",
+    );
+  }
+  const held = (v: number | null, d = 2) => (v === null ? "unfiltered" : v.toFixed(d));
   const half = 0.04;
   const sweepLo = Math.max(0, phieMin - half);
   const sweepHi = phieMin + half;
   let res;
   try {
-    res = await runCutoffSweep({
-      well_ids: [wellId],
-      property: "PHIE",
-      vsh_max: vshMax,
-      phie_min: phieMin,
-      swe_max: sweMax,
-      perm_min: null,
-      sweep_min: sweepLo,
-      sweep_max: sweepHi,
-      steps: 9,
-      metric: "NET",
-      zone: zoneName,
-      dst_dataset: null,
-    });
+    res = await runCutoffSweep(
+      {
+        well_ids: [wellId],
+        property: "PHIE",
+        // SB-CUT-019: the probe's cut-offs are held in v/v and travel with that unit.
+        vsh_max: vshMax === null ? null : { value: vshMax, unit: "v/v" },
+        phie_min: { value: phieMin, unit: "v/v" },
+        swe_max: sweMax === null ? null : { value: sweMax, unit: "v/v" },
+        perm_min: null,
+        sweep_min: sweepLo,
+        sweep_max: sweepHi,
+        steps: 9,
+        metric: "NET",
+        zone: zoneName,
+        dst_dataset: null,
+      },
+      { kind: "explicit", well_ids: [wellId] },
+    );
   } catch (err) {
     return empty("na", "sweep failed", String(err));
   }
@@ -419,7 +445,7 @@ async function computeCutoff(
   const status: CheckStatus = sens <= CUT_SENS_OK ? "ok" : sens <= CUT_SENS_WARN ? "warn" : "alert";
   const detail = `NET ${net.toFixed(1)} m @ PHIE≥${phieMin.toFixed(2)} · ±0.02φ → ±${(sens * 100).toFixed(0)}% net`;
   const tooltip =
-    `Sweeping the PHIE≥ cutoff by ±0.02 v/v around ${phieMin.toFixed(2)} (VSH≤${vshMax.toFixed(2)}, SWE≤${sweMax.toFixed(2)} held) moves net pay by ${(sens * 100).toFixed(0)}%.\n` +
+    `Sweeping the PHIE≥ cutoff by ±0.02 v/v around ${phieMin.toFixed(2)} (VSH≤${held(vshMax)}, SWE≤${held(sweMax)} held) moves net pay by ${(sens * 100).toFixed(0)}%.\n` +
     (status === "ok"
       ? "Pay is robust to the porosity cutoff here."
       : "Pay is sensitive to the cutoff — a small φ-cutoff change moves the number; justify the cutoff or report a range.");
@@ -622,17 +648,17 @@ export async function buildResultsQcContent(
   const phieMinIn = numInput(cuts.phie_min, "0.01");
   const sweMaxIn = numInput(cuts.swe_max, "0.01");
   controls.append(
-    formRow("Rw", rwIn),
+    formRow("Rw", withParamSources(rwIn, PARAM_SOURCE_TOPICS.formationWaterResistivity)),
     formRow("Rw °F", rwTIn),
     formRow("Form °F", ftIn),
-    formRow("m", mIn),
-    formRow("n", nIn),
-    formRow("Rsh", rshIn),
-    formRow("a", aIn),
+    formRow("m", withParamSources(mIn, PARAM_SOURCE_TOPICS.archieM)),
+    formRow("n", withParamSources(nIn, PARAM_SOURCE_TOPICS.archieN)),
+    formRow("Rsh", withParamSources(rshIn, PARAM_SOURCE_TOPICS.shaleResistivity)),
+    formRow("a", withParamSources(aIn, PARAM_SOURCE_TOPICS.archieA)),
     formRow("Diverge", divIn),
-    formRow("VSH≤", vshMaxIn),
-    formRow("PHIE≥", phieMinIn),
-    formRow("SWE≤", sweMaxIn),
+    formRow("VSH≤", withParamSources(vshMaxIn, PARAM_SOURCE_TOPICS.cutoffVshMax)),
+    formRow("PHIE≥", withParamSources(phieMinIn, PARAM_SOURCE_TOPICS.cutoffPhieMin)),
+    formRow("SWE≤", withParamSources(sweMaxIn, PARAM_SOURCE_TOPICS.cutoffSweMax)),
   );
   const runBtn = document.createElement("button");
   runBtn.className = "btn btn-accent rqc-run";
@@ -764,9 +790,14 @@ export async function buildResultsQcContent(
     }
     const reconCurve = pickRecon(catalog);
     const mcKey = pickMcKey(catalog);
-    const vshMax = num(vshMaxIn, cuts.vsh_max);
-    const phieMin = num(phieMinIn, cuts.phie_min);
-    const sweMax = num(sweMaxIn, cuts.swe_max);
+    // SB-CUT-016: a blank box is ABSENT, and the saved project default may itself be absent.
+    const cutOf = (i: HTMLInputElement, saved: number | null): number | null => {
+      const v = parseFloat(i.value);
+      return Number.isFinite(v) ? v : saved;
+    };
+    const vshMax = cutOf(vshMaxIn, cuts.vsh_max);
+    const phieMin = cutOf(phieMinIn, cuts.phie_min);
+    const sweMax = cutOf(sweMaxIn, cuts.swe_max);
 
     for (const t of targets) {
       const card = document.createElement("div");

@@ -17,7 +17,7 @@ import {
 } from "../ipc";
 import { recordProcess } from "../processLog";
 import { bumpDataVersion } from "../state";
-import { buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
 import { formRow } from "./modal";
 
 /** **Intake** — one importer for any delimited text, replacing the five table-shaped dialogs
@@ -148,6 +148,10 @@ export async function buildIntakeContent(
     o.textContent = l;
     decSel.appendChild(o);
   }
+  const nullIn = document.createElement("input");
+  nullIn.className = "form-control";
+  nullIn.type = "text";
+  nullIn.placeholder = "(none declared)";
   opts.appendChild(formRow("Delimiter", delimSel));
   opts.appendChild(formRow("Skip lines before header", skipIn, "For a title block or a banner above the column names."));
   opts.appendChild(
@@ -156,6 +160,15 @@ export async function buildIntakeContent(
       decSel,
       "One delivery can use both conventions. Left to decide per value, the rightmost separator " +
         "is taken as the decimal, and a genuinely ambiguous value is reported.",
+    ),
+  );
+  opts.appendChild(
+    formRow(
+      "Null token",
+      nullIn,
+      "The file's own way of writing 'no reading', e.g. -999.25. A matching cell is stored as " +
+        "missing, and the import records that it was explicitly nulled rather than left empty. " +
+        "Left blank, every number is kept as written.",
     ),
   );
   content.appendChild(opts);
@@ -227,7 +240,7 @@ export async function buildIntakeContent(
   noneOpt.value = "";
   noneOpt.textContent = "(route by the Well column)";
   wellSel.appendChild(noneOpt);
-  void listWells()
+  void listWells({ kind: "all" })
     .then((wells) => {
       for (const w of wells) {
         const o = document.createElement("option");
@@ -279,6 +292,14 @@ export async function buildIntakeContent(
   dest.appendChild(
     formRow("If no Well column", wellSel, "Only used when the table carries no well name of its own."),
   );
+  const datumSel = buildDatumSelect();
+  const datumRow = formRow(
+    "Depth datum",
+    datumSel,
+    "The datum the delivery's depths are quoted in (declared once for the whole delivery).",
+  );
+  pointRows.push(datumRow);
+  dest.appendChild(datumRow);
   const follow = buildFollowCoreRow("these rows", "intake");
   pointRows.push(follow.el);
   dest.appendChild(follow.el);
@@ -822,6 +843,9 @@ export async function buildIntakeContent(
         const cres = await intakeCommitCurves({
           paths,
           roles,
+          // SB-DIO-007: the declared null token rides to commit; the other reading
+          // options keep their auto-detection exactly as before.
+          opts: { null_token: nullIn.value.trim() || undefined },
           set_name: setIn.value.trim() || undefined,
           depth_unit: unitSel.value || undefined,
           fallback_well_id: wellSel.value || undefined,
@@ -845,6 +869,7 @@ export async function buildIntakeContent(
         paths,
         roles,
         depth_unit: unitSel.value || undefined,
+        depth_datum: datumSel.value,
         set_name: setIn.value.trim() || undefined,
         extras_dataset: dsIn.value.trim() || undefined,
         fallback_well_id: wellSel.value || undefined,

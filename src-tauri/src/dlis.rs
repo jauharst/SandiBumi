@@ -14,6 +14,7 @@ use crate::installation;
 use crate::python_engine::{find_python, hide_console};
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::process::{Command, Stdio};
 
 /// Streams every 1-D scalar channel of every frame. Multi-dimensional channels (image/array
@@ -29,7 +30,8 @@ except Exception as e:
     print(f"dlis-dependency-missing: {e}", file=sys.stderr)
     sys.exit(3)
 
-path = sys.argv[1]
+req = json.loads(sys.stdin.buffer.read())
+path = req["path"]
 out_curves = []
 buffers = []
 skips = []
@@ -207,7 +209,7 @@ fn write_prepared_dlis(
     mappings: &[DlisWellMapping],
     curves: &[PreparedDlisCurve],
     stored_depth_unit: Option<crate::units::DepthUnit>,
-) -> db::DbResult<()> {
+) -> db::DbResult<Vec<DlisSkip>> {
     for mapping in mappings.iter().filter(|mapping| mapping.will_create) {
         let id = uuid::Uuid::parse_str(
             mapping
@@ -224,6 +226,7 @@ fn write_prepared_dlis(
             )?;
         }
     }
+    let mut screen_skips = Vec::new();
     for curve in curves {
         let curve_id = db::upsert_curve_meta(
             conn,
@@ -235,9 +238,21 @@ fn write_prepared_dlis(
             Some("DLIS import"),
             curve.run_no,
         )?;
-        db::insert_curve_samples(conn, &curve_id, &curve.depth, &curve.values)?;
+        // SB-DBM-030: the parser's own screen catches |v| > 1e30 before this point, but the
+        // store screen's bound is a decade tighter on the negative side (-1e29); anything it
+        // still binds is surfaced through the same skip channel, never silently.
+        let screened = db::insert_curve_samples(conn, &curve_id, &curve.depth, &curve.values)?;
+        if screened > 0 {
+            screen_skips.push(DlisSkip {
+                kind: "curve".into(),
+                name: curve.mnemonic.clone(),
+                count: screened,
+                rule: "large-negative undeclared null (Geolog MISS_FLOAT family) stored as missing".into(),
+                omitted: false,
+            });
+        }
     }
-    Ok(())
+    Ok(screen_skips)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -598,6 +613,52 @@ fn screen_dlis_values(
     screened
 }
 
+fn screen_dlis_depth(
+    meta: &DlisCurveMeta,
+    depth: Vec<f32>,
+    values: Vec<f32>,
+) -> (Vec<f32>, Vec<f32>, Vec<DlisSkip>) {
+    let (keep, report) = crate::parsers::depth_keep_indices(&depth);
+    let name = format!("frame {} curve {}", meta.run, meta.mnemonic);
+    let mut skipped = Vec::new();
+    if report.nonfinite > 0 {
+        skipped.push(DlisSkip {
+            kind: "row".into(),
+            name: name.clone(),
+            count: report.nonfinite,
+            rule: "non-finite depth index".into(),
+            omitted: false,
+        });
+    }
+    if report.duplicate > 0 {
+        skipped.push(DlisSkip {
+            kind: "row".into(),
+            name: name.clone(),
+            count: report.duplicate,
+            rule: "duplicate depth index; first occurrence kept".into(),
+            omitted: false,
+        });
+    }
+    let (depth, values) = if report.is_clean() {
+        (depth, values)
+    } else {
+        (
+            keep.iter().map(|&index| depth[index]).collect::<Vec<f32>>(),
+            keep.iter().map(|&index| values[index]).collect::<Vec<f32>>(),
+        )
+    };
+    if depth.is_empty() {
+        skipped.push(DlisSkip {
+            kind: "curve".into(),
+            name,
+            count: 1,
+            rule: "no rows survived depth-index validation".into(),
+            omitted: true,
+        });
+    }
+    (depth, values, skipped)
+}
+
 fn stored_interval(conn: &Connection, well_id: &str, set_name: Option<&str>) -> Option<(f32, f32)> {
     let row: Option<(Option<f32>, Option<f32>)> = match set_name {
         Some(set) => conn
@@ -848,6 +909,7 @@ pub fn import_dlis_file(
         confirmed_file_unit,
         None,
         None,
+        None,
         &[],
         &[],
         &[],
@@ -861,6 +923,7 @@ pub fn import_dlis_file_with_unit_designation(
     set_name: Option<&str>,
     confirmed_file_unit: Option<&str>,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    undeclared_drho_unit: Option<&str>,
     outside_interval_decision: Option<DlisOutsideIntervalDecision>,
     duplicate_decisions: &[DlisDuplicateDecision],
     las_sentinel_exceptions: &[String],
@@ -882,12 +945,9 @@ pub fn import_dlis_file_with_unit_designation(
         return fail(error);
     }
 
-    let mut cmd = Command::new(&python);
-    cmd.args(["-c", DLIS_RUNNER, path]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
-    let output = match cmd.output() {
+    let output = match run_dlis_sidecar_with(&python, path, |_| {}) {
         Ok(o) => o,
-        Err(e) => return fail(format!("failed to start python: {e}")),
+        Err(e) => return fail(e),
     };
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
@@ -1073,7 +1133,7 @@ pub fn import_dlis_file_with_unit_designation(
             mapping.source_well, mapping.logical_files, mapping.target_well_name
         )
     }));
-    let unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
+    let mut unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
         .map(|meaning| {
             ambiguous
                 .iter()
@@ -1130,7 +1190,48 @@ pub fn import_dlis_file_with_unit_designation(
             las_sentinel_exceptions,
         ));
 
-        let mut unit = if meta.unit.trim().is_empty() { None } else { Some(meta.unit.clone()) };
+        let source_unit_missing = crate::curves::unit_token_state(Some(&meta.unit))
+            == crate::curves::UnitTokenState::MissingUnit;
+        let mut unit = if source_unit_missing { None } else { Some(meta.unit.clone()) };
+        if source_unit_missing
+            && crate::curves::family_for(&meta.mnemonic)
+                .is_some_and(|family| family.family == "DRHO")
+        {
+            let stated = match undeclared_drho_unit.map(str::trim).filter(|value| !value.is_empty()) {
+                Some(value) => value,
+                None => {
+                    return failed(
+                        path,
+                        format!(
+                            "DRHO-family curve {} has no declared unit; state g/cc or kg/m3 before import",
+                            meta.mnemonic
+                        ),
+                        skipped,
+                    )
+                }
+            };
+            let Some(token) = crate::curves::resolve_unit_token(stated) else {
+                return failed(
+                    path,
+                    format!(
+                        "DRHO-family curve {} has unsupported stated unit '{stated}'; state g/cc or kg/m3",
+                        meta.mnemonic
+                    ),
+                    skipped,
+                );
+            };
+            if !matches!(token.canonical_unit, "g/cc" | "kg/m3") {
+                return failed(
+                    path,
+                    format!(
+                        "DRHO-family curve {} has incompatible stated unit '{stated}'; state g/cc or kg/m3",
+                        meta.mnemonic
+                    ),
+                    skipped,
+                );
+            }
+            unit = Some(token.canonical_unit.to_string());
+        }
         let resolved_ms_per_ft = crate::curves::is_ms_per_ft(Some(&meta.unit));
         let (fam, rejected_alias) = if resolved_ms_per_ft {
             match ms_per_ft_meaning.expect("ambiguity checked before writes") {
@@ -1143,7 +1244,7 @@ pub fn import_dlis_file_with_unit_designation(
                 crate::curves::MsPerFtMeaning::MillisiemensPerFoot => (None, None),
             }
         } else {
-            crate::curves::family_for_import(&meta.mnemonic, Some(&meta.unit))
+            crate::curves::family_for_import(&meta.mnemonic, unit.as_deref())
         };
         let family = fam.map(|f| f.family);
         if let Some(rejected) = rejected_alias {
@@ -1175,6 +1276,17 @@ pub fn import_dlis_file_with_unit_designation(
             notes.push(unconverted.note());
             unconverted_units.push(unconverted);
         }
+        if source_unit_missing && family == Some("DRHO") {
+            let designation = crate::curves::UnitDesignation {
+                curve: meta.mnemonic.clone(),
+                declared_unit: "ABSENT".to_string(),
+                meaning: "explicit_density_correction_unit".to_string(),
+                recorded_unit: unit.clone().unwrap_or_default(),
+                family: Some("DRHO".to_string()),
+            };
+            notes.push(designation.note());
+            unit_designations.push(designation);
+        }
         // Give DLIS frames their own run numbering (frame 0 → run 0). The old frame-0 → NULL
         // mapping collided with LAS RAW curves (also run_no NULL), so a DLIS silently
         // overwrote same-mnemonic LAS curves. Using Some(run) keeps both, preserving provenance.
@@ -1183,41 +1295,9 @@ pub fn import_dlis_file_with_unit_designation(
         // Sanitize the frame's depth column (drop non-finite + first-occurrence-wins dedup) the
         // same way the LAS paths do, so one bad/duplicate depth sample can't abort the whole DLIS
         // file on the (curve_id, depth) PK. Values follow the kept depth indices.
-        let (keep, dreport) = crate::parsers::depth_keep_indices(&depth);
-        if dreport.nonfinite > 0 {
-            skipped.push(DlisSkip {
-                kind: "row".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: dreport.nonfinite,
-                rule: "non-finite depth index".into(),
-                omitted: false,
-            });
-        }
-        if dreport.duplicate > 0 {
-            skipped.push(DlisSkip {
-                kind: "row".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: dreport.duplicate,
-                rule: "duplicate depth index; first occurrence kept".into(),
-                omitted: false,
-            });
-        }
-        let (depth, values) = if dreport.is_clean() {
-            (depth, values)
-        } else {
-            (
-                keep.iter().map(|&i| depth[i]).collect::<Vec<f32>>(),
-                keep.iter().map(|&i| values[i]).collect::<Vec<f32>>(),
-            )
-        };
+        let (depth, values, depth_skips) = screen_dlis_depth(meta, depth, values);
+        skipped.extend(depth_skips);
         if depth.is_empty() {
-            skipped.push(DlisSkip {
-                kind: "curve".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: 1,
-                rule: "no rows survived depth-index validation".into(),
-                omitted: true,
-            });
             continue;
         }
 
@@ -1273,8 +1353,12 @@ pub fn import_dlis_file_with_unit_designation(
         &prepared_curves,
         project_unit.or(adopted_unit),
     );
-    if let Err(error) = write_result {
-        return failed(path, format!("storing DLIS curves: {error}"), skipped);
+    match write_result {
+        Err(error) => {
+            return failed(path, format!("storing DLIS curves: {error}"), skipped);
+        }
+        // SB-DBM-030: the store's null screen is a flag channel - surface it with the skips.
+        Ok(screen_skips) => skipped.extend(screen_skips),
     }
 
     if project_unit.is_none() {
@@ -1364,6 +1448,110 @@ fn read_f32(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+fn run_dlis_sidecar_with(
+    python: &std::path::Path,
+    path: &str,
+    configure: impl FnOnce(&mut Command),
+) -> Result<std::process::Output, String> {
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", DLIS_RUNNER])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure(&mut cmd);
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    let request = serde_json::to_vec(&serde_json::json!({ "path": path }))
+        .map_err(|e| format!("failed to encode DLIS request: {e}"))?;
+    let write_result = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "python stdin closed".to_string())
+        .and_then(|stdin| stdin.write_all(&request).map_err(|e| e.to_string()));
+    drop(child.stdin.take());
+    if let Err(error) = write_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    child.wait_with_output().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+pub(crate) fn probe_non_ascii_sidecar_boundary(
+    path: &str,
+    source_name: &str,
+) -> Result<(String, String), String> {
+    let python = find_python().ok_or_else(|| "Python is unavailable".to_string())?;
+    let root = std::env::temp_dir().join(format!("sb_t96_dlisio_{}", uuid::Uuid::new_v4()));
+    let package = root.join("dlisio");
+    std::fs::create_dir_all(&package).map_err(|e| e.to_string())?;
+    let module = package.join("__init__.py");
+    const FAKE_DLISIO: &str = r#"
+import os
+
+class Origin:
+    def __init__(self, source):
+        self.well_name = source
+        self.well_id = ""
+
+class LogicalFile:
+    def __init__(self, source):
+        self.origins = [Origin(source)]
+        self.frames = []
+
+class Batch(list):
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+class Dlis:
+    @staticmethod
+    def load(path):
+        expected = os.environ["SB_T96_EXPECTED_PATH"]
+        if path != expected:
+            raise RuntimeError("Unicode path changed at the DLIS boundary")
+        return Batch([
+            LogicalFile(os.environ["SB_T96_EXPECTED_NAME"]),
+            LogicalFile(path),
+        ])
+
+dlis = Dlis()
+"#;
+    std::fs::write(&module, FAKE_DLISIO.as_bytes()).map_err(|e| e.to_string())?;
+    let python_path = root.to_str().ok_or_else(|| "test module path is not Unicode".to_string())?;
+    let output = run_dlis_sidecar_with(&python, path, |cmd| {
+        cmd.env("PYTHONPATH", python_path)
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("SB_T96_EXPECTED_PATH", path)
+            .env("SB_T96_EXPECTED_NAME", source_name);
+    });
+    let remove_module = std::fs::remove_file(&module);
+    let remove_package = std::fs::remove_dir(&package);
+    let remove_root = std::fs::remove_dir(&root);
+    let output = output?;
+    remove_module.map_err(|e| e.to_string())?;
+    remove_package.map_err(|e| e.to_string())?;
+    remove_root.map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let newline = output
+        .stdout
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .ok_or_else(|| "DLIS boundary probe returned no header".to_string())?;
+    let header: DlisHeader = serde_json::from_slice(&output.stdout[..newline]).map_err(|e| e.to_string())?;
+    if header.logical_files.len() != 2 {
+        return Err(format!("DLIS boundary probe returned {} logical files", header.logical_files.len()));
+    }
+    Ok((
+        header.logical_files[1].source_well.clone(),
+        header.logical_files[0].source_well.clone(),
+    ))
 }
 
 #[cfg(test)]
@@ -1577,6 +1765,8 @@ mod tests {
         for marker in [
             "skip(\"frame\", frame_name, 1",
             "skip(\"channel\", name, 1",
+            "\"count\": int(count)",
+            "\"rule\": str(rule)",
             "\"skips\": skips",
         ] {
             assert!(DLIS_RUNNER.contains(marker), "runner lost skip record: {marker}");
@@ -1602,6 +1792,108 @@ mod tests {
             logical_files: Vec::new(),
         };
         assert!(validate_header(&one_bad_one_good).is_ok(), "one good frame must survive a bad one");
+        assert_eq!(
+            import_status(&one_bad_one_good, 1, &one_bad_one_good.skips),
+            DlisImportStatus::Partial,
+            "the user-visible outcome must say partial, not complete, when a named frame was omitted"
+        );
+        assert_eq!(
+            skip_summary(&one_bad_one_good.skips),
+            "frame 'FRAME-BAD' x1: frame.curves failed: RuntimeError: encrypted",
+            "T77 requires the omitted frame's category, identity, count, and rule"
+        );
+
+        // CORRECTNESS: the two depth/value pairs below are the synthetic T77 input. The expected
+        // values are the same supplied input because this assertion pins lossless carriage of the
+        // surviving frame, not a petrophysical calculation or an implementation snapshot.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "DLIS-PARTIAL", None, None, None).unwrap();
+        let well = well_id.to_string();
+        write_prepared_dlis(
+            &conn,
+            &[],
+            &[PreparedDlisCurve {
+                well_id: well.clone(),
+                set_name: "RAW".into(),
+                mnemonic: "GR".into(),
+                unit: Some("GAPI".into()),
+                family: Some("GR"),
+                run_no: Some(1),
+                depth: vec![1000.0, 1000.5],
+                values: vec![50.0, 55.0],
+            }],
+            None,
+        )
+        .unwrap();
+        let catalog = db::list_generic_curve_catalog(&conn, &well).unwrap();
+        assert_eq!(catalog.len(), 1, "the readable frame's one curve must be imported");
+        let samples = db::get_curve_samples(&conn, &catalog[0].curve_id).unwrap();
+        assert_eq!(
+            samples.iter().map(|sample| (sample.depth, sample.value)).collect::<Vec<_>>(),
+            vec![(1000.0, 50.0), (1000.5, 55.0)],
+            "the bad frame must not prevent the good frame's exact samples from being stored"
+        );
+
+        let depth_meta = DlisCurveMeta {
+            mnemonic: "GR".into(),
+            unit: "GAPI".into(),
+            index_unit: "M".into(),
+            n: 3,
+            run: 7,
+            logical_file: 0,
+        };
+        let (kept_depth, kept_values, row_skips) = screen_dlis_depth(
+            &depth_meta,
+            vec![f32::NAN, 1000.0, 1000.0],
+            vec![40.0, 50.0, 60.0],
+        );
+        assert_eq!((kept_depth, kept_values), (vec![1000.0], vec![50.0]));
+        assert_eq!(
+            row_skips,
+            vec![
+                DlisSkip {
+                    kind: "row".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "non-finite depth index".into(),
+                    omitted: false,
+                },
+                DlisSkip {
+                    kind: "row".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "duplicate depth index; first occurrence kept".into(),
+                    omitted: false,
+                },
+            ],
+            "each dropped row category must name the curve, count its rows, and state its rule"
+        );
+        let (empty_depth, empty_values, curve_skips) =
+            screen_dlis_depth(&depth_meta, vec![f32::NAN], vec![40.0]);
+        assert!(empty_depth.is_empty() && empty_values.is_empty());
+        assert_eq!(
+            curve_skips,
+            vec![
+                DlisSkip {
+                    kind: "row".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "non-finite depth index".into(),
+                    omitted: false,
+                },
+                DlisSkip {
+                    kind: "curve".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "no rows survived depth-index validation".into(),
+                    omitted: true,
+                },
+            ],
+            "an emptied curve must retain both the row count and the named curve-level omission"
+        );
+
         let all_bad = DlisHeader {
             curves: vec![],
             skips: one_bad_one_good.skips.clone(),
@@ -1610,6 +1902,17 @@ mod tests {
         };
         let error = validate_header(&all_bad).unwrap_err();
         assert!(error.contains("FRAME-BAD") && error.contains("x1") && error.contains("encrypted"));
+        let failed_result = failed("all-frames-unreadable.dlis", error, all_bad.skips.clone());
+        assert_eq!(failed_result.status, DlisImportStatus::Failed);
+        assert_eq!((failed_result.curves_imported, failed_result.rows), (0, 0));
+        assert_eq!(failed_result.skipped, all_bad.skips, "the refusal must retain the exact skip inventory");
+        assert!(
+            failed_result
+                .error
+                .as_deref()
+                .is_some_and(|message| message.contains("every candidate was skipped")),
+            "T78 requires an explicit all-skipped error, never an empty success"
+        );
 
         let las = std::env::temp_dir().join(format!(
             "sandibumi-dio-054-short-row-{}.las",

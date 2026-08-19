@@ -52,7 +52,7 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 - **Sonic:** the chapter's truthful naming and per-method shale conventions remain the adopted target. `Cp < 1` is a hard refusal. `DEC-017` closes SP-013's product choice on the genuine original three-segment RHG80 route, not rename-only; exact equation typography still requires verification against the original scan, and SB-POR-020's separate vendor-rendering choice remains open.
 - **N-D and gas:** Arithmetic and RMS remain available only in their explicitly named roles. Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts. SB-POR-059's RMS parity fix remains narrow and does not implement either rigorous contract.
 - **Missing capability:** analytic N-D, HC response, excavation and neutron-sonic are required product capabilities under `DEC-016`; no missing source or parameter is supplied by that inclusion decision.
-- **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. Automated evidence remains 0 qualifying POR correctness tests, and Jauhar retains ownership of all 33 manual POR checks.
+- **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. SB-POR-001 now has one qualifying architecture correctness test; the other 61 POR rows retain their recorded evidence classes, and Jauhar retains ownership of all 33 manual POR checks.
 
 ### DEC-015 operational boundary
 
@@ -87,54 +87,48 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-001 - One deterministic POR family and contract
 
 - **Specified contract:** every deterministic porosity method belongs to one POR family and uses one limiting, flag and output-naming contract; T39 is the primary discriminator, with T11 and T31 as cross-support.
-- **Current implementation:** `phi_den` and `phi_dn` emit method-specific unlimited pairs plus shared limited `PHIE`/`PHIT`; `phi_son` emits only `PHIT_SON`/`PHIE_SON` and applies its own `[0,1]` clamps. `ssc` and `sspw` add still different porosity paths. A shared catalog category and runner exist, but no POR-wide limiter, flag stream or naming policy does.
-- **Qualifying acceptance tests:** none; no executable `SB-POR-T39` or whole-family inventory proves every method. Test class `MISSING`.
+- **Current implementation:** every live `Porosity` module and each of its 21 porosity outputs is registered under one serialized `POR` envelope carrying module role, method, convention, semantic output role, common limiting-interface identity, method-specific source-linked limit policy, common reason-schema identity and the existing workflow output-naming contract. `phi_dn` is explicitly a comparison producer rather than an authoritative analytic method; `phimax` is a limit producer rather than a porosity interpretation method; sonic discloses its current mixed convention pending SB-POR-013. The dialog shows POR role and method beside each output and exposes the remaining policy detail in its tooltip. No numeric bound was moved into the common envelope.
+- **Qualifying acceptance tests:** `every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy` was witnessed RED before the contract fields/registry existed and again on an incorrect lowercase rename expectation, then passed. It independently inventories all six live POR modules and 21 porosity outputs, proves the common identities, distinct policies, D-N comparison role, `phimax` limit-producer role, user-configurable uppercase naming and explicit `PENDING_SB_POR_003` emission state. Removing `phi_son.PHIE_SON` and borrowing density's policy both fail the immutable registry gate. Test class `CORRECTNESS`; sources are SB-POR-001/T39 and DEC-015.
 - **Supporting tests:** `every_module_returns_the_output_keys_its_manifest_declares`, the density and D-N branch tests, and the sonic option test each passed exactly once; they prove local manifest/arithmetic behavior only.
 - **Manual evidence:** porosity 0/33; workflow 0/23; generic-curve-store 0/18.
 - **Source/parameter boundary:** no new value is needed; this is an architecture contract.
-- **History/reachability:** all current paths are integrated at the accepted anchor; current and reachable-history searches found no unified POR contract.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-015` is decided: one common typed custody/observability envelope, with each POR method owning its source-bound correction limits and validity rules.
-- **Next action:** define the common POR result envelope, define each method's separately cited limit/correction policy, and inventory every registered method against both before migrating an individual method.
+- **History/reachability:** the common envelope, central fail-closed registry and owned test are introduced by the current Gate 2 increment; the existing method arithmetic remains unchanged.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for SB-POR-001 after DEC-015. SB-POR-002 still owns missing unlimited/limited pairs, SB-POR-003 owns actual per-sample reason emission, and SB-POR-004 owns persisted POR-family/method/convention curve custody and collision discipline.
+- **Next action:** preserve the common envelope and distinct policy identities; continue SB-POR-002 without claiming the pending reason stream or persisted curve provenance is already implemented.
 
 ## SB-POR-002 - Unlimited and limited pairs for every method
 
-- **Specified contract:** every method must preserve both unlimited `PHIT/PHIE` and limited `PHIT/PHIE`, with meanings visible through write, reload and export; T11, T19, T31 and T39 jointly constrain it.
-- **Current implementation:** density and D-N retain unlimited method-specific twins and shared limited outputs. Sonic has only one method-specific pair and clamps it in place; SSC/SSPW do not follow the twin convention.
-- **Qualifying acceptance tests:** none; no whole-family test proves both pairs and their custody for every method. Test class `MISSING`.
-- **Supporting tests:** `a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin` passed exactly once and closes only density and D-N examples; manifest-output parity passed but cannot prove semantic meaning.
-- **Manual evidence:** porosity 0/33; generic-curve-store 0/18; las-export 0/2.
-- **Source/parameter boundary:** the contract introduces no endpoint or default.
-- **History/reachability:** the density twin change is reachable; no corresponding sonic or full-family implementation was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-001 and collision-free custody from SB-POR-004.
-- **Next action:** add semantic unlimited/limited fields to the common POR result, then prove both are independently stored and exported for every method.
+- **Specified contract:** every porosity METHOD must emit an unlimited pair and a limited pair under distinct mnemonics; T11, T19, T31 and T39 jointly constrain it. DEC-038 (RULED 2026-08-17) re-scoped SSC/SSPW OUT of the requirement as separately typed workflows.
+- **Current implementation (2026-08-18):** DONE, in two ruled halves. **DEC-038 half:** `PorosityModuleRole::TypedWorkflow` types `ssc`/`sspw` (registry change only; `ssc.rs` untouched) and `porosity_pair_declaration_failures` enforces the both-sides gate on every catalog build - a METHOD without all four halves is refused BY NAME, a WORKFLOW is exempt by ROLE. **DEC-063 half (RULED 2026-08-18: "DT MA should always lower than DT SH"):** the ordering became a DECLARED cross-parameter validity condition on `DT_MA` (`phi_son.endpoint_order`, `ValidityRule::LessThan` vs `DT_SH` - the `vsh_gr.endpoint_order` shape), refused whole-run by name, equality included. Under it the bare sonic pair is ordered by construction, dissolving the SB-POR-009 joint block: `PHIT_SON`/`PHIE_SON` are now the bare unlimited expressions (an off-scale DT past the fluid line keeps `PHIT > 1` visible), `phi_son` emits limited `PHIT`/`PHIE` carrying the exact clamped arithmetic it always shipped, `POROSITY_PAIR_PENDING` is EMPTY, and the registry carries the full four roles like density.
+- **Qualifying tests:** (1) `ssc_and_sspw_are_typed_workflows_and_a_method_cannot_use_that_role_to_skip_its_twin_pair` - the DEC-038 both-sides pin, SSC values bit-exact, pending list pinned EMPTY citing DEC-063; five mutations killed 2026-08-17. (2) `the_sonic_pair_is_bare_beside_the_limited_pair_and_a_matrix_slower_than_shale_is_refused_by_name` - manifest declares the cited DEC-063 condition; hand-derived values independent of the code (denominator 133.5: 0.1835206/0.0835206 with limited == unlimited bit-for-bit where no clamp binds; DT 200 keeps bare 1.0823970/1.0157303 while limited caps 1.0/1.0); ordering on BOTH pairs; the inverted in-range pair 70/60 and equal pair 65/65 both REFUSED naming the condition and DEC-063. The SB-POR-009 sweep re-proves ordering across all four methods with the witness pair asserted REFUSED. Seven mutations killed 2026-08-18 on distinct assertions.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced; the ordering rule cites Jauhar's DEC-063 ruling verbatim.
+- **Verdict:** `PRESENT-OK`; test class `CORRECTNESS`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-003 - Per-sample branch and limit flag
 
-- **Specified contract:** one POR flag must identify every material branch and every binding floor/ceiling per sample; T12, T38, T39 and T41 require positive and negative controls.
-- **Current implementation:** POR methods clamp numeric outputs or leave `NaN` without a POR flag. `BADHOLE` and conditioning flags exist as separate detector outputs, and workflow masking is generic, but none is the required branch-and-limit stream.
-- **Qualifying acceptance tests:** none; executable tests do not observe a POR flag through persistence/export. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho`, three `condflag` tests, and `the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works` passed exactly once; they prove detector and generic-mask behavior only.
-- **Manual evidence:** porosity 0/33; conditioning 0/27; processing-history 0/7.
-- **Source/parameter boundary:** flag vocabulary is specified behavior, not a numeric parameter.
-- **History/reachability:** no POR `PHIFLAG` or equivalent was found in current source, tests or reachable history.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on the common POR result and declared consumption of conditioning flags.
-- **Next action:** define one machine-readable POR reason/branch schema, populate it at each branch and clamp, and prove an unbound sample remains distinguishable.
+- **Specified contract:** `11_porosity.md` §7's PHIFLAG stream, RE-RULED by DEC-039 (2026-08-16): the branch-and-limit state is FREE TEXT carried per curve version, not a categorical stream. The remaining text of the requirement: every porosity run records the branch it took and every limit that bound, surviving write, reload and export.
+- **Current implementation (2026-08-18):** DONE. `modules::record_branch` joins `record_bound_limit` on the SB-POR-028 capture channel; `run_module_with_degradations` drains both and the workflow runner composes them into the run's `log_sets.comment`: `branches: <name> <n> samples, ...`, the SB-POR-028 clamp line unchanged, then `output limits: <name> at <n> samples` or `output limits: none bound`. Instrumented: phi_den (density / high-shale kill, PHIE ceiling), phi_dn (average / gas-rms comparison, PHIE), phi_dnbk (per-sample pseudo-mineral upper B-11/B-12 vs lower B-9/B-10, PHIE), phi_son (wyllie / wyllie 1/Cp / rhg, PHIT and PHIE), and - DEC-062 having opened `ssc.rs` - SSC (gas-conditioning branch, dry-silt-point split, PHIT and PHIE ceilings) and SSPW (gas branch, PHIT, PHIE). Scope is the chapter's own: porosity branches and porosity limits; saturation machinery excluded. Export: the LAS `~O` provenance line carries the custody text as a `custody` field beside the parameters.
+- **Qualifying acceptance tests:** `workflow::tests::a_porosity_run_records_the_branches_it_took_and_every_limit_that_bound_and_the_record_survives_export` (production runner; branch counts are the fixture's own arithmetic; the phi_dnbk split is deliberately ASYMMETRIC 6/4 so a wrong-branch claim cannot survive by symmetry; bound-nothing stated; export carries the record) and `ssc::tests::ssc_and_sspw_record_their_porosity_branches_and_binds_for_the_runs_custody_comment` (gas/no-gas counts, dry-silt split covering every computed sample, a PHIT ceiling hit, SSPW's gas branch). Test class `CORRECTNESS`.
+- **Mutation evidence:** six probes, six distinct assertions fired - branch unrecorded, wrong branch claimed (killed only after the fixture was made asymmetric; the symmetric 5/5 first draft let swapped labels survive), output bind unrecorded, bound-nothing silenced, export dropping the custody field, SSC's gas record inverted.
+- **Manual evidence:** porosity 0/33. Automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no vocabulary was invented - every branch name is the code's or the paper's own (B-11/B-12 are Bateman-Konen appendix equations; "dry-silt point" is the SSC framework's term). No petrophysical value changed; the instrumentation is record-only, pinned by the POR-047 test's bit-identical porosity assertions still passing.
+- **History/reachability:** DEC-039 dissolved the vocabulary/encoding/export questions; DEC-062 (2026-08-18) superseded the narrow `ssc.rs` authorization ask. DEC-038 remains owed but governs SB-POR-002's method typing, not this record. T41's conditioning branches stay owned by SB-POR-047/048.
+- **Verdict:** `PRESENT-OK`; test class `CORRECTNESS`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-004 - Typed POR family, provenance and collision-free names
 
 - **Specified contract:** porosity curves carry POR quantity-family typing plus method/convention provenance; sequential methods preserve distinct outputs and imported-versus-computed identity; T31 and T32 pin both sides.
-- **Current implementation:** `curves.rs::FAMILIES` has no porosity family. `resolve_output_names` blocks collisions inside one run and standard-column shadowing, but sequential `phi_den` and `phi_dn` both write current `PHIE`/`PHIT`; versioned writes replace those current names. Run metadata records the module but not a per-output method/convention identity.
-- **Qualifying acceptance tests:** none; T31/T32 are not executable. Test class `MISSING`.
-- **Supporting tests:** `families_resolve_common_mnemonics`, `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` and `a_restored_log_set_version_feeds_the_next_module_run` passed exactly once. None exercises sequential POR collision plus family/provenance.
+- **Current implementation:** the generated unit registry carries canonical `POR`/`v/v` metadata for the shipping POR mnemonic set. Density keeps default `PHIE`/`PHIT`, while the D-N comparison producer defaults to `PHIE_DN_LIM`/`PHIT_DN_LIM`; resolved user renames and prefixes remain authoritative. The shared input resolver and pay summary prefer exact canonical PHIE/PHIT when present and otherwise follow the exact D-N limited alias; an explicit interpreter selection always wins, and no generic POR-family scan silently elects among methods. Before each POR run, the workflow resolves every emitted curve name and persists a curve-specific `POROSITY_OUTPUT.<resolved-name>` ancestry parameter containing its family, method, volume convention, role, limit/flag contract and naming contract. Imported `PHIE` remains source-identified in `curve_meta`; a computed `PHIE` is separately identified by its run ancestry. An intentional same-name run still uses the existing append-only versioned replacement and restore discipline.
+- **Qualifying acceptance tests:** `porosity_methods_keep_distinct_default_names_and_each_curve_carries_family_method_and_convention_while_explicit_replacement_stays_versioned_and_restorable` was witnessed RED first when `PHIE`, `PHIT`, `PHIA` and `DPHI` lacked a family and again when a sole `PHIE_DN_LIM` producer could not satisfy a downstream logical PHIE role, then GREEN. It independently pins T31 and T32 from both sides: distinct defaults and sequential survival, POR family resolution, rename-plus-prefix custody, canonical-first/exact-D-N-fallback input resolution, per-output density versus D-N method/convention, imported-versus-computed identity, explicit same-name replacement, versions 1/2 and restore as version 3. Test class `CORRECTNESS`; expected identities and behavior come from SB-POR-004, F16, T31/T32 and DEC-013, while the numeric witness uses the chapter-cited endpoint fixture already owned by the module suite.
+- **Supporting tests:** `every_porosity_module_uses_one_envelope_while_each_result_producer_keeps_its_own_limit_policy`, `a_restored_log_set_version_feeds_the_next_module_run`, `an_output_pattern_is_the_default_name_and_a_rename_replaces_it`, `families_resolve_common_mnemonics`, `chain_runs_steps_in_order_and_completes`, both `core_determinism_tests` and `the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours` passed in focused regression runs; `tools/unit-registry.test.mjs` also passed. The chain and determinism fixtures now require the physical `PHIE_DN_LIM` identity instead of the deliberately retired D-N `PHIE` collision, without weakening their original completion or byte-determinism assertions.
 - **Manual evidence:** generic-curve-store 0/18; workflow 0/23; las-export 0/2.
 - **Source/parameter boundary:** not numeric; imported and computed identity must remain distinct.
-- **History/reachability:** no POR family, `MTH_PHI`, convention field or collision-free sequential scheme was found in current or reachable source.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-013` settles the policy: names are user-configurable; distinct names preserve parallel results; intentional same-name reuse is explicit, versioned replacement; silent collision remains forbidden.
-- **Next action:** add POR family metadata, method/convention provenance and user-configurable output names; prove distinct-name preservation, explicit same-name replacement plus restore, and imported-versus-computed identity.
+- **History/reachability:** parent `691a0055` lacked POR family custody and collision-free D-N defaults; this increment adds both without changing the protected database write discipline.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. `DEC-013` is implemented: distinct defaults preserve parallel results; user-resolved names remain configurable; intentional same-name reuse is explicit, append-only and restorable.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-006, the first unhandled row of the approved 222-row program. SB-POR-005 is DEFERRED and outside that manifest.
 
 ## SB-POR-005 - Separately named correction and forward functions
 
@@ -152,80 +146,79 @@ absent and the method refuses rather than falling back to a neighboring method.
 ## SB-POR-006 - Typed VSH/VCL input with wrong-family refusal
 
 - **Specified contract:** POR methods consume an explicitly typed VSH or VCL quantity, preserve that distinction, and refuse untyped or wrong-family inputs rather than trusting mnemonic text.
-- **Current implementation:** POR manifests request log mnemonics and workflow resolves curve identity, but `curves.rs` supplies no VSH/VCL-to-POR type validation at the module boundary. Matching text is accepted without a family proof.
-- **Qualifying acceptance tests:** none; neither typed acceptance nor wrong-family refusal is executable for POR. Test class `MISSING`.
-- **Supporting tests:** generic family recognition and empty-flag refusal passed; neither binds VSH/VCL type to POR input resolution.
+- **Current implementation:** the 2026-08-11 reading is superseded. `modules::apply_shale_clay_quantity_contracts` types every POR shale/clay consumer by module argument identity rather than by mnemonic, and `workflow::validate_shale_clay_input_quantities` reads the producer-owned quantity for the exact resolved curve - `curve_meta.family` for imported curves, versioned run ancestry for computed ones - and refuses per well, before any write, when that quantity is absent or is the other family. `workflow::complete_module_log_spec` refuses again at the batch stage. The guard lives in `workflow.rs` rather than the `curves.rs` location the original row expected; the requirement fixes the contract, not the file.
+- **Qualifying acceptance tests:** `every_porosity_method_that_consumes_a_shale_or_clay_volume_declares_the_quantity_it_accepts_and_refuses_an_untyped_or_wrong_family_curve`. Test class `CORRECTNESS`; the expected identities and the refusal-is-the-requirement rule come from `docs/PRD_v2/11_porosity.md` SB-POR-006 and F15. The oracle is acceptance versus refusal, never a number. Three mutations were witnessed RED and restored: replacing the untyped refusal with `continue` (the accepted control then failed, because deleting the per-well guard promotes one well's untyped volume into a whole-batch `build_error`), dropping `phi_son` from the typed inventory, and additionally loosening the expected inventory so only the independent registry-family sweep could catch it. Sides A and B therefore cover each other and neither alone would pass.
+- **Supporting tests:** the SB-CLY-043 pair `a_required_shale_volume_accepts_renamed_shale_metadata_and_refuses_clay_metadata_even_under_a_vsh_name` and `a_clay_volume_consumer_accepts_clay_refuses_shale_and_records_which_quantity_it_received` prove the shared typed seam on `thin_bed_ts` and `brittleness`. Neither exercises a porosity method and neither covers the untyped arm, which is SB-POR-006's headline.
 - **Manual evidence:** porosity 0/33; generic-curve-store 0/18; workflow 0/23.
-- **Source/parameter boundary:** no shale endpoint is inferred; this is input custody.
-- **History/reachability:** current and reachable-history searches found no typed POR shale-input guard.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on the quantity-family registry and an observable refusal surface.
-- **Next action:** require a typed VSH/VCL identity in POR requests and test one accepted typed curve against same-named wrong-family and untyped controls.
+- **Source/parameter boundary:** no shale endpoint is inferred; this is input custody. The `CSR` bridge that would convert a clay volume into a shale volume is SB-POR-012, outside the approved 222-row program, so nothing here converts between the families - it refuses.
+- **History/reachability:** the typed seam arrived with SB-CLY-043 and the POR family with SB-POR-004 (`12d03b8b`), both after this row was last read on 2026-08-11. This increment adds the POR-specific proof and changes no production behavior.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. The named dependency - the quantity-family registry and an observable refusal surface - is satisfied.
+- **Named residual, not claimed as covered:** `montecarlo.rs:1287` calls `modules::run_module` directly and therefore never reaches `validate_shale_clay_input_quantities`, so an in-memory Monte Carlo realization would consume an untyped volume without refusal. That file is on the prohibited list and Monte Carlo is an explicit first-pilot exclusion (`PILOT_SCOPE.md`), so no edit was attempted and no coverage is claimed for it. The manifest-level typing proven by sides A and B does hold for those specs. Closing this residual belongs to whichever gate admits Monte Carlo.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-007.
 
 ## SB-POR-007 - Parameter citation and evidence tier in the dialog
 
 - **Specified contract:** every POR parameter carries its source citation and evidence tier, the dialog displays both, and the chosen value/source is retained in run provenance.
-- **Current implementation:** `ArgSpec.sources_topic`, the backend source registry and the dialog source panel are generic working seams. POR arguments have no topics; the registry has no POR entries or evidence-tier field, and run persistence does not retain source/tier selection.
-- **Qualifying acceptance tests:** none; no universal POR parameter-source inventory or observable run round-trip exists. Test class `MISSING`.
-- **Supporting tests:** source-panel infrastructure tests prove the generic seam only.
+- **Current implementation:** the seam was already complete and the tracker was stale about it. `ArgSpec.sources_topic` exists, `ParamSource` already carries a `tier` field, `ParameterEvidence`/`ParameterDecision` are already persisted into run ancestry by `workflow.rs:718` and `:958`, and `paramSources.ts:109` already renders `tier · source` beside the input from both `moduleDialog.ts:446` and `workflowDialog.ts:458`. What was missing was POR population. Eight section 5 topics are now registered - fluid density, formation-water density, maximum effective porosity, porosity limiting mode, matrix/fluid/shale transit time and sonic compaction correction - and attached across `phi_den`, `phi_dn` and `phi_son`, joining the four density and neutron topics already carried. Parameters section 5 registers no row for stay untopiced: `OPT_XPLOT` (owned by SB-POR-023 under DEC-014), `OPT_SON` (the SB-POR-013..020 sonic group under DEC-017) and `phimax`'s SandiBumi-own compaction trend, whose ceiling is deliberately not merged with section 5.3's IP shale roll-off triple.
+- **Qualifying acceptance tests:** `every_cited_porosity_parameter_carries_its_section_five_source_and_tier_while_an_absent_default_stays_absent` pins the contract from four sides: the exact section 5 topic map across the three modules; every named topic resolving to completely attributed, tiered positions; five deliberately ABSENT parameters keeping an empty default and `ABSENT` default source *after* being sourced; and the parameters section 5 does not cover staying untopiced. A fifth arm proves the tier survives into the run record through the exact `decision_for` call the runner makes. Three mutations produced RED at three different assertions - a dropped `phi_son` OPT_CP attachment, a sourced `DT_SH` given the attested Techlog 100 as a default, and an invented citation on `OPT_XPLOT`. Test class `CORRECTNESS`; every expected value, source and tier is transcribed from `docs/PRD_v2/11_porosity.md` section 5 and its tier key at lines 7-19, never read back from the manifests.
+- **Supporting tests:** the dialog's `tier · source` rendering and its no-silent-selection behavior are already proven by the SB-CLY-050 frontend test `a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_loading_stays_visible`; this increment does not duplicate it, because what changed is that POR arguments now have a topic for that component to render.
 - **Manual evidence:** porosity 0/33; workflow 0/23; processing-history 0/7.
-- **Source/parameter boundary:** chapter citations remain authoritative; missing topics must not be filled from current literals.
-- **History/reachability:** generic source-topic support is reachable; no POR topic/tier coverage was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires a POR parameter-to-source/tier inventory that preserves ABSENT and NON-ADOPTABLE states.
-- **Next action:** register every admissible POR parameter source and tier, expose it in the dialog, and persist the selected source alongside the value.
+- **Source/parameter boundary:** no value was requested from the product owner and none was invented. Section 5 supplies a source and tier for all 74 rows, and the 18 `ABSENT` and the `NON-ADOPTABLE` rows are first-class states, so disclosure was registered without creating a default anywhere. `RHO_DSH` still ships 2.65, which matches neither attested value; making it `ABSENT` is SB-POR-055's row and was deliberately not done here.
+- **History/reachability:** parent `1a7535d0` had the generic seam and no POR topics. This increment adds only registry entries and manifest attachments.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the registered scope. Two residuals are named rather than counted as covered: `ssc`/`sspw` parameters live in prohibited `src-tauri/src/ssc.rs` and remain unsourced (both are first-pilot exclusions, per the owner's scope decision for this row); and the same primary tier is spelled `T1p` in this chapter, `T1′` in the registry rows pinned by earlier CLY/CORE increments and `T1-prime` in a frontend fixture, which is recorded rather than resolved because re-spelling another requirement's evidence is its own change.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-008.
 
 ## SB-POR-008 - One formation-water PHIT_SH across the CLY seam
 
 - **Specified contract:** every POR formation path uses and exports one shared formation-water-based `PHIT_SH`, kept distinct from shale subtraction; T15, T19 and T30 compare all paths.
-- **Current implementation:** density and D-N call shared `phit_sh_at` with `RHO_W`. `sspw` calculates a similar term with its neighboring fluid-density argument and does not call the helper; sonic follows no equivalent shared path. No exported seam proves identity across modules.
-- **Qualifying acceptance tests:** none; T15/T19/T30 are not executable as cross-module controls. Test class `MISSING`.
-- **Supporting tests:** density/D-N shale tests and `sspw_phie_removes_only_clay_bound_water` passed exactly once, but their implementations are not an independent oracle for one another.
+- **Current implementation:** the quantity now has exactly one definition in the tree, `modules::shale_total_porosity(rho_dsh, rho_sh, rho_w)`, carrying its own contract note. `phi_den` and `phi_dn` reach it through `phit_sh_at`; `sspw` now reaches it directly and declares a cited `RHO_W`, replacing the fluid-anchored local formula at the old `ssc.rs:464`. `phi_son` has no shale-porosity term, so nothing there needed unifying.
+- **Owner authorization:** Jauhar authorized the narrow protected-file edit on 2026-08-16, choosing option (a): add a formation-water parameter and route SSC/SSPW through the shared helper while preserving all existing limited arithmetic. **Investigation then narrowed that authorization, and the narrowing is the substantive finding.** `ssc`'s own `(rhob_dsi - rhob_wsi)/(rhob_dsi - rhob_fl)` is not this quantity: `rhob_dsi` is the intersection of the fluid-anchored line `m3` with the dry-clay line `m4`, so the expression is the wet-silt point's fractional distance along `m3` from dry silt toward the fluid point. Its denominator must remain `rhob_fl`, because changing it would stop the expression being a fraction along the very line that defined its numerator. Routing that site through the shared helper as literally authorized would have introduced a new silent error while fixing another, so its arithmetic is unchanged and only its colliding local name was retired to `silt_water_fraction` - which is what F16 actually requires.
+- **Qualifying acceptance tests:** `one_formation_water_clay_bound_water_porosity_serves_every_porosity_method_and_the_silt_and_shale_subtraction_terms_keep_their_own_identities` pins five sides: the shared helper equals the chapter's own form evaluated independently; the formation-water and fluid anchors are genuinely separable at the cited salt-water density; every method carrying the quantity declares `RHO_W`; the whole production tree holds exactly **one** definition, so a module re-deriving it locally fails even though every other assertion would still pass; and F16's naming rule holds from both sides. Two mutations produced RED at two different assertions - `sspw` reverted to the fluid anchor, and the silt term reclaiming the shale name. Test class `CORRECTNESS`.
+- **Supporting tests:** all six existing SSC/SSPW behaviour tests pass with **unchanged expected values**. That is the deliberate control: the fixture holds `RHO_W` equal to `RHOB_FL`, so their unchanged results prove the routing change is behaviour-neutral wherever the two anchors agree, and the new test proves it is not neutral where they differ.
 - **Manual evidence:** porosity 0/33; shale-volume 0/17; workflow 0/23.
-- **Source/parameter boundary:** formation-water density and shale quantities must remain typed; no neighboring fluid value is substituted.
-- **History/reachability:** shared density helper and separate SSPW expression are both integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires one exported helper/result contract across POR and CLY, then removal of parallel formulations.
-- **Next action:** route all eligible paths through one typed PHIT_SH calculation and prove identical output from one cited parameter set while preserving shale-subtraction distinction.
+- **Source/parameter boundary:** `docs/PRD_v2/11_porosity.md` SB-POR-008 supplies the required form and F16 the naming rule. Section 5.1 supplies the witness values - `RHO_DSH` 2.78 (IP `Rho Dry Clay`), `RHO_SH` 2.50 (Techlog `DEN_shale`) - and the fluid fresh `1.00` versus salt `1.10` spread that makes the anchors separable. The new `RHO_W` parameter copies `phi_den`'s cited declaration verbatim (Geolog V14 `phi_den.info` `RHO_W` DEFAULT 1000 k/m3), so no value was invented and the default is unchanged at 1.00.
+- **History/reachability:** parent `e65271f2` recorded this row BLOCKED on the protected file; the owner authorization lifted that boundary for this narrow purpose only.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none remaining for this row's contract. The CLY consumer `clsr_porosity_corrected` (SB-CLY-044) stays deferred outside the manifest and is not required for the "defined once, formation-water anchored, distinctly named" contract this row owns; when SB-CLY-044 is admitted it must consume `modules::shale_total_porosity` rather than re-derive it, which arm D of the test now enforces mechanically.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-009. A `DEC` row recording the 2026-08-16 `ssc.rs` authorization still needs adding to `DECISIONS.md`, which was outside this program's allowed paths.
 
-## SB-POR-009 - Limit PHIE before rebuilding PHIT
+## SB-POR-009 - PHIT is never below PHIE
 
-- **Specified contract:** at every finite sample, limited `PHIE` is formed first and `PHIT` is rebuilt so `PHIT >= PHIE`; T11 covers floor, ceiling, shale branch and missing data for every method.
-- **Current implementation:** `phi_den` and `phi_dn` use the required order. `phi_son` independently clamps both outputs, and SSC/SSPW use separate paths, so the universal ordering is not established.
-- **Qualifying acceptance tests:** none; no all-method, all-branch test exists. Test class `MISSING`.
-- **Supporting tests:** density/D-N flooring and shale-branch tests passed exactly once and show local ordering; they cannot close sonic or SSC/SSPW.
-- **Manual evidence:** porosity 0/33.
-- **Source/parameter boundary:** the ordering is specified; no floor value is adopted by this receipt.
-- **History/reachability:** the density/D-N ordering is integrated; no common family implementation was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-001 and the unresolved SB-POR-045 floor custody.
-- **Next action:** place order enforcement in the common POR limiter and test floor, ceiling, shale, naturally ordered and missing samples for every registered method.
+- **Specified contract:** `PHIT >= PHIE` holds at every sample by construction - limit `PHIE` first, then rebuild `PHIT` from the limited value (Geolog's ordering, F21) - and the invariant must additionally be asserted, not merely relied on.
+- **Current implementation:** `phi_den` and `phi_dn` hold it for free because they rebuild `PHIT` from the limited `PHIE`. `phi_son` computed the two independently and **did violate it**: `pe = pt - VSH*(DT_SH - DT_MA)/(DT_FL - DT_MA)/Cp`, so when `DT_SH < DT_MA` the shale term is negative and the subtraction becomes an addition. `DT_MA` 70 and `DT_SH` 60 are both inside the shipped declared ranges (`DT_MA` 40..70, `DT_SH` 60..150), giving `PHIT_SON 0.0840` against `PHIE_SON 0.1008` - effective porosity 20 percent above total with every input nominally valid. `phi_son` now bounds `PHIE` by the sample's own already-limited `PHIT`, which is the same construction `ssc` and `sspw` already use.
+- **Qualifying acceptance tests:** `every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample` pins four sides: it executes `phi_den`, `phi_dn` and `phi_son` across WYLLIE/RHG, Cp on/off and both PHIE-limiting modes, pairing outputs by declared name so limited and unlimited pairs are both checked; it proves separately that the chosen in-range sonic parameters really do invert the ordering before enforcement, so the sweep cannot pass by never stressing it; it proves `ssc`/`sspw` bound effective by total porosity structurally; and it refuses to let any registered Porosity-category method emitting a PHIT/PHIE pair escape coverage. Removing the enforcement reproduces the exact violation as RED. Test class `CORRECTNESS`.
+- **Supporting tests:** `phi_son_wyllie_cp_opt_in_only_scales_wyllie` passes unchanged, so the ordering guard does not disturb the compaction behaviour it pins.
+- **Manual evidence:** porosity 0/33; workflow 0/23.
+- **Source/parameter boundary:** SB-POR-009 and F21 supply the invariant and the ordering; the adversarial witness comes from the shipped manifest's own declared ranges rather than a chosen number. **No new numeric bound was introduced** - the ceiling imposed is the sample's own total porosity, not a constant. The invariant is an ordering contract and is independent of the unresolved `SB-POR-045` floor VALUE, so DEC-026 does not gate it.
+- **History/reachability:** the violation was reachable in shipped code for every sonic run whose shale slowness fell below its matrix slowness.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. `ssc`/`sspw` are proved structurally rather than executed because `ssc.rs` is protected and the 2026-08-16 authorization covered SB-POR-008 only; the invariant holds there by construction, so no edit is required.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks; automated Gate 2 work proceeds to SB-POR-010.
 
-## SB-POR-010 - Re-derivable audit trail for every POR curve
+## SB-POR-010 - The audit trail re-derives the curve
 
-- **Specified contract:** every computed POR curve records method, complete resolved parameters including defaults and zones, exact input set/mnemonic identities, and convention so the run is re-derivable.
-- **Current implementation:** `LogSetSpec` stores module, explicit `req.params`, and input set/mnemonic identities. It omits defaults, fully resolved zone parameters, options/method selectors held outside that map, source/tier and per-output convention.
-- **Qualifying acceptance tests:** none; no POR run round-trip proves complete reconstruction. Test class `MISSING`.
-- **Supporting tests:** `a_restored_log_set_version_feeds_the_next_module_run` passed exactly once and proves version reuse, not full POR provenance.
-- **Manual evidence:** workflow 0/23; processing-history 0/7; generic-curve-store 0/18.
-- **Source/parameter boundary:** provenance must retain cited/absent status rather than manufacture defaults.
-- **History/reachability:** partial generic run metadata is integrated; no complete POR audit record was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires a resolved-run schema spanning values, options, sources, zones, identities and outputs.
-- **Next action:** persist a canonical resolved POR invocation and prove save/reload reproduces every field without querying mutable defaults.
+- **Specified contract:** every porosity curve SHOULD carry, in the project audit trail, the method name, the full parameter set and the input curve identities that produced it, sufficient to re-derive it without the session.
+- **Current implementation (2026-08-19):** DONE. The record was assembled across SB-DBM-003 (parameter values with source states), SB-POR-004 (per-output custody), SB-DBM-006 (resolved input identities) and SB-DBM-015 (the enumerated, stored, checked re-run manifest with the zone-set digest and `PARAM@ZONE` effective-value entries). This row's own clause - RE-DERIVABILITY - is now proved: a `phi_den` curve reconstructs from the STORED record alone and reproduces the stored bytes bit for bit; the live `zone_params` table then moves underneath and the record still reproduces the ORIGINAL bytes, while `rerun_log_set` honestly reports non-identity (the SB-DBM-015 arm E contract deliberately unchanged - a re-run executes under today's interpretation, a re-derivation replays the recorded one). A record stripped of its `PARAM@ZONE` entries fails to reproduce the zoned samples. No production change; the row closes as a proof over the shipped record.
+- **Qualifying test:** `a_porosity_curve_re_derives_from_its_stored_manifest_alone_while_the_live_tables_move_underneath` - record completeness (method name, all eight declared parameter values incl. defaulted, the 2.40 zone override, both input identities), bit-for-bit reproduction, moved-table immunity with the live re-run cross-checked, and the stripped-record negative arm. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-19 @ codex/g2-program-plan (pre-PR).
 
-## SB-POR-011 - One shared matrix-density decision
+## SB-POR-011 - One shared matrix density across chained modules
 
-- **Specified contract:** one matrix-density selection propagates unchanged through every documented POR, gas-correction and conditioning module in a chain; T35 tests one override end to end.
-- **Current implementation:** multiple manifests expose independent density-like defaults and parameters. No shared typed matrix-density object or chain-level override custody connects POR, `gascorr`, `condflag` and saved workflows.
-- **Qualifying acceptance tests:** none; T35 is not executable. Test class `MISSING`.
-- **Supporting tests:** local module tests exercise their own defaults; equal-looking values are not shared custody.
-- **Manual evidence:** porosity 0/33; conditioning 0/27; workflow 0/23.
-- **Source/parameter boundary:** matrix density is petrophysical and must come from a cited/user decision; this pass adopts none.
-- **History/reachability:** current and reachable-history searches found no chain-level matrix-density decision.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the typed shared parameter and precedence rules are absent.
-- **Next action:** introduce one cited/user-owned matrix-density reference and prove a non-default override reaches every documented consumer unchanged.
+- **Specified contract:** matrix density must be a single shared parameter across modules that a documented workflow chains.
+- **Owner decision, 2026-08-16:** Jauhar selected **2.65**. Section 5.1 cites two values and adjudicates neither - 2.65 as the three-way agreement across IP MINDEF, Techlog `QM_MineralTable` and SandiMin (tier T3), and `Geolog phi_den.info RHO_MA DEFAULT = 2645 k/m3` (tier T1), explicitly recorded as a shipped module default that differs from the endpoint libraries. One shared parameter carries one default, so the value could only come from the owner.
+- **Current implementation:** `phi_den`, `phi_dn`, `condflag` and `gascorr` - the chain `gascorr`'s own doc instructs - now declare one `RHO_MA` with the same default, the same validity range and the same cited evidence. The 2.645-versus-2.65 split the requirement names is gone. `condflag` and `gascorr` additionally gained the shared `MATRIX_DENSITY` source topic, which SB-POR-007 had attached only to Porosity-category modules, so all four disclose the same competing positions at the point of entry.
+- **Qualifying acceptance tests:** `every_chained_module_reads_one_shared_matrix_density_and_still_discloses_the_position_it_did_not_take` pins three sides: one default and one range across all four chained consumers; the unchosen Geolog 2.645 still present as visible evidence, so selecting a value did not erase the position it was selected over; and no Porosity-category module reintroducing a second value. Two mutations produced RED at two different assertions - reverting `phi_den` to 2.645, and deleting the Geolog position from the evidence. Test class `CORRECTNESS`.
+- **Supporting tests:** all 1011 pre-existing Rust tests passed unchanged after the value moved, which is itself evidence that no test had encoded the old default and that the change is confined to the shipped default rather than to any pinned arithmetic.
+- **Manual evidence:** porosity 0/33; workflow 0/23.
+- **Source/parameter boundary:** both values remain cited and both remain visible; the interpreter can still see that 2.645 exists and who ships it. No value was invented, and the selected one is itself a cited position rather than an engineering choice.
+- **History/reachability:** parent `832e07d1` still shipped the divergence in three modules against `gascorr`'s 2.65.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none remaining.
+- **Next action:** Jauhar performs the open Visual, Manual and Field checks. **Note the behavioural change:** the default moves 2.645 to 2.65 in `phi_den`, `phi_dn` and `condflag`, shifting density porosity by roughly 0.3 p.u. on defaults, so any saved workflow that relied on the old default should be re-run deliberately rather than assumed unchanged.
 
 ## SB-POR-012 - CSR bridge with no default
 
@@ -344,18 +337,24 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** SP-013's method disposition is closed by `DEC-017`; SB-POR-020 still separately requires an explicit vendor-rendering disposition, and the original scan must be verified before RHG80 code.
 - **Next action:** implement the verified original RHG80 route, keep vendor renderings distinctly labelled if later selected, and add a label/formula/provenance acceptance test that cannot pass on the current approximation.
 
-## SB-POR-021 - Chart-free analytic neutron-density method
+## SB-POR-021 - Chart-free analytic neutron-density crossplot
 
-- **Specified contract:** provide the cited Bateman-Konen analytic N-D method, independently validate it against the gated chart branch, and keep the average shortcut measurably distinct; T08 and T37 constrain both sides.
-- **Current implementation:** `phi_dn` offers only `AVERAGE` and `GAS_RMS` shortcuts. No Bateman-Konen evaluator exists; unrelated Bateman-Konen salinity/Rw code is not POR. The nine chapter constants remain non-adoptable.
-- **Qualifying acceptance tests:** none; T08/T37 are not executable. Test class `MISSING`.
-- **Supporting tests:** `phi_dn_crossplot_shale_reduction_and_branches` passed exactly once for the current shortcuts, not the analytic method.
-- **Manual evidence:** porosity 0/33; crossplot 6/13, with no POR analytic-method evidence.
-- **Source/parameter boundary:** ESC-POR-8 blocks adoption of the nine constants; they remain verification-only and no chart value is copied.
-- **History/reachability:** source, test and reachable-history searches found no POR Bateman-Konen method.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** close ESC-POR-8 with admissible primary custody before the analytic method can ship.
-- **Next action:** obtain the admissible constants/source, implement the analytic evaluator, and compare it independently with both chart and shortcut discriminators.
+- **Specified contract:** implement a chart-free analytic N-D crossplot as the primary N-D porosity method, following the Bateman & Konen (1977) family. The arithmetic average standing in for it costs 1.64-1.79 p.u.
+- **SOURCE RESOLVED 2026-08-16 - ESC-POR-8 IS CLOSED.** Jauhar supplied **Bateman, R.M. & Konen, C.E., "Wellsite Log Analysis and the Programmable Pocket Calculator", SPWLA Eighteenth Annual Logging Symposium, June 5-8 1977, Amoco International Oil Company** - the symposium paper published as the Nov-Dec 1977 *Log Analyst* article ESC-POR-8 names. **Appendix B, pages 19-21, carries the complete derivation and every one of the nine section 5.6 constants verbatim:** `2.71` is the limestone rho_1 in `phi_D` and `phi_Da` (B-5); `4.0` is `rho_2` on the `phi_N > phi_D` branch (B-11); `0.7`, `-5` and `-0.16` are `phi_Na = .7 - 10^-(5 phi_N + .16)` (B-12); `-1.17`, `-2.06`, `-0.4` and `-16` are `phi_Na = -(1.17 + 2.06 phi_N) + 10^-(.4 + 16 phi_N)` (B-10). Geolog's `phi_dnbk.lls` transcribes the paper faithfully, so these are **primary-sourced T1p, not a vendor rendering**, and section 5.6's `NON-ADOPTABLE` classification is superseded for this row. The paper also supplies the non-linear single-mineral responses B-6 (dolomite) and B-7 (sandstone) and states plainly why a linear neutron response fails below 10 percent porosity.
+- **Current implementation:** `modules::phi_dnbk` is the evaluator, registered in the SB-POR-001 envelope as its own `DeterministicMethod` with method `BATEMAN_KONEN_ANALYTIC_CROSSPLOT` and its own limiting policy. B-5 gives density porosity in LIMESTONE units against the method constant `BK_RHO_1` 2.71; `bk_pseudo_mineral` is B-9..B-12, returning the `(phi_Da, phi_Na)` pair for whichever side of the density-porosity line the sample falls on; B-6 solves the two-pseudo-mineral system for `phi_x`; B-7 returns the apparent matrix density as the output `RHOMAA_BK`. `phi_dn` keeps its `AVERAGE`/`GAS_RMS` shortcuts untouched and stays typed a comparison producer.
+- **Why `RHO_MA` is not an input:** the crossplot is DEFINED in limestone units, and the matrix density is what it RETURNS (B-7). Exposing 2.71 or 4.00 as parameters would let a user retune a published transform into something that is no longer the cited method while it still carried the method's name. They are constants OF THE METHOD and are held as such.
+- **The clamps are the method's own:** `11_porosity.md` lines 1231-1232 record them as mode-specific - neutron `[-0.015, 1.0]` and NO density clamp here, against the chart mode's `[-0.015, 0.40]` and `[1.950, 3.000]`. Borrowing `phi_dn`'s tighter pair would truncate the very readings the analytic form exists to solve.
+- **Qualifying acceptance tests:** `modules::tests::the_bateman_konen_crossplot_reproduces_the_papers_own_witnesses_on_both_pseudo_mineral_branches`. Arm A is the upper branch (B-11/B-12) on the witness recorded with the source; arm B is the LOWER branch (B-9/B-10) on `11_porosity.md` line 628 and T37 - RHOB 2.20, NPHI 0.30, VSH 0.20 shale-reducing to 2.125/0.2875 and returning `PHIE` **0.2578699**. The two witnesses are independent and land on opposite branches, so neither alone would prove the branch test fires at all. Test class `CORRECTNESS`.
+- **Arm C, the cost the row is written against:** the analytic route must differ from the shortcut it replaces by T37's stated **1.64 p.u.** (average route 0.2414438). `RHO_MA` 2.645 is passed explicitly there, because that is the value T37 was stated on and SB-POR-011 moved the shipped default to 2.65 on 2026-08-16 - which would return 0.2422727 and is a different claim. Bateman-Konen itself never reads the parameter, so only the comparison arm needs it.
+- **Arm D, pinned from the other side:** an implementation satisfying arms A-C as a third `OPT_XPLOT` mode on the comparison producer would pass everything and still BE the defect. So the module is asserted to carry no `OPT_XPLOT` argument, to be typed `DeterministicMethod` where `phi_dn` is `ComparisonProducer`, and to hold neither the same method identity nor the same limiting policy.
+- **Arm E, pinned by collapse:** neither witness reaches a clamp, so the mode-specific clamps are pinned by the fact that a clamp which bit would map two different readings onto the same value and return the same answer. No expected magnitude is invented for a case the source gives no witness for.
+- **FINDING - the register's printed witness is off in its last digit.** It records `phi_x = 0.245219`, but B-6 evaluated on its OWN four intermediates (0.2397661, 0.6610955, -0.7543860) gives **0.2452203**. The intermediates all match this implementation exactly, and the chapter's independent T37 witness on the other branch reproduces to 1e-6, so the method is right and the printed final digit is a slip. The expectation is therefore built from the cited intermediates rather than by widening the tolerance to swallow 1.3e-6, which would have hidden a real disagreement.
+- **Mutation record:** forcing a single branch fires arm A (0.24357767); corrupting B-11's 4.00 fires arm A (0.24540994); flipping B-10's leading sign fires arm B (0.33099294); restoring the chart-mode neutron clamp fires arm E. Each was applied and reverted from a sha256-verified byte copy.
+- **Manual evidence:** porosity 0/33; crossplot 6/13 - unexercised. Automated only; no manual or field evidence is claimed.
+- **Git evidence:** the increment adds the module, its spec, its POR registration and its dispatch, and registers it in the six enumerations the envelope keeps (VSH quantity typing, the PHIT>=PHIE sweep and its coverage list, the live-family set, the per-method limit-policy count 5->6, the output-role map and the depth-unit classification). Every one of those is the new module JOINING a proof, not a proof being relaxed: 359 insertions against 5 deletions, all five being enumeration lines that gained a name. Full suite 1051 passed / 0 failed / 37 ignored.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none outstanding. `ESC-POR-8` closed 2026-08-16 with the primary paper; the evaluator is now written.
+- **Next action:** compare against a chart discriminator if one is ever built (T08 cannot run today - there is no chart branch to compare against), and correct the register's printed upper-branch witness to 0.2452203.
 
 ## SB-POR-022 - SandiBumi-owned gated chart pipeline
 
@@ -370,57 +369,55 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** pilot inclusion and admissible chart-validation custody must be decided after ESC-POR-8.
 - **Next action:** keep the owned conversion tables separate; if included, add an explicitly gated POR validation adapter with independent source and no production dependence on protected material.
 
-## SB-POR-023 - Average and RMS are comparison curves only
+## SB-POR-023 - Quick-look shortcuts are not a crossplot method
 
-- **Specified contract:** arithmetic average and gas RMS remain visibly labelled comparison curves, never authoritative POR methods or pay defaults; T36 pins method registration and downstream exclusion.
-- **Current implementation:** `phi_dn` exposes `AVERAGE` and `GAS_RMS` as the only selectable methods and writes ordinary POR outputs. The documentation calls them analytic shortcuts rather than comparison-only quantities; no pay-exclusion type exists.
-- **Qualifying acceptance tests:** none for the specified comparison/pay contract. Test class `CHARACTERIZATION`: `phi_dn_crossplot_shale_reduction_and_branches` pins the current selectable shortcuts and their arithmetic.
-- **Supporting tests:** the characterization passed exactly once; it does not prove comparison typing or exclusion.
-- **Manual evidence:** porosity 0/33; crossplot 6/13; no pay-selection evidence.
-- **Source/parameter boundary:** the current shortcut formulas do not become authority for the absent analytic method.
-- **History/reachability:** current shortcut registration is integrated; no POR comparison family or pay guard was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-021 and SB-POR-057.
-- **Next action:** reclassify both shortcuts as method-qualified comparison outputs, make them ineligible for pay defaults, and prove the authoritative registry rejects them.
+- **Specified contract:** the arithmetic average and the RMS must not be presented as crossplot porosity methods, and the doc string claiming they are "the standard analytic equivalent" of chart lookups must be removed. They may ship as explicitly labelled quick-look comparison curves.
+- **Current implementation:** the forbidden claim is gone. `phi_dn` states plainly that neither combination is a crossplot porosity method, is labelled `QUICK-LOOK COMPARISON ONLY`, quotes IP's own position that the field shortcuts should not be used for anything else, and points at SB-POR-021 as the separate analytic contract. SB-POR-001 still types both outputs `DENSITY_NEUTRON_COMPARISON`; SB-POR-004 gave them collision-safe `PHIE_DN_LIM`/`PHIT_DN_LIM` identities.
+- **Owner ruling, 2026-08-16 - pay eligibility.** Jauhar chose option (b): the D-N limited output **is** admitted to pay. The SB-POR-004 canonical-first fallback reaching `PHIE_DN_LIM` on a D-N-only well is therefore the approved contract rather than the leak it appeared to be. `run_pay_summary` consults exactly the closed two-name pair `["PHIE", PHIE_DN_LIMITED_DEFAULT]`, and the proof refuses any widening of that list - a family scan there would let any porosity-shaped curve into a reserves number.
+- **Qualifying acceptance tests:** `the_neutron_density_shortcuts_are_labelled_quick_look_comparisons_and_never_claim_to_be_a_crossplot_method` pins four sides: the forbidden claim absent from **every** porosity doc rather than only the cited line; the explicit quick-look label present; the pay path consulting exactly the closed pair; and the SB-POR-001 comparison typing still intact so the human label and the machine-readable role cannot drift apart. Three mutations produced RED at three different assertions - restoring the claim, removing the label, and widening the pay fallback. Test class `CORRECTNESS`.
+- **Supporting tests:** `phi_dn_crossplot_shale_reduction_and_branches` characterizes the shortcut arithmetic and still passes; it pins what the shortcuts compute rather than how they are presented, so it is supporting rather than qualifying evidence for this row. Nothing was deleted from the suite.
+- **Manual evidence:** porosity 0/33; cutoffs-pay 0/23.
+- **Source/parameter boundary:** SB-POR-023 and F14 supply the prohibition and the permitted labelling. Pay eligibility is the owner's recorded ruling, not an engineering inference. No numeric value is involved.
+- **History/reachability:** the misleading doc string shipped until this increment and was the only place a user was told the shortcut equalled a chart lookup.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none remaining for this row.
+- **DOCUMENT CORRECTION OWED, outside this program's allowed paths:** `PILOT_SCOPE.md` item 6 still reads that arithmetic and RMS "are excluded from pay by default", which ruling (b) reverses. That file is hash-bound to DEC-018, so the owner must amend it - replacing that clause with wording that admits the D-N limited output to pay while keeping the comparisons visibly labelled. A `DEC` row recording ruling (b) is also owed in `DECISIONS.md`. Until both land, the shipped behaviour and the scope document disagree in writing even though the behaviour is the approved one.
+- **Next action:** owner amends `PILOT_SCOPE.md` item 6 and adds the `DEC` row; then Jauhar performs the open Visual, Manual and Field checks.
 
-## SB-POR-024 - Neutron matrix-basis refusal and provenance
+## SB-POR-024 - A neutron matrix basis is declared or the N-D methods refuse
 
-- **Specified contract:** N-D porosity must know the neutron matrix basis, convert it through an admissible path when requested, refuse missing/wrong basis, and record input/output basis.
-- **Current implementation:** `nphimat` can convert named matrix bases, but `phi_dn` accepts NPHI without inspecting or requiring basis metadata. No wrong-basis refusal or per-output basis provenance is emitted.
-- **Qualifying acceptance tests:** none; no accepted-versus-refused POR basis test exists. Test class `MISSING`.
-- **Supporting tests:** the five `nphimat` tests passed exactly once and prove conversion arithmetic only.
-- **Manual evidence:** porosity 0/33; generic-curve-store 0/18; workflow 0/23.
-- **Source/parameter boundary:** conversion must use the owned/cited basis tables; no basis is guessed from mnemonic.
-- **History/reachability:** the converter is integrated; no POR wiring or refusal was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires neutron-basis metadata at import/storage plus a typed POR input guard.
-- **Next action:** carry basis through curve metadata, require it at `phi_dn`, and test explicit compatible conversion against absent and wrong-basis refusal controls.
+- **Specified contract:** N-D crossplot porosity must refuse to run on a neutron curve whose matrix units are not declared, and must state the declared basis in its output provenance; a limestone-unit neutron against a sandstone matrix reads ~0.04 v/v low in clean water sand.
+- **Current implementation (2026-08-19):** DONE under **DEC-025** (the narrow typed neutron-scale seam, authorized 2026-08-17; ABSENT stays absent - the basis is never inferred). The seam itself landed with SB-DBM-017/SB-ENV-029; this row adds the boundary: `modules::required_neutron_basis` registers `phi_dn` (any DECLARED basis - its average reads against the interpreter's own RHO_MA) and `phi_dnbk` (LIMESTONE entry per its own source), and `workflow::validate_neutron_basis_input` refuses at the module boundary by name - undeclared names the curve, the physics, the fix and the ruling; wrong-basis on the crossplot names the entry units and `nphimat`; a curve that does not resolve keeps the ordinary missing-input refusal. The declared basis rides the stored manifest as the `neutron_basis` physics attribute for both methods. Fixture fallout closed honestly, including the ignored field chain's move to the authoritative `phi_dnbk` with an explicit `__OUT_` election of its limited pair (DEC-070), and the field-sweep classifier recording the DEC-025 refusal as documented boundary behaviour.
+- **Qualifying test:** `the_neutron_density_methods_refuse_an_undeclared_or_wrong_basis_and_record_the_declared_one` - both refusals by name, phi_den unaffected, declared-basis provenance recorded and re-recorded across a redeclaration. Five mutations killed on distinct assertions; the three affected ignored field tests re-verified green. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced; the LIMESTONE entry cites Bateman & Konen 1977 Appendix B.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-19 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-025 - Salinity interpolation for neutron response
 
 - **Specified contract:** use the cited fresh/salt endpoints with continuous fluid-density/salinity interpolation and retain the resolved condition in provenance.
-- **Current implementation:** `nphimat` offers binary fresh/salt choices and matrix conversions. `phi_dn` neither consumes the choice nor interpolates by fluid density, and the run record does not retain a resolved salinity response.
+- **Current implementation:** `nphimat` offers binary fresh/salt choices and matrix conversions, but it is a `Prep`-category converter, not a POR endpoint source. `phi_dn` neither consumes the choice nor interpolates by fluid density, and the run record does not retain a resolved salinity response.
 - **Qualifying acceptance tests:** none for interpolation and POR custody. Test class `MISSING`.
 - **Supporting tests:** `nphimat_thermal_dolomite_bow_and_salinity_scope` passed exactly once for the current binary scope.
-- **Manual evidence:** porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** only cited endpoints may be used; no intermediate relation is invented beyond the chapter's specified interpolation.
+- **Manual evidence:** porosity 0/48; workflow 0/23.
+- **Source/parameter boundary:** the interpolation the requirement asks for needs salinity-dependent endpoint VALUES at both ends, and SandiBumi holds no admissible source for them. `F13` cross-references `SB-POR-021`, `SB-POR-022` and `SB-POR-027` as the rows that supply them; no fresh or salt endpoint value is cited for POR independently of those rows. Interpolating today would mean inventing both ends of the lever, so no test was written and no endpoint was invented.
 - **History/reachability:** binary conversion support is integrated; no POR salinity interpolation was found.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** decide pilot inclusion and define typed fluid-condition input without creating a default.
-- **Next action:** if included, add the chapter-specified interpolation and prove both endpoints plus one independent interior arithmetic case and provenance round-trip.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY`. Both routes to an admissible endpoint pair are unavailable. `SB-POR-022`, the gated chart digitisation, is `release_disposition` `DEFERRED` and outside the approved 242-row manifest, so it is not Gate 2 work. `SB-POR-021`, the analytic route, now holds its 1977 primary source — banked this session — but its evaluator is unwritten, so it can supply nothing yet. This is a dependency block, not an undecided one: the row is inside the 222-row program, and the earlier `UNDECIDED` reading of it was stale.
+- **Next action:** implement `SB-POR-021`'s Bateman-Konen evaluator, now that the primary source is held, so the salinity-dependent endpoints have an admissible origin; or promote `SB-POR-022`'s gated digitisation into the manifest. Then add a typed fluid-condition input with no default, interpolate on fluid density per the two-call structure, and persist the resolved salinity response in the run record - proving both endpoints, one independent interior arithmetic case, and the provenance round-trip.
 
 ## SB-POR-026 - Crossover conditioning is consumed by POR
 
 - **Specified contract:** POR methods declare, consume and record the conditioning crossover decision rather than recomputing or ignoring it.
-- **Current implementation:** `condflag` emits `XOVER` and related flags, but POR manifests do not declare those inputs and their bodies do not consume or persist them.
+- **Current implementation:** `condflag` emits `XOVER_FLAG` and related flags (`modules.rs:4008`, `:4126`, `:4241`), but no POR manifest declares those inputs and no POR body consumes or persists them. Exactly three specs are in scope - `phi_den` (`modules.rs:3045`), `phi_dn` (`:3173`) and `phi_son` (`:3306`) - the same three that §3.7 names as declaring neither `COND_FLAG` nor `BADHOLE`.
 - **Qualifying acceptance tests:** none; T41 does not execute declaration-through-run custody. Test class `MISSING`.
-- **Supporting tests:** `condflag_detects_coal_tight_and_crossover`, `condflag_washout_is_not_coal_and_xcond_option`, and the generic empty-flag refusal passed exactly once.
-- **Manual evidence:** conditioning 0/27; porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** no threshold is adopted; only the already-produced decision is under review.
+- **Supporting tests:** `condflag_detects_coal_tight_and_crossover`, `condflag_washout_is_not_coal_and_xcond_option`, and the generic empty-flag refusal passed exactly once. They pin the detection; none of them establishes that a POR run declares or carries it.
+- **Manual evidence:** conditioning 0/27; porosity 0/48; workflow 0/23.
+- **Source/parameter boundary:** no threshold is adopted and none was invented - `XOVER_MIN` is already a sourced `condflag` parameter. `11_porosity.md:951-952` is narrower than this file's earlier reading: the chapter states that `condflag` already computes the flag and that **the requirement is the wiring**, i.e. custody of an existing determination rather than a new policy for what each POR method *does* with it. The flag must be **consumed, never re-derived**: `condflag`'s rule is `dphi - np > XOVER_MIN && !coal_hit && !washout`, so lifting only the first clause into a porosity module would drop both exclusions and call coal and washouts gas. `gascorr` already ships the idiom - `log_in("GAS_FLAG", .., "XOVER_FLAG", false)` at `modules.rs:4404`, an optional declared flag input aliased to `condflag`'s own output, whose doc string records that the upstream flag already excludes coal and washout.
 - **History/reachability:** XOVER generation is integrated; no POR consumer was found.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires the common flag contract and a declared policy for what each POR method does with XOVER.
-- **Next action:** add a typed required/optional conditioning input, record the branch taken, and prove both present and absent-policy paths.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-CONTRACT` — **ruling received 2026-08-16: PROVENANCE RECORD**, not a new output curve. The contract is settled; only the wiring is outstanding, the same state as SB-POR-021. The ruled shape avoids three new curve names propagating into LAS export, the curve catalogue and pay summary. Recorded for history, the question was: Whether *"surfaced as a flag on the porosity output"* means a **new named output curve** from each of the three modules - an output-surface contract under `workflow::resolve_output_names`, reaching LAS export, the curve catalogue and pay summary - or only a **provenance record** on the existing outputs, is a product-owner call. The chapter reads as a curve; this register's own `next_action` ("record the branch taken") reads as provenance. The two ship different things, no cited text settles it, and no ruling was invented. The earlier `UNDECIDED` framing ("a declared policy for what each POR method does with XOVER") over-scoped the row into a method decision the chapter does not ask for.
+- **Next action:** owner rules output curve versus provenance record. Then declare an optional crossover input on `phi_den`, `phi_dn` and `phi_son` following the `gascorr` idiom, consume `condflag`'s flag rather than recomputing it so the coal and washout exclusions survive, and pin both sides: a supplied flag reaching the porosity output, and an absent flag leaving it `MISSING` rather than `0`, since nobody-looked and no-crossover-found are different statements.
 
 ## SB-POR-027 - Neutron-sonic crossplot
 
@@ -437,16 +434,16 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 ## SB-POR-028 - Hard bounds are cited parameters and binding is flagged
 
-- **Specified contract:** every shale-reduction/crossplot clamp endpoint is a cited, visible parameter and a binding clamp raises the POR flag/log; T12 covers both bound and unbound samples.
-- **Current implementation:** `phi_dn` hard-clamps RHOB and NPHI to four literals before arithmetic. The values are not visible/source-bound parameters and no POR clamp flag or run message is emitted.
-- **Qualifying acceptance tests:** none for the specified parameter/flag contract. Test class `CHARACTERIZATION`: `phi_dn_crossplot_shale_reduction_and_branches` exercises the current bounded implementation without proving cited custody or observable binding.
-- **Supporting tests:** the characterization passed exactly once.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** current literals are not promoted as citations; only chapter-sourced endpoints may become parameters.
-- **History/reachability:** hard-coded bounds are integrated; no source topic or POR flag was found.
+- **Specified contract:** the shale-reduction clamps hard-coded in `phi_dn` (`[1.95, 3.0]` g/cc and `[-0.015, 0.40]` v/v) **MUST** become cited parameters, and hitting them **MUST** raise SB-POR-003's flag.
+- **Current implementation:** `phi_dn` hard-clamps RHOB and NPHI to four literals before arithmetic. The values are not visible or source-bound parameters and no POR clamp flag or run message is emitted.
+- **Qualifying acceptance tests:** none for the specified parameter-and-flag contract. Test class `CHARACTERIZATION`.
+- **Supporting tests:** `phi_dn_crossplot_shale_reduction_and_branches` exercises the current bounded implementation and passed exactly once; it proves neither cited custody nor observable binding.
+- **Manual evidence:** porosity 0/48.
+- **Source/parameter boundary:** the values **are** cited, contrary to this row's earlier reading. `11_porosity.md` §5 lines 1231-1232 carry both clamps at tier **T1**: neutron shale-reduced clamp `[-0.015, 0.40]` chart mode and `[-0.015, 1.0]` Bateman-Konen mode; density shale-reduced clamp `[1.950, 3.000]` chart mode and **none** in Bateman-Konen mode; both attributed to Geolog `phi_dn.lls` and `phi_dnbk.lls`. The parameter half is therefore source-ready and nothing needs inventing. Note the clamps are **mode-dependent**, so the promotion must be mode-aware rather than four flat constants - which ties this row to SB-POR-021, whose 1977 primary source was banked this session.
+- **History/reachability:** the clamps are live and fire silently today; §8 lists them among the clamps that currently bind with no flag.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-003 and SB-POR-007.
-- **Next action:** expose only the cited endpoints with source/tier, emit binding state, and test just-inside versus just-outside samples from both input axes.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY`, narrowed. The register previously read *depends on SB-POR-003 and SB-POR-007*; SB-POR-007 is now `DONE` and the values are cited, so only the second clause is still blocked. Hitting a clamp must raise SB-POR-003's flag, and SB-POR-003 is itself `BLOCKED-DECISION` on DEC-039, which has not selected the singular POR branch-and-limit representation, its vocabulary, its combination rule or its unknown-code behaviour. There is no stream to raise a flag on. Implementing only the parameter half and reporting `DONE` would be evidence inflation, since the chapter states one MUST with two clauses.
+- **Next action:** settle DEC-039 so the branch-and-limit stream exists; then promote the four literals to cited, mode-aware parameters through the SB-POR-007 source-and-tier machinery, emit binding state on that stream, and test just-inside versus just-outside samples on both input axes.
 
 ## SB-POR-029 - Apparent hydrocarbon electron density
 
@@ -632,42 +629,32 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 ## SB-POR-043 - High-shale threshold is a governed parameter
 
-- **Specified contract:** the high-shale branch threshold is cited, visible, configurable and recorded, with branch state observable.
-- **Current implementation:** density and D-N use a hard-coded `VSH >= 0.95` branch. It is not an argument, has no source topic/run field, and raises no POR branch flag.
-- **Qualifying acceptance tests:** none for the specified parameter/provenance contract. Test class `CHARACTERIZATION`: `phi_den_shale_branch_limits_and_missing` and the density/D-N branch checks pin current threshold behavior.
-- **Supporting tests:** those characterizations passed exactly once and prove only today's literal branch.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** the current literal is not promoted as its own citation; any shipped threshold must follow the chapter source.
-- **History/reachability:** the hard-coded branch is integrated; no governed argument or flag was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on parameter-source custody and the common POR flag.
-- **Next action:** expose the cited threshold, record it, and test below/at/above samples plus branch provenance.
+- **Specified contract:** `11_porosity.md:1044-1046` states exactly one MUST - the high-shale kill threshold **MUST** be a cited parameter, not a literal. It carries **no flag clause**; this file's earlier *with branch state observable* reading over-scoped the row into SB-POR-003 territory, the same drift found in SB-POR-026 and SB-POR-028.
+- **Current implementation:** `VSH_SHALE` is a governed parameter on `phi_den` and `phi_dn`, declared via `param_sourced` against topic `HIGH_SHALE_BRANCH_THRESHOLD`, and both live branch sites read `ctx.p("VSH_SHALE", i)`. `phi_son` is deliberately excluded - it has no high-shale branch (§3.5 / `:682`) and declaring the argument would imply one.
+- **Qualifying acceptance tests:** `the_high_shale_kill_threshold_is_a_cited_parameter_the_analyst_can_move_and_never_a_literal` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** `phi_den_shale_branch_limits_and_missing` and `phi_dn_crossplot_shale_reduction_and_branches` keep every assertion they had; their fixtures now state the threshold explicitly, because the bare `ctx_with` harness does not materialise manifest defaults. The run path does, at `workflow.rs:280` / `:700`.
+- **Manual evidence:** none yet - Jauhar owns the field check. Not claimed as automated evidence.
+- **Source/parameter boundary:** §5:1229 mandates the parameter **and** its default verbatim - *"a parameter in SandiBumi, defaulting to 0.95 with this source"*, tier **T1**, Geolog `phi_*.lls`. F21 (`:488-494`) supplies the three-way disagreement: Geolog `0.95` **T1**; IP a user parameter *Vcl Limit* with **no numeric default**, recorded as `ABSENT` because publishing a number IP does not publish would invent one, **T2**; Techlog *LimitPhi* defaulting to *Do Not Constrain Porosity*, i.e. **OFF**, **T3**.
+- **Both-sides pin:** arm A alone would pass an implementation that declares the argument and keeps reading the literal - the dialog would show a number that changes nothing and the discontinuity would still be unmovable. Arm D moves the threshold to 0.99 and requires the same VSH 0.96 sample to become rock again in **both** modules. Verified by mutation: reverting only `phi_dn`'s site to the literal fails by name with *phi_dn still on the shale branch at VSH_SHALE 0.99 - its literal survived*.
+- **Behavioural note:** because the parameter is *sourced*, a run that leaves it at 0.95 now reports the framework's existing `Defaulted` degradation - *"parameter 'VSH_SHALE' used its sourced module-manifest default"*. That rule is pre-existing and uniform, and `workflow.rs`'s own fixture comment already records it for the other sourced porosity parameters. No assertion was weakened to accommodate it; the affected fixtures declare the parameter, exactly as they already declare `RHO_MA` and `PHIE_MAX`.
+- **History/reachability:** the literal is gone from both sites; `grep` confirms two `ctx.p("VSH_SHALE", i)` branches and no surviving `v >= 0.95`.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that the step is movable and that leaving it at 0.95 reports the honest disclosure rather than a silent default.
 
-## SB-POR-044 - Optional smooth roll-off with no defaults
+## SB-POR-044 - A smooth high-shale roll-off as an alternative to the step
 
-- **Specified contract:** offer the specified smooth high-shale roll-off as an explicit option only when its three parameters are provided; ship no roll-off defaults and retain the hard-branch alternative.
-- **Current implementation:** no roll-off option or parameter set exists; only the hard-coded step branch ships.
-- **Qualifying acceptance tests:** none. Test class `MISSING`.
-- **Supporting tests:** hard-branch characterizations do not prove a roll-off.
-- **Manual evidence:** porosity 0/33.
-- **Source/parameter boundary:** the bundled three-parameter set remains ABSENT; no plausible transition values are invented.
-- **History/reachability:** no current or reachable POR roll-off implementation was found.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** product must decide pilot inclusion; any use requires explicit user/cited parameters.
-- **Next action:** if included, implement it as opt-in with all parameters required and test both hard-branch and smooth paths without a default selection.
+- **Specified contract:** offer IP's smooth roll-off `(PhiMax + DeltaPhiMax)(1 - Vcl) x 10^(-10(Vcl - VclCutoff)^1.6)` as an alternative to the high-shale step; its three parameters ship with no defaults (F21).
+- **Current implementation (2026-08-18):** DONE. **DEC-066** settled the PhiMax identity: it IS `PHIE_MAX` (0.3 default), per Jauhar with the IP 2025 help as the shape reference - and recorded his convention that clay + silt pool as shale, so the formula's Vcl is the module's VSH input. `SMOOTH_ROLLOFF` is the third `OPT_PHIEMAX` mode on all three limit-mode owners. The shape is the IP 2025 image form (embim71, D-11 adopted over the malformed ASCII); the exponential acts only past the cutoff - below it a negative base under a non-integer power is undefined, so the limit is the linear envelope. `DPHIMAX`/`VCL_CUTOFF` ship ABSENT (`param_open_when`) - the full IP 2025 ingest confirms no default is published - and the smooth branch refuses unsupplied by name. The mode bypasses the kill step: the limited curve is continuous across `VSH_SHALE` and terminates AT the POR-045 floor when the ceiling rolls under it - never a MISSING sample from an inverted clamp. Step modes are bit-identical and the shape parameters are inert off-branch.
+- **Qualifying test:** `the_smooth_roll_off_reuses_phie_max_decays_past_the_cutoff_and_refuses_unsupplied_shape_parameters` - manifest pins, hand-derived values (0.183283 / 0.0981431 / 0.0841227), continuity-vs-step with the PHIT rebuild separating roll-off from kill, floor-terminal finiteness, both refusals by name, off-branch inertness. Six mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
-## SB-POR-045 - PHIE floor is configuration, not a compile-time authority
+## SB-POR-045 - The floor value is a documented user decision with a cited default
 
-- **Specified contract:** conflicting cited floor values remain visible, no chapter default ships, the selected floor is recorded configuration, and T40 distinguishes it from a compile-time constant.
-- **Current implementation:** `PHIE_FLOOR` is compile-time `0.001` and density/D-N always use it. A later direct product record also chooses `0.001`, while the immutable chapter deliberately withholds a default because it records conflicting values.
-- **Qualifying acceptance tests:** none for the specified no-default/configuration contract. Test class `CHARACTERIZATION`: `a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin` pins the current constant and only sanity-checks that it is below `0.01`.
-- **Supporting tests:** the characterization passed exactly once for density and D-N.
-- **Manual evidence:** porosity 0/33; workflow 0/23; processing-history 0/7.
-- **Source/parameter boundary:** current code, chapter conflict and later direct product decision remain three separate facts; this lane does not adjudicate precedence.
-- **History/reachability:** the compile-time floor and later decision record are reachable.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** Jauhar must explicitly decide whether the later direct decision supersedes the chapter's no-default contract and how that decision is recorded.
-- **Next action:** after adjudication, move the authorized choice into source-labelled run configuration and prove two explicit values produce distinct limited outputs while unlimited data stays unchanged.
+- **Specified contract:** the value limited PHIE takes when the floor binds ships with no default and is a documented user decision, because IP's own manual states 0.001 and 0.0001 for the same quantity (F17).
+- **Current implementation (2026-08-18):** DONE. DEC-043 (2026-08-16) adjudicated 0.001 over ship-absent; DEC-067 (2026-08-18) settled the remaining clause: it ships as the cited DEFAULT. The floor left the compile-time constant: `phi_den`/`phi_dn`/`phi_dnbk` declare `PHIE_FLOOR` (default = the registered `param_sources::PHIE_FLOOR`, so manifest and registry cannot drift; range 0.0001..0.01 spanning IP's competing value up to the below-any-real-cutoff guard) and both body sites - the limit call and the high-shale kill write - read it per sample, so it is user-settable and zone-overridable. Leaving it on the default reports the Defaulted degradation like any sourced manifest default. The pay-path guard `workflow::floored_phie` keeps the registered constant on purpose - it floors vendor-imported curves against negative artefacts (finding 16), a different quantity from the module floor. Unlimited twins are never floored.
+- **Qualifying test:** `the_phie_floor_is_a_cited_default_the_user_can_move_and_only_the_limited_curve_moves_with_it` - default pinned to the registered constant with both rulings cited in all three consumers; floors 0.001 and 0.005 produce distinct limited outputs on the tight-stringer fixture and the kill branch while the unlimited twin stays bit-identical and negative. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-046 - VSILT is warning-bearing and non-authoritative
 
@@ -682,44 +669,40 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** requires a typed warning/provenance surface shared by output catalog, dialog and export.
 - **Next action:** attach the specified warning and non-authoritative classification, then prove it survives save/reload and remains ineligible as an authoritative POR curve.
 
-## SB-POR-047 - BADHOLE is declared, consumed and recorded
+## SB-POR-047 - Bad-hole flag is a declared porosity input
 
-- **Specified contract:** every applicable POR method declares the bad-hole flag input, consumes it according to policy and records the branch; T41 checks detector-through-POR custody.
-- **Current implementation:** `badhole` emits `BADHOLE`, but POR manifests neither declare nor consume it. Generic masking can use an arbitrary flag but does not record a POR bad-hole decision.
-- **Qualifying acceptance tests:** none; T41 is not executable end to end. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho` and the generic empty-flag refusal passed exactly once.
-- **Manual evidence:** conditioning 0/27; porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** detector thresholds are not changed or reinterpreted.
-- **History/reachability:** BADHOLE generation is integrated; no POR consumption path was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires a declared POR flag policy and provenance schema.
-- **Next action:** wire the typed flag into each applicable method and prove clean, flagged and missing-flag behavior with recorded reasons.
+- **Specified contract:** porosity methods **MUST** accept the existing `BADHOLE` flag as a declared input and **MUST** record its effect **through SB-POR-003**, rather than depending on the analyst remembering to set a generic Mask (`11_porosity.md:1061-1063`, §3.7).
+- **Current implementation:** `badhole` emits `BADHOLE`, but no POR manifest declares or consumes it. Generic masking can point at an arbitrary flag but records no POR bad-hole decision.
+- **Qualifying acceptance tests:** none. Test class `MISSING`.
+- **Supporting tests:** the `badhole` module's own tests pin its detection; none establishes that a porosity run declares or records it.
+- **Manual evidence:** porosity 0/64.
+- **Source/parameter boundary:** no threshold is adopted and none was invented - the flag already exists and this row is custody, not detection.
+- **History/reachability:** the gap is live; any porosity run today ignores bad hole unless the analyst remembers the Mask.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY` on SB-POR-003 / DEC-039, and the chapter says so in its own words - *record its effect through SB-POR-003*. The declaration half is ordinary wiring and could be built today on `gascorr`'s optional-flag idiom (`modules.rs:4404`); the recording half names a stream that does not exist. Building only the first and reporting `DONE` would be evidence inflation - one MUST, two clauses, the same shape as SB-POR-028.
+- **Next action:** settle DEC-039; then declare `BADHOLE` as a typed optional input on each applicable method, consume it rather than leaving it to a generic Mask, record its effect on that stream, and prove clean, flagged and flag-absent - absent recording that nobody looked, never a silent zero.
 
-## SB-POR-048 - Conditioning flags are declared, consumed and recorded
+## SB-POR-048 - Porosity consumes the conditioning flags with defined branch behaviour
 
-- **Specified contract:** POR methods consume the applicable coal, tight, crossover, shoulder and conditioning flags through declared inputs and retain the selected branch/reason.
-- **Current implementation:** `condflag` emits `COAL`, `TIGHT`, `XOVER`, `SHOULDER` and `COND`; POR manifests declare none and bodies consume none.
-- **Qualifying acceptance tests:** none for declaration-through-provenance. Test class `MISSING`.
-- **Supporting tests:** the three `condflag` tests passed exactly once for detector behavior.
-- **Manual evidence:** conditioning 0/27; porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** existing detector decisions are not weakened and no new thresholds are selected.
-- **History/reachability:** detector outputs are integrated; no POR wiring was found.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the POR family needs an explicit per-flag policy, including whether a flag masks, selects a branch or only annotates.
-- **Next action:** define those semantics without deleting existing guards, then prove each consumed flag and an unflagged control.
+- **Specified contract:** porosity methods consume condflag's COAL_FLAG, TIGHT_FLAG and COND_FLAG as declared inputs with DEFINED behaviour per flag. The chapter left the policy undefined; DEC-068 (Jauhar 2026-08-18) defined it: coal blanks, tight and cond are indicators only.
+- **Current implementation (2026-08-18):** DONE. All four methods (phi_den, phi_dn, phi_dnbk, phi_son) declare the three flags as optional typed inputs defaulting to condflag's mnemonics. A COAL sample is excluded by the METHOD exactly as a BADHOLE sample is - the existing guard untouched - so a coal bed's real but huge apparent porosity is never reported as rock porosity; the blank is MISSING, never zero and never a floored value. TIGHT and COND are declared indicators: resolved into run provenance (the GAS_FLAG pattern, DEC-039 version-comment channel) and deliberately never read by the arithmetic. ssc/sspw are outside the method family per DEC-038.
+- **Qualifying test:** `a_coal_sample_is_blanked_while_tight_and_cond_only_annotate_and_the_unflagged_control_computes` - per method: declarations pinned optional; coal sample MISSING; tight, cond and the unflagged control bit-identical to a flag-free run; control computes. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-POR-049 - No hard-coded lithology kill
 
-- **Specified contract:** POR must not contain an implicit lithology kill; any exclusion is explicit, source/user-owned, visible and recorded.
-- **Current implementation:** targeted POR source inventory found no hard-coded lithology-kill branch, but there is no executable universal registry test or manual evidence proving every reachable method and future registration remains free of one.
-- **Qualifying acceptance tests:** none; absence is not covered by an executable method-inventory assertion. Test class `MISSING`.
-- **Supporting tests:** current POR branch tests did not encounter a lithology kill, which is weaker than a universal negative contract.
-- **Manual evidence:** porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** no lithology threshold or exclusion is introduced.
-- **History/reachability:** current and reachable searches found no such branch.
-- **Verdict:** `PRESENT-UNVERIFIED`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** needs an inventory-based regression test and observable explicit-exclusion policy if exclusions are later added.
-- **Next action:** add a registry-level assertion that every POR lithology exclusion is declared configuration with provenance and that no hidden kill branch exists.
+- **Specified contract:** SandiBumi **MUST NOT** ship hard-coded lithology-kill literals (`11_porosity.md:1071-1073`). Techlog's `φ_n > φ_d ∧ 2.91 ≤ ρ_b ≤ 3.5 ∧ φ_n ≤ 0.04 ⇒ φ = 0` is the only numeric kill any vendor publishes, and it zeroes real porosity in a tight carbonate with no flag and no parameter (F24).
+- **Current implementation:** no such branch exists, and none was added. This row was a **PROVE**: the behaviour was already right and had nothing keeping it right.
+- **Qualifying acceptance tests:** `no_porosity_method_zeroes_a_tight_carbonate_on_a_hard_coded_lithology_rule` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** the existing POR branch tests never encounter a lithology kill, which is weaker than a universal negative and is why they did not qualify.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** Techlog's window is quoted from the chapter, not invented, and no threshold was adopted from it. `phi_den`'s expected **−0.1898176** is derived from the module's own published equation, not read off what the code returned.
+- **Both-sides pin:** arm A is behavioural - at a sample inside Techlog's exact window the unlimited curve must carry the computed **negative** value, never an exact `0.0`. The distinction defended is between *the arithmetic went negative*, which a petrophysicist can interpret, and *a rule zeroed it*, which is indistinguishable from a kill - the same reasoning that keeps `PHIE_FLOOR` off zero. Arm B is the registry half that catches a FUTURE module: production source, truncated at `#[cfg(test)]` so the test's own quotation of the window cannot match itself, must contain no `2.91` and no hard-coded neutron kill threshold.
+- **Verified by mutation:** pasting Techlog's published kill into `phi_den` fails by name - *density porosity must be the computed negative value, not a kill: 0*. Both arms fire; the behavioural one first.
+- **History/reachability:** `grep` confirms `2.91` appears nowhere in production source.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a tight carbonate reads negative apparent porosity rather than a flat zero.
 
 ## SB-POR-050 - Iterative solver discipline
 
@@ -773,58 +756,55 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Blocker or decision:** depends on whether SB-POR-027 enters pilot scope.
 - **Next action:** if included, implement the canonical term and pair a sourced numeric fixture with an explicit forbidden-form inventory guard.
 
-## SB-POR-054 - Canonical correction sign and algebraic identity
+## SB-POR-054 - One canonical sign convention
 
-- **Specified contract:** every POR correction uses one named canonical sign convention and has an independently derived identity test that distinguishes forward from inverse/correction direction.
-- **Current implementation:** local formulas have embedded signs, but there is no POR-wide sign type, named convention, directional API or independent identity proof.
-- **Qualifying acceptance tests:** none. Test class `MISSING`.
-- **Supporting tests:** local arithmetic tests can show current results but are circular for a universal sign identity.
-- **Manual evidence:** porosity 0/33; processing-history 0/7.
-- **Source/parameter boundary:** no sign is inferred from a current implementation result.
-- **History/reachability:** current and reachable searches found no canonical POR sign contract.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on separately named directions from SB-POR-005/SB-POR-040.
-- **Next action:** define the sign convention at the typed API boundary and derive the test expectation independently from the chapter equation.
+- **Chapter evidence:** P1; owned test `SB-POR-T22`; requirement at `11_porosity.md:1103-1107`, finding F22 at `:512-518`.
+- **The register was stale on the dependency and the real gap is elsewhere.** The recorded `SB-POR-005`/`SB-POR-040` dependency appears in neither requirement text. The evidenced gap was two spellings of one identity with no stated convention: density wrote `(rho_ma - r)/(rho_ma - rho_fl)` (`modules.rs:3179`, `:3316`) while sonic wrote `(d - dt_ma)/(dt_fl - dt_ma)` (`:3411`, `:3417`).
+- **`DEC-049` rejected the question's premise, and the ruling is better than the option set I offered.** Asked which spelling was canonical, Jauhar answered *"both true, its different type of porosity"* - density and sonic are different measurements with different endpoints, each carrying its own conventional form. Forcing one spelling onto both would have been the wrong fix.
+- **What actually ships is a structural guarantee, not a convention.** `modules::two_endpoint_fraction(log_value, matrix, fluid)` is the one subtraction order, and **all four call sites now pass endpoints instead of writing arithmetic**. Each porosity type still supplies its OWN endpoints, so DEC-049 is preserved exactly; only the ORDER is shared.
+- **The hazard is neither published form - it is the MIXED ordering.** `11_porosity.md:512-518` records that Geolog's `por_from_rhob.lls` and Techlog's N-D crossplot page BOTH invert numerator and denominator relative to the textbook, and that *"a reader porting either line verbatim without noticing both flips ships a sign error"*. Half-flipping returns `-0.2121...` from an expression that reads like both textbooks at a glance. Routing every site through one function makes that expression **unwritable**, rather than merely discouraged or caught in review.
+- **No number moved, and that is provable rather than hoped.** Negating both halves of a quotient is exact in IEEE-754, so the rewiring is bit-identical; all 1,046 backend tests pass unchanged.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS - a negative porosity computes, plots and reaches a client report with nothing to catch it.
+- **Automated evidence:** `every_published_spelling_of_the_two_endpoint_porosity_identity_agrees_and_the_half_flipped_form_is_negative` (`src-tauri/src/modules.rs`). CORRECTNESS. Three arms: the textbook form, the vendor-inverted form and the canonical helper agree EXACTLY - not within a tolerance - and reproduce the chapter's worked case `0.2121212` at `rho_ma` 2.65 / `rho_fl` 1.0 / `rho_b` 2.30; the half-flipped form is asserted to be the exact NEGATION of the right answer and strictly negative, which is the arm that would fail a helper itself written with one half flipped, since every agreement assertion above holds by symmetry in that case; and the helper is endpoint-agnostic, returning 0 at the matrix endpoint and 1 at the fluid endpoint **whichever way round the two sit** - the property that lets one order serve a density (matrix heavier than fluid) and a sonic (matrix faster than fluid) alike.
+- **Mutation evidence:** two probes, both red. Half-flipping the helper returned `-0.2121...`, the sign error the requirement exists to prevent. Swapping the endpoints returned `0.7879...`, one minus the answer. Honest limit: both fired at the SAME assertion - the canonical-equals-published check - which is the requirement's core demand but means the two probes are weaker as distinct-assertion evidence than two separate sites would be.
+- **Only the chapter's own worked numbers are used as petrophysical values.** The second endpoint pair in the third arm is deliberately synthetic (100 / 200 / 125), so no endpoint is adopted or implied by this test.
+- **Manual evidence:** porosity review scenarios unchecked. Automated only; no manual, visual or field evidence is claimed.
+- **Source/parameter boundary:** no value adopted. `2.65` / `1.0` / `2.30` are the requirement's own worked case, reproduced rather than declared as defaults.
+- **UI/IPC/provenance surface:** none; the helper is internal and nothing crosses the wire.
+- **History/reachability:** the two divergent spellings were integrated; the shared helper, the four rewired call sites and the identity proof are new.
+- **Verdict:** `PRESENT-OK`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocking decision / next action:** cleared by DEC-049. None outstanding.
 
-## SB-POR-055 - Source, tier and default discipline for all parameters
+## SB-POR-055 - Every parameter carries a source and tier, or ships honestly absent
 
-- **Specified contract:** every one of the 74 parameter rows is represented with source/tier, unit and default state; ABSENT stays absent, NON-ADOPTABLE stays verification-only, and every resolved choice is visible and persisted.
-- **Current implementation:** POR manifests contain many numeric literals/defaults but no POR source topics or evidence tiers. Generic dialog support exists. Several chapter-absent capabilities have no parameters, and current hard-coded bounds/floor cannot express the chapter's custody states.
-- **Qualifying acceptance tests:** none; no complete 74-row source/default inventory exists. Test class `MISSING`.
-- **Supporting tests:** generic source-panel and manifest-shape tests prove infrastructure only.
-- **Manual evidence:** porosity 0/33; workflow 0/23; processing-history 0/7.
-- **Source/parameter boundary:** mechanically 15 rows contain `ABSENT` and 8 `NON-ADOPTABLE`, while chapter prose says 18 ABSENT; the mismatch is preserved and no row is normalized by guess.
-- **History/reachability:** generic `sources_topic` is reachable; no complete POR registry was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires row-by-row custody plus explicit resolution of PHIE-floor precedence; ESC-POR-8 remains open.
-- **Next action:** create a generated POR parameter inventory from admissible chapter rows and fail its gate if any live argument lacks source/tier/default-state or any absent value acquires a default.
+- **Specified contract:** every petrophysical parameter in the domain carries a source string and tier; where held sources disagree with no defensible adjudication it ships ABSENT with the competing values visible. Named immediately: RHO_SH, RHO_DSH, NPHI_SH, DT_SH, RHO_MA.
+- **Current implementation (2026-08-18):** DONE. RHO_MA was adjudicated earlier (DEC-041/SB-POR-011); **RHO_DSH is adjudicated by DEC-069**: 2.70 g/cc ships in `phi_den`/`phi_dn`/`phi_dnbk` cited to Jauhar's ruling (clay-mineral bracket kaolinite 2.62 - smectite 2.68; multi-basin Indonesian experience; 2.65 rejected as matching no held source), with the competing vendor evidence (IP 2.78 T2, Techlog 2.85 T1, Geolog none T1) still registered under `param_sources::DRY_SHALE_DENSITY`. RHO_SH, NPHI_SH, DT_MA and DT_SH stay ABSENT with evidence visible. `sspw`'s RHOB_DSH stays honestly ABSENT - extending the default into protected `ssc.rs` would need its own narrow authorization, and absence is compliant. The UNIVERSAL gate exists: `modules::porosity_parameter_inventory_failures` sweeps every live Param of every registered Porosity module on every catalog build - a missing default source, an ABSENT parameter that acquired a default, a cited parameter shipping no default, and an unregistered or untiered topic are each refused BY NAME.
+- **Qualifying test:** `every_porosity_parameter_carries_a_source_or_is_honestly_absent_and_rho_dsh_ships_the_adjudicated_2_70` - live pass with >= 40 params swept, the RHO_DSH pin in all three consumers, all four refusals by name on mutated catalog copies, and the wired-into-the-build proof. Six mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
-## SB-POR-056 - Canonical porosity and input units
+## SB-POR-056 - Canonical internal units
 
-- **Specified contract:** canonical POR fraction, density and slowness units flow through import, storage, evaluation, output metadata, display and export; equivalent units yield invariant T09 results.
-- **Current implementation:** import and curve infrastructure canonicalize relevant NPHI, RHOB and DT units. Computed PHIE/PHIT outputs have no POR family metadata, so canonical POR units cannot be resolved reliably by catalog/export.
-- **Qualifying acceptance tests:** none for end-to-end POR unit invariance and export metadata. Test class `MISSING`.
-- **Supporting tests:** `recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind` and `families_resolve_common_mnemonics` passed exactly once; neither covers POR outputs.
-- **Manual evidence:** generic-curve-store 0/18; las-export 0/2; porosity 0/33.
-- **Source/parameter boundary:** unit conversions are type-defined; no petrophysical value is introduced.
-- **History/reachability:** input bridges are integrated; POR family/output metadata is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-004 family typing.
-- **Next action:** define canonical POR fraction metadata and test equivalent NPHI/RHOB/DT inputs through compute, reload and LAS export.
+- **Specified contract:** porosity **MUST** be carried internally in `v/v`, transit time in `us/ft` and density in `g/cc`, with display units a presentation concern (`11_porosity.md:1118-1121`). Geolog ships `K/M3` and `US/M` internally (F22) and Techlog ships filtrate salinity in **four** unit/value combinations (F23); the canonical-unit rule is what keeps an import from either arriving **1000x out**.
+- **Current implementation:** the registry already declares all three - `POR` -> `v/v`, `DT` -> `us/ft`, `RHOB` -> `g/cc` - and `convert_to_canonical` applies them on import. This row's as-built claim that computed PHIE/PHIT outputs have no POR family metadata was **stale**: SB-POR-004 closed this session and registered `POROSITY_FAMILY_ID = "POR"`, so a computed porosity resolves to a canonical unit through its own family. The row was therefore a **PROVE**, not a fix.
+- **Qualifying acceptance tests:** `porosity_transit_time_and_density_each_have_one_canonical_unit_and_a_thousandfold_delivery_is_converted_not_accepted` (`src-tauri/src/modules.rs`). Test class `CORRECTNESS`.
+- **Supporting tests:** `unit_conversions_only_when_needed` in `curves.rs` pins the conversions themselves; it does not establish that a computed porosity output has a resolvable canonical unit.
+- **Manual evidence:** none yet - Jauhar owns the field check.
+- **Source/parameter boundary:** no parameter is involved. The three canonical units are quoted from the chapter. Conversion witnesses are arithmetic: 2300 kg/m3 = 2.3 g/cc, and 328.084 us/m x 0.3048 m/ft = 100 us/ft.
+- **The load-bearing arm** is the bridge: `canonical_unit(POROSITY_FAMILY_ID) == Some("v/v")`. Either half alone leaves an exported `PHIE` unresolvable by the catalogue or LAS export - a family with no canonical unit, or a canonical unit no output claims.
+- **A false contract was found and corrected while writing it:** the first draft asserted a converted `kg/m3` delivery and a native `g/cc` delivery agree **exactly**. They do not - `2300.0_f32 / 1000.0` is not exactly `2.3_f32`, and the answers differ in the last ULP (0.19209729 vs 0.19209714). Asserting bit equality would have been a contract the product cannot keep. What the rule actually protects against is a unit **SCALE** error, so the test pins the difference below 1e-6 and pins the RATIO separately - the ratio arm is what catches a 1000x or 100x mistake.
+- **Verified by mutation:** changing `POR`'s canonical unit to `pu` in the generated registry fails the test. Worth recording: mutating `registry/unit-registry.json` alone did **not** fail it, because the JSON is a source generated into `src-tauri/src/generated/unit_registry.rs` and nothing recompiles from the JSON at test time. The generated table is what the test actually defends.
+- **Verdict:** `PRESENT-OK`; `DONE`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** Jauhar field-verifies that a `K/M3` density and a `US/M` sonic import give the same answers as natively-canonical deliveries of the same wells.
 
-## SB-POR-057 - Comparison curves cannot become pay curves
+## SB-POR-057 - Quick-look curves are visual-only
 
-- **Specified contract:** comparison outputs are separately typed and visually/provenance-labelled, and downstream pay selection rejects them by default.
-- **Current implementation:** `AVERAGE` and `GAS_RMS` are ordinary `phi_dn` method choices writing the same POR outputs as an authoritative method would. There is no comparison family, visual identity or pay-exclusion guard.
-- **Qualifying acceptance tests:** none; T36 is not executable across registry, display and pay selection. Test class `MISSING`.
-- **Supporting tests:** current `phi_dn` arithmetic characterizes the shortcuts but not their required exclusion.
-- **Manual evidence:** porosity 0/33; crossplot 6/13; no pay-selection evidence.
-- **Source/parameter boundary:** plausible shortcut output does not confer correctness authority.
-- **History/reachability:** ordinary shortcut registration is integrated; no comparison/pay type was found.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on POR family typing and downstream selection policy.
-- **Next action:** create a comparison-only output class, preserve method identity visually and in provenance, and make pay inputs reject it unless an explicit reviewed override exists.
-
+- **Specified contract:** quick-look comparison curves must be visually and structurally distinguishable from computed methods - different mnemonic family, flagged in provenance, excluded by default from pay summation.
+- **Current implementation (2026-08-18):** DONE under **DEC-070** (RULED 2026-08-18: "quick look only shows pay summation as visual not pay curves", confirmed "8, correct"; supersedes DEC-042's pay-eligible fallback). DISTINGUISHABLE: every `phi_dn` porosity output carries a `Comparison*` role and the limited pair writes under its own custody mnemonics `PHIE_DN_LIM`/`PHIT_DN_LIM` (POR-004). PROVENANCE: curve ancestry records the module identity, the registry types it `ComparisonProducer`, the manifest labels the shortcuts quick-look - and the pay row itself records a refusal. EXCLUDED: `run_pay_summary`'s candidate list closed from the DEC-042 two-name pair to the ONE canonical name; a well whose only porosity is the quick-look curve is reported NOT INTERPRETED with the new per-well `PaySummaryRow.quicklook_phie_excluded` flag naming why (false on absence - the flag means "present and excluded", never "absent"). Display overlay stays open - nothing excludes `PHIE_DN_LIM` from plot layers. Chain fixtures that fed pay through the old fallback moved to `phi_den`; `ipc.ts` carries the wire field.
+- **Qualifying test:** `the_quick_look_porosity_never_feeds_the_summed_numbers_and_its_refusal_is_recorded_on_the_row` - comparison-class and custody-mnemonic pins; an authoritative well sums unmarked (0.20/0.30/net 10); a quick-look-only well is refused observably (n_classified 0, unknown == gross, flag on every row); a quick-look curve holding different numbers beside an authoritative PHIE moves nothing and marks nothing; absence is not marked; typed boolean on the wire. Companion re-pins citing the ruling: SB-POR-023 arm C (custody mnemonic NOT a pay candidate, one-name list) and SB-CUT-009 arm D (the renamed curve never reaches the averaging). Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Manual evidence:** automated only; no manual or field evidence is claimed.
+- **Source/parameter boundary:** no endpoint or default introduced.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 ## SB-POR-058 - No silently dead parameters
 
 - **Specified contract:** every declared POR/related module argument is read on a reachable path or is explicitly inactive with a visible reason; T34 inventories both manifest and execution.

@@ -5,6 +5,7 @@ import {
   listZones,
   upsertHighlight,
   upsertZone,
+  type DepthDatum,
   type HighlightEntry,
 } from "../ipc";
 import { recordProcess } from "../processLog";
@@ -342,7 +343,7 @@ export class HighlightsOverlay {
     const row = document.createElement("div");
     row.className = "form-row hl-edit-actions";
     const saveBtn = actionBtn("Save");
-    const zoneBtn = actionBtn("Convert to zone");
+    const zoneBtn = actionBtn("Convert to MD zone");
     const delBtn = actionBtn("Delete");
     row.append(saveBtn, zoneBtn, delBtn);
     content.appendChild(row);
@@ -392,15 +393,17 @@ export class HighlightsOverlay {
         if (!f) return;
         const name = (f.label || `HL_${f.top.toFixed(0)}_${f.bottom.toFixed(0)}`).toUpperCase().replace(/\s+/g, "_");
         // If a zone with this name exists, capture its geometry so undo can restore it.
-        let prev: { top: number; bottom: number } | null = null;
+        let prev: { top: number; bottom: number; datum: DepthDatum } | null = null;
         try {
           const existing = (await listZones(wellId)).find((z) => z.zone_name === name);
-          if (existing) prev = { top: existing.top_depth, bottom: existing.bottom_depth };
+          if (existing) {
+            prev = { top: existing.top_depth, bottom: existing.bottom_depth, datum: existing.depth_datum };
+          }
         } catch {
           /* no backend — treat as new */
         }
         const applyNew = async () => {
-          await upsertZone(wellId, name, f.top, f.bottom);
+          await upsertZone(wellId, name, f.top, f.bottom, "MD");
           bumpDataVersion();
         };
         try {
@@ -412,7 +415,7 @@ export class HighlightsOverlay {
         pushUndo({
           label: `zone from highlight ${name}`,
           undo: async () => {
-            if (prev) await upsertZone(wellId, name, prev.top, prev.bottom);
+            if (prev) await upsertZone(wellId, name, prev.top, prev.bottom, prev.datum);
             else await deleteZone(wellId, name);
             bumpDataVersion();
           },

@@ -1,30 +1,147 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { savePlotReductionManifest, savePng } from "../ipc";
+import {
+  getCurveAncestryDisclosures,
+  savePlotReductionManifest,
+  savePng,
+  serializePlotBindingExport,
+  type PlotAncestryScope,
+} from "../ipc";
 import { recordProcess } from "../processLog";
 import type { ContextMenuEntry } from "./contextMenu";
-import { saveSvg } from "./svgExport";
+import { buildPaperExportRecord, paperProvenanceFooter as provenanceFooter } from "./paperExport";
+import { paperExportRecordFromSvg, saveSvg } from "./svgExport";
 import { savePdf, type PlotPdf } from "./pdfExport";
 import type { PlotReductionExport } from "./plotTypes";
+
+export type PlotExportSurface = "copy" | "save" | "print" | "svg" | "pdf";
+type PlotScopeProvider = (surface: PlotExportSurface) => PlotAncestryScope;
+type PlotSvgProvider = (scope: PlotAncestryScope) => string | null;
+type PlotPdfProvider = (scope: PlotAncestryScope) => PlotPdf | null;
+
+const canvasScopes = new WeakMap<HTMLCanvasElement, PlotScopeProvider>();
+
+/** Returns the live scope registered by a plot's own toolbar. The generic dock context menu uses
+ *  this instead of guessing a well or exporting all-project ancestry. */
+export function plotAncestryScope(
+  canvas: HTMLCanvasElement | null,
+  surface: PlotExportSurface = "save",
+): PlotAncestryScope {
+  if (!canvas) throw new Error("No plot to export yet");
+  const getScope = canvasScopes.get(canvas);
+  if (!getScope) throw new Error("Plot export refused: this plot has no declared ancestry scope");
+  return getScope(surface);
+}
 
 /** Print / copy / export-image actions shared by every canvas-based visualization
  *  (histogram, crossplot, Pickett, correlation) so a chart can leave the app as a picture
  *  for a report or slide. The log view exports through its Composite dialog instead — a
  *  WebGPU canvas does not reliably read back via toDataURL. */
 
-/** Copies the canvas as a PNG onto the system clipboard. */
-export async function copyCanvasToClipboard(canvas: HTMLCanvasElement): Promise<void> {
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png"));
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc & 1) !== 0 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function withPngText(png: Uint8Array, keywordText: string, jsonText: string): Uint8Array {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (!signature.every((byte, index) => png[index] === byte)) throw new Error("canvas did not produce a PNG");
+  let offset = 8;
+  let iend = -1;
+  while (offset + 12 <= png.length) {
+    const length = new DataView(png.buffer, png.byteOffset + offset, 4).getUint32(0, false);
+    const type = String.fromCharCode(...png.slice(offset + 4, offset + 8));
+    if (type === "IEND") {
+      iend = offset;
+      break;
+    }
+    offset += 12 + length;
+  }
+  if (iend < 0) throw new Error("canvas PNG has no IEND chunk");
+  const keyword = new TextEncoder().encode(`${keywordText}\0`);
+  const json = new TextEncoder().encode(jsonText);
+  const data = new Uint8Array(keyword.length + json.length);
+  data.set(keyword);
+  data.set(json, keyword.length);
+  const type = new TextEncoder().encode("tEXt");
+  const chunk = new Uint8Array(12 + data.length);
+  new DataView(chunk.buffer).setUint32(0, data.length, false);
+  chunk.set(type, 4);
+  chunk.set(data, 8);
+  const crcInput = new Uint8Array(type.length + data.length);
+  crcInput.set(type);
+  crcInput.set(data, type.length);
+  new DataView(chunk.buffer).setUint32(8 + data.length, crc32(crcInput), false);
+  const out = new Uint8Array(png.length + chunk.length);
+  out.set(png.slice(0, iend));
+  out.set(chunk, iend);
+  out.set(png.slice(iend), iend + chunk.length);
+  return out;
+}
+
+async function canvasAncestry(
+  canvas: HTMLCanvasElement,
+  scope: PlotAncestryScope,
+): Promise<{ png: Blob; ancestryJson: string; bindingJson: string; paperRecord: ReturnType<typeof rasterPrintRecord> }> {
+  const [blob, ancestry, bindingJson] = await Promise.all([
+    new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), "image/png")),
+    getCurveAncestryDisclosures(scope),
+    scope.plotBindings
+      ? serializePlotBindingExport(
+          scope.wellIds,
+          scope.plotBindings,
+          scope.axisRanges ?? [],
+          scope.statisticsRecords ?? [],
+        )
+      : Promise.resolve(""),
+  ]);
   if (!blob) throw new Error("could not render the plot to an image");
+  const ancestryJson = JSON.stringify(ancestry);
+  let png = withPngText(
+    new Uint8Array(await blob.arrayBuffer()),
+    "SandiBumiCurveAncestry",
+    ancestryJson,
+  );
+  if (bindingJson) png = withPngText(png, "SandiBumiPlotBindings", bindingJson);
+  const paperRecord = rasterPrintRecord(canvas.width, canvas.height, scope);
+  png = withPngText(png, "SandiBumiPaperExport", JSON.stringify(paperRecord));
+  return { png: new Blob([png], { type: "image/png" }), ancestryJson, bindingJson, paperRecord };
+}
+
+export function paperProvenanceFooter(scope: PlotAncestryScope): string {
+  return provenanceFooter(scope);
+}
+
+export function rasterPrintRecord(width: number, height: number, scope: PlotAncestryScope) {
+  return buildPaperExportRecord(
+    "print-raster",
+    width,
+    height,
+    { min_x: 0, min_y: 0, max_x: width, max_y: height },
+    provenanceFooter(scope),
+  );
+}
+
+/** Copies the canvas as an ancestry-bearing PNG onto the system clipboard. */
+export async function copyCanvasToClipboard(canvas: HTMLCanvasElement, scope: PlotAncestryScope): Promise<void> {
+  const { png } = await canvasAncestry(canvas, scope);
   // ClipboardItem is available in the WebView2 webview; typed loosely for older TS libs.
   const item = new (window as unknown as { ClipboardItem: typeof ClipboardItem }).ClipboardItem({
-    "image/png": blob,
+    "image/png": png,
   });
   await navigator.clipboard.write([item]);
 }
 
 /** Writes the canvas as a PNG to a user-picked path (via the Tauri save dialog + backend).
  *  Returns the written path, or null if the dialog was cancelled. */
-export async function saveCanvasAsPng(canvas: HTMLCanvasElement, defaultName: string): Promise<string | null> {
+export async function saveCanvasAsPng(
+  canvas: HTMLCanvasElement,
+  defaultName: string,
+  scope: PlotAncestryScope,
+): Promise<string | null> {
   const dest = await save({
     title: "Export plot as image",
     defaultPath: `${defaultName.replace(/[^\w.-]+/g, "_")}.png`,
@@ -32,13 +149,15 @@ export async function saveCanvasAsPng(canvas: HTMLCanvasElement, defaultName: st
   });
   if (!dest) return null;
   const base64 = canvas.toDataURL("image/png").split(",")[1];
-  return savePng(dest, base64);
+  return savePng(dest, base64, scope);
 }
 
 /** Prints the canvas image via a hidden iframe (window.print() would print the whole app
  *  chrome). The iframe is removed after the print dialog closes. */
-export function printCanvas(canvas: HTMLCanvasElement, title: string): void {
-  const dataUrl = canvas.toDataURL("image/png");
+export async function printCanvas(canvas: HTMLCanvasElement, title: string, scope: PlotAncestryScope): Promise<void> {
+  const { png, ancestryJson, bindingJson, paperRecord } = await canvasAncestry(canvas, scope);
+  if (png.type !== "image/png") throw new Error("print export did not produce labelled PNG raster bytes");
+  const dataUrl = URL.createObjectURL(png);
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
   Object.assign(frame.style, {
@@ -52,20 +171,36 @@ export function printCanvas(canvas: HTMLCanvasElement, title: string): void {
   document.body.appendChild(frame);
   const doc = frame.contentWindow?.document;
   if (!doc) {
+    URL.revokeObjectURL(dataUrl);
     frame.remove();
     return;
   }
   doc.open();
-  doc.write(
-    `<html><head><title>${title}</title>` +
-      `<style>@page{margin:12mm}html,body{margin:0}img{max-width:100%}</style></head>` +
-      `<body><img src="${dataUrl}"></body></html>`,
-  );
+  doc.write("<html><head><style>@page{margin:12mm}html,body{margin:0}h1{font:700 8pt monospace}img{max-width:100%}footer{font:8pt monospace}pre{white-space:pre-wrap;font:8pt monospace;page-break-before:always}</style></head><body></body></html>");
   doc.close();
-  const cleanup = () => window.setTimeout(() => frame.remove(), 500);
+  doc.title = `${title} — raster print`;
+  const heading = doc.createElement("h1");
+  heading.textContent = `${title} — raster print`;
+  const img = doc.createElement("img");
+  img.src = dataUrl;
+  img.alt = `${title} raster plot`;
+  const footer = doc.createElement("footer");
+  footer.textContent = paperRecord.provenance_footer;
+  const ancestry = doc.createElement("pre");
+  ancestry.textContent = `SANDIBUMI_CURVE_ANCESTRY_V1\n${ancestryJson}`;
+  if (bindingJson) {
+    const bindings = doc.createElement("pre");
+    bindings.textContent = `SANDIBUMI_PLOT_BINDINGS_V1\n${bindingJson}`;
+    doc.body.append(heading, img, footer, ancestry, bindings);
+  } else {
+    doc.body.append(heading, img, footer, ancestry);
+  }
+  const cleanup = () => window.setTimeout(() => {
+    URL.revokeObjectURL(dataUrl);
+    frame.remove();
+  }, 500);
   const win = frame.contentWindow!;
   win.onafterprint = cleanup;
-  const img = doc.querySelector("img");
   const go = () => {
     win.focus();
     win.print();
@@ -80,20 +215,28 @@ export function imageAction(
   canvas: HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
+  getScope: PlotScopeProvider,
 ): void {
   if (!canvas) {
     setStatus("No plot to export yet");
     return;
   }
+  let scope: PlotAncestryScope;
+  try {
+    scope = getScope(action);
+  } catch (error) {
+    setStatus(`${name} export refused: ${error}`);
+    return;
+  }
   if (action === "copy") {
-    void copyCanvasToClipboard(canvas)
+    void copyCanvasToClipboard(canvas, scope)
       .then(() => {
         setStatus(`${name} copied to clipboard`);
         recordProcess("Export", `${name} copied to clipboard`);
       })
       .catch((err) => setStatus(`Copy failed: ${err}`));
   } else if (action === "save") {
-    void saveCanvasAsPng(canvas, name)
+    void saveCanvasAsPng(canvas, name, scope)
       .then((path) => {
         if (path) {
           setStatus(`${name} image saved to ${path}`);
@@ -102,20 +245,39 @@ export function imageAction(
       })
       .catch((err) => setStatus(`Save failed: ${err}`));
   } else {
-    printCanvas(canvas, name);
-    setStatus(`Printing ${name}…`);
+    void printCanvas(canvas, name, scope).catch((err) => setStatus(`Print failed: ${err}`));
+    setStatus(`Printing ${name} as raster…`);
   }
 }
 
 /** Saves the plot as a true-vector SVG (via the panel's `getSvg`, which re-runs the chart's
  *  static draw through a recording context). No-ops with a status note when there's no plot. */
-export function svgAction(getSvg: () => string | null, name: string, setStatus: (text: string) => void): void {
-  const svg = getSvg();
+export function svgAction(
+  getSvg: PlotSvgProvider,
+  name: string,
+  setStatus: (text: string) => void,
+  getScope: PlotScopeProvider,
+): void {
+  let scope: PlotAncestryScope;
+  try {
+    scope = getScope("svg");
+  } catch (error) {
+    setStatus(`${name} SVG export refused: ${error}`);
+    return;
+  }
+  const svg = getSvg(scope);
   if (!svg) {
     setStatus("No plot to export yet");
     return;
   }
-  void saveSvg(svg, name)
+  let paperExportRecord;
+  try {
+    paperExportRecord = paperExportRecordFromSvg(svg);
+  } catch (error) {
+    setStatus(`${name} SVG export refused: ${error}`);
+    return;
+  }
+  void saveSvg(svg, name, { ...scope, paperExportRecord })
     .then((path) => {
       if (path) {
         setStatus(`${name} SVG saved to ${path}`);
@@ -128,13 +290,25 @@ export function svgAction(getSvg: () => string | null, name: string, setStatus: 
 /** Saves the plot as a true-vector PDF (via the panel's `getPdf`, which re-runs the chart's static
  *  draw through a recording context into a PDF content stream). No-ops with a status note when
  *  there's no plot. */
-export function pdfAction(getPdf: () => PlotPdf | null, name: string, setStatus: (text: string) => void): void {
-  const pdf = getPdf();
+export function pdfAction(
+  getPdf: PlotPdfProvider,
+  name: string,
+  setStatus: (text: string) => void,
+  getScope: PlotScopeProvider,
+): void {
+  let scope: PlotAncestryScope;
+  try {
+    scope = getScope("pdf");
+  } catch (error) {
+    setStatus(`${name} PDF export refused: ${error}`);
+    return;
+  }
+  const pdf = getPdf(scope);
   if (!pdf) {
     setStatus("No plot to export yet");
     return;
   }
-  void savePdf(pdf, name)
+  void savePdf(pdf, name, scope)
     .then((path) => {
       if (path) {
         setStatus(`${name} PDF saved to ${path}`);
@@ -179,23 +353,26 @@ export function imageExportMenuEntries(
   getCanvas: () => HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
-  getSvg?: () => string | null,
-  getPdf?: () => PlotPdf | null,
+  getSvg?: PlotSvgProvider,
+  getPdf?: PlotPdfProvider,
   getReductionManifest?: () => PlotReductionExport | null,
+  getScope?: PlotScopeProvider,
 ): ContextMenuEntry[] {
+  if (!getScope) throw new Error("Plot export controls require an ancestry scope");
+  const scope = getScope;
   const entries: ContextMenuEntry[] = [
-    { label: "Copy image", onClick: () => imageAction("copy", getCanvas(), name, setStatus) },
-    { label: "Save image…", onClick: () => imageAction("save", getCanvas(), name, setStatus) },
+    { label: "Copy image", onClick: () => imageAction("copy", getCanvas(), name, setStatus, scope) },
+    { label: "Save image…", onClick: () => imageAction("save", getCanvas(), name, setStatus, scope) },
   ];
-  if (getSvg) entries.push({ label: "Export SVG (vector)…", onClick: () => svgAction(getSvg, name, setStatus) });
-  if (getPdf) entries.push({ label: "Export PDF (vector)…", onClick: () => pdfAction(getPdf, name, setStatus) });
+  if (getSvg) entries.push({ label: "Export SVG (vector)…", onClick: () => svgAction(getSvg, name, setStatus, scope) });
+  if (getPdf) entries.push({ label: "Export PDF (vector)…", onClick: () => pdfAction(getPdf, name, setStatus, scope) });
   if (getReductionManifest) {
     entries.push({
       label: "Export reduction manifest…",
       onClick: () => reductionManifestAction(getReductionManifest, name, setStatus),
     });
   }
-  entries.push({ label: "Print…", onClick: () => imageAction("print", getCanvas(), name, setStatus) });
+  entries.push({ label: "Print raster…", onClick: () => imageAction("print", getCanvas(), name, setStatus, scope) });
   return entries;
 }
 
@@ -206,10 +383,13 @@ export function buildImageExportButtons(
   getCanvas: () => HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
-  getSvg?: () => string | null,
-  getPdf?: () => PlotPdf | null,
+  getSvg?: PlotSvgProvider,
+  getPdf?: PlotPdfProvider,
   getReductionManifest?: () => PlotReductionExport | null,
+  getScope?: PlotScopeProvider,
 ): HTMLElement {
+  if (!getScope) throw new Error("Plot export controls require an ancestry scope");
+  const scope = getScope;
   const wrap = document.createElement("div");
   wrap.className = "plot-export-group";
   const mk = (label: string, title: string, onClick: () => void) => {
@@ -220,14 +400,18 @@ export function buildImageExportButtons(
     b.addEventListener("click", onClick);
     wrap.appendChild(b);
   };
-  mk("⧉ Copy", "Copy this plot as an image to the clipboard", () => imageAction("copy", getCanvas(), name, setStatus));
-  mk("⭳ Image", "Export this plot as a PNG image", () => imageAction("save", getCanvas(), name, setStatus));
-  if (getSvg) mk("⭳ SVG", "Export this plot as a true-vector SVG", () => svgAction(getSvg, name, setStatus));
-  if (getPdf) mk("⭳ PDF", "Export this plot as a true-vector PDF", () => pdfAction(getPdf, name, setStatus));
+  mk("⧉ Copy", "Copy this plot as an image to the clipboard", () => imageAction("copy", getCanvas(), name, setStatus, scope));
+  mk("⭳ Image", "Export this plot as a PNG image", () => imageAction("save", getCanvas(), name, setStatus, scope));
+  if (getSvg) mk("⭳ SVG", "Export this plot as a true-vector SVG", () => svgAction(getSvg, name, setStatus, scope));
+  if (getPdf) mk("⭳ PDF", "Export this plot as a true-vector PDF", () => pdfAction(getPdf, name, setStatus, scope));
   if (getReductionManifest) {
-    mk("⭳ Manifest", "Export original/displayed counts and reduction algorithms", () =>
+    mk("⭳ Manifest", "Export reduction counts, algorithm, stride and endpoint handling", () =>
       reductionManifestAction(getReductionManifest, name, setStatus));
   }
-  mk("⎙ Print", "Print this plot", () => imageAction("print", getCanvas(), name, setStatus));
+  mk("⎙ Raster", "Print this plot through the labelled raster path", () => imageAction("print", getCanvas(), name, setStatus, scope));
+  queueMicrotask(() => {
+    const canvas = getCanvas();
+    if (canvas) canvasScopes.set(canvas, scope);
+  });
   return wrap;
 }

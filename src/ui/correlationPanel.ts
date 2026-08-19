@@ -5,21 +5,46 @@ import {
   listFluidContacts,
   listTops,
   listWells,
+  plotBindingSnapshotForChannels,
+  resolvePlotBindings,
+  resolveWellScope,
   suggestContacts,
   upsertFluidContact,
   type ContactCandidate,
   type ContactConsistency,
   type ContactSuggestResult,
   type FluidContact,
+  type PlotChannelBinding,
   type TopEntry,
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { appState, type BrushSelection, type TopInterval } from "../state";
 import { openModal } from "./modal";
-import { canvasFont, percentile, readTheme } from "./plotCanvas";
-import { curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
+import {
+  attachAccessiblePlotKeyboard,
+  buildPlotStatisticsRecord,
+  canvasFont,
+  formatPlotStatisticsRecord,
+  makeCanvasAccessible,
+  percentile,
+  plotStatisticsInterval,
+  readTheme,
+  type PlotStatisticsRecord,
+} from "./plotCanvas";
+import { buildPersistedPlotState, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type AxisDisplayRange,
+  type AxisRangeResolution,
+  type PlotAxisRangeExport,
+} from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
 
 /** Default marker colors per contact type (a stored color overrides these). */
 const CONTACT_COLORS: Record<string, string> = {
@@ -47,16 +72,82 @@ export interface CorrelationOptions {
   depthMode: "md" | "tvdss";
   /** Draw fluid contacts (OWC/GWC/…) as horizontal lines across the strips. */
   showContacts: boolean;
+  /** Scientific validity is opt-in and applies to curve values, never the depth display. */
+  validityFilter: boolean;
+  validMin: number | null;
+  validMax: number | null;
+}
+
+async function listActiveScopedWells(): Promise<WellSummary[]> {
+  const [all, ids] = await Promise.all([listWells(), resolveWellScope({ kind: "active_group" })]);
+  const allowed = new Set(ids);
+  return all.filter((well) => allowed.has(well.well_id));
 }
 
 export const DEFAULT_CORRELATION_OPTIONS: CorrelationOptions = {
   curve: "GR",
-  min: 0,
-  max: 150,
+  min: null,
+  max: null,
   datum: "",
   depthMode: "md",
   showContacts: true,
+  validityFilter: false,
+  validMin: null,
+  validMax: null,
 };
+
+function correlationValidityRange(opts: CorrelationOptions): AxisDisplayRange | null {
+  return opts.validMin !== null && opts.validMax !== null && opts.validMin !== opts.validMax
+    ? { min: opts.validMin, max: opts.validMax }
+    : null;
+}
+
+export function screenCorrelationPopulation(
+  values: ArrayLike<number>,
+  opts: CorrelationOptions,
+  valueDisplay: AxisDisplayRange | null,
+  displayDepths: ArrayLike<number> | null = null,
+  depthDisplay: AxisDisplayRange | null = null,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([
+    { values, display: valueDisplay, validity: correlationValidityRange(opts) },
+    ...(displayDepths ? [{ values: displayDepths, display: depthDisplay, validity: null }] : []),
+  ], opts.validityFilter);
+}
+
+/** Live Correlation adapter: one active-well or pooled record over aligned value/depth rows. */
+export function buildCorrelationStatisticsRecord(
+  values: ArrayLike<number>,
+  displayDepths: ArrayLike<number>,
+  opts: CorrelationOptions,
+  wellIds: string[],
+  valueDisplay: AxisDisplayRange | null,
+  depthDisplay: AxisDisplayRange | null,
+): PlotStatisticsRecord | null {
+  if (wellIds.length === 0) return null;
+  const policy = screenCorrelationPopulation(values, opts, valueDisplay, displayDepths, depthDisplay);
+  if (policy.analysisCount === 0) return null;
+  return buildPlotStatisticsRecord(
+    Float32Array.from(policy.indices.map((index) => values[index])),
+    {
+      binding_channel: "value",
+      channel: `value:${opts.curve}`,
+      population: wellIds.length === 1 ? "active_well" : "pooled",
+      well_ids: wellIds,
+      interval: plotStatisticsInterval(null, null),
+      selection: {
+        kind: "all_eligible",
+        selection_id: null,
+        label: wellIds.length === 1 ? "all eligible" : "all eligible in included wells",
+        applied: false,
+      },
+      policy,
+      selection_excluded: 0,
+      unpaired_or_unclassified_excluded: 0,
+      standard_deviation: "sample_n_minus_one",
+    },
+  );
+}
 
 /** Finite (MD, TVDSS) pairs for one well, ascending in MD (hence in TVDSS). */
 interface TvdssMap {
@@ -68,7 +159,7 @@ interface WellStrip {
   well: WellSummary;
   series: TrackCurveSeries | null;
   tops: TopEntry[];
-  /** MD→TVDSS lookup built from the well's TVDSS curve; null → treat MD as TVDSS (vertical well). */
+  /** MD→TVDSS lookup built from the well's TVDSS curve; null means no declared frame. */
   tv: TvdssMap | null;
   /** Display depth = displayOf(MD) - shift (flattening); 0 when the well lacks the datum top. */
   shift: number;
@@ -114,18 +205,85 @@ const HEADER_H = 30;
 export async function buildCorrelationContent(
   _well: WellSummary | null,
   setStatus: (text: string) => void,
+  initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const opts: CorrelationOptions = { ...DEFAULT_CORRELATION_OPTIONS, ...(await loadPlotProps<CorrelationOptions>("correlation")) };
-  const persist = () => savePlotProps("correlation", opts);
+  if (!correlationValidityRange(opts)) {
+    opts.validityFilter = false;
+    opts.validMin = null;
+    opts.validMax = null;
+  } else {
+    opts.validityFilter = !!opts.validityFilter;
+  }
+  if (initial) {
+    if (initial.curve) opts.curve = initial.curve;
+    if (initial.datum !== undefined) opts.datum = initial.datum;
+    if (initial.depthMode === "md" || initial.depthMode === "tvdss") opts.depthMode = initial.depthMode;
+    if (initial.min !== undefined) opts.min = initial.min === "" ? null : Number(initial.min);
+    if (initial.max !== undefined) opts.max = initial.max === "" ? null : Number(initial.max);
+    if (initial.showContacts !== undefined) opts.showContacts = initial.showContacts === "1";
+  }
 
   let wells: WellSummary[] = [];
   try {
-    wells = filterByActiveGroup(await listWells());
+    wells = await listActiveScopedWells();
   } catch {
     wells = [];
   }
   const included = new Set(wells.map((w) => w.well_id));
   let strips: WellStrip[] = [];
+  const plotIntents = () => [
+    { channel: "value", semantic_request: opts.curve, required: true },
+    ...(opts.depthMode === "tvdss"
+      ? [{ channel: "depth", semantic_request: "TVDSS", required: true }]
+      : []),
+  ];
+  const selectionState = (): Record<string, string> => ({
+    curve: opts.curve,
+    min: opts.min?.toString() ?? "",
+    max: opts.max?.toString() ?? "",
+    datum: opts.datum,
+    depthMode: opts.depthMode,
+    showContacts: opts.showContacts ? "1" : "",
+    depthMin: depthViewIsUser ? String(viewTop) : "",
+    depthMax: depthViewIsUser ? String(viewTop + Math.max(50, canvas.clientHeight - HEADER_H) / pxPerUnit) : "",
+  });
+  let axisRanges: PlotAxisRangeExport[] = [];
+  let statisticsRecords: PlotStatisticsRecord[] = [];
+  let statisticsSignature = "";
+  let statisticsDataVersion = 0;
+  const currentValueBinding = (): PlotChannelBinding | null =>
+    plotBindingSnapshotForChannels(
+      strips.filter((strip) => strip.series !== null).map((strip) => strip.well.well_id),
+      plotIntents(),
+    ).find((binding) => binding.intent.channel === "value") ?? null;
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState(
+      "correlation",
+      options,
+      strips.filter((strip) => strip.series !== null).map((strip) => strip.well.well_id),
+      plotIntents(),
+      axisRanges,
+    );
+  const persist = () => {
+    try {
+      void savePlotProps("correlation", persistedState({ ...opts }))
+        .catch((error) => setStatus(`Correlation state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Correlation state not saved: ${error}`);
+    }
+  };
+  // A physical wheel gesture emits a burst of events. Coalesce that burst into one durable
+  // plot-state write; the rendered viewport and exported custody still update on every frame.
+  // This delay is UI event coalescing only, not a scientific or petrophysical parameter.
+  let wheelPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleWheelPersist = (): void => {
+    if (wheelPersistTimer !== null) clearTimeout(wheelPersistTimer);
+    wheelPersistTimer = setTimeout(() => {
+      wheelPersistTimer = null;
+      persist();
+    }, 180);
+  };
   let curveNames: string[] = [];
   try {
     curveNames = await loadCurveNames();
@@ -138,33 +296,53 @@ export async function buildCorrelationContent(
   el.className = "correlation-panel";
   const props = document.createElement("div");
   props.className = "plot-props";
+  const rangeInfo = document.createElement("p");
+  rangeInfo.className = "modal-hint";
+  rangeInfo.style.whiteSpace = "pre-wrap";
   const canvasHost = document.createElement("div");
   canvasHost.className = "correlation-canvas-host";
   const canvas = document.createElement("canvas");
   canvas.className = "plot-canvas";
   canvasHost.appendChild(canvas);
   el.appendChild(props);
+  el.appendChild(rangeInfo);
   el.appendChild(canvasHost);
 
   // --- View state (display-depth space) ---
   let viewTop = 0;
   let pxPerUnit = 1;
+  let depthViewIsUser = false;
+  const restoredDepthView = (() => {
+    if (!initial?.depthMin || !initial?.depthMax) return null;
+    const min = Number(initial.depthMin);
+    const max = Number(initial.depthMax);
+    return Number.isFinite(min) && Number.isFinite(max) && min !== max ? { min, max } : null;
+  })();
   let hoverY: number | null = null;
   /** All fluid contacts in the project; each strip renders the ones that apply to it. */
   let contacts: FluidContact[] = [];
+  let selectedInterval: TopInterval | null = appState.selectedInterval.get();
+  let brushSelection: BrushSelection | null = appState.brushedDepths.get();
 
   // --- Depth-mode helpers: measured depth vs TVDSS -----------------------------------------
-  /** MD → TVDSS via the well's TVDSS curve (identity when the well has none — vertical well). */
-  const mdToTvdss = (s: WellStrip, md: number): number => (s.tv ? interpAsc(s.tv.md, s.tv.ss, md) : md);
+  /** MD → TVDSS via the well's declared TVDSS curve. Absence is never a vertical-well claim. */
+  const mdToTvdss = (s: WellStrip, md: number): number | null =>
+    s.tv ? interpAsc(s.tv.md, s.tv.ss, md) : null;
   /** TVDSS → MD (inverse of the above; TVDSS rises monotonically with MD). */
-  const tvdssToMd = (s: WellStrip, ss: number): number => (s.tv ? interpAsc(s.tv.ss, s.tv.md, ss) : ss);
+  const tvdssToMd = (s: WellStrip, ss: number): number | null =>
+    s.tv ? interpAsc(s.tv.ss, s.tv.md, ss) : null;
   /** Raw display depth (before flattening) for a measured depth, in the active depth mode. */
-  const displayOf = (s: WellStrip, md: number): number => (opts.depthMode === "tvdss" ? mdToTvdss(s, md) : md);
+  const displayOf = (s: WellStrip, md: number): number | null =>
+    opts.depthMode === "tvdss" ? mdToTvdss(s, md) : md;
   /** A contact's display depth (after flattening) inside one strip. A TVDSS contact in TVDSS
    *  mode round-trips back to its own depth for every well → the line is perfectly flat. */
-  const contactDisplay = (s: WellStrip, c: FluidContact): number => {
-    const md = c.is_tvdss ? tvdssToMd(s, c.depth) : c.depth;
-    return displayOf(s, md) - s.shift;
+  const contactDisplay = (s: WellStrip, c: FluidContact): number | null => {
+    const datum = c.depth_datum ?? (c.is_tvdss ? "TVDSS" : "MD");
+    if (datum !== "MD" && datum !== "TVDSS") return null;
+    const md = datum === "TVDSS" ? tvdssToMd(s, c.depth) : c.depth;
+    if (md === null) return null;
+    const display = displayOf(s, md);
+    return display === null ? null : display - s.shift;
   };
   /** Whether a contact applies to a well: explicit well, else field, else global. */
   const contactApplies = (c: FluidContact, well: WellSummary): boolean => {
@@ -174,42 +352,51 @@ export async function buildCorrelationContent(
   };
   const contactColor = (c: FluidContact): string => c.color || CONTACT_COLORS[c.contact_type] || "#888";
 
-  const displayExtent = (): [number, number] => {
+  const displayExtent = (): [number, number] | null => {
     let lo = Infinity;
     let hi = -Infinity;
     for (const s of strips) {
       if (!s.series || s.series.depth.length === 0) continue;
-      const a = displayOf(s, s.series.depth[0]) - s.shift;
-      const b = displayOf(s, s.series.depth[s.series.depth.length - 1]) - s.shift;
+      const aRaw = displayOf(s, s.series.depth[0]);
+      const bRaw = displayOf(s, s.series.depth[s.series.depth.length - 1]);
+      if (aRaw === null || bRaw === null) continue;
+      const a = aRaw - s.shift;
+      const b = bRaw - s.shift;
       lo = Math.min(lo, a, b);
       hi = Math.max(hi, a, b);
     }
-    return lo < hi ? [lo, hi] : [0, 100];
+    return lo < hi ? [lo, hi] : null;
   };
 
   const fit = () => {
-    const [lo, hi] = displayExtent();
+    const extent = displayExtent();
+    if (!extent) return;
+    const [lo, hi] = extent;
     const h = Math.max(50, canvas.clientHeight - HEADER_H);
     pxPerUnit = h / (hi - lo);
     viewTop = lo;
+    depthViewIsUser = false;
     draw();
+    persist();
   };
 
-  /** Global strip scale: manual values, else P2–P98 pooled over every included well. */
-  const stripScale = (): [number, number] => {
-    if (opts.min !== null && opts.max !== null && opts.max !== opts.min) return [opts.min, opts.max];
+  /** One global strip scale through the SB-PLT-002 precedence chain. */
+  const stripScale = (): AxisRangeResolution | null => {
     const pool: number[] = [];
     for (const s of strips) {
-      if (!s.series) continue;
-      for (let i = 0; i < s.series.value.length; i++) {
-        const v = s.series.value[i];
-        if (Number.isFinite(v)) pool.push(v);
-      }
+      if (!included.has(s.well.well_id) || !s.series) continue;
+      const screened = screenCorrelationPopulation(s.series.value, opts, null);
+      for (const index of screened.indices) pool.push(s.series.value[index]);
     }
-    if (pool.length < 2) return [0, 1];
-    const lo = percentile(pool, 2);
-    const hi = percentile(pool, 98);
-    return hi > lo ? [lo, hi] : [lo, lo + 1];
+    const finiteData = pool.length >= 2
+      ? { min: percentile(pool, 2), max: percentile(pool, 98) }
+      : null;
+    return resolveBoundAxisRange({
+      binding: currentValueBinding(),
+      user: opts.min !== null && opts.max !== null ? { min: opts.min, max: opts.max } : null,
+      finiteData,
+      validity: correlationValidityRange(opts),
+    });
   };
 
   /** Nice tick step so depth labels sit ≥ 45px apart. */
@@ -223,6 +410,10 @@ export async function buildCorrelationContent(
   };
 
   function draw(): void {
+    makeCanvasAccessible(
+      canvas,
+      `Correlation: ${opts.curve} across ${included.size} included well${included.size === 1 ? "" : "s"}, ${opts.depthMode.toUpperCase()} depth${opts.datum ? ` flattened on ${opts.datum}` : ""}`,
+    );
     const dpr = window.devicePixelRatio || 1;
     const w = canvasHost.clientWidth;
     const h = canvasHost.clientHeight;
@@ -240,6 +431,10 @@ export async function buildCorrelationContent(
 
     const active = strips.filter((s) => included.has(s.well.well_id));
     if (active.length === 0) {
+      axisRanges = [];
+      statisticsRecords = [];
+      statisticsSignature = "";
+      rangeInfo.textContent = "";
       ctx.fillStyle = theme.text;
       ctx.font = canvasFont(theme, 13);
       ctx.fillText("No wells included — pick some under Wells…", AXIS_W + 10, 40);
@@ -248,7 +443,74 @@ export async function buildCorrelationContent(
 
     const plotH = h - HEADER_H;
     const yOf = (disp: number) => HEADER_H + (disp - viewTop) * pxPerUnit;
-    const [vMin, vMax] = stripScale();
+    const valueRange = stripScale();
+    const finiteDepth = displayExtent();
+    const depthRange = resolveBoundAxisRange({
+      binding: null,
+      user: depthViewIsUser ? { min: viewTop, max: viewTop + plotH / pxPerUnit } : null,
+      finiteData: finiteDepth ? { min: finiteDepth[0], max: finiteDepth[1] } : null,
+    });
+    if (!valueRange || !depthRange) {
+      axisRanges = [];
+      statisticsRecords = [];
+      statisticsSignature = "";
+      rangeInfo.textContent = "Axis range unavailable: this view has no complete user, header, audited-family, or finite-data range.";
+      return;
+    }
+    const vMin = valueRange.min;
+    const vMax = valueRange.max;
+    axisRanges = [
+      axisRangeExportRecord("value", valueRange),
+      axisRangeExportRecord("depth", depthRange),
+    ];
+    const populationValues: number[] = [];
+    const populationDepths: number[] = [];
+    const populationWellIds: string[] = [];
+    for (const strip of active) {
+      if (!strip.series || (opts.depthMode === "tvdss" && !strip.tv)) continue;
+      populationWellIds.push(strip.well.well_id);
+      for (let sample = 0; sample < strip.series.value.length; sample++) {
+        populationValues.push(strip.series.value[sample]);
+        const displayed = displayOf(strip, strip.series.depth[sample]);
+        populationDepths.push(displayed === null ? Number.NaN : displayed - strip.shift);
+      }
+    }
+    const population = screenCorrelationPopulation(
+      populationValues,
+      opts,
+      { min: valueRange.min, max: valueRange.max },
+      populationDepths,
+      { min: depthRange.min, max: depthRange.max },
+    );
+    const statisticsKey = JSON.stringify([
+      statisticsDataVersion,
+      opts.curve,
+      opts.validityFilter,
+      opts.validMin,
+      opts.validMax,
+      valueRange.min,
+      valueRange.max,
+      depthRange.min,
+      depthRange.max,
+      populationWellIds,
+      active.map((strip) => strip.shift),
+    ]);
+    if (statisticsKey !== statisticsSignature) {
+      const record = buildCorrelationStatisticsRecord(
+        populationValues,
+        populationDepths,
+        opts,
+        populationWellIds,
+        { min: valueRange.min, max: valueRange.max },
+        { min: depthRange.min, max: depthRange.max },
+      );
+      statisticsRecords = record ? [record] : [];
+      statisticsSignature = statisticsKey;
+    }
+    const statisticsText = statisticsRecords.length > 0
+      ? `\n${statisticsRecords.map((record) => formatPlotStatisticsRecord(record)).join("\n")}`
+      : "\nNo governed statistics population.";
+    rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, { statistics: true })}${statisticsText}`;
     const slot = (w - AXIS_W) / active.length;
     const gap = Math.min(46, slot * 0.28);
     const stripW = slot - gap;
@@ -298,35 +560,94 @@ export async function buildCorrelationContent(
       ctx.font = canvasFont(theme, 11, 600);
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
-      const label = opts.datum && !s.hasDatum ? `${s.well.well_name} (no datum)` : s.well.well_name;
+      const label = opts.depthMode === "tvdss" && !s.tv
+        ? `${s.well.well_name} (no TVDSS frame)`
+        : opts.datum && !s.hasDatum
+          ? `${s.well.well_name} (no datum)`
+          : s.well.well_name;
       ctx.fillText(label, left + stripW / 2, 12, stripW + gap - 6);
       ctx.fillStyle = theme.text;
       ctx.font = canvasFont(theme, 10);
       ctx.fillText(opts.curve, left + stripW / 2, 24, stripW - 4);
 
-      if (!s.series || s.series.depth.length === 0) return;
+      if (!s.series || s.series.depth.length === 0 || (opts.depthMode === "tvdss" && !s.tv)) return;
+      const sampleDepths = Float32Array.from(s.series.depth, (depth) => {
+        const displayed = displayOf(s, depth);
+        return displayed === null ? Number.NaN : displayed - s.shift;
+      });
+      const screened = screenCorrelationPopulation(
+        s.series.value,
+        opts,
+        { min: valueRange.min, max: valueRange.max },
+        sampleDepths,
+        { min: depthRange.min, max: depthRange.max },
+      );
+      const eligible = new Set(screened.indices);
       ctx.save();
       ctx.beginPath();
       ctx.rect(left, HEADER_H, stripW, plotH);
       ctx.clip();
+
+      // A selected top interval is an application-level plot invalidation. Correlation keeps its
+      // multi-well viewport and marks that exact well's MD interval instead of silently ignoring it.
+      if (selectedInterval?.wellId === s.well.well_id) {
+        const intervalBottom = selectedInterval.depthMax
+          ?? s.series.depth[s.series.depth.length - 1];
+        const topDisplay = displayOf(s, selectedInterval.depthMin);
+        const bottomDisplay = displayOf(s, intervalBottom);
+        if (topDisplay !== null && bottomDisplay !== null) {
+          const y0 = yOf(topDisplay - s.shift);
+          const y1 = yOf(bottomDisplay - s.shift);
+          ctx.fillStyle = theme.accent;
+          ctx.globalAlpha = 0.09;
+          ctx.fillRect(left, Math.min(y0, y1), stripW, Math.abs(y1 - y0));
+          ctx.globalAlpha = 1;
+        }
+      }
+
       ctx.strokeStyle = theme.accent2;
       ctx.lineWidth = 1;
       ctx.beginPath();
       let pen = false;
       for (let k = 0; k < s.series.depth.length; k++) {
         const v = s.series.value[k];
-        if (!Number.isFinite(v)) {
+        const displayDepth = sampleDepths[k];
+        const displayHidden = v < Math.min(vMin, vMax) || v > Math.max(vMin, vMax)
+          || displayDepth < Math.min(depthRange.min, depthRange.max)
+          || displayDepth > Math.max(depthRange.min, depthRange.max);
+        if (!eligible.has(k) || displayHidden) {
           pen = false;
           continue;
         }
-        const frac = Math.min(1, Math.max(0, (v - vMin) / (vMax - vMin)));
+        const frac = (v - vMin) / (vMax - vMin);
         const x = left + frac * stripW;
-        const y = yOf(displayOf(s, s.series.depth[k]) - s.shift);
+        const y = yOf(displayDepth);
         if (pen) ctx.lineTo(x, y);
         else ctx.moveTo(x, y);
         pen = true;
       }
       ctx.stroke();
+
+      // Linked selection is exact depth membership on the selected well. Rings make the redraw
+      // observable without changing the curve, source values, viewport or multi-well population.
+      if (brushSelection?.wellId === s.well.well_id && brushSelection.depths.size > 0) {
+        ctx.strokeStyle = theme.accent;
+        ctx.lineWidth = 1.5;
+        for (let k = 0; k < s.series.depth.length; k++) {
+          if (!brushSelection.depths.has(s.series.depth[k]) || !eligible.has(k)) continue;
+          const v = s.series.value[k];
+          const displayDepth = sampleDepths[k];
+          const displayHidden = v < Math.min(vMin, vMax) || v > Math.max(vMin, vMax)
+            || displayDepth < Math.min(depthRange.min, depthRange.max)
+            || displayDepth > Math.max(depthRange.min, depthRange.max);
+          if (displayHidden) continue;
+          const x = left + ((v - vMin) / (vMax - vMin)) * stripW;
+          const y = yOf(displayDepth);
+          ctx.beginPath();
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     });
 
@@ -334,7 +655,9 @@ export async function buildCorrelationContent(
     const topY = (s: WellStrip, name: string): number | null => {
       const top = s.tops.find((t) => t.top_name === name);
       if (!top) return null;
-      const y = yOf(displayOf(s, top.depth) - s.shift);
+      const display = displayOf(s, top.depth);
+      if (display === null) return null;
+      const y = yOf(display - s.shift);
       return y >= HEADER_H && y <= h ? y : null;
     };
     const allTopNames = Array.from(new Set(active.flatMap((s) => s.tops.map((t) => t.top_name))));
@@ -387,7 +710,9 @@ export async function buildCorrelationContent(
         ctx.fillStyle = color;
         const ys = active.map((s) => {
           if (!contactApplies(c, s.well)) return null;
-          const y = yOf(contactDisplay(s, c));
+          const display = contactDisplay(s, c);
+          if (display === null) return null;
+          const y = yOf(display);
           return y >= HEADER_H && y <= h ? y : null;
         });
         let labeled = false;
@@ -448,17 +773,32 @@ export async function buildCorrelationContent(
   // older Promise.all in flight; whichever reload started last wins, so a stale set of
   // strips can't replace the current one. reload() preserves the pan/zoom viewport.
   let reloadGen = 0;
-  async function reload(): Promise<void> {
-    const gen = ++reloadGen;
+  async function reload(): Promise<boolean> {
+    const token = beginPlotAsyncGeneration("correlation-data-refetch", ++reloadGen);
     const chosen = wells.filter((w) => included.has(w.well_id));
+    if (chosen.length === 0) {
+      strips = [];
+      return true;
+    }
+    try {
+      await resolvePlotBindings(plotIntents(), {
+        kind: "explicit",
+        well_ids: chosen.map((well) => well.well_id),
+      });
+    } catch (error) {
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return false;
+      throw error;
+    }
+    if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return false;
     // TVDSS rides along in the same batch read so a TVDSS-mode switch needs no refetch.
     const names = Array.from(new Set([opts.curve, "TVDSS"]));
     const [loaded, loadedContacts] = await Promise.all([
       Promise.all(
-        chosen.map(async (well): Promise<WellStrip> => {
+        chosen.map(async (well): Promise<{ strip: WellStrip; topsError: string | null }> => {
           let series: TrackCurveSeries | null = null;
           let tv: TvdssMap | null = null;
           let tops: TopEntry[] = [];
+          let topsError: string | null = null;
           try {
             const data = await getTrackData(well.well_id, names, 1400);
             series = data.find((s) => s.curve_name === opts.curve) ?? null;
@@ -468,47 +808,72 @@ export async function buildCorrelationContent(
           }
           try {
             tops = await listTops(well.well_id);
-          } catch {
+          } catch (err) {
             tops = [];
+            topsError = String(err);
           }
-          return { well, series, tops, tv, shift: 0, hasDatum: false };
+          return { strip: { well, series, tops, tv, shift: 0, hasDatum: false }, topsError };
         }),
       ),
       listFluidContacts().catch(() => [] as FluidContact[]),
     ]);
-    if (gen !== reloadGen) return; // a newer reload started while we awaited
-    strips = loaded;
+    if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return false;
+    const topsError = loaded.find((item) => item.topsError)?.topsError;
+    if (topsError) setStatus(`Correlation tops unavailable: ${topsError}`);
+    strips = loaded.map((item) => item.strip);
+    statisticsDataVersion++;
     contacts = loadedContacts;
     applyDatum();
     refreshDatumChoices();
+    return true;
   }
+  const reloadAndDraw = (): void => {
+    void reload()
+      .then((applied) => {
+        if (!applied) return;
+        draw();
+        persist();
+      })
+      .catch((error) => {
+        strips = [];
+        setStatus(`Correlation refused: ${error}`);
+        draw();
+      });
+  };
 
   /** Re-fetches the well list so the Wells menu and strips track the current project after
    *  an import, delete, or active-group change — reload() alone only re-reads curves for the
    *  wells already included, so a freshly imported well never appeared. New wells join the
    *  included set (they show as strips immediately); wells that no longer exist drop out. */
-  async function refreshWells(): Promise<void> {
+  let wellsGen = 0;
+  async function refreshWells(): Promise<boolean> {
+    const token = beginPlotAsyncGeneration("correlation-well-refetch", ++wellsGen);
     let latest: WellSummary[];
     try {
-      latest = filterByActiveGroup(await listWells());
+      latest = await listActiveScopedWells();
     } catch {
-      return; // keep the current list if the fetch fails
+      // Keep the current list if the fetch fails, but let the winning data-revision path
+      // continue to reload curves for that current inventory.
+      return isPlotAsyncGenerationCurrent(token, wellsGen);
     }
+    if (!isPlotAsyncGenerationCurrent(token, wellsGen)) return false;
     const known = new Set(wells.map((w) => w.well_id));
     const live = new Set(latest.map((w) => w.well_id));
     for (const w of latest) if (!known.has(w.well_id)) included.add(w.well_id);
     for (const id of Array.from(included)) if (!live.has(id)) included.delete(id);
     wells = latest;
     refreshWellsBtn();
+    return true;
   }
 
   /** Recomputes per-well flattening shifts from the chosen datum top. */
   function applyDatum(): void {
     for (const s of strips) {
       const top = opts.datum ? s.tops.find((t) => t.top_name === opts.datum) : undefined;
-      s.hasDatum = !!top;
+      const display = top ? displayOf(s, top.depth) : null;
+      s.hasDatum = !!top && display !== null;
       // Shift is in display space, so re-derive it whenever the depth mode changes too.
-      s.shift = top ? displayOf(s, top.depth) : 0;
+      s.shift = display ?? 0;
     }
   }
 
@@ -519,8 +884,25 @@ export async function buildCorrelationContent(
     wellsBtn.textContent = `Wells (${included.size}/${wells.length})…`;
   };
   refreshWellsBtn();
+  let wellsMenu: HTMLElement | null = null;
+  let wellsMenuClose: ((event: MouseEvent) => void) | null = null;
+  let wellsMenuAttachTimer: ReturnType<typeof setTimeout> | null = null;
+  const removeWellsMenu = (): void => {
+    if (wellsMenuAttachTimer !== null) {
+      clearTimeout(wellsMenuAttachTimer);
+      wellsMenuAttachTimer = null;
+    }
+    if (wellsMenuClose) {
+      document.removeEventListener("mousedown", wellsMenuClose);
+      wellsMenuClose = null;
+    }
+    wellsMenu?.remove();
+    wellsMenu = null;
+  };
   wellsBtn.addEventListener("click", () => {
+    removeWellsMenu();
     const menu = document.createElement("div");
+    wellsMenu = menu;
     menu.className = "dock-add-menu";
     const rect = wellsBtn.getBoundingClientRect();
     menu.style.left = `${rect.left}px`;
@@ -535,7 +917,7 @@ export async function buildCorrelationContent(
         if (box.checked) included.add(well.well_id);
         else included.delete(well.well_id);
         refreshWellsBtn();
-        void reload().then(draw);
+        reloadAndDraw();
       });
       row.appendChild(box);
       row.appendChild(document.createTextNode(well.well_name));
@@ -544,18 +926,20 @@ export async function buildCorrelationContent(
     document.body.appendChild(menu);
     const close = (e: MouseEvent) => {
       if (!menu.contains(e.target as Node) && e.target !== wellsBtn) {
-        menu.remove();
-        document.removeEventListener("mousedown", close);
+        removeWellsMenu();
       }
     };
-    setTimeout(() => document.addEventListener("mousedown", close), 0);
+    wellsMenuClose = close;
+    wellsMenuAttachTimer = setTimeout(() => {
+      wellsMenuAttachTimer = null;
+      if (wellsMenu === menu) document.addEventListener("mousedown", close);
+    }, 0);
   });
 
   const curveSel = curveSelect(curveNames, opts.curve);
   curveSel.addEventListener("change", () => {
     opts.curve = curveSel.value;
-    persist();
-    void reload().then(draw);
+    reloadAndDraw();
   });
 
   const numField = (placeholder: string, value: number | null, onChange: (v: number | null) => void): HTMLInputElement => {
@@ -567,11 +951,46 @@ export async function buildCorrelationContent(
     input.addEventListener("change", () => {
       const v = input.value.trim() === "" ? null : Number(input.value);
       onChange(v !== null && Number.isFinite(v) ? v : null);
-      persist();
       draw();
+      persist();
     });
     return input;
   };
+
+  const validityWrap = document.createElement("label");
+  validityWrap.className = "chk-field";
+  const validityChk = document.createElement("input");
+  validityChk.type = "checkbox";
+  validityChk.checked = opts.validityFilter;
+  validityWrap.append(validityChk, document.createTextNode(" Validity"));
+  const validityChanged = (): void => {
+    if (validityChk.checked && !correlationValidityRange(opts)) {
+      validityChk.checked = false;
+      opts.validityFilter = false;
+      setStatus("Correlation validity requires two distinct finite limits before it can be enabled");
+      return;
+    }
+    opts.validityFilter = validityChk.checked;
+    draw();
+    persist();
+  };
+  validityChk.addEventListener("change", validityChanged);
+  const validMinField = numField("valid min", opts.validMin, (value) => {
+    opts.validMin = value;
+    if (opts.validityFilter && !correlationValidityRange(opts)) {
+      opts.validityFilter = false;
+      validityChk.checked = false;
+      setStatus("Correlation validity disabled until both distinct finite limits are supplied");
+    }
+  });
+  const validMaxField = numField("valid max", opts.validMax, (value) => {
+    opts.validMax = value;
+    if (opts.validityFilter && !correlationValidityRange(opts)) {
+      opts.validityFilter = false;
+      validityChk.checked = false;
+      setStatus("Correlation validity disabled until both distinct finite limits are supplied");
+    }
+  });
 
   const datumSel = document.createElement("select");
   datumSel.className = "form-control";
@@ -592,7 +1011,6 @@ export async function buildCorrelationContent(
   }
   datumSel.addEventListener("change", () => {
     opts.datum = datumSel.value;
-    persist();
     applyDatum();
     fit();
   });
@@ -621,9 +1039,14 @@ export async function buildCorrelationContent(
   depthModeSel.value = opts.depthMode;
   depthModeSel.addEventListener("change", () => {
     opts.depthMode = depthModeSel.value === "tvdss" ? "tvdss" : "md";
-    persist();
     applyDatum(); // shift is in display space → re-derive for the new mode
     fit();
+    if (opts.depthMode === "tvdss") {
+      const missing = strips.filter((s) => included.has(s.well.well_id) && !s.tv).length;
+      if (missing > 0) {
+        setStatus(`${missing} well(s) have no TVDSS reference frame; MD was not substituted.`);
+      }
+    }
   });
 
   // --- Fluid-contacts editor ---
@@ -721,6 +1144,7 @@ export async function buildCorrelationContent(
         ssBox.checked = c.is_tvdss;
         ssBox.addEventListener("change", () => {
           c.is_tvdss = ssBox.checked;
+          c.depth_datum = c.is_tvdss ? "TVDSS" : "MD";
           void save(c);
         });
         ssLabel.append(ssBox, document.createTextNode(" TVDSS"));
@@ -786,6 +1210,7 @@ export async function buildCorrelationContent(
         well_id: null,
         contact_type: "OWC",
         depth: Math.round(viewTop + 50),
+        depth_datum: opts.depthMode === "tvdss" ? "TVDSS" : "MD",
         is_tvdss: opts.depthMode === "tvdss",
         color: null,
         label: null,
@@ -871,6 +1296,7 @@ export async function buildCorrelationContent(
             well_id: wellId,
             contact_type: cand.contact_type,
             depth: Number(cand.depth.toFixed(1)),
+            depth_datum: "MD",
             is_tvdss: false, // suggestions are in measured depth
             color: null,
             label: cand.method,
@@ -989,6 +1415,9 @@ export async function buildCorrelationContent(
   props.appendChild(curveSel);
   props.appendChild(numField("min", opts.min, (v) => (opts.min = v)));
   props.appendChild(numField("max", opts.max, (v) => (opts.max = v)));
+  props.appendChild(validityWrap);
+  props.appendChild(validMinField);
+  props.appendChild(validMaxField);
   props.appendChild(datumSel);
   props.appendChild(depthModeSel);
   props.appendChild(mkBtn("Contacts…", "Add / edit fluid contacts (OWC, GWC, …)", openContactsEditor));
@@ -999,15 +1428,64 @@ export async function buildCorrelationContent(
   props.appendChild(mkBtn("−", "Zoom out", () => {
     zoomAtCenter(1 / 1.25);
   }));
-  props.appendChild(buildImageExportButtons(() => canvas, "Correlation", setStatus));
+  const exportGroup = buildImageExportButtons(
+    () => canvas,
+    "Correlation",
+    setStatus,
+    undefined,
+    undefined,
+    undefined,
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
+        statisticsRecords,
+      };
+    },
+  );
+  props.appendChild(exportGroup);
 
   function zoomAtCenter(factor: number): void {
     const plotH = Math.max(50, canvas.clientHeight - HEADER_H);
     const mid = viewTop + plotH / 2 / pxPerUnit;
     pxPerUnit *= factor;
     viewTop = mid - plotH / 2 / pxPerUnit;
+    depthViewIsUser = true;
     draw();
+    persist();
   }
+
+  const accessibility = attachAccessiblePlotKeyboard({
+    surface: canvas,
+    getLabel: () =>
+      `Correlation: ${opts.curve} across ${included.size} included well${included.size === 1 ? "" : "s"}, ${opts.depthMode.toUpperCase()} depth${opts.datum ? ` flattened on ${opts.datum}` : ""}`,
+    openProperties: () => curveSel.focus(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+    changeView: (command) => {
+      if (command.kind === "reset") {
+        if (!displayExtent()) return false;
+        fit();
+        return true;
+      }
+      if (command.kind === "zoom") {
+        if (!displayExtent()) return false;
+        zoomAtCenter(command.direction === "in" ? 1.25 : 1 / 1.25);
+        return true;
+      }
+      if (command.axis !== "y") return false;
+      const plotH = Math.max(50, canvas.clientHeight - HEADER_H);
+      const span = plotH / pxPerUnit;
+      if (!Number.isFinite(span) || span <= 0) return false;
+      viewTop += command.direction * span * (command.large ? 0.2 : 0.08);
+      depthViewIsUser = true;
+      draw();
+      persist();
+      return true;
+    },
+  });
 
   // --- Interactions: wheel/drag pan, hover broadcast ---
   canvas.addEventListener(
@@ -1027,7 +1505,9 @@ export async function buildCorrelationContent(
       } else {
         viewTop += e.deltaY / pxPerUnit;
       }
+      depthViewIsUser = true;
       draw();
+      scheduleWheelPersist();
     },
     { passive: false },
   );
@@ -1044,7 +1524,9 @@ export async function buildCorrelationContent(
   // canvas) for the app's life — the exact trap LogCanvasRenderer.ts:540-561 documents and the
   // only window-level listener in a panel builder that was missing its removal.
   const onWindowPointerUp = () => {
+    const wasDragging = dragging;
     dragging = false;
+    if (wasDragging) persist();
   };
   window.addEventListener("pointerup", onWindowPointerUp);
   canvas.addEventListener("pointermove", (e) => {
@@ -1053,6 +1535,7 @@ export async function buildCorrelationContent(
     if (dragging) {
       viewTop -= (e.clientY - lastY) / pxPerUnit;
       lastY = e.clientY;
+      depthViewIsUser = true;
     }
     hoverY = y;
     // Broadcast the hovered STRIP's measured depth so the well's other views sync.
@@ -1065,7 +1548,8 @@ export async function buildCorrelationContent(
       const s = active[idx];
       const unflattened = disp + s.shift; // display depth without flattening
       // Other views expect measured depth, so undo the TVDSS mapping before broadcasting.
-      appState.hoverDepth.set(opts.depthMode === "tvdss" ? tvdssToMd(s, unflattened) : unflattened);
+      const measured = opts.depthMode === "tvdss" ? tvdssToMd(s, unflattened) : unflattened;
+      appState.hoverDepth.set(measured);
     } else {
       appState.hoverDepth.set(null);
     }
@@ -1077,25 +1561,6 @@ export async function buildCorrelationContent(
     draw();
   });
 
-  const resizeObserver = new ResizeObserver(() => draw());
-  resizeObserver.observe(canvasHost);
-  // The primed flag drops subscribe's immediate fire so the trailing `await reload()`
-  // below stays the only build-time load (no double fetch at construction).
-  let dataPrimed = false;
-  const unsubData = appState.dataVersion.subscribe(() => {
-    if (!dataPrimed) {
-      dataPrimed = true;
-      return;
-    }
-    // Refresh the well list first (imports/deletions/group change), THEN re-read curves —
-    // reload() alone left a stale Wells menu that never showed a newly imported well.
-    void refreshWells()
-      .then(() => reload())
-      .then(draw);
-  });
-  // Colours come from CSS vars at draw time; a theme switch only needs a repaint.
-  const unsubTheme = appState.themeVersion.subscribe(() => draw());
-
   try {
     await reload();
   } catch (err) {
@@ -1103,16 +1568,68 @@ export async function buildCorrelationContent(
   }
   // Initial fit once the panel has a size (dock lays out after mount). Captured so a panel closed
   // inside 50 ms doesn't run fit()→draw() against a canvas that has already been detached.
-  const fitTimer = setTimeout(fit, 50);
+  const fitTimer = setTimeout(() => {
+    if (restoredDepthView) {
+      const h = Math.max(50, canvas.clientHeight - HEADER_H);
+      pxPerUnit = h / (restoredDepthView.max - restoredDepthView.min);
+      viewTop = restoredDepthView.min;
+      depthViewIsUser = true;
+      draw();
+    } else {
+      fit();
+    }
+  }, 50);
+
+  const invalidation = registerPlotInvalidationContract(canvasHost, {
+    theme: () => draw(),
+    dataRevision: () => {
+      // Refresh the well inventory before its curves so an import/delete/group change cannot
+      // leave the Wells menu and the rendered strips on different data revisions.
+      void refreshWells()
+        .then((current) => current ? reload() : false)
+        .then((applied) => {
+          if (applied) draw();
+        })
+        .catch((error) => {
+          strips = [];
+          setStatus(`Correlation refused: ${error}`);
+          draw();
+        });
+    },
+    interval: (interval) => {
+      selectedInterval = interval;
+      draw();
+    },
+    selection: (selection) => {
+      brushSelection = selection;
+      draw();
+    },
+    size: () => draw(),
+    cancelPending: () => {
+      reloadGen++;
+      wellsGen++;
+      clearTimeout(fitTimer);
+      if (wheelPersistTimer !== null) {
+        clearTimeout(wheelPersistTimer);
+        wheelPersistTimer = null;
+      }
+      removeWellsMenu();
+    },
+  });
 
   return {
     el,
     dispose: () => {
-      resizeObserver.disconnect();
-      unsubData();
-      unsubTheme();
+      if (wheelPersistTimer !== null) {
+        clearTimeout(wheelPersistTimer);
+        wheelPersistTimer = null;
+        persist();
+      }
+      invalidation.dispose();
+      accessibility.dispose();
       window.removeEventListener("pointerup", onWindowPointerUp);
-      clearTimeout(fitTimer);
     },
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
   };
 }

@@ -68,6 +68,13 @@ pub struct TableOptions {
     /// `"dot"` | `"comma"` | absent to decide per token (see [`parse_number`]).
     #[serde(default)]
     pub decimal: Option<String>,
+    /// SB-DIO-007: the file's null token, DECLARED at import like the delimiter and the
+    /// decimal - a delimited file has no in-band declaration, and sniffing one would
+    /// invent a vocabulary (the LONG/WIDE/BLOCK doctrine). A cell equal to this token is
+    /// EXPLICITLY NULLED: absent in arithmetic, state 2 in the source-cell mask. Absent =
+    /// no token declared, and a `-999.25` stays the number the file wrote.
+    #[serde(default)]
+    pub null_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -373,9 +380,25 @@ fn guess_role(header: &str, kind: &str, taken: &[String]) -> (String, String) {
 /// Reads a table and reports everything the pane needs to confirm the mapping. Writes nothing.
 pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     let format = detect_format(path)?;
-    let decoded = parsers::read_text_file_with_encoding(path)?;
-    let text_encoding = decoded.encoding;
-    let text = decoded.text;
+    // SB-DIO-060: a BIFF `.xls` is read by its SIGNATURE through the cell reader, and
+    // then flows down the one delimited pipeline; the encoding label names what it
+    // actually is instead of a text-ladder guess.
+    let mut biff_notes: Vec<String> = Vec::new();
+    let (text, text_encoding) = if biff_sniff(path) {
+        let table =
+            crate::biff5::parse_biff_table(path).map_err(crate::parsers::ParseError::Table)?;
+        let label = format!("{} {} (codepage {})", table.version, table.container, table.codepage);
+        // The reader's own honesty channel: which sheet was read, and everything it
+        // skipped or approximated - counted there, SURFACED here, never silent.
+        if let Some(sheet) = &table.sheet {
+            biff_notes.push(format!("Sheet read: {sheet}."));
+        }
+        biff_notes.extend(table.notes.iter().cloned());
+        (biff_table_text(&table), label)
+    } else {
+        let decoded = parsers::read_text_file_with_encoding(path)?;
+        (decoded.text, decoded.encoding)
+    };
     let mut lines: Vec<&str> = text
         .lines()
         .map(str::trim_end)
@@ -456,6 +479,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
         format.choice_report.clone(),
         format!("Text encoding detected: {text_encoding}."),
     ];
+    notes.extend(biff_notes);
     if let Some(disagreement) = &format.extension_disagreement {
         notes.push(disagreement.clone());
     }
@@ -605,6 +629,11 @@ pub struct IntakeCommit {
     /// The depths in this delivery came from the core report and should follow the core.
     #[serde(default)]
     pub follow_core: bool,
+    /// SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user in
+    /// the pane. Serde-defaulted to empty so an old payload REFUSES at the vocabulary
+    /// check rather than silently declaring MD.
+    #[serde(default)]
+    pub depth_datum: String,
 }
 
 /// Turns the pane's confirmed roles into the mapping `ingest::import_core_table` already takes.
@@ -860,8 +889,43 @@ struct LabelKeys {
 ///
 /// Returns the separator alongside the table because a caption line has to be reassembled AS
 /// WRITTEN before a number can be read out of it — see `depth_from_label`.
+/// SB-DIO-060: a `.xls` that is a BIFF stream (bare or OLE2-contained) renders its first
+/// worksheet as tab-delimited text, so BOTH the probe and every commit path consume it
+/// through the one pipeline that already owns headers, roles, decimal conventions and the
+/// SB-DIO-007 source-cell states. A tab inside a text cell becomes a space (and the cell
+/// survives) - a delimiter collision must not shift every column after it.
+fn biff_as_table_text(path: &str) -> Result<String, String> {
+    Ok(biff_table_text(&crate::biff5::parse_biff_table(path)?))
+}
+
+fn biff_table_text(table: &crate::biff5::BiffTable) -> String {
+    let mut out = String::new();
+    for row in &table.rows {
+        let line = row
+            .iter()
+            .map(|cell| cell.replace(['\t', '\n', '\r'], " "))
+            .collect::<Vec<_>>()
+            .join("\t");
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+fn biff_sniff(path: &str) -> bool {
+    let mut header = [0u8; 8];
+    std::fs::File::open(path)
+        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut header))
+        .is_ok()
+        && crate::biff5::is_biff(&header)
+}
+
 fn split_table(path: &str, opts: &TableOptions) -> ParseResult<(Vec<Vec<String>>, char)> {
-    let text = parsers::read_text_file(path)?;
+    let text = if biff_sniff(path) {
+        biff_as_table_text(path).map_err(crate::parsers::ParseError::Table)?
+    } else {
+        parsers::read_text_file(path)?
+    };
     let mut lines: Vec<&str> = text
         .lines()
         .map(str::trim_end)
@@ -1291,9 +1355,34 @@ fn free_array_set(conn: &Connection, well_id: &str, curve: &str, desired: &str) 
 /// the layout being a declaration.
 pub fn commit_arrays(conn: &Connection, req: &ArrayCommit) -> Vec<ArrayImportResult> {
     let block = req.layout.eq_ignore_ascii_case("block");
-    let project_unit = crate::units::project_depth_unit_or_default(conn);
-    let file_unit = req.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
     let curve = req.curve_name.trim().to_uppercase();
+    let project_unit = match crate::units::require_project_depth_unit(conn, "array import") {
+        Ok(unit) => unit,
+        Err(error) => {
+            return req
+                .paths
+                .iter()
+                .map(|path| ArrayImportResult {
+                    path: path.clone(),
+                    curve: curve.clone(),
+                    wells: 0,
+                    samples: 0,
+                    bins: 0,
+                    axis_first: f64::NAN,
+                    axis_last: f64::NAN,
+                    sets: vec![],
+                    unmatched: vec![],
+                    notes: vec![],
+                    error: Some(error.clone()),
+                })
+                .collect();
+        }
+    };
+    let file_unit = req
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .unwrap_or(project_unit);
 
     req.paths
         .iter()
@@ -1464,8 +1553,30 @@ pub struct CurveImportResult {
 /// **The unit is whatever the file's units row said, kept verbatim.** `curves::normalize_unit`
 /// canonicalizes it downstream; inventing one here would state a measurement the delivery did not.
 pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportResult> {
-    let project_unit = crate::units::project_depth_unit_or_default(conn);
-    let file_unit = req.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+    let project_unit = match crate::units::require_project_depth_unit(conn, "curve-table import") {
+        Ok(unit) => unit,
+        Err(error) => {
+            return req
+                .paths
+                .iter()
+                .map(|path| CurveImportResult {
+                    path: path.clone(),
+                    wells: 0,
+                    curves: vec![],
+                    samples: 0,
+                    sets: vec![],
+                    unmatched: vec![],
+                    notes: vec![],
+                    error: Some(error.clone()),
+                })
+                .collect();
+        }
+    };
+    let file_unit = req
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .unwrap_or(project_unit);
 
     req.paths
         .iter()
@@ -1588,10 +1699,49 @@ pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportRes
                 let mut wrote_any = false;
                 for c in &curve_cols {
                     let mnemonic = probe.columns[*c].header.trim().to_uppercase();
+                    // SB-DIO-007: the source-cell state is read HERE, where the cell still
+                    // exists - "empty between the delimiters" and "the file's null token" are
+                    // different facts, and both die at commit unless recorded now. A cell
+                    // outside the signed vocabulary (stray text in a numeric column) makes
+                    // the whole curve's mask absent per draft rule 6 - a partial mask would
+                    // attribute states to the wrong depths.
+                    let declared_null = req.opts.null_token.as_deref().map(str::trim);
+                    let mut states: Vec<u8> = Vec::with_capacity(keep.len());
+                    let mut unclassifiable = false;
                     let values: Vec<f32> = keep
                         .iter()
                         .map(|k| {
-                            list[*k].get(*c).and_then(|cell| parse_number(cell, decimal).0).map_or(f32::NAN, |v| v as f32)
+                            let cell = list[*k].get(*c).map(|s| s.trim()).unwrap_or("");
+                            if cell.is_empty() {
+                                states.push(db::CELL_STATE_EMPTY);
+                                return f32::NAN;
+                            }
+                            // The DECLARED token is absent in arithmetic from here on -
+                            // the same NaN an empty cell becomes, so no module can tell
+                            // them apart; only the mask can.
+                            if declared_null == Some(cell) {
+                                states.push(db::CELL_STATE_NULLED);
+                                return f32::NAN;
+                            }
+                            match parse_number(cell, decimal).0 {
+                                Some(v) => {
+                                    let v = v as f32;
+                                    // The undeclared Geolog-family sentinel: SB-DBM-030
+                                    // screens the VALUE at the store; the mask records
+                                    // that the cell was a null token, not a measurement.
+                                    if db::is_large_negative_null(v) {
+                                        states.push(db::CELL_STATE_NULLED);
+                                    } else {
+                                        states.push(db::CELL_STATE_MEASURED);
+                                    }
+                                    v
+                                }
+                                None => {
+                                    unclassifiable = true;
+                                    states.push(db::CELL_STATE_EMPTY);
+                                    f32::NAN
+                                }
+                            }
                         })
                         .collect();
                     // A column with nothing in it for this well is not stored: an all-MISSING
@@ -1621,7 +1771,36 @@ pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportRes
                         None,
                     ) {
                         Ok(id) => match db::insert_curve_samples(conn, &id, &depths, &values) {
-                            Ok(()) => {
+                            Ok(screened) => {
+                                // SB-DBM-030: the store's null screen is a flag channel -
+                                // a screened delivery says so in this import's own notes.
+                                if screened > 0 {
+                                    res.notes.push(format!(
+                                        "null screen: {screened} large-negative sample(s) on {mnemonic} stored as missing (undeclared Geolog-family null sentinel)"
+                                    ));
+                                }
+                                // SB-DIO-007: the mask is stored in ASCENDING DEPTH order to
+                                // match every read path; a curve whose cells did not all
+                                // classify writes the whole-curve absent mask and says so.
+                                if unclassifiable {
+                                    res.notes.push(format!(
+                                        "source-cell states not recorded for {mnemonic}: a cell held text outside the measured/empty/nulled vocabulary, and a partial mask would attribute states to the wrong depths (SB-DIO-007)"
+                                    ));
+                                } else {
+                                    let mut order: Vec<usize> = (0..depths.len()).collect();
+                                    order.sort_by(|a, b| depths[*a].total_cmp(&depths[*b]));
+                                    let sorted: Vec<u8> =
+                                        order.iter().map(|i| states[*i]).collect();
+                                    if let Err(e) = db::set_curve_state_mask(
+                                        conn,
+                                        &id,
+                                        Some(&db::encode_state_mask(&sorted)),
+                                    ) {
+                                        res.notes.push(format!(
+                                            "source-cell states not recorded for {mnemonic}: {e}"
+                                        ));
+                                    }
+                                }
                                 res.samples += values.iter().filter(|v| v.is_finite()).count();
                                 wrote_any = true;
                                 if !res.curves.contains(&mnemonic) {
@@ -2175,6 +2354,7 @@ mod tests {
     fn a_second_delivery_lands_beside_the_first_instead_of_replacing_it() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-ARR", None, None, None).unwrap();
         let w = wid.to_string();
@@ -2222,6 +2402,383 @@ mod tests {
         assert_eq!(decoded, vec![1.0, 2.0, 4.0], "the axis is stored with the values");
     }
 
+    /// SB-DIO-060 / SB-DIO-T89 (DEC-076: "biff5 reader"). A `.xls` that is a BIFF record
+    /// stream is read by SIGNATURE - the extension-vs-version disagreement reported, the
+    /// cells read without the drawing layer (T88), formulas never evaluated, and the
+    /// versions outside the ruling (BIFF8) refused BY NAME rather than guessed around.
+    /// Every fixture byte is constructed here from the published [MS-XLS]/[MS-CFB]
+    /// layouts - no binary fixture file ships in the repo.
+    #[test]
+    fn a_biff5_stream_named_xls_is_read_by_signature_and_the_version_disagreement_is_reported() {
+        fn rec(id: u16, body: &[u8]) -> Vec<u8> {
+            let mut out = id.to_le_bytes().to_vec();
+            out.extend((body.len() as u16).to_le_bytes());
+            out.extend(body);
+            out
+        }
+        fn label(rw: u16, col: u16, text: &str) -> Vec<u8> {
+            let mut body = Vec::new();
+            body.extend(rw.to_le_bytes());
+            body.extend(col.to_le_bytes());
+            body.extend(0u16.to_le_bytes());
+            body.extend((text.len() as u16).to_le_bytes());
+            body.extend(text.as_bytes());
+            rec(0x0204, &body)
+        }
+        fn number(rw: u16, col: u16, value: f64) -> Vec<u8> {
+            let mut body = Vec::new();
+            body.extend(rw.to_le_bytes());
+            body.extend(col.to_le_bytes());
+            body.extend(0u16.to_le_bytes());
+            body.extend(value.to_le_bytes());
+            rec(0x0203, &body)
+        }
+        // The bare wellsite stream: worksheet BOF (vers 0x0500, dt 0x0010 - the
+        // 09 08 06 00 signature detect_format cites), a header row, two data rows
+        // (one RK-encoded integer: (42 << 2) | fInt), one drawing-layer record the
+        // reader must step over (T88), EOF.
+        let mut stream = rec(0x0809, &[0x00, 0x05, 0x10, 0x00, 0x00, 0x00]);
+        stream.extend(label(0, 0, "DEPT"));
+        stream.extend(label(0, 1, "GR"));
+        stream.extend(number(1, 0, 1000.0));
+        stream.extend(number(1, 1, 45.5));
+        stream.extend(number(2, 0, 1000.5));
+        let mut rk = Vec::new();
+        rk.extend(2u16.to_le_bytes());
+        rk.extend(1u16.to_le_bytes());
+        rk.extend(0u16.to_le_bytes());
+        rk.extend(((42u32 << 2) | 0x02).to_le_bytes());
+        stream.extend(rec(0x027E, &rk));
+        stream.extend(rec(0x00EC, &[0u8; 4])); // MSODRAWING: outside scope, stepped over
+        stream.extend(rec(0x000A, &[]));
+        let path = std::env::temp_dir().join("sandi_t89_bare.xls");
+        std::fs::write(&path, &stream).unwrap();
+        let p = path.to_str().unwrap();
+
+        // Read by signature, and the version disagreement is REPORTED (T89).
+        let probed = probe(p, &TableOptions::default()).unwrap();
+        assert!(probed.format.detected_format.contains("BIFF5"), "{:?}", probed.format.detected_format);
+        assert!(
+            probed.format.extension_disagreement.is_some(),
+            "the .xls-vs-BIFF5-stream disagreement must be reported"
+        );
+        assert!(probed.text_encoding.contains("BIFF5"), "{}", probed.text_encoding);
+        assert_eq!(probed.columns.len(), 2);
+        assert_eq!(probed.columns[0].header, "DEPT");
+        assert_eq!(probed.columns[1].header, "GR");
+
+        // ...and the cells land in the curve store through the ordinary pipeline.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-T89", None, None, None).unwrap();
+        let req = CurveCommit {
+            paths: vec![p.to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into()],
+            opts: TableOptions::default(),
+            set_name: Some("WSITE".into()),
+            depth_unit: None,
+            fallback_well_id: Some(wid.to_string()),
+        };
+        let res = commit_curves(&conn, &req);
+        assert!(res[0].error.is_none(), "{:?}", res[0].error);
+        assert_eq!(res[0].curves, vec!["GR".to_string()]);
+        let values: Vec<f32> = conn
+            .prepare(
+                "SELECT s.value FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.mnemonic = 'GR' ORDER BY s.depth",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(values, vec![45.5, 42.0], "NUMBER and RK cells both decode ([MS-XLS] 2.5.276)");
+
+        // The OLE2 route: the same worksheet inside a compound document's Book stream
+        // (small enough to live in the MINI stream, the realistic wellsite size), and a
+        // BIFF8 Workbook that refuses BY VERSION NAME.
+        fn cfb(stream_name: &str, workbook: &[u8]) -> Vec<u8> {
+            let sect = 512usize;
+            let mini_sectors = workbook.len().div_ceil(64);
+            // Ministream (root's own stream) holds the workbook in 64-byte mini sectors.
+            let mut ministream = workbook.to_vec();
+            ministream.resize(mini_sectors * 64, 0);
+            let mini_stream_sectors = ministream.len().div_ceil(sect).max(1);
+            // Regular sector layout: 0 = FAT, 1 = directory, 2 = mini FAT,
+            // 3.. = ministream.
+            let mut fat: Vec<u32> = vec![0xFFFF_FFFD, 0xFFFF_FFFE, 0xFFFF_FFFE];
+            for index in 0..mini_stream_sectors {
+                let sector_number = 3 + index as u32;
+                fat.push(if index + 1 == mini_stream_sectors {
+                    0xFFFF_FFFE
+                } else {
+                    sector_number + 1
+                });
+            }
+            fat.resize(sect / 4, 0xFFFF_FFFF);
+            let mut minifat: Vec<u32> = (1..mini_sectors as u32).collect();
+            minifat.push(0xFFFF_FFFE);
+            minifat.resize(sect / 4, 0xFFFF_FFFF);
+
+            let mut header = vec![0u8; sect];
+            header[..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+            header[24..26].copy_from_slice(&0x003Eu16.to_le_bytes());
+            header[26..28].copy_from_slice(&3u16.to_le_bytes());
+            header[28..30].copy_from_slice(&0xFFFEu16.to_le_bytes());
+            header[30..32].copy_from_slice(&9u16.to_le_bytes());
+            header[32..34].copy_from_slice(&6u16.to_le_bytes());
+            header[44..48].copy_from_slice(&1u32.to_le_bytes()); // one FAT sector
+            header[48..52].copy_from_slice(&1u32.to_le_bytes()); // directory at sector 1
+            header[56..60].copy_from_slice(&4096u32.to_le_bytes()); // mini cutoff
+            header[60..64].copy_from_slice(&2u32.to_le_bytes()); // mini FAT at sector 2
+            header[64..68].copy_from_slice(&1u32.to_le_bytes()); // one mini FAT sector
+            header[68..72].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes()); // no DIFAT chain
+            header[76..80].copy_from_slice(&0u32.to_le_bytes()); // DIFAT[0] = FAT sector 0
+            for at in (80..512).step_by(4) {
+                header[at..at + 4].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            }
+
+            fn dir_entry(name: &str, kind: u8, start: u32, size: u32) -> Vec<u8> {
+                let mut entry = vec![0u8; 128];
+                for (index, unit) in name.encode_utf16().enumerate() {
+                    entry[index * 2..index * 2 + 2].copy_from_slice(&unit.to_le_bytes());
+                }
+                entry[64..66]
+                    .copy_from_slice(&(((name.len() + 1) * 2) as u16).to_le_bytes());
+                entry[66] = kind;
+                entry[68..72].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                entry[72..76].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                entry[76..80].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                entry[116..120].copy_from_slice(&start.to_le_bytes());
+                entry[120..124].copy_from_slice(&size.to_le_bytes());
+                entry
+            }
+            let mut directory = Vec::new();
+            directory.extend(dir_entry("Root Entry", 5, 3, ministream.len() as u32));
+            directory.extend(dir_entry(stream_name, 2, 0, workbook.len() as u32));
+            directory.resize(sect, 0);
+
+            let mut file = header;
+            for value in &fat {
+                file.extend(value.to_le_bytes());
+            }
+            file.extend(directory);
+            for value in &minifat {
+                file.extend(value.to_le_bytes());
+            }
+            ministream.resize(mini_stream_sectors * sect, 0);
+            file.extend(ministream);
+            file
+        }
+
+        // A real workbook shape: globals substream (BOUNDSHEET names the sheet), the
+        // data sheet, and a SECOND sheet substream - which must be COUNTED in the
+        // notes and surfaced by the probe, never silently dropped.
+        let mut boundsheet = Vec::new();
+        boundsheet.extend(0u32.to_le_bytes());
+        boundsheet.extend(0u16.to_le_bytes());
+        boundsheet.push(8u8);
+        boundsheet.extend(b"WELLDATA");
+        let workbook = [
+            rec(0x0809, &[0x00, 0x05, 0x05, 0x00, 0x00, 0x00]),
+            rec(0x0085, &boundsheet),
+            rec(0x000A, &[]),
+            stream.clone(),
+            rec(0x0809, &[0x00, 0x05, 0x10, 0x00, 0x00, 0x00]),
+            rec(0x000A, &[]),
+        ]
+        .concat();
+        let ole_path = std::env::temp_dir().join("sandi_t89_ole.xls");
+        std::fs::write(&ole_path, cfb("Book", &workbook)).unwrap();
+        let table = crate::biff5::parse_biff_table(ole_path.to_str().unwrap()).unwrap();
+        assert_eq!(table.version, "BIFF5");
+        assert_eq!(table.container, "OLE2 compound document");
+        assert_eq!(table.sheet.as_deref(), Some("WELLDATA"));
+        assert_eq!(table.rows[1][1], "45.5", "the mini-stream walk reaches the same cells");
+        assert!(
+            table.notes.iter().any(|n| n.contains("2 sheet substreams")),
+            "the unread sheet is counted, never silently dropped: {:?}",
+            table.notes
+        );
+        let ole_probe = probe(ole_path.to_str().unwrap(), &TableOptions::default()).unwrap();
+        assert!(
+            ole_probe.notes.iter().any(|n| n.contains("Sheet read: WELLDATA"))
+                && ole_probe.notes.iter().any(|n| n.contains("2 sheet substreams")),
+            "the reader's honesty notes surface in the probe: {:?}",
+            ole_probe.notes
+        );
+
+        let biff8 = [
+            rec(0x0809, &[0x00, 0x06, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00]),
+            rec(0x000A, &[]),
+        ]
+        .concat();
+        let b8_path = std::env::temp_dir().join("sandi_t89_biff8.xls");
+        std::fs::write(&b8_path, cfb("Workbook", &biff8)).unwrap();
+        let error = crate::biff5::parse_biff_table(b8_path.to_str().unwrap())
+            .expect_err("BIFF8 is outside the ruling and must refuse by name");
+        assert!(error.contains("BIFF8"), "{error}");
+
+        // SB-DIO-061 discipline: a record whose declared body runs past the end of the
+        // stream is LOCATED, never read as garbage (cut lands mid-body of the
+        // drawing-layer record).
+        let truncated = &stream[..stream.len() - 6];
+        let t_path = std::env::temp_dir().join("sandi_t89_trunc.xls");
+        std::fs::write(&t_path, truncated).unwrap();
+        let error = crate::biff5::parse_biff_table(t_path.to_str().unwrap())
+            .expect_err("a record past the end of the stream must refuse");
+        assert!(error.contains("offset") && error.contains("truncated"), "{error}");
+
+        for file in [&path, &ole_path, &b8_path, &t_path] {
+            let _ = std::fs::remove_file(file);
+        }
+    }
+
+    /// SB-DIO-007 / SB-DIO-T11 (signed DRAFT_DIO007 under DEC-076). "Field empty" and
+    /// "field = null sentinel" are different facts (PRD D-33), and the distinction must
+    /// survive to the deliverable while both stay absent in arithmetic.
+    #[test]
+    fn an_empty_cell_and_a_null_token_import_identically_absent_and_export_distinguishably() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-T11", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // T11's witness rows: an empty cell and the null token on consecutive rows.
+        let path = std::env::temp_dir().join("sandi_t11_states.csv");
+        std::fs::write(&path, "DEPTH,RES,GR\n1000.0,,45.0\n1000.5,-999.25,52.0\n1001.0,3.4,88.0\n")
+            .unwrap();
+        let req = CurveCommit {
+            paths: vec![path.to_str().unwrap().to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into(), "CURVE".into()],
+            opts: TableOptions {
+                null_token: Some("-999.25".into()),
+                ..TableOptions::default()
+            },
+            set_name: Some("T11".into()),
+            depth_unit: None,
+            fallback_well_id: Some(w.clone()),
+        };
+        let res = commit_curves(&conn, &req);
+        assert!(res[0].error.is_none(), "{:?}", res[0].error);
+
+        // Both are absent in arithmetic: the empty cell and the null token store the SAME
+        // SQL NULL (rule 2's NaN at the writer) - no module can tell them apart, on purpose.
+        let res_id: String = conn
+            .query_row(
+                "SELECT curve_id FROM curve_meta WHERE well_id = ?1 AND mnemonic = 'RES'",
+                duckdb::params![&w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let absent: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples WHERE curve_id = ?1 AND value IS NULL",
+                duckdb::params![&res_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(absent, 2, "empty and nulled are the same absence in arithmetic");
+
+        // ... and the export distinguishes them: empty cell vs the null token, natively.
+        let out = std::env::temp_dir().join("sandi_t11_out.csv");
+        let out_path = out.to_str().unwrap();
+        let export =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(export.notes.is_empty(), "a masked delivery needs no caveats: {:?}", export.notes);
+        let text = std::fs::read_to_string(out_path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "DEPTH,GR,RES");
+        assert_eq!(lines[1], "1000,45,", "the empty source cell exports EMPTY");
+        assert_eq!(lines[2], "1000.5,52,-999.25", "the nulled source cell exports the token");
+        assert_eq!(lines[3], "1001,88,3.4", "a measurement exports as itself");
+
+        // A pre-contract curve (NULL mask) still exports - absents become the token, and
+        // the result SAYS the distinction is unavailable rather than inventing it.
+        db::set_curve_state_mask(&conn, &res_id, None).unwrap();
+        let legacy =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(
+            legacy.notes.iter().any(|n| n.contains("RES") && n.contains("no source-cell states")),
+            "{:?}",
+            legacy.notes
+        );
+        let text = std::fs::read_to_string(out_path).unwrap();
+        assert_eq!(
+            text.lines().nth(1).unwrap(),
+            "1000,45,-999.25",
+            "without a mask the empty/nulled distinction is honestly gone"
+        );
+
+        // An unknown mask version refuses the STATES by name - the values still export.
+        conn.execute(
+            "UPDATE curve_meta SET state_mask = ?2 WHERE curve_id = ?1",
+            duckdb::params![&res_id, vec![9u8, 0, 0, 0]],
+        )
+        .unwrap();
+        let unknown =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(
+            unknown.notes.iter().any(|n| n.contains("version 9")),
+            "the refusal names the version it cannot read: {:?}",
+            unknown.notes
+        );
+        assert!(
+            std::fs::read_to_string(out_path).unwrap().contains("1001,88,3.4"),
+            "values are unaffected by a state refusal"
+        );
+
+        // A mask that misaligns with its samples is refused WHOLE - never applied shifted.
+        conn.execute(
+            "UPDATE curve_meta SET state_mask = ?2 WHERE curve_id = ?1",
+            duckdb::params![&res_id, vec![1u8, 0, 0]],
+        )
+        .unwrap();
+        let misaligned =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(
+            misaligned.notes.iter().any(|n| n.contains("2 state(s) for 3 sample(s)")),
+            "{:?}",
+            misaligned.notes
+        );
+
+        // Rule 6: a cell outside the signed vocabulary makes the whole curve's mask absent
+        // (a partial mask attributes states to the wrong depths) - and the import says so.
+        let stray = std::env::temp_dir().join("sandi_t11_stray.csv");
+        std::fs::write(&stray, "DEPTH,RES\n1000.0,3.1\n1000.5,see note\n").unwrap();
+        let req2 = CurveCommit {
+            paths: vec![stray.to_str().unwrap().to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into()],
+            opts: TableOptions::default(),
+            set_name: Some("STRAY".into()),
+            depth_unit: None,
+            fallback_well_id: Some(w.clone()),
+        };
+        let res2 = commit_curves(&conn, &req2);
+        assert!(res2[0].error.is_none(), "{:?}", res2[0].error);
+        assert!(
+            res2[0].notes.iter().any(|n| n.contains("source-cell states not recorded for RES")),
+            "{:?}",
+            res2[0].notes
+        );
+        let stray_mask: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT m.state_mask FROM curve_meta m WHERE m.well_id = ?1 AND m.set_name = 'STRAY'",
+                duckdb::params![&w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(stray_mask.is_none(), "rule 6: the whole-curve mask is absent, never partial");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&stray);
+        let _ = std::fs::remove_file(&out);
+    }
+
     /// **A column marked CURVE lands in the curve store, where modules can read it.**
     ///
     /// The route a delimited file of logs had no way in by. Stored as point data instead — which
@@ -2231,6 +2788,7 @@ mod tests {
     fn a_column_marked_curve_becomes_a_log_rather_than_point_data() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-CURVE", None, None, None).unwrap();
         let w = wid.to_string();

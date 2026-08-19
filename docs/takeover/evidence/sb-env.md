@@ -20,118 +20,112 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T01/T02/T03/T38; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** serialize enumeration, numeric/input-sample, branch-conditional and required-companion conditions; include units, human meaning and source; preserve them through saved-run data.
-- **Current source:** `modules.rs::ArgSpec` serializes choices, scalar min/max, required inputs, `computed_only` and `well_scope`. It has no general condition object, input-sample predicate, branch-conditional range, condition explanation or condition source, and derives `Serialize` only.
-- **Qualifying acceptance tests:** none. T01/T02/T03/T38 have no executable whole-contract body; test class `MISSING`.
-- **Supporting tests:** `workflow::tests::out_of_range_zone_param_is_rejected_not_clamped` exercises one scalar-range seam, not the condition schema or its round trip.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the partial schema is reachable at the accepted anchor; no complete condition representation was found in current or reachable source. Commit state `INTEGRATED` for the partial mechanism.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the serializable condition model and T01/T02/T03/T38 are missing; sources must come from the chapter, never current defaults.
-- **Next action:** add the condition/source schema atomically, route it through serialization and UI, and implement the four named tests with enumeration, per-sample, branch and companion controls.
+- **Current source:** `modules.rs::ValidityCondition` and `ValidityRule` represent enumeration, numeric/input-sample range with unit, branch-conditional range and required companions with a stable id, human statement and source. `ModuleSpec`/`ArgSpec` deserialize as well as serialize, the public runner evaluates declared conditions before module dispatch, and `moduleDialog.ts` renders their meaning/source. `workflow.rs::complete_module_log_spec` now snapshots the exact source-bearing conditions under the versioned `_sandibumi_module_validity_v1` key beside every saved module run; later registry changes therefore cannot rewrite the manifest that governed an earlier result.
+- **Qualifying acceptance tests:** `workflow::tests::an_enumeration_validity_condition_survives_the_saved_run_params_json_round_trip`; `a_per_sample_numeric_range_survives_the_saved_run_with_its_unit_meaning_and_source`; `branch_specific_ranges_survive_the_saved_run_without_collapsing_to_one_module_range`; `a_required_companion_condition_survives_the_saved_run_with_the_input_it_requires`; CORRECTNESS. They use only the chapter's explicit NON-ADOPTABLE 8–13/8–18 lb/gal verification fixture and assert exact stored ids, units, meanings, sources, branches and companion input. Retaining only the first condition made the branch test RED before restoration.
+- **Supporting tests:** `modules::tests::source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes` continues to own direct spec round-trip, public-runner preflight and the already-populated linear-GR controls. The new four-test focused run passed 4 / 0 / 0.
+- **Manual evidence:** conditioning 1/34; workflow 0/29; processing-history 0/7; all four SB-ENV-001 scenarios remain unchecked.
+- **Git evidence:** current topic-branch worktree; fresh full gate 1041 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the one-requirement commit follows after the final repeated gate.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for SB-ENV-001 representation and persistence. This does not close SB-ENV-002's cross-route evaluator proof, SB-ENV-004's exhaustive source-or-ABSENT registry, or SB-ENV-008's before-run UI state.
+- **Next action:** retain the versioned saved-run manifest and four shape proofs; Jauhar executes the unchecked review separately; continue serially to pilot blocker SB-ENV-002 without treating schema-valid as source-authoritative.
 
 ## SB-ENV-002 - Evaluate preconditions in the runner, before the module body
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T02/T04/T38; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** evaluate every declared condition before arithmetic, per sample where needed, identically through dialog, saved chain, workflow, zone override, batch and API paths.
-- **Current source:** `workflow.rs::resolve_param_arrays` rejects supplied non-finite/out-of-range scalars and named-zone overrides for well-scoped parameters before dispatch. It cannot evaluate the absent general conditions, does not validate option enumerations, and is not proof of all launch paths or data-dependent predicates.
-- **Qualifying acceptance tests:** none; no four-path preflight fixture exists. Test class `MISSING`.
-- **Supporting tests:** the exact-filter range and temperature-scope tests passed, but call the narrow resolver and do not prove all preconditions or paths.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the narrow runner gate is integrated and reachable at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-001's missing schema prevents a complete common preflight; the four-path observable test is absent.
-- **Next action:** introduce one pre-dispatch evaluator used by every launch route and prove body non-entry plus identical refusal on all named routes.
+- **Current source:** `modules.rs::validate_declared_preconditions` evaluates the source-bearing `ValidityRule` inventory at the public `run_module` boundary before the module match/body. Numeric and relational rules consume the resolved parameter/log array at every sample. `workflow.rs::run_workflow_module_into` is the one dialog/Tauri, single-well, multi-well and zone-resolved path; `chain.rs::run_chain` delegates every saved step to it; `run_module_with_degradations` and direct callers retain the same algorithm boundary.
+- **Qualifying acceptance tests:** `modules::tests::source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes` owns T02's before-body/valid-other-side contract; `chain::tests::dialog_chain_batch_and_zone_override_routes_report_the_identical_precondition_refusal` owns T04. The latter checks returned `ModuleRunResult`, Processing-panel job items, saved-chain polling status, a two-well batch, one-sample named-zone arrays and zero persisted curves. CORRECTNESS. Temporarily bypassing the shared validator made the exact T04 test RED by allowing the VSH body to return blank arrays; restoration returned GREEN.
+- **Supporting tests:** the T04 compile-time route inventory pins dialog → typed IPC → Tauri command → `run_workflow_module_into`; the runtime assertions do not count the direct internal `Result` as the reporting surface. T38's flag-type build gate remains independently owned by SB-ENV-030.
+- **Manual evidence:** conditioning 1/38; workflow 0/33; processing-history 0/7; all four SB-ENV-002 scenarios remain unchecked.
+- **Git evidence:** current topic-branch worktree; focused RED/GREEN proof complete; TypeScript and cargo check are green; fresh full gate 1042 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the one-requirement commit follows after the exact-candidate repeated gate.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for shared precondition evaluation or route parity. This does not prove that every shipping manifest is scientifically complete or source-correct; SB-ENV-003, SB-ENV-004 and SB-ENV-008 retain those distinct obligations.
+- **Next action:** retain the single algorithm-boundary evaluator and route-parity proof; Jauhar executes the unchecked review separately; continue serially to SB-ENV-003 without treating identical routing as complete source population or usable UI wording.
 
 ## SB-ENV-003 - A violated precondition produces a refusal or a flagged result, never an unmarked number
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; T02-T05; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** name condition, offending value, expected range and source in a refusal, or emit a per-sample flag plus provenance; never emit an unmarked number; retain usable unaffected samples.
-- **Current source:** `resolve_param_arrays` names a parameter, supplied value and scalar range in some refusals. It omits the source and condition identity, has no flagged-result alternative, and unknown selectors and correction input gaps can still produce unmarked outputs.
-- **Qualifying acceptance tests:** none; T05's source-bearing payload and subset flag path do not exist. Test class `MISSING`.
-- **Supporting tests:** the range and well-scope tests pass and prove only two labelled refusal fragments.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** partial refusals are integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** source-bearing conditions, flagged partial results and their provenance are absent.
-- **Next action:** carry the declared condition record into one structured refusal/flag payload and prove both whole-run and subset violations without stale output.
+- **Current source:** `modules.rs::run_module_with_degradations` defaults to source-bearing refusal and offers an explicit `FLAG_VALID_SAMPLES` policy only for sample-resolvable numeric/relational conditions. It blanks every affected scientific input before dispatch, blanks every scientific output at those samples afterwards, returns a 0/1 companion flag and a structured condition/value/range/source record, and falls back to refusal when no unaffected sample exists. `workflow.rs::run_workflow_module_into` exposes the policy through the dialog and workflow builder, resolves the flag name through the ordinary output-name guard, reports the violation through Processing, and stores the complete affected-sample record plus policy in versioned run provenance. Set allocation, curve writes and the returned success result are controlled by finite scientific output before the finite flag is inserted.
+- **Qualifying acceptance test:** `workflow::tests::a_subset_precondition_violation_keeps_only_valid_samples_with_a_companion_flag_and_source_bearing_provenance_while_refusal_stays_available_and_a_flag_alone_never_versions_an_answer`; CORRECTNESS. The fixture defaults to whole-run refusal with no write, then selects the explicit flag policy for one of three samples and asserts `[0, 1, 0]`, `[finite, NaN, finite]`, a degraded Processing item and the exact persisted source-bearing payload. Its second half uses an independently invalid negative-PHIE fixture whose scientific PERM outputs are all missing and proves an all-zero finite flag cannot allocate a set, write a curve or manufacture success.
+- **Supporting tests:** T02's public-dispatch refusal, T04's four-route refusal proof and the legacy out-of-range zone rejection remain green. Replacing scientific-answer detection with `answered(outputs) || precondition_flag.is_some()` made the new T05 test RED by returning `Degraded` instead of `Failed`; restoring scientific-only detection returned GREEN. T38's typed flag metadata remains separately owned by SB-ENV-030.
+- **Manual evidence:** conditioning 1/42; workflow 0/37; processing-history 0/7; the new SB-ENV-003 scenarios remain unchecked.
+- **Git evidence:** current topic-branch worktree; focused RED/GREEN and mutation proof complete; TypeScript and cargo check are green; fresh full gate 1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the one-requirement commit follows after the exact-candidate repeated gate.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for the refusal/partial-flag contract. The companion curve is visible, named and durable, but typed flag quantity/family metadata remains an explicit SB-ENV-030 obligation and is not claimed here.
+- **Next action:** retain refusal as the default and the explicit partial-result policy; Jauhar executes the unchecked review separately; continue serially to SB-ENV-004 without treating a populated flag as proof that every ENV parameter has a cited source.
 
 ## SB-ENV-004 - Every parameter carries a source string, built as one change with the validity field
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; T06/T07; sections 4.1, 5, 6.1 and 8.
 - **Atomic obligations:** every ENV parameter has a citation or explicit `ABSENT`; source and validity share schema, serialization, dialog and persistence; registry-wide build gates have zero exceptions.
-- **Current source:** `ArgSpec::sources_topic` exists only for selected competing-value topics; `param_open` encodes no default but no explicit source token. Most ENV defaults have no machine-readable source, and direct-run `params_json` stores supplied numeric values rather than source/validity metadata.
-- **Qualifying acceptance tests:** none; the promised domain-wide T06/T07 gates do not exist. Test class `MISSING`.
-- **Supporting tests:** UI source rendering is reachable for selected topics only; a source-text or schema inventory cannot substitute for the missing zero-exception gate.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the partial source-topic seam is integrated; the 29 shipped-uncited and 32 specified-absent findings remain open at the anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** cited sources are missing for the 29 shipped defaults; the 32 ABSENT parameters must not acquire invented values.
-- **Next action:** add one source-or-ABSENT field with SB-ENV-001 and implement exhaustive branch-aware T06/T07 before enabling any uncited default.
+- **Current source:** `ArgSpec::default_source` now carries either a named source or exact `ABSENT`; `param_open` has no concealed numeric default; `validate_parameter_sources` rejects an empty source or a value behind `ABSENT`; `moduleDialog.ts::argumentHint` renders both default source and validity conditions; and `workflow.rs::effective_module_parameters` persists the source in ancestry. Those seams were established by SB-CORE-004 and SB-ENV-001. They do not finish this requirement: `module_validity_manifest` snapshots only condition-bearing arguments and omits each argument's default source, so source and validity still do not share one `params_json` record; the chapter's internal `MIN_HAMPEL_SAMPLES` and `DEFAULT_DIVERGENCE` examples also sit outside the module `ArgSpec` registry.
+- **Qualifying acceptance tests:** none. T06 requires a complete ENV-domain inventory rather than the whole-registry source gate already owned by SB-CORE-004. T07 cannot be written faithfully: its acceptance row says 31 ABSENT parameters while §5's explicit authoritative count says 32, and the chapter does not provide a canonical 32-entry ArgSpec identity list. Test class `MISSING`.
+- **Supporting tests:** `modules::tests::a_registered_default_without_a_source_fails_the_build_gate` and `an_absent_required_parameter_refuses_until_the_interpreter_supplies_a_value` remain green and prove the universal registered-default mechanism. They do not prove that every §5 ENV parameter exists as an ArgSpec, that the domain inventory is complete, or that source and validity share one persisted record.
+- **Manual evidence:** verification-stewardship 6/120; conditioning 1/42; workflow 0/37; processing-history 0/7; the blocked SB-ENV-004 source/specification review remains unchecked.
+- **Git evidence:** current topic branch after SB-ENV-003; read-only re-verification counted exactly 29 §5 `SHIPPED-UNCITED` rows, split exactly as the chapter states into 10 remove-to-ABSENT and 19 source-required rows. The unchanged full gate remains 1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the blocker-only commit follows after the exact-candidate repeated gate.
+- **Verdict:** chapter and live as-built remain `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 `BLOCKED-SOURCE/SPEC`; Visual/Manual/Field review open.
+- **Blocker or decision:** the chapter supplies no admissible citation for the 19 rows it explicitly says must acquire a source rather than be emptied. Separately, T07's 31-parameter input conflicts with §5's authoritative 32 count and no exact ArgSpec identity inventory resolves the discrepancy. CONTRACT §2 forbids inventing a source, emptying a source-required value, or guessing which row T07 excludes.
+- **Next action:** publish/adjudicate the 19 named sources and reconcile T07's exact 31/32 identity set; then add the domain inventory, one combined source+validity saved-run record, and zero-exception T06/T07 without weakening the existing universal gate.
 
 ## SB-ENV-005 - A corrected curve carries the list of steps actually applied
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; T08-T10; sections 4.1, 5, 6.2, 7.1 OI-4 and 8.
 - **Atomic obligations:** persist and reload every correction step, status and applied parameter value with the output curve.
-- **Current source:** `workflow.rs` records only request numeric parameters and input bindings for direct runs; `chain.rs` records only the module ID sequence for a chain. Neither records applied/unavailable/disabled/refused steps, actual per-step parameters or a restart-retrievable correction manifest.
-- **Qualifying acceptance tests:** none; T08-T10 are missing. Test class `MISSING`.
-- **Supporting tests:** generic log-set version tests prove version retrieval, not correction-step custody.
-- **Manual evidence:** processing-history 0/7; conditioning 0/27; workflow 0/23.
-- **Git evidence:** generic provenance is integrated, but the required manifest is `UNIMPLEMENTED`.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** OI-4 leaves the exact persistence location open; the manifest content itself is fully specified.
-- **Next action:** settle OI-4, persist one applied-step manifest with the curve, and prove partial input plus restart retrieval.
+- **Current source:** the complete-run writer links every computed curve to one versioned log-set record carrying the module, effective parameters, input ancestry, validity snapshot, outcomes and degradations. That is supporting infrastructure, not an applied-step manifest: neither `workflow.rs` nor `chain.rs` records the correction chain's complete step identities or one of `applied` / `unavailable` / `user-disabled` / `refused` per step, and no reader reconstructs those states after restart. `curve_meta` has no such record either.
+- **Qualifying acceptance tests:** none. Exact current/test inventory found no `SB-ENV-T08`, `SB-ENV-T09`, `SB-ENV-T10`, applied-step or correction-manifest implementation. T08 also depends on actual partial correction chains owned by SB-ENV-010/011; T09's uncertainty parity is owned by deferred SB-ENV-019 and its OI-3 model decision; T10 cannot choose a persistence candidate on behalf of OI-4. Test class `MISSING`.
+- **Supporting tests:** the versioned log-set, restore and ancestry tests prove that generic records survive and remain curve-linked. They do not prove step status, per-step parameter binding, a complete correction-chain inventory or post-restart applied-step retrieval.
+- **Manual evidence:** conditioning 1/46; workflow 0/37; processing-history 0/7; the blocked SB-ENV-005 review remains unchecked.
+- **Git evidence:** current topic branch after SB-ENV-004; read-only exact-source audit found the three OI-4 candidates but no later owner decision, step schema or executable acceptance test. The unchanged last full gate is 1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the blocker-only exact candidate is re-gated before commit.
+- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY`; Visual/Manual/Field review open.
+- **Blocker or decision:** OI-4 explicitly leaves log-set archive versus run record versus per-curve metadata open and ties the choice to SB-ENV-028 and SB-ENV-042. Choosing the existing `params_json` blob merely because it is convenient would silently settle a product architecture decision. Exact T08/T09 execution also depends on correction-chain and uncertainty contracts outside this row; no numeric coefficient, measured input, chain identity or status is inferred.
+- **Next action:** Jauhar selects OI-4's single persistence owner; source-complete correction chains become available; then add one typed applied-step schema to the existing atomic writer, retrieve it after restart and implement T08-T10. Until then SB-ENV-006/007 must make current unmanifested correction outputs refuse or remain outside the pilot rather than calling this row complete.
 
 ## SB-ENV-006 - A curve named "corrected" MUST have been corrected
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T11/T12; sections 4.1, 6.2 and 8.
 - **Atomic obligations:** refuse a correction-named output when required input is absent, or mark every unchanged sample and manifest omission; never silently pass through under `*_EC`.
-- **Current source:** `gr_hole_corr` and `rhob_hole_corr` can copy input values into correction-named outputs when caliper is absent, with no companion state or step manifest. The modules are catalogued and picker-reachable.
-- **Qualifying acceptance tests:** `modules::tests::env_corrections_move_the_right_way` passed and explicitly pins the no-caliper pass-through. Its oracle is current behavior, so this is `CHARACTERIZATION`, not correctness.
-- **Supporting tests:** nominal directional-movement assertions prove arithmetic movement only and cannot justify the missing-input contract.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the divergent helpers are integrated and reachable at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-005 and SB-ENV-007 are absent; no missing-input refusal/flag proof exists.
-- **Next action:** refuse or visibly mark every unchanged correction sample and persist the omitted step, while retaining the current nominal control.
+- **Current source:** `ValidityRule::RequiredWhereFinite` is a source-bearing whole-run precondition evaluated by the shared public dispatcher. `gr_hole_corr.CALI` must now be finite at every finite GR sample and `rhob_hole_corr.CALI` at every finite RHOB sample; either missing interval refuses before the private pass-through helper can return or the workflow can allocate/write `*_EC`. Complete inputs remain runnable. `nphi_env_corr` retains its documented salinity-only path because its non-zero salinity term produces a corrected result rather than an input copy.
+- **Qualifying acceptance tests:** `workflow::tests::a_gr_correction_with_no_caliper_refuses_and_writes_no_uncorrected_copy` is T11 CORRECTNESS at the reporting/write surface: it requires the condition id, affected sample and contract source in the failed item, zero rows and no output identity, then adds CALI and proves the same request writes a changed `GR_EC`. `modules::tests::every_ec_module_with_a_missing_correction_input_refuses_or_changes_the_curve_and_complete_inputs_still_run` is T12 CORRECTNESS: it discovers every registered `*_EC` producer, rejects a fixture-less future producer, exercises GR/density missing-CALI refusal, exercises the changed neutron salinity-only result and requires complete-input controls to remain runnable. Both tests were RED on the former pass-through and GREEN after the public guard.
+- **Supporting tests:** `env_corrections_move_the_right_way` remains explicitly CHARACTERIZATION of the private arithmetic helpers and was not deleted or weakened. The existing computed-only FTEMP regression and SB-ENV-003 partial-precondition regression stay green, proving this correction-specific whole-run guard neither consumes raw degF FTEMP nor converts the general flag policy into blanket refusal.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; processing-history 0/7; all four SB-ENV-006 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-005; the two new tests produced exact RED before the manifest/runner change and targeted GREEN afterward. TypeScript and the neighbouring precondition regressions are green; the fresh full gate is 1045 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `DEGRADED-RESULT` closed by explicit refusal; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for SB-ENV-006's refusal branch. No correction coefficient, chart value, default, flag identity or persistence owner was chosen. SB-ENV-005's manifest and SB-ENV-007's per-sample four-state channel remain separate blocked/next obligations rather than being claimed by this refusal.
+- **Next action:** retain the source-bearing whole-run guard and universal `*_EC` inventory; execute REVIEW.md separately; continue serially to SB-ENV-007 without calling a refusal a correction-state channel.
 
 ## SB-ENV-007 - Per-sample correction flag channel
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T11/T13; sections 4.1, 6.2 and 8.
-- **Atomic obligations:** emit full, partial, not-applied and refused states per sample, typed through SB-ENV-030 and linked to the step set.
-- **Current source:** the three environmental-correction helpers emit only corrected numeric curves; no companion correction-state output exists.
-- **Qualifying acceptance tests:** none; T11/T13 are missing. Test class `MISSING`.
-- **Supporting tests:** nominal correction arithmetic does not observe state custody.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on the missing applied-step model and typed flag model.
-- **Next action:** define the typed correction-state channel and exercise all four states with partial-coverage inputs.
+- **Specified contract:** every environmental correction emits a companion per-sample channel distinguishing full / partial / not applied / refused, in SB-ENV-030's single polarity. DEC-031 (2026-08-17) first ruled one coded state curve; DEC-060 (same day, Jauhar's re-adjudication) REVERSED that to a one-hot boolean flag group - FULL/PARTIAL/NONE/REFUSED, ordinary 1 = true flags - with DEC-031's parts (b) applied-step manifest and (c) partial-correction authorization unchanged.
+- **Current implementation (2026-08-18):** DONE, remediated same-day after the first implementation shipped the coded `_CSTATE` form against the already-reversed ruling. gr_hole_corr / rhob_hole_corr / nphi_env_corr emit `<OUT>_FULL/_PARTIAL/_NONE/_REFUSED` on every run (namespaced per corrected output because three modules write one store; REFUSED closes the vocabulary and is 0 wherever sampled since the only refusal today is whole-run); exactly one flag true per sampled depth, all four MISSING where the input is; the uncovered gap passes RAW through WITH the NONE flag recording it; the manifest still rides `log_sets.comment`; SB-ENV-006 stays narrowed to no-finite-caliper-anywhere. The coded-form MASK-refusal guard was dropped per DEC-060's explicit instruction. All twelve flags registered in the typed flag-kind inventory.
+- **Qualifying tests:** the one-hot invariant, the recorded pass-through, nphi's PARTIAL never reading FULL, and both sides of part (c) at modules level; the stored group and log-set manifest through the production runner. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-008 - Validity conditions are visible before the run, not only after it
 
 - **Chapter evidence:** P2; chapter status `ABSENT`; T14; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** show every condition and source beside its field and pre-mark conditions that cannot be evaluated because inputs are absent.
-- **Current source:** `moduleDialog.ts` renders numeric min/max controls and selected `sources_topic` content, but no general condition record exists and the dialog does not preflight required-input availability or show an un-evaluable state.
-- **Qualifying acceptance tests:** none; no dialog-level T14 body exists. Test class `MISSING`.
-- **Supporting tests:** frontend compilation and selected source rendering do not exercise the required pre-run state.
-- **Manual evidence:** conditioning 0/27; workflow 0/23.
-- **Git evidence:** partial UI seams are integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-001/SB-ENV-004 data and the input-availability preflight are absent.
-- **Next action:** render the shared condition/source model and add a dialog test with both evaluable and missing-companion controls.
+- **Current source:** every manifest condition is now a visible field-adjacent card containing its stable id, full statement and source. `module_input_availability` resolves each scoped well through the same input-set/native/computed-only curve path as a real run, reduces the result to finite argument-name availability in Rust, and sends no curve arrays through JSON. Scope, selected mnemonic, input log set and project-data changes all refresh the card with a generation guard against stale responses.
+- **Qualifying acceptance tests:** `a_missing_required_well_input_is_marked_beside_its_sourced_condition_before_the_run` is T14 CORRECTNESS. It renders the exact sourced condition for a two-state fixture, requires the missing-CALI scope to name CALI and the affected physical-condition identity before launch, then requires the finite-CALI control to say inputs are available and contain no un-evaluable text. The test also requires the live pane to call the scoped backend preflight and route it into the visible renderer.
+- **Supporting tests:** the unchanged GR all-uncovered refusal and computed-only FTEMP regression both remain green after factoring their shared input resolver; frontend acceptance is 26/26. They prove the preflight did not create a different raw/computed resolution route or weaken the public guard.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; verification-stewardship 6/124; all four SB-ENV-008 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-007; exact T14 was RED because no renderer/preflight function existed and GREEN after implementation. TypeScript, cargo check and focused neighbouring Rust regressions are green; the exact full gate follows before commit.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed at the pre-run reporting surface; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for T14. No petrophysical value, endpoint, fallback mnemonic or default was added. SB-ENV-004's missing parameter-source inventory remains separately blocked; T14 displays every source already declared by the manifest and does not claim those declarations are complete.
+- **Next action:** retain the visible source/state card and exact runner-resolver preflight; Jauhar executes the unchecked visual/performance review separately; continue serially to SB-ENV-009 without treating visible metadata as proof that every method selector is backend-validated.
 
 ## SB-ENV-009 - A method-selection string that matches no known method is an error
 
 - **Chapter evidence:** P0; chapter status `PRESENT-UNVERIFIED`; T03/T15; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** validate every named selector against its closed set; refuse unknown values by name; never fall through or retain prior-frame values.
-- **Current source:** dialogs constrain choices, but backend `ctx.o()` receives strings without a common enumeration check. Multiple module bodies implement `== known` plus an `else` branch, so an API/saved value outside the manifest can select a fallback rather than refuse.
-- **Qualifying acceptance tests:** none; T03/T15 are missing. Test class `MISSING`.
-- **Supporting tests:** choice-label and manifest-shape tests do not inject an invalid backend selector.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; formation-temperature 0/0 not recorded.
-- **Git evidence:** the divergent string dispatch is integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one backend option validator and stale-output control are missing.
-- **Next action:** validate manifest choices before every dispatch and test unknown strings after a valid frame through direct and saved-chain paths.
+- **Current source:** `modules.rs::validate_option_value` and `validate_module_options` share the closed-set check used at the direct algorithm boundary. `chain.rs::run_chain` preflights every step's closed-set selectors before `complete_chain_sets`, so an invalid later selector cannot leave an earlier step's output inside the refused saved-chain run.
+- **Qualifying acceptance tests:** `modules.rs::an_unknown_method_name_is_refused_with_its_parameter_value_and_permitted_set_before_any_branch_runs` owns T03 across the registered Option inventory; `chain.rs::an_invalid_saved_chain_step_after_a_valid_step_refuses_before_any_previous_value_is_versioned` owns T15 at the saved-chain poll and persisted-output surfaces. Test class `CORRECTNESS`.
+- **Supporting tests:** the existing source-bearing precondition and dialog/chain/batch/zone refusal tests remain focused neighbouring controls.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; four SB-ENV-009 review scenarios remain unchecked; formation-temperature 0/0 not recorded.
+- **Git evidence:** exact T15 was RED as `Completed { steps_run: 2, curves_written: 2, ... }` after the valid first step, then GREEN with a failed poll payload and zero set/current/archive rows. Exact T03 is GREEN from both rejected-unknown and accepted-declared sides; the full repository gate remains a commit precondition.
+- **Verdict:** source-owned chapter status remains `PRESENT-UNVERIFIED`; live as-built is `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed for registered closed-set selectors; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none. No petrophysical parameter, endpoint, fallback method or default was added. This is not a claim that data-dependent saved-chain failures are transactionally atomic.
+- **Next action:** retain whole-chain selector preflight plus the direct algorithm-boundary validation; execute the unchecked saved-workflow review separately; continue with the next approved `QC_CONDITIONING` row, SB-ENV-021. SB-ENV-010 remains deferred and outside Gate 2's exact 222-row scope.
 
 ## SB-ENV-010 - The GR borehole correction models hole size, mud weight, tool position and mud type
 
@@ -280,196 +274,168 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; T31/T32; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** evaluate caliper and density-correction terms independently; use whichever exists; return MISSING when neither is evaluable; record which terms were evaluated.
-- **Current source:** `modules.rs::badhole` tracks `any` and `bad`, evaluates the two terms independently and leaves the result MISSING when neither can run. It emits no evaluated-term or reason record.
-- **Qualifying acceptance tests:** none; T31/T32's complete degradation-plus-custody contract has no executable body. Test class `MISSING`.
-- **Supporting tests:** `modules::tests::badhole_flags_washout_and_drho` passed and proves nominal two-term arithmetic, but not every availability combination or the missing term record.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the partial degradation logic is integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-022's reason channel is absent.
-- **Next action:** emit the evaluated-term state and add both single-input controls plus the neither-evaluable MISSING case.
+- **Current source:** `modules.rs::badhole` still evaluates the caliper and DRHO criteria independently and leaves BADHOLE MISSING when neither can run. It now declares and emits `BADHOLE_CALI_EVALUATED` and `BADHOLE_DRHO_EVALUATED` as one-hot availability records beside the unchanged BADHOLE mask.
+- **Qualifying acceptance tests:** `modules.rs::a_bad_hole_flag_uses_each_available_term_records_which_was_evaluated_and_stays_missing_when_neither_was_evaluable` owns T32 from both single-input sides plus both/neither and the genuine-good-zero discriminator. Test class `CORRECTNESS`.
+- **Supporting tests:** nominal bad-hole arithmetic, manifest/output-key parity, generic-store masking and complete curve ancestry remain focused green controls.
+- **Manual evidence:** conditioning 1/54; workflow 0/41; processing-history 0/7; four SB-ENV-021 review scenarios remain unchecked.
+- **Git evidence:** exact T32 was RED because the returned output had no evaluated-term keys, then GREEN with explicit per-sample availability and an unchanged MISSING-versus-zero distinction. The full repository gate remains a commit precondition.
+- **Verdict:** source-owned chapter status remains `PARTIAL`; live as-built is `PRESENT-OK`; `PILOT-BLOCKER` handled; `DEGRADED-RESULT` closed for criterion availability; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for SB-ENV-021. No threshold or bit-size value became a default; the test values are explicit fixture inputs. SB-ENV-022's cause channel and SB-ENV-023's DRHO sign remain separate open contracts.
+- **Next action:** retain the independent degradation and one-hot availability outputs; execute the unchecked review separately; continue serially to SB-ENV-022 without calling availability a diagnosis.
 
 ## SB-ENV-022 - Bad-hole flag carries a reason channel
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T31; sections 4.3, 6.3, 7.1 OI-7 and 8.
-- **Atomic obligations:** identify caliper, density correction, both or neither-evaluable per sample.
-- **Current source:** `badhole` emits only one untyped numeric `BADHOLE` curve; the information used to set it is discarded.
-- **Qualifying acceptance tests:** none; T31 is missing. Test class `MISSING`.
-- **Supporting tests:** the arithmetic test cannot recover which criterion fired from the output.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** OI-7 leaves one encoded reason curve versus several typed booleans open.
-- **Next action:** settle OI-7, emit the four reason states and prove they remain distinguishable after persistence/export.
+- **Specified contract:** a companion channel identifying caliper, DRHO, both, evaluated-good and neither-evaluable. DEC-032 (2026-08-17) first ruled one coded curve; DEC-060 (same day, Jauhar's re-adjudication) REVERSED it to a typed boolean group.
+- **Current implementation (2026-08-18):** DONE, remediated same-day after the first implementation shipped the coded form against the already-reversed ruling. `BADHOLE_CALI` / `BADHOLE_DRHO_POS` / `BADHOLE_DRHO_NEG`, ordinary 1 = true flags in the typed inventory; per flag 1 = fired, 0 = evaluated-clean, MISSING = not evaluable (so nothing-evaluable never reads clean); both-fired is two flags true natively; causation never inferred from availability. The coded-form MASK-refusal guard was dropped per DEC-060's explicit instruction - an ordinary flag is safe in the mask machinery.
+- **Qualifying tests:** every cause combination, evaluated-clean, not-evaluable and BADHOLE agreement on one fixture; plus the runner-level pin that a stored cause flag is ACCEPTED as a MASK and blanks exactly the fired samples. Five mutations killed on distinct assertions. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-023 - The density correction's sign is preserved and reported
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T31; sections 4.3, 6.3 and 8.
-- **Atomic obligations:** preserve the sign of each density-correction exceedance in the reason output.
-- **Current source:** `badhole` compares `abs(DRHO)` and emits only 0/1, so the sign is irrecoverably discarded.
-- **Qualifying acceptance tests:** none; T31 is missing. Test class `MISSING`.
-- **Supporting tests:** the existing bad-hole test covers magnitude only and supplies no positive/negative reason assertion.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on the reason-channel representation selected under OI-7.
-- **Next action:** preserve positive and negative exceedances as distinct typed reasons, with equal-magnitude opposite-sign controls.
+- **Specified contract:** the DRHO cause retains its sign in every combination. Under DEC-060 (reversing DEC-032) the sign lives on its own flag, so it survives combination BY CONSTRUCTION rather than by enumerated combined codes.
+- **Current implementation (2026-08-18):** DONE, in SB-ENV-022's boolean cause group (`BADHOLE_DRHO_POS` / `BADHOLE_DRHO_NEG`); the sign is the DRHO reading's own, carried through, never re-derived.
+- **Qualifying test:** the solo POS/NEG samples pin the sign alone; caliper+POS and caliper+NEG pin the sign surviving the combination; the sign-inversion and sign-dropped mutations each fire their own assertion. Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-024 - Bad-hole thresholds ship ABSENT with cited presets
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T07/T33; sections 4.3, 5, 6.3, 7.2 ESC-1 and 8.
 - **Atomic obligations:** ship both thresholds absent; optionally expose only named, cited presets; persist the chosen preset.
-- **Current source:** `badhole_spec` ships numeric threshold defaults with no source/preset identity, and run provenance cannot name a selected preset.
-- **Qualifying acceptance tests:** none; T07/T33 are missing. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho` uses supplied fixture thresholds and is not authority for defaults.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** the divergent defaults are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** ESC-1 leaves which cited presets, if any, ship; the default values are not authorized.
-- **Next action:** remove both defaults now; add preset identities only after ESC-1 is answered from cited study records.
+- **Current source:** `badhole_spec` already declares both thresholds through required `param_open` arguments. Each has an empty default and the exact `ABSENT` source token; public dispatch refuses before arithmetic when either threshold is absent. No named preset selector is exposed while ESC-1 is unresolved.
+- **Qualifying acceptance tests:** `modules::tests::both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run` owns the mandatory T07/T33 contract from both missing-threshold sides, then uses only the chapter-cited 0.02 g/cc and 2 in values as explicit inputs for a below/above-threshold arithmetic control. Test class `CORRECTNESS`.
+- **Supporting tests:** the registry-wide sourced/default audit and generic ABSENT-parameter refusal remain supporting only; nominal bad-hole tests continue to use explicit fixture thresholds and are not authority for shipped defaults.
+- **Manual evidence:** conditioning 1/66; processing-history 0/7; all four SB-ENV-024 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-023; focused exact proof is green. TypeScript and cargo check are green; the fresh full gate is 1050 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source-owned chapter status remains `PRESENT-DIVERGENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed for shipped defaults and both mandatory refusal sides; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for the mandatory contract. The requirement says the application MAY offer named presets, so no preset is manufactured. ESC-1 remains open and must be answered before any named preset is added; therefore its conditional provenance obligation is not triggered by the current product.
+- **Next action:** retain both required ABSENT thresholds; do not relabel explicit entry as a preset; execute the unchecked review separately and continue SB-ENV-025.
 
 ## SB-ENV-025 - Bit size is an input, never a default
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T33/T34; sections 4.3, 5, 6.3 and 8.
 - **Atomic obligations:** obtain bit size from curve/header/explicit entry; never default it; report the caliper term unavailable and continue with density correction when absent.
-- **Current source:** `badhole` substitutes `BS_DEF` whenever the bit-size curve is missing, so the caliper term silently runs on invented geometry.
-- **Qualifying acceptance tests:** none; T33/T34 are missing. Test class `MISSING`.
-- **Supporting tests:** nominal bad-hole arithmetic does not exercise absent bit size without the fallback.
-- **Manual evidence:** conditioning 0/27; data-conventions 0/45.
-- **Git evidence:** the divergent fallback is integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** section 5 specifies bit size ABSENT; no replacement default may be chosen.
-- **Next action:** remove `BS_DEF`, make the caliper term explicitly unavailable without geometry and prove the density term still operates.
+- **Current source:** the bad-hole manifest has no `BS_DEF`. It offers the measured `BS` curve and an optional, empty-by-default `BS_INPUT`; the scalar declares no physical min/max because the chapter cites none. The algorithm prefers the curve, uses the scalar only when explicitly supplied and marks caliper unavailable when neither exists, while independently evaluating DRHO.
+- **Qualifying acceptance tests:** `modules::tests::bit_size_has_no_default_and_missing_geometry_disables_only_caliper_while_curve_and_explicit_entry_remain_available` owns T34 and the SB-ENV-025 part of T33. It inventories away BS_DEF, proves the scalar has ABSENT/empty/no-bounds metadata, executes absent geometry with bad/good/missing DRHO, and pins measured-curve plus explicit-entry controls from the strict differential threshold's boundary and firing sides. Test class `CORRECTNESS`.
+- **Supporting tests:** SB-ENV-021 still proves independent availability; SB-ENV-024 now reaches public dispatch without any bit-size argument; the generic-store workflow uses an explicit `BS_INPUT` and retains mask behavior. None is substituted for the owned T34 proof.
+- **Manual evidence:** conditioning 1/70; data-conventions 4/130; all four SB-ENV-025 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-024; exact T34 was RED on the surviving BS_DEF manifest, then GREEN after the fallback was removed. TypeScript and cargo check are green; the fresh full gate is 1051 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source-owned chapter status remains `PRESENT-DIVERGENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed for the bad-hole bit-size fallback; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none. No physical range or replacement value was invented. A well-header value can be transcribed as explicit `BS_INPUT`; the module does not silently infer a header or claim unproved automatic header binding.
+- **Next action:** retain the absent/curve/explicit-entry contract, exercise the unchecked UI and delivery review separately, and continue SB-ENV-026 without changing the separate GR-correction BS_DEF path outside this requirement.
 
 ## SB-ENV-026 - DRHO's unit is declared on the curve and validated at the threshold
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; T35; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** persist density-correction curve units; reconcile them with threshold units; refuse missing or incompatible declarations, in both mismatch directions.
-- **Current source:** the manifest labels the expected log/threshold unit, and a generic curve-unit registry exists, but `badhole` receives plain numeric arrays and never validates the actual curve unit against the threshold.
-- **Qualifying acceptance tests:** none; T35 is missing. Test class `MISSING`.
-- **Supporting tests:** generic unit-conversion tests do not enter the bad-hole threshold path.
-- **Manual evidence:** data-conventions 0/45; conditioning 0/27.
-- **Git evidence:** `UNIMPLEMENTED` at the bad-hole consumer boundary.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** no scientific value is missing; the absent piece is typed metadata propagation and refusal.
-- **Next action:** carry curve units into module resolution and implement compatible conversion plus both incompatible/missing-unit refusals.
+- **Current source:** LAS and DLIS imports inspect the delivered DRHO-family unit before any write. A missing declaration refuses until the user states `g/cc` or `kg/m3`; the unit registry owns the cited `G/C3` and `k/m3` spellings and exact `kg/m3` to canonical `g/cc` conversion. Workflow input resolution now carries the actual selected curve's stored unit into `badhole`. The threshold has a blank-by-default unit selector, and the module refuses a missing curve unit, missing threshold unit, unsupported unit or either mismatch direction before arithmetic.
+- **Qualifying acceptance tests:** `workflow::tests::a_drho_unit_is_required_on_import_and_both_threshold_unit_mismatch_directions_refuse_before_flagging` owns T35. It proves absent import metadata leaves no partial well, an explicit `kg/m3` declaration stores 100 kg/m3 as the cited 0.1 g/cc canonical value, missing consumer metadata refuses, both kg/m3-versus-g/cc directions refuse, and matching g/cc reaches below/above-threshold arithmetic. Test class `CORRECTNESS`.
+- **Supporting tests:** the unit-registry equality test proves the Rust/UI/documentation/test consumers share the same spellings and conversion rule; the existing bad-hole and generic-store workflow tests remain green after explicit threshold-unit custody. They do not substitute for T35.
+- **Manual evidence:** data-conventions 4/134; conditioning 1/74; all four SB-ENV-026 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-025; exact T35 was RED when `. :` was misread as a literal unit and import accepted the undeclared curve, then GREEN after parser-boundary, import-custody and consumer-refusal changes. TypeScript and cargo check are green; the fresh full gate is 1052 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source-owned chapter status remains `ABSENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed at import and threshold boundaries; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none. No scientific threshold, tolerance or conversion policy was invented; the only conversion is the chapter's exact 1000:1 bridge, and unlike a compatible conversion during import, a threshold-unit mismatch refuses exactly as T35 requires.
+- **Next action:** retain explicit DRHO import and threshold-unit custody, execute the unchecked UI and delivery review separately, and continue SB-ENV-027 without inventing OI-5's repair-exemption declaration shape.
 
-## SB-ENV-027 - A module whose purpose is to produce a value where the mask says there is none MUST be exempt from the mask
+## SB-ENV-027 - A repair module MUST be exempt from the mask
 
-- **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T36/T37; sections 4.3, 6.3, 7.1 OI-5 and 8.
-- **Atomic obligations:** declare a justified repair exemption; bypass both input and output mask passes; mark each reconstructed masked sample.
-- **Current source:** `workflow.rs` blanks all module inputs before execution and all outputs afterward. No exemption or reconstructed-sample marker exists.
-- **Qualifying acceptance tests:** `workflow::tests::a_masked_washout_defeats_the_very_module_meant_to_repair_it` passed with one actual test line. It deliberately pins the two-pass defect plus an unmasked working control, so it is `CHARACTERIZATION`.
-- **Supporting tests:** ordinary mask-exclusion tests prove the general mask, not the required repair exception.
-- **Manual evidence:** conditioning 0/27; workflow 0/23.
-- **Git evidence:** the divergent mask runner and characterization are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** OI-5 leaves the exemption declaration shape open.
-- **Next action:** settle OI-5, exempt both mask passes for declared repair modules, emit a reconstructed marker and invert the characterization into T36/T37 correctness.
+- **Specified contract:** a module whose purpose is to produce a value where the mask says there is none must be exempt from the mask; DEC-033 (RULED 2026-08-17) chose a CONDITIONAL PER-OUTPUT declaration with exactly one approved entry - `log_predict.SYN` when `OPT_COMBINE = MAX_RAW` - and four constraints (per output AND per mode; both passes bypassed; a typed reconstructed-sample marker; inventory additions are decisions).
+- **Current implementation (2026-08-18):** DONE. The runner declares the one entry inline (with the returns-to-DEC-033 rule stated); a matching run skips the input mask pass and its declared output skips the output pass; `<output>_RECON_FLAG` (the `{MODULE}_PRECONDITION_FLAG` naming family) marks 1 = finite value produced at a masked depth, 0 = ordinary finite sample, MISSING where the output is. SYNTHETIC and FILL_MISSING stay masked normally. Closes AUDIT-2026-07-21 Prep statistical #1; T-PREP-16 and review_triage updated with the inverted pin.
+- **Qualifying tests:** `workflow::tests::the_one_declared_repair_survives_the_mask_and_wears_its_marker_while_other_modes_stay_masked` (all four constraints; the both-passes witness is bit-exact - the flagged depth's raw 200 survives as max(raw, syn), which a masked input could never have seen) and `workflow::tests::the_masked_washout_is_now_repaired_by_the_declared_exemption_it_once_defeated` (the inverted former characterization pin, marker included). Four mutations killed: mode arm dropped, input pass reapplied, output exemption removed, marker marking everything. Test class `CORRECTNESS`.
+- **Manual evidence:** none claimed; T-PREP-16 stays Jauhar-owned field acceptance.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-028 - The mask is recorded in the run's provenance
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T27/T28; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** persist the applied mask identity or explicit none so masked and unmasked outputs remain distinguishable.
-- **Current source:** `MASK` is carried in request options and used by the runner, but direct-run `params_json` and `inputs_json` omit options; chain provenance records only module IDs. No persisted mask identity exists.
-- **Qualifying acceptance tests:** none; T27/T28 are missing. Test class `MISSING`.
-- **Supporting tests:** mask behavior and generic log-set provenance tests do not retrieve the mask after the run.
-- **Manual evidence:** processing-history 0/7; conditioning 0/27; workflow 0/23.
-- **Git evidence:** mask execution is integrated; provenance custody is `UNIMPLEMENTED`.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** no owner decision is required; the run identity is simply omitted.
-- **Next action:** persist `MASK` including explicit none in direct and chain records and prove reload distinguishes otherwise identical runs.
+- **Current source:** `workflow::mask_provenance` converts the universal run option into one typed, non-overlapping ancestry value: `{state: APPLIED, curve: <canonical mnemonic>}` or `{state: NONE}`. `complete_module_log_spec` stores it as direct-run `MASK`; `complete_chain_sets` stores one value per one-based `step[n].MASK`, beside the existing step-indexed output derivations. The legacy flat scalar-parameter payload remains unchanged.
+- **Qualifying acceptance tests:** `chain::tests::every_completed_direct_and_chain_run_records_the_applied_mask_or_explicit_none_and_the_chain_step_position` drives three otherwise identical direct versions and a two-step saved chain through the real writer, closes and reopens the database, and retrieves the canonical ancestry. It distinguishes BADHOLE, explicit no mask and an applied curve literally named `NONE`, then proves both chain positions and output derivations; test class `CORRECTNESS` from T28.
+- **Supporting tests:** workflow and chain suites remain green; existing mask arithmetic tests continue to prove exclusion behavior separately rather than being relabelled provenance proof.
+- **Manual evidence:** processing-history 0/7; conditioning 1/82; workflow 0/49; all four SB-ENV-028 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-027; targeted owner test and complete workflow/chain module suites are green before the full gate. No database schema/write-discipline or masking arithmetic changed.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Visual, Manual and Field evidence remain open.
+- **Blocker or decision:** none for SB-ENV-028. OI-4's broader correction-step/edit persistence decision remains open and is not silently settled by this narrow run-context record.
+- **Next action:** preserve typed direct/per-step mask custody, execute the four review scenarios separately and continue SB-ENV-029 without inferring neutron matrix-scale metadata.
 
-## SB-ENV-029 - Conditioning flags validate their own stated preconditions
+## SB-ENV-029 - Conditioning validates neutron scale against the declared matrix
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T18/T19; sections 4.3, 6.3 and 8.
-- **Atomic obligations:** validate the documented neutron matrix-scale pairing before crossover arithmetic and refuse/flag a mismatch.
-- **Current source:** `condflag_spec` contains a prose warning; `condflag` consumes numeric curves and matrix parameters without matrix-scale metadata or validation.
-- **Qualifying acceptance tests:** none; T18 is missing and T19 remains a specified characterization only. Test class `MISSING`.
-- **Supporting tests:** condflag detection tests exercise numerical branches with no scale metadata.
-- **Manual evidence:** conditioning 0/27; data-conventions 0/45.
-- **Git evidence:** `UNIMPLEMENTED` at the consumer precondition boundary.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on SB-ENV-012's typed neutron-scale metadata, not on an invented numeric offset.
-- **Next action:** implement the metadata contract first, then add matched, mismatched, absent and unknown scale controls at `condflag`.
+- **Specified contract:** the neutron-scale metadata seam (DEC-025) plus consumer validation of matched / mismatched / absent / unknown, with the uncited numeric offset kept characterization-only.
+- **Current implementation (2026-08-18):** DONE. The seam shipped under SB-DBM-017; the runner resolves the same NPHI curve the fetch used and injects its declared basis; nphimat gates MATRIX_IN against it - matched runs bit-identical to undeclared, mismatched refuses naming both sides and DEC-025, unknown refuses naming the token and `set_curve_neutron_basis`, absent runs on the option alone (the module has its scale; refuse-without applies to an unreconcilable declaration, not to silence - legacy projects keep running).
+- **Qualifying tests:** all four states at the consumer plus the production-runner injection. Four mutations killed on distinct assertions (unknown silently accepted, mismatch dropped, matched path perturbed, injection dropped). Test class `CORRECTNESS`.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-030 - One flag polarity, defined once, as a type
 
 - **Chapter evidence:** P0; chapter status `PRESENT-UNVERIFIED`; T38/T39; sections 4.3, 6.1 and 8.
 - **Atomic obligations:** enforce one polarity at compile time, define it once as a type, and persist flag kind so exclusion masks and diagnostic indicators are distinct.
-- **Current source:** current ENV/Condition producers consistently use numeric 1 for the flagged state, but each site constructs raw `f32` curves. No enum/newtype, central polarity definition, flag-kind metadata or validator exists.
-- **Qualifying acceptance tests:** none; the promised compile-time inventory and type distinction T38/T39 are absent. Test class `MISSING`.
-- **Supporting tests:** bad-hole, condition and mask tests separately assert 0/1 values; agreement by convention is not compile-time impossibility.
+- **Current source:** `modules::FlagValue` is the sole typed conversion from `Missing/Clear/Flagged` to `f32::NAN/0/1`; `FlagCurve` constructs and validates every migrated ENV/Condition flag channel. `ArgSpec.flag_kind` declares `EXCLUSION_MASK` or `DIAGNOSTIC_INDICATOR`; the module registry refuses a kind on a non-output, the run boundary rejects any other finite wire value, and `workflow` persists the resolved renamed/prefixed kind as direct `FLAG_KIND.<curve>` or saved-chain `step[n].FLAG_KIND.<curve>`. The module dialog names the role without requiring a consumer to inspect samples. Flip's `OUT_FLAG` remains an ordinary numeric pivot and is deliberately not misclassified.
+- **Qualifying acceptance tests:** `modules::tests::every_environment_flag_emitter_uses_the_one_typed_polarity_and_declares_its_flag_kind` owns exact T38: it inventories every ENV/Condition flag-emitting output, both semantic roles and the framework companion, pins the sole declaration and the cited `MISSING/0/1` mapping, and excludes Flip's pivot. `chain::tests::an_exclusion_mask_and_a_diagnostic_indicator_remain_distinguishable_without_reading_their_values` owns exact T39 through the real direct and chain writers, renamed output controls and database reload; it queries only persisted type metadata and uses the chapter-cited 0.15 g/cc and 2 in bad-hole presets rather than supplying uncited `condflag` thresholds. Test class `CORRECTNESS`.
+- **Supporting tests:** complete modules, Condition, chain and workflow suites remain green; TypeScript compilation pins the serialized `FlagKind` union and UI consumption. Existing 0/1 behavior tests continue to prove arithmetic separately rather than substituting convention for the type gate.
 - **Manual evidence:** conditioning 0/27; data-conventions 0/45; workflow 0/23.
-- **Git evidence:** the consistent but untyped convention is integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one typed flag registry and persisted kind are missing.
-- **Next action:** introduce the single polarity/type definition, migrate every ENV emitter and add a whole-registry compile/build gate plus mask/indicator control.
+- **Git evidence:** current topic branch after SB-ENV-029; targeted T38/T39 plus complete modules, Condition, chain and workflow suites are green. TypeScript, cargo check and the fresh full gate are 1055 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; no scientific threshold, flag cause encoding, database schema or computed-curve write discipline changed.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Visual, Manual and Field evidence remain open.
+- **Blocker or decision:** none for SB-ENV-030. DEC-031/DEC-032 still own the separate multi-state correction/reason representations; binary flag type metadata does not invent their categorical codes or cause channels.
+- **Next action:** preserve the typed registry/wire validator/direct-and-chain kind custody, execute the four review scenarios separately and continue SB-ENV-031 without adopting its shipped-uncited despike cutoff.
 
 ## SB-ENV-031 - The despike cutoff shows its contamination ceiling, live
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T40/T69/T70; sections 4.4, 6.4, 7.2 ESC-16 and 8.
 - **Atomic obligations:** display the running estimator's contamination ceiling live, show the 50 percent wall, and keep estimator-specific formulas distinct.
-- **Current source:** `condition::despike` has no contamination-ceiling calculation or UI surface. The dialog exposes method/parameters only.
-- **Qualifying acceptance tests:** none; T40/T69/T70 are missing. Test class `MISSING`.
-- **Supporting tests:** current Hampel behavior tests do not compute or render contamination bounds.
+- **Current source:** `condition.rs` names the true-MAD, mean-deviation fallback and prospective population-sigma estimator branches and computes each chapter formula separately. `despike_contamination_profile` inspects the exact Hampel windows and branch shared with the run. `workflow::despike_contamination_preview` resolves the selected native/computed curve, effective zone-aware WINDOW/K arrays and universal mask through the runner's shared helpers, aggregates branch/sample counts and keeps arrays behind IPC. `lib.rs`, `ipc.ts` and `moduleDialog.ts` expose that read-only preview live with coalesced refreshes; a mixed run renders both branch ceilings and the required masking statement.
+- **Qualifying acceptance tests:** `condition::tests::the_zero_mad_fallback_ceiling_stops_at_half_and_updates_with_k` owns T40; `a_positive_mad_window_reports_the_true_mad_ceiling_not_the_fallback_ceiling` owns T69; `a_future_mean_sigma_estimator_cannot_inherit_a_hampel_ceiling` owns T70. All expected values are independently derived by chapter §2.5 and asserted from both estimator sides. Test class `CORRECTNESS`.
+- **Supporting tests:** `workflow::tests::the_live_despike_preview_reads_the_selected_windows_and_returns_only_branch_counts` forces two selected curves through both real branches and checks the IPC payload has metadata only. `tools/frontend-acceptance.test.mjs::the_live_despike_ceiling_names_every_estimator_branch_and_what_the_percentage_means` proves both branch labels, two percentages, scope/mask disclosure and the required meaning survive rendering.
 - **Manual evidence:** conditioning 0/27.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `DEGRADED-RESULT`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** ESC-16 preserves the uncited shipped threshold concern; pilot inclusion of the live ceiling remains undecided.
-- **Next action:** decide pilot inclusion, then derive each estimator's ceiling from the chapter contract and render/test positive-MAD, zero-MAD and mean-sigma branches without adopting a new threshold.
+- **Git evidence:** current topic branch after SB-ENV-030; exact T40/T69/T70, live read-path, complete Condition/workflow and frontend acceptance suites are green. TypeScript and cargo check are green with the same 31 owned Rust warnings; the fresh full gate is 1060 passed / 0 failed / 37 ignored.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`; Visual, Manual and Field evidence remain open.
+- **Blocker or decision:** none for the live ceiling. ESC-16 remains open only for the uncited K value: this increment keeps K `ABSENT`, chooses no replacement and derives no field cutoff.
+- **Next action:** preserve the estimator-specific live preview, execute the four review scenarios separately and continue SB-ENV-032. A displayed theoretical ceiling is not evidence that the interpreter's WINDOW/K are fit for a delivered curve.
 
 ## SB-ENV-032 - The MAD consistency constant is defined once, named, and cited
 
 - **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; T41; sections 4.4, 5, 6.4 and 8.
 - **Atomic obligations:** one named cited consistency constant is shared by every MAD consumer.
-- **Current source:** the same literal appears independently in `condition.rs::window_spread` and `frame.rs`; it is neither named nor connected to a machine-readable source.
-- **Qualifying acceptance tests:** none; T41 is missing. Test class `MISSING`.
-- **Supporting tests:** despike/frame behavior can pass with duplicated literals and therefore cannot prove single ownership.
+- **Current source:** `robust.rs` owns the one `C_MAD` definition and executable §5.3 source record; `condition.rs::window_spread` and `frame.rs::detect_beds` consume that definition and contain no copied literal.
+- **Qualifying acceptance tests:** `robust::tests::the_mad_gaussian_consistency_constant_has_one_cited_definition_and_no_duplicate_literal` recursively inventories every Rust source, requires exactly one named definition and source record, rejects any second numeric occurrence and requires both current robust consumers to use it. Test class `CORRECTNESS`.
+- **Supporting tests:** all 18 Condition tests and all 20 Frame/Reframe-filtered tests remain green after replacing the truncated copies with the chapter value.
 - **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** duplicate literals are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the chapter supplies the required citation; no new numeric choice is needed.
-- **Next action:** define one cited constant, route all consumers through it and add the whole-tree single-definition T41 gate.
+- **Git evidence:** current topic branch after SB-ENV-031; exact T41 plus complete Condition and Frame suites are green. TypeScript and cargo check are green with the same 31 owned Rust warnings; the expected full gate is 1061 passed / 0 failed / 37 ignored.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Manual and Field evidence remain open.
+- **Blocker or decision:** none; the chapter supplies the mathematical derivation and value, so this increment makes no petrophysical choice.
+- **Next action:** preserve the single source and execute the manual result-regression review separately; continue SB-ENV-033. One constant prevents implementation drift but does not validate Hampel for a delivered curve.
 
-## SB-ENV-033 - A degenerate window is declared, not silently substituted
+## SB-ENV-033 - Four-sample Hampel fallback versus the shipped refusal
 
-- **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; T42; sections 4.4, 6.4 and 8.
-- **Atomic obligations:** declare zero-spread and too-small-window behavior in output/provenance; never silently substitute an estimator.
-- **Current source:** too-small Hampel windows refuse with an actionable message, but zero MAD silently falls back to mean absolute deviation and emits no per-run/per-sample declaration.
-- **Qualifying acceptance tests:** `condition::tests::a_spike_in_a_quiet_interval_is_still_a_spike` and the narrow-window refusal passed. The first pins today's fallback and its comment identifies the divergence, so row test class is `CHARACTERIZATION`.
-- **Supporting tests:** the narrow-window refusal is correct for only one degenerate branch; it cannot close silent zero-MAD substitution.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** mixed refusal/fallback behavior is integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** the fallback reporting surface is absent; no parameter choice is required.
-- **Next action:** make estimator substitution explicit in the result/provenance and convert T42 into two correctness controls: declared fallback and declared refusal.
+- **Specified contract:** exact T42 asked a four-sample window to emit fallback output; DEC-034 (RULED 2026-08-17) separated T42's two situations - the under-five refusal STANDS (at four samples the spike contributes a quarter of the scale used to condemn it), and a zero-MAD window is a DIFFERENT situation that runs on the declared fallback with per-sample disclosure. T42 was corrected citing the ruling.
+- **Current implementation (2026-08-18):** DONE. The MIN_HAMPEL_SAMPLES guard and its regression are untouched. The Hampel arm records per sample WHICH scale judged it on `OUT_FBSCALE` (`{CURVE}_FBSCALE`, FlagKind::DiagnosticIndicator, registered in the typed ENV/Condition flag inventory): 1 = mean-deviation fallback (zero-MAD window), 0 = true MAD, MISSING = no judgement. Its own channel, never OUT_FLAG (constraint 1); ships on every Hampel run regardless of OPT_FLAG - disclosure, not the replaced-sample flag. A refusal claims no per-sample channel (constraint 2).
+- **Qualifying test:** `condition::tests::the_four_sample_window_still_refuses_while_a_zero_mad_window_runs_and_reports_its_fallback_scale` - both sides in one test (constraint 3): refusal naming the floor; zero-MAD run repairing the spike with the diagnostic 1 exactly there; MISSING claims nothing; diagnostic provably differs from OUT_FLAG on the same run; true-MAD reads 0; ABS carries none. Three mutations killed: floor removed, diagnostic not emitted, estimator record inverted. Test class `CORRECTNESS`.
+- **Named cost (recorded, not softened):** despike still will not run where a window cannot reach five samples.
+- **Verdict:** `PRESENT-OK`; Gate 2 DONE 2026-08-18 @ codex/g2-program-plan (pre-PR).
 
 ## SB-ENV-034 - Every window, gap and thickness parameter is a thickness in the project's depth unit
 
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; T43; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** no sample-count windows; every conditioning/framing window, gap, bed/shoulder and filter length resolves as physical thickness against its own depth frame.
-- **Current source:** Condition and Frame specs use physical-thickness parameters and their algorithms resolve depth windows from actual samples; `condflag` thickness/shoulder arithmetic also uses depth differences. The declaration tokens remain inconsistent under SB-ENV-057.
-- **Qualifying acceptance tests:** none for the universal inventory; T43 is not implemented as a whole-registry gate. Test class `MISSING`.
-- **Supporting tests:** `a_despike_window_covers_the_same_rock_at_any_sampling` passed and proves one resampling-invariant path, not every declaration/caller.
+- **Current source:** Condition and Frame resolve `WINDOW`, `MAX_GAP`, `INTERVAL` and `MIN_BED` from actual depth differences; `condflag` resolves `MIN_THICK` and `SHOULDER` from depth extents. No production behavior changed. The declaration-token inconsistency remains separately owned by SB-ENV-057.
+- **Qualifying acceptance tests:** exact T43 `condition::tests::every_conditioning_and_framing_distance_is_physical_thickness_and_a_one_metre_despike_covers_one_metre_at_two_samplings` passes. It inventories all eight current distance declarations, derives eleven versus three samples from the chapter's 1.0 m / 0.1 m / 0.5 m fixture, and pins both a removable 0.4 m feature and a surviving 2.0 m bed. Test class `CORRECTNESS`.
+- **Supporting tests:** the existing block-interval, minimum-bed, fill-gap and `condflag` bed/shoulder tests remain green; they support individual paths but are not counted as separate T43 ownership.
 - **Manual evidence:** conditioning 0/27; data-conventions 0/45.
-- **Git evidence:** the physical-thickness mechanisms are integrated and no sample-count ENV window was found at the accepted anchor.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** exhaustive registry proof is missing; SB-ENV-057 separately blocks token consistency.
-- **Next action:** add T43 as an exhaustive declaration/behavior inventory with two samplings per operation, without changing the existing physical-width semantics.
+- **Git evidence:** the physical-thickness mechanisms are integrated; the exact proof is added in this one-requirement increment.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for physical-thickness behavior; SB-ENV-057 still owns the one-token declaration contract and is not silently closed here.
+- **Next action:** preserve the exhaustive T43 inventory and two-sided sampling control; execute visual/manual/field review separately; continue SB-ENV-035.
 
 ## SB-ENV-035 - Smoothing never bridges a gap, and never invents a sample
 
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; T44; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** every smoothing/filter/average path preserves input MISSING samples; only explicit gap filling may create values.
 - **Current source:** `condition::smooth` clones the input, skips missing centres and shares that preservation rule across mean, median and Savitzky-Golay branches.
-- **Qualifying acceptance tests:** `condition::tests::a_smoothed_curve_never_fills_a_gap` passed exactly once and loops over all three live smoothing methods, asserting both missing preservation and a finite live-sample control. Expected behavior comes from T44; test class `CORRECTNESS`.
+- **Qualifying acceptance tests:** `condition::tests::a_smoothed_curve_never_fills_a_gap` was re-run exactly once for this increment and loops over all three live smoothing methods, asserting both missing preservation and a finite live-sample control. Expected behavior comes from T44; test class `CORRECTNESS`.
 - **Supporting tests:** the quadratic-preservation test differentiates smoothing methods but is not needed for the gap contract.
 - **Manual evidence:** conditioning 0/27.
-- **Git evidence:** behavior and test are integrated at the accepted anchor.
+- **Git evidence:** behavior and test remain integrated; this increment changes evidence only because the exact contract already passes.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; automated proof passes, but conditioning field evidence remains 0/27.
-- **Next action:** preserve T44 unchanged and exercise all three methods on representative pilot data before release acceptance.
+- **Next action:** preserve T44 unchanged, execute the visual/manual/field review separately and continue SB-ENV-037.
 
 ## SB-ENV-036 - Outlier and spurious-population culling exists as a distinct operation
 
@@ -488,27 +454,31 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; T45; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** despike, cull, clip and fill each emit an exact restoration record and exercise bit-exact restore.
-- **Current source:** batch Condition modules keep the input curve and may emit change flags, but do not persist original changed values or a restoration record. Interactive curve editing returns undo pairs and can restore them; the missing cull operation cannot comply.
-- **Qualifying acceptance tests:** none across the operation family; T45 is missing. Test class `MISSING`.
-- **Supporting tests:** `curve_edit::tests::shift_moves_curve_and_restore_undoes_it` passed for one interactive path only; retaining a separate input curve is not the required per-operation recovery record.
-- **Manual evidence:** conditioning 0/27; curve-editing 5/5; processing-history 0/7.
-- **Git evidence:** interactive undo is integrated; universal recovery is incomplete.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** cull is absent and batch restoration payload/persistence is missing.
-- **Next action:** define one bit-exact change record for all four operation families and exercise restore after persistence, including missing values.
+- **Scope ruling:** `DEC-035` re-adjudicated first-pilot T45 to the operations the pilot SHIPS - despike, clip and gap fill - because culling is `SB-ENV-036`, deferred outside `DEC-018`'s immutable pilot manifest; implementing it here would have widened approved scope, and omitting it silently would have weakened the contract. `DEC-061` cleared the increment. T45's cull arm is removed citing that ruling rather than dropped. Smooth and flip are outside the ruling's scope and emit no record.
+- **Current source:** `condition::recovery_record` builds the payload from the ORIGINAL vector - the input value at every flagged sample, `MISSING` elsewhere - and `clip`, `despike` and `fill_gaps` each emit it as `OUT_ORIG` (`<OUT_CURVE>_ORIG`, declared by `recovery_arg`) *inside the same `OPT_FLAG` gate* that emits `OUT_FLAG`. The record is built BEFORE `flag.into_f32()` consumes the flag, so the two are written together or neither is. Restoration is `out[i]` where the flag is clear and `orig[i]` where it is set. Interactive curve editing keeps its existing undo pairs unchanged.
+- **Why the flag and the record are one unit:** in gap fill every changed sample had a MISSING original, so the record is NaN exactly where it restores. Read without the flag, "the original was absent" and "this sample was never touched" are the same bits - a record alone cannot be interpreted, which is why emitting one without its flag is refused rather than merely useless.
+- **Qualifying acceptance tests:** `condition::tests::every_shipped_conditioning_operation_restores_its_input_bit_for_bit_from_its_own_record` is exact `SB-ENV-T45` as re-adjudicated. **Its subject is the ROUND TRIP, not the record's shape** - a test asserting only that `OUT_ORIG` holds certain values would pass for a record nothing can restore from, which is the defect this row names. One shared `restore()` is applied to all three operations and compared by `to_bits()` (`assert_eq!` on f32 makes every NaN unequal, and NaN is exactly the case that matters), with a fourth arm proving the together-or-neither rule. Test class `CORRECTNESS`.
+- **Fixture custody:** the gap fixture uses `f32::from_bits(0x7FC0_1234)`, a NaN with a distinct payload, asserted non-canonical at the top of the arm. An earlier fixture used `f32::NAN`, which is bit-identical to this module's `MISSING`, so bit custody was only nominal - the mutation that drops the NaN payload PASSED against it. A bit-exactness test whose fixture uses the canonical bit pattern is not testing bit-exactness.
+- **Mutation record:** four mutations, four distinct assertions. An empty record fires `clip must restore bit for bit from its own record` (:1451); dropping the NaN payload fires `gap fill must restore the ORIGINAL ABSENCE, NaN included, not merely a number` (:1480); writing the record as all-`MISSING` fires :1451; lifting the record out of its `OPT_FLAG` gate at all three sites fires `a recovery record without its flag cannot be read back and must not be written` (:1508). Each was applied and reverted from a sha256-verified byte copy, and `git diff --stat` confirmed insertions only.
+- **Supporting tests:** `curve_edit::tests::shift_moves_curve_and_restore_undoes_it` retains its narrower interactive-path regression; it is not substituted for the per-operation record proof.
+- **Manual evidence:** conditioning 0/27; curve-editing 5/5; processing-history 0/7 - unexercised. Automated only; no manual or field evidence is claimed.
+- **Git evidence:** the increment adds `recovery_record`/`recovery_arg` and one `OUT_ORIG` declaration to `clip_spec`, `despike_spec` and `fill_gaps_spec`, plus the exact proof. No existing assertion was deleted, weakened or ignored; no refusal or guard was narrowed; full suite 1050 passed / 0 failed / 37 ignored.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `RECOVERY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none outstanding. Cleared by `DEC-035` and `DEC-061`.
+- **Next action:** retain the helper unchanged. If `SB-ENV-036` is later approved, culling adopts the same `recovery_record` and the same gate rather than inventing a second record shape.
 
 ## SB-ENV-038 - Gap filling states its boundary comparison and refuses an open-ended gap
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; T46; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** document and test the exact-equality boundary; skip both open ends; measure between live anchors; flag every inserted sample.
-- **Current source:** `fill_gaps_spec` says gaps no wider than the limit are filled; `fill_gaps` uses `span > max` to skip, so equality fills, rejects open-ended runs and flags inserted samples.
-- **Qualifying acceptance tests:** none for the exact-boundary clause. The existing focused test passed for inside, outside and both open ends, but does not put a gap exactly on `MAX_GAP`; test class `MISSING`.
-- **Supporting tests:** `fill_gaps_bridges_only_a_bounded_hole_inside_the_limit` proves the other four obligations and a flag-count control.
+- **Current source:** `fill_gaps_spec` says gaps no wider than the limit are filled; `fill_gaps` measures the physical span between live anchors and skips only when that span is greater than `MAX_GAP`, so equality fills, both open ends remain missing and every inserted sample is flagged.
+- **Qualifying acceptance tests:** exact T46 `condition::tests::a_gap_at_or_below_the_maximum_is_filled_while_epsilon_over_and_both_open_ends_are_not` passes. One missing row sits behind live-anchor spans of 0.875 m, exactly 1.000 m and 1.125 m against a supplied 1.000 m maximum, so a row-count shortcut cannot pass; it proves under/equal fill, over-limit and both-open-end refusal, unchanged measured samples and exact inserted-sample flags. Test class `CORRECTNESS`.
+- **Supporting tests:** `fill_gaps_bridges_only_a_bounded_hole_inside_the_limit` and `holding_a_gap_draws_no_transition_the_rock_does_not_have` remain green for broader LINEAR/HOLD behavior; neither is counted as separate T46 ownership.
 - **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** behavior is integrated at the accepted anchor; proof is incomplete.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the exact-equality regression required by T46 is missing.
-- **Next action:** add one exact-boundary fixture beside the existing inside/outside/open-end controls; do not change the documented less-than-or-equal behavior.
+- **Git evidence:** production behavior was already integrated; this one-requirement increment adds the missing exact-boundary proof without choosing or defaulting a maximum.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for the boundary/flag contract. A defensible project maximum remains deliberately absent and interpreter-owned.
+- **Next action:** preserve the inclusive live-anchor boundary and flag proof; execute visual/manual/field review separately; continue SB-ENV-039.
 
 ## SB-ENV-039 - Clip refuses rather than repairs
 
@@ -518,10 +488,10 @@
 - **Qualifying acceptance tests:** `condition::tests::clipping_can_blank_or_clamp_and_an_empty_side_is_not_a_bound` passed exactly once; it asserts no-bound and reversed refusals plus one-sided and valid-pair controls. Expected behavior comes from T47; test class `CORRECTNESS`.
 - **Supporting tests:** none needed beyond the two-sided control already in the test.
 - **Manual evidence:** conditioning 0/27.
-- **Git evidence:** behavior and test are integrated at the accepted anchor.
+- **Git evidence:** behavior and qualifying test are integrated; the exact T47 test was re-run once on current parent `4799eb91e18cd05d4f40b4d6d6d2c8186188990d` without changing production or test code.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; automated proof passes, but conditioning field evidence remains open.
-- **Next action:** preserve T47 and field-exercise blank, clamp and one-sided modes before pilot acceptance.
+- **Next action:** preserve T47, execute visual/manual/field review separately and continue SB-ENV-040.
 
 ## SB-ENV-040 - A conditioning output is never the input's own mnemonic
 
@@ -531,36 +501,36 @@
 - **Qualifying acceptance tests:** `workflow::tests::an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` passed exactly once and asserts standard-name, second-output, collision and malformed refusals plus an accepted-name control. T48 is the source; test class `CORRECTNESS`.
 - **Supporting tests:** per-module default-name tests support naming shape but are not needed to close refusal timing.
 - **Manual evidence:** conditioning 0/27; workflow 0/23.
-- **Git evidence:** behavior and test are integrated at the accepted anchor.
+- **Git evidence:** behavior and qualifying test are integrated; exact T48 was re-run once on current parent `42323a6cbf27dc28c06356278f9f79ceb71b2c67` without changing production or test code.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; automated proof passes, but workflow/conditioning field evidence is open.
-- **Next action:** preserve the central preflight and field-exercise an attempted standard-name overwrite plus a safe rename.
+- **Next action:** preserve the central preflight, execute visual/manual/field review separately and continue SB-ENV-041.
 
 ## SB-ENV-041 - The filter kernel and its normalisation are declared in the output
 
 - **Chapter evidence:** P2; chapter status `PRESENT-UNVERIFIED`; T49; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** persist kernel, normalization, end behavior and gap-edge behavior with each smoothed output.
-- **Current source:** the selected smoothing method and window reach the run request, but output/log-set provenance stores numeric parameters and input bindings while omitting option/kernel identity and the normalization/end/gap-edge policy. The curve itself carries no such record.
-- **Qualifying acceptance tests:** none; T49 is missing. Test class `MISSING`.
-- **Supporting tests:** smooth-method arithmetic tests prove behavior, not persistent declaration/retrieval.
+- **Current source:** `effective_module_parameters` already persists `OPT_METHOD` and `WINDOW`. `condition::smoothing_policy` now declares the MEAN, MEDIAN and SAVGOL kernel/normalisation branches plus the truncated-end and MISSING-edge behavior, and `complete_module_log_spec` attaches that schema-versioned declaration to every smoothed output as `SMOOTHING_POLICY`.
+- **Qualifying acceptance tests:** `workflow::tests::a_smoothed_curve_records_its_kernel_normalisation_end_and_gap_edge_behaviour_after_restart` was witnessed RED on the absent record, then passed exactly once after running all three shipped methods with one explicit window, closing and reopening the project and reading each distinct policy from curve ancestry. Expected declarations come from T49 and the independently inspected shipped arithmetic; test class `CORRECTNESS`.
+- **Supporting tests:** smooth-method arithmetic tests separately pin the numerical branches; T49 pins the persistent declaration/retrieval seam.
 - **Manual evidence:** processing-history 0/7; conditioning 0/27.
-- **Git evidence:** smoothing and generic provenance are integrated, but the required output declaration is incomplete.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the option/policy record and restart retrieval are missing.
-- **Next action:** persist the complete kernel policy with the output and add a restart test that differentiates two kernels sharing the same window.
+- **Git evidence:** implementation and exact T49 are prepared on current parent `8ad382e8a4c40abf5a449cd4e886cc54eb46a55c`; no database schema or write-discipline change was required.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated provenance; visual/manual/field evidence remains open, and the declared across-gap-neighbour policy is not thereby judged geologically suitable.
+- **Next action:** preserve exact T49, execute visual/manual/field review separately and continue SB-ENV-042.
 
 ## SB-ENV-042 - Interactive edits carry provenance, not only undo
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; T45; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** persist operation, interval, parameters and time for every edit, retrievable without the session undo stack.
-- **Current source:** `curve_edit.rs` returns byte-packed prior values for frontend undo, and `processLog` provides a UI history surface, but no durable per-curve edit record with version/content identity is stored. A stale undo can overwrite newer samples or report success without matching them.
-- **Qualifying acceptance tests:** none for persistent edit provenance; T45 is missing. Test class `MISSING`.
-- **Supporting tests:** exact shift/restore and `an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values` both passed; the latter is explicit as-is characterization of undo's staleness, not proof of a durable audit trail.
-- **Manual evidence:** curve-editing 5/5 exercised; processing-history 0/7 not exercised.
-- **Git evidence:** undo and process UI are integrated; persistent edit provenance is absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** durable edit identity/history and its observable test are missing.
-- **Next action:** write an immutable per-edit record tied to curve version/content, retrieve it after restart and make stale undo refuse rather than splice.
+- **Current source:** every successful edit now returns a stable edit id plus the SHA-256 of the complete post-edit native frame. Computed edits carry the typed record inside their versioned `CURVE_EDIT` ancestry; standard/raw edits atomically write one uniquely named project document with their in-place rewrite. `list_curve_edit_records` joins both stores, and the History panel renders/exports those records separately from the clearable activity log. Undo requires the original edit id and exact current content identity before writing.
+- **Qualifying acceptance tests:** `curve_edit::tests::an_interactive_edit_records_its_operation_interval_parameters_and_time_after_restart` was witnessed RED on zero durable records, then passed after exercising shift, set, blank, interpolate and scale across standard, raw and computed stores, closing/reopening the project and checking the exact operation, whole/inclusive interval, supplied parameters, backend time, actor and before/after content identities. T45 is the source; test class `CORRECTNESS`.
+- **Supporting tests:** `an_undo_replayed_after_the_curve_was_rewritten_is_refused_without_splicing_stale_values` replaces the former as-is alarm with the intended same-grid and changed-frame refusal, and re-reads both frames to prove neither refusal wrote stale samples. Exact ordinary shift/restore remains green.
+- **Manual evidence:** curve-editing 5/5 exercised; processing-history 0/7; the new visual/persistence/refusal checklist remains unchecked.
+- **Git evidence:** implementation and exact T45 are prepared on current parent `fb6045a500ce63d48f60edbc2265da2d22dc5c0a`; no database schema, `db.rs` or computed-curve write discipline changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for new edits; automated proof passes, while visual/manual/field evidence remains open. Historical edits made before this record existed cannot be reconstructed and are not relabelled.
+- **Next action:** preserve exact T45 and the stale-undo guard, execute visual/manual/field review separately and continue SB-ENV-043.
 
 ## SB-ENV-043 - One formation-temperature definition, one mnemonic
 
@@ -748,14 +718,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T43/T67; sections 4.6, 6.6 and 8.
 - **Atomic obligations:** define one unit token for project-depth lengths; forbid false fixed-unit labels; validate through one conversion path.
-- **Current source:** live manifests use at least `depth`, `m|ft` and `m` for native-depth arithmetic. `depth_shift` and splice declare metres while applying values in the project depth unit; generic `DepthUnit` conversion does not validate these ArgSpec strings.
-- **Qualifying acceptance tests:** none; T67's complete declaration inventory is missing. Test class `MISSING`.
-- **Supporting tests:** generic project/file conversion passed, and the physical-window test supports behavior, but neither prevents false manifest labels.
+- **Current source:** `PROJECT_DEPTH_UNIT_TOKEN` defines `depth` once. Despike, Smooth, Fill Gaps, Block, Bed Detect, Condition Flags and `phimax.TVDSS_REF` all consume that token for nine native-depth parameters. `depth_shift.SHIFT` and `splice.SPLICE_DEPTH` remain explicitly metre-qualified because both implementations convert against `DepthUnit` before comparing with the project frame.
+- **Qualifying acceptance tests:** `modules::tests::every_project_depth_length_parameter_uses_one_token_while_metre_qualified_parameters_stay_metres` was witnessed RED on `condflag.MIN_THICK = m|ft`, then passed after enumerating the complete nine-parameter native-depth inventory, rejecting the legacy token globally and pinning both fixed-metre controls. T67/T43 supply the inventory and token contract; test class `CORRECTNESS`.
+- **Supporting tests:** exact T43 remains green for physical thickness at two samplings; `metre_qualified_depth_parameters_produce_the_same_results_in_foot_and_metre_projects` remains green for the fixed-metre side using the NIST international-foot conversion.
 - **Manual evidence:** data-conventions 0/45; conditioning 0/27; workflow 0/23.
-- **Git evidence:** the divergent tokens are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one canonical token/validator is missing; no conversion factor is open.
-- **Next action:** define the single project-depth-length token, migrate every declaration/doc string and add a whole-registry T67 plus metric/foot UI controls.
+- **Git evidence:** implementation and exact T67 are prepared on current parent `f1b95f8b6b40a2312f34a03f45712b43a14bda43`; no parameter magnitude or conversion factor changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated declaration truth; visual/manual/field evidence remains open.
+- **Next action:** preserve exact T67 plus both fixed-metre controls, execute visual/manual/field review separately and continue SB-CLY-001.
 
 ## SB-ENV-058 - Borehole-image speed correction, derived independently
 
