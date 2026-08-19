@@ -2680,6 +2680,27 @@ pub(crate) fn validate_topic_default_identity(modules: &[ModuleSpec]) -> Result<
                     ));
                 }
             }
+            // SB-POR-025: nphimat's two-call interpolation input is the SAME quantity
+            // every porosity module defaults to 1.0 (fresh), but that branch exists
+            // precisely to resolve the user's OWN borehole fluid - a fresh default
+            // would make the interpolation a no-op that reports the fresh chart as an
+            // answered salinity question. Pinned exactly: nphimat.RHO_FL is the only
+            // ABSENT member and every other member ships the fresh 1.0.
+            t if t == crate::param_sources::FLUID_DENSITY => {
+                let deliberate = members.iter().all(|(site, value)| {
+                    if site == "nphimat.RHO_FL" {
+                        value.is_empty()
+                    } else {
+                        value.parse::<f64>() == Ok(1.0)
+                    }
+                });
+                if !deliberate {
+                    failures.push(format!(
+                        "topic {topic} diverged from its pinned SB-POR-025 state (nphimat ABSENT beside the fresh 1.0): {}",
+                        render()
+                    ));
+                }
+            }
             _ => failures.push(format!(
                 "topic {topic} carries more than one default: {} - one topic, one default (or ABSENT), per SB-CORE-T19",
                 render()
@@ -5679,7 +5700,10 @@ fn nphimat_spec() -> ModuleSpec {
               density-neutron work (NPHI_SS with RHO_MA 2.65) — that removes the \
               limestone-vs-sandstone convention offset before a sourced XOVER_MIN is applied. \
               SALINITY picks the TNPH curve pair only; the other \
-              tools have a single chart curve. Apply environmental corrections \
+              tools have a single chart curve. SALINITY = INTERPOLATE (SB-POR-025) evaluates \
+              the fresh and the 250-kppm chart COMPLETELY and interpolates the finished \
+              answers linearly on the declared RHO_FL, per Geolog's phi_dn two-call structure \
+              — TNPH only, since only that family carries both digitized curves. Apply environmental corrections \
               (nphi_env_corr) before converting — the charts assume corrected logs. The \
               limestone axis and dolomite curves are digitized to about -0.02..0.40; the \
               sandstone curves leave the chart top at 40 pu true porosity (~0.32-0.36 \
@@ -5697,9 +5721,25 @@ fn nphimat_spec() -> ModuleSpec {
             ),
             opt(
                 "SALINITY",
-                "Formation salinity (TNPH curves only; SALT_250K = 250,000 ppm)",
+                "Formation salinity (TNPH curves only; SALT_250K = 250,000 ppm; INTERPOLATE = evaluate fresh and salt and interpolate on RHO_FL)",
                 "FRESH",
-                &["FRESH", "SALT_250K"],
+                &["FRESH", "SALT_250K", "INTERPOLATE"],
+            ),
+            // SB-POR-025 (F13): the two-call structure's own input - the well's declared
+            // borehole fluid density, shipped ABSENT because a default would silently
+            // answer the salinity question the branch exists to ask. Required only on
+            // the INTERPOLATE branch; inert everywhere else.
+            with_sources(
+                param_open_when(
+                    "RHO_FL",
+                    "Borehole fluid density resolving the fresh/salt two-call interpolation (INTERPOLATE only)",
+                    "g/cc",
+                    0.8,
+                    1.3,
+                    &[("SALINITY", "INTERPOLATE")],
+                    "Geolog V14 phi_dn.lls SCH_TNPH branch: phix = ((RHO_FL-1000)*(phit_2-phit_1)/190)+phit_1 - the input is the well's own fluid density and Geolog ships no default; docs/PRD_v2/11_porosity.md SB-POR-025 + F13",
+                ),
+                crate::param_sources::FLUID_DENSITY,
             ),
             opt("MATRIX_IN", "Matrix convention the input log is recorded in", "LS", &["LS", "SS", "DOL"]),
             log_in("NPHI", "Neutron porosity log (v/v, in MATRIX_IN units)", "v/v", "NPHI", true),
@@ -5734,6 +5774,16 @@ pub(crate) fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
     seg(table.len() - 2, table.len() - 1)
 }
 
+/// SB-POR-025 (F13): the two-call fresh/salt interpolation anchors for the TNPH (Por-5)
+/// chart family. Geolog V14 phi_dn.lls SCH_TNPH branch, verbatim:
+///   `phix = (( RHO_FL - 1000 ) * ( phit_2 - phit_1 ) / 190 ) + phit_1`
+/// — the fresh chart sits at RHO_FL 1000 k/m3 and the 250-kppm salt chart 190 k/m3 above
+/// it. The span is a property of WHICH chart pair was drawn at which salinity (Geolog's
+/// other families carry 100 or 150), so both anchors are constants of the method, never
+/// user parameters.
+const TNPH_FRESH_RHO_FL: f64 = 1.0;
+const TNPH_SALT_RHO_FL_SPAN: f64 = 0.19;
+
 /// The (sandstone, dolomite) chart tables for a tool choice.
 pub(crate) fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], &'static [(f32, f32)]) {
     use crate::neutron_charts as nc;
@@ -5749,7 +5799,6 @@ pub(crate) fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], 
 
 fn nphimat(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let np = ctx.log("NPHI");
-    let (t_ss, t_dol) = nphimat_tables(ctx.o("TOOL"), ctx.o("SALINITY") == "SALT_250K");
     let matrix_in = ctx.o("MATRIX_IN").to_string();
     // SB-ENV-029 (DEC-025): the input curve's DECLARED neutron matrix basis is a consistency
     // gate on MATRIX_IN. The module has its scale from the option, so an ABSENT declaration
@@ -5786,25 +5835,60 @@ fn nphimat(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     }
     let matrix_in = matrix_in.as_str();
 
-    let mut ls = vec![f32::NAN; ctx.n];
-    let mut ss = vec![f32::NAN; ctx.n];
-    let mut dol = vec![f32::NAN; ctx.n];
-    for i in 0..ctx.n {
-        let v = np[i] as f64;
-        if is_missing(v) {
-            continue;
+    let convert = |t_ss: &[(f32, f32)], t_dol: &[(f32, f32)]| -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+        let mut ls = vec![f32::NAN; ctx.n];
+        let mut ss = vec![f32::NAN; ctx.n];
+        let mut dol = vec![f32::NAN; ctx.n];
+        for i in 0..ctx.n {
+            let v = np[i] as f64;
+            if is_missing(v) {
+                continue;
+            }
+            let app = match matrix_in {
+                "SS" => chart_lerp(t_ss, v, true),
+                "DOL" => chart_lerp(t_dol, v, true),
+                _ => v,
+            };
+            // The input convention is copied through untouched — a chart round trip
+            // would only add interpolation noise to values we already have.
+            ls[i] = if matrix_in == "SS" || matrix_in == "DOL" { app as f32 } else { np[i] };
+            ss[i] = if matrix_in == "SS" { np[i] } else { chart_lerp(t_ss, app, false) as f32 };
+            dol[i] = if matrix_in == "DOL" { np[i] } else { chart_lerp(t_dol, app, false) as f32 };
         }
-        let app = match matrix_in {
-            "SS" => chart_lerp(t_ss, v, true),
-            "DOL" => chart_lerp(t_dol, v, true),
-            _ => v,
+        (ls, ss, dol)
+    };
+
+    let (ls, ss, dol) = if ctx.o("SALINITY") == "INTERPOLATE" {
+        // SB-POR-025 (F13): Geolog's two-call structure — each chart family is evaluated
+        // COMPLETELY at its own salinity and the finished answers are interpolated
+        // linearly on the declared borehole fluid density between the T1-cited anchors.
+        if ctx.o("TOOL") != "TNPH" {
+            return Err(format!(
+                "SALINITY = INTERPOLATE evaluates the fresh AND the salt chart and \
+                 interpolates on RHO_FL (SB-POR-025, Geolog phi_dn two-call structure), \
+                 and only the TNPH family carries both digitized curves (Por-5, 0 and \
+                 250,000 ppm) - {} has a single chart curve, so there is no salt end to \
+                 interpolate toward; run it as FRESH, or supply the TNPH log",
+                ctx.o("TOOL")
+            ));
+        }
+        let (f_ss, f_dol) = nphimat_tables("TNPH", false);
+        let (s_ss, s_dol) = nphimat_tables("TNPH", true);
+        let fresh = convert(f_ss, f_dol);
+        let salt = convert(s_ss, s_dol);
+        let lerp = |a: &[f32], b: &[f32]| -> Vec<f32> {
+            (0..ctx.n)
+                .map(|i| {
+                    let w = (ctx.p("RHO_FL", i) - TNPH_FRESH_RHO_FL) / TNPH_SALT_RHO_FL_SPAN;
+                    (a[i] as f64 + w * (b[i] as f64 - a[i] as f64)) as f32
+                })
+                .collect()
         };
-        // The input convention is copied through untouched — a chart round trip
-        // would only add interpolation noise to values we already have.
-        ls[i] = if matrix_in == "SS" || matrix_in == "DOL" { app as f32 } else { np[i] };
-        ss[i] = if matrix_in == "SS" { np[i] } else { chart_lerp(t_ss, app, false) as f32 };
-        dol[i] = if matrix_in == "DOL" { np[i] } else { chart_lerp(t_dol, app, false) as f32 };
-    }
+        (lerp(&fresh.0, &salt.0), lerp(&fresh.1, &salt.1), lerp(&fresh.2, &salt.2))
+    } else {
+        let (t_ss, t_dol) = nphimat_tables(ctx.o("TOOL"), ctx.o("SALINITY") == "SALT_250K");
+        convert(t_ss, t_dol)
+    };
 
     Ok(HashMap::from([
         ("NPHI_LS".to_string(), ls),
@@ -9647,6 +9731,9 @@ mod tests {
             ("condflag", "RHO_FL", crate::param_sources::FLUID_DENSITY),
             ("gascorr", "RHO_FL", crate::param_sources::FLUID_DENSITY),
             ("midplot", "RHO_FL", crate::param_sources::FLUID_DENSITY),
+            // SB-POR-025: the interpolation input joins the same identity ABSENT -
+            // the FLUID_DENSITY arm of validate_topic_default_identity pins that state.
+            ("nphimat", "RHO_FL", crate::param_sources::FLUID_DENSITY),
             ("gascorr", "A", crate::param_sources::ARCHIE_A),
             ("gascorr", "M", crate::param_sources::ARCHIE_M),
             ("gascorr", "N", crate::param_sources::ARCHIE_N),
@@ -13709,6 +13796,93 @@ mod tests {
         let t = crate::neutron_charts::CNL_TNPH_FRESH_SS;
         assert!(out["NPHI_SS"][0] > t[t.len() - 1].1, "extends past the last table node");
         assert!(out["NPHI_SS"][0] < 0.60, "with a sane end-segment slope");
+    }
+
+    /// SB-POR-025 (F13): the two-call fresh/salt structure. The anchors are Geolog's own
+    /// (phi_dn.lls SCH_TNPH: fresh at RHO_FL 1.0, the 250-kppm chart 0.19 above it), the
+    /// input ships ABSENT and is required only on its branch, and a tool with a single
+    /// digitized chart refuses the interpolation by name rather than pretending it has a
+    /// salt end.
+    #[test]
+    fn the_tnph_conversion_interpolates_fresh_and_salt_on_fluid_density_and_a_single_chart_tool_refuses() {
+        let run = |salinity: &str, params: &[(&str, f64)]| -> ModuleOutputs {
+            run_module(
+                "nphimat",
+                &ctx_with(
+                    1,
+                    &[("NPHI", vec![0.18])],
+                    params,
+                    &[("TOOL", "TNPH"), ("SALINITY", salinity), ("MATRIX_IN", "LS")],
+                ),
+            )
+            .expect("a TNPH run with its branch parameters supplied")
+        };
+
+        // A — the anchors, both directions. At RHO_FL 1.0 the interpolation IS the fresh
+        // chart (weight exactly 0, bitwise); at 1.19 it is the salt chart (the span).
+        let fresh = run("FRESH", &[]);
+        let salt = run("SALT_250K", &[]);
+        assert!(
+            (salt["NPHI_SS"][0] - fresh["NPHI_SS"][0]).abs() > 5e-3,
+            "the fixture must separate the two charts or the arms below prove nothing"
+        );
+        let at_fresh = run("INTERPOLATE", &[("RHO_FL", 1.0)]);
+        let at_salt = run("INTERPOLATE", &[("RHO_FL", 1.19)]);
+        for k in ["NPHI_LS", "NPHI_SS", "NPHI_DOL"] {
+            assert_eq!(
+                at_fresh[k][0].to_bits(),
+                fresh[k][0].to_bits(),
+                "{k}: RHO_FL at the fresh anchor is the fresh chart exactly"
+            );
+            assert!(
+                (at_salt[k][0] - salt[k][0]).abs() < 1e-6,
+                "{k}: RHO_FL at 1.19 lands on the salt chart ({} vs {})",
+                at_salt[k][0],
+                salt[k][0]
+            );
+        }
+
+        // B — linear in between: the 1.095 midpoint is the mean of the two finished answers.
+        let mid = run("INTERPOLATE", &[("RHO_FL", 1.095)]);
+        let expected = (fresh["NPHI_SS"][0] as f64 + salt["NPHI_SS"][0] as f64) / 2.0;
+        assert!(
+            (mid["NPHI_SS"][0] as f64 - expected).abs() < 1e-6,
+            "midpoint fluid density is the mean of the two calls ({} vs {expected})",
+            mid["NPHI_SS"][0]
+        );
+
+        // C — refusals, both by name. A single-chart tool has no salt end; the branch
+        // without its declared fluid density never invents one.
+        let refused = run_module(
+            "nphimat",
+            &ctx_with(
+                1,
+                &[("NPHI", vec![0.18])],
+                &[("RHO_FL", 1.05)],
+                &[("TOOL", "APLC"), ("SALINITY", "INTERPOLATE"), ("MATRIX_IN", "LS")],
+            ),
+        )
+        .expect_err("APLC has one digitized chart - the interpolation must refuse");
+        assert!(refused.contains("APLC") && refused.contains("single chart"), "{refused}");
+        let refused = run_module(
+            "nphimat",
+            &ctx_with(
+                1,
+                &[("NPHI", vec![0.18])],
+                &[],
+                &[("TOOL", "TNPH"), ("SALINITY", "INTERPOLATE"), ("MATRIX_IN", "LS")],
+            ),
+        )
+        .expect_err("the branch without RHO_FL must refuse rather than default to fresh");
+        assert!(refused.contains("RHO_FL") && refused.contains("INTERPOLATE"), "{refused}");
+
+        // D — inert off-branch: a FRESH run neither needs nor reads the parameter.
+        let fresh_with = run("FRESH", &[("RHO_FL", 1.19)]);
+        assert_eq!(
+            fresh_with["NPHI_SS"][0].to_bits(),
+            fresh["NPHI_SS"][0].to_bits(),
+            "off the INTERPOLATE branch the fluid density changes nothing"
+        );
     }
 
     #[test]
