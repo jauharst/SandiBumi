@@ -105,7 +105,6 @@
 "SB-DBM-027","CORRECTNESS","src-tauri/src/db.rs","the_integrity_checker_names_every_class_including_zero_counts_offers_a_reversible_prune_and_never_says_clean_without_checking"
 "SB-DBM-028","CORRECTNESS","src-tauri/src/ingest.rs","a_forty_row_gap_contradicts_a_regular_sampling_declaration_while_a_verified_regular_set_stays_regular_and_an_unverified_set_cannot_be_frame_read"
 "SB-DBM-029","CORRECTNESS","src-tauri/src/workflow.rs","a_module_cannot_write_an_existing_reference_column_and_a_different_depth_basis_is_a_new_own_frame"
-"SB-DBM-031","CORRECTNESS","src-tauri/src/contacts.rs","an_md_zone_top_and_a_tvdss_contact_are_refused_without_a_frame_and_compare_with_positive_down_tvdss_with_one"
 "SB-DBM-033","CORRECTNESS","src-tauri/src/reframe.rs","a_categorical_curve_resamples_only_to_existing_codes_reports_every_boundary_crossing_and_is_refused_by_every_equation_language"
 "SB-DBM-035","CORRECTNESS","src-tauri/src/equations.rs","archive_updates_and_deletes_are_refused_and_restoring_version_one_creates_version_four_without_changing_versions_one_through_three"
 "SB-DBM-037","CORRECTNESS","src-tauri/src/well_scope.rs","every_well_iterating_backend_command_scopes_the_sql_to_the_active_twelve_of_five_hundred_and_forty_or_declares_project_wide"
@@ -433,3 +432,4 @@
 "SB-POR-010","CORRECTNESS","src-tauri/src/workflow.rs","a_porosity_curve_re_derives_from_its_stored_manifest_alone_while_the_live_tables_move_underneath"
 "SB-DBM-041","CORRECTNESS","src-tauri/src/db.rs","the_inspector_exposes_the_complete_provenance_and_audit_registry_and_none_of_it_is_editable"
 "SB-POR-024","CORRECTNESS","src-tauri/src/workflow.rs","the_neutron_density_methods_refuse_an_undeclared_or_wrong_basis_and_record_the_declared_one"
+"SB-DBM-031","CORRECTNESS","src-tauri/src/db.rs","a_delivery_declares_its_datum_once_and_a_known_non_md_set_refuses_log_depth_pairing_naming_both"

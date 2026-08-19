@@ -8,6 +8,7 @@ import {
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
+import { buildDatumSelect } from "./followCore";
 import { suggestSetName } from "./importSetDialog";
 
 /** Core import v2 wizard (T-IMP-07): probe → CONFIRM → commit.
@@ -61,6 +62,8 @@ export interface CoreImportChoice {
   /** Name of the DELIVERY the plugs land in (T-IMP-08). Resolved per well on the backend,
    *  auto-suffixed rather than overwriting an earlier delivery of the same name. */
   setName: string;
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared in the wizard. */
+  depthDatum: string;
 }
 
 /** Resolves a by-name choice against one file's probed headers. Returns null (with a
@@ -284,6 +287,10 @@ export async function openCoreImportWizard(
       "Converted to the project's depth unit on import. Detected from the units row or the depth header when possible.",
     ),
   );
+  const datumSel = buildDatumSelect();
+  wrap.appendChild(
+    formRow("Depth datum", datumSel, "The datum the plug depths are quoted in (declared once for the whole delivery)."),
+  );
 
   // --- Routing + percent notes (live: follows the well select). ---
   const routing = document.createElement("p");
@@ -448,6 +455,7 @@ export async function openCoreImportWizard(
         : [],
       extrasDataset: datasetInput.value.trim() || "CORE",
       setName: setInput.value.trim() || "CORE",
+      depthDatum: datumSel.value,
     };
     for (const role of ROLES) {
       const v = selects.get(role.key)?.value ?? "";
@@ -484,6 +492,7 @@ export async function openCoreImportWizard(
           fallbackWell?.well_id ?? null,
           choice.extraHeaders.length ? choice.extrasDataset : null,
           choice.setName,
+          choice.depthDatum,
         );
         if (m.missing.length && !res.error) {
           res.outcomes.push({

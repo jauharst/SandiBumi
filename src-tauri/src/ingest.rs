@@ -1717,8 +1717,26 @@ pub struct CoreImportResult {
 /// single-well path, kept for the tests and any caller that has no wizard). The set is
 /// named CORE, auto-suffixed if that name is taken — an import never overwrites an earlier
 /// delivery. Unlike LAS import, this attaches to an existing well rather than creating one.
-pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImportResult {
-    import_core_csv_with_depth_column(conn, well_id, path, None)
+pub fn import_core_csv(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    depth_datum: &str,
+) -> CoreImportResult {
+    import_core_csv_with_depth_column(conn, well_id, path, None, depth_datum)
+}
+
+/// SB-DBM-031 (DEC-073 item 5): every delivery import DECLARES its depth datum, once,
+/// for the whole delivery set. Validated against the shipped vocabulary before anything
+/// is written, so a typo refuses the import instead of importing then failing to declare.
+fn validated_datum(datum: &str) -> Result<&'static str, String> {
+    crate::schema_vocab::DepthDatum::parse(datum)
+        .map(|parsed| parsed.as_str())
+        .ok_or_else(|| {
+            format!(
+                "'{datum}' is not a depth datum; the vocabulary is MD | TVD | TVDSS | TVDKB | TWT | OWT | CDEPTH (SB-DBM-031)"
+            )
+        })
 }
 
 pub fn import_core_csv_with_depth_column(
@@ -1726,7 +1744,12 @@ pub fn import_core_csv_with_depth_column(
     well_id: &str,
     path: &str,
     designated_depth_column: Option<usize>,
+    depth_datum: &str,
 ) -> CoreImportResult {
+    let depth_datum = match validated_datum(depth_datum) {
+        Ok(datum) => datum,
+        Err(error) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error), index_resolution: None },
+    };
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
         .unwrap_or(false);
@@ -1756,7 +1779,12 @@ pub fn import_core_csv_with_depth_column(
         &columns.cgd,
         &columns.csw,
     ) {
-        Ok(()) => CoreImportResult { path: path.to_string(), rows, error: None, index_resolution },
+        Ok(()) => {
+            if let Err(error) = db::declare_set_datum(conn, "core_sets", well_id, None, &set, depth_datum) {
+                return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error.to_string()), index_resolution };
+            }
+            CoreImportResult { path: path.to_string(), rows, error: None, index_resolution }
+        }
         Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution },
     }
 }
@@ -1829,7 +1857,24 @@ pub fn import_core_table(
     extras_dataset: Option<&str>,
     set_name: Option<&str>,
     follow_core: bool,
+    depth_datum: &str,
 ) -> CoreTableImportResult {
+    let datum = match validated_datum(depth_datum) {
+        Ok(datum) => datum,
+        Err(error) => {
+            return CoreTableImportResult {
+                path: path.to_string(),
+                rows_imported: 0,
+                wells_imported: 0,
+                outcomes: vec![],
+                skipped_blank_well: 0,
+                extra_rows: 0,
+                extra_items: vec![],
+                precision: parsers::SamplePrecisionReport::new("f64 numeric parse", "f32 storage", 0),
+                error: Some(error),
+            }
+        }
+    };
     let fail = |e: String| CoreTableImportResult {
         path: path.to_string(),
         rows_imported: 0,
@@ -1976,6 +2021,18 @@ pub fn import_core_table(
         };
         match core_write {
             Ok(()) => {
+                if has_core_measurement {
+                    if let Err(error) = db::declare_set_datum(conn, "core_sets", well_id, None, &set, datum) {
+                        outcomes.push(CoreWellOutcome {
+                            well_name: well_name.to_string(),
+                            rows: list.len(),
+                            imported: 0,
+                            set_name: Some(set.clone()),
+                            problem: Some(error.to_string()),
+                        });
+                        return;
+                    }
+                }
                 rows_imported += depth.len();
                 wells_imported += 1;
                 let mut problem = (!report.is_clean())
@@ -2012,7 +2069,11 @@ pub fn import_core_table(
                     // written.
                     let aux_set = if has_core_measurement { set.clone() } else { desired_set.clone() };
                     match db::insert_aux_data(conn, well_id, &extras_dataset, &aux_set, Some(path), &aux) {
-                        Ok(()) => extra_rows += aux.len(),
+                        Ok(()) => {
+                            // The extras ride the core delivery, so they carry its datum too.
+                            let _ = db::declare_set_datum(conn, "aux_sets", well_id, Some(&extras_dataset), &aux_set, datum);
+                            extra_rows += aux.len();
+                        }
                         Err(e) => {
                             let note = format!("extra columns not stored: {e}");
                             problem = Some(match problem {
@@ -2124,8 +2185,14 @@ pub struct ScalImportResult {
 /// Parses a SCAL capillary-pressure CSV (flat/long shape), replaces the well's `scal_pc`
 /// rows, and fits the Leverett-J function (Sw = A·J^B) over the points at `ift_lab`
 /// (sigma·cosθ of the lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
-pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f64) -> ScalImportResult {
-    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None, false)
+pub fn import_scal_csv(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    ift_lab: f64,
+    depth_datum: &str,
+) -> ScalImportResult {
+    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None, false, depth_datum)
 }
 
 /// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
@@ -2148,6 +2215,7 @@ pub fn import_scal_files(
     ift_lab: f64,
     set_name: Option<&str>,
     follow_core: bool,
+    depth_datum: &str,
 ) -> ScalImportResult {
     let joined = paths.join("; ");
     let fail = |error: String| ScalImportResult {
@@ -2238,11 +2306,18 @@ pub fn import_scal_files(
         .map(|s| s.trim().to_uppercase().replace(' ', "_"))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "SCAL".to_string());
+    let datum = match validated_datum(depth_datum) {
+        Ok(datum) => datum,
+        Err(error) => return fail(error),
+    };
     let set = match db::resolve_scal_set_name(conn, well_id, &desired) {
         Ok(s) => s,
         Err(e) => return fail(e.to_string()),
     };
     if let Err(e) = db::insert_scal_pc(conn, well_id, &set, Some(&joined), &rows) {
+        return fail(e.to_string());
+    }
+    if let Err(e) = db::declare_set_datum(conn, "scal_sets", well_id, None, &set, datum) {
         return fail(e.to_string());
     }
     if follow_core {
@@ -2584,6 +2659,7 @@ pub fn import_aux_file(
     path: &str,
     set_name: Option<&str>,
     follow_core: bool,
+    depth_datum: &str,
 ) -> AuxImportResult {
     let fail = |e: String| AuxImportResult {
         path: path.to_string(),
@@ -2599,6 +2675,10 @@ pub fn import_aux_file(
     if dataset.is_empty() {
         return fail("dataset name is empty".into());
     }
+    let datum = match validated_datum(depth_datum) {
+        Ok(datum) => datum,
+        Err(error) => return fail(error),
+    };
     let desired_set = set_name
         .map(|s| s.trim().to_uppercase().replace(' ', "_"))
         .filter(|s| !s.is_empty())
@@ -2707,6 +2787,10 @@ pub fn import_aux_file(
                     };
                     match db::insert_aux_data(conn, &ids[0], &dataset, &set, Some(path), &rows) {
                         Ok(()) => {
+                            if let Err(e) = db::declare_set_datum(conn, &"aux_sets", &ids[0], Some(&dataset), &set, datum) {
+                                notes.push(format!("{name}: {e}"));
+                                continue;
+                            }
                             rows_written += rows.len();
                             wells_imported += 1;
                             // Record the depth basis, so a later core registration knows whether
@@ -2754,6 +2838,9 @@ pub fn import_aux_file(
         };
         match db::insert_aux_data(conn, well_id, &dataset, &set, Some(path), &rows) {
             Ok(()) => {
+                if let Err(e) = db::declare_set_datum(conn, "aux_sets", well_id, Some(&dataset), &set, datum) {
+                    return fail(e.to_string());
+                }
                 rows_written = rows.len();
                 wells_imported = 1;
                 if follow_core {
@@ -2957,7 +3044,7 @@ mod tests {
         drop(f);
         let csv = path.to_str().unwrap();
 
-        let result = import_core_csv(&conn, &ids, csv);
+        let result = import_core_csv(&conn, &ids, csv, "MD");
         assert!(result.error.is_none(), "{:?}", result.error);
         assert_eq!(result.rows, 2);
 
@@ -2973,7 +3060,7 @@ mod tests {
 
         // Re-import KEEPS the first delivery and lands beside it as a second SET
         // (T-IMP-08): the old behaviour silently overwrote plugs the lab had sent once.
-        let again = import_core_csv(&conn, &ids, csv);
+        let again = import_core_csv(&conn, &ids, csv, "MD");
         assert!(again.error.is_none());
         let sets = db::list_core_sets(&conn, &ids).unwrap();
         assert_eq!(sets.len(), 2, "second delivery is a second set: {sets:?}");
@@ -2989,7 +3076,7 @@ mod tests {
         assert!(db::list_core_sets(&conn, &ids).unwrap().iter().filter(|s| s.active).count() == 1);
 
         // Unknown well is rejected cleanly.
-        let bad = import_core_csv(&conn, "no-such-well", csv);
+        let bad = import_core_csv(&conn, "no-such-well", csv, "MD");
         assert!(bad.error.is_some());
 
         // Core-to-log shift moves the ACTIVE set's plugs by the same delta and reverses
@@ -3711,7 +3798,7 @@ GR.API :
         let path = std::env::temp_dir().join("sandibumi_designated_core_index.csv");
         std::fs::write(&path, "SAMPLE,CPOR\n1000.0,18.0\n1000.5,19.0\n").unwrap();
 
-        let blocked = import_core_csv(&conn, &well_id, path.to_str().unwrap());
+        let blocked = import_core_csv(&conn, &well_id, path.to_str().unwrap(), "MD");
         assert!(
             blocked.error.as_deref().is_some_and(|error| {
                 error.contains("user designation is required")
@@ -3729,6 +3816,7 @@ GR.API :
             &well_id,
             path.to_str().unwrap(),
             Some(0),
+            "MD",
         );
         std::fs::remove_file(&path).ok();
         assert!(imported.error.is_none(), "the explicit designation imports: {:?}", imported.error);
@@ -4960,7 +5048,7 @@ GR.API :
             csw: probe.csw,
             extras: vec![6, 9],
         };
-        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"), None, false);
+        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"), None, false, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B only");
         assert_eq!(res.rows_imported, 4);
@@ -5044,6 +5132,7 @@ GR.API :
             None,
             Some("PRECISION"),
             false,
+            "MD",
         );
         assert!(imported.error.is_none(), "{:?}", imported.error);
         assert_eq!(imported.precision.source_precision, "f64 numeric parse");
@@ -5289,7 +5378,7 @@ GR.API :
         let path = std::env::temp_dir().join("sandibumi_aux_v2_test.csv");
         std::fs::write(&path, csv).unwrap();
 
-        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None, false);
+        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None, false, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B routed by the WELL column");
         let notes = res.notes.as_deref().unwrap_or("");
@@ -5527,7 +5616,7 @@ GR.API :
         let path = std::env::temp_dir().join(format!("arshilla_scal_test_{ids}.csv"));
         std::fs::write(&path, &body).unwrap();
 
-        let res = import_scal_csv(&conn, &ids, path.to_str().unwrap(), 72.0);
+        let res = import_scal_csv(&conn, &ids, path.to_str().unwrap(), 72.0, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 12);
         let fit = res.fit.expect("fit should solve");
@@ -5535,7 +5624,7 @@ GR.API :
         assert!((fit.a - 0.4).abs() < 0.1, "a={}", fit.a);
 
         // Re-import replaces rather than duplicates; rows readable back.
-        let res2 = import_scal_csv(&conn, &ids, path.to_str().unwrap(), 72.0);
+        let res2 = import_scal_csv(&conn, &ids, path.to_str().unwrap(), 72.0, "MD");
         std::fs::remove_file(&path).ok();
         assert_eq!(res2.rows, 12);
         let rows = db::get_scal_pc(&conn, &ids).unwrap();
@@ -5544,7 +5633,7 @@ GR.API :
         assert!(rows.iter().all(|r| r.sw <= 1.0), "percent Sw converted to v/v");
 
         // Unknown well errors cleanly.
-        let bad = import_scal_csv(&conn, "nope", "x.csv", 72.0);
+        let bad = import_scal_csv(&conn, "nope", "x.csv", 72.0, "MD");
         assert!(bad.error.is_some());
     }
 
@@ -5571,7 +5660,7 @@ GR.API :
         std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
         let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
 
-        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None, false);
+        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None, false, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 8, "both plugs land in one combined import");
         assert!(res.fit.is_some(), "J-fit solves over the pooled points");
@@ -5589,7 +5678,7 @@ GR.API :
         let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
         std::fs::write(&p3, wide).unwrap();
         let res2 =
-            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None, false);
+            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None, false, "MD");
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows, 4);
         assert_eq!(res2.set_name.as_deref(), Some("SCAL_1"), "auto-suffixed, first report kept");
@@ -5613,6 +5702,7 @@ GR.API :
             72.0,
             None,
             false,
+            "MD",
         );
         assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "failed import leaves prior rows intact");
@@ -5634,14 +5724,14 @@ GR.API :
 
         let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
         std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
-        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None, false);
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None, false, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
 
         // Header-only export (e.g. a filtered/template sheet) → error, data intact.
         let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
         std::fs::write(&empty, "PC,SW\n").unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None, false);
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None, false, "MD");
         assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
 
@@ -5876,7 +5966,7 @@ GR.API :
 
         let xrd = std::env::temp_dir().join("arshilla_aux_xrd.csv");
         std::fs::write(&xrd, "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n").unwrap();
-        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None, false);
+        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None, false, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.dataset, "XRD", "dataset name normalized upper");
         assert_eq!(res.rows, 5, "empty cell is skipped, text cell kept");
@@ -5893,7 +5983,7 @@ GR.API :
         // Perforation intervals in a second dataset; both coexist.
         let perf = std::env::temp_dir().join("arshilla_aux_perf.csv");
         std::fs::write(&perf, "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n").unwrap();
-        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None, false);
+        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None, false, "MD");
         assert!(res2.error.is_none());
         assert_eq!(res2.rows, 2);
         let perfs = db::list_aux_data(&conn, &ids, Some("PERFORATION")).unwrap();
@@ -5905,7 +5995,7 @@ GR.API :
         // A SECOND XRD delivery: kept beside the first (never overwritten), live, and
         // counted alone — the whole point of the set model applied to point data.
         std::fs::write(&xrd, "Depth,Quartz\n2000.0,50.0\n").unwrap();
-        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None, false);
+        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None, false, "MD");
         assert!(res3.error.is_none());
         assert_eq!(res3.sets, vec!["RAW_1".to_string()], "auto-suffixed, not overwritten");
         let counts = db::list_aux_datasets(&conn, &ids).unwrap();
@@ -5933,7 +6023,7 @@ GR.API :
         std::fs::remove_file(&perf).ok();
 
         // Unknown well errors cleanly.
-        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false);
+        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false, "MD");
         assert!(bad.error.is_some());
     }
 
@@ -5963,7 +6053,7 @@ GR.API :
         .unwrap();
         let p = path.to_str().unwrap().to_string();
 
-        let res = import_scal_files(&conn, &w, &[p.clone()], "long", "air_brine", 72.0, Some("FOLLOWED"), true);
+        let res = import_scal_files(&conn, &w, &[p.clone()], "long", "air_brine", 72.0, Some("FOLLOWED"), true, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         let rows = db::get_scal_pc(&conn, &w).unwrap();
         let depths: Vec<f32> = {
@@ -5978,7 +6068,7 @@ GR.API :
         assert_eq!(res.note.as_deref(), Some("placed from the core depth record"));
 
         // Off, the depths stay exactly as the file wrote them.
-        let plain = import_scal_files(&conn, &w, &[p], "long", "air_brine", 72.0, Some("ASWRITTEN"), false);
+        let plain = import_scal_files(&conn, &w, &[p], "long", "air_brine", 72.0, Some("ASWRITTEN"), false, "MD");
         assert!(plain.error.is_none(), "{:?}", plain.error);
         assert!(plain.note.is_none(), "nothing to report when the box was not ticked");
         let rows = db::get_scal_pc(&conn, &w).unwrap();
@@ -6022,7 +6112,7 @@ GR.API :
 ").unwrap();
         let path = path_buf.to_str().unwrap();
         let mapping = crate::intake::mapping_from_roles(&["DEPTH".into(), "CEC".into()]).unwrap();
-        let res = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC"), Some("LAB"), false);
+        let res = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC"), Some("LAB"), false, "MD");
         assert!(res.error.is_none(), "{:?}", res.error);
         assert!(res.extra_rows > 0, "the measurements themselves must still be stored");
 
@@ -6042,7 +6132,7 @@ GR.API :
 2101,0.31
 ").unwrap();
         let m2 = crate::intake::mapping_from_roles(&["DEPTH".into(), "CPOR".into()]).unwrap();
-        let res2 = import_core_table(&conn, path2.to_str().unwrap(), &m2, None, Some(&w), None, Some("RUN2"), false);
+        let res2 = import_core_table(&conn, path2.to_str().unwrap(), &m2, None, Some(&w), None, Some("RUN2"), false, "MD");
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows_imported, 2, "a real core table is still a core delivery");
     }
@@ -6092,13 +6182,13 @@ GR.API :
         let mapping = crate::intake::mapping_from_roles(&["DEPTH".into(), "CEC".into()]).unwrap();
 
         // Off: the samples land where the file says, which is now the wrong rock.
-        let plain = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC_ASWRITTEN"), Some("A"), false);
+        let plain = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC_ASWRITTEN"), Some("A"), false, "MD");
         assert!(plain.error.is_none(), "{:?}", plain.error);
         let rows = db::list_aux_data(&conn, &w, Some("CEC_ASWRITTEN")).unwrap();
         assert!(rows.iter().any(|r| (r.depth_top - 2005.0).abs() < 1e-3), "unmapped keeps the delivered depth");
 
         // On: each sample follows the barrel it was cut from — +1 above, +3 below.
-        let followed = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC_FOLLOWED"), Some("B"), true);
+        let followed = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC_FOLLOWED"), Some("B"), true, "MD");
         assert!(followed.error.is_none(), "{:?}", followed.error);
         let rows = db::list_aux_data(&conn, &w, Some("CEC_FOLLOWED")).unwrap();
         let at = |want: f32| rows.iter().any(|r| (r.depth_top - want).abs() < 1e-3);
@@ -6146,7 +6236,7 @@ GR.API :
         let path = xrd.to_str().unwrap();
 
         // Off: the samples land where the file says, which is now the wrong rock.
-        let plain = import_aux_file(&conn, &w, "XRD", path, Some("ASWRITTEN"), false);
+        let plain = import_aux_file(&conn, &w, "XRD", path, Some("ASWRITTEN"), false, "MD");
         assert!(plain.error.is_none(), "{:?}", plain.error);
         let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
         assert!(
@@ -6155,7 +6245,7 @@ GR.API :
         );
 
         // On: each sample follows the barrel it was cut from.
-        let followed = import_aux_file(&conn, &w, "XRD", path, Some("FOLLOWED"), true);
+        let followed = import_aux_file(&conn, &w, "XRD", path, Some("FOLLOWED"), true, "MD");
         assert!(followed.error.is_none(), "{:?}", followed.error);
         let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
         let depths: Vec<f32> = {
@@ -6185,7 +6275,7 @@ GR.API :
         // A well with no core says so rather than pretending it mapped anything.
         let w2 = uuid::Uuid::new_v4();
         db::insert_well(&conn, w2, "SANDI-NOCORE", None, None, None).unwrap();
-        let none = import_aux_file(&conn, &w2.to_string(), "XRD", path, None, true);
+        let none = import_aux_file(&conn, &w2.to_string(), "XRD", path, None, true, "MD");
         assert!(none.error.is_none(), "{:?}", none.error);
         assert!(
             none.notes.unwrap_or_default().contains("no core to follow"),

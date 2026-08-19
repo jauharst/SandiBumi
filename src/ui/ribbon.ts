@@ -39,7 +39,7 @@ import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
-import { buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
@@ -1890,6 +1890,10 @@ export class Ribbon {
     // SCAL plugs ARE core plugs, so their depths are the core report's depths.
     const scalFollowCore = buildFollowCoreRow("the plug depths", "scal");
     content.appendChild(scalFollowCore.el);
+    const scalDatumSel = buildDatumSelect();
+    content.appendChild(
+      formRow("Depth datum", scalDatumSel, "The datum the plug depths are quoted in (declared once for the delivery)."),
+    );
 
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
@@ -1917,6 +1921,7 @@ export class Ribbon {
         ift,
         setInput.value.trim() || "SCAL",
         scalFollowCore.checked(),
+        scalDatumSel.value,
       )
         .then((result) => {
           if (result.error) {

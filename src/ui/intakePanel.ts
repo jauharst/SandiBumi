@@ -17,7 +17,7 @@ import {
 } from "../ipc";
 import { recordProcess } from "../processLog";
 import { bumpDataVersion } from "../state";
-import { buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
 import { formRow } from "./modal";
 
 /** **Intake** — one importer for any delimited text, replacing the five table-shaped dialogs
@@ -279,6 +279,14 @@ export async function buildIntakeContent(
   dest.appendChild(
     formRow("If no Well column", wellSel, "Only used when the table carries no well name of its own."),
   );
+  const datumSel = buildDatumSelect();
+  const datumRow = formRow(
+    "Depth datum",
+    datumSel,
+    "The datum the delivery's depths are quoted in (declared once for the whole delivery).",
+  );
+  pointRows.push(datumRow);
+  dest.appendChild(datumRow);
   const follow = buildFollowCoreRow("these rows", "intake");
   pointRows.push(follow.el);
   dest.appendChild(follow.el);
@@ -845,6 +853,7 @@ export async function buildIntakeContent(
         paths,
         roles,
         depth_unit: unitSel.value || undefined,
+        depth_datum: datumSel.value,
         set_name: setIn.value.trim() || undefined,
         extras_dataset: dsIn.value.trim() || undefined,
         fallback_well_id: wellSel.value || undefined,

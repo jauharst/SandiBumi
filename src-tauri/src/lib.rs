@@ -458,12 +458,13 @@ async fn import_core_csv(
     well_id: String,
     path: String,
     depth_column: Option<usize>,
+    depth_datum: String,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import core", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_core_csv_with_depth_column(&c, &well_id, &path, depth_column))
+        Ok(ingest::import_core_csv_with_depth_column(&c, &well_id, &path, depth_column, &depth_datum))
     })
     .await
 }
@@ -492,6 +493,7 @@ fn import_core_table(
     extras_dataset: Option<String>,
     set_name: Option<String>,
     #[allow(non_snake_case)] followCore: Option<bool>,
+    depth_datum: String,
 ) -> Result<ingest::CoreTableImportResult, String> {
     let conn = db.0.lock().unwrap();
     Ok(ingest::import_core_table(
@@ -503,6 +505,7 @@ fn import_core_table(
         extras_dataset.as_deref(),
         set_name.as_deref(),
         followCore.unwrap_or(false),
+        &depth_datum,
     ))
 }
 
@@ -536,13 +539,14 @@ async fn import_aux_data(
     path: String,
     set_name: Option<String>,
     follow_core: Option<bool>,
+    depth_datum: String,
 ) -> Result<ingest::AuxImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let follow_core = follow_core.unwrap_or(false);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core))
+        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core, &depth_datum))
     })
     .await
 }
@@ -1290,12 +1294,13 @@ async fn import_scal_csv(
     well_id: String,
     path: String,
     ift_lab: f64,
+    depth_datum: String,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_csv(&c, &well_id, &path, ift_lab))
+        Ok(ingest::import_scal_csv(&c, &well_id, &path, ift_lab, &depth_datum))
     })
     .await
 }
@@ -1315,6 +1320,7 @@ async fn import_scal_files(
     ift_lab: f64,
     set_name: Option<String>,
     follow_core: Option<bool>,
+    depth_datum: String,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let follow_core = follow_core.unwrap_or(false);
@@ -1325,7 +1331,7 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core))
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core, &depth_datum))
     })
     .await
 }
@@ -2161,6 +2167,7 @@ async fn intake_commit(
                 req.extras_dataset.as_deref(),
                 req.set_name.as_deref(),
                 req.follow_core,
+                &req.depth_datum,
             ));
         }
         Ok(out)

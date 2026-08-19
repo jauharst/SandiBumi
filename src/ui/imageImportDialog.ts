@@ -10,7 +10,7 @@ import {
 import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
-import { buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
 import { buildPlateDetails } from "./plateDetails";
 import { suggestSetName } from "./importSetDialog";
 import { requireWell } from "./needWell";
@@ -199,6 +199,10 @@ export async function openImageImportDialog(
   wrap.appendChild(
     formRow("Depths are in", unitSel, "Converted to the project's depth unit on import."),
   );
+  const datumSel = buildDatumSelect();
+  wrap.appendChild(
+    formRow("Depth datum", datumSel, "The datum the plate depths are quoted in (declared for the whole delivery)."),
+  );
 
   const maxPxInput = document.createElement("input");
   maxPxInput.className = "form-control";
@@ -371,6 +375,7 @@ export async function openImageImportDialog(
         dataset: datasetInput.value,
         set_name: setInput.value,
         depth_unit: unitSel.value,
+        depth_datum: datumSel.value,
         max_px: Number(maxPxInput.value) || 0,
         quality: 85,
         follow_core: followCore.checked(),

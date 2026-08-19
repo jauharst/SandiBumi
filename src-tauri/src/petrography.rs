@@ -4211,6 +4211,7 @@ mod field_tests {
             .collect();
         assert!(!items.is_empty(), "no plate carried a depth from its sheet");
         let req = crate::images::ImageImportRequest {
+            depth_datum: "MD".into(),
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             set_name: "LAB".into(),
@@ -4281,7 +4282,7 @@ mod field_tests {
         // meant to check.
         let mut counted = 0usize;
         for path in &counts {
-            let r = crate::ingest::import_aux_file(&conn, &w, "POINTCOUNT", path, Some("LAB"), false);
+            let r = crate::ingest::import_aux_file(&conn, &w, "POINTCOUNT", path, Some("LAB"), false, "MD");
             assert!(r.error.is_none(), "point-count import failed: {:?}", r.error);
             counted += r.rows;
         }

@@ -56,3 +56,19 @@ export function buildFollowCoreRow(what: string, idSuffix: string): FollowCoreCo
 
   return { el: wrap, checked: () => box.checked };
 }
+
+/** SB-DBM-031: a delivery declares the depth datum its depths are quoted in, ONCE, for
+ *  the whole set. MD is preselected as the near-universal case; confirming the wizard is
+ *  the declaration — the backend refuses an unknown token by naming the vocabulary. */
+export function buildDatumSelect(): HTMLSelectElement {
+  const sel = document.createElement("select");
+  sel.className = "form-control";
+  for (const datum of ["MD", "TVD", "TVDSS", "TVDKB", "TWT", "OWT", "CDEPTH"]) {
+    const option = document.createElement("option");
+    option.value = datum;
+    option.textContent = datum;
+    sel.appendChild(option);
+  }
+  sel.value = "MD";
+  return sel;
+}

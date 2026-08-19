@@ -3463,8 +3463,14 @@ export interface CoreImportResult {
 
 /** Parses a core CSV (alias-resolved headers: DEPTH, CPOR/POR, CPERM/PERM, CGD, CSW)
  *  and replaces the given well's core plug data. */
-export function importCoreCsv(wellId: string, path: string, depthColumn?: number | null): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_core_csv", { wellId, path, depthColumn: depthColumn ?? null });
+export function importCoreCsv(
+  wellId: string,
+  path: string,
+  depthColumn: number | null,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum: string,
+): Promise<CoreImportResult> {
+  return invoke<CoreImportResult>("import_core_csv", { wellId, path, depthColumn: depthColumn ?? null, depthDatum });
 }
 
 // --- Core import v2 (T-IMP-07): probe → confirm mapping → commit -------------
@@ -3557,6 +3563,8 @@ export function importCoreTable(
   fallbackWellId: string | null,
   extrasDataset: string | null = null,
   setName: string | null = null,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
 ): Promise<CoreTableImportResult> {
   return invoke<CoreTableImportResult>("import_core_table", {
     path,
@@ -3565,6 +3573,7 @@ export function importCoreTable(
     fallbackWellId,
     extrasDataset,
     setName,
+    depthDatum,
   });
 }
 
@@ -3644,8 +3653,10 @@ export function importAuxData(
    *  not be moved. The result's notes say what happened, including samples that fell outside the
    *  cored interval and wells with no core to follow. */
   followCore = false,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
 ): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore });
+  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore, depthDatum });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {
@@ -3711,8 +3722,14 @@ export interface ScalPcRow {
 
 /** Imports a SCAL Pc/Sw CSV for the well and returns the Leverett-J fit (Sw = A·J^B)
  *  at the given lab sigma·cosθ, for carrying into the sw_height module. */
-export function importScalCsv(wellId: string, path: string, iftLab: number): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_csv", { wellId, path, iftLab });
+export function importScalCsv(
+  wellId: string,
+  path: string,
+  iftLab: number,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
+): Promise<ScalImportResult> {
+  return invoke<ScalImportResult>("import_scal_csv", { wellId, path, iftLab, depthDatum });
 }
 
 /** SCAL Pc file shapes the importer understands: "long" flat Pc/Sw rows, "porous_plate"
@@ -3735,8 +3752,10 @@ export function importScalFiles(
   /** Treat the plug depths as the ones the original core report used, and place them through the
    *  well's core depth record. SCAL plugs ARE core plugs, so they move with the core. */
   followCore = false,
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
+  depthDatum = "MD",
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore });
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore, depthDatum });
 }
 
 export interface ThomeerSampleFit {
@@ -4038,6 +4057,8 @@ export interface ImageImportRequest {
   /** Place the plate depths through the well's core depth record — a section is cut from a plug,
    *  so when that plug is re-registered the plate belongs with it. */
   follow_core?: boolean;
+  /** SB-DBM-031: the datum the plates' depths are quoted in, declared in the wizard. */
+  depth_datum: string;
   /** Delivery-level defaults. All absent by default, and absent is a real answer. */
   fov_um?: number | null;
   prepared?: string | null;
@@ -6169,6 +6190,8 @@ export interface IntakeCommit {
   extras_dataset?: string;
   fallback_well_id?: string;
   follow_core?: boolean;
+  /** SB-DBM-031: the datum the delivery's depths are quoted in, declared in the pane. */
+  depth_datum: string;
 }
 
 export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportResult[]> {

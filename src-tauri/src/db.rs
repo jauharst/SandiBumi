@@ -1173,6 +1173,14 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
     // reconstructed merely by looking at their stored depths.
     conn.execute_batch(&format!(
         "ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         -- SB-DBM-031 (DEC-073 item 5): a delivery declares its depth datum ONCE, on its
+         -- SET row - one delivery is one datum, and a per-row column would break the
+         -- positional-Appender contracts. NULL = legacy unknown, PRESERVED as unknown:
+         -- backfilling MD would be exactly the inference the ruling forbids.
+         ALTER TABLE core_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE aux_sets   ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE scal_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE image_sets ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
          ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
          ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS outcome_state VARCHAR;
          ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS comment VARCHAR;
@@ -2226,6 +2234,11 @@ pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResul
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_unit VARCHAR;
+         -- SB-DBM-031: rebuilt pre-set-era stores converge on the datum column too; the
+         -- value stays NULL - legacy unknown is preserved, never inferred to MD.
+         ALTER TABLE core_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE aux_sets   ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+         ALTER TABLE scal_sets  ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
          UPDATE aux_sets SET sampling_style = '{}' WHERE sampling_style IS NULL;
          UPDATE aux_sets SET duplicate_resolution = '{}' WHERE duplicate_resolution IS NULL;",
         crate::schema_vocab::SamplingStyle::Point.as_str(),
@@ -2969,6 +2982,7 @@ pub fn insert_aux_data_with_resolution(
 
 /// One well's auxiliary rows from the ACTIVE set of each dataset, ordered by depth then item.
 pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<AuxRow>> {
+    refuse_non_md_active_set(conn, "aux_sets", well_id, dataset)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT a.dataset, a.depth_top, a.depth_base, a.item, a.value_num, a.value_text
          FROM aux_data a
@@ -3310,6 +3324,7 @@ pub fn insert_well_images(
 /// Metadata for a well's pictures, from the ACTIVE delivery of each dataset, ordered by
 /// depth. `dataset = None` spans every dataset. NEVER selects `data` — see [`ImageInfo`].
 pub fn list_well_images(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<ImageInfo>> {
+    refuse_non_md_active_set(conn, "image_sets", well_id, dataset)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
                 i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
@@ -4001,8 +4016,125 @@ pub fn insert_scal_pc(
     })
 }
 
+/// SB-DBM-031 (DEC-073 item 5, RULED): the delivery-set stores that carry a per-SET
+/// depth datum. `true` marks the two whose sets are keyed by (well, dataset, set).
+const SET_DATUM_STORES: &[(&str, bool)] = &[
+    ("core_sets", false),
+    ("aux_sets", true),
+    ("scal_sets", false),
+    ("image_sets", true),
+];
+
+fn set_datum_store(store: &str) -> DbResult<bool> {
+    SET_DATUM_STORES
+        .iter()
+        .find(|(name, _)| *name == store)
+        .map(|(_, has_dataset)| *has_dataset)
+        .ok_or_else(|| DbError::Invalid(format!("'{store}' is not a datum-bearing delivery store")))
+}
+
+/// Declare the datum of ONE registered delivery set. The token is validated against the
+/// shipped vocabulary; an unknown token refuses naming it, and a set that does not exist
+/// refuses rather than silently declaring nothing (SB-DBM-031).
+pub fn declare_set_datum(
+    conn: &Connection,
+    store: &str,
+    well_id: &str,
+    dataset: Option<&str>,
+    set_name: &str,
+    datum: &str,
+) -> DbResult<()> {
+    let has_dataset = set_datum_store(store)?;
+    let datum = crate::schema_vocab::DepthDatum::parse(datum)
+        .ok_or_else(|| {
+            DbError::Invalid(format!(
+                "'{datum}' is not a depth datum; the vocabulary is MD | TVD | TVDSS | TVDKB | TWT | OWT | CDEPTH (SB-DBM-031)"
+            ))
+        })?
+        .as_str();
+    let n = if has_dataset {
+        let dataset = dataset.ok_or_else(|| {
+            DbError::Invalid(format!("'{store}' sets are keyed by dataset; none was named"))
+        })?;
+        conn.execute(
+            &format!(
+                "UPDATE {store} SET depth_datum = ?4 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3"
+            ),
+            params![well_id, dataset, set_name, datum],
+        )?
+    } else {
+        conn.execute(
+            &format!("UPDATE {store} SET depth_datum = ?3 WHERE well_id = ?1 AND set_name = ?2"),
+            params![well_id, set_name, datum],
+        )?
+    };
+    if n == 0 {
+        return Err(DbError::Invalid(format!(
+            "cannot declare a datum on '{set_name}': no such {store} delivery is registered"
+        )));
+    }
+    Ok(())
+}
+
+/// SB-DBM-031's comparison guard, shared by every depth-pairing reader of the four
+/// delivery stores so the refusal text cannot drift. The log frame is MD; an ACTIVE
+/// delivery whose DECLARED datum differs is refused NAMING BOTH datums - comparing an MD
+/// log depth with, say, a TVDSS plug depth is a category error that silently produces a
+/// number (F-17). A legacy set with no declaration (NULL) is the preserved unknown and
+/// passes exactly as it always did; refusing it would relabel unknown as wrong.
+fn refuse_non_md_active_set(
+    conn: &Connection,
+    store: &str,
+    well_id: &str,
+    dataset: Option<&str>,
+) -> DbResult<()> {
+    let has_dataset = set_datum_store(store)?;
+    let mut stmt = if has_dataset {
+        match dataset {
+            Some(_) => conn.prepare(&format!(
+                "SELECT dataset, set_name, depth_datum FROM {store} \
+                 WHERE well_id = ?1 AND active = 1 AND dataset = ?2 AND depth_datum IS NOT NULL"
+            ))?,
+            None => conn.prepare(&format!(
+                "SELECT dataset, set_name, depth_datum FROM {store} \
+                 WHERE well_id = ?1 AND active = 1 AND depth_datum IS NOT NULL"
+            ))?,
+        }
+    } else {
+        conn.prepare(&format!(
+            "SELECT '' AS dataset, set_name, depth_datum FROM {store} \
+             WHERE well_id = ?1 AND active = 1 AND depth_datum IS NOT NULL"
+        ))?
+    };
+    let rows: Vec<(String, String, String)> = if has_dataset && dataset.is_some() {
+        stmt.query_map(params![well_id, dataset.unwrap()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?
+    } else {
+        stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    for (dataset, set_name, datum) in rows {
+        if datum != crate::schema_vocab::DepthDatum::Md.as_str() {
+            let label = if dataset.is_empty() {
+                set_name
+            } else {
+                format!("{dataset}/{set_name}")
+            };
+            return Err(DbError::Invalid(format!(
+                "cross-datum comparison refused: active {store} delivery '{label}' declares \
+                 datum {datum} but the log frame is MD - import the delivery on MD or \
+                 convert it before pairing (SB-DBM-031)"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// One well's capillary-pressure points, from the ACTIVE SCAL delivery.
 pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
+    refuse_non_md_active_set(conn, "scal_sets", well_id, None)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
          WHERE well_id = ?1 AND set_name = {ACTIVE_SCAL_SET} ORDER BY sample_no NULLS FIRST, pc"
@@ -4063,6 +4195,7 @@ pub struct CoreQcRow {
 /// fixed pairs the φ–k and φ–ρg readers return. NULL cells are dropped, not turned into
 /// zeros, so an unfilled column contributes no samples instead of a false cloud at 0.
 pub fn get_core_point_series(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, f32, f32)>> {
+    refuse_non_md_active_set(conn, "core_sets", well_id, None)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT depth, cpor, cperm, cgd, csw FROM core_data
          WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
@@ -6978,6 +7111,108 @@ mod inspector_tests {
         }
     }
 
+
+
+    /// SB-DBM-031 residue (DEC-073 item 5, RULED 2026-08-18: source-declared rows migrate,
+    /// unknown legacy meaning is preserved as unknown, cross-datum comparison is refused).
+    /// The T31 core - typed zone/contact custody, positive-down TVDSS, framed comparison -
+    /// is pinned by its own test; what closes here is the delivery-set half: a delivery
+    /// declares the datum its depths are quoted in ONCE, on its SET row (the per-row
+    /// alternative would break the positional-Appender contracts); an unknown token
+    /// refuses naming the vocabulary; a legacy set stays NULL - the preserved unknown,
+    /// never inferred to MD - and behaves exactly as before; and every depth-pairing
+    /// reader of the four stores refuses a KNOWN non-MD delivery NAMING both datums,
+    /// because an MD log depth against a TVDSS plug depth is F-17's category error that
+    /// silently produces a number.
+    #[test]
+    fn a_delivery_declares_its_datum_once_and_a_known_non_md_set_refuses_log_depth_pairing_naming_both(
+    ) {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-DATUM", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // A - the import boundary declares: a core delivery lands with its datum on the
+        // set row, and the pairing reader works.
+        insert_core_data(&conn, &w, "CORE", None, &[1000.0, 1001.0], &[0.18, 0.19], &[10.0, 11.0], &[2.65, 2.65], &[0.3, 0.3]).unwrap();
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "MD").unwrap();
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT depth_datum FROM core_sets WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![w],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("MD"), "the declaration lands on the SET row");
+        assert!(!get_core_point_series(&conn, &w).unwrap().is_empty(), "MD pairs freely");
+
+        // B - an unknown token refuses NAMING the vocabulary, and declares nothing.
+        let bad = declare_set_datum(&conn, "core_sets", &w, None, "CORE", "DRILLER")
+            .expect_err("an unknown token must refuse");
+        assert!(
+            bad.to_string().contains("MD | TVD | TVDSS | TVDKB | TWT | OWT | CDEPTH"),
+            "{bad}"
+        );
+        // ... and so does a declaration on a set that does not exist.
+        let missing = declare_set_datum(&conn, "core_sets", &w, None, "NO_SUCH", "MD")
+            .expect_err("a missing set cannot be declared");
+        assert!(missing.to_string().contains("NO_SUCH"), "{missing}");
+
+        // C - lowercase parses to the same token: the vocabulary is canonical, not
+        // case-sensitive, so a guard comparing raw strings cannot half-work.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "md").unwrap();
+        assert!(!get_core_point_series(&conn, &w).unwrap().is_empty(), "md == MD");
+
+        // D - a KNOWN non-MD delivery refuses log-depth pairing NAMING BOTH datums, on
+        // every guarded store.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "TVDSS").unwrap();
+        let refused = get_core_point_series(&conn, &w).expect_err("TVDSS plugs cannot pair with MD logs");
+        let text = refused.to_string();
+        assert!(
+            text.contains("TVDSS") && text.contains("MD") && text.contains("CORE"),
+            "both datums and the delivery are named: {text}"
+        );
+        insert_scal_pc(&conn, &w, "SCAL", None, &[ScalPcRow {
+            sample_no: Some(1), depth: Some(1000.0), perm: 10.0, poro: 0.2, pc: 5.0, sw: 0.6,
+            system: None, ift: None,
+        }]).unwrap();
+        declare_set_datum(&conn, "scal_sets", &w, None, "SCAL", "TVDSS").unwrap();
+        assert!(get_scal_pc(&conn, &w).expect_err("scal too").to_string().contains("TVDSS"));
+        insert_aux_data(&conn, &w, "XRD", "RAW", None, &[AuxRow {
+            dataset: "XRD".into(), depth_top: 1000.0, depth_base: None, item: "ILLITE".into(),
+            value_num: Some(12.0), value_text: None,
+        }]).unwrap();
+        declare_set_datum(&conn, "aux_sets", &w, Some("XRD"), "RAW", "TVD").unwrap();
+        let aux_refused = list_aux_data(&conn, &w, Some("XRD")).expect_err("aux too").to_string();
+        assert!(aux_refused.contains("TVD") && aux_refused.contains("XRD/RAW"), "{aux_refused}");
+        conn.execute(
+            "INSERT INTO image_sets (well_id, dataset, set_name, active, depth_datum) VALUES (?1, 'CORE PHOTO', 'RAW', 1, 'TWT')",
+            params![w],
+        )
+        .unwrap();
+        assert!(list_well_images(&conn, &w, None).expect_err("images too").to_string().contains("TWT"));
+
+        // E - back on MD, everything pairs again: the guard is about a WRONG datum, not
+        // about having declared one.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "MD").unwrap();
+        assert!(!get_core_point_series(&conn, &w).unwrap().is_empty());
+
+        // F - the preserved unknown: a legacy delivery with no declaration (NULL) behaves
+        // exactly as it always did, on a fresh well - unknown is unknown, not wrong.
+        let legacy = Uuid::new_v4();
+        insert_well(&conn, legacy, "SANDI-LEGACY", None, None, None).unwrap();
+        let lw = legacy.to_string();
+        insert_core_data(&conn, &lw, "CORE", None, &[1000.0], &[0.2], &[10.0], &[2.65], &[0.4]).unwrap();
+        let datum: Option<String> = conn
+            .query_row(
+                "SELECT depth_datum FROM core_sets WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![lw],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(datum, None, "nothing backfills MD onto an undeclared delivery");
+        assert!(!get_core_point_series(&conn, &lw).unwrap().is_empty(), "and it still pairs");
+    }
 
     /// SB-DBM-041 exact T42 (`22_database-model.md` section 6), unblocked by SB-DBM-011's
     /// audit tables (DEC-020/022/023, landed 2026-08-18): the inspector exposes the

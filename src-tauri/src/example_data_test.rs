@@ -242,7 +242,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         extras,
     };
     let res =
-        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None, None, false);
+        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None, None, false, "MD");
     assert!(res.error.is_none(), "{:?}", res.error);
     assert_eq!(res.wells_imported, 3, "all three wells routed by name: {:?}", res.outcomes);
     for r in &results {
@@ -270,6 +270,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         &example("xrd_multiwell.txt"),
         None,
         false,
+        "MD",
     );
     assert!(aux.error.is_none(), "{:?}", aux.error);
     assert_eq!(aux.wells_imported, 3, "rows routed to all three wells: {:?}", aux.notes);
@@ -605,7 +606,7 @@ fn characterizes_every_registered_sampled_reader_and_shipping_store_as_preservin
     assert_eq!(stored_standard, expected, "the standard LAS projection keeps source depths");
 
     let core_path = fixtures.core.to_string_lossy().into_owned();
-    let core = crate::ingest::import_core_csv(&conn, &well_id, &core_path);
+    let core = crate::ingest::import_core_csv(&conn, &well_id, &core_path, "MD");
     assert!(core.error.is_none(), "the native-spacing core table imports: {:?}", core.error);
     let mut core_rows = conn
         .prepare("SELECT depth FROM core_data WHERE well_id = ?1 ORDER BY depth")

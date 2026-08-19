@@ -605,6 +605,11 @@ pub struct IntakeCommit {
     /// The depths in this delivery came from the core report and should follow the core.
     #[serde(default)]
     pub follow_core: bool,
+    /// SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user in
+    /// the pane. Serde-defaulted to empty so an old payload REFUSES at the vocabulary
+    /// check rather than silently declaring MD.
+    #[serde(default)]
+    pub depth_datum: String,
 }
 
 /// Turns the pane's confirmed roles into the mapping `ingest::import_core_table` already takes.
