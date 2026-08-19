@@ -3130,6 +3130,20 @@ fn set_zone_param_batch(
     db::set_zone_param_batch(&mut conn, &zone_name, &entries).map_err(|e| e.to_string())
 }
 
+/// SB-DIO-057: records the interpreter's keep/convert word for exact zeros on a log-scale
+/// curve. The import gate refuses an undecided zero-bearing resistivity curve by name; this
+/// is the one path that records the decision it asks for, after which the re-import commits.
+#[tauri::command]
+fn confirm_log_scale_zeros(
+    db: tauri::State<DbState>,
+    well_id: String,
+    mnemonic: String,
+    keep: bool,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::confirm_log_scale_zeros(&conn, &well_id, &mnemonic, keep).map_err(|e| e.to_string())
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -4399,6 +4413,7 @@ pub fn run() {
             list_well_param_overrides,
             set_well_param_overrides,
             set_zone_param_batch,
+            confirm_log_scale_zeros,
             get_table_page,
             check_referential_integrity,
             prune_referential_integrity,

@@ -10113,6 +10113,79 @@ pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], v
     Ok(screened.into_iter().map(|(_, count)| count).sum())
 }
 
+/// SB-DIO-057 / DEC-076: the interpreter's recorded word on exact zeros in one log-scale
+/// curve. `keep` commits them as VALUES; `!keep` converts them to MISSING at commit. Stored
+/// as a document so the decision survives with the project and T85's "the decision is
+/// recorded" is a row, not a log line.
+pub fn confirm_log_scale_zeros(
+    conn: &Connection,
+    well_id: &str,
+    mnemonic: &str,
+    keep: bool,
+) -> DbResult<()> {
+    let name = format!("{well_id}:{}", mnemonic.trim().to_uppercase());
+    let json = serde_json::json!({
+        "decision": if keep { "keep" } else { "convert" },
+        "requirement": "SB-DIO-057",
+    })
+    .to_string();
+    save_document(conn, "zero-decision", &name, &json)
+}
+
+fn log_scale_zero_decision(conn: &Connection, well_id: &str, mnemonic: &str) -> Option<String> {
+    let name = format!("{well_id}:{}", mnemonic.trim().to_uppercase());
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM documents WHERE doc_type = 'zero-decision' AND name = ?1",
+            params![name],
+            |row| row.get(0),
+        )
+        .ok();
+    json.and_then(|text| {
+        serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|value| value.get("decision").and_then(|d| d.as_str()).map(str::to_string))
+    })
+}
+
+/// SB-DIO-057 (DEC-076 signed registry): counts exact zeros on a log-scale-family curve and
+/// returns the interpreter's recorded decision, refusing BY NAME when zeros are present and
+/// no decision exists — surfaced before commit, never rewritten automatically. A curve with
+/// no meta row, no family, or a non-logarithmic family passes untouched; so does a
+/// log-family curve carrying no exact zero.
+fn screen_log_scale_zeros(
+    conn: &Connection,
+    curve_id: &str,
+    values: &[f32],
+) -> DbResult<Option<String>> {
+    let zero_count = values.iter().filter(|value| **value == 0.0).count();
+    if zero_count == 0 {
+        return Ok(None);
+    }
+    let meta: Option<(String, String, Option<String>)> = conn
+        .query_row(
+            "SELECT well_id, mnemonic, family FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .ok();
+    let Some((well_id, mnemonic, family)) = meta else { return Ok(None) };
+    let Some(family) = family else { return Ok(None) };
+    if !crate::curves::LOG_SCALE_FAMILIES.contains(&family.as_str()) {
+        return Ok(None);
+    }
+    match log_scale_zero_decision(conn, &well_id, &mnemonic) {
+        Some(decision) => Ok(Some(decision)),
+        None => Err(DbError::Invalid(format!(
+            "curve {mnemonic} (family {family}) carries {zero_count} exact zero(s): a zero on a \
+             log-scale curve cannot be committed as a reading without your word — it is usually an \
+             exporter's encoding of 'no reading' (SB-DIO-057). Confirm keep-as-values or \
+             convert-to-missing for this curve (db::confirm_log_scale_zeros), then re-import; \
+             nothing was written."
+        ))),
+    }
+}
+
 /// Atomically replaces every curve in one imported delivery using one transaction and one
 /// DuckDB appender. The complete batch is validated before any DELETE occurs. Returns the
 /// SB-DBM-030 flag channel: per curve id, how many samples the large-negative null screen
@@ -10135,6 +10208,17 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
                 depths.len(),
                 values.len()
             )));
+        }
+    }
+    // SB-DIO-057: the zero gate runs BEFORE the DELETEs — an undecided refusal must leave
+    // the store exactly as it was, not empty. `convert` decisions are collected here and
+    // applied where the staging arrays are built.
+    let mut convert_zero_curves: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (curve_id, values) in curves {
+        if let Some(decision) = screen_log_scale_zeros(conn, curve_id, values)? {
+            if decision == "convert" {
+                convert_zero_curves.insert(*curve_id);
+            }
         }
     }
     for (curve_id, _) in curves {
@@ -10171,6 +10255,10 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
         // large-negative family is an undeclared vendor null sentinel, screened to NULL and
         // COUNTED - the count is the flag channel every importer surfaces. Never silent.
         let mut screened_here = 0usize;
+        // SB-DIO-057: a recorded `convert` decision turns this curve's exact zeros into
+        // MISSING at commit — explicit, per-curve, never automatic (the gate above refused
+        // if no decision existed).
+        let convert_zeros = convert_zero_curves.contains(*curve_id);
         let value_array: ArrayRef = Arc::new(
             values
                 .iter()
@@ -10179,6 +10267,8 @@ pub(crate) fn insert_curve_samples_batch_in_transaction(
                         None
                     } else if is_large_negative_null(value) {
                         screened_here += 1;
+                        None
+                    } else if convert_zeros && value == 0.0 {
                         None
                     } else {
                         Some(value)
@@ -10931,4 +11021,105 @@ pub fn set_well_param_overrides(
     entries: &[(String, String, Option<f32>)],
 ) -> DbResult<usize> {
     set_zone_param_batch(conn, "*", entries)
+}
+
+/// SB-DIO-057 / DEC-076: the zero gate at the shared curve-commit boundary — every import
+/// path (LAS, DLIS, intake) funnels through `insert_curve_samples*`, so the gate is
+/// inherited, never re-implemented per importer.
+#[cfg(test)]
+mod log_scale_zero_tests {
+    use super::*;
+
+    fn seed(conn: &Connection) -> String {
+        create_schema(conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        insert_well(conn, well, "ZERO-GATE", None, None, None).unwrap();
+        well.to_string()
+    }
+
+    #[test]
+    fn a_zero_on_a_log_scale_curve_is_surfaced_before_commit_and_the_recorded_decision_governs()
+    {
+        let conn = Connection::open_in_memory().unwrap();
+        let well = seed(&conn);
+        let depths = [1000.0f32, 1000.5, 1001.0, 1001.5];
+        let with_zeros = [12.5f32, 0.0, 3.4, 0.0];
+
+        // T84: an undecided zero-bearing resistivity curve REFUSES by name, before commit —
+        // nothing is written and nothing is rewritten.
+        let res = upsert_curve_meta(
+            &conn, &well, "RAW", "RES_DEEP", Some("ohm.m"), Some("RES_DEEP"), None, None,
+        )
+        .unwrap();
+        let error = insert_curve_samples(&conn, &res, &depths, &with_zeros)
+            .expect_err("undecided zeros on a log-scale family must refuse")
+            .to_string();
+        assert!(error.contains("RES_DEEP"), "the refusal names the curve and family: {error}");
+        assert!(error.contains("2 exact zero"), "and counts them: {error}");
+        assert!(error.contains("SB-DIO-057"), "and cites the rule: {error}");
+        let committed: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples WHERE curve_id = ?1",
+                params![res],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(committed, 0, "a refusal writes nothing");
+
+        // T85: the interpreter DECLINES the conversion — zeros commit as VALUES, and the
+        // decision is a recorded row.
+        confirm_log_scale_zeros(&conn, &well, "RES_DEEP", true).unwrap();
+        insert_curve_samples(&conn, &res, &depths, &with_zeros).unwrap();
+        let kept: Vec<Option<f32>> = conn
+            .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![res], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(kept[1], Some(0.0), "a declined conversion keeps the zero as a value");
+        assert_eq!(kept[3], Some(0.0));
+        let recorded: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM documents WHERE doc_type = 'zero-decision'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recorded, 1, "the decision is recorded, not just applied");
+
+        // The explicit CONVERT decision — zeros become MISSING at commit, never silently.
+        let rxo = upsert_curve_meta(
+            &conn, &well, "RAW", "RXO", Some("ohm.m"), Some("RXO"), None, None,
+        )
+        .unwrap();
+        confirm_log_scale_zeros(&conn, &well, "RXO", false).unwrap();
+        insert_curve_samples(&conn, &rxo, &depths, &with_zeros).unwrap();
+        let converted: Vec<Option<f32>> = conn
+            .prepare("SELECT value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![rxo], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(converted[0], Some(12.5), "real readings survive a convert decision");
+        assert_eq!(converted[1], None, "a converted zero is MISSING, not a reading");
+        assert_eq!(converted[3], None);
+
+        // Both negative arms: a LINEAR family with zeros passes ungated (a genuine zero is
+        // a legitimate reading there), and a log-family curve with no zeros never asks.
+        let gr = upsert_curve_meta(
+            &conn, &well, "RAW", "GR", Some("gAPI"), Some("GR"), None, None,
+        )
+        .unwrap();
+        insert_curve_samples(&conn, &gr, &depths, &with_zeros)
+            .expect("a linear-family curve with zeros commits without a gate");
+        let clean = [12.5f32, 8.0, 3.4, 9.9];
+        let resm = upsert_curve_meta(
+            &conn, &well, "RAW", "RES_MED", Some("ohm.m"), Some("RES_MED"), None, None,
+        )
+        .unwrap();
+        insert_curve_samples(&conn, &resm, &depths, &clean)
+            .expect("a zero-free log-family curve commits without a gate");
+    }
 }

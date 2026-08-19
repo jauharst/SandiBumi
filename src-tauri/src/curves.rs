@@ -367,6 +367,17 @@ pub fn ms_per_ft_designation(
 }
 
 /// Returns the canonical family for a mnemonic, or `None` if it isn't recognized (the
+/// SB-DIO-057 / DEC-076: the SIGNED logarithmic-family registry. On a curve whose family
+/// is logarithmic, an exact zero cannot be a reading — it is an exporter's encoding of
+/// "no reading" (the requirement's P-tier source, `reference_mudlog_gas_curve_traps`,
+/// cited at 21_data-io.md §5.6), and structurally every catalog saturation method consumes
+/// resistivity through log/ratio forms. Membership is the signed classification in
+/// `docs/takeover/DRAFT_DIO057_log_family_registry.md` (DEC-076): the four resistivity
+/// families are LOG; the fifteen linear families and CLY_STATE are not gated. GAS and PERM
+/// are NAMED registration gaps — they have no family bucket until Jauhar supplies their
+/// vocabularies, and this list must not grow without a signed registry change.
+pub const LOG_SCALE_FAMILIES: [&str; 4] = ["RES_DEEP", "RES_MED", "RES_SHAL", "RXO"];
+
 /// curve is still imported — it just goes in the catalog family-less, and modules that
 /// need a family won't auto-pick it).
 pub fn family_for(mnemonic: &str) -> Option<&'static FamilySpec> {

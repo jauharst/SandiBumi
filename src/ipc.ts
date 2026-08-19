@@ -3020,6 +3020,17 @@ export async function setZoneParamBatch(
   return invoke<number>("set_zone_param_batch", { zoneName, entries });
 }
 
+/** SB-DIO-057. Records the interpreter's word for exact zeros on a log-scale curve:
+ * keep=true commits them as readings on the next import, keep=false converts them to
+ * missing. The import refusal names this as the confirmation it is waiting for. */
+export async function confirmLogScaleZeros(
+  wellId: string,
+  mnemonic: string,
+  keep: boolean,
+): Promise<void> {
+  return invoke<void>("confirm_log_scale_zeros", { wellId, mnemonic, keep });
+}
+
 /** SB-CUT-019. A cut-off AS ENTERED: the number and the unit it was typed in.
  *
  *  The unit is not decoration. IP's own manual expresses one quantity in porosity units in one
