@@ -12,10 +12,16 @@ starting value sits uneasily. Tier 2 (full chart transforms via chartdig) and ti
 
 **Corpus ground rules.** Candidates come from the ingested corpora only, cited to file and
 section with evidence tier; a demo value in a vendor dialog is NOT a default (corpus
-convention); vendor chart lookup DATA is never transcribed. The **Halliburton eChartbook
-column is PENDING** — the extraction DEC-072 anticipated has not been run, so every row
-shows "not yet extracted" there rather than a guess; the column fills when the extraction
-lands.
+convention); vendor chart lookup DATA is never transcribed. **The Halliburton extraction
+ran 2026-08-19** (Halliburton Sperry Drilling, "LWD Log Interpretation Charts", 2018 — the
+local chartbook; targeted tier-1 read recorded in the gitignored
+`docs/research_2026-08/halliburton_lwd_chartbook_ingest.md`; book page N = PDF N+12), and
+it settled the eChartbook's identity: the printed book is deliberately a SUBSET, and the
+**eChartBook™ DEC-072 named is Halliburton's ONLINE chart generator**
+(eChartBook.Halliburton.com, Foreword p.xi and p.268 — "for any combination of conditions,
+for both LWD and wireline tools") — a per-study generator, not an extractable static
+default source. The column below therefore carries what the printed book actually states,
+and "generate per study via eChartBook" is the honest vendor route for conditions beyond it.
 
 **The corpus's central negative, stated once.** IP and Geolog perform environmental
 corrections through CHART transforms, not through SandiBumi's pragmatic linearized
@@ -30,18 +36,18 @@ or "absent", and the chart route is tier 2 by ruling.
 
 | Parameter | Ships | IP 2025 | Geolog | SLB chartbook | HAL eChartbook | Admissible options |
 |---|---|---|---|---|---|---|
-| `K_GR` (GR hole coefficient, 1/in) | 0.0075 | No linearized coefficient — chart route (corpus negative) | No unc_* linear coefficient found | Chart family exists (identity only; tier 2) | not yet extracted | mine / absent |
-| `K_RHO` (density hole coefficient, g/cc per in) | 0.004 | Same negative | Same | Chart family (tier 2) | not yet extracted | mine / absent |
-| `HD_REF` (reference hole diameter, in) | 10.0 | — | — | — | not yet extracted | mine / absent (SB-ENV-013: a property of tool and bit) |
+| `K_GR` (GR hole coefficient, 1/in) | 0.0075 | No linearized coefficient — chart route (corpus negative) | No unc_* linear coefficient found | Chart family exists (identity only; tier 2) | Per-tool multiplicative scale-factor charts to STATED reference conditions (fresh-water-filled nominal hole, centred tool; e.g. Chart 2-1: 6½-in, book 16-17); no universal coefficient — NEGATIVE for K_GR | mine / absent |
+| `K_RHO` (density hole coefficient, g/cc per in) | 0.004 | Same negative | Same | Chart family (tier 2) | No density hole-correction coefficient in the printed LWD subset; per-study via eChartBook | mine / absent |
+| `HD_REF` (reference hole diameter, in) | 10.0 | — | — | — | The reference diameter is PER-TOOL and stated on each chart (6½-in for the 4¾-in DGR, Chart 2-1) — corroborates SB-ENV-013 exactly | mine / absent (SB-ENV-013: a property of tool and bit) |
 
 ### Neutron environmental correction
 
 | Parameter | Ships | IP 2025 | Geolog | SLB chartbook | HAL eChartbook | Admissible options |
 |---|---|---|---|---|---|---|
-| `K_TEMP` (v/v per °C) | 0.0001 | Chart route; no linear coefficient (negative) | — | CNL temperature charts (tier 2) | not yet extracted | mine / absent |
-| `T_REF` (chart reference °C) | 24.0 | Dialog shows Deg C units, no stated default (F_qc §3, img-read _encclip0003) | — | Chart reference conditions (tier 2) | not yet extracted | mine / absent |
-| `K_SAL` (v/v per 100 kppm) | −0.002 | Chart route (negative) | — | Tier 2 | not yet extracted | mine / absent |
-| `SALW` (formation salinity, ppm) | 20000 | **Vendor defaults exist and disagree by five orders**: SLB CNL panel ships `2.8E-4 Kppm` (recorded as-is; 0.28 ppm, a unit-artifact-looking number — F_qc §3:380/:541, T2 img-read) and GE ships `0 kppm` (:388); ledger item 14 | — | — | not yet extracted | adopt-with-caution (both are effectively fresh water) / mine / absent |
+| `K_TEMP` (v/v per °C) | 0.0001 | Chart route; no linear coefficient (negative) | — | CNL temperature charts (tier 2) | Chart waterfall only, no linear coefficient (book 268-270) — NEGATIVE | mine / absent |
+| `T_REF` (chart reference °C) | 24.0 | Dialog shows Deg C units, no stated default (F_qc §3, img-read _encclip0003) | — | Chart reference conditions (tier 2) | **A REAL CANDIDATE: "The reference temperature is 70°F" (book 270); mud-weight reference "fresh water at atmospheric pressure and 70°F (21.1°C)" (book 268)** — i.e. 21.1 °C, against the uncited 24.0 shipped | **adopt (21.1 °C, cited)** / mine / absent |
+| `K_SAL` (v/v per 100 kppm) | −0.002 | Chart route (negative) | — | Tier 2 | Chart waterfall only (book 268-269) — NEGATIVE | mine / absent |
+| `SALW` (formation salinity, ppm) | 20000 | **Vendor defaults exist and disagree by five orders**: SLB CNL panel ships `2.8E-4 Kppm` (recorded as-is; 0.28 ppm, a unit-artifact-looking number — F_qc §3:380/:541, T2 img-read) and GE ships `0 kppm` (:388); ledger item 14 | — | — | Reference condition is a concentration of ZERO — fresh water (book 268-269); and the axes are **kppm Cl⁻**, not NaCl ppm — a unit-identity fact for whatever value is adopted | adopt-with-caution (three vendors now agree the REFERENCE is fresh) / mine / absent |
 
 ### Bad-hole and conditioning flags (DEC-057(c)/DEC-060(c): starting values re-opened)
 
@@ -68,9 +74,9 @@ or "absent", and the chart route is tier 2 by ruling.
 
 | Parameter | Ships | Candidates | Admissible options |
 |---|---|---|---|
-| `TSURF` / `TGRAD` (ftemp_grad) | 26.7 °C / 0.03 °C/m | **Corpus negative with a citation**: IP 2018 states no default gradient, no default surface temperature, no default reference depth (`A_porosity_sw.md:559`, T2) — the vendor precedent IS "absent" | mine (his basin) / absent (vendor-corroborated) |
+| `TSURF` / `TGRAD` (ftemp_grad) | 26.7 °C / 0.03 °C/m | **Corpus negative with TWO vendor citations now**: IP 2018 states no default gradient, no default surface temperature, no default reference depth (`A_porosity_sw.md:559`, T2); Halliburton's Charts 1-2/1-3 implement the SAME linear form with NO default — the user must supply the gradient or a measured reference-depth temperature, and the mean surface temperature "varies according to the geographical location" (book 3-5). Halliburton's plotted metric gradient family is 1–3 °C/100 m; the shipped 0.03 °C/m sits at its TOP (factual note, not an adjudication) | mine (his basin) / absent (twice vendor-corroborated) |
 | `SURF_TEMP` / `TEMP_GRAD` (precalc) | 77 °F / 0.026 °/ft | The module doc already says these are one study's feet-based fits — the SB-ENV-045 66 °C metric-project error is the cost of keeping them | mine (re-attributed) / absent |
-| `BHT` / `TD_BHT` | 100.0 °C / 2000.0 m | **FLAGGED per DEC-060(c), not decided here**: well-specific facts with no defensible general default — the one place the starting-value ruling sits uneasily, in the ruling's own words | his call: absent, or a starting value he explicitly owns |
+| `BHT` / `TD_BHT` | 100.0 °C / 2000.0 m | **FLAGGED per DEC-060(c), not decided here**: well-specific facts with no defensible general default — the one place the starting-value ruling sits uneasily, in the ruling's own words. Halliburton's own worked example (book 3) takes a MEASURED temperature at a known TVD as user INPUT — the vendor pattern is well data, never a default | his call: absent, or a starting value he explicitly owns |
 
 ### Owned elsewhere (listed so the 29 count is complete, not for adjudication here)
 
