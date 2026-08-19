@@ -60,6 +60,12 @@ export function isToolResponseOverlay(id: string): boolean {
  *   30 p.u. and depart by up to ~13 us/ft at 40 p.u.). The overlay therefore matches
  *   what IP / Geolog / Techlog compute rather than the chartbook tracing; the
  *   divergence is asserted, not hidden, in tools/chart-derivation.test.mjs.
+ * - `lith3` / `lith4`: DERIVED under DEC-079 from Gardner & Dumanoir 1980's published
+ *   litho-density physics (U = Pe·rho_e mixing volumetrically, rho_e from the eq-5
+ *   calibration) with the paper's printed mineral table and the Lith-5 legend's fluid
+ *   pairs. The printed charts are Platform Express TLD TOOL charts carrying a small
+ *   tool-window slope the physics does not (<= 0.07 Pe, ~1% of the axis); Jauhar
+ *   ruled the physics replaces the digitized legs regardless. Density legs are exact.
  */
 export function resolveChartOverlay(id: string): ChartOverlayDef | undefined {
   const base = findChartOverlay(id);

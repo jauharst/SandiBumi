@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONSTANTS, RHG, derivedOverlays, renderModule } from "./gen-derived-overlays.mjs";
+import { CONSTANTS, GD, RHG, derivedOverlays, renderModule } from "./gen-derived-overlays.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DT_TOL_US_FT = 0.4; // digitization tolerance on a 40-130 us/ft printed axis
@@ -176,6 +176,89 @@ test("the_derivation_constants_are_exactly_the_cited_chart_page_values", () => {
       ["Dolomite", 2.87, 23000],
     ],
   );
+});
+
+test("the_derived_lith_pef_curves_are_gardner_dumanoir_physics_and_sit_within_the_tld_tool_response_band", () => {
+  // DEC-079: the Lith-3/4 Pe legs are the published Gardner & Dumanoir 1980 physics.
+  // The printed charts are Platform Express TLD TOOL charts and carry a small
+  // systematic tool-window slope, so the agreement bound here is the observed
+  // tool-response band (0.08 Pe, ~1% of the 0-6 axis), not digitization tolerance;
+  // the DENSITY leg has no tool component and must be exact chart arithmetic.
+  const PE_BAND = 0.08;
+  // The paper's table and the Lith-5 legend, restated independently of the generator.
+  const MATS = {
+    "Quartz sandstone": { U: 4.78, rb: 2.64, rhomaGrad: 2.65 },
+    "Calcite (limestone)": { U: 13.8, rb: 2.71, rhomaGrad: 2.71 },
+    "Dolomite": { U: 9.0, rb: 2.88, rhomaGrad: 2.87 },
+  };
+  const FLUIDS = {
+    lith3: { Uf: 0.398, rb: 1.0, rhofGrad: 1.0 },
+    lith4: { Uf: 1.36, rb: 1.11, rhofGrad: 1.1 },
+  };
+  const rhoe = (rb) => (rb + 0.1883) / 1.0704; // G&D eq (5) inverse
+
+  for (const id of ["lith3", "lith4"]) {
+    const fl = FLUIDS[id];
+    const derived = derivedOverlays().find((d) => d.id === id);
+    assert.ok(derived, `${id} must be a derived overlay`);
+    const digitized = digitizedCurves(id);
+    assert.deepEqual(
+      derived.curves.map((c) => c.name).sort(),
+      digitized.map((c) => c.name).sort(),
+      `${id}: the derivation must cover exactly the lithologies the printed chart draws`,
+    );
+    for (const curve of derived.curves) {
+      const m = MATS[curve.name];
+      const twin = digitized.find((c) => c.name === curve.name);
+      assert.equal(
+        curve.grads.length,
+        twin.grads.length,
+        `${id} ${curve.name}: the derivation must graduate exactly where the printed chart does`,
+      );
+      for (const [phi, pe, rho] of curve.grads) {
+        const f = phi / 100;
+        const peCalc =
+          (f * fl.Uf + (1 - f) * m.U) / (f * rhoe(fl.rb) + (1 - f) * rhoe(m.rb));
+        assert.ok(
+          Math.abs(pe - peCalc) <= 0.0002,
+          `${id} ${curve.name} at ${phi} p.u.: derived Pe ${pe} is not the G&D physics value ${peCalc}`,
+        );
+        assert.ok(
+          Math.abs(rho - (m.rhomaGrad - f * (m.rhomaGrad - fl.rhofGrad))) <= 0.0002,
+          `${id} ${curve.name} at ${phi} p.u.: density graduation is not the chart arithmetic`,
+        );
+        const twinGrad = twin.grads.find((g) => g[0] === phi);
+        assert.ok(twinGrad, `${id} ${curve.name}: printed chart has no graduation at ${phi} p.u.`);
+        assert.ok(
+          Math.abs(pe - twinGrad[1]) <= PE_BAND,
+          `${id} ${curve.name} at ${phi} p.u.: derived Pe ${pe} vs printed ${twinGrad[1]} exceeds the tool-response band`,
+        );
+        assert.ok(
+          Math.abs(rho - twinGrad[2]) <= 0.0005,
+          `${id} ${curve.name} at ${phi} p.u.: density ${rho} vs printed ${twinGrad[2]} - the density leg must be exact`,
+        );
+      }
+    }
+  }
+});
+
+test("the_gardner_dumanoir_constants_are_exactly_the_paper_table_and_lith5_legend_values", () => {
+  // G&D 1980 printed table (U and rho_b(log) columns) + chartbook Lith-5 legend p. 198
+  // + Lith-3/Lith-4 chart headers (density-scale rho_f). DEC-079.
+  assert.equal(GD.RHOE_SCALE, 1.0704);
+  assert.equal(GD.RHOE_OFFSET, 0.1883);
+  assert.deepEqual(
+    GD.MATS.map((m) => [m.name, m.U, m.rbLog, m.rhoMaGrad]),
+    [
+      ["Quartz sandstone", 4.78, 2.64, 2.65],
+      ["Calcite (limestone)", 13.8, 2.71, 2.71],
+      ["Dolomite", 9.0, 2.88, 2.87],
+    ],
+  );
+  assert.deepEqual(GD.FLUIDS, {
+    fresh: { Uf: 0.398, rbLog: 1.0, rhoFGrad: 1.0 },
+    salt: { Uf: 1.36, rbLog: 1.11, rhoFGrad: 1.1 },
+  });
 });
 
 /** Extract one digitized overlay's points and lines from the generated source. */

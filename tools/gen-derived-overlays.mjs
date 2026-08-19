@@ -83,6 +83,60 @@ export const RHG = {
 
 const round = (value, dp) => Number(value.toFixed(dp));
 
+// --- Lith-3 / Lith-4 Platform Express TLD PEF charts (executed increment 4, DEC-079) --
+// The Pe legs are DERIVED from the published litho-density physics of Gardner &
+// Dumanoir, "Litho-Density log interpretation", SPWLA 21st Annual Logging Symposium,
+// 1980 (paper N; copy in Jauhar's library), which states the full convention:
+//   Pe = (Z/10)^3.6 (eq 3), rho_b = 1.0704*rho_e - 0.1883 (eq 5, so
+//   rho_e = (rho_b + 0.1883)/1.0704), U = Pe*rho_e (eq 6), and U and rho_b both mix
+//   VOLUMETRICALLY (eqs 7-8). Hence for porosity f:
+//   Pe(f) = [f*Uf + (1-f)*Uma] / [f*rho_e_fluid + (1-f)*rho_e_ma].
+// Constants, cited:
+//  - mineral U and rho_b(log): the paper's printed table (quartz 4.78/2.64,
+//    calcite 13.8/2.71, dolomite 9.00/2.88), sourced there to Edmundson et al. 1979.
+//  - fluids: the chartbook Lith-5 legend states both pairs verbatim - "Fresh water
+//    (0 ppm), rho_f = 1.0 g/cm3, Uf = 0.398" and "Salt water (200,000 ppm),
+//    rho_f = 1.11 g/cm3, Uf = 1.36" (p. 198). The DENSITY graduation uses the
+//    Lith-3/Lith-4 chart headers' own rho_f (1.0 fresh / 1.1 salt) with the classical
+//    matrix densities - proven exact against every digitized graduation.
+// Fidelity, ruled by DEC-079: the printed charts are TLD TOOL charts and carry a small
+// systematic tool-window slope the pure physics does not (residuals <= 0.07 Pe, ~1% of
+// the axis, against digitization jitter of ~0.02); Jauhar ruled the physics-derived
+// legs replace the digitized ones regardless.
+export const GD = {
+  RHOE_SCALE: 1.0704, // eq (5)
+  RHOE_OFFSET: 0.1883, // eq (5)
+  MATS: [
+    { name: "Quartz sandstone", U: 4.78, rbLog: 2.64, rhoMaGrad: 2.65 },
+    { name: "Calcite (limestone)", U: 13.8, rbLog: 2.71, rhoMaGrad: 2.71 },
+    { name: "Dolomite", U: 9.0, rbLog: 2.88, rhoMaGrad: 2.87 },
+  ],
+  FLUIDS: {
+    fresh: { Uf: 0.398, rbLog: 1.0, rhoFGrad: 1.0 },
+    salt: { Uf: 1.36, rbLog: 1.11, rhoFGrad: 1.1 },
+  },
+  MAX_PHI: 45, // the printed charts graduate 0..45 p.u. every 1 p.u.
+};
+
+export function gdRhoE(rb) {
+  return (rb + GD.RHOE_OFFSET) / GD.RHOE_SCALE;
+}
+
+export function lithPefCurves(fluidKey) {
+  const fl = GD.FLUIDS[fluidKey];
+  return GD.MATS.map((mat) => {
+    const grads = [];
+    for (let phi = 0; phi <= GD.MAX_PHI; phi += 1) {
+      const f = phi / 100;
+      const u = f * fl.Uf + (1 - f) * mat.U;
+      const rhoE = f * gdRhoE(fl.rbLog) + (1 - f) * gdRhoE(mat.rbLog);
+      const rho = mat.rhoMaGrad - f * (mat.rhoMaGrad - fl.rhoFGrad);
+      grads.push([phi, round(u / rhoE, 4), round(rho, 4)]);
+    }
+    return { name: mat.name, labelEvery: 10, grads };
+  });
+}
+
 // --- Lith-6 Umaa-rhomaa MID plot (executed increment 2) ------------------------------
 // The carbonate ternary is GEOMETRY once its three vertices are fixed: the labeled
 // percent edges connect the vertices, and the twelve unlabeled interior lines are the
@@ -193,6 +247,8 @@ export function derivedOverlays() {
   return [
     { id: "por22_ta", curves: por22TaCurves() },
     { id: "por22_fo", curves: por22FoCurves() },
+    { id: "lith3", curves: lithPefCurves("fresh") },
+    { id: "lith4", curves: lithPefCurves("salt") },
     lith6MidDerived(),
   ];
 }

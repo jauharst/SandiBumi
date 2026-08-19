@@ -448,3 +448,5 @@
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_derived_lith6_mid_ternary_reproduces_the_digitized_chart_and_keeps_only_the_named_annotations_digitized"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_derived_por22_field_observation_curves_are_the_rhg_1980_algorithm_not_a_tracing_of_the_printed_curve"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_rhg_derivation_constants_are_exactly_the_paper_stated_values"
+"SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_derived_lith_pef_curves_are_gardner_dumanoir_physics_and_sit_within_the_tld_tool_response_band"
+"SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_gardner_dumanoir_constants_are_exactly_the_paper_table_and_lith5_legend_values"
