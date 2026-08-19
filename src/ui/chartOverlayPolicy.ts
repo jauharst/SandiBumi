@@ -53,10 +53,13 @@ export function isToolResponseOverlay(id: string): boolean {
  *
  * - `por22_ta`: DERIVED (Wyllie time-average; constants stated on Por-22 p. 238 and
  *   Por-1 p. 212). Its mineral POINTS remain digitized pending their own derivation.
- * - `por22_fo`: NOT yet derived — the first-pass Raymer-Hunt-Gardner check left
- *   systematic residuals beyond digitization tolerance; the published formulation the
- *   chart used must be established first, else FO is adjudicated vendor-empirical and
- *   joins the Gate 5 class above.
+ * - `por22_fo`: DERIVED under DEC-079 as the PUBLISHED RHG-1980 ALGORITHM at the
+ *   paper's stated constants (dtma 56/49/44, vf 5,300 ft/s) — deliberately NOT a
+ *   replica of the printed curve, which is the paper's hand-drawn empirical transform
+ *   that its own algorithms only approximate (they track it to ~1 us/ft below
+ *   30 p.u. and depart by up to ~13 us/ft at 40 p.u.). The overlay therefore matches
+ *   what IP / Geolog / Techlog compute rather than the chartbook tracing; the
+ *   divergence is asserted, not hidden, in tools/chart-derivation.test.mjs.
  */
 export function resolveChartOverlay(id: string): ChartOverlayDef | undefined {
   const base = findChartOverlay(id);

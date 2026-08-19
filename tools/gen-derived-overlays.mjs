@@ -26,12 +26,28 @@
 // within digitization tolerance (<= 0.4 us/ft, <= 0.005 g/cm3) and that the generated
 // module on disk is current.
 //
-// NOT yet derived, recorded honestly: `por22_fo` (field observation) — a first-pass check
-// against the Raymer-Hunt-Gardner closed forms left systematic residuals beyond
-// digitization tolerance, so the exact published formulation the chart used must be
-// established before replacement; if none reproduces it, FO is adjudicated
-// vendor-empirical and joins the Gate 5 class (src/ui/chartOverlayPolicy.ts). The
-// def's mineral POINTS also remain digitized pending their own constant-based derivation.
+// `por22_fo` (field observation) — DERIVED under DEC-079 (2026-08-19) as the RHG 1980
+// ALGORITHM, not as a replica of the printed curve. The chart's red set traces the
+// paper's hand-drawn empirical transform (its Fig. 9; the chartbook's Por-1 page cites
+// it as "Reference 20"), which the paper's own segmented algorithms only "reasonably
+// duplicate" — good to ~1 us/ft below 30 p.u., diverging to ~13 us/ft at 40 p.u.
+// Jauhar's ruling: ship the published algorithm with its stated constants (it is what
+// IP / Geolog / Techlog compute), and accept the visible high-porosity departure from
+// the printed chart as the paper's own algorithm-vs-curve gap. Sources, all stated in
+// Raymer, Hunt & Gardner, "An improved sonic transit time-to-porosity transform",
+// SPWLA 21st Annual Logging Symposium, 1980 (paper P; copy in Jauhar's library):
+//  - segments: phi < 37%: V = (1-phi)^2*Vma + phi*Vf ("can be used regardless of the
+//    nature of the saturating fluid"; also the form the reference suite and IP implement);
+//    phi > 47%: the fluid-suspension form 1/(rho*V^2) = phi/(rho_f*Vf^2) +
+//    (1-phi)/(rho_ma*Vma^2); 37..47%: linear interpolation in dt between the two
+//    branch values at 37% and 47% (the endpoint reading the reference suite's
+//    dt_from_models source pins).
+//  - matrix velocities (paper, Summary item 3 — deliberately NOT the TA leg's Por-1
+//    fan values): sandstone 17,850 ft/s (56 us/ft), limestone 20,500 ft/s (49 us/ft),
+//    dolomite 22,750 ft/s (44 us/ft).
+//  - Vf = 5,300 ft/s: stated in the paper's figures AND on the chartbook Por-1 page.
+//  - rho_f 1.0 and the matrix densities: the Por-22 density graduation (as for TA).
+// The def's mineral POINTS remain digitized pending their own constant-based derivation.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -50,6 +66,19 @@ export const CONSTANTS = {
     { name: "Calcite (limestone)", rhoMa: 2.71, vMaFtS: 21000, maxPhi: 45 },
     { name: "Dolomite", rhoMa: 2.87, vMaFtS: 23000, maxPhi: 45 },
   ],
+};
+
+// RHG 1980 constants (DEC-079) — see the header note for the citations. maxPhi mirrors
+// the printed FO curves' own graduation extent per lithology (sandstone stops at 35).
+export const RHG = {
+  VF_FT_S: 5300, // paper figures + Por-1 p. 211: "water with a velocity of 5,300 ft/s"
+  LITHS: [
+    { name: "Quartz sandstone", rhoMa: 2.65, vMaFtS: 17850, maxPhi: 35 },
+    { name: "Calcite (limestone)", rhoMa: 2.71, vMaFtS: 20500, maxPhi: 40 },
+    { name: "Dolomite", rhoMa: 2.87, vMaFtS: 22750, maxPhi: 40 },
+  ],
+  LOW_END: 0.37, // the paper's segment boundaries
+  HIGH_START: 0.47,
 };
 
 const round = (value, dp) => Number(value.toFixed(dp));
@@ -128,8 +157,44 @@ export function por22TaCurves() {
   });
 }
 
+/** RHG 1980 segmented transform: dt (us/ft) at fractional porosity f. */
+export function rhgDt(lith, f) {
+  const dtf = 1e6 / RHG.VF_FT_S;
+  const dtLow = (p) => 1e6 / ((1 - p) ** 2 * lith.vMaFtS + p * RHG.VF_FT_S);
+  const dtSusp = (p) => {
+    const rho = lith.rhoMa - p * (lith.rhoMa - CONSTANTS.RHO_F);
+    const dtMa = 1e6 / lith.vMaFtS;
+    return Math.sqrt(
+      (rho * p * dtf * dtf) / CONSTANTS.RHO_F + (rho * (1 - p) * dtMa * dtMa) / lith.rhoMa,
+    );
+  };
+  if (f <= RHG.LOW_END) return dtLow(f);
+  if (f >= RHG.HIGH_START) return dtSusp(f);
+  // 37..47%: linear interpolation in dt between the branch values at the segment ends
+  // (the endpoint reading — the reference suite's dt_from_models source pins it).
+  const a = (RHG.HIGH_START - f) / (RHG.HIGH_START - RHG.LOW_END);
+  return a * dtLow(RHG.LOW_END) + (1 - a) * dtSusp(RHG.HIGH_START);
+}
+
+/** RHG field-observation curves for Por-22, graduated every 5 p.u. like the printed chart. */
+export function por22FoCurves() {
+  return RHG.LITHS.map((lith) => {
+    const grads = [];
+    for (let phi = 0; phi <= lith.maxPhi; phi += 5) {
+      const f = phi / 100;
+      const rho = lith.rhoMa - f * (lith.rhoMa - CONSTANTS.RHO_F);
+      grads.push([phi, round(rhgDt(lith, f), 4), round(rho, 4)]);
+    }
+    return { name: lith.name, labelEvery: 10, grads };
+  });
+}
+
 export function derivedOverlays() {
-  return [{ id: "por22_ta", curves: por22TaCurves() }, lith6MidDerived()];
+  return [
+    { id: "por22_ta", curves: por22TaCurves() },
+    { id: "por22_fo", curves: por22FoCurves() },
+    lith6MidDerived(),
+  ];
 }
 
 export function renderModule() {
