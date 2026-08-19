@@ -5191,7 +5191,7 @@ mod tests {
             ("ml.rs", "MlRequest", true),
             ("ml.rs", "MlApplyRequest", true),
             ("ml.rs", "MlEvalRequest", false),
-            ("multimin2.rs", "MultiminRequest", true),
+            ("sandimin.rs", "SandiminRequest", true),
             ("coreimage.rs", "CoreLogSpec", true),
             ("workflow.rs", "PaySummaryRequest", false),
             ("workflow.rs", "CutoffSweepRequest", false),

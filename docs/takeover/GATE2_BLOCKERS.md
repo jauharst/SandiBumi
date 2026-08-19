@@ -41,7 +41,7 @@ register against its own chapters **seven times**. Read this before trusting a b
 ### Rows advanced, with the remaining question stated exactly
 
 - **`SB-SAT-027`** — the register claimed two un-cross-asserted solvers. **There is one**: `sw_sim`
-  delegates to `multimin2`, and 15 `modules.rs` sites route there. The `n = 2` fast path is now
+  delegates to `sandimin`, and 15 `modules.rs` sites route there. The `n = 2` fast path is now
   proven equal to the general root-finder. **One clause left, and it is a method ruling:** the
   chapter specifies Geolog's guards (seed 0.5, 20 iterations, `|delta| < 1e-5`) while the solver
   uses 60-step bisection — arguably better, since bisection on a monotone function is

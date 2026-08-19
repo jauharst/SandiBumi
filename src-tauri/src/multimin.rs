@@ -1,7 +1,7 @@
 //! Multimin — RETIRED legacy mineral/fluid inversion.
 //!
 //! This fixed four-component (SAND/CLAY/WATER/HYDROCARBON) weighted-NNLS solver has been
-//! superseded by SandiMin (`multimin2`), the generalized probabilistic multi-mineral solver,
+//! superseded by SandiMin (`sandimin`), the generalized probabilistic multi-mineral solver,
 //! and per Jauhar's design mineral inversion is now independent of Sw. The module is **retired**:
 //! `modules::run_module` blocks it via `modules::retired_module`, returning a message that points
 //! at SandiMin, so a saved workflow chain (or a `module:multimin` dockview panel) that still
@@ -10,7 +10,7 @@
 //! The spec below is deliberately kept — and still returned by `list_modules` — only so such a
 //! saved step resolves by name and can render its stored parameters while the user re-does it in
 //! SandiMin. The former solver body and its tests were removed with the retirement; the volumetric
-//! Pe↔U relation R17 introduced here now lives solely in `multimin2::rho_e`, which SandiMin uses.
+//! Pe↔U relation R17 introduced here now lives solely in `sandimin::rho_e`, which SandiMin uses.
 
 use crate::modules::{log_in, log_out, param_open, ModuleSpec};
 

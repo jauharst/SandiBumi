@@ -14772,3 +14772,18 @@ from published equations and the chart pages' own printed values.
       the six labeled Th/K ratio lines and the two dashed lines still draw as before.
 - [ ] **Open an old saved session or plot template that used a CNL overlay** — it should load
       cleanly with no overlay drawn (never an error).
+
+## SandiMin internal rename + SM prefix (2026-08-20)
+
+The solver's internal names caught up with the product name: multimin2.rs is now sandimin.rs,
+the dialog file, IPC commands, types and CSS classes all say sandimin/SM, and the default
+output prefix is now SM (your call). Old projects keep their MM_* curves untouched; a re-run
+under the new default writes SM_* beside them rather than replacing an MM_* interpretation.
+
+- [ ] **Open SandiMin (Advance ▸ Mineral Solver) and run it on a well you know.** The dialog
+      should look and behave exactly as before; the output prefix field now offers SM, and the
+      run writes SM_PHIE / SM_SWE / VOL_* curves into the SANDIMIN set.
+- [ ] **Open a project that has MM_* curves from an earlier run** — they should still be there,
+      plot, and export exactly as before, beside any new SM_* run.
+- [ ] **Restore a saved session that had a SandiMin pane** — the pane should come back (its
+      internal id is deliberately unchanged for exactly this).

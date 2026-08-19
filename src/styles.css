@@ -1521,7 +1521,7 @@ textarea {
   height: 20px;
   font-size: var(--fs-xs);
   color: var(--text);
-  /* --bg-app is the themed form-control surface (matches .form-control and .mm-dialog select).
+  /* --bg-app is the themed form-control surface (matches .form-control and .sm-dialog select).
      The old bare var(--bg) was defined in no palette, so it fell to transparent everywhere. */
   background: var(--bg-app);
   border: 1px solid var(--border);
@@ -4538,10 +4538,10 @@ textarea {
 /* Module-dialog Run buttons (faciesTie / HFU / Lorenz / ML / SHF / Thomeer, and the workflow
    runner) carry only class "primary" on a raw <button>. "primary" had no standalone rule, so those
    buttons fell back to native grey UA buttons — the only Run buttons in the app not accent-filled.
-   Give them the app's primary look (mirrors the multimin .mm-run-btn), scoped to their rows so
-   nothing else is touched: multimin keeps its own .mm-run-btn (excluded below) and the Monte Carlo
+   Give them the app's primary look (mirrors the SandiMin .sm-run-btn), scoped to their rows so
+   nothing else is touched: SandiMin keeps its own .sm-run-btn (excluded below) and the Monte Carlo
    run button is not a .primary. */
-.mc-run-row .primary:not(.mm-run-btn),
+.mc-run-row .primary:not(.sm-run-btn),
 .workflow-run-row .primary {
   align-self: flex-start;
   padding: 6px 24px;
@@ -4552,13 +4552,13 @@ textarea {
   font-weight: 600;
   cursor: pointer;
 }
-.mc-run-row .primary:not(.mm-run-btn):hover,
+.mc-run-row .primary:not(.sm-run-btn):hover,
 .workflow-run-row .primary:hover {
   background: var(--accent-dim);
   border-color: var(--accent-dim);
   color: #fff;
 }
-.mc-run-row .primary:not(.mm-run-btn):disabled,
+.mc-run-row .primary:not(.sm-run-btn):disabled,
 .workflow-run-row .primary:disabled {
   opacity: 0.55;
   cursor: default;
@@ -4952,14 +4952,14 @@ textarea {
 }
 
 /* SandiMin dialog — tabbed setup sections (Minerals / Log inputs / Fluid / Clay) */
-.mm-tabs {
+.sm-tabs {
   display: flex;
   gap: 4px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
-.mm-tab {
+.sm-tab {
   padding: 5px 16px;
   border: 1px solid transparent;
   border-bottom: none;
@@ -4969,11 +4969,11 @@ textarea {
   cursor: pointer;
   font-size: var(--fs-lg);
 }
-.mm-tab:hover {
+.sm-tab:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
-.mm-tab.active {
+.sm-tab.active {
   background: var(--bg-panel-alt);
   color: var(--text);
   border-color: var(--border);
@@ -4981,13 +4981,13 @@ textarea {
   margin-bottom: -1px;
   font-weight: 600;
 }
-.mm-tab-body {
+.sm-tab-body {
   margin-bottom: 8px;
 }
-.mm-tab-panel {
+.sm-tab-panel {
   padding: 2px 0;
 }
-.mm-foot-sep {
+.sm-foot-sep {
   border-top: 1px solid var(--border);
   margin: 6px 0 8px;
 }
@@ -6554,28 +6554,28 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
-   Multimin dialog — tool rows + editable endpoint matrix
+   SandiMin dialog — tool rows + editable endpoint matrix
    -------------------------------------------------------------------------- */
 /* Log inputs flow into as many columns as the pane allows (Jauhar field review
    2026-07-23, cf. the mineral grid) — one column when narrow, more when wide,
    scrolling both ways. Labels ellipsis rather than wrap so checkboxes stay aligned. */
-.mm-tools {
+.sm-tools {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 3px 16px;
   align-content: start;
 }
-.mm-tool-row {
+.sm-tool-row {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: var(--fs-md);
   min-width: 0;
 }
-.mm-tool-row > input[type="checkbox"] {
+.sm-tool-row > input[type="checkbox"] {
   flex: 0 0 auto;
 }
-.mm-tool-key {
+.sm-tool-key {
   flex: 1 1 auto;
   min-width: 0;
   font-weight: 600;
@@ -6583,46 +6583,46 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mm-tool-curve {
+.sm-tool-curve {
   flex: 0 0 74px;
   width: 74px;
 }
-.mm-tool-sigma {
+.sm-tool-sigma {
   flex: 0 0 60px;
   width: 60px;
 }
-.mm-table-wrap {
+.sm-table-wrap {
   max-height: 260px;
   overflow: auto;
 }
-.mm-endpoints th,
-.mm-endpoints td {
+.sm-endpoints th,
+.sm-endpoints td {
   padding: 2px 5px;
   text-align: center;
   white-space: nowrap;
 }
-.mm-endpoints .mm-comp-name {
+.sm-endpoints .sm-comp-name {
   text-align: left;
   font-weight: 600;
   position: sticky;
   left: 0;
   background: var(--bg-panel);
 }
-.mm-cell {
+.sm-cell {
   width: 62px;
   text-align: right;
 }
-.mm-role {
+.sm-role {
   width: 34px;
 }
 
 /* --- Mineral-solver dialog additions --- */
-.mm-columns {
+.sm-columns {
   display: flex;
   gap: 12px;
   align-items: flex-start;
 }
-.mm-comp-box {
+.sm-comp-box {
   flex: 0 0 200px;
   max-height: 260px;
   overflow-y: auto;
@@ -6630,7 +6630,7 @@ textarea {
   border-radius: var(--r-md);
   padding: 6px 8px;
 }
-.mm-comp-row {
+.sm-comp-row {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -6638,7 +6638,7 @@ textarea {
   padding: 1px 0;
   cursor: pointer;
 }
-.mm-group-head {
+.sm-group-head {
   font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: uppercase;
@@ -6646,7 +6646,7 @@ textarea {
   color: var(--text-dim);
   margin: 6px 0 3px;
 }
-.mm-badge {
+.sm-badge {
   font-size: var(--fs-2xs);
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
@@ -6654,38 +6654,38 @@ textarea {
   color: var(--text-dim);
   margin-left: auto;
 }
-.mm-fluid {
+.sm-fluid {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: 6px 10px 8px;
   margin-top: 8px;
 }
-.mm-fluid-grid {
+.sm-fluid-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
 }
-.mm-fluid-cell {
+.sm-fluid-cell {
   display: flex;
   gap: 6px;
   align-items: center;
   font-size: var(--fs-md);
 }
-.mm-fluid-cell span {
+.sm-fluid-cell span {
   color: var(--text-dim);
 }
-.mm-fluid-preview {
+.sm-fluid-preview {
   margin-top: 6px;
   font-size: var(--fs-sm);
   font-family: var(--font-mono, monospace);
   color: var(--text-dim);
 }
-.mm-cell-auto {
+.sm-cell-auto {
   color: var(--text-dim);
   text-align: center;
   font-size: var(--fs-sm);
 }
-.mm-add-custom {
+.sm-add-custom {
   margin-top: 6px;
   font-size: var(--fs-md);
   background: transparent;
@@ -6695,7 +6695,7 @@ textarea {
   color: var(--text-dim);
   cursor: pointer;
 }
-.mm-add-custom:hover {
+.sm-add-custom:hover {
   color: var(--text);
   border-color: var(--accent);
 }
@@ -6704,9 +6704,9 @@ textarea {
    The pane's bespoke inputs/selects were rendering as raw browser controls
    (white box, OS-blue tick) instead of the themed .form-control look every module
    pane uses. Give them the same brand surface so the whole app reads one theme. */
-.mm-dialog input[type="number"],
-.mm-dialog input[type="text"],
-.mm-dialog select {
+.sm-dialog input[type="number"],
+.sm-dialog input[type="text"],
+.sm-dialog select {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
@@ -6715,27 +6715,27 @@ textarea {
   font-size: var(--fs-md);
   font-family: inherit;
 }
-.mm-dialog input[type="number"]:focus,
-.mm-dialog input[type="text"]:focus,
-.mm-dialog select:focus {
+.sm-dialog input[type="number"]:focus,
+.sm-dialog input[type="text"]:focus,
+.sm-dialog select:focus {
   outline: none;
   border-color: var(--accent);
 }
 /* Native ticks pick up the brand accent instead of OS blue (theme-aware). */
-.mm-dialog input[type="checkbox"],
-.mm-dialog input[type="radio"] {
+.sm-dialog input[type="checkbox"],
+.sm-dialog input[type="radio"] {
   accent-color: var(--accent);
 }
 
 /* Collapsible + scrollable setup groups (Minerals / Clays / Fluids, Log inputs).
    A click on the head shrinks the group; long lists cap their height and scroll. */
-.mm-collapse {
+.sm-collapse {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   margin-bottom: 6px;
   overflow: hidden;
 }
-.mm-collapse-head {
+.sm-collapse-head {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -6751,32 +6751,32 @@ textarea {
   color: var(--text-dim);
   text-align: left;
 }
-.mm-collapse-head:hover {
+.sm-collapse-head:hover {
   color: var(--text);
 }
-.mm-collapse-count {
+.sm-collapse-count {
   margin-left: auto;
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
 }
-.mm-collapse-chevron {
+.sm-collapse-chevron {
   font-size: var(--fs-xs);
   transition: transform 0.12s ease;
 }
-.mm-collapse.collapsed .mm-collapse-chevron {
+.sm-collapse.collapsed .sm-collapse-chevron {
   transform: rotate(-90deg);
 }
-.mm-collapse-body {
+.sm-collapse-body {
   padding: 5px 8px;
 }
-.mm-collapse-scroll {
+.sm-collapse-scroll {
   max-height: 220px;
   overflow-y: auto;
 }
 /* Multi-column mineral/clay/fluid selection lists (Jauhar field review 2026-07-23): wrap to as many
    columns as the pane width allows and scroll both ways — no more one endless single column. */
-.mm-comp-grid {
+.sm-comp-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 1px 16px;
@@ -6785,7 +6785,7 @@ textarea {
 }
 
 /* Run / apply-to-wells section pinned ABOVE the parameter tabs (Jauhar field review 2026-07-23). */
-.mm-run-section {
+.sm-run-section {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-panel-alt);
@@ -6794,27 +6794,27 @@ textarea {
 }
 /* Run follows the standard module button (Jauhar field review, image 1): a tidy left-aligned
    button in the theme accent, matching every other module's Run across the client-brand skins. */
-.mm-run-section .mc-run-row {
+.sm-run-section .mc-run-row {
   flex-direction: row;
   align-items: center;
 }
-.mm-run-section .mc-run-row .mm-run-btn {
+.sm-run-section .mc-run-row .sm-run-btn {
   width: auto;
   align-self: flex-start;
   padding: 6px 24px;
 }
-.mm-dialog button.mm-run-btn {
+.sm-dialog button.sm-run-btn {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
   font-weight: 600;
 }
-.mm-dialog button.mm-run-btn:hover {
+.sm-dialog button.sm-run-btn:hover {
   background: var(--accent-dim);
   border-color: var(--accent-dim);
   color: #fff;
 }
-.mm-dialog button.mm-run-btn:disabled {
+.sm-dialog button.sm-run-btn:disabled {
   opacity: 0.55;
   filter: none;
 }
@@ -6907,7 +6907,7 @@ input[type="number"].num-editing:focus {
 .dock-cutoff,
 .dock-ml,
 .dock-montecarlo,
-.dock-multimin,
+.dock-sandimin,
 .dock-module,
 .dock-zones,
 .dock-autocorr,
@@ -7017,7 +7017,7 @@ input[type="number"].num-editing:focus {
 }
 /* The SandiMin endpoints matrix is wide — let it use the whole pane, unlike the
  * form-column dialogs that share the .mc-dialog class. */
-.dock-multimin .mc-dialog {
+.dock-sandimin .mc-dialog {
   max-width: none;
 }
 

@@ -43,7 +43,7 @@ mod ml;
 mod modules;
 mod montecarlo;
 mod multimin;
-mod multimin2;
+mod sandimin;
 mod netflag;
 mod neutron_charts;
 mod office;
@@ -2848,12 +2848,12 @@ async fn run_facies_confusion(
 /// off-thread via the job registry — the solve no longer freezes the IPC thread, and the
 /// Processing panel shows live per-well progress + Cancel. Same per-well result payload.
 #[tauri::command]
-async fn run_multimin(
+async fn run_sandimin(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    mut req: multimin2::MultiminRequest,
+    mut req: sandimin::SandiminRequest,
     scope: well_scope::WellScopeSelection,
-) -> Result<multimin2::MultiminResult, String> {
+) -> Result<sandimin::SandiminResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
         req.apply_well_ids = well_scope::resolve_well_scope(&conn, &scope, "SandiMin run")?;
@@ -2863,50 +2863,50 @@ async fn run_multimin(
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
     jobs::run_job(reg, "SandiMin", "mineral solver".to_string(), items, total, true, move |job| {
-        multimin2::run_multimin(&conn, &req, Some(&job))
+        sandimin::run_sandimin(&conn, &req, Some(&job))
     })
     .await
 }
 
-/// The built-in mineral/fluid endpoint library (editable defaults for the Multimin dialog).
+/// The built-in mineral/fluid endpoint library (editable defaults for the SandiMin dialog).
 #[tauri::command]
-fn multimin_library() -> Vec<multimin2::Component> {
-    multimin2::multimin_library()
+fn sandimin_library() -> Vec<sandimin::Component> {
+    sandimin::sandimin_library()
 }
 
 /// Canonical SandiMin saturation equation ids and the labels shown for them. The backend owns this
 /// catalog so the UI cannot silently rename an equation while the solver persists a different id.
 #[tauri::command]
-fn multimin_sw_models() -> Vec<multimin2::SwModelChoice> {
+fn sandimin_sw_models() -> Vec<sandimin::SwModelChoice> {
     // SB-SAT-026: the DIALOG sees only what the solver implements; the full catalog is the
     // flag registry every saturation module resolves through.
-    multimin2::solver_selectable_models()
+    sandimin::solver_selectable_models()
 }
 
 /// Derived fluid quantities (Cw, Cmf, Cbw, α, w, CT/CXO auto-uncertainties) for the
-/// Multimin dialog's fluid-properties preview.
+/// SandiMin dialog's fluid-properties preview.
 #[tauri::command]
-fn multimin_fluid_calc(props: multimin2::FluidProps) -> multimin2::FluidCalc {
-    multimin2::fluid_calc(&props)
+fn sandimin_fluid_calc(props: sandimin::FluidProps) -> sandimin::FluidCalc {
+    sandimin::fluid_calc(&props)
 }
 
 /// Wet-clay → dry-clay endpoint conversion (wet/dry clay xlsx workflow) for the
 /// SandiMin dialog's converter panel.
 #[tauri::command]
-fn multimin_dry_clay(input: multimin2::WetClayInput) -> Result<multimin2::DryClayCalc, String> {
-    multimin2::dry_clay_calc(&input)
+fn sandimin_dry_clay(input: sandimin::WetClayInput) -> Result<sandimin::DryClayCalc, String> {
+    sandimin::dry_clay_calc(&input)
 }
 
 /// Zone-averaged FTEMP_F / RMF read from the precalc module's output curves, for
 /// the SandiMin fluid-properties autofill.
 #[tauri::command]
-fn multimin_fluid_from_precalc(
+fn sandimin_fluid_from_precalc(
     db: tauri::State<DbState>,
     well_id: String,
     top: Option<f64>,
     bottom: Option<f64>,
-) -> Result<multimin2::PrecalcFluid, String> {
-    multimin2::fluid_from_precalc(&db.0, &well_id, top, bottom)
+) -> Result<sandimin::PrecalcFluid, String> {
+    sandimin::fluid_from_precalc(&db.0, &well_id, top, bottom)
 }
 
 /// Lists the zones defined for a well.
@@ -4530,12 +4530,12 @@ pub fn run() {
             run_lorenz,
             run_net_flag,
             run_facies_confusion,
-            run_multimin,
-            multimin_library,
-            multimin_sw_models,
-            multimin_fluid_calc,
-            multimin_dry_clay,
-            multimin_fluid_from_precalc,
+            run_sandimin,
+            sandimin_library,
+            sandimin_sw_models,
+            sandimin_fluid_calc,
+            sandimin_dry_clay,
+            sandimin_fluid_from_precalc,
             run_workflow_chain,
             get_chain_status,
             cancel_workflow_chain,

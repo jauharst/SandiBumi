@@ -269,7 +269,11 @@ right after `dock.fromJSON` (which synchronously recreates the log-view panels, 
 the `logViews` map). Plot-panel internal state (selected curves/props) is still not carried —
 extend the snapshot the same way if that's needed.
 
-Generalized Multimin v2 (2026-07-19) — `src-tauri/src/multimin2.rs` is a the reference suite-Multimin/IP-Mineral-
+SandiMin (2026-07-19, as "Generalized Multimin v2"; internals renamed 2026-08-20:
+`src-tauri/src/sandimin.rs`, `src/ui/sandiminDialog.ts`, commands `run_sandimin`/`sandimin_*`,
+default output prefix now **SM** — old projects keep their MM_* curves; the retired module id
+`"multimin"` and the workspace component id `"multimin"` are deliberately FROZEN so saved chains
+and sessions still resolve) — `sandimin.rs` is a the reference suite-Multimin/IP-Mineral-
 Solver-style optimizer, SEPARATE from the fixed 4-component `multimin.rs` (untouched). Spec was
 extracted from the local the reference install helpset + IP2018 install: `docs/multimin_ref_spec.md` and
 `docs/multimin_ip_spec.md` — consult those before touching the physics. Architecture:
@@ -1156,7 +1160,7 @@ What is specific to THIS repo, and is the part that decides a tier here:
 - **The gate is `npx tsc --noEmit` + `cargo check`**, or `tools\check.ps1` for the full bar. A
   delegated edit is not done until the gate passes, and never on the subagent's own say-so.
 - **What counts as silent wrongness here** — the files where a wrong answer compiles, plots and
-  ships into a client report with no gate to catch it: `equations.rs`, `multimin.rs`/`multimin2.rs`,
+  ships into a client report with no gate to catch it: `equations.rs`, `multimin.rs`/`sandimin.rs`,
   `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, `distribution.rs`,
   `petrography.rs`, the chart overlays, the theme var contract, and dockview layout.
 - **Mechanical and gated here** — renames, a Tauri command wrapper, docs, test scaffolding,
