@@ -62,7 +62,26 @@ export function resolveChartOverlay(id: string): ChartOverlayDef | undefined {
   const base = findChartOverlay(id);
   if (!base) return undefined;
   const derived = DERIVED_CHART_OVERLAYS.find((d) => d.id === id);
-  return derived ? { ...base, curves: derived.curves } : base;
+  if (!derived) return base;
+  const resolved: ChartOverlayDef = { ...base };
+  if (derived.curves) resolved.curves = derived.curves;
+  if (derived.points) {
+    // Same-label derived points replace their digitized twins; points not yet derived
+    // (apparent-position minerals) stay digitized, recorded in the generator's notes.
+    resolved.points = (base.points ?? []).map(
+      (point) => derived.points!.find((d) => d.label === point.label) ?? point,
+    );
+  }
+  if (derived.lines) {
+    // Derived geometry replaces the digitized lines wholesale; only the annotation
+    // labels the generator explicitly keeps survive from the digitized set.
+    const keep = derived.keepDigitizedLineLabels ?? [];
+    resolved.lines = [
+      ...derived.lines,
+      ...(base.lines ?? []).filter((line) => line.label !== undefined && keep.includes(line.label)),
+    ];
+  }
+  return resolved;
 }
 
 /** The overlay catalog in its stable UI order, with derived curves shadowing digitized ones. */

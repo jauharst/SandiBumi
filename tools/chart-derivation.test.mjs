@@ -80,6 +80,83 @@ test("the_derivation_constants_are_exactly_the_cited_chart_page_values", () => {
   );
 });
 
+/** Extract one digitized overlay's points and lines from the generated source. */
+function digitizedPointsAndLines(id) {
+  const source = fs.readFileSync(path.join(repo, "src", "ui", "chartOverlays.ts"), "utf8");
+  const start = source.indexOf(`id: "${id}"`);
+  assert.ok(start >= 0, `digitized overlay ${id} not found`);
+  const end = source.indexOf('id: "', start + 10);
+  const block = source.slice(start, end < 0 ? undefined : end);
+  const points = [...block.matchAll(/\{ x: ([\d.-]+), y: ([\d.-]+), label: "([^"]+)" \}/g)].map(
+    (m) => ({ x: Number(m[1]), y: Number(m[2]), label: m[3] }),
+  );
+  const lines = [
+    ...block.matchAll(/\{ pts: \[\[([\d.-]+),([\d.-]+)\],\[([\d.-]+),([\d.-]+)\]\](?:, label: "([^"]+)")? \}/g),
+  ].map((m) => ({
+    pts: [
+      [Number(m[1]), Number(m[2])],
+      [Number(m[3]), Number(m[4])],
+    ],
+    label: m[5],
+  }));
+  return { points, lines };
+}
+
+test("the_derived_lith6_mid_ternary_reproduces_the_digitized_chart_and_keeps_only_the_named_annotations_digitized", () => {
+  const U_TOL = 0.12; // digitization tolerance on the 4-17 b/cc Umaa axis
+  const RHO_TOL = 0.012; // and on the 2.6-3.1 g/cc rhomaa axis
+  const derived = derivedOverlays().find((d) => d.id === "lith6_mid");
+  assert.ok(derived, "lith6_mid must be a derived overlay");
+  const digitized = digitizedPointsAndLines("lith6_mid");
+
+  // Every derived point sits on its digitized twin within tolerance.
+  for (const point of derived.points) {
+    const twin = digitized.points.find((p) => p.label === point.label);
+    assert.ok(twin, `digitized twin missing for point ${point.label}`);
+    assert.ok(
+      Math.abs(point.x - twin.x) <= U_TOL && Math.abs(point.y - twin.y) <= RHO_TOL,
+      `${point.label}: derived (${point.x}, ${point.y}) vs digitized (${twin.x}, ${twin.y})`,
+    );
+  }
+
+  const near = (a, b) => Math.abs(a[0] - b[0]) <= U_TOL && Math.abs(a[1] - b[1]) <= RHO_TOL;
+  const sameLine = (d, g) =>
+    (near(d.pts[0], g.pts[0]) && near(d.pts[1], g.pts[1])) ||
+    (near(d.pts[0], g.pts[1]) && near(d.pts[1], g.pts[0]));
+
+  // The three labeled percent edges match by label.
+  for (const edge of derived.lines.filter((l) => l.label)) {
+    const twin = digitized.lines.find((l) => l.label === edge.label);
+    assert.ok(twin, `digitized twin missing for edge ${edge.label}`);
+    assert.ok(sameLine(edge, twin), `${edge.label} moved beyond digitization tolerance`);
+  }
+
+  // The 20/40/60/80 interior grid matches the digitized unlabeled lines one to one.
+  const derivedGrid = derived.lines.filter((l) => !l.label);
+  const digitizedGrid = digitized.lines.filter((l) => l.label === undefined);
+  assert.equal(derivedGrid.length, 12, "three vertices x four levels");
+  assert.equal(
+    digitizedGrid.length,
+    derivedGrid.length,
+    "the digitized chart draws exactly the grid the geometry derives",
+  );
+  const unmatched = new Set(digitizedGrid);
+  for (const line of derivedGrid) {
+    const twin = [...unmatched].find((g) => sameLine(line, g));
+    assert.ok(
+      twin,
+      `no digitized twin for derived grid line ${JSON.stringify(line.pts)} - the constant-fraction geometry does not reproduce the chart`,
+    );
+    unmatched.delete(twin);
+  }
+
+  // Only the four annotation labels stay digitized - never a percent edge.
+  assert.deepEqual(
+    [...(derived.keepDigitizedLineLabels ?? [])].sort(),
+    ["Barite", "Gas direction", "Heavy minerals", "Salt"],
+  );
+});
+
 test("the_generated_derived_overlay_module_is_current", () => {
   const onDisk = fs.readFileSync(
     path.join(repo, "src", "ui", "chartOverlaysDerived.gen.ts"),
