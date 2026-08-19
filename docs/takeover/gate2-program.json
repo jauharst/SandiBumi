@@ -8,8 +8,8 @@
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 5,
-    "REMEDIATE": 11,
-    "PROVE": 5,
+    "REMEDIATE": 10,
+    "PROVE": 6,
     "RETAIN": 201
   },
   "execution": {
@@ -306,13 +306,13 @@
     "SB-POR-010",
     "SB-DBM-041",
     "SB-POR-024",
-    "SB-DBM-031"
+    "SB-DBM-031",
+    "SB-CORE-015"
   ],
   "blocked_requirements": [
     "SB-CORE-003",
     "SB-CORE-005",
     "SB-CORE-007",
-    "SB-CORE-015",
     "SB-CORE-044",
     "SB-DBM-005",
     "SB-DBM-010",

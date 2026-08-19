@@ -16,6 +16,7 @@ mod decimate;
 mod deviation;
 mod distribution;
 mod dlis;
+mod dlis_writer;
 mod equations;
 #[cfg(test)]
 mod example_data_test;
@@ -3902,6 +3903,22 @@ async fn export_las(
     .await
 }
 
+/// SB-CORE-015: exports one well as DLIS (RP66 V1), self-read through the dlisio importer.
+#[tauri::command]
+async fn export_dlis(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    dest_path: String,
+) -> Result<export::LasExportResult, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Export DLIS", "write DLIS", move || {
+        let c = conn.lock().unwrap();
+        export::export_dlis(&c, &well_id, &dest_path)
+    })
+    .await
+}
+
 /// Runs a saved workflow chain (ordered modules) across the given wells. The frontend
 /// supplies the `job_id` up front so it can poll `get_chain_status` for live progress while
 /// this command runs on its own worker thread. Returns when the chain finishes; progress and
@@ -4437,6 +4454,7 @@ pub fn run() {
             run_query,
             list_data_export_formats,
             export_las,
+            export_dlis,
             python_status,
             installation_support,
             run_ml,

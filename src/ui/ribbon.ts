@@ -1,6 +1,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportLas,
+  exportDlis,
   importDeviationCsv,
   materializeTvd,
   importScalFiles,
@@ -299,6 +300,7 @@ export class Ribbon {
 
     // --- Data ---
     q<HTMLButtonElement>("#export-las-btn")?.addEventListener("click", () => void this.handleExport());
+    q<HTMLButtonElement>("#export-dlis-btn")?.addEventListener("click", () => void this.handleExportDlis());
     this.buildDataDropdowns(root);
     q<HTMLButtonElement>("#open-wells-btn")?.addEventListener("click", () => workspace.openWellsTops());
     q<HTMLButtonElement>("#open-inspector-btn")?.addEventListener("click", () => workspace.openInspector());
@@ -1226,6 +1228,40 @@ export class Ribbon {
         : "";
       setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${precision}${selfCheck}${states}${omission}`);
       recordProcess("Export", `Exported LAS (${summary})${precision}${selfCheck}${states}${omission} → ${dest}`, well.well_name);
+    } catch (err) {
+      setStatus(`Export failed: ${err}`);
+    }
+  }
+
+  /** SB-CORE-015: DLIS export. The status line leads with the self-check because the
+   * artifact's definition includes it — the file was read back by the same dlisio route
+   * every client DLIS takes before this handler ever reports success. */
+  private async handleExportDlis(): Promise<void> {
+    const well = requireWell("Export DLIS");
+    if (!well) return;
+    let dest: string | null;
+    try {
+      dest = await save({
+        title: `Export ${well.well_name} as DLIS (RP66 V1)`,
+        defaultPath: `${well.well_name.replace(/[^\w.-]+/g, "_")}.dlis`,
+        filters: [{ name: "DLIS (RP66 V1)", extensions: ["dlis"] }],
+      });
+    } catch (err) {
+      setStatus(`Export dialog unavailable: ${err}`);
+      return;
+    }
+    if (!dest) return;
+    try {
+      const result = await exportDlis(well.well_id, dest);
+      const omission = result.omitted.length
+        ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
+        : "";
+      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
+      const selfCheck = result.self_checked
+        ? " SandiBumi DLIS reader self-check passed."
+        : "";
+      setStatus(`Exported ${well.well_name} (${summary})${selfCheck} to ${dest}.${omission}`);
+      recordProcess("Export", `Exported DLIS (${summary})${selfCheck}${omission} → ${dest}`, well.well_name);
     } catch (err) {
       setStatus(`Export failed: ${err}`);
     }

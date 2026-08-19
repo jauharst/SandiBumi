@@ -46,15 +46,32 @@ struct RegisteredWriter {
     self_read: SelfReaderFn,
 }
 
-const REGISTERED_WRITERS: &[RegisteredWriter] = &[RegisteredWriter {
-    id: "las-2.0",
-    label: "LAS 2.0",
-    extension: "las",
-    is_default: true,
-    sentinel_support: SentinelSupport::Honours,
-    write: write_las,
-    self_read: validate_las_output,
-}];
+const REGISTERED_WRITERS: &[RegisteredWriter] = &[
+    RegisteredWriter {
+        id: "las-2.0",
+        label: "LAS 2.0",
+        extension: "las",
+        is_default: true,
+        sentinel_support: SentinelSupport::Honours,
+        write: write_las,
+        self_read: validate_las_output,
+    },
+    // SB-CORE-015 / DEC-054: the RP66 V1 writer. Not the default; the sentinel limitation
+    // is a property of the format, stated rather than hidden — DLIS FSINGL carries the
+    // stored f32 bit for bit, so a missing sample is written as IEEE NaN natively and the
+    // project's numeric sentinel is never emitted (rule 2's NaN is the wire value).
+    RegisteredWriter {
+        id: "dlis-rp66v1",
+        label: "DLIS (RP66 V1)",
+        extension: "dlis",
+        is_default: false,
+        sentinel_support: SentinelSupport::Incapable(
+            "DLIS carries missing samples as IEEE NaN natively; the project's numeric sentinel is not written",
+        ),
+        write: write_dlis,
+        self_read: validate_dlis_output,
+    },
+];
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportFormatInfo {
@@ -488,6 +505,18 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
     export_with_writer(conn, well_id, dest_path, settings, writer)
 }
 
+/// SB-CORE-015: exports one well as DLIS (RP66 V1) and self-reads the artifact through the
+/// same `dlisio` subprocess reader that imports client DLIS — "no artifact ships that
+/// SandiBumi's own reader rejects", proven on the actual file just written.
+pub fn export_dlis(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
+    let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
+    let writer = REGISTERED_WRITERS
+        .iter()
+        .find(|writer| writer.id == "dlis-rp66v1")
+        .ok_or_else(|| "the DLIS export format is not registered".to_string())?;
+    export_with_writer(conn, well_id, dest_path, settings, writer)
+}
+
 fn export_with_writer(
     conn: &Connection,
     well_id: &str,
@@ -554,12 +583,144 @@ fn validate_las_output(
     Ok(())
 }
 
-fn write_las(
+/// SB-CORE-015 / DEC-054: writes one well as RP66 V1 DLIS. The byte assembly lives in
+/// `dlis_writer.rs` (pure, spec-cited); this half gathers the SAME export inventory the LAS
+/// writer renders, so the two formats are two renderings of one decision. DEC-054
+/// constraint 2 (nothing partial ships) is why the `dlisio` capability is required BEFORE a
+/// byte is written: the self-read is part of the artifact's definition here, and an export
+/// that cannot be self-read refuses by name instead of shipping unproven.
+fn write_dlis(
     conn: &Connection,
     well_id: &str,
     dest_path: &str,
-    settings: WriterSettings,
+    _settings: WriterSettings,
 ) -> Result<LasExportResult, String> {
+    let Some(python) = crate::python_engine::find_python() else {
+        return Err(crate::installation::capability_message(
+            crate::installation::CAPABILITY_DLIS_IMPORT,
+            None,
+            None,
+        ));
+    };
+    crate::installation::require_python_capability(&python, crate::installation::CAPABILITY_DLIS_IMPORT)?;
+
+    let gathered = gather_well_frame(conn, well_id)?;
+    let depth_unit = crate::units::require_project_depth_unit(conn, "DLIS export")?.code();
+    let mut channels = Vec::with_capacity(gathered.curve_names.len());
+    let mut columns = Vec::with_capacity(gathered.curve_names.len());
+    for (name, unit) in gathered.curve_names.iter().zip(gathered.units.iter()) {
+        let key = name.trim().to_uppercase();
+        let values = gathered
+            .columns
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| vec![f32::NAN; gathered.depth.len()]);
+        channels.push(crate::dlis_writer::DlisChannel {
+            mnemonic: name.clone(),
+            unit: unit.clone(),
+            description: name.clone(),
+        });
+        columns.push(values);
+    }
+    let spec = crate::dlis_writer::DlisFileSpec {
+        well_name: gathered.well_name.clone(),
+        field_name: gathered.field_name.clone().unwrap_or_default(),
+        depth_unit: depth_unit.to_string(),
+        depth: gathered.depth.clone(),
+        channels,
+        columns,
+    };
+    let bytes = crate::dlis_writer::write_storage_unit(&spec)?;
+    std::fs::write(dest_path, &bytes).map_err(|e| e.to_string())?;
+    Ok(LasExportResult {
+        rows: gathered.depth.len(),
+        curves_written: gathered.curve_names.len(),
+        curves_held: gathered.curves_held,
+        omitted: gathered.omitted,
+        curve_states: gathered.curve_states,
+        // DLIS carries no LEGACY_UNRECORDED labelling — no curve is labelled, so the count
+        // of labelled curves is zero, truthfully.
+        legacy_unrecorded_curves: 0,
+        // FSINGL is the stored f32 bit for bit (Appendix B code 2); nothing is reduced.
+        precision: crate::parsers::SamplePrecisionReport::new(
+            "f32 storage",
+            "DLIS FSINGL (bit-identical f32)",
+            0,
+        ),
+        self_checked: false,
+        // The DLIS frame declares no SPACING (see dlis_writer.rs) — there is no STEP claim
+        // to caveat.
+        nonuniform_step: None,
+    })
+}
+
+/// The DLIS self-read: imports the just-written artifact into a scratch in-memory project
+/// through `dlis.rs` — the identical `dlisio` subprocess route every client DLIS takes —
+/// and requires a COMPLETE import whose row and curve counts match what the writer says it
+/// emitted. Sample-exact value equality is pinned by the round-trip test in this module
+/// (ignored: needs the optional `dlisio`, rule 5), which has the source well to compare
+/// against; this in-process check runs on every export.
+fn validate_dlis_output(
+    conn: &Connection,
+    dest_path: &str,
+    result: &LasExportResult,
+) -> Result<(), String> {
+    let scratch = Connection::open_in_memory().map_err(|e| e.to_string())?;
+    crate::db::create_schema(&scratch).map_err(|e| e.to_string())?;
+    let scratch_well = uuid::Uuid::new_v4();
+    crate::db::insert_well(&scratch, scratch_well, "DLIS-SELF-CHECK", None, None, None)
+        .map_err(|e| e.to_string())?;
+    let depth_unit = crate::units::require_project_depth_unit(conn, "DLIS self-check")?.code();
+    let import = crate::dlis::import_dlis_file(
+        &scratch,
+        &scratch_well.to_string(),
+        dest_path,
+        Some("RAW"),
+        Some(depth_unit),
+    );
+    if import.status != crate::dlis::DlisImportStatus::Complete {
+        return Err(format!(
+            "DLIS self-check failed: SandiBumi's DLIS reader did not accept the output: {}",
+            import.error.unwrap_or_else(|| format!("status {:?}", import.status))
+        ));
+    }
+    // The reader's accounting, verified against dlisio's own frame decomposition: the DEPT
+    // index channel imports as a curve alongside the data channels, and `rows` is the SUM
+    // of per-curve sample counts — so a clean round-trip reads (written + 1) curves and
+    // (written + 1) × frames samples. Anything else means a channel or frame was lost.
+    let expected_curves = result.curves_written + 1;
+    if import.curves_imported != expected_curves {
+        return Err(format!(
+            "DLIS self-check failed: writer emitted {} channel(s) beside the index, but its reader imported {} curve(s) where {} were expected",
+            result.curves_written, import.curves_imported, expected_curves
+        ));
+    }
+    let expected_samples = expected_curves * result.rows;
+    if import.rows != expected_samples {
+        return Err(format!(
+            "DLIS self-check failed: writer emitted {} frame(s) across {} channel(s) ({} samples), but its reader found {}",
+            result.rows, expected_curves, expected_samples, import.rows
+        ));
+    }
+    Ok(())
+}
+
+/// One well's export inventory on its standard depth frame — the SAME decision for every
+/// registered writer, gathered once here so a second format cannot silently drift from the
+/// LAS export's curve set (SB-CORE-007's one-definition rule applied to the gather).
+struct GatheredWellFrame {
+    well_name: String,
+    field_name: Option<String>,
+    curve_names: Vec<String>,
+    units: Vec<String>,
+    depth: Vec<f32>,
+    columns: std::collections::HashMap<String, Vec<f32>>,
+    omitted: Vec<LasOmission>,
+    curve_states: Vec<LasCurveState>,
+    curves_held: usize,
+}
+
+fn gather_well_frame(conn: &Connection, well_id: &str) -> Result<GatheredWellFrame, String> {
     let (well_name, field_name): (String, Option<String>) = conn
         .query_row(
             "SELECT well_name, field_name FROM wells WHERE well_id = ?1",
@@ -591,7 +752,7 @@ fn write_las(
             let (name, unit) = r.map_err(|e| e.to_string())?;
             if crate::schema_vocab::standard_column(&name).is_some() {
                 return Err(format!(
-                    "computed curve '{name}' shadows a measured standard curve; LAS export refused because the deliverable cannot distinguish their provenance"
+                    "computed curve '{name}' shadows a measured standard curve; export refused because the deliverable cannot distinguish their provenance"
                 ));
             }
             // A unit DECLARED by whatever wrote the curve beats one inferred from an equation of
@@ -619,6 +780,36 @@ fn write_las(
         &mut columns,
     )?;
     let curves_held = initially_written + generic_held;
+    Ok(GatheredWellFrame {
+        well_name,
+        field_name,
+        curve_names,
+        units,
+        depth,
+        columns,
+        omitted,
+        curve_states,
+        curves_held,
+    })
+}
+
+fn write_las(
+    conn: &Connection,
+    well_id: &str,
+    dest_path: &str,
+    settings: WriterSettings,
+) -> Result<LasExportResult, String> {
+    let GatheredWellFrame {
+        well_name,
+        field_name,
+        curve_names,
+        units,
+        depth,
+        columns,
+        omitted,
+        curve_states,
+        curves_held,
+    } = gather_well_frame(conn, well_id)?;
     let depth_unit = crate::units::require_project_depth_unit(conn, "LAS export")?.code();
     let (provenance, legacy_unrecorded_curves) =
         provenance_lines(conn, well_id, &curve_names)?;
@@ -826,6 +1017,84 @@ mod tests {
         std::fs::remove_file(export_path).unwrap();
     }
 
+    /// Rule 5: the DLIS writer's self-read runs through the OPTIONAL dlisio package, so the
+    /// registry-exhaustive tests skip that one writer with a printed reason where dlisio is
+    /// absent — the green gate never depends on an optional package, and a machine that has
+    /// it (the reference machine does) still exercises the full loop.
+    fn dlisio_available() -> bool {
+        crate::python_engine::find_python().is_some_and(|python| {
+            crate::installation::require_python_capability(
+                &python,
+                crate::installation::CAPABILITY_DLIS_IMPORT,
+            )
+            .is_ok()
+        })
+    }
+
+    /// Reads the FDATA rows back out of a written RP66 storage unit with an independent
+    /// byte-walk (SUL, visible records, segment reassembly, then OBNAME + frame number +
+    /// FSINGL slots) — the SB-DIO-T35 native-sample inspection adapter for the DLIS writer.
+    fn dlis_fdata_rows(bytes: &[u8]) -> Vec<Vec<f32>> {
+        let read_uvari = |bytes: &[u8], at: &mut usize| -> u32 {
+            let first = bytes[*at];
+            if first < 0x80 {
+                *at += 1;
+                first as u32
+            } else if first & 0xC0 == 0x80 {
+                let value = u16::from_be_bytes([bytes[*at], bytes[*at + 1]]) & 0x3FFF;
+                *at += 2;
+                value as u32
+            } else {
+                let value = u32::from_be_bytes(bytes[*at..*at + 4].try_into().unwrap())
+                    & 0x3FFF_FFFF;
+                *at += 4;
+                value
+            }
+        };
+        let mut records: Vec<(u8, bool, Vec<u8>)> = Vec::new();
+        let mut cursor = 80usize; // the Storage Unit Label
+        while cursor < bytes.len() {
+            let vr_len = u16::from_be_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+            assert_eq!(bytes[cursor + 2], 0xFF);
+            assert_eq!(bytes[cursor + 3], 0x01);
+            let vr_end = cursor + vr_len;
+            let mut seg_at = cursor + 4;
+            while seg_at < vr_end {
+                let seg_len = u16::from_be_bytes([bytes[seg_at], bytes[seg_at + 1]]) as usize;
+                let attrs = bytes[seg_at + 2];
+                let lr_type = bytes[seg_at + 3];
+                let mut body_end = seg_at + seg_len;
+                if attrs & 0x01 != 0 {
+                    body_end -= bytes[body_end - 1] as usize;
+                }
+                let body = bytes[seg_at + 4..body_end].to_vec();
+                if attrs & 0x40 != 0 {
+                    records.last_mut().unwrap().2.extend(body);
+                } else {
+                    records.push((lr_type, attrs & 0x80 != 0, body));
+                }
+                seg_at += seg_len;
+            }
+            cursor = vr_end;
+        }
+        records
+            .into_iter()
+            .filter(|(lr_type, is_eflr, _)| *lr_type == 0 && !is_eflr)
+            .map(|(_, _, body)| {
+                let mut at = 0usize;
+                let _origin = read_uvari(&body, &mut at);
+                at += 1; // copy number (USHORT)
+                let name_len = body[at] as usize;
+                at += 1 + name_len;
+                let _frame_number = read_uvari(&body, &mut at);
+                body[at..]
+                    .chunks_exact(4)
+                    .map(|slot| f32::from_be_bytes(slot.try_into().unwrap()))
+                    .collect()
+            })
+            .collect()
+    }
+
     /// A well with one missing sample per curve, plus a MIXED-CASE computed curve.
     fn seed(conn: &Connection) -> (Uuid, Vec<f32>, Vec<f32>) {
         db::create_schema(conn).unwrap();
@@ -881,6 +1150,127 @@ mod tests {
         .unwrap();
 
         (id, gr, vsh)
+    }
+
+    /// CORRECTNESS — SB-CORE-015 / SB-CORE-T15 (DLIS arm) under DEC-054. The artifact is
+    /// proven on SandiBumi's OWN reader: the file just written is imported back through
+    /// `dlis.rs` — the identical dlisio subprocess route every client DLIS takes — and
+    /// every curve and sample must come back intact, NaN positions included. Ignored per
+    /// rule 5: the subject needs the optional `dlisio` package, so the green gate never
+    /// depends on it; run manually where dlisio is installed.
+    #[test]
+    #[ignore = "needs the optional dlisio package (rule 5); run manually with --ignored"]
+    fn a_dlis_export_round_trips_through_sandibumis_own_reader_with_every_curve_and_sample_intact()
+    {
+        let conn = Connection::open_in_memory().unwrap();
+        let (well_id, gr, vsh) = seed(&conn);
+        // SB-CORE-015's fixture clause: the round-trip fixture must NOT share the writer's
+        // defaults. This project is re-declared in FEET — the writer must label what it
+        // actually wrote, and the re-import must come back to identical depths (T15's exact
+        // witness: the historical defect was foot values labelled metres, divided by 0.3048
+        // by our own importer on the way back in).
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Feet).unwrap();
+        let dest = std::env::temp_dir()
+            .join(format!("sandibumi-export-dlis-roundtrip-{}.dlis", std::process::id()));
+        let result = export_dlis(&conn, &well_id.to_string(), dest.to_str().unwrap())
+            .expect("the DLIS export must succeed where dlisio is installed");
+        assert!(
+            result.self_checked,
+            "the export result must record that the dlisio self-read accepted the file"
+        );
+        assert_eq!(result.rows, 6);
+        assert_eq!(
+            result.precision.values_reduced, 0,
+            "FSINGL is the stored f32 bit for bit; nothing is reduced"
+        );
+
+        // Independent of the in-export self-check: import into a fresh project and compare
+        // the values themselves.
+        let back = Connection::open_in_memory().unwrap();
+        db::create_schema(&back).unwrap();
+        crate::units::set_project_depth_unit(&back, crate::units::DepthUnit::Feet).unwrap();
+        let back_well = Uuid::new_v4();
+        db::insert_well(&back, back_well, "ROUNDTRIP", None, None, None).unwrap();
+        let import = crate::dlis::import_dlis_file(
+            &back,
+            &back_well.to_string(),
+            dest.to_str().unwrap(),
+            Some("RAW"),
+            Some("ft"),
+        );
+        assert_eq!(
+            import.status,
+            crate::dlis::DlisImportStatus::Complete,
+            "reader status: {:?}",
+            import.error
+        );
+        // The importer counts the DEPT index as a curve and `rows` as total samples —
+        // the same accounting the in-export self-check verifies.
+        assert_eq!(import.curves_imported, result.curves_written + 1);
+        assert_eq!(import.rows, (result.curves_written + 1) * result.rows);
+
+        let read_back = |mnemonic: &str| -> Vec<f32> {
+            let mut statement = back
+                .prepare(
+                    "SELECT s.value FROM curve_samples s
+                     JOIN curve_meta m ON m.curve_id = s.curve_id
+                     WHERE m.well_id = ?1 AND upper(m.mnemonic) = upper(?2)
+                     ORDER BY s.depth",
+                )
+                .unwrap();
+            statement
+                .query_map(params![back_well.to_string(), mnemonic], |row| {
+                    Ok(row.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN))
+                })
+                .unwrap()
+                .collect::<duckdb::Result<Vec<f32>>>()
+                .unwrap()
+        };
+        let same = |got: &[f32], want: &[f32], name: &str| {
+            assert_eq!(got.len(), want.len(), "{name} sample count");
+            for (index, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+                assert!(
+                    (g.is_nan() && w.is_nan()) || g == w,
+                    "{name} sample {index}: read {g}, wrote {w} — a NaN must come back NaN and a value bit-identical"
+                );
+            }
+        };
+        same(&read_back("GR"), &gr, "GR");
+        same(&read_back("Vsh_final"), &vsh, "Vsh_final");
+        // T15's depth witness: the foot-declared depths come back IDENTICAL — no silent
+        // 0.3048 division, because the writer labelled what it wrote.
+        let depths: Vec<f32> = {
+            let mut statement = back
+                .prepare(
+                    "SELECT DISTINCT s.depth FROM curve_samples s
+                     JOIN curve_meta m ON m.curve_id = s.curve_id
+                     WHERE m.well_id = ?1 ORDER BY s.depth",
+                )
+                .unwrap();
+            statement
+                .query_map(params![back_well.to_string()], |row| row.get::<_, f32>(0))
+                .unwrap()
+                .collect::<duckdb::Result<Vec<f32>>>()
+                .unwrap()
+        };
+        let expected: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        assert_eq!(depths, expected, "foot depths re-import bit-identical, never re-scaled");
+        let _ = std::fs::remove_file(&dest);
+    }
+
+    /// CORRECTNESS — SB-CORE-015 / SB-CORE-T16. The registered-writer table IS the shipped
+    /// data-writer inventory, and every member must have a non-default-fixture round-trip
+    /// test against its own reader. This pin makes adding a third writer without extending
+    /// that suite a named failure instead of a silent gap: LAS is covered by the
+    /// foot-declared LAS proofs, DLIS by the foot-declared dlisio round-trip above.
+    #[test]
+    fn every_registered_writer_is_in_the_round_trip_inventory() {
+        let ids: Vec<&str> = REGISTERED_WRITERS.iter().map(|writer| writer.id).collect();
+        assert_eq!(
+            ids,
+            vec!["las-2.0", "dlis-rp66v1"],
+            "a new registered writer must bring its own non-default-fixture round-trip test and then extend this list"
+        );
     }
 
     /// CORRECTNESS - SB-DIO-018 / SB-DIO-T29. The expected ownership boundary is
@@ -1003,6 +1393,10 @@ mod tests {
 
         let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
         for writer in REGISTERED_WRITERS {
+            if writer.id == "dlis-rp66v1" && !dlisio_available() {
+                println!("skipping {}: optional dlisio unavailable (rule 5)", writer.id);
+                continue;
+            }
             let dest = tmp_path(&format!("irregular-default-{}", writer.id))
                 .with_extension(writer.extension);
             let result = export_with_writer(
@@ -1032,6 +1426,11 @@ mod tests {
                             .collect()
                     })
                     .collect(),
+                "dlis-rp66v1" => {
+                    // FDATA slots carry the index first, then every channel — the same
+                    // two-column comparison as LAS, read by the independent byte-walk.
+                    dlis_fdata_rows(&std::fs::read(&dest).unwrap())
+                }
                 unknown => panic!(
                     "registered writer '{unknown}' has no SB-DIO-T35 native-sample inspection adapter"
                 ),
@@ -1262,6 +1661,10 @@ mod tests {
             null_sentinel: project_null_sentinel(&conn).unwrap(),
         };
         for writer in REGISTERED_WRITERS {
+            if writer.id == "dlis-rp66v1" && !dlisio_available() {
+                println!("skipping {}: optional dlisio unavailable (rule 5)", writer.id);
+                continue;
+            }
             let dest = tmp_path(&format!("declared-sentinel-{}", writer.id))
                 .with_extension(writer.extension);
             let result = export_with_writer(
@@ -1272,29 +1675,66 @@ mod tests {
                 writer,
             )
             .unwrap();
-            let text = crate::parsers::read_text_file(&dest).unwrap();
-            let _ = std::fs::remove_file(&dest);
 
             assert!(
                 result.self_checked,
                 "registered writer {} must pass its reader",
                 writer.id
             );
-            assert!(
-                text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")),
-                "registered writer {} must declare the project sentinel",
-                writer.id
-            );
-            assert!(
-                text.contains("-32767.0000"),
-                "registered writer {} must use the declared sentinel for missing samples",
-                writer.id
-            );
-            assert!(
-                !text.contains("-999.2500"),
-                "registered writer {} must not emit a private default",
-                writer.id
-            );
+            match writer.sentinel_support {
+                SentinelSupport::Honours => {
+                    let text = crate::parsers::read_text_file(&dest).unwrap();
+                    let _ = std::fs::remove_file(&dest);
+                    assert!(
+                        text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")),
+                        "registered writer {} must declare the project sentinel",
+                        writer.id
+                    );
+                    assert!(
+                        text.contains("-32767.0000"),
+                        "registered writer {} must use the declared sentinel for missing samples",
+                        writer.id
+                    );
+                    assert!(
+                        !text.contains("-999.2500"),
+                        "registered writer {} must not emit a private default",
+                        writer.id
+                    );
+                }
+                // An incapable format must DECLARE its limitation (the picker shows it) and
+                // must not smuggle the sentinel in anyway: a missing sample travels as IEEE
+                // NaN in FSINGL, and neither the declared sentinel's FSINGL bytes nor its
+                // ASCII spelling appear in the artifact. Pinned from both sides: NaN present
+                // where the fixture's missing sample is, sentinel absent everywhere.
+                SentinelSupport::Incapable(reason) => {
+                    let bytes = std::fs::read(&dest).unwrap();
+                    let _ = std::fs::remove_file(&dest);
+                    assert_eq!(
+                        format_info(writer).sentinel_limitation.as_deref(),
+                        Some(reason),
+                        "registered writer {} must surface its sentinel limitation to the picker",
+                        writer.id
+                    );
+                    let nan_bytes = f32::NAN.to_be_bytes();
+                    let sentinel_bytes = declared.to_be_bytes();
+                    let contains = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+                    assert!(
+                        contains(&nan_bytes),
+                        "registered writer {} must carry the fixture's missing sample as IEEE NaN",
+                        writer.id
+                    );
+                    assert!(
+                        !contains(&sentinel_bytes),
+                        "registered writer {} must not encode the declared sentinel as a value",
+                        writer.id
+                    );
+                    assert!(
+                        !bytes.windows(6).any(|w| w == b"-32767"),
+                        "registered writer {} must not spell the sentinel into the artifact",
+                        writer.id
+                    );
+                }
+            }
         }
     }
 
@@ -1515,6 +1955,10 @@ mod tests {
         let (id, _, _) = seed(&conn);
         let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
         for writer in REGISTERED_WRITERS {
+            if writer.id == "dlis-rp66v1" && !dlisio_available() {
+                println!("skipping {}: optional dlisio unavailable (rule 5)", writer.id);
+                continue;
+            }
             let dest = tmp_path(&format!("{}-self-read", writer.id));
             let result = export_with_writer(
                 &conn,

@@ -14741,3 +14741,18 @@ yours.
 - [ ] **Re-run a pay summary and a Monte Carlo you have run before.** Both should be identical.
 - [ ] **Tell me whether to point the Monte Carlo accumulator at the unlimited curves.** I have set
       out what changes if you say yes.
+
+## Export DLIS (2026-08-19, SB-CORE-015)
+
+The Data tab now has **Export DLIS…** beside Export LAS. It writes the same curve inventory the
+LAS export writes — the six standard curves, every computed curve, and the attached set curves —
+as an RP66 V1 DLIS file, built natively from the published specification. Before the button
+reports success the file is read back through the same dlisio route your client DLIS imports
+take, so what ships is what re-imports; if that Python package is missing the export refuses up
+front by name instead of writing an unverifiable file. A missing sample travels as a true blank
+(IEEE NaN), never as -999.25 pretending to be a reading.
+
+- [ ] **Export a well as DLIS and re-import it** (Data → Export DLIS…, then Import DLIS on a
+      scratch project). The curves and depths should come back exactly, including the gaps.
+- [ ] **Open the exported file in another package you trust** (IP or Techlog) and confirm it
+      loads and the units read correctly.

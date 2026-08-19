@@ -5124,6 +5124,11 @@ export function exportLas(wellId: string, destPath: string): Promise<LasExportRe
   return invoke<LasExportResult>("export_las", { wellId, destPath });
 }
 
+/** SB-CORE-015: DLIS (RP66 V1) export, self-read through the dlisio importer. */
+export function exportDlis(wellId: string, destPath: string): Promise<LasExportResult> {
+  return invoke<LasExportResult>("export_dlis", { wellId, destPath });
+}
+
 /** One water-zone sample that entered the RtC calibration fit. */
 export interface RtcFitPoint {
   well_id: string;

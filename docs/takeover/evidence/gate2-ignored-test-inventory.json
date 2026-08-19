@@ -1,420 +1,434 @@
 {
-  "schema_version": 1,
-  "captured_at_commit": "02c8ac539537c398c8f89bf75a7679e1df71056c",
-  "capture_command": "cargo test -- --list plus exact source attribute scan",
-  "evidence_class": "CHARACTERIZATION",
-  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
-  "expected_ignored_test_count": 37,
-  "expected_category_counts": {
-    "OPTIONAL-PACKAGE": 27,
-    "CONTROLLED-CORPUS": 9,
-    "MANUAL-ARTIFACT": 1
-  },
-  "known_failing_tests": [
-    "src/pipeline_field_test.rs|pipeline_field_full_run",
-    "src/workflow.rs|test_full_deterministic_chain"
-  ],
-  "test_groups": [
+ "schema_version": 1,
+ "captured_at_commit": "02c8ac539537c398c8f89bf75a7679e1df71056c",
+ "capture_command": "cargo test -- --list plus exact source attribute scan",
+ "evidence_class": "CHARACTERIZATION",
+ "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
+ "expected_ignored_test_count": 38,
+ "expected_category_counts": {
+  "OPTIONAL-PACKAGE": 28,
+  "CONTROLLED-CORPUS": 9,
+  "MANUAL-ARTIFACT": 1
+ },
+ "known_failing_tests": [
+  "src/pipeline_field_test.rs|pipeline_field_full_run",
+  "src/workflow.rs|test_full_deterministic_chain"
+ ],
+ "test_groups": [
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-042",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The non-destructive crop/restore round trip requires the optional image runtime; the deferred capability remains unqualified until its package test is run deliberately.",
+   "tests": [
     {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-042",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The non-destructive crop/restore round trip requires the optional image runtime; the deferred capability remains unqualified until its package test is run deliberately.",
-      "tests": [
-        {
-          "key": "src/coreimage.rs|a_picked_grey_a_crop_and_a_way_back",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-032",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Perspective rectification needs the optional image runtime and remains part of the deferred reversible-image-geometry capability.",
-      "tests": [
-        {
-          "key": "src/coreimage.rs|a_box_shot_from_an_angle_is_rectified_to_its_own_proportions",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-043",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The detail-changing local-contrast discriminator requires the optional image runtime and is not default-gate proof.",
-      "tests": [
-        {
-          "key": "src/coreimage.rs|local_contrast_flattens_the_very_trend_the_trace_is_reading",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-044",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Orientation and interval geometry round trips require the optional image runtime and remain deferred capability evidence.",
-      "tests": [
-        {
-          "key": "src/coreimage.rs|a_box_read_the_other_way_up_is_the_forward_reading_backwards",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        },
-        {
-          "key": "src/coreimage.rs|the_trace_runs_the_way_the_picture_is_laid_out",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-045",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The ultraviolet/white-light discriminator requires the optional image runtime and is not counted as passed by Gate 2.",
-      "tests": [
-        {
-          "key": "src/coreimage.rs|half_a_slab_fluorescing_reads_as_half_and_a_daylight_frame_is_refused",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-047",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Strip and unfold geometry round trips require the optional image runtime; their deferred scientific behavior is not a pilot claim.",
-      "tests": [
-        {
-          "key": "src/coreimage.rs|a_strip_reads_the_same_way_the_trace_does",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        },
-        {
-          "key": "src/coreimage.rs|unfolding_a_dipping_bed_sharpens_a_contact_the_slab_average_would_smear",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-009",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Blind-well scoring needs the optional scikit-learn runtime and the deferred ML capability is not qualified by the default gate.",
-      "tests": [
-        {
-          "key": "src/ml.rs|a_blind_split_scores_the_model_on_wells_it_was_never_fitted_on",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-027",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The sample-split protocol report needs the optional scikit-learn runtime and is not default-gate evidence.",
-      "tests": [
-        {
-          "key": "src/ml.rs|a_sample_split_draws_rows_from_every_well_and_reports_how_alike_the_two_sides_are",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-013",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The unclusterable-well refusal needs the optional scikit-learn runtime and remains deferred execution evidence.",
-      "tests": [
-        {
-          "key": "src/ml.rs|an_empty_well_beside_a_good_one_is_refused_and_writes_nothing",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-002",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Saved-model application needs the optional scikit-learn/joblib runtime and does not run in the default gate.",
-      "tests": [
-        {
-          "key": "src/ml.rs|a_saved_model_applies_to_an_unseen_well_without_refitting",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-065",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The full deferred ML workflow needs the qualified optional runtime and is not a default-gate pass.",
-      "tests": [
-        {
-          "key": "src/ml.rs|the_whole_ml_workflow_holds_together_from_bounded_fit_to_distribution",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-022",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The model-artifact feature-order refusal needs the optional runtime today; its ignored status remains a recorded divergence from the desired default-gate contract.",
-      "tests": [
-        {
-          "key": "src/ml.rs|a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-MLA-008",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Cross-algorithm byte-identical reruns need the optional scikit-learn runtime and are not counted by the default gate.",
-      "tests": [
-        {
-          "key": "src/ml.rs|the_same_run_twice_produces_byte_identical_curves_for_every_algorithm",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-CORE-015",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The real spreadsheet, document and slide writers require separately qualified optional packages; none is a default-gate round-trip.",
-      "tests": [
-        {
-          "key": "src/office.rs|writes_a_real_workbook_that_opens_as_a_zip",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/office.rs|a_word_document_keeps_non_ascii_text_intact",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/office.rs|writes_a_real_deck_with_figures_on_it",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-DIO-063",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The exact DLIS, Word and image Unicode-boundary test was deliberately run for Gate 2, but its numpy, python-docx and Pillow dependencies remain outside the default gate and require clean-machine qualification in Gate 3.",
-      "tests": [
-        {
-          "key": "src/office.rs|a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars",
-          "ignore_reason": "needs numpy, python-docx and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-036",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Image-pore fraction and illumination/reference correction tests require optional image packages and remain deferred rock-photo capability evidence.",
-      "tests": [
-        {
-          "key": "src/petrography.rs|a_quarter_blue_plate_measures_a_quarter",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/petrography.rs|a_blue_cast_plate_is_shown_but_never_stored",
-          "ignore_reason": "runs the real Python runner; needs numpy and Pillow",
-          "bare_ignore": false
-        },
-        {
-          "key": "src/petrography.rs|the_same_rock_under_a_different_lamp_reads_as_the_same_rock",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        },
-        {
-          "key": "src/petrography.rs|a_plate_corrected_onto_one_lit_the_same_way_is_left_alone",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        },
-        {
-          "key": "src/petrography.rs|each_interval_is_corrected_onto_its_own_reference",
-          "ignore_reason": "needs numpy and Pillow",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-039",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "Pore/grain geometry round trips require SciPy/Pillow and do not qualify a deferred geometry capability in the default gate.",
-      "tests": [
-        {
-          "key": "src/petrography.rs|a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/petrography.rs|welded_grains_still_split_but_say_that_the_boundary_was_inferred",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "OPTIONAL-PACKAGE",
-      "owner_requirement": "SB-RPH-046",
-      "owner_gate": "G3",
-      "execution_state": "NOT-RUN-BY-DEFAULT",
-      "rationale": "The texture classifier requires scikit-learn and remains a deferred image-derived proxy rather than a default-gate capability.",
-      "tests": [
-        {
-          "key": "src/petrography.rs|the_classifier_separates_on_texture_and_admits_when_it_cannot",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "CONTROLLED-CORPUS",
-      "owner_requirement": "SB-DIO-016",
-      "owner_gate": "G4",
-      "execution_state": "UNVERIFIED",
-      "rationale": "A real DLIS delivery is controlled-corpus evidence; absence from the default gate is not an optional-package classification.",
-      "tests": [
-        {
-          "key": "src/dlis.rs|import_real_dlis",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "CONTROLLED-CORPUS",
-      "owner_requirement": "SB-DIO-061",
-      "owner_gate": "G4",
-      "execution_state": "UNVERIFIED",
-      "rationale": "Real-delivery workbook, LAS and core probes belong to controlled-corpus execution; they are not package-optional passes.",
-      "tests": [
-        {
-          "key": "src/images.rs|plates_come_out_of_a_real_petrography_workbook",
-          "ignore_reason": "needs a real petrography workbook; set SANDIBUMI_FIELD_FIXTURES",
-          "bare_ignore": false
-        },
-        {
-          "key": "src/ingest.rs|test_import_real_field_files",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/parsers.rs|probe_real_field_core",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "CONTROLLED-CORPUS",
-      "owner_requirement": "SB-RPH-036",
-      "owner_gate": "G4",
-      "execution_state": "UNVERIFIED",
-      "rationale": "Comparison with a delivered petrographer point count is real-corpus evidence and remains pending Gate 4.",
-      "tests": [
-        {
-          "key": "src/petrography.rs|a_delivered_book_measures_against_the_petrographers_own_point_count",
-          "ignore_reason": "needs a real petrography delivery; set SANDIBUMI_FIELD_FIXTURES",
-          "bare_ignore": false
-        }
-      ]
-    },
-    {
-      "category": "CONTROLLED-CORPUS",
-      "owner_requirement": "SB-CORE-040",
-      "owner_gate": "G4",
-      "execution_state": "UNVERIFIED",
-      "rationale": "The real-well mineral/Vsh smoke path and large field-pipeline stress path are representative workflow evidence, not default-gate proofs.",
-      "tests": [
-        {
-          "key": "src/multimin2.rs|e2e_pef_and_vsh_on_real_well",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/pipeline_field_test.rs|pipeline_field_100well_stress",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "CONTROLLED-CORPUS",
-      "owner_requirement": "SB-CORE-040",
-      "owner_gate": "G4",
-      "execution_state": "KNOWN-FAILING",
-      "rationale": "These two representative chains failed when deliberately run; their ignored default status must never be presented as a pass.",
-      "tests": [
-        {
-          "key": "src/pipeline_field_test.rs|pipeline_field_full_run",
-          "ignore_reason": null,
-          "bare_ignore": true
-        },
-        {
-          "key": "src/workflow.rs|test_full_deterministic_chain",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
-    },
-    {
-      "category": "MANUAL-ARTIFACT",
-      "owner_requirement": "SB-PLT-026",
-      "owner_gate": "G4",
-      "execution_state": "MANUAL-ONLY",
-      "rationale": "This test writes visual SVG/PDF samples for eyeballing; it is an artifact generator, not an automated acceptance pass.",
-      "tests": [
-        {
-          "key": "src/composite.rs|dump_sample",
-          "ignore_reason": null,
-          "bare_ignore": true
-        }
-      ]
+     "key": "src/coreimage.rs|a_picked_grey_a_crop_and_a_way_back",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
     }
-  ]
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-032",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Perspective rectification needs the optional image runtime and remains part of the deferred reversible-image-geometry capability.",
+   "tests": [
+    {
+     "key": "src/coreimage.rs|a_box_shot_from_an_angle_is_rectified_to_its_own_proportions",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-043",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The detail-changing local-contrast discriminator requires the optional image runtime and is not default-gate proof.",
+   "tests": [
+    {
+     "key": "src/coreimage.rs|local_contrast_flattens_the_very_trend_the_trace_is_reading",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-044",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Orientation and interval geometry round trips require the optional image runtime and remain deferred capability evidence.",
+   "tests": [
+    {
+     "key": "src/coreimage.rs|a_box_read_the_other_way_up_is_the_forward_reading_backwards",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    },
+    {
+     "key": "src/coreimage.rs|the_trace_runs_the_way_the_picture_is_laid_out",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-045",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The ultraviolet/white-light discriminator requires the optional image runtime and is not counted as passed by Gate 2.",
+   "tests": [
+    {
+     "key": "src/coreimage.rs|half_a_slab_fluorescing_reads_as_half_and_a_daylight_frame_is_refused",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-047",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Strip and unfold geometry round trips require the optional image runtime; their deferred scientific behavior is not a pilot claim.",
+   "tests": [
+    {
+     "key": "src/coreimage.rs|a_strip_reads_the_same_way_the_trace_does",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    },
+    {
+     "key": "src/coreimage.rs|unfolding_a_dipping_bed_sharpens_a_contact_the_slab_average_would_smear",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-009",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Blind-well scoring needs the optional scikit-learn runtime and the deferred ML capability is not qualified by the default gate.",
+   "tests": [
+    {
+     "key": "src/ml.rs|a_blind_split_scores_the_model_on_wells_it_was_never_fitted_on",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-027",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The sample-split protocol report needs the optional scikit-learn runtime and is not default-gate evidence.",
+   "tests": [
+    {
+     "key": "src/ml.rs|a_sample_split_draws_rows_from_every_well_and_reports_how_alike_the_two_sides_are",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-013",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The unclusterable-well refusal needs the optional scikit-learn runtime and remains deferred execution evidence.",
+   "tests": [
+    {
+     "key": "src/ml.rs|an_empty_well_beside_a_good_one_is_refused_and_writes_nothing",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-002",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Saved-model application needs the optional scikit-learn/joblib runtime and does not run in the default gate.",
+   "tests": [
+    {
+     "key": "src/ml.rs|a_saved_model_applies_to_an_unseen_well_without_refitting",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-065",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The full deferred ML workflow needs the qualified optional runtime and is not a default-gate pass.",
+   "tests": [
+    {
+     "key": "src/ml.rs|the_whole_ml_workflow_holds_together_from_bounded_fit_to_distribution",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-022",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The model-artifact feature-order refusal needs the optional runtime today; its ignored status remains a recorded divergence from the desired default-gate contract.",
+   "tests": [
+    {
+     "key": "src/ml.rs|a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-MLA-008",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Cross-algorithm byte-identical reruns need the optional scikit-learn runtime and are not counted by the default gate.",
+   "tests": [
+    {
+     "key": "src/ml.rs|the_same_run_twice_produces_byte_identical_curves_for_every_algorithm",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-CORE-015",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The real spreadsheet, document and slide writers require separately qualified optional packages; none is a default-gate round-trip.",
+   "tests": [
+    {
+     "key": "src/office.rs|writes_a_real_workbook_that_opens_as_a_zip",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/office.rs|a_word_document_keeps_non_ascii_text_intact",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/office.rs|writes_a_real_deck_with_figures_on_it",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-DIO-063",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The exact DLIS, Word and image Unicode-boundary test was deliberately run for Gate 2, but its numpy, python-docx and Pillow dependencies remain outside the default gate and require clean-machine qualification in Gate 3.",
+   "tests": [
+    {
+     "key": "src/office.rs|a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars",
+     "ignore_reason": "needs numpy, python-docx and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-036",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Image-pore fraction and illumination/reference correction tests require optional image packages and remain deferred rock-photo capability evidence.",
+   "tests": [
+    {
+     "key": "src/petrography.rs|a_quarter_blue_plate_measures_a_quarter",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/petrography.rs|a_blue_cast_plate_is_shown_but_never_stored",
+     "ignore_reason": "runs the real Python runner; needs numpy and Pillow",
+     "bare_ignore": false
+    },
+    {
+     "key": "src/petrography.rs|the_same_rock_under_a_different_lamp_reads_as_the_same_rock",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    },
+    {
+     "key": "src/petrography.rs|a_plate_corrected_onto_one_lit_the_same_way_is_left_alone",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    },
+    {
+     "key": "src/petrography.rs|each_interval_is_corrected_onto_its_own_reference",
+     "ignore_reason": "needs numpy and Pillow",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-039",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "Pore/grain geometry round trips require SciPy/Pillow and do not qualify a deferred geometry capability in the default gate.",
+   "tests": [
+    {
+     "key": "src/petrography.rs|a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/petrography.rs|welded_grains_still_split_but_say_that_the_boundary_was_inferred",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-RPH-046",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The texture classifier requires scikit-learn and remains a deferred image-derived proxy rather than a default-gate capability.",
+   "tests": [
+    {
+     "key": "src/petrography.rs|the_classifier_separates_on_texture_and_admits_when_it_cannot",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "CONTROLLED-CORPUS",
+   "owner_requirement": "SB-DIO-016",
+   "owner_gate": "G4",
+   "execution_state": "UNVERIFIED",
+   "rationale": "A real DLIS delivery is controlled-corpus evidence; absence from the default gate is not an optional-package classification.",
+   "tests": [
+    {
+     "key": "src/dlis.rs|import_real_dlis",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "CONTROLLED-CORPUS",
+   "owner_requirement": "SB-DIO-061",
+   "owner_gate": "G4",
+   "execution_state": "UNVERIFIED",
+   "rationale": "Real-delivery workbook, LAS and core probes belong to controlled-corpus execution; they are not package-optional passes.",
+   "tests": [
+    {
+     "key": "src/images.rs|plates_come_out_of_a_real_petrography_workbook",
+     "ignore_reason": "needs a real petrography workbook; set SANDIBUMI_FIELD_FIXTURES",
+     "bare_ignore": false
+    },
+    {
+     "key": "src/ingest.rs|test_import_real_field_files",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/parsers.rs|probe_real_field_core",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "CONTROLLED-CORPUS",
+   "owner_requirement": "SB-RPH-036",
+   "owner_gate": "G4",
+   "execution_state": "UNVERIFIED",
+   "rationale": "Comparison with a delivered petrographer point count is real-corpus evidence and remains pending Gate 4.",
+   "tests": [
+    {
+     "key": "src/petrography.rs|a_delivered_book_measures_against_the_petrographers_own_point_count",
+     "ignore_reason": "needs a real petrography delivery; set SANDIBUMI_FIELD_FIXTURES",
+     "bare_ignore": false
+    }
+   ]
+  },
+  {
+   "category": "CONTROLLED-CORPUS",
+   "owner_requirement": "SB-CORE-040",
+   "owner_gate": "G4",
+   "execution_state": "UNVERIFIED",
+   "rationale": "The real-well mineral/Vsh smoke path and large field-pipeline stress path are representative workflow evidence, not default-gate proofs.",
+   "tests": [
+    {
+     "key": "src/multimin2.rs|e2e_pef_and_vsh_on_real_well",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/pipeline_field_test.rs|pipeline_field_100well_stress",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "CONTROLLED-CORPUS",
+   "owner_requirement": "SB-CORE-040",
+   "owner_gate": "G4",
+   "execution_state": "KNOWN-FAILING",
+   "rationale": "These two representative chains failed when deliberately run; their ignored default status must never be presented as a pass.",
+   "tests": [
+    {
+     "key": "src/pipeline_field_test.rs|pipeline_field_full_run",
+     "ignore_reason": null,
+     "bare_ignore": true
+    },
+    {
+     "key": "src/workflow.rs|test_full_deterministic_chain",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-PLT-026",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "This test writes visual SVG/PDF samples for eyeballing; it is an artifact generator, not an automated acceptance pass.",
+   "tests": [
+    {
+     "key": "src/composite.rs|dump_sample",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "OPTIONAL-PACKAGE",
+   "owner_requirement": "SB-CORE-015",
+   "owner_gate": "G3",
+   "execution_state": "NOT-RUN-BY-DEFAULT",
+   "rationale": "The DLIS round-trip is proven through the dlisio subprocess reader, an optional package; the green gate never depends on it (rule 5). Run green on the reference machine 2026-08-19 on the foot-declared fixture.",
+   "tests": [
+    {
+     "key": "src/export.rs|a_dlis_export_round_trips_through_sandibumis_own_reader_with_every_curve_and_sample_intact",
+     "ignore_reason": "needs the optional dlisio package (rule 5); run manually with --ignored",
+     "bare_ignore": false
+    }
+   ]
+  }
+ ]
 }

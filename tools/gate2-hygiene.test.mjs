@@ -193,8 +193,9 @@ test('a_field_fixture_test_cannot_be_relabelled_as_optional_package_execution', 
   );
 });
 
-test('the_live_inventory_owns_31_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
-  // CHARACTERIZATION — the live compiler/test inventory is 31 warnings and 37 ignored tests
+test('the_live_inventory_owns_31_warnings_and_38_ignored_tests_without_counting_them_as_passed', () => {
+  // CHARACTERIZATION — the live compiler/test inventory is 31 warnings and 38 ignored tests
+  // (the 38th is SB-CORE-015 DLIS round-trip, ignored per rule 5: optional dlisio)
   // after SB-PLT-023 connected the chart record and backend validation to deliverable writes.
   // Owning remaining debt does not prove it passes.
   const warningInventory = JSON.parse(fs.readFileSync(
@@ -208,9 +209,9 @@ test('the_live_inventory_owns_31_warnings_and_37_ignored_tests_without_counting_
 
   assert.equal(warningInventory.expected_warning_count, 31);
   assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 21);
-  assert.equal(ignoredInventory.expected_ignored_test_count, 37);
+  assert.equal(ignoredInventory.expected_ignored_test_count, 38);
   assert.deepEqual(ignoredInventory.expected_category_counts, {
-    'OPTIONAL-PACKAGE': 27,
+    'OPTIONAL-PACKAGE': 28,
     'CONTROLLED-CORPUS': 9,
     'MANUAL-ARTIFACT': 1,
   });
