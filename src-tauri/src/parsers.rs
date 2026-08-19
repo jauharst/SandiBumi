@@ -97,10 +97,30 @@ fn decode_text(bytes: Vec<u8>) -> DecodedTextFile {
     }
 }
 
+/// SB-DIO-061 / DEC-052 constraint 3: a reader NOT converted to the chunked route declares
+/// a maximum and refuses above it by name. 256 MiB is an ENGINEERING bound, documented, not
+/// a petrophysical parameter: `db::tune_connection` floors DuckDB's own budget at 1 GiB on
+/// the 8 GB field machine, and a whole-file decode transiently holds the raw bytes plus the
+/// decoded `String` (~2x the file), so 256 MiB caps the reader's transient at ~half that
+/// floor. The size-scaling formats (LAS curve data) stream through
+/// [`stream_text_lines`] and have NO ceiling — DEC-052's ruled route.
+pub const WHOLE_FILE_TEXT_READER_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+fn refuse_oversize_whole_file(path: &Path) -> std::io::Result<()> {
+    let size = std::fs::metadata(path)?.len();
+    if size > WHOLE_FILE_TEXT_READER_MAX_BYTES {
+        return Err(std::io::Error::other(format!(
+            "{} is {size} bytes, above the {WHOLE_FILE_TEXT_READER_MAX_BYTES}-byte whole-file text reader limit (DEC-052): this format's reader decodes the whole delivery in memory and refuses above the declared bound rather than exhausting the field machine; LAS imports stream without a ceiling",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 /// Reads a text/delimited file, decoding it per `decode_text`. **Every** text import must go
 /// through this rather than `read_to_string`/`BufReader<File>`, both of which reject a file
-/// outright on one stray byte. Files here are per-well or per-delivery (single-digit MB), so
-/// reading whole is the right trade for never refusing a real delivery.
+/// outright on one stray byte. Whole-file readers are for per-well/per-delivery tables and
+/// carry the DEC-052 declared bound above; the size-scaling LAS path streams instead.
 pub fn read_text_file<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
     Ok(read_text_file_with_encoding(path)?.text)
 }
@@ -108,7 +128,246 @@ pub fn read_text_file<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
 /// The same mandatory decoder as [`read_text_file`], with the chosen encoding retained
 /// for an import result or preview. Callers must not re-decode bytes to obtain this report.
 pub fn read_text_file_with_encoding<P: AsRef<Path>>(path: P) -> std::io::Result<DecodedTextFile> {
+    refuse_oversize_whole_file(path.as_ref())?;
     Ok(decode_text(std::fs::read(path)?))
+}
+
+// --- SB-DIO-061 / DEC-052: the bounded streaming line reader ---------------------------
+//
+// DEC-052 ruled: read big files PIECE BY PIECE rather than declaring a maximum. The decoder
+// contract (DEC-053's declared order — BOM, UTF-16 heuristic, UTF-8, cp1252 — decided per
+// FILE, bytes interpreted never rejected) is preserved EXACTLY by deciding the encoding in a
+// first bounded pass over the bytes, then streaming lines in a second pass. Memory stays
+// flat: one read chunk plus the carry of the longest line, whatever the file size. A
+// multi-byte character never splits across a chunk boundary because lines are split on the
+// 0x0A byte, which cannot occur inside a UTF-8 multi-byte sequence, and cp1252 is
+// single-byte by construction. UTF-16 deliveries (Excel "Unicode text" exports — small
+// per-delivery tables) fall back to the whole-file decoder and its declared bound.
+
+const STREAM_CHUNK_BYTES: usize = 1 << 20;
+
+enum StreamEncoding {
+    Utf8 { bom: bool },
+    Cp1252,
+    Utf16WholeFile,
+}
+
+/// Pass 1: the same per-file encoding decision `decode_text` makes, computed in O(chunk)
+/// memory. The UTF-16-without-BOM heuristic scans even-offset newline pairs exactly as the
+/// whole-file decoder does; UTF-8 validity is checked incrementally, carrying at most the
+/// three bytes of an incomplete trailing sequence across chunks.
+fn detect_stream_encoding(path: &Path) -> std::io::Result<StreamEncoding> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut head = [0u8; 4];
+    let mut head_len = 0usize;
+    while head_len < 4 {
+        let n = file.read(&mut head[head_len..])?;
+        if n == 0 {
+            break;
+        }
+        head_len += n;
+    }
+    if head_len >= 3 && head[0..3] == [0xEF, 0xBB, 0xBF] {
+        return Ok(StreamEncoding::Utf8 { bom: true });
+    }
+    if head_len >= 2 && (head[0..2] == [0xFF, 0xFE] || head[0..2] == [0xFE, 0xFF]) {
+        return Ok(StreamEncoding::Utf16WholeFile);
+    }
+    let total_len = std::fs::metadata(path)?.len();
+    let mut utf8_valid = true;
+    let mut utf8_carry: Vec<u8> = Vec::new();
+    let mut utf16_pair_hit = false;
+    let mut pending_odd: Option<u8> = None;
+    let mut scan = |bytes: &[u8]| {
+        // UTF-16 newline-pair heuristic at even file offsets, tracked across chunks.
+        let mut it = bytes.iter().copied();
+        if let Some(first) = pending_odd.take() {
+            if let Some(second) = it.next() {
+                if matches!((first, second), (0x0A | 0x0D, 0x00) | (0x00, 0x0A | 0x0D)) {
+                    utf16_pair_hit = true;
+                }
+            } else {
+                pending_odd = Some(first);
+            }
+        }
+        loop {
+            let Some(a) = it.next() else { break };
+            let Some(b) = it.next() else {
+                pending_odd = Some(a);
+                break;
+            };
+            if matches!((a, b), (0x0A | 0x0D, 0x00) | (0x00, 0x0A | 0x0D)) {
+                utf16_pair_hit = true;
+            }
+        }
+        // Incremental UTF-8 validation: an error with error_len() == None is an incomplete
+        // sequence at the chunk edge (carried), anything else is a real invalid byte.
+        if utf8_valid {
+            utf8_carry.extend_from_slice(bytes);
+            loop {
+                match std::str::from_utf8(&utf8_carry) {
+                    Ok(_) => {
+                        utf8_carry.clear();
+                        break;
+                    }
+                    Err(error) => {
+                        if error.error_len().is_some() {
+                            utf8_valid = false;
+                            utf8_carry.clear();
+                            break;
+                        }
+                        let keep = utf8_carry.len() - error.valid_up_to();
+                        let tail: Vec<u8> = utf8_carry[error.valid_up_to()..].to_vec();
+                        utf8_carry = tail;
+                        debug_assert!(keep <= 3);
+                        break;
+                    }
+                }
+            }
+        }
+    };
+    scan(&head[..head_len]);
+    let mut chunk = vec![0u8; STREAM_CHUNK_BYTES];
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        scan(&chunk[..n]);
+    }
+    if !utf8_carry.is_empty() {
+        utf8_valid = false; // file ends mid-sequence: the whole-file decoder calls that invalid
+    }
+    let utf16_heuristic = total_len >= 4 && total_len % 2 == 0 && utf16_pair_hit;
+    if utf16_heuristic && !utf8_valid {
+        return Ok(StreamEncoding::Utf16WholeFile);
+    }
+    if utf16_heuristic {
+        // decode_text checks the UTF-16 heuristic BEFORE trying UTF-8 — preserve that order.
+        return Ok(StreamEncoding::Utf16WholeFile);
+    }
+    if utf8_valid {
+        Ok(StreamEncoding::Utf8 { bom: false })
+    } else {
+        Ok(StreamEncoding::Cp1252)
+    }
+}
+
+/// Pass 2: chunked line iteration with `str::lines()` semantics (split on `\n`, trailing
+/// `\r` stripped, final unterminated line yielded, no phantom empty line at EOF). The peak
+/// carry is instrumented so the T91 memory pin asserts flat allocation instead of mere
+/// success.
+pub struct TextLineStream<R: std::io::Read> {
+    inner: R,
+    cp1252: bool,
+    carry: Vec<u8>,
+    eof: bool,
+    /// Largest byte length the carry buffer ever reached — the ONLY allocation that scales.
+    pub peak_carry_bytes: usize,
+    ready: std::collections::VecDeque<String>,
+}
+
+impl<R: std::io::Read> TextLineStream<R> {
+    pub fn new(inner: R, cp1252: bool) -> Self {
+        Self {
+            inner,
+            cp1252,
+            carry: Vec::new(),
+            eof: false,
+            peak_carry_bytes: 0,
+            ready: std::collections::VecDeque::new(),
+        }
+    }
+
+    fn decode(&self, mut bytes: &[u8]) -> String {
+        if let [rest @ .., b'\r'] = bytes {
+            bytes = rest;
+        }
+        if self.cp1252 {
+            bytes
+                .iter()
+                .map(|&b| match b {
+                    0x80..=0x9F => CP1252_HIGH[(b - 0x80) as usize],
+                    _ => b as char,
+                })
+                .collect()
+        } else {
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+    }
+
+    fn fill(&mut self) -> std::io::Result<()> {
+        let mut chunk = vec![0u8; STREAM_CHUNK_BYTES];
+        while self.ready.is_empty() && !self.eof {
+            let n = self.inner.read(&mut chunk)?;
+            if n == 0 {
+                self.eof = true;
+                if !self.carry.is_empty() {
+                    let tail = std::mem::take(&mut self.carry);
+                    let line = self.decode(&tail);
+                    self.ready.push_back(line);
+                }
+                break;
+            }
+            self.carry.extend_from_slice(&chunk[..n]);
+            self.peak_carry_bytes = self.peak_carry_bytes.max(self.carry.len());
+            let mut start = 0usize;
+            while let Some(offset) = self.carry[start..].iter().position(|&b| b == b'\n') {
+                let end = start + offset;
+                let line = self.decode(&self.carry[start..end]);
+                self.ready.push_back(line);
+                start = end + 1;
+            }
+            if start > 0 {
+                self.carry.drain(..start);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<R: std::io::Read> Iterator for TextLineStream<R> {
+    type Item = std::io::Result<String>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ready.is_empty() {
+            if let Err(error) = self.fill() {
+                return Some(Err(error));
+            }
+        }
+        self.ready.pop_front().map(Ok)
+    }
+}
+
+/// The streaming entry: encodes DEC-052's ruled route for line-written formats. UTF-16
+/// deliveries take the whole-file decoder (and its declared bound); everything else streams
+/// with flat memory and NO size ceiling.
+pub fn stream_text_lines<P: AsRef<Path>>(
+    path: P,
+) -> std::io::Result<Box<dyn Iterator<Item = std::io::Result<String>>>> {
+    let path = path.as_ref();
+    match detect_stream_encoding(path)? {
+        StreamEncoding::Utf16WholeFile => {
+            let decoded = read_text_file_with_encoding(path)?;
+            let lines: Vec<String> = decoded.text.lines().map(str::to_string).collect();
+            Ok(Box::new(lines.into_iter().map(Ok)))
+        }
+        StreamEncoding::Utf8 { bom } => {
+            use std::io::{Read, Seek};
+            let mut file = std::fs::File::open(path)?;
+            if bom {
+                let mut skip = [0u8; 3];
+                file.read_exact(&mut skip)?;
+            } else {
+                file.seek(std::io::SeekFrom::Start(0))?;
+            }
+            Ok(Box::new(TextLineStream::new(file, false)))
+        }
+        StreamEncoding::Cp1252 => {
+            let file = std::fs::File::open(path)?;
+            Ok(Box::new(TextLineStream::new(file, true)))
+        }
+    }
 }
 
 /// A single deserialized row from a generic curve CSV export.
@@ -1692,7 +1951,9 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     null_rules: &[NullExceptionRule],
 ) -> ParseResult<LasFrame> {
     let source = path.as_ref().display().to_string();
-    let text = read_text_file(path.as_ref())?;
+    // SB-DIO-061 / DEC-052: the ONE size-scaling text reader streams — bounded chunks, no
+    // ceiling, the same per-file encoding decision the whole-file decoder makes.
+    let lines = stream_text_lines(path.as_ref())?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -1712,7 +1973,8 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     let mut section_scan = LasSectionScan::default();
     let mut well_headers = Vec::new();
 
-    for (line_index, line) in text.lines().enumerate() {
+    for (line_index, line) in lines.enumerate() {
+        let line = line?;
         let line_number = line_index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -1741,7 +2003,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
                 continue;
             }
             LasSection::WellBlock => {
-                if let Some(header) = parse_las_well_header(line) {
+                if let Some(header) = parse_las_well_header(&line) {
                     well_headers.push(header);
                 }
                 if let Some(n) = parse_null_line(trimmed) {
@@ -4464,5 +4726,112 @@ mod las_depth_tests {
         assert_eq!(rep.duplicate, 1, "-0.0 duplicates +0.0 under DuckDB FLOAT equality");
         assert_eq!(c.depth.len(), 2);
         assert_eq!(c.gr, vec![0.0, 2.0], "companion follows kept indices 0 and 2");
+    }
+}
+
+/// SB-DIO-061 / DEC-052: the chunked reader is pinned by MEMORY and by equivalence with the
+/// whole-file decoder — a test that only proves a large file parses would pass for the
+/// whole-file reader the stream replaced (DEC-052 constraint 4).
+#[cfg(test)]
+mod streaming_reader_tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("sandibumi-stream-{}-{}.txt", tag, std::process::id()))
+    }
+
+    /// A synthetic source far larger than any buffer the reader is allowed to keep: 32 MiB
+    /// of LAS-shaped rows delivered through `Read`, no file involved.
+    struct SyntheticRows {
+        remaining: usize,
+        pattern: &'static [u8],
+        at: usize,
+    }
+    impl std::io::Read for SyntheticRows {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.remaining == 0 {
+                return Ok(0);
+            }
+            let mut written = 0usize;
+            while written < buf.len() && self.remaining > 0 {
+                buf[written] = self.pattern[self.at];
+                self.at = (self.at + 1) % self.pattern.len();
+                written += 1;
+                self.remaining -= 1;
+            }
+            Ok(written)
+        }
+    }
+
+    #[test]
+    fn the_streaming_reader_holds_flat_memory_while_the_input_grows_and_never_drops_a_line() {
+        let pattern = b" 2000.5000     40.1250      2.0000\n";
+        let total = 32 * 1024 * 1024;
+        let mut stream = TextLineStream::new(
+            SyntheticRows { remaining: total, pattern, at: 0 },
+            false,
+        );
+        let mut lines = 0usize;
+        let mut last = String::new();
+        for line in &mut stream {
+            last = line.unwrap();
+            lines += 1;
+        }
+        let full_rows = total / pattern.len();
+        let tail_bytes = total % pattern.len();
+        assert_eq!(lines, full_rows + usize::from(tail_bytes > 0), "every line arrives once");
+        if tail_bytes > 0 {
+            assert_eq!(last.len(), tail_bytes, "the unterminated tail is yielded, not dropped");
+        }
+        // The memory pin: the carry never exceeds one read chunk plus one line, however
+        // large the input grows. The whole-file reader this replaces would have held all
+        // 32 MiB at once.
+        assert!(
+            stream.peak_carry_bytes <= STREAM_CHUNK_BYTES + pattern.len(),
+            "peak carry {} must stay bounded by one chunk, not scale with the {}-byte input",
+            stream.peak_carry_bytes,
+            total
+        );
+    }
+
+    #[test]
+    fn the_stream_matches_the_whole_file_decoder_on_utf8_cp1252_crlf_and_an_unterminated_tail()
+    {
+        // cp1252: two 0x95 bullets (the real Duri delivery's bytes), CRLF endings, and no
+        // trailing newline — the exact shapes the encoding contract exists for.
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            ("utf8", "~Version\r\nGR.gAPI 45.5 : gamma\ntail without newline".as_bytes().to_vec()),
+            ("cp1252", b"DEPTH,LITH\r\n1000.5,\x95 bullet lithology\r\n1001.0,clean".to_vec()),
+            ("utf8-bom", [b"\xEF\xBB\xBF".to_vec(), b"a\nb\n".to_vec()].concat()),
+        ];
+        for (tag, bytes) in cases {
+            let path = tmp(tag);
+            std::fs::write(&path, &bytes).unwrap();
+            let whole = read_text_file(&path).unwrap();
+            let expected: Vec<String> = whole.lines().map(str::to_string).collect();
+            let streamed: Vec<String> =
+                stream_text_lines(&path).unwrap().map(Result::unwrap).collect();
+            let _ = std::fs::remove_file(&path);
+            assert_eq!(streamed, expected, "case {tag}: the stream and the whole-file decoder must agree line for line");
+        }
+    }
+
+    #[test]
+    fn a_whole_file_reader_refuses_an_oversize_delivery_by_name_and_before_reading_it() {
+        let path = tmp("oversize");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(WHOLE_FILE_TEXT_READER_MAX_BYTES + 1).unwrap();
+        drop(file);
+        let error = read_text_file(&path).unwrap_err().to_string();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            error.contains("sandibumi-stream-oversize"),
+            "the refusal names the delivery: {error}"
+        );
+        assert!(error.contains("DEC-052"), "and cites the ruling: {error}");
+        assert!(
+            error.contains("stream"),
+            "and points at the route that has no ceiling: {error}"
+        );
     }
 }
