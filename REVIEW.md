@@ -14787,3 +14787,24 @@ under the new default writes SM_* beside them rather than replacing an MM_* inte
       plot, and export exactly as before, beside any new SM_* run.
 - [ ] **Restore a saved session that had a SandiMin pane** — the pane should come back (its
       internal id is deliberately unchanged for exactly this).
+
+## Gate 2 formal closure — DEC-083 (2026-08-20)
+
+You ruled the gate formally finalized for pre-ship: counsel could not be obtained in your
+timeframe, so the last two rows closed with every engineering arm complete and the counsel
+questions DEFERRED BY NAME to first commercial sale (they are recorded, pinned by a gate
+test, and cannot silently vanish — this is a posture, not legal clearance). The one piece of
+engineering that was still owed — the fail-closed release-inventory proof — is landed and in
+the green gate.
+
+- [ ] **Read the deferred register** (GATE2_BLOCKERS.md, "Formal closure" section) and confirm
+      it says what you decided: CLAIM-012 (endpoint library), CLAIM-013 (six derived charts +
+      keep-listed remnants + the Por-4/Por-5 neutron tables), dependency licences — all waiting
+      on counsel before first commercial sale, nothing else reopening at Gate 2.
+- [ ] **Check the README chart line** — it now says 6 chart overlays re-derived from published
+      primary sources (the honest post-DEC-082 claim, and a gate test keeps the number tied to
+      what actually ships).
+- [ ] **Note for your counsel packet**: the Por-4/Por-5 neutron equivalence tables
+      (neutron_charts.rs) still ship — they power the neutron-porosity conversions and were
+      never part of the thirteen-id delete. They are named in the deferred register so the
+      lawyer sees them alongside the chart remnants.
