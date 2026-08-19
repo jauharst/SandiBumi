@@ -9,8 +9,8 @@
  *
  * - The DERIVABLE definitions (everything not listed below) are to be independently
  *   re-derived from primary publications and cited physical constants — the published
- *   Wyllie time-average and Raymer-Hunt-Gardner equations for por20/por22, and the
- *   Appendix-B-cited mineral constants + volumetric U-mixing for the lithology charts —
+ *   Wyllie time-average and Raymer-Hunt-Gardner equations for por22, and the
+ *   paper-cited mineral constants + volumetric U-mixing for the lithology charts —
  *   replacing the digitized coordinates as each re-derivation is executed and verified.
  *
  * - The TOOL-RESPONSE definitions listed here have NO independent primary source: each
@@ -18,6 +18,8 @@
  *   so re-derivation is impossible in principle. Ruled RETAINED, cited and fail-closed
  *   (SB-PLT-023), THROUGH GATE 5 — they are needed for manual/field verification — with
  *   the delete kept a single named operation for final commercial packaging.
+ *   DEC-080 moved por20_ta/por20_fo into this class (CNL-coupled neutron axis), so the
+ *   register holds ELEVEN ids and the derivable class holds eight definitions.
  *
  * THE DELETE, when Jauhar says so: regenerate `chartOverlays.ts` with `tools/chartdig`
  * omitting exactly the ids below (or delete their entries), then delete this list. The
@@ -36,6 +38,13 @@ export const TOOL_RESPONSE_OVERLAY_IDS: readonly string[] = [
   "por16", // adnVISION675 azimuthal density neutron
   "por18", // EcoScope BPHI
   "por19", // EcoScope TNPH
+  // DEC-080 (2026-08-19): Por-20 reclassified INTO this class. Its sonic coordinates
+  // are derivable (Wyllie/RHG), but every non-limestone curve's NEUTRON coordinate is
+  // the CNL tool response — the same vendor characterization as por11 — so a
+  // half-derived chart stays vendor-encumbered in every coordinate pair. Jauhar ruled
+  // no half-measures: both defs join the retained class and the Gate 5 decision.
+  "por20_ta", // sonic-neutron, time-average sonic leg vs CNL response
+  "por20_fo", // sonic-neutron, field-observation sonic leg vs CNL response
 ];
 
 /** True for a chart definition that exists only as a vendor tool characterization. */

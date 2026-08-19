@@ -338,6 +338,36 @@ test("the_derived_lith6_mid_ternary_reproduces_the_digitized_chart_and_keeps_onl
   );
 });
 
+test("the_tool_response_register_names_the_eleven_ruled_ids_and_never_a_derived_one", () => {
+  // DEC-078 named nine tool-response ids; DEC-080 reclassified por20_ta/por20_fo into
+  // the class (the neutron coordinate of every non-limestone Por-20 curve IS the CNL
+  // response, so a half-derived chart stays vendor-encumbered). The register and the
+  // derived set must stay DISJOINT: an id cannot be both vendor-retained and derived.
+  const source = fs.readFileSync(path.join(repo, "src", "ui", "chartOverlayPolicy.ts"), "utf8");
+  const listMatch = source.match(
+    /TOOL_RESPONSE_OVERLAY_IDS[^=]*=\s*\[([\s\S]*?)\];/,
+  );
+  assert.ok(listMatch, "TOOL_RESPONSE_OVERLAY_IDS not found in chartOverlayPolicy.ts");
+  // Strip line comments first: a commented-out entry is NOT in the register.
+  const body = listMatch[1].replace(/\/\/[^\n]*/g, "");
+  const ids = [...body.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(
+    [...ids].sort(),
+    [
+      "por11", "por12", "por13_aplc", "por13_fplc", "por14_aplc", "por14_fplc",
+      "por16", "por18", "por19", "por20_fo", "por20_ta",
+    ],
+    "the retained tool-response register must hold exactly the eleven ruled ids",
+  );
+  const derivedIds = derivedOverlays().map((d) => d.id);
+  for (const id of derivedIds) {
+    assert.ok(
+      !ids.includes(id),
+      `${id} is both derived and in the retained tool-response register - the classes must be disjoint`,
+    );
+  }
+});
+
 test("the_generated_derived_overlay_module_is_current", () => {
   const onDisk = fs.readFileSync(
     path.join(repo, "src", "ui", "chartOverlaysDerived.gen.ts"),
