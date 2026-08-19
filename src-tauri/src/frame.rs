@@ -29,8 +29,8 @@
 //! fraction, which is most of what gets blocked.
 
 use crate::modules::{
-    log_in, log_out_as, opt_labelled, param_open, param_open_when, ModuleContext, ModuleOutputs,
-    ModuleSpec, PROJECT_DEPTH_UNIT_TOKEN,
+    log_in, log_out_as, opt_labelled, param, param_open, param_open_when, ModuleContext,
+    ModuleOutputs, ModuleSpec, PROJECT_DEPTH_UNIT_TOKEN,
 };
 use std::collections::HashMap;
 
@@ -264,10 +264,13 @@ pub fn block_spec() -> ModuleSpec {
                 "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
             ),
             // Generic statistical multiplier, like the Hampel K — round, and not a calibration.
-            param_open_when(
-                "SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 0.5, 20.0,
-                &[("OPT_BEDS", "AUTO")],
-                "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
+            // Read only on the AUTO branch; with a default it is simply inert elsewhere.
+            param(
+                "SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 2.0,
+                0.5, 20.0,
+                "Two-noise-units convention for change detection (same family as the Hampel K in \
+                 condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar \
+                 adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
             ),
             opt_labelled(
                 "OPT_BEDS",
@@ -434,13 +437,16 @@ pub fn bed_detect_spec() -> ModuleSpec {
                 10000.0,
                 true,
             ),
-            param_open(
+            param(
                 "SENS",
                 "How far off the bed's mean is a new bed, in noise units",
                 "",
+                2.0,
                 0.5,
                 20.0,
-                true,
+                "Two-noise-units convention for change detection (same family as the Hampel K in \
+                 condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar \
+                 adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
             ),
             log_in("CURVE", "Curve to segment", "", "GR", true),
             log_out_as("OUT_CURVE", "{CURVE}_BED", "Bed index", ""),

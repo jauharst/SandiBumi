@@ -21,6 +21,9 @@ use crate::multimin2::{
 };
 
 /// Default Sw-unit gap above which a depth counts as "the model choice matters here".
+/// DEC-077 (2026-08-19): a QC display convention, not rock — ruled the owner's starting value
+/// with practitioner attribution per DEC-059 (0.10 Sw units is one decile of the answer's own
+/// scale); every request may override it, and the request's value always wins.
 const DEFAULT_DIVERGENCE: f64 = 0.10;
 
 #[derive(Debug, Clone, Deserialize)]

@@ -928,12 +928,39 @@ pub(crate) fn with_sources(mut arg: ArgSpec, topic: &str) -> ArgSpec {
 /// A deliberately absent, well-scoped parameter. It retains the depth-trend scope rule while
 /// refusing to invent the value that defines that trend. The per-well grid may supply one value,
 /// but a zone cannot create a discontinuity part-way down the well.
+/// Currently unused: its callers (TSURF/TGRAD) acquired DEC-077 starting values and moved to
+/// [`param_well`]. Kept because it is one of the four scope×presence forms and the next
+/// well-scoped absent ruling should not have to re-add the plumbing.
+#[allow(dead_code)]
 pub(crate) fn param_open_well(name: &str, desc: &str, unit: &str, min: f64, max: f64) -> ArgSpec {
     ArgSpec {
         well_scope: true,
         ..param_open(name, desc, unit, min, max, true)
     }
 }
+
+/// A cited, well-scoped parameter: one value defines the well's depth trend (see
+/// [`ArgSpec::well_scope`]) and the default carries its adjudicated source like any [`param`].
+/// Added for the DEC-077 temperature-chain rulings, where the ABSENT well-scoped forms below
+/// acquired owner-attributed starting values without giving up the whole-well scope rule.
+pub(crate) fn param_well(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    default: f64,
+    min: f64,
+    max: f64,
+    default_source: &str,
+) -> ArgSpec {
+    ArgSpec { well_scope: true, ..param(name, desc, unit, default, min, max, default_source) }
+}
+
+/// The shared citation for the SB-ENV-004 rows Jauhar ruled "mine" in DEC-077: the corpus
+/// finding is a NEGATIVE (IP, Geolog and Halliburton correct through charts and ship no
+/// linearized coefficient), so the shipped number is his multi-basin starting value under the
+/// DEC-059 practitioner-attribution pattern, never a vendor citation. Rows with a more
+/// specific record (DCAL_MAX, XOVER_MIN, the temperature chain) carry their own strings.
+pub(crate) const DEC077_PRACTITIONER: &str = "Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md";
 
 /// A whole-well absent parameter that is required only on named option branches.
 pub(crate) fn param_open_well_when(
@@ -4914,21 +4941,28 @@ fn ftemp_grad_spec() -> ModuleSpec {
         args: vec![
             opt("OPT_FT", "Temperature model", "GRADIENT", &["GRADIENT", "BHT"]),
             // All four define ONE temperature profile for the well — see ArgSpec::well_scope.
-            param_open_well(
+            // DEC-077 split this chain deliberately: TSURF/TGRAD ship Jauhar's starting values
+            // (the no-default finding is a corpus negative corroborated by IP 2018 and
+            // Halliburton Charts 1-2/1-3, so the numbers are his, attributed), while BHT and
+            // TD_BHT stay ABSENT — a bottom-hole measurement is a fact about ONE well, and the
+            // vendor pattern (Halliburton book 3 worked example) takes it as user input.
+            param_well(
                 "TSURF",
                 "Surface temperature (whole well)",
                 "degC",
+                26.7,
                 0.0,
                 50.0,
+                DEC077_PRACTITIONER,
             ),
-            param_open_well_when(
+            param_well(
                 "TGRAD",
                 "Temperature gradient (whole well)",
                 "degC/m",
+                0.03,
                 0.005,
                 0.1,
-                &[("OPT_FT", "GRADIENT")],
-                "docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters",
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.03 degC/m multi-basin starting value per DEC-059 - IP 2018 states no default gradient (A_porosity_sw.md:559) and Halliburton Charts 1-2/1-3 take user values; their plotted metric family is 1-3 degC/100 m and 0.03 sits at its top (factual note carried from the adjudication draft); docs/takeover/DECISIONS.md",
             ),
             param_open_well_when(
                 "BHT",
@@ -4937,7 +4971,7 @@ fn ftemp_grad_spec() -> ModuleSpec {
                 30.0,
                 250.0,
                 &[("OPT_FT", "BHT")],
-                "docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters",
+                "Absent by Jauhar adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md",
             ),
             param_open_well_when(
                 "TD_BHT",
@@ -4946,7 +4980,7 @@ fn ftemp_grad_spec() -> ModuleSpec {
                 100.0,
                 10000.0,
                 &[("OPT_FT", "BHT")],
-                "docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters",
+                "Absent by Jauhar adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md",
             ),
             log_out("FTEMP", "Formation temperature", "degC"),
         ],
@@ -4995,7 +5029,10 @@ fn precalc_spec() -> ModuleSpec {
               formation temperature = SURF_TEMP + TEMP_GRAD*TVDSS and FPRESS = PSURF + \
               PGRAD*TVDSS, both linear in true vertical depth. Gradients — and the TREND \
               fit below — are per depth unit of the TVDSS curve: enter per-metre values \
-              (and a metric refit) for metric wells; no study fit ships as a generic default. \
+              (and a metric refit) for metric wells. The shipped 77 degF / 0.026 deg/ft \
+              starting values are one study's feet-based fits, attributed to the owner by \
+              DEC-077 — refit per basin, and convert before a metric well (SB-ENV-045 \
+              records the 66 degC cost of skipping that). \
               SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU \
               units, but the FTEMP curve is always written in degC (the unit every \
               downstream module assumes); FTEMP_F is the same trend in degF for SandiMin \
@@ -5013,8 +5050,14 @@ fn precalc_spec() -> ModuleSpec {
             // The geothermal trend is one trend for the well — a named-zone override would step
             // the temperature at a formation top rather than bend it. See ArgSpec::well_scope.
             // PSURF/PGRAD below deliberately stay per-zone: a pressure compartment is real.
-            param_open_well("SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", -50.0, 150.0),
-            param_open_well("TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.0005, 0.2),
+            param_well(
+                "SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", 77.0, -50.0, 150.0,
+                "Jauhar adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md",
+            ),
+            param_well(
+                "TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.026, 0.0005, 0.2,
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md",
+            ),
             param_open("PSURF", "Formation pressure intercept", "psi", -500.0, 5000.0, true),
             param_open("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.05, 5.0, true),
             opt("OPT_RMF", "RMF source", "ARPS", &["ARPS", "TREND"]),
@@ -5152,21 +5195,28 @@ fn badhole_spec() -> ModuleSpec {
                     &[("g/cc", "g/cc"), ("kg/m3", "kg/m3")],
                 )
             },
-            param_open(
+            // DEC-077 (2026-08-19), after DEC-060(c) re-opened SB-ENV-024's ship-ABSENT
+            // posture: both thresholds now carry Jauhar's starting values with practitioner
+            // attribution. The DRHO_MAX starting value is stated in g/cc — DRHO_MAX_UNIT must
+            // still be declared when DRHO is present, and the declared-unit agreement refusal
+            // below is unchanged.
+            param(
                 "DRHO_MAX",
-                "Max acceptable density correction",
+                "Max acceptable density correction (starting value in g/cc)",
                 "",
+                0.05,
                 0.0,
                 0.5,
-                true,
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md",
             ),
-            param_open(
+            param(
                 "DCAL_MAX",
                 "Max acceptable absolute caliper departure from bit size",
                 "in",
+                1.0,
                 0.0,
                 12.0,
-                true,
+                "Jauhar adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md",
             ),
             ArgSpec {
                 min: None,
@@ -5375,7 +5425,8 @@ fn condflag_spec() -> ModuleSpec {
               be corrected rather than discarded); feed it as the Mask on later module \
               runs, but leave the Mask empty on the condflag run itself — masking this run \
               with BADHOLE would blank COND_FLAG exactly where it must read 1. MIN_THICK \
-              and SHOULDER are in the depth curve's declared unit and ship absent. Run the \
+              and SHOULDER are in the depth curve's declared unit; their DEC-077 starting \
+              values are metre-scale conventions - rescale for feet wells. Run the \
               badhole module first so its flag is \
               available here."
             .into(),
@@ -5394,33 +5445,36 @@ fn condflag_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::FLUID_DENSITY,
             ),
-            param_open("COAL_RHOB", "Coal: density below", "g/cc", 1.2, 2.4, true),
-            param_open("COAL_NPHI", "Coal: neutron above", "v/v", 0.15, 0.8, true),
-            param_open("COAL_DT", "Coal: sonic above (when DT present)", "us/ft", 70.0, 160.0, true),
-            param_open("TIGHT_PHI", "Tight: both porosities below", "v/v", 0.0, 0.2, true),
-            param_open(
+            param("COAL_RHOB", "Coal: density below", "g/cc", 1.9, 1.2, 2.4, DEC077_PRACTITIONER),
+            param("COAL_NPHI", "Coal: neutron above", "v/v", 0.35, 0.15, 0.8, DEC077_PRACTITIONER),
+            param("COAL_DT", "Coal: sonic above (when DT present)", "us/ft", 100.0, 70.0, 160.0, DEC077_PRACTITIONER),
+            param("TIGHT_PHI", "Tight: both porosities below", "v/v", 0.05, 0.0, 0.2, DEC077_PRACTITIONER),
+            param(
                 "XOVER_MIN",
                 "Crossover: DPHI - NPHI above (~0.08 for limestone-unit NPHI)",
                 "v/v",
+                0.04,
                 0.0,
                 0.3,
-                true,
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.04 v/v multi-basin starting value per DEC-059, ruled with the chapter's own warning in view that 0.04 equals the matrix-scale error size (SB-ENV-012/029) - convert the neutron convention first; docs/takeover/DECISIONS.md",
             ),
-            param_open(
+            param(
                 "MIN_THICK",
                 "Drop flagged beds thinner than",
                 PROJECT_DEPTH_UNIT_TOKEN,
+                0.25,
                 0.0,
                 10.0,
-                true,
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.25 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md",
             ),
-            param_open(
+            param(
                 "SHOULDER",
                 "Shoulder width beyond bed edges",
                 PROJECT_DEPTH_UNIT_TOKEN,
+                0.5,
                 0.0,
                 5.0,
-                true,
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.5 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md",
             ),
             opt("OPT_XCOND", "Include gas crossover in COND_FLAG", "NO", &["NO", "YES"]),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
@@ -6103,14 +6157,20 @@ fn gr_hole_corr_spec() -> ModuleSpec {
               at any finite GR sample; it never writes an unmarked uncorrected GR_EC copy."
             .into(),
         args: vec![
-            param_open(
+            param(
                 "K_GR",
                 "Correction per inch of enlargement",
                 "1/in",
+                0.0075,
                 0.0,
                 0.05,
-                true,
+                DEC077_PRACTITIONER,
             ),
+            // DEC-077 carve-out, recorded rather than silently applied: the blanket "mine"
+            // ruling does NOT restore the pre-adjudication 8.5 in fallback here, because
+            // SB-ENV-025 (P0, shipped) rules that bit size comes from a curve, a header or an
+            // explicit entry and is NEVER a default - invented hole geometry corrects with the
+            // wrong annulus and looks fine. The field stays an explicit interpreter entry.
             param_open(
                 "BS_DEF",
                 "Bit size when BS curve is absent",
@@ -6218,15 +6278,25 @@ fn nphi_env_corr_spec() -> ModuleSpec {
         title: "Neutron Environmental Correction".into(),
         category: "Prep".into(),
         doc: "NPHI_EC = NPHI + K_TEMP*(FTEMP - T_REF) + K_SAL*(SALW/100000): linearized \
-              formation-temperature and formation-salinity terms whose coefficients must be \
-              supplied from the applicable CNL chart. Requires FTEMP (run Formation Temperature first) for the temperature \
-              term; without it only the salinity term applies."
+              formation-temperature and formation-salinity terms. The coefficients ship as \
+              DEC-077 practitioner starting values - replace them with values read from the \
+              applicable CNL chart for the tool in hand where one is available. Requires FTEMP \
+              (run Formation Temperature first) for the temperature \
+              term; without it only the salinity term applies. SALW defaults to the chart \
+              reference condition itself (fresh, zero), so the salinity term is inert until \
+              the study declares its formation salinity."
             .into(),
         args: vec![
-            param_open("K_TEMP", "Temperature coefficient", "v/v per degC", -0.01, 0.01, true),
-            param_open("T_REF", "Chart reference temperature", "degC", 0.0, 100.0, true),
-            param_open("K_SAL", "Salinity coefficient per 100 kppm", "v/v", -0.05, 0.05, true),
-            param_open("SALW", "Formation water salinity", "ppm", 0.0, 300000.0, true),
+            param("K_TEMP", "Temperature coefficient", "v/v per degC", 0.0001, -0.01, 0.01, DEC077_PRACTITIONER),
+            param(
+                "T_REF", "Chart reference temperature", "degC", 21.1, 0.0, 100.0,
+                "Halliburton LWD Log Interpretation Charts (Sperry Drilling, 2018) book pp. 268/270: 'The reference temperature is 70 F' / fresh water at atmospheric pressure and 70 F (21.1 C); adopted by Jauhar adjudication DEC-077 (2026-08-19), replacing the uncited 24.0; docs/takeover/DECISIONS.md",
+            ),
+            param("K_SAL", "Salinity coefficient per 100 kppm", "v/v", -0.002, -0.05, 0.05, DEC077_PRACTITIONER),
+            param(
+                "SALW", "Formation water salinity", "ppm", 0.0, 0.0, 300000.0,
+                "Fresh-water reference condition (concentration zero) - the three-vendor agreement: GE CNL panel ships 0 kppm (IP 2025 F_qc section 3), the SLB panel value is a unit artifact that is effectively fresh, and Halliburton's chart axes are kppm Cl- referenced to fresh water (book pp. 268-269); adopted by Jauhar adjudication DEC-077 (2026-08-19) - the correction is inert until the study declares its salinity; docs/takeover/DECISIONS.md",
+            ),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             // FTEMP must come from precalc/ftemp_grad COMPUTED output, not a raw LAS curve — a raw
             // degF FTEMP would otherwise be silently applied as degC. Mirrors gascorr's contract.
@@ -6314,21 +6384,23 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
               few inches of washout no correction is trustworthy."
             .into(),
         args: vec![
-            param_open(
+            param(
                 "K_RHO",
                 "Correction per inch beyond reference",
                 "g/cc/in",
+                0.004,
                 0.0,
                 0.05,
-                true,
+                DEC077_PRACTITIONER,
             ),
-            param_open(
+            param(
                 "HD_REF",
                 "Hole diameter where correction starts",
                 "in",
+                10.0,
                 4.0,
                 20.0,
-                true,
+                "Jauhar adjudication DEC-077 (2026-08-19): 10 in multi-basin starting value per DEC-059 - the vendor reference diameter is PER-TOOL and stated on each chart (Halliburton Chart 2-1: 6.5 in for the 4.75-in DGR; SB-ENV-013 records it as a property of tool and bit), so no universal number is adoptable; docs/takeover/DECISIONS.md",
             ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             with_validity(
@@ -9921,24 +9993,55 @@ mod tests {
             "the supplied side must produce a real curve, not blank success"
         );
 
-        // Branch pin, both sides: K is irrelevant to ABS but required by HAMPEL. Source:
-        // despike's declared method contract and docs/PRD_v2/20_envcorr-qc.md §5.3.
+        // Branch pin, rewritten 2026-08-19 under the DEC-069 precedent: the original arms
+        // pinned K as deliberately ABSENT with a HAMPEL-only refusal, a fail-closed
+        // pre-adjudication state that DEC-077 superseded — K now ships 3.0 as Jauhar's
+        // ruled starting value (see the manifest source), so every interpreter-materialized
+        // run carries it. What remains true of the branch, pinned from both sides:
+        let k_arg = spec
+            .args
+            .iter()
+            .find(|arg| arg.name == "K")
+            .expect("K is declared");
+        assert_eq!(k_arg.default.parse::<f64>().ok(), Some(3.0));
+        assert!(
+            k_arg.default_source.contains("DEC-077")
+                && k_arg.default_source != ABSENT_DEFAULT_SOURCE,
+            "K's ruled default must carry its adjudication: {}",
+            k_arg.default_source
+        );
+
+        // On ABS the parameter is INERT: the same run with K at its default and at three
+        // times its default is bitwise identical, so the default cannot steer a branch
+        // that never reads it.
         let mut abs_context = context(Some(6.0));
         abs_context.opts.insert("OPT_METHOD".into(), "ABS".into());
-        abs_context.params.remove("K");
         abs_context.params.insert("THRESH".into(), vec![5.0; 5]);
-        run_module("despike", &abs_context)
-            .expect("an inactive branch must not demand its deliberately absent parameter");
+        let mut abs_other_k = abs_context.clone();
+        abs_other_k.params.insert("K".into(), vec![9.0; 5]);
+        let abs_out = run_module("despike", &abs_context).expect("ABS runs with K at default");
+        let abs_out_other = run_module("despike", &abs_other_k).expect("ABS runs with K moved");
+        for (name, values) in &abs_out {
+            let other = &abs_out_other[name];
+            assert!(
+                values
+                    .iter()
+                    .zip(other.iter())
+                    .all(|(a, b)| a.to_bits() == b.to_bits()),
+                "K must be inert on ABS but moved {name}"
+            );
+        }
 
+        // The default lives in the MANIFEST and materializes only through the interpreter
+        // (`workflow::effective_module_parameters`); the bare runner never invents it, so a
+        // direct call missing K still refuses by name instead of quietly assuming 3.0.
         let mut hampel_without_k = context(Some(6.0));
         hampel_without_k.params.remove("K");
         let branch_error = run_module("despike", &hampel_without_k)
-            .expect_err("the active branch must require its deliberately absent parameter");
+            .expect_err("the bare runner must not conjure the manifest default");
         assert!(
-            branch_error.contains("K")
-                && branch_error.contains("HAMPEL")
-                && branch_error.contains("ABSENT"),
-            "conditional refusal is not actionable: {branch_error}"
+            branch_error.contains("K"),
+            "the refusal must name the missing parameter: {branch_error}"
         );
     }
 
@@ -13280,58 +13383,74 @@ mod tests {
         );
     }
 
-    /// CORRECTNESS — `20_envcorr-qc.md` sections 4.3 SB-ENV-024, 5.2 and 6.3 T33.
-    /// Both bad-hole thresholds are required to ship `ABSENT`; the valid-side values are the
-    /// chapter's cited 0.02 g/cc tight-tolerance and 2 in delivered-study precedents. Presets are
-    /// not offered here because section 7.2 ESC-1 leaves their shipped names and set unresolved.
+    /// CORRECTNESS — `20_envcorr-qc.md` sections 4.3 SB-ENV-024 and 5.2, as superseded by
+    /// Jauhar's DEC-077 ruling (2026-08-19). The chapter shipped both thresholds ABSENT;
+    /// DEC-060(c) re-opened that posture and DEC-077 ruled them his starting values with the
+    /// DEC-059 practitioner attribution (0.05 g/cc, 1.0 in). This test therefore pins the
+    /// RULED state — the DEC-069 precedent: a pin of a fail-closed pre-adjudication state is
+    /// rewritten to the owner's recorded ruling, never silently deleted. The DRHO_MAX_UNIT
+    /// declaration refusal and the SB-ENV-025 bit-size rules are untouched (their own tests).
     #[test]
-    fn both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run() {
+    fn both_bad_hole_thresholds_ship_jauhars_ruled_starting_values_and_explicit_entry_still_overrides() {
         let spec = module_catalog()
             .iter()
             .find(|module| module.name == "badhole")
             .expect("badhole is registered");
-        for name in ["DRHO_MAX", "DCAL_MAX"] {
+        for (name, ruled) in [("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0)] {
             let threshold = spec
                 .args
                 .iter()
                 .find(|arg| arg.name == name)
                 .unwrap_or_else(|| panic!("{name} is declared"));
-            assert!(threshold.required, "{name} must remain a required interpreter decision");
-            assert_eq!(threshold.default_source, ABSENT_DEFAULT_SOURCE);
+            assert_eq!(
+                threshold.default.parse::<f64>().ok(),
+                Some(ruled),
+                "{name} must ship the DEC-077 ruled starting value"
+            );
+            assert_ne!(
+                threshold.default_source, ABSENT_DEFAULT_SOURCE,
+                "{name} no longer ships ABSENT — DEC-077 superseded the chapter posture"
+            );
             assert!(
-                threshold.default.is_empty(),
-                "{name} must not conceal a numeric default behind ABSENT"
+                threshold.default_source.contains("DEC-077")
+                    && threshold.default_source.contains("DEC-059"),
+                "{name} must carry the practitioner attribution, got: {}",
+                threshold.default_source
             );
         }
 
-        let missing_drho_threshold = ctx_with(
-            1,
-            &[("DRHO", vec![0.03])],
-            &[("DCAL_MAX", 2.0)],
-            &[],
-        );
-        let error = run_module("badhole", &missing_drho_threshold)
-            .expect_err("a missing DRHO threshold must refuse before computation");
-        assert!(
-            error.contains("DRHO_MAX") && error.contains("ABSENT"),
-            "DRHO threshold refusal is not actionable: {error}"
-        );
+        // The ruled defaults resolve through the public parameter resolver into the run
+        // record with their attribution — a bare ctx never sees a manifest default, so this
+        // is the arm that proves the numbers actually reach a run.
+        let (recorded, _) = crate::workflow::effective_module_parameters(
+            spec,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            "explicit values sourced by this test",
+            "",
+        )
+        .expect("the ruled badhole manifest must construct a run record");
+        for (name, ruled) in [("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0)] {
+            let parameter = recorded
+                .iter()
+                .find(|parameter| parameter.name == name)
+                .unwrap_or_else(|| panic!("{name} is recorded"));
+            assert_eq!(parameter.value, serde_json::json!(ruled));
+            assert_eq!(
+                parameter.resolution,
+                Some(crate::equations::ParameterResolution::Defaulted)
+            );
+            assert!(
+                parameter.source.contains("DEC-077"),
+                "{name}'s run record must carry the adjudication source, got: {}",
+                parameter.source
+            );
+        }
 
-        let missing_caliper_threshold = ctx_with(
-            1,
-            &[("DRHO", vec![0.03])],
-            &[("DRHO_MAX", 0.02)],
-            &[],
-        );
-        let error = run_module("badhole", &missing_caliper_threshold)
-            .expect_err("a missing differential-caliper threshold must refuse before computation");
-        assert!(
-            error.contains("DCAL_MAX") && error.contains("ABSENT"),
-            "differential-caliper threshold refusal is not actionable: {error}"
-        );
-
-        // CALI and BS are absent, so no bit-size value enters this DRHO-only public control and no
-        // uncited geometry fixture is needed.
+        // Explicit entry still overrides the ruled defaults — kept verbatim from the
+        // pre-adjudication test. CALI and BS are absent, so no bit-size value enters this
+        // DRHO-only public control and no uncited geometry fixture is needed.
         let explicit = ctx_with(
             2,
             &[("DRHO", vec![0.01, 0.03])],
@@ -13343,11 +13462,203 @@ mod tests {
             ],
         );
         let output = run_module("badhole", &explicit)
-            .expect("explicitly supplying both required thresholds must enable public dispatch");
+            .expect("explicitly supplying both thresholds must enable public dispatch");
         assert_eq!(
             output["BADHOLE"],
             [0.0, 1.0],
             "explicit cited thresholds must distinguish below-threshold and above-threshold samples"
+        );
+    }
+
+    /// CORRECTNESS — SB-ENV-004 and the chapter's T06/T07 build gates
+    /// (`20_envcorr-qc.md` §6.3 lines T06/T07), closed by Jauhar's DEC-077 adjudication
+    /// (2026-08-19, `docs/takeover/DECISIONS.md`; worked draft
+    /// `docs/takeover/DRAFT_ENV004_source_adjudication.md`). Every parameter identity of the
+    /// ten ENV-domain modules is exactly one of: ADOPTED (a vendor/book citation — T_REF
+    /// 21.1 degC from Halliburton LWD charts pp. 268/270, SALW 0 fresh from the three-vendor
+    /// agreement), MINE (his DEC-059-attributed starting value), ABSENT (refuses by name), or
+    /// a pre-existing multi-vendor citation — with zero exceptions (T06), the §5 ABSENT set
+    /// pinned as the post-adjudication inventory (T07, superseding the draft's 31/32 count
+    /// dispute by pinning the set itself), and the run record carrying each resolved value
+    /// WITH its source (the SB-CORE-003 combined source+validity record).
+    #[test]
+    fn every_env_domain_parameter_identity_is_adopted_owner_attributed_or_absent_per_dec077_and_the_run_record_carries_its_source(
+    ) {
+        const ENV_MODULES: [&str; 10] = [
+            "gr_hole_corr",
+            "nphi_env_corr",
+            "rhob_hole_corr",
+            "ftemp_grad",
+            "precalc",
+            "badhole",
+            "condflag",
+            "despike",
+            "block",
+            "bed_detect",
+        ];
+        let env_specs: Vec<ModuleSpec> = list_modules()
+            .into_iter()
+            .filter(|module| ENV_MODULES.contains(&module.name.as_str()))
+            .collect();
+        assert_eq!(env_specs.len(), ENV_MODULES.len(), "every ENV-domain module is registered");
+
+        // T06: zero exceptions — every ENV Param passes the global source gate.
+        validate_parameter_sources(&env_specs)
+            .expect("every ENV-domain parameter must be sourced or ABSENT with zero exceptions");
+
+        // T07 + the DEC-077 inventory: each identity's shipped default and its adjudicated
+        // class, pinned as a SET so a parameter added without adjudication fails here.
+        let inventory: BTreeMap<String, (String, &'static str)> = env_specs
+            .iter()
+            .flat_map(|module| {
+                module.args.iter().filter(|arg| arg.kind == ArgKind::Param).map(|arg| {
+                    let class = if arg.default_source == ABSENT_DEFAULT_SOURCE {
+                        "absent"
+                    } else if arg.default_source.contains("adopted by Jauhar adjudication DEC-077")
+                    {
+                        "adopted"
+                    } else if arg.default_source.contains("DEC-077") {
+                        "mine"
+                    } else {
+                        "cited"
+                    };
+                    (
+                        format!("{}.{}", module.name, arg.name),
+                        (arg.default.clone(), class),
+                    )
+                })
+            })
+            .collect();
+        let expected: BTreeMap<String, (String, &'static str)> = [
+            ("badhole.BS_INPUT", "", "absent"),
+            ("badhole.DCAL_MAX", "1", "mine"),
+            ("badhole.DRHO_MAX", "0.05", "mine"),
+            ("bed_detect.MIN_BED", "", "absent"),
+            ("bed_detect.SENS", "2", "mine"),
+            ("block.INTERVAL", "", "absent"),
+            ("block.MIN_BED", "", "absent"),
+            ("block.SENS", "2", "mine"),
+            ("condflag.COAL_DT", "100", "mine"),
+            ("condflag.COAL_NPHI", "0.35", "mine"),
+            ("condflag.COAL_RHOB", "1.9", "mine"),
+            ("condflag.MIN_THICK", "0.25", "mine"),
+            ("condflag.RHO_FL", "1", "cited"),
+            ("condflag.RHO_MA", "2.65", "cited"),
+            ("condflag.SHOULDER", "0.5", "mine"),
+            ("condflag.TIGHT_PHI", "0.05", "mine"),
+            ("condflag.XOVER_MIN", "0.04", "mine"),
+            ("despike.K", "3", "mine"),
+            ("despike.MAX_RATE", "", "absent"),
+            ("despike.THRESH", "", "absent"),
+            ("despike.WINDOW", "", "absent"),
+            ("ftemp_grad.BHT", "", "absent"),
+            ("ftemp_grad.TD_BHT", "", "absent"),
+            ("ftemp_grad.TGRAD", "0.03", "mine"),
+            ("ftemp_grad.TSURF", "26.7", "mine"),
+            ("gr_hole_corr.BS_DEF", "", "absent"),
+            ("gr_hole_corr.K_GR", "0.0075", "mine"),
+            ("nphi_env_corr.K_SAL", "-0.002", "mine"),
+            ("nphi_env_corr.K_TEMP", "0.0001", "mine"),
+            ("nphi_env_corr.SALW", "0", "adopted"),
+            ("nphi_env_corr.T_REF", "21.1", "adopted"),
+            ("precalc.PGRAD", "", "absent"),
+            ("precalc.PSURF", "", "absent"),
+            ("precalc.RMF_A", "", "absent"),
+            ("precalc.RMF_B", "", "absent"),
+            ("precalc.RMF_MEAS", "", "absent"),
+            ("precalc.RMF_TEMP", "", "absent"),
+            ("precalc.SURF_TEMP", "77", "mine"),
+            ("precalc.TEMP_GRAD", "0.026", "mine"),
+            ("rhob_hole_corr.HD_REF", "10", "mine"),
+            ("rhob_hole_corr.K_RHO", "0.004", "mine"),
+        ]
+        .into_iter()
+        .map(|(identity, default, class)| (identity.to_string(), (default.to_string(), class)))
+        .collect();
+        assert_eq!(
+            inventory, expected,
+            "the ENV-domain parameter inventory must match the DEC-077 adjudication exactly"
+        );
+
+        // The two ADOPTED rows must keep their checkable citations, not just the class tag.
+        let neutron = env_specs.iter().find(|module| module.name == "nphi_env_corr").unwrap();
+        let t_ref = neutron.args.iter().find(|arg| arg.name == "T_REF").unwrap();
+        assert!(
+            t_ref.default_source.contains("Halliburton LWD Log Interpretation Charts")
+                && t_ref.default_source.contains("268"),
+            "T_REF must cite the Halliburton book pages, got: {}",
+            t_ref.default_source
+        );
+        let salw = neutron.args.iter().find(|arg| arg.name == "SALW").unwrap();
+        assert!(
+            salw.default_source.contains("IP 2025 F_qc")
+                && salw.default_source.contains("fresh"),
+            "SALW must cite the three-vendor fresh reference, got: {}",
+            salw.default_source
+        );
+
+        // The combined source+validity record (SB-CORE-003 machinery): a run of the neutron
+        // correction records the adopted values WITH their citations, and an ABSENT identity
+        // records the ABSENT token with no resolution — never a silently invented number.
+        let (recorded, _) = crate::workflow::effective_module_parameters(
+            neutron,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            "explicit values sourced by this test",
+            "",
+        )
+        .expect("the adjudicated neutron manifest must construct a run record");
+        let t_ref_record = recorded.iter().find(|parameter| parameter.name == "T_REF").unwrap();
+        assert_eq!(t_ref_record.value, serde_json::json!(21.1));
+        assert_eq!(
+            t_ref_record.resolution,
+            Some(crate::equations::ParameterResolution::Defaulted)
+        );
+        assert!(t_ref_record.source.contains("Halliburton LWD Log Interpretation Charts"));
+        let salw_record = recorded.iter().find(|parameter| parameter.name == "SALW").unwrap();
+        assert_eq!(salw_record.value, serde_json::json!(0.0));
+        let ftemp = env_specs.iter().find(|module| module.name == "ftemp_grad").unwrap();
+        let (recorded, _) = crate::workflow::effective_module_parameters(
+            ftemp,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            "explicit values sourced by this test",
+            "",
+        )
+        .expect("the split temperature-chain manifest must construct a run record");
+        let bht_record = recorded.iter().find(|parameter| parameter.name == "BHT").unwrap();
+        assert_eq!(bht_record.value, serde_json::json!(ABSENT_DEFAULT_SOURCE));
+        assert_eq!(bht_record.resolution, None, "an ABSENT identity is never relabelled");
+
+        // The ABSENT half still refuses by name. BHT mode without a bottom-hole temperature
+        // names BHT and its DEC-077 ruling; the SB-ENV-025 carve-out means the blanket
+        // "mine" ruling did NOT restore gr_hole_corr's bit-size fallback, so a BS-less run
+        // without BS_DEF refuses too.
+        let bht_mode = ctx_with(
+            1,
+            &[],
+            &[("TSURF", 26.7), ("TGRAD", 0.03)],
+            &[("OPT_FT", "BHT")],
+        );
+        let error = run_module("ftemp_grad", &bht_mode)
+            .expect_err("BHT mode without a bottom-hole temperature must refuse");
+        assert!(
+            error.contains("BHT") && error.contains("ABSENT") && error.contains("DEC-077"),
+            "the BHT refusal must name the parameter and its ruling: {error}"
+        );
+        let no_bit_size = ctx_with(
+            2,
+            &[("GR", vec![60.0, 80.0]), ("CALI", vec![9.0, 9.5])],
+            &[("K_GR", 0.0075)],
+            &[],
+        );
+        let error = run_module("gr_hole_corr", &no_bit_size)
+            .expect_err("a BS-less run without an explicit bit size must refuse");
+        assert!(
+            error.contains("BS_DEF") && error.contains("ABSENT"),
+            "the bit-size refusal must survive the blanket ruling (SB-ENV-025 carve-out): {error}"
         );
     }
 

@@ -131,8 +131,7 @@ Bateman & Konen paper and the block dissolved in one message.
   row is no longer waiting on you. It is now a **substantial engineering row**, not a quick one: a
   conforming writer means storage-unit framing, record segmentation, EFLR/IFLR, representation codes
   and the checksum. Nothing partial ships in the meantime.
-- **`SB-ENV-004`** — the largest of these: 19 sources to supply or adjudicate, plus a docs-only
-  31/32 identity reconciliation before the inventory tests can be written.
+- **`SB-ENV-004`** - **RESOLVED 2026-08-19 by DEC-077.** All 29 rows ruled (blanket Mine with the T_REF and SALW adoptions, BHT/TD_BHT ABSENT); the row is DONE and off the blocked inventory below.
 - **`SB-DBM-005`** — the complete registered-module derivation-source map. **`SB-DBM-010` unblocks
   itself the moment this lands**, so it is two rows on one document.
 - **`SB-DIO-011`** — a named source for every accepted deviation alias.
@@ -186,7 +185,6 @@ requirement appears exactly once.
 | `SB-CORE-005` | Source and legal | The merged endpoint library has no exact per-value origin map. Equal vendor values do not prove origin. | Provide exact construction custody or primary sources per value; keep unresolved values absent; obtain counsel disposition for CLAIM-012. |
 | `SB-CORE-044` | Source and legal | Chart payloads and the merged endpoint library still lack primary-source, design-around or counsel closure (the theme arm closed via the DEC-074 neutral rename, 2026-08-18). | Obtain the named source and counsel dispositions; remove or independently re-source uncleared routes; then add the fail-closed release inventory proof. |
 | `SB-PLT-024` | Legal | Nineteen vendor-derived numeric chart definitions remain imported and bundled; fail-closed rendering does not remove distributed bytes. | Counsel chooses licence, independent primary-source re-derivation, or removal from the paid build/repository. Engineering cannot declare permission. |
-| `SB-ENV-004` | Source and specification | **Draft delivered 2026-08-19** - docs/takeover/DRAFT_ENV004_source_adjudication.md tables all 29 SHIPPED-UNCITED rows with corpus-cited candidates (mostly honest negatives: vendors correct through charts), BHT/TD_BHT flagged per DEC-060(c), the Halliburton column FILLED by the 2026-08-19 extraction (T_REF gains a cited 21.1 C candidate; the eChartbook is settled as an online per-study generator, nothing left to extract), and the 31/32 reconciliation recorded docs-only. | Rule each row adopt/mine/absent; then the identity inventory and the zero-exception T06/T07 build gates land, with SB-CORE-003 closing behind. |
 
 ## Product-owner decision packet
 

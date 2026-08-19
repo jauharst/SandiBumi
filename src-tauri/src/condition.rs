@@ -222,6 +222,9 @@ fn window_spread(
     }
 }
 
+/// DEC-077 (2026-08-19): an estimator property, not rock — ruled the owner's convention with
+/// practitioner attribution per DEC-059; it stays a code constant because it bounds when the
+/// estimator is meaningful at all, which is not an interpreter dial.
 /// Fewest samples a HAMPEL window may cover. Below this the spread estimate is dominated by the
 /// very sample being judged (see [`window_spread`]), so the test is not measuring anything.
 const MIN_HAMPEL_SAMPLES: usize = 5;
@@ -459,15 +462,16 @@ pub fn despike_spec() -> ModuleSpec {
                 ),
                 // K = 3 is the ordinary three-deviation convention (the same generic statistical
                 // choice as Tukey's 1.5 x IQR already used in `distribution.rs`), NOT a field
-                // calibration — round, and stated as such.
-                param_open_when(
+                // calibration — round, and stated as such. DEC-077 ruled it a shipping starting
+                // value; it is inert unless OPT_METHOD = HAMPEL.
+                param(
                     "K",
                     "HAMPEL: deviations from the median before a sample is a spike",
                     "",
+                    3.0,
                     0.5,
                     20.0,
-                    &[("OPT_METHOD", "HAMPEL")],
-                    "docs/PRD_v2/20_envcorr-qc.md §5.3 conditioning parameters",
+                    "Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
                 ),
                 param_open_when(
                     "THRESH",

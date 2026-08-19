@@ -31,7 +31,7 @@
 "SB-ENV-030","CORRECTNESS","src-tauri/src/chain.rs","an_exclusion_mask_and_a_diagnostic_indicator_remain_distinguishable_without_reading_their_values"
 "SB-ENV-026","CORRECTNESS","src-tauri/src/workflow.rs","a_drho_unit_is_required_on_import_and_both_threshold_unit_mismatch_directions_refuse_before_flagging"
 "SB-ENV-025","CORRECTNESS","src-tauri/src/modules.rs","bit_size_has_no_default_and_missing_geometry_disables_only_caliper_while_curve_and_explicit_entry_remain_available"
-"SB-ENV-024","CORRECTNESS","src-tauri/src/modules.rs","both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run"
+"SB-ENV-024","CORRECTNESS","src-tauri/src/modules.rs","both_bad_hole_thresholds_ship_jauhars_ruled_starting_values_and_explicit_entry_still_overrides"
 "SB-ENV-003","CORRECTNESS","src-tauri/src/workflow.rs","a_subset_precondition_violation_keeps_only_valid_samples_with_a_companion_flag_and_source_bearing_provenance_while_refusal_stays_available_and_a_flag_alone_never_versions_an_answer"
 "SB-ENV-002","CORRECTNESS","src-tauri/src/modules.rs","source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes"
 "SB-ENV-002","CORRECTNESS","src-tauri/src/chain.rs","dialog_chain_batch_and_zone_override_routes_report_the_identical_precondition_refusal"
@@ -441,3 +441,4 @@
 "SB-DBM-010","CORRECTNESS","src-tauri/src/export.rs","an_export_that_carries_computed_curves_carries_their_run_records_and_a_format_that_drops_provenance_says_so"
 "SB-DIO-060","CORRECTNESS","src-tauri/src/intake.rs","a_biff5_stream_named_xls_is_read_by_signature_and_the_version_disagreement_is_reported"
 "SB-POR-025","CORRECTNESS","src-tauri/src/modules.rs","the_tnph_conversion_interpolates_fresh_and_salt_on_fluid_density_and_a_single_chart_tool_refuses"
+"SB-ENV-004","CORRECTNESS","src-tauri/src/modules.rs","every_env_domain_parameter_identity_is_adopted_owner_attributed_or_absent_per_dec077_and_the_run_record_carries_its_source"
