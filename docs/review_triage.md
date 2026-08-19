@@ -993,7 +993,9 @@ exclusion and the note — because the safe-looking half is only half.
 The Word document, the workbook and the deck do not carry it yet. The field is on every row, so
 adding it there is mechanical.
 
-### 8. The Monte Carlo PERM cutoff — the audit's wording understates the trigger — **FIXED 2026-08-01**
+### 8. The Monte Carlo PERM cutoff — the audit's wording understates the trigger — **FIXED 2026-08-01; CLOSED FULLY 2026-08-20 (DEC-084)**
+
+DEC-084 item 3 (Jauhar: "dont let it off, its independent") removed the last conditional: `has_perm_cut = req.perm_min.is_some()` unconditionally, so a run with NO permeability anywhere no longer exempts itself — every sample fails for want of evidence and the result carries an advisory note. Pinned by `a_run_with_no_permeability_anywhere_still_answers_to_an_active_perm_cutoff` (montecarlo.rs), two mutations red.
 
 Not a new finding: AUDIT-2026-07-21 already has it, and T-BATCH-16 carries the Known issue line.
 What writing the test refined is **when** it fires.
@@ -1631,7 +1633,9 @@ against a dev-pointing binary it verified nothing. Which binary it used is not r
 is a doubt rather than a finding — but T-SHIP-01 is cheap to re-run now that the harness refuses
 the wrong artefact.
 
-### 23. An ordinary SQL comment breaks the read-only console, two different ways — **STARTER FIXED 2026-08-01, the guard is your call**
+### 23. An ordinary SQL comment breaks the read-only console, two different ways — **FIXED IN FULL 2026-08-20**
+
+Both halves closed in the DEC-084 sweep: the keyword test now inspects the first REAL token (leading `--`/blank lines skipped — stricter, not looser), and the LIMIT wrapper's suffix sits on its own line so a trailing `--` cannot swallow it. Pinned by `readonly_query_reads_through_leading_and_trailing_comments` (db.rs), refusal side unchanged next door, two mutations red.
 
 The SQL console mishandles `--` comments at BOTH ends of a query, and neither failure is the
 user's fault.

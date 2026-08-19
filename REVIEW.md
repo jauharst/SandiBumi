@@ -14808,3 +14808,24 @@ the green gate.
       (neutron_charts.rs) still ship — they power the neutron-porosity conversions and were
       never part of the thirteen-id delete. They are named in the deferred register so the
       lawyer sees them alongside the chart remnants.
+
+## B1 hardening sweep — your five rulings applied (DEC-084, 2026-08-20)
+
+Your five lines closed the method half of the hardening backlog. Three confirmed behaviour
+that had already shipped under your earlier per-finding calls (FTEMP is curves-only, a well
+with no perm fails the cutoff and says why, HPV cannot go negative because PHIE is floored
+at 0.001); Pittman ships as the paper printed it; and one changed code: the Monte Carlo
+permeability cutoff is now independent of the chain. The sweep also verified the whole B1
+list against the code — eleven checkboxes were stale (already fixed in earlier increments)
+and one real defect remained (the SQL console comment guard), fixed here. What stays open:
+only #129 (connection pool), which waits on your 100-well benchmark run.
+
+- [ ] **Monte Carlo with a PERM cutoff on a well that has no permeability at all** (no curve,
+      no perm model in the chain): the run books zero net/HPV and the notes panel says the
+      zero is absence of evidence, not a wet reservoir.
+- [ ] **SQL console: run a query that opens with a `--` comment line** — it runs instead of
+      being refused as "not a SELECT". Then run one ending in a trailing `-- comment` — it
+      runs instead of erroring at end of input.
+- [ ] **T-IMP-05 re-run** (your Fail mark from before the needWell dialog existed): click an
+      importer with no well selected — the named refusal dialog is the designed behaviour
+      now, so the item should flip to Pass.
