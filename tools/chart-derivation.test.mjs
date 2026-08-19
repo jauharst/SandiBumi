@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONSTANTS, GD, RHG, derivedOverlays, renderModule } from "./gen-derived-overlays.mjs";
+import { CONSTANTS, GD, LITH2, RHG, derivedOverlays, renderModule } from "./gen-derived-overlays.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DT_TOL_US_FT = 0.4; // digitization tolerance on a 40-130 us/ft printed axis
@@ -272,7 +272,7 @@ function digitizedPointsAndLines(id) {
     (m) => ({ x: Number(m[1]), y: Number(m[2]), label: m[3] }),
   );
   const lines = [
-    ...block.matchAll(/\{ pts: \[\[([\d.-]+),([\d.-]+)\],\[([\d.-]+),([\d.-]+)\]\](?:, label: "([^"]+)")? \}/g),
+    ...block.matchAll(/\{ pts: \[\[([\d.-]+),([\d.-]+)\],\[([\d.-]+),([\d.-]+)\]\](?:, label: "([^"]+)")?(?:, dash: true)? \}/g),
   ].map((m) => ({
     pts: [
       [Number(m[1]), Number(m[2])],
@@ -335,6 +335,88 @@ test("the_derived_lith6_mid_ternary_reproduces_the_digitized_chart_and_keeps_onl
   assert.deepEqual(
     [...(derived.keepDigitizedLineLabels ?? [])].sort(),
     ["Barite", "Gas direction", "Heavy minerals", "Salt"],
+  );
+});
+
+test("the_derived_lith2_ratio_lines_are_geometry_from_the_printed_boundary_values_and_match_the_digitized_lines_one_to_one", () => {
+  // Lith-2 p. 194 labels every boundary line with its own ratio value; a constant-ratio
+  // line is the segment from the origin to where it exits the printed frame. The dashed
+  // clay/feldspar lines and the region label points are measured-variability graphics
+  // with no printed numeric source (Quirein 1982 / Hassan 1976 print them only as
+  // figures), so they must stay digitized - pinned from both sides below.
+  const K_TOL = 0.001; // the digitized lines are analytic geometry, slack for 4dp rounding
+  const TH_TOL = 0.005;
+  // The page's printed values and frame, restated independently of the generator.
+  const PRINTED = [
+    ["Th/K = 25", 25],
+    ["Th/K = 12", 12],
+    ["Th/K = 3.5", 3.5],
+    ["Th/K = 2.0", 2.0],
+    ["Th/K = 0.6", 0.6],
+    ["Th/K = 0.3", 0.3],
+  ];
+  const derived = derivedOverlays().find((d) => d.id === "lith2_thk");
+  assert.ok(derived, "lith2_thk must be a derived overlay");
+  assert.equal(derived.lines.length, PRINTED.length, "one line per printed boundary value");
+  assert.equal(derived.points, undefined, "no lith2 point may be derived - none has a printed numeric source");
+  assert.equal(derived.curves, undefined, "lith2 has no graduated curves");
+
+  const digitized = digitizedPointsAndLines("lith2_thk");
+  const digitizedRatioLines = digitized.lines.filter((l) => l.label?.startsWith("Th/K"));
+  assert.equal(
+    digitizedRatioLines.length,
+    PRINTED.length,
+    "the derivation must cover exactly the boundary lines the printed chart draws",
+  );
+  for (const [label, r] of PRINTED) {
+    const end = 5 * r >= 25 ? [25 / r, 25] : [5, 5 * r];
+    const line = derived.lines.find((l) => l.label === label);
+    assert.ok(line, `derived line missing for printed label ${label}`);
+    assert.ok(
+      Math.abs(line.pts[0][0]) <= K_TOL && Math.abs(line.pts[0][1]) <= TH_TOL,
+      `${label}: a constant-ratio boundary starts at the origin`,
+    );
+    assert.ok(
+      Math.abs(line.pts[1][0] - end[0]) <= K_TOL && Math.abs(line.pts[1][1] - end[1]) <= TH_TOL,
+      `${label}: derived end ${JSON.stringify(line.pts[1])} is not the frame exit ${JSON.stringify(end)}`,
+    );
+    const twin = digitizedRatioLines.find((l) => l.label === label);
+    assert.ok(twin, `digitized twin missing for ${label}`);
+    assert.ok(
+      Math.abs(line.pts[1][0] - twin.pts[1][0]) <= K_TOL &&
+        Math.abs(line.pts[1][1] - twin.pts[1][1]) <= TH_TOL &&
+        Math.abs(twin.pts[0][0]) <= K_TOL &&
+        Math.abs(twin.pts[0][1]) <= TH_TOL,
+      `${label}: digitized line ${JSON.stringify(twin.pts)} does not match the printed-value geometry`,
+    );
+  }
+
+  // Both sides of the keep rule: exactly the two dashed lines stay digitized, and they
+  // really exist in the digitized set so the keep-list names real lines.
+  assert.deepEqual([...(derived.keepDigitizedLineLabels ?? [])].sort(), ["Clay line", "Feldspar line"]);
+  for (const kept of derived.keepDigitizedLineLabels) {
+    assert.ok(
+      digitized.lines.some((l) => l.label === kept),
+      `keep-list names ${kept} but the digitized chart has no such line`,
+    );
+  }
+});
+
+test("the_lith2_derivation_constants_are_exactly_the_printed_chart_page_values", () => {
+  // Chartbook Lith-2 p. 194 (former CP-19): the six labeled boundary values and the
+  // printed frame. Labels stay verbatim - the page prints "2.0" with its zero.
+  assert.equal(LITH2.K_MAX, 5);
+  assert.equal(LITH2.TH_MAX, 25);
+  assert.deepEqual(
+    LITH2.RATIOS.map(({ r, label }) => [r, label]),
+    [
+      [25, "Th/K = 25"],
+      [12, "Th/K = 12"],
+      [3.5, "Th/K = 3.5"],
+      [2.0, "Th/K = 2.0"],
+      [0.6, "Th/K = 0.6"],
+      [0.3, "Th/K = 0.3"],
+    ],
   );
 });
 

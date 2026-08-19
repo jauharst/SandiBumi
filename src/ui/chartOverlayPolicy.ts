@@ -75,6 +75,13 @@ export function isToolResponseOverlay(id: string): boolean {
  *   pairs. The printed charts are Platform Express TLD TOOL charts carrying a small
  *   tool-window slope the physics does not (<= 0.07 Pe, ~1% of the axis); Jauhar
  *   ruled the physics replaces the digitized legs regardless. Density legs are exact.
+ * - `lith2_thk`: DERIVED — the six Th/K boundary lines are geometry from the chart
+ *   page's OWN printed values (p. 194 labels every line: Th/K = 25/12/3.5/2.0/0.6/0.3),
+ *   proven one-to-one against the digitized lines; the published classification is
+ *   Quirein et al., SPE 11143 (1982) Fig. 2, after Hassan, Hossin & Combaz, SPWLA 1976.
+ *   The dashed clay/feldspar lines and the region label points stay digitized behind
+ *   the pinned keep-list: neither paper prints numeric per-mineral values (figures
+ *   only) — the numeric table is Edmundson & Raymer 1979, not yet obtained.
  */
 export function resolveChartOverlay(id: string): ChartOverlayDef | undefined {
   const base = findChartOverlay(id);

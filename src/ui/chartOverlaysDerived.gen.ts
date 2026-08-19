@@ -69,4 +69,16 @@ export const DERIVED_CHART_OVERLAYS: DerivedOverlay[] = [
     ],
     keepDigitizedLineLabels: ["Heavy minerals", "Gas direction", "Salt", "Barite"],
   },
+  {
+    id: "lith2_thk",
+    lines: [
+      { pts: [[0,0],[1,25]], label: "Th/K = 25" },
+      { pts: [[0,0],[2.0833,25]], label: "Th/K = 12" },
+      { pts: [[0,0],[5,17.5]], label: "Th/K = 3.5" },
+      { pts: [[0,0],[5,10]], label: "Th/K = 2.0" },
+      { pts: [[0,0],[5,3]], label: "Th/K = 0.6" },
+      { pts: [[0,0],[5,1.5]], label: "Th/K = 0.3" },
+    ],
+    keepDigitizedLineLabels: ["Clay line", "Feldspar line"],
+  },
 ];

@@ -4,9 +4,10 @@
 // for every derived curve; `src/ui/chartOverlaysDerived.gen.ts` is its output and is
 // freshness-checked by the green gate (same pattern as gen-third-party-licenses.mjs).
 //
-// Executed so far: `por22_ta` (Por-22 density-sonic, time-average family) and
-// `lith6_mid` (Lith-6 MID carbonate ternary: vertices, percent grid and the anhydrite
-// point — see the MID block below for what deliberately stays digitized).
+// Executed so far: `por22_ta` (Por-22 density-sonic, time-average family), `lith6_mid`
+// (Lith-6 MID carbonate ternary: vertices, percent grid and the anhydrite point — see
+// the MID block below for what deliberately stays digitized), `por22_fo`, `lith3`,
+// `lith4` and `lith2_thk` (each documented in its own note below).
 //
 // Constants, each cited:
 //  - tf = 189 us/ft and rho_f = 1.0 g/cm3 — STATED in Por-22's chart header
@@ -48,6 +49,18 @@
 //  - Vf = 5,300 ft/s: stated in the paper's figures AND on the chartbook Por-1 page.
 //  - rho_f 1.0 and the matrix densities: the Por-22 density graduation (as for TA).
 // The def's mineral POINTS remain digitized pending their own constant-based derivation.
+//
+// `lith2_thk` (executed increment 6) — the six Th/K boundary lines are GEOMETRY from the
+// chart page's own printed values: Lith-2 (p. 194, former CP-19) labels every boundary
+// line with its ratio ("Th/K = 25 / 12 / 3.5 / 2.0 / 0.6 / 0.3"), and a constant-ratio
+// line is the segment from the origin to where that ratio exits the printed frame
+// (K 0..5 %, Th 0..25 ppm). The classification itself is published: Quirein, Gardner &
+// Watson, SPE 11143 (1982), Fig. 2 prints the same spectral classification (the 12 and
+// 3.5 boundaries verbatim), building on Hassan, Hossin & Combaz, SPWLA 17th (1976),
+// Fig. 7 / Hassan & Hossin 1975 (both papers in Jauhar's library). NOT derived, kept
+// digitized: the dashed clay and feldspar lines and the region label points - their
+// positions are measured-variability graphics with no printed numeric source in either
+// paper (the numeric per-mineral table is Edmundson & Raymer 1979, not yet obtained).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -196,6 +209,33 @@ export function lith6MidDerived() {
   };
 }
 
+// --- Lith-2 NGS Th-K clay-mineral identification (executed increment 6) --------------
+// The printed boundary values and the chart frame, all from Lith-2 p. 194 (see the
+// header note). Labels are kept verbatim as printed - "2.0" prints with its zero.
+export const LITH2 = {
+  RATIOS: [
+    { r: 25, label: "Th/K = 25" },
+    { r: 12, label: "Th/K = 12" },
+    { r: 3.5, label: "Th/K = 3.5" },
+    { r: 2.0, label: "Th/K = 2.0" },
+    { r: 0.6, label: "Th/K = 0.6" },
+    { r: 0.3, label: "Th/K = 0.3" },
+  ],
+  K_MAX: 5, // the printed frame: K 0..5 %
+  TH_MAX: 25, // Th 0..25 ppm
+};
+
+/** Constant-ratio boundary lines: origin to where the ratio exits the printed frame. */
+export function lith2ThkLines() {
+  return LITH2.RATIOS.map(({ r, label }) => {
+    const exitsTop = LITH2.K_MAX * r >= LITH2.TH_MAX;
+    const end = exitsTop
+      ? [round(LITH2.TH_MAX / r, 4), LITH2.TH_MAX]
+      : [LITH2.K_MAX, round(LITH2.K_MAX * r, 4)];
+    return { pts: [[0, 0], end], label };
+  });
+}
+
 /** Wyllie time-average curves for Por-22, graduated every 5 p.u. like the printed chart. */
 export function por22TaCurves() {
   return CONSTANTS.LITHS.map((lith) => {
@@ -250,6 +290,12 @@ export function derivedOverlays() {
     { id: "lith3", curves: lithPefCurves("fresh") },
     { id: "lith4", curves: lithPefCurves("salt") },
     lith6MidDerived(),
+    {
+      id: "lith2_thk",
+      lines: lith2ThkLines(),
+      // The dashed apparent-position lines stay digitized (no printed numeric source).
+      keepDigitizedLineLabels: ["Clay line", "Feldspar line"],
+    },
   ];
 }
 
