@@ -11,6 +11,31 @@ pub enum ParseError {
     Csv(#[from] csv::Error),
     #[error("las parse error: {0}")]
     Las(String),
+    /// SB-DIO-061: a reader failure that names its artifact. "Which delivery broke?" must
+    /// be answerable from the message alone — a probe found 23 reader failures that could
+    /// not say, so every delimited-reader entry wraps its errors here.
+    #[error("{source_file}: {inner}")]
+    Named {
+        source_file: String,
+        inner: Box<ParseError>,
+    },
+}
+
+impl ParseError {
+    /// Wraps an error with the artifact it came from; an already-named error keeps its
+    /// original attribution rather than acquiring a second prefix.
+    pub fn named(self, path: &Path) -> ParseError {
+        match self {
+            already @ ParseError::Named { .. } => already,
+            inner => ParseError::Named {
+                source_file: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string()),
+                inner: Box::new(inner),
+            },
+        }
+    }
 }
 
 pub type ParseResult<T> = Result<T, ParseError>;
@@ -540,6 +565,11 @@ pub struct CurveColumns {
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
 #[allow(dead_code)] // generic-CSV importer, wired into the ribbon in a later increment
 pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
+    let path = path.as_ref();
+    parse_csv_export_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_csv_export_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     let text = read_text_file(path)?;
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
@@ -2173,6 +2203,11 @@ pub(crate) fn las_well_identity_from_container(
 /// inferred identity.
 pub fn probe_las_well_identity<P: AsRef<Path>>(path: P) -> ParseResult<LasWellIdentityProbe> {
     let path = path.as_ref();
+    probe_las_well_identity_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn probe_las_well_identity_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<LasWellIdentityProbe> {
+    let path = path.as_ref();
     let text = read_text_file(path)?;
     let mut in_well_block = false;
     let mut container_well_name = None;
@@ -2259,7 +2294,12 @@ pub fn parse_core_csv<P: AsRef<Path>>(path: P) -> ParseResult<CoreColumns> {
     parse_core_csv_with_depth_column(path, None)
 }
 
-pub fn parse_core_csv_with_depth_column<P: AsRef<Path>>(
+pub fn parse_core_csv_with_depth_column<P: AsRef<Path>>(path: P, designated_depth_column: Option<usize>) -> ParseResult<CoreColumns> {
+    let path = path.as_ref();
+    parse_core_csv_with_depth_column_unnamed(path, designated_depth_column).map_err(|error| error.named(path))
+}
+
+fn parse_core_csv_with_depth_column_unnamed<P: AsRef<Path>>(
     path: P,
     designated_depth_column: Option<usize>,
 ) -> ParseResult<CoreColumns> {
@@ -2340,6 +2380,11 @@ const SCAL_SW_ALIASES: [&str; 4] = ["SW", "SAT", "WATER_SATURATION", "SWI"];
 /// SW columns; SAMPLE/DEPTH/PERM/PORO are optional per-plug context. Sw in percent is
 /// detected and divided down; porosity likewise.
 pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
+    let path = path.as_ref();
+    parse_scal_csv_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_scal_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
     let delim = scal_delimiter(&path)?;
     let text = read_text_file(&path)?;
     let mut rdr =
@@ -2500,6 +2545,11 @@ fn non_empty_cells(record: &csv::StringRecord) -> usize {
 /// header IS the pressure in psi (1, 2, 4, 8, ... 150), then one row per plug whose cells
 /// are brine saturation in %PV. Unpivots to the long Pc/Sw records `scal_pc` stores.
 pub fn parse_scal_wide_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
+    let path = path.as_ref();
+    parse_scal_wide_csv_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_scal_wide_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
     let delim = scal_delimiter(&path)?;
     let text = read_text_file(&path)?;
     let mut rdr = csv::ReaderBuilder::new()
@@ -2598,6 +2648,11 @@ pub fn parse_scal_wide_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRec
 /// next plug — the shape of the digitized per-plug workbooks merged into one CSV; a file
 /// holding a single plug (one block) is the same format.
 pub fn parse_scal_centrifuge_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
+    let path = path.as_ref();
+    parse_scal_centrifuge_csv_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_scal_centrifuge_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
     let delim = scal_delimiter(&path)?;
     let text = read_text_file(&path)?;
     let mut rdr = csv::ReaderBuilder::new()
@@ -2698,6 +2753,11 @@ pub fn parse_scal_centrifuge_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<Sca
 /// DEPTH/PERM/PORO key-value line with a numeric value, or a PC/SW table header WITHOUT
 /// per-row SAMPLE/DEPTH columns.
 pub fn sniff_scal_format<P: AsRef<Path>>(path: P) -> ParseResult<&'static str> {
+    let path = path.as_ref();
+    sniff_scal_format_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn sniff_scal_format_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<&'static str> {
     let delim = scal_delimiter(&path)?;
     let text = read_text_file(&path)?;
     let mut rdr = csv::ReaderBuilder::new()
@@ -3144,6 +3204,11 @@ const DEV_AZI_ALIASES: [&str; 5] = ["AZI", "AZIM", "AZIMUTH", "HAZI", "AZM"];
 /// Parses a deviation-survey CSV (MD/INC/AZI columns, alias-tolerant, arbitrary order).
 /// Rows sort by MD ascending; a missing INC/AZI is treated as 0 (vertical/north).
 pub fn parse_deviation_csv<P: AsRef<Path>>(path: P) -> ParseResult<DeviationSurvey> {
+    let path = path.as_ref();
+    parse_deviation_csv_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_deviation_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<DeviationSurvey> {
     let text = read_text_file(path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(text.as_bytes());
     let headers: Vec<String> = rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
@@ -3299,6 +3364,11 @@ fn read_delimited<P: AsRef<Path>>(path: P) -> ParseResult<(Vec<String>, Vec<Vec<
 /// blank WELL cell (skip the row instead of misrouting it), both of which yield `record.well ==
 /// None`. Mirrors `parse_locations_file`.
 pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRecord>)> {
+    let path = path.as_ref();
+    parse_tops_file_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_tops_file_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRecord>)> {
     let (headers, mut rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("tops file is empty".into()));
@@ -3638,6 +3708,11 @@ fn is_units_row(row: &[String], depth_col: usize) -> bool {
 /// Reads a core table (CSV/TXT, delimiter auto-detected) and reports everything the
 /// import dialog needs to confirm the mapping. Writes nothing.
 pub fn probe_core_table<P: AsRef<Path>>(path: P) -> ParseResult<TableProbe> {
+    let path = path.as_ref();
+    probe_core_table_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn probe_core_table_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<TableProbe> {
     let (headers, mut rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("file is empty".into()));
@@ -3773,7 +3848,12 @@ pub struct MappedCoreTable {
 /// dropped; CPOR/CSW get the file-wide percent→fraction conversion. Extra columns come
 /// back as raw text (typed per cell at the write). Depth-unit conversion is NOT done here
 /// — the importer owns it (it knows the project unit).
-pub fn parse_core_table_mapped<P: AsRef<Path>>(
+pub fn parse_core_table_mapped<P: AsRef<Path>>(path: P, mapping: &CoreMapping) -> ParseResult<MappedCoreTable> {
+    let path = path.as_ref();
+    parse_core_table_mapped_unnamed(path, mapping).map_err(|error| error.named(path))
+}
+
+fn parse_core_table_mapped_unnamed<P: AsRef<Path>>(
     path: P,
     mapping: &CoreMapping,
 ) -> ParseResult<MappedCoreTable> {

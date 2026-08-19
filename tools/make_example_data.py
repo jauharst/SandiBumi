@@ -449,6 +449,12 @@ def main() -> None:
     files["petrography_SANDI-01.csv"] = make_petrography()
     files["xrd_SANDI-01.csv"] = make_xrd()
     files["perforations_SANDI-01.csv"] = make_perforations()
+    # SB-DIO-061: malformed DELIMITED fixtures - the diagnostics regression feeds each to
+    # its reader and requires the error to NAME the fixture (and locate the row where the
+    # failure is row-level). The LAS trio above already exercises the LAS diagnostics.
+    files["bad_core_no_depth.csv"] = "WELL,PORO,PERM\nSANDI-01,0.21,15.0\nSANDI-01,0.18,3.2\n"
+    files["bad_dev_no_md.csv"] = "INCL,AZIM\n0.5,120.0\n1.0,121.5\n"
+    files["bad_scal_empty.csv"] = "\n"
     for name, body in files.items():
         (OUT / name).write_text(body, encoding="ascii", newline="\n")
         print(f"wrote {name}  ({len(body.splitlines())} lines)")

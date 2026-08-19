@@ -875,3 +875,43 @@ fn malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_co
     }
     std::fs::remove_dir(&temp).unwrap();
 }
+
+/// SB-DIO-061 (diagnostics half, with the DEC-052 memory contract landed separately):
+/// malformed input is LOCATED, COUNTED and NAMED. Every delimited reader's failure must
+/// name the fixture it came from — the probe that blocked this row found 23 reader
+/// failures that could not say which delivery broke. The row-level LOCATOR is pinned by
+/// the existing bad_truncated.las arm above (filename + "line " + affected row); this
+/// regression pins the NAMED half across the delimited readers on the corpus fixtures.
+#[test]
+fn every_delimited_reader_failure_names_the_fixture_it_came_from() {
+    let core = parsers::parse_core_csv_with_depth_column(example("bad_core_no_depth.csv"), None)
+        .expect_err("a core table with no depth column must refuse")
+        .to_string();
+    assert!(
+        core.contains("bad_core_no_depth.csv"),
+        "the core refusal names its delivery: {core}"
+    );
+
+    let dev = parsers::parse_deviation_csv(example("bad_dev_no_md.csv"))
+        .expect_err("a survey with no measured-depth column must refuse")
+        .to_string();
+    assert!(
+        dev.contains("bad_dev_no_md.csv"),
+        "the deviation refusal names its delivery: {dev}"
+    );
+
+    let scal = parsers::parse_scal_csv(example("bad_scal_empty.csv"))
+        .expect_err("an empty SCAL delivery must refuse")
+        .to_string();
+    assert!(
+        scal.contains("bad_scal_empty.csv"),
+        "the SCAL refusal names its delivery: {scal}"
+    );
+
+    // Both sides: a healthy fixture through the same wrapped entries still parses — the
+    // naming wrap must never turn a good delivery into a refusal.
+    parsers::parse_deviation_csv(example("deviation_SANDI-02.csv"))
+        .expect("the healthy survey fixture still parses through the named entry");
+    parsers::parse_scal_csv(example("scal_pc_long_SANDI-01.csv"))
+        .expect("the healthy SCAL fixture still parses through the named entry");
+}

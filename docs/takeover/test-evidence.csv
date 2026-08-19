@@ -431,3 +431,4 @@
 "SB-POR-024","CORRECTNESS","src-tauri/src/workflow.rs","the_neutron_density_methods_refuse_an_undeclared_or_wrong_basis_and_record_the_declared_one"
 "SB-DBM-031","CORRECTNESS","src-tauri/src/db.rs","a_delivery_declares_its_datum_once_and_a_known_non_md_set_refuses_log_depth_pairing_naming_both"
 "SB-CORE-015","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/export.rs","a_dlis_export_round_trips_through_sandibumis_own_reader_with_every_curve_and_sample_intact"
+"SB-DIO-061","CORRECTNESS","src-tauri/src/example_data_test.rs","every_delimited_reader_failure_names_the_fixture_it_came_from"
