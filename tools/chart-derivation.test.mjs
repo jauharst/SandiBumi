@@ -420,11 +420,13 @@ test("the_lith2_derivation_constants_are_exactly_the_printed_chart_page_values",
   );
 });
 
-test("the_tool_response_register_names_the_eleven_ruled_ids_and_never_a_derived_one", () => {
+test("the_tool_response_register_names_the_thirteen_ruled_ids_and_never_a_derived_one", () => {
   // DEC-078 named nine tool-response ids; DEC-080 reclassified por20_ta/por20_fo into
   // the class (the neutron coordinate of every non-limestone Por-20 curve IS the CNL
-  // response, so a half-derived chart stays vendor-encumbered). The register and the
-  // derived set must stay DISJOINT: an id cannot be both vendor-retained and derived.
+  // response, so a half-derived chart stays vendor-encumbered); DEC-081 reclassified
+  // lith1_pek/lith1_pethk in (their mineral positions are vendor-synthesis ranges
+  // whose entire cited chain, read in full, prints no numeric values). The register
+  // and the derived set must stay DISJOINT: an id cannot be both retained and derived.
   const source = fs.readFileSync(path.join(repo, "src", "ui", "chartOverlayPolicy.ts"), "utf8");
   const listMatch = source.match(
     /TOOL_RESPONSE_OVERLAY_IDS[^=]*=\s*\[([\s\S]*?)\];/,
@@ -436,10 +438,10 @@ test("the_tool_response_register_names_the_eleven_ruled_ids_and_never_a_derived_
   assert.deepEqual(
     [...ids].sort(),
     [
-      "por11", "por12", "por13_aplc", "por13_fplc", "por14_aplc", "por14_fplc",
-      "por16", "por18", "por19", "por20_fo", "por20_ta",
+      "lith1_pek", "lith1_pethk", "por11", "por12", "por13_aplc", "por13_fplc",
+      "por14_aplc", "por14_fplc", "por16", "por18", "por19", "por20_fo", "por20_ta",
     ],
-    "the retained tool-response register must hold exactly the eleven ruled ids",
+    "the retained tool-response register must hold exactly the thirteen ruled ids",
   );
   const derivedIds = derivedOverlays().map((d) => d.id);
   for (const id of derivedIds) {
