@@ -9,8 +9,8 @@
  *
  * - The DERIVABLE definitions (everything not listed below) are to be independently
  *   re-derived from primary publications and cited physical constants — the published
- *   Wyllie time-average and Raymer-Hunt-Gardner equations for por20/por22, and the
- *   Appendix-B-cited mineral constants + volumetric U-mixing for the lithology charts —
+ *   Wyllie time-average and Raymer-Hunt-Gardner equations for por22, and the
+ *   paper-cited mineral constants + volumetric U-mixing for the lithology charts —
  *   replacing the digitized coordinates as each re-derivation is executed and verified.
  *
  * - The TOOL-RESPONSE definitions listed here have NO independent primary source: each
@@ -18,6 +18,13 @@
  *   so re-derivation is impossible in principle. Ruled RETAINED, cited and fail-closed
  *   (SB-PLT-023), THROUGH GATE 5 — they are needed for manual/field verification — with
  *   the delete kept a single named operation for final commercial packaging.
+ *   DEC-080 moved por20_ta/por20_fo into this class (CNL-coupled neutron axis).
+ *   DEC-081 moved lith1_pek/lith1_pethk in (the mineral positions are a vendor
+ *   synthesis of measured ranges whose entire cited chain — Edmundson & Raymer 1979,
+ *   Quirein 1982, Hassan 1976, Hassan & Hossin 1975, Serra 1981 — was obtained and
+ *   read, and prints NO numeric per-mineral Th/K values anywhere). The register holds
+ *   THIRTEEN ids; the derivable class holds six definitions, ALL SIX executed — the
+ *   route-2 derivation program is COMPLETE.
  *
  * THE DELETE, when Jauhar says so: regenerate `chartOverlays.ts` with `tools/chartdig`
  * omitting exactly the ids below (or delete their entries), then delete this list. The
@@ -36,6 +43,24 @@ export const TOOL_RESPONSE_OVERLAY_IDS: readonly string[] = [
   "por16", // adnVISION675 azimuthal density neutron
   "por18", // EcoScope BPHI
   "por19", // EcoScope TNPH
+  // DEC-080 (2026-08-19): Por-20 reclassified INTO this class. Its sonic coordinates
+  // are derivable (Wyllie/RHG), but every non-limestone curve's NEUTRON coordinate is
+  // the CNL tool response — the same vendor characterization as por11 — so a
+  // half-derived chart stays vendor-encumbered in every coordinate pair. Jauhar ruled
+  // no half-measures: both defs join the retained class and the Gate 5 decision.
+  "por20_ta", // sonic-neutron, time-average sonic leg vs CNL response
+  "por20_fo", // sonic-neutron, field-observation sonic leg vs CNL response
+  // DEC-081 (2026-08-19): Lith-1 reclassified INTO this class. Its mineral positions
+  // are the vendor's synthesis of measured variability ("areas defined by a range of
+  // values", the chart page's own words) whose cited chain was exhausted by reading:
+  // Edmundson & Raymer 1979 prints Pe but NO thorium; Quirein 1982 prints formulas
+  // (Th is a trace element no formula yields); Hassan 1976 and Hassan & Hossin 1975
+  // (the root source, read from the Gallica scan of C.R. t.280 pp. 533-535) print the
+  // Th/K data only as figure graphics; Serra 1981 is an internal Schlumberger
+  // publication. No printed numeric source exists in principle - the same class as a
+  // tool characterization.
+  "lith1_pek", // litho-density + NGS mineral ID, Pe vs K
+  "lith1_pethk", // litho-density + NGS mineral ID, Pe vs Th/K
 ];
 
 /** True for a chart definition that exists only as a vendor tool characterization. */
@@ -53,10 +78,27 @@ export function isToolResponseOverlay(id: string): boolean {
  *
  * - `por22_ta`: DERIVED (Wyllie time-average; constants stated on Por-22 p. 238 and
  *   Por-1 p. 212). Its mineral POINTS remain digitized pending their own derivation.
- * - `por22_fo`: NOT yet derived — the first-pass Raymer-Hunt-Gardner check left
- *   systematic residuals beyond digitization tolerance; the published formulation the
- *   chart used must be established first, else FO is adjudicated vendor-empirical and
- *   joins the Gate 5 class above.
+ * - `por22_fo`: DERIVED under DEC-079 as the PUBLISHED RHG-1980 ALGORITHM at the
+ *   paper's stated constants (dtma 56/49/44, vf 5,300 ft/s) — deliberately NOT a
+ *   replica of the printed curve, which is the paper's hand-drawn empirical transform
+ *   that its own algorithms only approximate (they track it to ~1 us/ft below
+ *   30 p.u. and depart by up to ~13 us/ft at 40 p.u.). The overlay therefore matches
+ *   what IP / Geolog / Techlog compute rather than the chartbook tracing; the
+ *   divergence is asserted, not hidden, in tools/chart-derivation.test.mjs.
+ * - `lith3` / `lith4`: DERIVED under DEC-079 from Gardner & Dumanoir 1980's published
+ *   litho-density physics (U = Pe·rho_e mixing volumetrically, rho_e from the eq-5
+ *   calibration) with the paper's printed mineral table and the Lith-5 legend's fluid
+ *   pairs. The printed charts are Platform Express TLD TOOL charts carrying a small
+ *   tool-window slope the physics does not (<= 0.07 Pe, ~1% of the axis); Jauhar
+ *   ruled the physics replaces the digitized legs regardless. Density legs are exact.
+ * - `lith2_thk`: DERIVED — the six Th/K boundary lines are geometry from the chart
+ *   page's OWN printed values (p. 194 labels every line: Th/K = 25/12/3.5/2.0/0.6/0.3),
+ *   proven one-to-one against the digitized lines; the published classification is
+ *   Quirein et al., SPE 11143 (1982) Fig. 2, after Hassan, Hossin & Combaz, SPWLA 1976.
+ *   The dashed clay/feldspar lines and the region label points stay digitized behind
+ *   the pinned keep-list: no paper in the cited chain prints numeric per-mineral
+ *   values — the chain was exhausted the same day (see the DEC-081 note in the
+ *   register above), which is also what reclassified lith1 out of the derivable class.
  */
 export function resolveChartOverlay(id: string): ChartOverlayDef | undefined {
   const base = findChartOverlay(id);
