@@ -36,12 +36,25 @@ enum SentinelSupport {
     Incapable(&'static str),
 }
 
+/// SB-DBM-010: whether a registered format carries the machine-readable provenance
+/// sidecar (run records, parameter sources, SB-DBM-005 derivation citations) with its
+/// curves. A format that drops it DECLARES so here, the picker shows it BEFORE export,
+/// and the export result states it AT the point of export - never silently.
+#[derive(Debug, Clone, Copy)]
+enum ProvenanceSupport {
+    /// The deliverable itself carries the sidecar (LAS: the ~O ancestry lines).
+    Carries,
+    /// The format cannot carry it; the reason is stated to the user.
+    Drops(&'static str),
+}
+
 struct RegisteredWriter {
     id: &'static str,
     label: &'static str,
     extension: &'static str,
     is_default: bool,
     sentinel_support: SentinelSupport,
+    provenance_support: ProvenanceSupport,
     write: WriterFn,
     self_read: SelfReaderFn,
 }
@@ -53,6 +66,7 @@ const REGISTERED_WRITERS: &[RegisteredWriter] = &[
         extension: "las",
         is_default: true,
         sentinel_support: SentinelSupport::Honours,
+        provenance_support: ProvenanceSupport::Carries,
         write: write_las,
         self_read: validate_las_output,
     },
@@ -67,6 +81,9 @@ const REGISTERED_WRITERS: &[RegisteredWriter] = &[
         is_default: false,
         sentinel_support: SentinelSupport::Incapable(
             "DLIS carries missing samples as IEEE NaN natively; the project's numeric sentinel is not written",
+        ),
+        provenance_support: ProvenanceSupport::Drops(
+            "DLIS (RP66 V1) carries no in-file provenance sidecar: the run records, parameter sources and derivation citations stay in the project and travel with the LAS deliverable instead",
         ),
         write: write_dlis,
         self_read: validate_dlis_output,
@@ -83,12 +100,22 @@ pub struct ExportFormatInfo {
     /// Present for a format that cannot honour the project sentinel. A format picker
     /// displays this instead of presenting the format as equivalent to a capable one.
     pub sentinel_limitation: Option<String>,
+    /// SB-DBM-010: true when the format's deliverable carries the machine-readable
+    /// provenance sidecar (run records + parameter sources + derivation citations).
+    pub carries_provenance: bool,
+    /// The stated reason a format drops provenance - shown BEFORE export, so the choice
+    /// is informed rather than discovered in the deliverable.
+    pub provenance_limitation: Option<String>,
 }
 
 fn format_info(writer: &RegisteredWriter) -> ExportFormatInfo {
     let (honours_project_sentinel, sentinel_limitation) = match writer.sentinel_support {
         SentinelSupport::Honours => (true, None),
         SentinelSupport::Incapable(reason) => (false, Some(reason.to_string())),
+    };
+    let (carries_provenance, provenance_limitation) = match writer.provenance_support {
+        ProvenanceSupport::Carries => (true, None),
+        ProvenanceSupport::Drops(reason) => (false, Some(reason.to_string())),
     };
     ExportFormatInfo {
         id: writer.id.to_string(),
@@ -97,6 +124,8 @@ fn format_info(writer: &RegisteredWriter) -> ExportFormatInfo {
         is_default: writer.is_default,
         honours_project_sentinel,
         sentinel_limitation,
+        carries_provenance,
+        provenance_limitation,
     }
 }
 
@@ -188,6 +217,10 @@ pub struct LasExportResult {
     /// True only after the registered reader accepted the completed file and its declared
     /// depth unit, row count, and curve count matched what the writer says it emitted.
     pub self_checked: bool,
+    /// SB-DBM-010: an export whose format drops the provenance sidecar SAYS SO here, at
+    /// the point of export - never silently. `None` = the deliverable carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance_dropped: Option<String>,
     /// Set when the index is not uniformly sampled and `STEP` was therefore written as `0`.
     /// Names the first depth at which the spacing changes and both spacings, so the user can
     /// tell real drift from a delivery defect. `None` means the index is uniform and `STEP`
@@ -655,6 +688,11 @@ fn export_with_writer(
     let mut result = (writer.write)(conn, well_id, dest_path, settings)?;
     (writer.self_read)(conn, dest_path, &result)?;
     result.self_checked = true;
+    // SB-DBM-010: the point-of-export statement comes from the REGISTRY declaration, so
+    // a writer cannot forget to make it.
+    if let ProvenanceSupport::Drops(reason) = writer.provenance_support {
+        result.provenance_dropped = Some(reason.to_string());
+    }
     Ok(result)
 }
 
@@ -776,6 +814,7 @@ fn write_dlis(
             0,
         ),
         self_checked: false,
+        provenance_dropped: None,
         // The DLIS frame declares no SPACING (see dlis_writer.rs) — there is no STEP claim
         // to caveat.
         nonuniform_step: None,
@@ -1048,6 +1087,7 @@ fn write_las(
         legacy_unrecorded_curves,
         precision,
         self_checked: false,
+        provenance_dropped: None,
         nonuniform_step,
     })
 }
@@ -1724,6 +1764,109 @@ mod tests {
         assert!((volume_values[0] - vsh[0]).abs() < 5e-4);
     }
 
+    /// SB-DBM-010 / SB-DBM-T10 (unblocked by SB-DBM-005's signed derivation map): the
+    /// deliverable carries the machine-readable sidecar resolving a computed curve to
+    /// its run record - parameter SOURCES (SB-DBM-003) and the method's derivation
+    /// CITATION (SB-DBM-005) verbatim - and a format that drops provenance says so at
+    /// the point of export, never silently.
+    #[test]
+    fn an_export_that_carries_computed_curves_carries_their_run_records_and_a_format_that_drops_provenance_says_so(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let well = id.to_string();
+
+        // A computed curve whose ancestry names a catalog module: the run record carries
+        // the signed citation and one sourced parameter.
+        let citation = crate::equations::method_derivation_citation("vsh_gr")
+            .expect("vsh_gr is a signed Cited row");
+        let ancestry = crate::equations::CurveAncestry {
+            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: Some(citation.clone()),
+            module: "vsh_gr".into(),
+            module_version: "test".into(),
+            inputs: Vec::new(),
+            parameters: vec![crate::equations::AncestryParameter {
+                name: "GR_MA".into(),
+                value: serde_json::json!(12.0),
+                source: "Geolog vsh_gr.info L48".into(),
+                resolution: None,
+                manifest_version: None,
+                decision: None,
+            }],
+            parameter_state: None,
+            zone_scope: crate::equations::AncestryZoneScope::WholeWell,
+            actor: crate::equations::AncestryActor {
+                kind: crate::equations::AncestryActorKind::Automated,
+                identity: "rust-test".into(),
+            },
+            timestamp_utc_ms: 1_755_561_600_000,
+            outputs: vec![crate::equations::AncestryOutput {
+                curve: "VSH_T10".into(),
+                derivation: "vsh_gr:linear".into(),
+            }],
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
+        };
+        let spec = crate::equations::CompleteLogSetSpec::try_new("T10", ancestry).unwrap();
+        let (set_id, _) = crate::equations::create_complete_log_set(&conn, &well, &spec).unwrap();
+        let depths = [1000.0f32, 1000.5, 1001.0, 1001.5, 1002.0, 1002.5];
+        let values = [0.2f32, 0.3, 0.4, 0.5, 0.6, 0.7];
+        crate::equations::write_computed_curves_with_ancestry(
+            &conn, &well, &depths, &[("VSH_T10", &values)], &set_id,
+        )
+        .unwrap();
+
+        let dest = tmp_path("t10");
+        let result = export_las(&conn, &well, dest.to_str().unwrap()).unwrap();
+        assert!(result.provenance_dropped.is_none(), "LAS carries the sidecar");
+        let text = std::fs::read_to_string(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        let sidecar_line = text
+            .lines()
+            .find(|line| line.contains("VSH_T10") && line.contains("ancestry"))
+            .expect("the sidecar resolves the computed curve to its run record");
+        assert!(
+            sidecar_line.contains(&citation),
+            "the derivation citation reaches the deliverable verbatim"
+        );
+        assert!(
+            sidecar_line.contains("Geolog vsh_gr.info L48"),
+            "the parameter source string travels too"
+        );
+
+        // The format-wide contract: every registered writer DECLARES its provenance
+        // capability, shown before export; DLIS declares it drops the sidecar and names
+        // where the record lives instead.
+        let formats = export_formats();
+        let las = formats.iter().find(|f| f.id == "las-2.0").unwrap();
+        assert!(las.carries_provenance && las.provenance_limitation.is_none());
+        let dlis = formats.iter().find(|f| f.id == "dlis-rp66v1").unwrap();
+        assert!(!dlis.carries_provenance, "DLIS cannot claim a sidecar it does not write");
+        assert!(
+            dlis.provenance_limitation.as_deref().unwrap_or("").contains("no in-file provenance sidecar"),
+            "the limitation is stated, not implied"
+        );
+
+        // ...and at the point of export itself: the statement comes from the registry
+        // declaration inside export_with_writer, so a writer cannot forget to make it.
+        if dlisio_available() {
+            let ddest = tmp_path("t10d");
+            let dres = export_dlis(&conn, &well, ddest.to_str().unwrap()).unwrap();
+            let _ = std::fs::remove_file(&ddest);
+            assert!(
+                dres.provenance_dropped.as_deref().unwrap_or("").contains("sidecar"),
+                "a DLIS export states the drop at the point of export: {:?}",
+                dres.provenance_dropped
+            );
+        } else {
+            println!("skip: dlisio unavailable, point-of-export arm exercised via the registry declaration only");
+        }
+    }
+
     #[test]
     fn export_writes_missing_as_null_and_carries_mixed_case_computed_curves() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2003,6 +2146,7 @@ mod tests {
             extension: "test",
             is_default: false,
             sentinel_support: SentinelSupport::Incapable("fixed null convention"),
+            provenance_support: ProvenanceSupport::Carries,
             write: cannot_write,
             self_read: validate_las_output,
         };
@@ -2124,6 +2268,7 @@ mod tests {
                     0,
                 ),
                 self_checked: false,
+                provenance_dropped: None,
                 nonuniform_step: None,
             })
         }
@@ -2133,6 +2278,7 @@ mod tests {
             extension: "las",
             is_default: false,
             sentinel_support: SentinelSupport::Honours,
+            provenance_support: ProvenanceSupport::Carries,
             write: write_corrupt,
             self_read: validate_las_output,
         };
@@ -2179,6 +2325,7 @@ mod tests {
                     0,
                 ),
                 self_checked: false,
+                provenance_dropped: None,
                 nonuniform_step: None,
             })
         }
@@ -2192,6 +2339,7 @@ mod tests {
             extension: "las",
             is_default: false,
             sentinel_support: SentinelSupport::Honours,
+            provenance_support: ProvenanceSupport::Carries,
             write: write_metres_label,
             self_read: validate_las_output,
         };
