@@ -2407,6 +2407,11 @@ fn module_catalog() -> &'static [ModuleSpec] {
         apply_shale_clay_quantity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         apply_porosity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
+        // SB-CORE-003 (whole-registry re-audit, closed behind SB-ENV-004/DEC-077): every
+        // registered validity condition is complete, cited and cross-referenced at catalog
+        // build — a malformed or silently-inactive condition fails registration, not the
+        // first run of the module that happens to carry it.
+        validate_validity_manifests(&modules).unwrap_or_else(|error| panic!("{error}"));
         // SB-CUT-017: the same gate for defaults that are NOT module parameters.
         crate::param_sources::validate_domain_defaults(
             crate::param_sources::CUT_DOMAIN_DEFAULTS,
@@ -2526,6 +2531,103 @@ pub(crate) fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), S
     } else {
         Err(format!(
             "SB-CORE-004 parameter-source build gate failed ({} violation{}): {}",
+            failures.len(),
+            if failures.len() == 1 { "" } else { "s" },
+            failures.join("; ")
+        ))
+    }
+}
+
+/// SB-CORE-003 whole-registry re-audit (closed behind SB-ENV-004 / DEC-077): validity
+/// conditions are enforced preconditions, so the CATALOG BUILD proves every registered
+/// condition is complete and cross-referenced rather than waiting for the first run of
+/// the module that carries it. Two failure classes are SILENT without this gate: a
+/// condition with a blank statement or source refuses only when its module first runs,
+/// and a `when` branch naming an undeclared argument — or an id outside the named
+/// argument's declared choices — never activates at all, because `condition_is_active`
+/// reads the selection through `selected_value`, which returns the empty default for an
+/// unknown name. A typo'd branch therefore waves every run through as if the
+/// precondition were satisfied, which is precisely the wrongness a validity condition
+/// exists to refuse.
+pub(crate) fn validate_validity_manifests(modules: &[ModuleSpec]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for module in modules {
+        let declared: std::collections::HashSet<&str> =
+            module.args.iter().map(|arg| arg.name.as_str()).collect();
+        let mut seen_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for arg in &module.args {
+            for condition in &arg.validity_conditions {
+                let identity =
+                    format!("{}.{} condition '{}'", module.name, arg.name, condition.id);
+                if condition.id.trim().is_empty()
+                    || condition.statement.trim().is_empty()
+                    || condition.source.trim().is_empty()
+                {
+                    failures.push(format!(
+                        "{identity} is incomplete: every condition needs a stable id, statement and source"
+                    ));
+                }
+                if !condition.id.trim().is_empty() && !seen_ids.insert(condition.id.as_str()) {
+                    failures.push(format!(
+                        "{identity} duplicates a condition id within '{}': the id is persisted in saved manifests and cited by refusals, so a duplicate makes both ambiguous",
+                        module.name
+                    ));
+                }
+                let mut referenced: Vec<(&str, &String)> = Vec::new();
+                let branch = match &condition.rule {
+                    ValidityRule::NumericRange { when, .. } => when.as_ref(),
+                    ValidityRule::RequiredCompanion { any_of, when } => {
+                        for name in any_of {
+                            referenced.push(("required companion", name));
+                        }
+                        when.as_ref()
+                    }
+                    ValidityRule::RequiredValue { when } => when.as_ref(),
+                    ValidityRule::RequiredWhereFinite { input } => {
+                        referenced.push(("companion input", input));
+                        None
+                    }
+                    ValidityRule::LessThan { other } => {
+                        referenced.push(("comparison argument", other));
+                        None
+                    }
+                    ValidityRule::Enumeration => None,
+                };
+                for (role, name) in referenced {
+                    if !declared.contains(name.as_str()) {
+                        failures.push(format!(
+                            "{identity} names undeclared {role} '{name}'"
+                        ));
+                    }
+                }
+                if let Some(gate) = branch {
+                    match module.args.iter().find(|a| a.name == gate.argument) {
+                        None => failures.push(format!(
+                            "{identity} gates on undeclared branch argument '{}' and would be SILENTLY INACTIVE",
+                            gate.argument
+                        )),
+                        Some(selector)
+                            if !selector.choices.is_empty()
+                                && !selector.choices.iter().any(|choice| choice == &gate.equals) =>
+                        {
+                            failures.push(format!(
+                                "{identity} gates on '{}' = '{}', which is not among the declared choices ({}) and would be SILENTLY INACTIVE",
+                                gate.argument,
+                                gate.equals,
+                                selector.choices.join(", ")
+                            ))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-CORE-003 validity-manifest build gate failed ({} violation{}): {}",
             failures.len(),
             if failures.len() == 1 { "" } else { "s" },
             failures.join("; ")
@@ -9711,6 +9813,141 @@ mod tests {
 
         validate_parameter_sources(module_catalog())
             .expect("the complete shipping module registry must contain zero unsourced defaults");
+    }
+
+    /// CORRECTNESS — SB-CORE-003, the whole-pilot-registry re-audit that closes the row
+    /// behind SB-ENV-004/DEC-077. The schema, refusal path and per-wave cited conditions
+    /// landed as the CLY/POR/SAT/CUT/ENV rows executed; what remained was proving the
+    /// COMPLETE registry at once, as a build gate rather than a per-run check. The synthetic
+    /// fixtures here are deliberately invalid registry entries proving each failure class is
+    /// caught by name; none is ever registered on a shipping module, and no physical bound
+    /// or product value is introduced.
+    #[test]
+    fn every_registered_validity_condition_is_complete_cited_and_cross_referenced_and_a_silently_inactive_branch_fails_the_catalog_build(
+    ) {
+        // Zero exceptions across the live registry — the re-audit itself.
+        validate_validity_manifests(module_catalog()).expect(
+            "the complete shipping registry must contain zero malformed or dangling validity conditions",
+        );
+
+        let fixture = |conditions: Vec<ValidityCondition>| ModuleSpec {
+            name: "synthetic_validity_audit".into(),
+            title: "Synthetic validity audit".into(),
+            category: "Test".into(),
+            doc: "Deliberately invalid registry fixtures for the SB-CORE-003 build gate.".into(),
+            args: vec![
+                opt("MODE", "Synthetic branch selector", "A", &["A", "B"]),
+                param(
+                    "LIMIT",
+                    "Synthetic limit",
+                    "",
+                    1.0,
+                    0.0,
+                    2.0,
+                    "docs/PRD_v2/04_CORE_REQUIREMENTS.md SB-CORE-003 synthetic fixture",
+                ),
+                with_validity(log_in("VALUE", "Synthetic input", "", "VALUE", true), conditions),
+            ],
+        };
+        let range = |when: Option<ValidityBranch>| ValidityRule::NumericRange {
+            min: Some(0.0),
+            max: Some(1.0),
+            unit: String::new(),
+            when,
+        };
+        let cited = "docs/PRD_v2/04_CORE_REQUIREMENTS.md SB-CORE-003 synthetic fixture";
+
+        // A condition with a blank source fails the BUILD, not the module's first run.
+        let error = validate_validity_manifests(&[fixture(vec![validity(
+            "synthetic.blank_source",
+            "A statement without a source.",
+            " ",
+            range(None),
+        )])])
+        .expect_err("a blank condition source must fail the catalog build");
+        assert!(
+            error.contains("synthetic_validity_audit.VALUE")
+                && error.contains("stable id, statement and source"),
+            "the failure must name the argument and what is missing: {error}"
+        );
+
+        // A duplicated condition id is ambiguous in saved manifests and refusals.
+        let error = validate_validity_manifests(&[fixture(vec![
+            validity("synthetic.dup", "First statement.", cited, range(None)),
+            validity("synthetic.dup", "Second statement.", cited, range(None)),
+        ])])
+        .expect_err("a duplicated condition id must fail the catalog build");
+        assert!(error.contains("duplicates a condition id"), "{error}");
+
+        // A branch gating on an UNDECLARED argument would never activate: `selected_value`
+        // returns the empty default for an unknown name, so the condition silently waves
+        // every run through. That is the exact silent-wrongness class this gate exists for.
+        let error = validate_validity_manifests(&[fixture(vec![validity(
+            "synthetic.typo_branch",
+            "Gated on a selector that does not exist.",
+            cited,
+            range(Some(ValidityBranch { argument: "MODE_TYPO".into(), equals: "A".into() })),
+        )])])
+        .expect_err("a branch naming an undeclared argument must fail the catalog build");
+        assert!(
+            error.contains("MODE_TYPO") && error.contains("SILENTLY INACTIVE"),
+            "the failure must name the dangling selector and the consequence: {error}"
+        );
+
+        // A branch id outside the selector's declared choices is the same dead condition.
+        let error = validate_validity_manifests(&[fixture(vec![validity(
+            "synthetic.typo_choice",
+            "Gated on a choice id the selector never produces.",
+            cited,
+            range(Some(ValidityBranch { argument: "MODE".into(), equals: "C".into() })),
+        )])])
+        .expect_err("a branch id outside the declared choices must fail the catalog build");
+        assert!(
+            error.contains("not among the declared choices (A, B)"),
+            "the failure must list the declared choices: {error}"
+        );
+
+        // Dangling cross-references in the non-branch rules fail by role and name.
+        let error = validate_validity_manifests(&[fixture(vec![validity(
+            "synthetic.dangling_lessthan",
+            "Compared against an argument that does not exist.",
+            cited,
+            ValidityRule::LessThan { other: "GHOST".into() },
+        )])])
+        .expect_err("a LessThan against an undeclared argument must fail the catalog build");
+        assert!(error.contains("comparison argument 'GHOST'"), "{error}");
+
+        let error = validate_validity_manifests(&[fixture(vec![validity(
+            "synthetic.dangling_companion",
+            "Requires a companion that does not exist.",
+            cited,
+            ValidityRule::RequiredCompanion { any_of: vec!["GHOST_LOG".into()], when: None },
+        )])])
+        .expect_err("a required companion naming an undeclared input must fail the catalog build");
+        assert!(error.contains("required companion 'GHOST_LOG'"), "{error}");
+
+        // Two layers, one contract: the pre-dispatch boundary agrees with the build gate
+        // about a malformed condition, so nothing malformed can compute even if it were
+        // somehow registered.
+        let malformed = fixture(vec![validity(
+            "synthetic.blank_source",
+            "A statement without a source.",
+            " ",
+            range(None),
+        )]);
+        let context = ModuleContext {
+            n: 1,
+            logs: HashMap::from([("VALUE".into(), vec![0.5f32])]),
+            params: HashMap::from([("LIMIT".into(), vec![1.0])]),
+            opts: HashMap::new(),
+            depth_unit: Default::default(),
+        };
+        let runtime = validate_declared_preconditions(&malformed, &context)
+            .expect_err("the pre-dispatch boundary must refuse the same malformed condition");
+        assert!(
+            runtime.contains("every condition needs a stable id, statement and source"),
+            "{runtime}"
+        );
     }
 
     /// SB-CORE-007 T23+T19 (signed DRAFT_CORE007 under DEC-076, in DEC-051's
