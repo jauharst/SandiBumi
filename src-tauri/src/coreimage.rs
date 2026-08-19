@@ -1927,6 +1927,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
         let module = format!("cphoto:{}", spec.light);
         let ancestry = crate::equations::CurveAncestry {
             schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: crate::equations::method_derivation_citation(&module),
             module: module.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,

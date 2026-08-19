@@ -362,6 +362,123 @@ pub enum OutputIdentityClass {
 /// deliberately NOT here: its two producers share the working name with no custody
 /// siblings, and which of Part A's adjudication-1 options resolves it is Jauhar's open
 /// call - the validator pins it as the ONE named unresolved case.
+/// SB-DBM-005 (signed DRAFT_DBM005_derivation_map.md under DEC-076): where a method's
+/// EQUATION comes from - the layer above the per-parameter source gate. CITED traces to
+/// a repo-recorded source; CITED-PORT's source of record is a named Geolog Loglan port
+/// (original papers are Jauhar's to supply per the map's open question 1); UTILITY is a
+/// definitional transform whose statement is its own derivation; IN-HOUSE is SandiBumi's
+/// own algorithm whose derivation IS the repo documentation; RETIRED resolves saved
+/// chains only and is blocked at run_module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DerivationClass {
+    Cited,
+    CitedPort,
+    Utility,
+    InHouse,
+    Retired,
+}
+
+/// The signed module -> derivation-source map, one row per shipping catalog spec.
+/// `validate_method_derivations` enforces it FAIL-CLOSED at catalog construction in both
+/// directions: a module with no row fails registration by name (SB-DBM-T07's third
+/// module), and an orphan row naming no shipping module fails too, so the map cannot
+/// silently outlive a rename.
+pub(crate) const METHOD_DERIVATIONS: &[(&str, DerivationClass, &str)] = &[
+    ("vsh_gr", DerivationClass::Cited, "docs/PRD_v2/10_clay-volume.md S3.2; Geolog vsh_gr.info L48-L49 + vsh_gr.lls L109-L139"),
+    ("vsh_dn", DerivationClass::Cited, "docs/PRD_v2/10_clay-volume.md; Geolog vsh_dn.info; Techlog petrophysics-vsh-from-neutrondensity.htm"),
+    ("phi_den", DerivationClass::Cited, "docs/PRD_v2/11_porosity.md S5; Geolog V14 phi_den.info/.lls"),
+    ("phi_dn", DerivationClass::Cited, "docs/PRD_v2/11_porosity.md; Geolog V14 phi_*.lls family"),
+    ("phi_dnbk", DerivationClass::Cited, "docs/PRD_v2/11_porosity.md; Geolog V14 phi_*.lls family; DEC-025 declared-matrix-basis contract"),
+    ("phi_son", DerivationClass::Cited, "Wyllie time-average + Raymer-Hunt-Gardner (module doc); Geolog phi_son.info; IP swparameters.htm; DEC-063"),
+    ("phimax", DerivationClass::Cited, "docs/PRD_v2/11_porosity.md S5 compaction ceiling; Athy exponential trend (module doc)"),
+    ("ssc", DerivationClass::Cited, "docs/method_ssc_sspw.md - Kuttan Malay Basin model, GAP-2023 LQR edit, port of ssc_lqr_gap_edit_jau.lls"),
+    ("sspw", DerivationClass::Cited, "docs/method_ssc_sspw.md (SSPW reconstructed from spec; reference-suite LAS validation outstanding - a validation gap, not a derivation gap)"),
+    ("ftemp_grad", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md S5 formation-temperature parameters (linear TVDSS trend)"),
+    ("precalc", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md S5 mud-filtrate parameters (linear T/P trends; RMF/CT/CXO chain)"),
+    ("badhole", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md bad-hole rows; one-hot cause-flag group per DEC-060(b)"),
+    ("condflag", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md + 11_porosity.md condflag rows; DEC-057(c)/DEC-060(c); coal policy per DECISIONS.md"),
+    ("nphimat", DerivationClass::Cited, "Schlumberger chartbook Por-5 (CNL) + Por-4 (APS), vector-digitized in neutron_charts.rs; DEC-025"),
+    ("gascorr", DerivationClass::Cited, "docs/PRD_v2/11_porosity.md gascorr rows (iterated D-N gas replacement, stated in the module doc)"),
+    ("gr_hole_corr", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 + S6.2 T11/T12; DEC-031"),
+    ("nphi_env_corr", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md NPHI_EC rows; linearized T+salinity form, coefficients user-supplied from the applicable CNL chart"),
+    ("rhob_hole_corr", DerivationClass::Cited, "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 + S6.2 T12"),
+    ("gr_normalize", DerivationClass::Cited, "docs/workflow_standards.md two-point percentile (P3/P97); docs/PRD_v2/20_envcorr-qc.md normalization rows"),
+    ("log_predict", DerivationClass::Cited, "Facimage-style distance-weighted KNN; Geolog V14 facimage_05_using_hc.5.05.html; MAX_RAW rule per docs/workflow_standards.md"),
+    ("depth_shift", DerivationClass::Utility, "definitional transform (linear-interpolated block shift; input never modified)"),
+    ("splice", DerivationClass::Utility, "definitional transform (TOP above / BOT below SPLICE_DEPTH)"),
+    ("despike", DerivationClass::Utility, "docs/PRD_v2/20_envcorr-qc.md S5.3 conditioning parameters"),
+    ("smooth", DerivationClass::Utility, "definitional windowed statistics over a THICKNESS window; docs/PRD_v2/20_envcorr-qc.md S5.3"),
+    ("clip", DerivationClass::Utility, "definitional range hold (BLANK/CLAMP semantics stated in the doc)"),
+    ("fill_gaps", DerivationClass::Utility, "definitional interpolation; every invented sample flagged in <OUT>_FILL"),
+    ("flip", DerivationClass::Utility, "definitional mirror about a pivot"),
+    ("normalize", DerivationClass::Cited, "docs/workflow_standards.md P3/P97; docs/PRD_v2/20_envcorr-qc.md S5.3; reference pair refuses without a value (docs/record_data_tools.md)"),
+    ("block", DerivationClass::Utility, "docs/PRD_v2/20_envcorr-qc.md S5.3 frame parameters; frame contract in docs/record_data_tools.md"),
+    ("bed_detect", DerivationClass::InHouse, "SandiBumi segmentation heuristic - the frame.rs module doc IS the derivation (SENS x first-difference noise, MIN_BED)"),
+    ("sw_arch", DerivationClass::Cited, "Archie 1942 Trans. AIME 146:54-62 (SATURATION_METHODS; docs/PRD_v2/12_saturation.md:470)"),
+    ("sw_indo", DerivationClass::Cited, "Poupon & Leveaux 1971 SPWLA 12th Paper O (SATURATION_METHODS; 12_saturation.md:472)"),
+    ("sw_sim", DerivationClass::Cited, "Simandoux 1963 Revue de l'IFP; Bardon & Pied 1969 SPWLA 10th Paper Z (SATURATION_METHODS); DEC-065 bisection"),
+    ("sw_rtc", DerivationClass::Cited, "SandiBumi LRLC study (PHE UI + LAPI ITB); docs/method_lrlc_rtc_imts.md RtC sections; lrlc.rs:1-13"),
+    ("sw_imts", DerivationClass::Cited, "Same LRLC study; docs/method_lrlc_rtc_imts.md IMTS; Waxman-Smits 1968, Waxman-Thomas 1974, Juhasz 1979/1981 (12_saturation.md:473)"),
+    ("multimin", DerivationClass::Retired, "multimin.rs:1-14 - superseded by SandiMin (multimin2: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); kept so saved chains resolve; blocked at run_module"),
+    ("sw_height", DerivationClass::Cited, "docs/PRD_v2/15_sat-height-rocktyping.md S5 Leverett + Skelt-Harrison; satheight.rs"),
+    ("perm_wyllie_rose", DerivationClass::CitedPort, "Geolog Loglan perm_wyllie_rose.lls port (modules.rs header); TIMUR/MORRIS_BIGGS/TIXIER constants from that port; original papers await Jauhar (map open question 1)"),
+    ("perm_coates", DerivationClass::CitedPort, "Geolog Loglan perm_coates.lls port (modules.rs header); Coates-Dumanoir original awaits Jauhar (map open question 1)"),
+    ("perm_transform", DerivationClass::Utility, "definitional core-calibrated regression log10(PERM) = PT_A*PHIE + PT_B; PT_A/PT_B are the user's own RCAL calibration"),
+    ("midplot", DerivationClass::Cited, "Schlumberger chartbook Lith-6 MID plot; chartbook U definition (module doc); Por-11 lookup (lithology.rs)"),
+    ("rocktyping", DerivationClass::Cited, "ref_rocktyping_shf.md; Permadi-Susilo re-verification in docs/constants_verification_2026-07-22.md"),
+    ("lucia_rfn", DerivationClass::Cited, "Lucia 1995; Jennings & Lucia 2003 SPE 78740 (rocktyping.rs header; ref_rocktyping_shf.md constants, VERIFY caveat)"),
+    ("pittman_rx", DerivationClass::Cited, "Pittman 1992 (rocktyping.rs:287 header; PITTMAN_TABLE1 published table in full)"),
+    ("rt_cutoff", DerivationClass::Cited, "ref_rocktyping_shf.md SCutoff-based electrofacies tie-in (rocktyping.rs header)"),
+    ("electrofacies", DerivationClass::Cited, "standard k-means (k-means++ seeding, z-scored features); SandiBumi conventions documented in facies.rs"),
+    ("gmm_facies", DerivationClass::Cited, "standard Gaussian mixture (EM); conventions and parameter sourcing as electrofacies"),
+    ("thin_bed_ts", DerivationClass::Cited, "Thomas & Stieber 1975 (modules.rs header); docs/PRD_v2/17_thinbed-laminated.md"),
+    ("toc_passey", DerivationClass::Cited, "Passey 1990 DlogR with 10^(2.297-0.1688*LOM) maturity term (module doc); docs/PRD_v2/19_toc-unconventional.md S5"),
+    ("kerogen", DerivationClass::Cited, "docs/PRD_v2/19_toc-unconventional.md S5; IP/Techlog/Geolog endpoint corroboration in the parameter sources"),
+    ("gip", DerivationClass::Cited, "docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 + S5"),
+    ("brittleness", DerivationClass::Cited, "Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md S5"),
+];
+
+/// The signed map row for one shipping module; `None` for anything not in the catalog
+/// (user equations, test fixtures) - those runs carry no method derivation rather than
+/// an invented one.
+pub(crate) fn method_derivation_for(module: &str) -> Option<&'static (&'static str, DerivationClass, &'static str)> {
+    METHOD_DERIVATIONS.iter().find(|(name, _, _)| *name == module)
+}
+
+/// SB-DBM-005 / SB-DBM-T07 fail-closed registration gate, both directions.
+pub(crate) fn validate_method_derivations(modules: &[ModuleSpec]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for module in modules {
+        match method_derivation_for(&module.name) {
+            None => failures.push(format!(
+                "module {} registers no method derivation - a module with no derivation citation fails registration, it does not run and record nothing (SB-DBM-005)",
+                module.name
+            )),
+            Some((_, _, source)) if source.trim().is_empty() => failures.push(format!(
+                "module {} registers an EMPTY derivation source (SB-DBM-005)",
+                module.name
+            )),
+            Some(_) => {}
+        }
+    }
+    for (name, _, _) in METHOD_DERIVATIONS {
+        if !modules.iter().any(|module| module.name == *name) {
+            failures.push(format!(
+                "derivation map row {name} names no shipping module - the signed map must not outlive a rename silently (SB-DBM-005)"
+            ));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-DBM-005 method-derivation build gate failed ({}): {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
+}
+
 pub(crate) const OUTPUT_IDENTITY_REGISTRY: &[(&str, OutputIdentityClass)] = &[
     ("VSH", OutputIdentityClass::Working),
     ("PHIE", OutputIdentityClass::Working),
@@ -2278,6 +2395,9 @@ fn module_catalog() -> &'static [ModuleSpec] {
         // SB-CORE-007 (DEC-051 form + DRAFT_CORE007 classes): declaration inspection,
         // never execution - class-scoped output uniqueness and per-topic default identity.
         validate_output_identity_classes(&modules).unwrap_or_else(|error| panic!("{error}"));
+        // SB-DBM-005 (signed derivation map): a module with no derivation citation fails
+        // registration - it does not run and record nothing.
+        validate_method_derivations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_topic_default_identity(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
@@ -9484,6 +9604,73 @@ mod tests {
         );
         validate_topic_default_identity(&[mk("mod_f", ""), mk("mod_g", "")])
             .expect("ABSENT everywhere is one identity");
+    }
+
+    /// SB-DBM-005 / SB-DBM-T07 (signed DRAFT_DBM005_derivation_map.md under DEC-076):
+    /// a module registered with no derivation citation FAILS registration - it does not
+    /// run and record nothing - and the citation recorded per run travels verbatim
+    /// inside the ancestry every provenance sidecar embeds.
+    #[test]
+    fn the_derivation_citation_travels_with_the_run_and_a_module_without_one_fails_registration() {
+        // The live catalog passes both directions of the fail-closed gate.
+        validate_method_derivations(module_catalog())
+            .expect("every shipping module carries its signed derivation row");
+
+        // T07's third module: registered with neither a citation nor a marker - refused
+        // by name at registration.
+        let unmapped = ModuleSpec {
+            name: "mystery_method".into(),
+            title: "Mystery".into(),
+            category: "Prep".into(),
+            doc: String::new(),
+            args: vec![],
+        };
+        let mut with_unmapped = module_catalog().to_vec();
+        with_unmapped.push(unmapped);
+        let error = validate_method_derivations(&with_unmapped)
+            .expect_err("a module with no derivation citation must fail registration");
+        assert!(error.contains("mystery_method") && error.contains("fails registration"), "{error}");
+
+        // The other direction: a signed row whose module vanished refuses too, so the
+        // map cannot silently outlive a rename.
+        let without_vsh: Vec<ModuleSpec> = module_catalog()
+            .iter()
+            .filter(|module| module.name != "vsh_gr")
+            .cloned()
+            .collect();
+        let error = validate_method_derivations(&without_vsh)
+            .expect_err("an orphan map row must fail");
+        assert!(error.contains("vsh_gr") && error.contains("names no shipping module"), "{error}");
+
+        // The citation itself: a Cited row resolves to the signed source verbatim; a
+        // non-catalog identity resolves to honest absence, never an invented marker.
+        let archie = crate::equations::method_derivation_citation("sw_arch")
+            .expect("sw_arch is a signed Cited row");
+        assert!(archie.contains("Archie 1942"), "{archie}");
+        assert!(crate::equations::method_derivation_citation("equation:my_own").is_none());
+
+        // ...and it travels: the ancestry JSON round-trips the field verbatim, and the
+        // LAS provenance sidecar embeds that ancestry object wholesale, so the citation
+        // reaches the deliverable exactly as signed.
+        let mut params = serde_json::json!({ "OPT": 1 });
+        let ancestry = serde_json::json!({
+            "schema_version": crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            "module": "sw_arch",
+            "module_version": "test",
+            "inputs": [],
+            "parameters": [],
+            "parameter_state": "NOT_APPLICABLE",
+            "zone_scope": {"kind": "WHOLE_WELL"},
+            "actor": {"kind": "AUTOMATED", "identity": "test"},
+            "timestamp_utc_ms": 1_755_561_600_000_i64,
+            "outputs": [{"curve": "SWE_ARCH", "derivation": "test"}],
+            "method_derivation": archie,
+        });
+        params[crate::equations::CURVE_ANCESTRY_KEY] = ancestry;
+        let parsed = crate::equations::parse_curve_ancestry(&params.to_string())
+            .expect("the ancestry with a derivation citation parses");
+        assert_eq!(parsed.method_derivation.as_deref(), Some(archie.as_str()),
+            "the citation survives the round trip verbatim");
     }
 
     /// SB-CORE-007 T20 (DRAFT_CORE007 Part D, route ruled by DEC-076: the both-copies

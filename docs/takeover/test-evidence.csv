@@ -437,3 +437,4 @@
 "SB-ENV-005","CORRECTNESS","src-tauri/src/equations.rs","a_manifest_rides_its_version_atomically_a_legacy_null_reads_unknown_and_an_unknown_schema_version_refuses_while_curves_still_read"
 "SB-DIO-007","CORRECTNESS","src-tauri/src/intake.rs","an_empty_cell_and_a_null_token_import_identically_absent_and_export_distinguishably"
 "SB-CORE-007","CORRECTNESS","src-tauri/src/modules.rs","output_identity_is_scoped_by_class_topics_carry_one_default_and_the_two_part_a_adjudications_are_pinned_exactly"
+"SB-DBM-005","CORRECTNESS","src-tauri/src/modules.rs","the_derivation_citation_travels_with_the_run_and_a_module_without_one_fails_registration"

@@ -1173,6 +1173,13 @@ impl Default for SetWriteDiscipline {
     }
 }
 
+/// SB-DBM-005: the signed-map citation for a run's method, copied at registration so it
+/// travels with the numbers. Non-catalog identities (user equations, TVD materialization,
+/// core-photo traces) resolve to `None` - honest absence, never an invented marker.
+pub(crate) fn method_derivation_citation(module: &str) -> Option<String> {
+    crate::modules::method_derivation_for(module).map(|(_, _, source)| (*source).to_string())
+}
+
 /// Stable schema key embedded in `log_sets.params_json` without adding a second write path or
 /// changing the deliberately PK-less `computed_curves` table. Existing top-level parameter keys
 /// remain readable; the complete record travels with the same log-set row every current/archive
@@ -1485,6 +1492,14 @@ pub struct CurveAncestry {
     /// the declared neutron matrix basis the runner injected. Empty when none applied.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub physics_attributes: Vec<PhysicsAttribute>,
+    /// SB-DBM-005 (signed derivation map under DEC-076): the method's own derivation
+    /// citation, copied from `modules::METHOD_DERIVATIONS` at run registration so it
+    /// travels WITH the numbers into every ancestry-carrying deliverable (the LAS
+    /// provenance sidecar embeds the whole ancestry, so this field reaches the client
+    /// verbatim). `None` on pre-contract history and on non-catalog runs (user
+    /// equations, fixtures) - absence is honest there, never an invented marker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_derivation: Option<String>,
 }
 
 /// SB-DBM-015: the depth frame arm of the re-run manifest.
@@ -2150,6 +2165,7 @@ pub(crate) fn complete_curve_run_spec(
     let parameter_state = parameter_state_for(&parameters);
     let ancestry = CurveAncestry {
         schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: method_derivation_citation(module.trim()),
         module: module.trim().to_string(),
         // SB-DBM-002 (DEC-021): equation runs carry the equation engine's own source digest.
         module_version: format!("src:{}", crate::modules::module_source_digest("equation:run")),
@@ -4257,6 +4273,7 @@ pub(crate) fn write_computed_curves_batch(
     }
     let ancestry = CurveAncestry {
         schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: None,
         module: "TEST_FIXTURE".into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: Vec::new(),
@@ -4866,6 +4883,7 @@ mod tests {
                 set_name,
                 CurveAncestry {
                     schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+                    method_derivation: None,
                     module: "SB-DBM-T25 fixture".into(),
                     module_version: "fixture-build".into(),
                     inputs: Vec::new(),
@@ -5256,6 +5274,7 @@ mod tests {
         // The derivation copies resolved inputs WITH set qualification and the rule-11 mask.
         let ancestry_spec = CurveAncestry {
             schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: None,
             module: "TEST_FIXTURE".into(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs: vec![AncestryInput {
@@ -6023,6 +6042,7 @@ mod tests {
 
         let ancestry = CurveAncestry {
             schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: None,
             module: "synthetic_source_state_fixture".into(),
             module_version: "fixture-build".into(),
             inputs: Vec::new(),

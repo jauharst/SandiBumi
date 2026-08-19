@@ -1652,6 +1652,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
     let module = "deviation:materialize_tvd";
     let ancestry = crate::equations::CurveAncestry {
         schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: crate::equations::method_derivation_citation(module),
         module: module.into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: vec![crate::equations::AncestryInput {

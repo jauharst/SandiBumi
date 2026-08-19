@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 fn complete_record() -> equations::CurveAncestry {
     equations::CurveAncestry {
         schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: None,
         module: "acceptance_identity".into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: vec![equations::AncestryInput {

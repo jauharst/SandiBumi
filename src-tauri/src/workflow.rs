@@ -1283,6 +1283,7 @@ fn complete_module_log_spec(
     };
     let ancestry = equations::CurveAncestry {
         schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: equations::method_derivation_citation(&req.module),
         module: req.module.clone(),
         // SB-DBM-002 (DEC-021): the producing code's own digest, not the hand-maintained
         // package version that does not move when a module's arithmetic does.
@@ -14353,6 +14354,7 @@ mod tests {
                 "INTERP",
                 CurveAncestry {
                     schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+                    method_derivation: None,
                     module: "vsh_gr".into(),
                     module_version: env!("CARGO_PKG_VERSION").into(),
                     inputs: vec![gr_input.clone()],

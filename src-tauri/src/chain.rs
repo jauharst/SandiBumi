@@ -486,6 +486,7 @@ fn complete_chain_sets(
         let inputs_json = serde_json::to_string(&inputs).map_err(|error| error.to_string())?;
         let ancestry = crate::equations::CurveAncestry {
             schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: crate::equations::method_derivation_citation(&module_identity),
             module: module_identity.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
