@@ -7,10 +7,10 @@
   "gate2_requirement_count": 222,
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
-    "IMPLEMENT-OR-REFUSE": 1,
+    "IMPLEMENT-OR-REFUSE": 0,
     "REMEDIATE": 2,
     "PROVE": 6,
-    "RETAIN": 213
+    "RETAIN": 214
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -319,10 +319,10 @@
     "SB-DIO-060",
     "SB-POR-025",
     "SB-ENV-004",
-    "SB-CORE-003"
+    "SB-CORE-003",
+    "SB-CORE-005"
   ],
   "blocked_requirements": [
-    "SB-CORE-005",
     "SB-CORE-044",
     "SB-PLT-024"
   ],

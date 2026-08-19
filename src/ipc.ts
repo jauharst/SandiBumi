@@ -2461,10 +2461,16 @@ export interface MmComponent {
   /** Fluids: "water" | "bound_water" | "oil" | "gas". */
   fluid_type: string;
   endpoints: Record<string, number>;
+  /** Per-value provenance (SB-MIN-009 / DEC-078): tool-key → source string, plus `CEC`/`WCP`
+   *  entries for the row scalars and `VP`/`VS` derivation records. Filled by the library; the
+   *  dialog replaces an edited value's entry with a user-supplied marker on submit so the run
+   *  record carries the endpoint custody as run. Optional for older saved payloads. */
+  endpoint_sources?: Record<string, string>;
   /** Cation exchange capacity, meq/g (clays → bound-water constraint). */
   cec: number;
   /** Wet-clay porosity φ_clay (clays only, minerals 0). Drives the bound-water tie when the
-   *  porosity source is `wet_clay_porosity`: k = φ/(1−φ). Techlog WCLP defaults on the library. */
+   *  porosity source is `wet_clay_porosity`: k = φ/(1−φ). Library defaults are Jauhar's own
+   *  (DEC-078; custody history in docs/IP_PROVENANCE.md §2.2). */
   wet_clay_porosity: number;
   /** Upper volume bound (1.0 minerals, 0.5 fluids by default). */
   max_vol: number;

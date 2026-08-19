@@ -1024,6 +1024,10 @@ export async function buildMultiminContent(
         } else {
           const inp = numInput(m.get(t.key) ?? 0, 58);
           inp.addEventListener("input", () => m.set(t.key, Number(inp.value)));
+          // Per-value provenance (SB-MIN-009): the library default's source, visible at the
+          // point of use; an edited value is recorded as user-supplied on the run instead.
+          const src = c.endpoint_sources?.[t.key];
+          if (src) inp.title = `${src}\nAn edited value is recorded as user-supplied on the run.`;
           td.appendChild(inp);
         }
         tr.appendChild(td);
@@ -1112,6 +1116,20 @@ export async function buildMultiminContent(
   let detachRecon: (() => void) | null = null;
 
   runBtn.addEventListener("click", async () => {
+    // Per-value custody as run (SB-MIN-009 / SB-CORE-005): a value still at its library
+    // default keeps the library's source string; any edited value — endpoint, CEC or WCP,
+    // whatever path edited it — is recorded as user-supplied. The map rides the submitted
+    // components into the run record's params_json.
+    const USER_SUPPLIED = "user-supplied in the SandiMin dialog (this run)";
+    const runSources = (c: MmComponent): Record<string, string> => {
+      const out: Record<string, string> = { ...(c.endpoint_sources ?? {}) };
+      for (const [k, v] of overrides.get(c.name)!) {
+        if (v !== c.endpoints[k]) out[k] = USER_SUPPLIED;
+      }
+      if ((cecMap.get(c.name) ?? 0) !== c.cec) out.CEC = USER_SUPPLIED;
+      if ((wcpMap.get(c.name) ?? 0) !== c.wet_clay_porosity) out.WCP = USER_SUPPLIED;
+      return out;
+    };
     const comps: MmComponent[] = library
       .filter((c) => included.has(c.name))
       .map((c) => ({
@@ -1120,6 +1138,7 @@ export async function buildMultiminContent(
         zone: c.zone,
         fluid_type: c.fluid_type,
         endpoints: Object.fromEntries(overrides.get(c.name)!),
+        endpoint_sources: runSources(c),
         cec: cecMap.get(c.name) ?? 0,
         wet_clay_porosity: wcpMap.get(c.name) ?? 0,
         max_vol: maxMap.get(c.name) ?? 1,

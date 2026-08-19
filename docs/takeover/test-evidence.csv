@@ -443,3 +443,4 @@
 "SB-POR-025","CORRECTNESS","src-tauri/src/modules.rs","the_tnph_conversion_interpolates_fresh_and_salt_on_fluid_density_and_a_single_chart_tool_refuses"
 "SB-ENV-004","CORRECTNESS","src-tauri/src/modules.rs","every_env_domain_parameter_identity_is_adopted_owner_attributed_or_absent_per_dec077_and_the_run_record_carries_its_source"
 "SB-CORE-003","CORRECTNESS","src-tauri/src/modules.rs","every_registered_validity_condition_is_complete_cited_and_cross_referenced_and_a_silently_inactive_branch_fails_the_catalog_build"
+"SB-CORE-005","CORRECTNESS","src-tauri/src/multimin2.rs","every_shipped_endpoint_value_carries_a_source_and_a_chartbook_citation_appears_only_where_the_printed_page_states_the_value"

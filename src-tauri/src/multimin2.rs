@@ -62,6 +62,13 @@ pub struct Component {
     pub fluid_type: String,
     /// Tool-key → endpoint response, in display units (g/cc, v/v, us/ft, API, ...).
     pub endpoints: HashMap<String, f64>,
+    /// Tool-key → per-value provenance (SB-MIN-009 / SB-CORE-005, DEC-078). Also carries
+    /// `CEC` and `WCP` entries for the two row scalars, and `VP`/`VS` entries recording the
+    /// derivation. The library fills this; the run dialog replaces an edited value's entry
+    /// with a user-supplied marker, and the whole map rides `params_json` with the
+    /// submitted components so every run record carries its endpoint custody.
+    #[serde(default)]
+    pub endpoint_sources: HashMap<String, String>,
     /// Cation exchange capacity, meq/g (clays; drives the bound-water constraint under the CEC
     /// porosity source).
     #[serde(default)]
@@ -2469,7 +2476,14 @@ fn solve_linear_opt(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint library — reference §6.2 + IP2018 MINDEF.PAR defaults, merged.
+// Endpoint library — Jauhar's default component library (owner adjudication
+// DEC-078, 2026-08-19; custody history is recorded in docs/IP_PROVENANCE.md
+// §2.2 and docs/takeover/DECISIONS.md — it is deliberately not restated here).
+// Every value carries per-value provenance via `LibRow::src`: values the
+// Schlumberger Log Interpretation Charts (2013 ed.) state in print are cited
+// to their page; every other value is the owner's default. Values were
+// verified against the book page by page on 2026-08-19 — a citation code may
+// only be used where the printed page states the library's exact number.
 // Display units: RHOB g/cc, NPHI v/v, DT us/ft, GR API, PEF b/e, U b/cc,
 // THOR ppm, POTA %, URAN ppm, VP km/s, VS km/s, EPT ns/m, EATT dB/m, SIGMA c.u.
 // CT/CXO endpoints are computed from the fluid properties at run time.
@@ -2485,61 +2499,96 @@ struct LibRow {
     zone: &'static str,
     fluid_type: &'static str,
     cec: f64,
-    /// Wet-clay total porosity φ_clay (clays; the Wet-Clay-Porosity bound-water source). Techlog WCLP
-    /// defaults from QElan_PostProcess_Using_Conductivities.py; 0 for non-clays.
+    /// Wet-clay total porosity φ_clay (clays; the Wet-Clay-Porosity bound-water source).
+    /// Owner default per DEC-078; custody history in docs/IP_PROVENANCE.md §2.2. 0 for non-clays.
     wcp: f64,
     max_vol: f64,
     /// [RHOB, NPHI, DT, GR, PEF, U, THOR, POTA, URAN, EPT, SIGMA]  (VP/VS derived from DT)
     v: [f64; 11],
+    /// Per-value provenance code, one ASCII char per `v` slot (same order):
+    /// `B` = stated in Schlumberger Log Interpretation Charts (2013), Appendix B pp. 279–280;
+    /// `C` = stated in Appendix C p. 281; `A` = Appendix B states it as an approximate value;
+    /// `W` = carried from chart Por-1 p. 212's stated fluid velocity (5,300 ft/s = 188.7 µs/ft);
+    /// `J` = Jauhar's default (owner adjudication DEC-078) — the book does not state this number.
+    /// A `B`/`C` code is only legal where the printed page states the exact library value; the
+    /// owned test pins the complete matrix and spot-checks cited cells against the printed numbers.
+    src: &'static str,
 }
 
-const fn m(name: &'static str, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "mineral", zone: "", fluid_type: "", cec: 0.0, wcp: 0.0, max_vol: 1.0, v }
+const fn m(name: &'static str, v: [f64; 11], src: &'static str) -> LibRow {
+    LibRow { name, kind: "mineral", zone: "", fluid_type: "", cec: 0.0, wcp: 0.0, max_vol: 1.0, v, src }
 }
-const fn clay(name: &'static str, cec: f64, wcp: f64, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "clay", zone: "", fluid_type: "", cec, wcp, max_vol: 1.0, v }
+const fn clay(name: &'static str, cec: f64, wcp: f64, v: [f64; 11], src: &'static str) -> LibRow {
+    LibRow { name, kind: "clay", zone: "", fluid_type: "", cec, wcp, max_vol: 1.0, v, src }
 }
-const fn fl(name: &'static str, zone: &'static str, fluid_type: &'static str, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, wcp: 0.0, max_vol: 0.5, v }
+const fn fl(name: &'static str, zone: &'static str, fluid_type: &'static str, v: [f64; 11], src: &'static str) -> LibRow {
+    LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, wcp: 0.0, max_vol: 0.5, v, src }
 }
 
-/// Merged reference/IP default library, in IP's mineral-dropdown order (Jauhar's screenshot).
+/// Expand a [`LibRow::src`] code into the full machine-readable source string (SB-MIN-009).
+const SRC_APPENDIX_B: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), Appendix B Logging Tool Response in Sedimentary Minerals, pp. 279-280";
+const SRC_APPENDIX_C: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), Appendix C Acoustic Characteristics of Common Formations and Fluids, p. 281";
+const SRC_APPENDIX_B_APPROX: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), Appendix B pp. 279-280, stated as an approximate value";
+const SRC_POR1_FLUID: &str =
+    "Schlumberger Log Interpretation Charts (2013 ed.), chart Por-1 p. 212 stated fluid velocity 5,300 ft/s (= 188.7 us/ft, carried as 189)";
+const SRC_OWNER: &str =
+    "Jauhar default endpoint library, owner adjudication DEC-078 (2026-08-19); docs/takeover/DECISIONS.md";
+const SRC_DERIVED_FROM_DT: &str =
+    "derived at library build: VP = 304.8/DT, VS = VP/1.7 for non-fluids (0 for fluids); provenance follows DT";
+
+fn endpoint_source_text(code: u8) -> &'static str {
+    match code {
+        b'B' => SRC_APPENDIX_B,
+        b'C' => SRC_APPENDIX_C,
+        b'A' => SRC_APPENDIX_B_APPROX,
+        b'W' => SRC_POR1_FLUID,
+        _ => SRC_OWNER,
+    }
+}
+
+/// Jauhar's default component library (owner adjudication DEC-078), in the dropdown order of
+/// his screenshot. Values are unchanged by the custody work; each row's `src` string records,
+/// slot by slot, whether the 2013 chartbook states the number in print or the value is his own.
 #[rustfmt::skip]
 const LIB: &[LibRow] = &[
     //                       RHOB   NPHI    DT     GR    PEF     U    THOR  POTA  URAN   EPT  SIGMA
-    m("Calcite",           [2.71,  0.000,  47.5, 11.0,  5.08, 13.8,  0.0,  0.00,  1.4,  9.1,  7.4]),
-    m("Quartz",            [2.65, -0.050,  55.5,  1.0,  1.81,  4.8,  0.0,  0.00,  0.1,  7.2,  4.7]),
-    m("Dolomite",          [2.85,  0.025,  43.5,  8.0,  3.14,  9.0,  0.1,  0.00,  0.9,  8.7,  6.9]),
-    m("Orthoclase",        [2.57, -0.010,  69.0,171.0,  2.86,  8.7,  1.1, 10.21,  0.4,  7.6, 15.3]),
-    m("Albite",            [2.60, -0.005,  49.0,  8.0,  1.68,  5.6,  0.0,  0.50,  0.0,  7.6, 11.4]),
-    m("Anhydrite",         [2.98, -0.020,  50.0,  5.0,  5.05, 14.95, 0.2,  0.00,  0.4,  8.4, 12.0]),
-    m("Halite",            [2.04, -0.030,  67.0,  5.0,  4.65,  9.7,  0.2,  0.00,  0.0,  8.2,750.0]),
-    m("Gypsum",            [2.35,  0.540,  52.0,  5.0,  3.99,  9.46, 0.0,  0.00,  0.3,  6.8, 20.0]),
-    m("Pyrite",            [4.99,  0.000,  39.2,  5.0, 16.97, 82.0,  0.0,  0.00,  0.0,  0.0, 90.0]),
-    m("Siderite",          [3.88,  0.180,  44.0,  6.0, 14.70, 72.0,  0.4,  0.00,  0.5,  8.9, 54.2]),
-    m("Muscovite",         [2.85,  0.240,  49.0,130.0,  2.40, 11.5,  0.0,  7.80,  0.7,  8.9, 95.3]),
-    m("Biotite",           [3.04,  0.130,  50.8,127.0,  6.27, 21.6,  1.5,  7.20,  0.7,  7.8, 54.1]),
-    clay("Glauconite", 0.20, 0.156, [2.96, 0.410,  49.4,150.0,  5.32, 16.5,  2.8,  5.60,  5.1, 12.0, 89.6]),
-    clay("Kaolinite",  0.10, 0.058, [2.62, 0.451,  85.3,104.0,  1.83,  5.38,18.9,  0.08,  3.1,  8.0, 20.1]),
-    clay("Chlorite",   0.15, 0.101, [2.81, 0.520,  85.3, 56.0,  6.30, 21.7, 11.0,  0.67,  3.5,  8.0, 43.7]),
-    clay("Illite",     0.25, 0.104, [2.78, 0.247,  85.3,160.0,  4.00, 11.12,12.3,  4.48,  4.8,  8.0, 40.6]),
-    clay("Montmorillonite",1.0, 1.0,[2.63,0.218, 85.3,168.0,  2.70,  7.61,20.6,  0.58,  7.1,  8.0, 20.2]),
-    clay("Clay",       0.00, 0.120, [2.65, 0.350, 100.0,152.0,  3.50, 10.0,  6.0,  2.00, 12.0,  8.0, 30.0]),
-    m("Coal",              [1.19,  0.520, 160.0, 10.0,  0.20,  0.24, 0.0,  0.00,  0.0,  0.0,  0.0]),
-    m("Kerogen",           [1.10,  0.600, 150.0,100.0,  0.24,  0.26, 0.0,  0.00, 10.0,  0.0,  0.0]),
-    fl("Water Sxo", "X", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0]),
-    fl("Water Sw",  "U", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0]),
-    fl("BoundWater", "", "bound_water", [1.00, 1.00, 189.0, 0.0, 0.36, 0.39, 0.0, 0.0, 0.0, 30.0, 50.0]),
-    fl("Oil Sxo",   "X", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0]),
-    fl("Oil Sw",    "U", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0]),
-    fl("Gas Sxo",   "X", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0]),
-    fl("Gas Sw",    "U", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0]),
+    m("Calcite",           [2.71,  0.000,  47.5, 11.0,  5.08, 13.8,  0.0,  0.00,  1.4,  9.1,  7.4], "BBJJJBJJJBJ"),
+    m("Quartz",            [2.65, -0.050,  55.5,  1.0,  1.81,  4.8,  0.0,  0.00,  0.1,  7.2,  4.7], "JJJJJBJJJBJ"),
+    m("Dolomite",          [2.85,  0.025,  43.5,  8.0,  3.14,  9.0,  0.1,  0.00,  0.9,  8.7,  6.9], "BJCJJBJJJBJ"),
+    m("Orthoclase",        [2.57, -0.010,  69.0,171.0,  2.86,  8.7,  1.1, 10.21,  0.4,  7.6, 15.3], "JJBJJJJJJJJ"),
+    m("Albite",            [2.60, -0.005,  49.0,  8.0,  1.68,  5.6,  0.0,  0.50,  0.0,  7.6, 11.4], "JJBJJJJJJJJ"),
+    m("Anhydrite",         [2.98, -0.020,  50.0,  5.0,  5.05, 14.95, 0.2,  0.00,  0.4,  8.4, 12.0], "BBBJJJJJJBB"),
+    m("Halite",            [2.04, -0.030,  67.0,  5.0,  4.65,  9.7,  0.2,  0.00,  0.0,  8.2,750.0], "BBBJJJJJJJJ"),
+    m("Gypsum",            [2.35,  0.540,  52.0,  5.0,  3.99,  9.46, 0.0,  0.00,  0.3,  6.8, 20.0], "BJBJJJJJJBJ"),
+    m("Pyrite",            [4.99,  0.000,  39.2,  5.0, 16.97, 82.0,  0.0,  0.00,  0.0,  0.0, 90.0], "BJBJJJJJJJB"),
+    m("Siderite",          [3.88,  0.180,  44.0,  6.0, 14.70, 72.0,  0.4,  0.00,  0.5,  8.9, 54.2], "JJJJJJJJJJJ"),
+    m("Muscovite",         [2.85,  0.240,  49.0,130.0,  2.40, 11.5,  0.0,  7.80,  0.7,  8.9, 95.3], "JJBJBJJJJJJ"),
+    m("Biotite",           [3.04,  0.130,  50.8,127.0,  6.27, 21.6,  1.5,  7.20,  0.7,  7.8, 54.1], "JJBJJJJJJJJ"),
+    clay("Glauconite", 0.20, 0.156, [2.96, 0.410,  49.4,150.0,  5.32, 16.5,  2.8,  5.60,  5.1, 12.0, 89.6], "JJJJJJJJJJJ"),
+    clay("Kaolinite",  0.10, 0.058, [2.62, 0.451,  85.3,104.0,  1.83,  5.38,18.9,  0.08,  3.1,  8.0, 20.1], "BJJJJJJJJAJ"),
+    clay("Chlorite",   0.15, 0.101, [2.81, 0.520,  85.3, 56.0,  6.30, 21.7, 11.0,  0.67,  3.5,  8.0, 43.7], "JBJJBJJJJAJ"),
+    clay("Illite",     0.25, 0.104, [2.78, 0.247,  85.3,160.0,  4.00, 11.12,12.3,  4.48,  4.8,  8.0, 40.6], "JJJJJJJJJAJ"),
+    clay("Montmorillonite",1.0, 1.0,[2.63,0.218, 85.3,168.0,  2.70,  7.61,20.6,  0.58,  7.1,  8.0, 20.2], "JJJJJJJJJAJ"),
+    clay("Clay",       0.00, 0.120, [2.65, 0.350, 100.0,152.0,  3.50, 10.0,  6.0,  2.00, 12.0,  8.0, 30.0], "JJJJJJJJJJJ"),
+    m("Coal",              [1.19,  0.520, 160.0, 10.0,  0.20,  0.24, 0.0,  0.00,  0.0,  0.0,  0.0], "BBBJBBJJJJJ"),
+    m("Kerogen",           [1.10,  0.600, 150.0,100.0,  0.24,  0.26, 0.0,  0.00, 10.0,  0.0,  0.0], "JJJJJJJJJJJ"),
+    fl("Water Sxo", "X", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0], "JJWJJJJJJJJ"),
+    fl("Water Sw",  "U", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0], "JJWJJJJJJJJ"),
+    fl("BoundWater", "", "bound_water", [1.00, 1.00, 189.0, 0.0, 0.36, 0.39, 0.0, 0.0, 0.0, 30.0, 50.0], "JJWJJJJJJJJ"),
+    fl("Oil Sxo",   "X", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0], "JJJJJJJJJJJ"),
+    fl("Oil Sw",    "U", "oil",         [0.80, 1.00, 189.0, 0.0, 0.12, 0.11, 0.0, 0.0, 0.0,  5.0, 21.0], "JJJJJJJJJJJ"),
+    fl("Gas Sxo",   "X", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0], "JJJJJJJJJJJ"),
+    fl("Gas Sw",    "U", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0], "JJJJJJJJJJJ"),
 ];
 
 pub fn multimin_library() -> Vec<Component> {
     LIB.iter()
         .map(|r| {
             let mut endpoints: HashMap<String, f64> = HashMap::new();
+            let mut endpoint_sources: HashMap<String, String> = HashMap::new();
             let [rhob, nphi, dt, gr, pef, u, thor, pota, uran, ept, sigma] = r.v;
             let is_fluid = r.kind == "fluid";
             let vp = if dt > 0.0 { 304.8 / dt } else { 0.0 };
@@ -2562,12 +2611,31 @@ pub fn multimin_library() -> Vec<Component> {
             ] {
                 endpoints.insert(k.to_string(), val);
             }
+            // Per-value provenance (SB-MIN-009): the 11 stored slots expand their row code;
+            // VP/VS record the derivation; EATT's structural zero and the two row scalars
+            // (CEC, WCP) are the owner's defaults per DEC-078.
+            let codes = r.src.as_bytes();
+            debug_assert_eq!(codes.len(), 11, "one provenance code per stored slot");
+            for (slot, k) in ["RHOB", "NPHI", "DT", "GR", "PEF", "U", "THOR", "POTA", "URAN", "EPT", "SIGMA"]
+                .iter()
+                .enumerate()
+            {
+                endpoint_sources
+                    .insert(k.to_string(), endpoint_source_text(codes[slot]).to_string());
+            }
+            for k in ["VP", "VS"] {
+                endpoint_sources.insert(k.to_string(), SRC_DERIVED_FROM_DT.to_string());
+            }
+            for k in ["EATT", "CEC", "WCP"] {
+                endpoint_sources.insert(k.to_string(), SRC_OWNER.to_string());
+            }
             Component {
                 name: r.name.to_string(),
                 kind: r.kind.to_string(),
                 zone: r.zone.to_string(),
                 fluid_type: r.fluid_type.to_string(),
                 endpoints,
+                endpoint_sources,
                 cec: r.cec,
                 wet_clay_porosity: r.wcp,
                 max_vol: r.max_vol,
@@ -2582,6 +2650,128 @@ mod tests {
 
     fn lib_get(name: &str) -> Component {
         multimin_library().into_iter().find(|c| c.name == name).unwrap()
+    }
+
+    /// CORRECTNESS — SB-MIN-T09, discharged for SB-CORE-005 under DEC-078 (2026-08-19):
+    /// the endpoint library is Jauhar's default library, and every value carries a
+    /// machine-readable source. A chartbook citation is only legal where the printed page
+    /// states the library's exact number — verified page by page against the owner's copy
+    /// of the 2013 edition on 2026-08-19 (Appendix B pp. 279-280, Appendix C p. 281,
+    /// chart Por-1 p. 212). The complete 27-row provenance matrix is pinned by
+    /// set-equality, so a silent reclassification in either direction fails here by name;
+    /// custody history stays recorded in docs/IP_PROVENANCE.md §2.2, never in shipped
+    /// source strings.
+    #[test]
+    fn every_shipped_endpoint_value_carries_a_source_and_a_chartbook_citation_appears_only_where_the_printed_page_states_the_value(
+    ) {
+        // A — completeness: every endpoint of every component has a non-empty source,
+        // and the two row scalars carry their own entries.
+        for component in multimin_library() {
+            for key in component.endpoints.keys() {
+                let source = component.endpoint_sources.get(key).map(String::as_str).unwrap_or("");
+                assert!(
+                    !source.trim().is_empty(),
+                    "{}.{key} ships without a source",
+                    component.name
+                );
+            }
+            for scalar in ["CEC", "WCP"] {
+                assert!(
+                    component
+                        .endpoint_sources
+                        .get(scalar)
+                        .is_some_and(|source| !source.trim().is_empty()),
+                    "{}.{scalar} ships without a source",
+                    component.name
+                );
+            }
+        }
+
+        // B — the complete provenance matrix, pinned by set-equality. One line per row,
+        // one code per stored slot (RHOB NPHI DT GR PEF U THOR POTA URAN EPT SIGMA).
+        let expected: std::collections::BTreeMap<&str, &str> = [
+            ("Calcite", "BBJJJBJJJBJ"),
+            ("Quartz", "JJJJJBJJJBJ"),
+            ("Dolomite", "BJCJJBJJJBJ"),
+            ("Orthoclase", "JJBJJJJJJJJ"),
+            ("Albite", "JJBJJJJJJJJ"),
+            ("Anhydrite", "BBBJJJJJJBB"),
+            ("Halite", "BBBJJJJJJJJ"),
+            ("Gypsum", "BJBJJJJJJBJ"),
+            ("Pyrite", "BJBJJJJJJJB"),
+            ("Siderite", "JJJJJJJJJJJ"),
+            ("Muscovite", "JJBJBJJJJJJ"),
+            ("Biotite", "JJBJJJJJJJJ"),
+            ("Glauconite", "JJJJJJJJJJJ"),
+            ("Kaolinite", "BJJJJJJJJAJ"),
+            ("Chlorite", "JBJJBJJJJAJ"),
+            ("Illite", "JJJJJJJJJAJ"),
+            ("Montmorillonite", "JJJJJJJJJAJ"),
+            ("Clay", "JJJJJJJJJJJ"),
+            ("Coal", "BBBJBBJJJJJ"),
+            ("Kerogen", "JJJJJJJJJJJ"),
+            ("Water Sxo", "JJWJJJJJJJJ"),
+            ("Water Sw", "JJWJJJJJJJJ"),
+            ("BoundWater", "JJWJJJJJJJJ"),
+            ("Oil Sxo", "JJJJJJJJJJJ"),
+            ("Oil Sw", "JJJJJJJJJJJ"),
+            ("Gas Sxo", "JJJJJJJJJJJ"),
+            ("Gas Sw", "JJJJJJJJJJJ"),
+        ]
+        .into_iter()
+        .collect();
+        let actual: std::collections::BTreeMap<&str, &str> =
+            LIB.iter().map(|row| (row.name, row.src)).collect();
+        assert_eq!(actual, expected, "the shipped provenance matrix moved");
+
+        // C — a citation code means the printed page states the exact library number.
+        // Coal is the book's Lignite row; Dolomite's DT is Appendix C; the water rows'
+        // 189 us/ft carries Por-1's stated 5,300 ft/s.
+        let coal = lib_get("Coal");
+        for (key, printed) in
+            [("RHOB", 1.19), ("NPHI", 0.52), ("DT", 160.0), ("PEF", 0.20), ("U", 0.24)]
+        {
+            assert_eq!(coal.endpoints[key], printed, "Coal.{key} drifted from the printed value");
+            assert!(
+                coal.endpoint_sources[key].contains("Appendix B"),
+                "Coal.{key} lost its citation: {}",
+                coal.endpoint_sources[key]
+            );
+        }
+        let dolomite = lib_get("Dolomite");
+        assert_eq!(dolomite.endpoints["DT"], 43.5);
+        assert!(dolomite.endpoint_sources["DT"].contains("Appendix C"));
+        let anhydrite = lib_get("Anhydrite");
+        assert_eq!(anhydrite.endpoints["SIGMA"], 12.0);
+        assert!(anhydrite.endpoint_sources["SIGMA"].contains("Appendix B"));
+        let water = lib_get("Water Sxo");
+        assert_eq!(water.endpoints["DT"], 189.0);
+        assert!(
+            water.endpoint_sources["DT"].contains("Por-1")
+                && water.endpoint_sources["DT"].contains("5,300"),
+            "the water slowness must cite the chart's stated velocity: {}",
+            water.endpoint_sources["DT"]
+        );
+        let illite = lib_get("Illite");
+        assert_eq!(illite.endpoints["EPT"], 8.0);
+        assert!(
+            illite.endpoint_sources["EPT"].contains("approximate"),
+            "a value the book states only approximately must say so: {}",
+            illite.endpoint_sources["EPT"]
+        );
+
+        // D — near-miss values stay the owner's: the book prints 5.1 / 2.64 / 754 where
+        // the library carries 5.08 / 2.65 / 750, so citing it would be false custody.
+        for (name, key) in [("Calcite", "PEF"), ("Quartz", "RHOB"), ("Halite", "SIGMA")] {
+            let source = &lib_get(name).endpoint_sources[key];
+            assert!(
+                source.contains("DEC-078") && !source.contains("Appendix"),
+                "{name}.{key} must stay owner-attributed, not book-cited: {source}"
+            );
+        }
+
+        // E — derived slots record their derivation and follow DT.
+        assert!(lib_get("Quartz").endpoint_sources["VP"].contains("follows DT"));
     }
 
     /// Weighted rows for a set of components over plain (non-conductivity) tools.
