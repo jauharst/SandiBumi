@@ -181,8 +181,8 @@ requirement appears exactly once.
 
 | Requirement | Blocker class | What is missing | Exact unblocking input or action |
 |---|---|---|---|
-| `SB-CORE-044` | Source and legal | Chart payloads and the merged endpoint library still lack primary-source, design-around or counsel closure (the theme arm closed via the DEC-074 neutral rename, 2026-08-18). | Obtain the named source and counsel dispositions; remove or independently re-source uncleared routes; then add the fail-closed release inventory proof. |
-| `SB-PLT-024` | Legal | Nineteen vendor-derived numeric chart definitions remain imported and bundled; fail-closed rendering does not remove distributed bytes. | Counsel chooses licence, independent primary-source re-derivation, or removal from the paid build/repository. Engineering cannot declare permission. |
+| `SB-CORE-044` | Source and legal | Endpoint-library arm CLOSED by DEC-078 (2026-08-19, per-value custody shipped); theme arm CLOSED by DEC-074. Remaining: the chart-payload arm follows SB-PLT-024 (re-derivations + the Gate 5 nine-id decision), and counsel dispositions (CLAIM-012/013, dependency attention items) stay open first-sale items. | Execute SB-PLT-024; obtain counsel dispositions; then add the fail-closed release-inventory proof over the settled shipped set. |
+| `SB-PLT-024` | Legal route ruled; execution open | DEC-078 (2026-08-19) rules the route: the ten derivable definitions are re-derived from primary sources, each replacing its digitized coordinates as executed; the nine tool-response definitions (named in src/ui/chartOverlayPolicy.ts) are retained cited + fail-closed through Gate 5 for manual verification, with delete-at-final-commercial a single named operation. | Execute the ten re-derivations with cited constants; at Gate 5 Jauhar rules keep-licensed or delete for the nine; counsel closes CLAIM-013 on whatever ships. |
 
 ## Product-owner decision packet
 
