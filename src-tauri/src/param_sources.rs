@@ -100,6 +100,17 @@ pub const CUTOFF_SWE_MAX: &str = "cutoff_swe_max";
 /// `docs/PRD_v2/11_porosity.md` §5 lines 1231-1232 (chart mode clamps both axes,
 /// Bateman-Konen clamps the neutron side only, wider).
 pub const SHALE_REDUCTION_CLAMP: &str = "shale_reduction_clamp";
+// SB-CORE-007 Part C2 (signed DRAFT_CORE007 under DEC-076): same-name twins joined under
+// shared identities so T19's one-topic-one-default holds ACROSS modules, not just within
+// them. These topics carry the identity; evidence tables can follow when sources exist.
+// The C2 "percentile reference pair" row lands as TWO per-quantity topics because T19 is
+// per-topic single-default and 3 and 97 are two different quantities - the pair identity
+// is the two topics side by side, not one topic with two values.
+pub const IRREDUCIBLE_SWE: &str = "irreducible_swe";
+pub const IRREDUCIBLE_SWT: &str = "irreducible_swt";
+pub const PERCENTILE_REFERENCE_LOW: &str = "percentile_reference_low";
+pub const PERCENTILE_REFERENCE_HIGH: &str = "percentile_reference_high";
+pub const CONDITIONING_WINDOW: &str = "conditioning_window";
 
 // ---------------------------------------------------------------------------
 // SB-DBM-025 (DEC-026, answered by DEC-043): a constant that crosses a module
@@ -509,6 +520,50 @@ const SHALE_NEUTRON_ENDPOINT_SOURCES: &[ParamSource] = &[
     ),
 ];
 
+// SB-CORE-007 Part C2 (DEC-076): the joined-topic evidence. The two percentile topics
+// carry SandiBumi's own workflow standard; the other three record a DOCUMENTED
+// absent-by-design position - the evidence is that no generic value exists, cited to
+// where that decision lives, never a number invented to fill the table.
+const PERCENTILE_REFERENCE_LOW_SOURCES: &[ParamSource] = &[claim!(
+    "SandiBumi",
+    "3",
+    "two-point normalization low percentile (P3)",
+    "docs/workflow_standards.md P3/P97",
+    "T1"
+)];
+
+const PERCENTILE_REFERENCE_HIGH_SOURCES: &[ParamSource] = &[claim!(
+    "SandiBumi",
+    "97",
+    "two-point normalization high percentile (P97)",
+    "docs/workflow_standards.md P3/P97",
+    "T1"
+)];
+
+const CONDITIONING_WINDOW_SOURCES: &[ParamSource] = &[claim!(
+    "SandiBumi",
+    "none stated",
+    "a conditioning window is a THICKNESS with no generic value; ABSENT by design",
+    "docs/record_data_tools.md despike-window decision",
+    "T1"
+)];
+
+const IRREDUCIBLE_SWE_SOURCES: &[ParamSource] = &[claim!(
+    "SandiBumi",
+    "none stated",
+    "irreducible effective Sw is a rock property fitted per field; ships ABSENT",
+    "modules.rs perm_wyllie_rose/perm_coates/sw_indo/sw_sim manifests (param_open)",
+    "T1"
+)];
+
+const IRREDUCIBLE_SWT_SOURCES: &[ParamSource] = &[claim!(
+    "SandiBumi",
+    "none stated",
+    "irreducible total Sw is a rock property fitted per field; ships ABSENT",
+    "modules.rs sw_arch manifest (param_open)",
+    "T1"
+)];
+
 const ARCHIE_A_SOURCES: &[ParamSource] = &[
     claim!(
         "Interactive Petrophysics",
@@ -880,6 +935,11 @@ pub fn sources_for(topic: &str) -> &'static [ParamSource] {
         CUTOFF_PHIE_MIN => CUTOFF_PHIE_MIN_SOURCES,
         CUTOFF_SWE_MAX => CUTOFF_SWE_MAX_SOURCES,
         SHALE_REDUCTION_CLAMP => SHALE_REDUCTION_CLAMP_SOURCES,
+        IRREDUCIBLE_SWE => IRREDUCIBLE_SWE_SOURCES,
+        IRREDUCIBLE_SWT => IRREDUCIBLE_SWT_SOURCES,
+        PERCENTILE_REFERENCE_LOW => PERCENTILE_REFERENCE_LOW_SOURCES,
+        PERCENTILE_REFERENCE_HIGH => PERCENTILE_REFERENCE_HIGH_SOURCES,
+        CONDITIONING_WINDOW => CONDITIONING_WINDOW_SOURCES,
         _ => &[],
     }
 }
@@ -911,6 +971,11 @@ pub fn parameter_label(topic: &str) -> Option<&'static str> {
         CUTOFF_VSH_MAX => "maximum VSH cutoff",
         CUTOFF_PHIE_MIN => "minimum PHIE cutoff",
         CUTOFF_SWE_MAX => "maximum SWE cutoff",
+        IRREDUCIBLE_SWE => "irreducible effective water saturation",
+        IRREDUCIBLE_SWT => "irreducible total water saturation",
+        PERCENTILE_REFERENCE_LOW => "low reference percentile",
+        PERCENTILE_REFERENCE_HIGH => "high reference percentile",
+        CONDITIONING_WINDOW => "conditioning window thickness",
         _ => return None,
     })
 }

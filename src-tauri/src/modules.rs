@@ -5366,9 +5366,12 @@ fn condflag_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MATRIX_DENSITY,
             ),
-            param(
-                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
-                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            with_sources(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FLUID_DENSITY,
             ),
             param_open("COAL_RHOB", "Coal: density below", "g/cc", 1.2, 2.4, true),
             param_open("COAL_NPHI", "Coal: neutron above", "v/v", 0.15, 0.8, true),
@@ -5824,14 +5827,17 @@ fn gascorr_spec() -> ModuleSpec {
             ),
             crate::param_sources::MATRIX_DENSITY,
         ),
-        param(
-            "RHO_FL", "Liquid (filtrate) density the correction restores", "g/cc", 1.0, 0.8, 1.3,
-            "Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4",
+        with_sources(
+            param(
+                "RHO_FL", "Liquid (filtrate) density the correction restores", "g/cc", 1.0, 0.8, 1.3,
+                "Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4",
+            ),
+            crate::param_sources::FLUID_DENSITY,
         ),
         param_open("SG_GAS", "Gas specific gravity (air = 1)", "", 0.55, 1.2, true),
-        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
-        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
-        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+        with_sources(param_open("A", "Tortuosity constant", "", 0.1, 5.0, true), crate::param_sources::ARCHIE_A),
+        with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
+        with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
         opt("OPT_GATE", "Where to apply the correction", "FLAGGED", &["FLAGGED", "EVERYWHERE"]),
     ];
     // rw_args carries its own optional FTEMP input; gascorr needs FTEMP as a
@@ -6431,13 +6437,16 @@ fn sw_arch_spec() -> ModuleSpec {
         with_sources(param_open("A", "Tortuosity constant", "", 0.1, 5.0, true), crate::param_sources::ARCHIE_A),
         with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
         with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
-        param_open(
-            "SWT_IRR",
-            "Irreducible total water saturation",
-            "v/v",
-            0.0,
-            0.6,
-            true,
+        with_sources(
+            param_open(
+                "SWT_IRR",
+                "Irreducible total water saturation",
+                "v/v",
+                0.0,
+                0.6,
+                true,
+            ),
+            crate::param_sources::IRREDUCIBLE_SWT,
         ),
     ];
     args.extend(rw_args());
@@ -6619,13 +6628,16 @@ fn sw_indo_spec() -> ModuleSpec {
         with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
         with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
         with_sources(param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true), crate::param_sources::SHALE_RESISTIVITY),
-        param_open(
-            "SWE_IRR",
-            "Irreducible effective water saturation",
-            "v/v",
-            0.0,
-            0.6,
-            true,
+        with_sources(
+            param_open(
+                "SWE_IRR",
+                "Irreducible effective water saturation",
+                "v/v",
+                0.0,
+                0.6,
+                true,
+            ),
+            crate::param_sources::IRREDUCIBLE_SWE,
         ),
     ];
     args.extend(rw_args());
@@ -6744,15 +6756,15 @@ fn sw_sim_spec() -> ModuleSpec {
                 ),
             ],
         ),
-        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
-        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
-        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+        with_sources(param_open("A", "Tortuosity constant", "", 0.1, 5.0, true), crate::param_sources::ARCHIE_A),
+        with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
+        with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
         param(
             "C", "VSH exponent (simandoux_modified_slb only)", "", 1.0, 1.0, 2.0,
             "Geolog V14 sw_sim.info C DEFAULT 1 VALIDATION 1:2; docs/PRD_v2/12_saturation.md §5",
         ),
-        param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true),
-        param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.0, 0.6, true),
+        with_sources(param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true), crate::param_sources::SHALE_RESISTIVITY),
+        with_sources(param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.0, 0.6, true), crate::param_sources::IRREDUCIBLE_SWE),
     ];
     args.extend(rw_args());
     args.extend([
@@ -6878,7 +6890,7 @@ fn perm_wyllie_rose_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_WR", "Wyllie-Rose variant", "TIMUR", &["TIMUR", "MORRIS_BIGGS_OIL", "MORRIS_BIGGS_GAS", "TIXIER"]),
-            param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.01, 0.8, true),
+            with_sources(param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.01, 0.8, true), crate::param_sources::IRREDUCIBLE_SWE),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_out("PERM_WR", "Permeability from Wyllie-Rose", "mD"),
             log_out("PERM", "Working permeability", "mD"),
@@ -6923,13 +6935,16 @@ fn perm_coates_spec() -> ModuleSpec {
         doc: "PERM = (C * PHIE^2 * (1 - SWE_IRR)/SWE_IRR)^2, mD.".into(),
         args: vec![
             param_open("CONST_COATES", "Coates constant", "", 1.0, 1000.0, true),
-            param_open(
-                "SWE_IRR",
-                "Irreducible effective water saturation",
-                "v/v",
-                0.01,
-                0.8,
-                true,
+            with_sources(
+                param_open(
+                    "SWE_IRR",
+                    "Irreducible effective water saturation",
+                    "v/v",
+                    0.01,
+                    0.8,
+                    true,
+                ),
+                crate::param_sources::IRREDUCIBLE_SWE,
             ),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_out("PERM_COATES", "Permeability from Coates", "mD"),
@@ -7245,16 +7260,22 @@ fn gr_normalize_spec() -> ModuleSpec {
             .into(),
         args: vec![
             with_guidance(
-                param(
-                    "P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0,
-                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                with_sources(
+                    param(
+                        "P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0,
+                        "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                    ),
+                    crate::param_sources::PERCENTILE_REFERENCE_LOW,
                 ),
                 &[GR_NORMALIZATION_PERCENTILE_GUIDANCE],
             ),
             with_guidance(
-                param(
-                    "P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0,
-                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                with_sources(
+                    param(
+                        "P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0,
+                        "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                    ),
+                    crate::param_sources::PERCENTILE_REFERENCE_HIGH,
                 ),
                 &[GR_NORMALIZATION_PERCENTILE_GUIDANCE],
             ),
@@ -9604,6 +9625,54 @@ mod tests {
         );
         validate_topic_default_identity(&[mk("mod_f", ""), mk("mod_g", "")])
             .expect("ABSENT everywhere is one identity");
+
+        // Part C2 (signed, DEC-076): the same-name twins joined into shared identities -
+        // every join pinned by exact site, so an untagging regression fails by name. The
+        // rows whose manifests live in PROTECTED files (ssc/sspw endpoints, sw_imts/
+        // sw_rtc RW/RHOG/M/N, sw_height RHO_W, ssc/sspw SWIRR_MIN and flushed-zone
+        // fluids) are HELD until an edit there is authorized - named here, not smuggled.
+        let topic_of = |module: &str, argument: &str| -> String {
+            module_catalog()
+                .iter()
+                .find(|spec| spec.name == module)
+                .unwrap_or_else(|| panic!("module {module} is not in the catalog"))
+                .args
+                .iter()
+                .find(|arg| arg.name == argument)
+                .unwrap_or_else(|| panic!("{module}.{argument} is not a shipping argument"))
+                .sources_topic
+                .clone()
+        };
+        let joins: &[(&str, &str, &str)] = &[
+            ("condflag", "RHO_FL", crate::param_sources::FLUID_DENSITY),
+            ("gascorr", "RHO_FL", crate::param_sources::FLUID_DENSITY),
+            ("midplot", "RHO_FL", crate::param_sources::FLUID_DENSITY),
+            ("gascorr", "A", crate::param_sources::ARCHIE_A),
+            ("gascorr", "M", crate::param_sources::ARCHIE_M),
+            ("gascorr", "N", crate::param_sources::ARCHIE_N),
+            ("sw_sim", "A", crate::param_sources::ARCHIE_A),
+            ("sw_sim", "M", crate::param_sources::ARCHIE_M),
+            ("sw_sim", "N", crate::param_sources::ARCHIE_N),
+            ("sw_sim", "RT_SH", crate::param_sources::SHALE_RESISTIVITY),
+            ("sw_sim", "SWE_IRR", crate::param_sources::IRREDUCIBLE_SWE),
+            ("sw_indo", "SWE_IRR", crate::param_sources::IRREDUCIBLE_SWE),
+            ("perm_wyllie_rose", "SWE_IRR", crate::param_sources::IRREDUCIBLE_SWE),
+            ("perm_coates", "SWE_IRR", crate::param_sources::IRREDUCIBLE_SWE),
+            ("sw_arch", "SWT_IRR", crate::param_sources::IRREDUCIBLE_SWT),
+            ("gr_normalize", "P_LOW", crate::param_sources::PERCENTILE_REFERENCE_LOW),
+            ("gr_normalize", "P_HIGH", crate::param_sources::PERCENTILE_REFERENCE_HIGH),
+            ("normalize", "P_LOW", crate::param_sources::PERCENTILE_REFERENCE_LOW),
+            ("normalize", "P_HIGH", crate::param_sources::PERCENTILE_REFERENCE_HIGH),
+            ("despike", "WINDOW", crate::param_sources::CONDITIONING_WINDOW),
+            ("smooth", "WINDOW", crate::param_sources::CONDITIONING_WINDOW),
+        ];
+        for (module, argument, topic) in joins {
+            assert_eq!(
+                &topic_of(module, argument),
+                topic,
+                "{module}.{argument} must carry its signed C2 identity"
+            );
+        }
     }
 
     /// SB-DBM-005 / SB-DBM-T07 (signed DRAFT_DBM005_derivation_map.md under DEC-076):

@@ -446,13 +446,16 @@ pub fn despike_spec() -> ModuleSpec {
             .into(),
         args: {
             let mut a = vec![
-                param_open(
-                    "WINDOW",
-                    "Filter window (thickness, centred)",
-                    PROJECT_DEPTH_UNIT_TOKEN,
-                    0.0,
-                    1000.0,
-                    true,
+                crate::modules::with_sources(
+                    param_open(
+                        "WINDOW",
+                        "Filter window (thickness, centred)",
+                        PROJECT_DEPTH_UNIT_TOKEN,
+                        0.0,
+                        1000.0,
+                        true,
+                    ),
+                    crate::param_sources::CONDITIONING_WINDOW,
                 ),
                 // K = 3 is the ordinary three-deviation convention (the same generic statistical
                 // choice as Tukey's 1.5 x IQR already used in `distribution.rs`), NOT a field
@@ -671,13 +674,16 @@ pub fn smooth_spec() -> ModuleSpec {
             .into(),
         args: {
             let mut a = vec![
-                param_open(
-                    "WINDOW",
-                    "Smoothing window (thickness, centred)",
-                    PROJECT_DEPTH_UNIT_TOKEN,
-                    0.0,
-                    1000.0,
-                    true,
+                crate::modules::with_sources(
+                    param_open(
+                        "WINDOW",
+                        "Smoothing window (thickness, centred)",
+                        PROJECT_DEPTH_UNIT_TOKEN,
+                        0.0,
+                        1000.0,
+                        true,
+                    ),
+                    crate::param_sources::CONDITIONING_WINDOW,
                 ),
                 opt_labelled(
                     "OPT_METHOD",
@@ -1264,13 +1270,19 @@ pub fn normalize_spec() -> ModuleSpec {
                     ("LOG", "LOG — for RT, PERM, anything read on a log scale"),
                 ],
             ),
-            param(
-                "P_LOW", "TWO_POINT: low percentile", "%", 3.0, 0.0, 50.0,
-                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            crate::modules::with_sources(
+                param(
+                    "P_LOW", "TWO_POINT: low percentile", "%", 3.0, 0.0, 50.0,
+                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                ),
+                crate::param_sources::PERCENTILE_REFERENCE_LOW,
             ),
-            param(
-                "P_HIGH", "TWO_POINT: high percentile", "%", 97.0, 50.0, 100.0,
-                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            crate::modules::with_sources(
+                param(
+                    "P_HIGH", "TWO_POINT: high percentile", "%", 97.0, 50.0, 100.0,
+                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                ),
+                crate::param_sources::PERCENTILE_REFERENCE_HIGH,
             ),
             param_open_when(
                 "REF_LOW", "TWO_POINT / RANGE: reference value at the low end", "", -1e9, 1e9,

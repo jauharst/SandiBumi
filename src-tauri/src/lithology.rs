@@ -213,9 +213,12 @@ pub fn midplot_spec() -> ModuleSpec {
                 "RHO_MA_A", "Apparent matrix density for the density leg (limestone basis)", "g/cc", 2.71, 2.0, 3.2,
                 "IP/Techlog/SandiMin limestone matrix endpoint 2.71 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
             ),
-            param(
-                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
-                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            crate::modules::with_sources(
+                param(
+                    "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                    "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+                ),
+                crate::param_sources::FLUID_DENSITY,
             ),
             // Fresh water: Pe 0.358 x rho_e 1.111 = 0.398 b/cm3. Saline filtrate is higher
             // (chlorine is a strong photoelectric absorber), so the range allows well past it.
