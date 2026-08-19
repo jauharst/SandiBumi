@@ -14756,3 +14756,19 @@ front by name instead of writing an unverifiable file. A missing sample travels 
       scratch project). The curves and depths should come back exactly, including the gaps.
 - [ ] **Open the exported file in another package you trust** (IP or Techlog) and confirm it
       loads and the units read correctly.
+
+## Gate 5 chart delete — DEC-082 (2026-08-19)
+
+Your word on the thirteen retained vendor chart definitions was DELETE, and it is executed:
+the digitized CNL/APS/adnVISION/EcoScope/Por-20/Lith-1 definitions are gone from the app.
+The six derived charts (Por-22 TA and FO, Lith-3, Lith-4, Lith-6 MID, Lith-2) remain, drawn
+from published equations and the chart pages' own printed values.
+
+- [ ] **Open a crossplot and check the chart-overlay picker** (Properties → chart overlay).
+      On an NPHI/RHOB crossplot the CNL Por-11/12, APS Por-13/14, adnVISION Por-16 and
+      EcoScope Por-18/19 entries should be GONE; Lith-3/4 and the MID/Lith-2/Por-22 charts
+      should still be offered on their matching axes.
+- [ ] **Draw one derived overlay you use** (e.g. Lith-2 on a Th vs K crossplot) and confirm
+      the six labeled Th/K ratio lines and the two dashed lines still draw as before.
+- [ ] **Open an old saved session or plot template that used a CNL overlay** — it should load
+      cleanly with no overlay drawn (never an error).

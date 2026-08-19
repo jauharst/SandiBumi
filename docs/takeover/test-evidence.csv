@@ -450,6 +450,6 @@
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_rhg_derivation_constants_are_exactly_the_paper_stated_values"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_derived_lith_pef_curves_are_gardner_dumanoir_physics_and_sit_within_the_tld_tool_response_band"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_gardner_dumanoir_constants_are_exactly_the_paper_table_and_lith5_legend_values"
-"SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_tool_response_register_names_the_thirteen_ruled_ids_and_never_a_derived_one"
+"SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_thirteen_deleted_vendor_definitions_are_gone_from_the_catalog_and_the_six_derived_ones_remain"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_derived_lith2_ratio_lines_are_geometry_from_the_printed_boundary_values_and_match_the_digitized_lines_one_to_one"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_lith2_derivation_constants_are_exactly_the_printed_chart_page_values"

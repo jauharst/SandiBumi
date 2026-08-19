@@ -420,34 +420,48 @@ test("the_lith2_derivation_constants_are_exactly_the_printed_chart_page_values",
   );
 });
 
-test("the_tool_response_register_names_the_thirteen_ruled_ids_and_never_a_derived_one", () => {
-  // DEC-078 named nine tool-response ids; DEC-080 reclassified por20_ta/por20_fo into
-  // the class (the neutron coordinate of every non-limestone Por-20 curve IS the CNL
-  // response, so a half-derived chart stays vendor-encumbered); DEC-081 reclassified
-  // lith1_pek/lith1_pethk in (their mineral positions are vendor-synthesis ranges
-  // whose entire cited chain, read in full, prints no numeric values). The register
-  // and the derived set must stay DISJOINT: an id cannot be both retained and derived.
-  const source = fs.readFileSync(path.join(repo, "src", "ui", "chartOverlayPolicy.ts"), "utf8");
-  const listMatch = source.match(
-    /TOOL_RESPONSE_OVERLAY_IDS[^=]*=\s*\[([\s\S]*?)\];/,
-  );
-  assert.ok(listMatch, "TOOL_RESPONSE_OVERLAY_IDS not found in chartOverlayPolicy.ts");
-  // Strip line comments first: a commented-out entry is NOT in the register.
+test("the_thirteen_deleted_vendor_definitions_are_gone_from_the_catalog_and_the_six_derived_ones_remain", () => {
+  // DEC-082 (2026-08-19): Jauhar's Gate 5 word on the retained register was DELETE.
+  // The thirteen vendor definitions (nine tool-response per DEC-078, Por-20's two per
+  // DEC-080, Lith-1's two per DEC-081) were removed from chartOverlays.ts; the policy
+  // module keeps the DELETION RECORD. This test is the fail-closed release-inventory
+  // pin: a deleted id must never reappear in the catalog, the record must name exactly
+  // the thirteen ruled ids, and the delete must not have taken a derived definition
+  // with it.
+  const THIRTEEN = [
+    "lith1_pek", "lith1_pethk", "por11", "por12", "por13_aplc", "por13_fplc",
+    "por14_aplc", "por14_fplc", "por16", "por18", "por19", "por20_fo", "por20_ta",
+  ];
+  const policy = fs.readFileSync(path.join(repo, "src", "ui", "chartOverlayPolicy.ts"), "utf8");
+  const listMatch = policy.match(/DELETED_VENDOR_OVERLAY_IDS[^=]*=\s*\[([\s\S]*?)\];/);
+  assert.ok(listMatch, "DELETED_VENDOR_OVERLAY_IDS not found in chartOverlayPolicy.ts");
+  // Strip line comments first: a commented-out entry is NOT in the record.
   const body = listMatch[1].replace(/\/\/[^\n]*/g, "");
-  const ids = [...body.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]);
+  const recorded = [...body.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(
-    [...ids].sort(),
-    [
-      "lith1_pek", "lith1_pethk", "por11", "por12", "por13_aplc", "por13_fplc",
-      "por14_aplc", "por14_fplc", "por16", "por18", "por19", "por20_fo", "por20_ta",
-    ],
-    "the retained tool-response register must hold exactly the thirteen ruled ids",
+    [...recorded].sort(),
+    THIRTEEN,
+    "the deletion record must name exactly the thirteen ruled ids",
   );
-  const derivedIds = derivedOverlays().map((d) => d.id);
+
+  const catalog = fs.readFileSync(path.join(repo, "src", "ui", "chartOverlays.ts"), "utf8");
+  const catalogIds = [...catalog.matchAll(/id: "([a-z0-9_]+)"/g)].map((m) => m[1]);
+  for (const id of THIRTEEN) {
+    assert.ok(
+      !catalogIds.includes(id),
+      `${id} was deleted under DEC-082 and must never reappear in chartOverlays.ts`,
+    );
+  }
+  const derivedIds = derivedOverlays().map((d) => d.id).sort();
+  assert.deepEqual(
+    derivedIds,
+    ["lith2_thk", "lith3", "lith4", "lith6_mid", "por22_fo", "por22_ta"],
+    "the derived set must still be exactly the six executed derivations",
+  );
   for (const id of derivedIds) {
     assert.ok(
-      !ids.includes(id),
-      `${id} is both derived and in the retained tool-response register - the classes must be disjoint`,
+      catalogIds.includes(id),
+      `derived definition ${id} must still exist in the catalog - the delete took too much`,
     );
   }
 });
@@ -457,9 +471,11 @@ test("the_generated_derived_overlay_module_is_current", () => {
     path.join(repo, "src", "ui", "chartOverlaysDerived.gen.ts"),
     "utf8",
   );
+  // Compare CONTENT, not line endings: a fresh checkout materializes the file with
+  // CRLF under git autocrlf, and that must not read as staleness.
   assert.equal(
-    onDisk,
-    renderModule(),
+    onDisk.replace(/\r\n/g, "\n"),
+    renderModule().replace(/\r\n/g, "\n"),
     "chartOverlaysDerived.gen.ts is stale - run: node tools/gen-derived-overlays.mjs",
   );
 });
