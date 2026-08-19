@@ -15,6 +15,7 @@ mod db;
 mod decimate;
 mod deviation;
 mod distribution;
+mod biff5;
 mod dlis;
 mod dlis_writer;
 mod equations;

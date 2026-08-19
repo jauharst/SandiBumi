@@ -380,9 +380,25 @@ fn guess_role(header: &str, kind: &str, taken: &[String]) -> (String, String) {
 /// Reads a table and reports everything the pane needs to confirm the mapping. Writes nothing.
 pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     let format = detect_format(path)?;
-    let decoded = parsers::read_text_file_with_encoding(path)?;
-    let text_encoding = decoded.encoding;
-    let text = decoded.text;
+    // SB-DIO-060: a BIFF `.xls` is read by its SIGNATURE through the cell reader, and
+    // then flows down the one delimited pipeline; the encoding label names what it
+    // actually is instead of a text-ladder guess.
+    let mut biff_notes: Vec<String> = Vec::new();
+    let (text, text_encoding) = if biff_sniff(path) {
+        let table =
+            crate::biff5::parse_biff_table(path).map_err(crate::parsers::ParseError::Table)?;
+        let label = format!("{} {} (codepage {})", table.version, table.container, table.codepage);
+        // The reader's own honesty channel: which sheet was read, and everything it
+        // skipped or approximated - counted there, SURFACED here, never silent.
+        if let Some(sheet) = &table.sheet {
+            biff_notes.push(format!("Sheet read: {sheet}."));
+        }
+        biff_notes.extend(table.notes.iter().cloned());
+        (biff_table_text(&table), label)
+    } else {
+        let decoded = parsers::read_text_file_with_encoding(path)?;
+        (decoded.text, decoded.encoding)
+    };
     let mut lines: Vec<&str> = text
         .lines()
         .map(str::trim_end)
@@ -463,6 +479,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
         format.choice_report.clone(),
         format!("Text encoding detected: {text_encoding}."),
     ];
+    notes.extend(biff_notes);
     if let Some(disagreement) = &format.extension_disagreement {
         notes.push(disagreement.clone());
     }
@@ -872,8 +889,43 @@ struct LabelKeys {
 ///
 /// Returns the separator alongside the table because a caption line has to be reassembled AS
 /// WRITTEN before a number can be read out of it — see `depth_from_label`.
+/// SB-DIO-060: a `.xls` that is a BIFF stream (bare or OLE2-contained) renders its first
+/// worksheet as tab-delimited text, so BOTH the probe and every commit path consume it
+/// through the one pipeline that already owns headers, roles, decimal conventions and the
+/// SB-DIO-007 source-cell states. A tab inside a text cell becomes a space (and the cell
+/// survives) - a delimiter collision must not shift every column after it.
+fn biff_as_table_text(path: &str) -> Result<String, String> {
+    Ok(biff_table_text(&crate::biff5::parse_biff_table(path)?))
+}
+
+fn biff_table_text(table: &crate::biff5::BiffTable) -> String {
+    let mut out = String::new();
+    for row in &table.rows {
+        let line = row
+            .iter()
+            .map(|cell| cell.replace(['\t', '\n', '\r'], " "))
+            .collect::<Vec<_>>()
+            .join("\t");
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+fn biff_sniff(path: &str) -> bool {
+    let mut header = [0u8; 8];
+    std::fs::File::open(path)
+        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut header))
+        .is_ok()
+        && crate::biff5::is_biff(&header)
+}
+
 fn split_table(path: &str, opts: &TableOptions) -> ParseResult<(Vec<Vec<String>>, char)> {
-    let text = parsers::read_text_file(path)?;
+    let text = if biff_sniff(path) {
+        biff_as_table_text(path).map_err(crate::parsers::ParseError::Table)?
+    } else {
+        parsers::read_text_file(path)?
+    };
     let mut lines: Vec<&str> = text
         .lines()
         .map(str::trim_end)
@@ -2348,6 +2400,240 @@ mod tests {
             .unwrap();
         let decoded: Vec<f32> = axis.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         assert_eq!(decoded, vec![1.0, 2.0, 4.0], "the axis is stored with the values");
+    }
+
+    /// SB-DIO-060 / SB-DIO-T89 (DEC-076: "biff5 reader"). A `.xls` that is a BIFF record
+    /// stream is read by SIGNATURE - the extension-vs-version disagreement reported, the
+    /// cells read without the drawing layer (T88), formulas never evaluated, and the
+    /// versions outside the ruling (BIFF8) refused BY NAME rather than guessed around.
+    /// Every fixture byte is constructed here from the published [MS-XLS]/[MS-CFB]
+    /// layouts - no binary fixture file ships in the repo.
+    #[test]
+    fn a_biff5_stream_named_xls_is_read_by_signature_and_the_version_disagreement_is_reported() {
+        fn rec(id: u16, body: &[u8]) -> Vec<u8> {
+            let mut out = id.to_le_bytes().to_vec();
+            out.extend((body.len() as u16).to_le_bytes());
+            out.extend(body);
+            out
+        }
+        fn label(rw: u16, col: u16, text: &str) -> Vec<u8> {
+            let mut body = Vec::new();
+            body.extend(rw.to_le_bytes());
+            body.extend(col.to_le_bytes());
+            body.extend(0u16.to_le_bytes());
+            body.extend((text.len() as u16).to_le_bytes());
+            body.extend(text.as_bytes());
+            rec(0x0204, &body)
+        }
+        fn number(rw: u16, col: u16, value: f64) -> Vec<u8> {
+            let mut body = Vec::new();
+            body.extend(rw.to_le_bytes());
+            body.extend(col.to_le_bytes());
+            body.extend(0u16.to_le_bytes());
+            body.extend(value.to_le_bytes());
+            rec(0x0203, &body)
+        }
+        // The bare wellsite stream: worksheet BOF (vers 0x0500, dt 0x0010 - the
+        // 09 08 06 00 signature detect_format cites), a header row, two data rows
+        // (one RK-encoded integer: (42 << 2) | fInt), one drawing-layer record the
+        // reader must step over (T88), EOF.
+        let mut stream = rec(0x0809, &[0x00, 0x05, 0x10, 0x00, 0x00, 0x00]);
+        stream.extend(label(0, 0, "DEPT"));
+        stream.extend(label(0, 1, "GR"));
+        stream.extend(number(1, 0, 1000.0));
+        stream.extend(number(1, 1, 45.5));
+        stream.extend(number(2, 0, 1000.5));
+        let mut rk = Vec::new();
+        rk.extend(2u16.to_le_bytes());
+        rk.extend(1u16.to_le_bytes());
+        rk.extend(0u16.to_le_bytes());
+        rk.extend(((42u32 << 2) | 0x02).to_le_bytes());
+        stream.extend(rec(0x027E, &rk));
+        stream.extend(rec(0x00EC, &[0u8; 4])); // MSODRAWING: outside scope, stepped over
+        stream.extend(rec(0x000A, &[]));
+        let path = std::env::temp_dir().join("sandi_t89_bare.xls");
+        std::fs::write(&path, &stream).unwrap();
+        let p = path.to_str().unwrap();
+
+        // Read by signature, and the version disagreement is REPORTED (T89).
+        let probed = probe(p, &TableOptions::default()).unwrap();
+        assert!(probed.format.detected_format.contains("BIFF5"), "{:?}", probed.format.detected_format);
+        assert!(
+            probed.format.extension_disagreement.is_some(),
+            "the .xls-vs-BIFF5-stream disagreement must be reported"
+        );
+        assert!(probed.text_encoding.contains("BIFF5"), "{}", probed.text_encoding);
+        assert_eq!(probed.columns.len(), 2);
+        assert_eq!(probed.columns[0].header, "DEPT");
+        assert_eq!(probed.columns[1].header, "GR");
+
+        // ...and the cells land in the curve store through the ordinary pipeline.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-T89", None, None, None).unwrap();
+        let req = CurveCommit {
+            paths: vec![p.to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into()],
+            opts: TableOptions::default(),
+            set_name: Some("WSITE".into()),
+            depth_unit: None,
+            fallback_well_id: Some(wid.to_string()),
+        };
+        let res = commit_curves(&conn, &req);
+        assert!(res[0].error.is_none(), "{:?}", res[0].error);
+        assert_eq!(res[0].curves, vec!["GR".to_string()]);
+        let values: Vec<f32> = conn
+            .prepare(
+                "SELECT s.value FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.mnemonic = 'GR' ORDER BY s.depth",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(values, vec![45.5, 42.0], "NUMBER and RK cells both decode ([MS-XLS] 2.5.276)");
+
+        // The OLE2 route: the same worksheet inside a compound document's Book stream
+        // (small enough to live in the MINI stream, the realistic wellsite size), and a
+        // BIFF8 Workbook that refuses BY VERSION NAME.
+        fn cfb(stream_name: &str, workbook: &[u8]) -> Vec<u8> {
+            let sect = 512usize;
+            let mini_sectors = workbook.len().div_ceil(64);
+            // Ministream (root's own stream) holds the workbook in 64-byte mini sectors.
+            let mut ministream = workbook.to_vec();
+            ministream.resize(mini_sectors * 64, 0);
+            let mini_stream_sectors = ministream.len().div_ceil(sect).max(1);
+            // Regular sector layout: 0 = FAT, 1 = directory, 2 = mini FAT,
+            // 3.. = ministream.
+            let mut fat: Vec<u32> = vec![0xFFFF_FFFD, 0xFFFF_FFFE, 0xFFFF_FFFE];
+            for index in 0..mini_stream_sectors {
+                let sector_number = 3 + index as u32;
+                fat.push(if index + 1 == mini_stream_sectors {
+                    0xFFFF_FFFE
+                } else {
+                    sector_number + 1
+                });
+            }
+            fat.resize(sect / 4, 0xFFFF_FFFF);
+            let mut minifat: Vec<u32> = (1..mini_sectors as u32).collect();
+            minifat.push(0xFFFF_FFFE);
+            minifat.resize(sect / 4, 0xFFFF_FFFF);
+
+            let mut header = vec![0u8; sect];
+            header[..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+            header[24..26].copy_from_slice(&0x003Eu16.to_le_bytes());
+            header[26..28].copy_from_slice(&3u16.to_le_bytes());
+            header[28..30].copy_from_slice(&0xFFFEu16.to_le_bytes());
+            header[30..32].copy_from_slice(&9u16.to_le_bytes());
+            header[32..34].copy_from_slice(&6u16.to_le_bytes());
+            header[44..48].copy_from_slice(&1u32.to_le_bytes()); // one FAT sector
+            header[48..52].copy_from_slice(&1u32.to_le_bytes()); // directory at sector 1
+            header[56..60].copy_from_slice(&4096u32.to_le_bytes()); // mini cutoff
+            header[60..64].copy_from_slice(&2u32.to_le_bytes()); // mini FAT at sector 2
+            header[64..68].copy_from_slice(&1u32.to_le_bytes()); // one mini FAT sector
+            header[68..72].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes()); // no DIFAT chain
+            header[76..80].copy_from_slice(&0u32.to_le_bytes()); // DIFAT[0] = FAT sector 0
+            for at in (80..512).step_by(4) {
+                header[at..at + 4].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            }
+
+            fn dir_entry(name: &str, kind: u8, start: u32, size: u32) -> Vec<u8> {
+                let mut entry = vec![0u8; 128];
+                for (index, unit) in name.encode_utf16().enumerate() {
+                    entry[index * 2..index * 2 + 2].copy_from_slice(&unit.to_le_bytes());
+                }
+                entry[64..66]
+                    .copy_from_slice(&(((name.len() + 1) * 2) as u16).to_le_bytes());
+                entry[66] = kind;
+                entry[68..72].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                entry[72..76].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                entry[76..80].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                entry[116..120].copy_from_slice(&start.to_le_bytes());
+                entry[120..124].copy_from_slice(&size.to_le_bytes());
+                entry
+            }
+            let mut directory = Vec::new();
+            directory.extend(dir_entry("Root Entry", 5, 3, ministream.len() as u32));
+            directory.extend(dir_entry(stream_name, 2, 0, workbook.len() as u32));
+            directory.resize(sect, 0);
+
+            let mut file = header;
+            for value in &fat {
+                file.extend(value.to_le_bytes());
+            }
+            file.extend(directory);
+            for value in &minifat {
+                file.extend(value.to_le_bytes());
+            }
+            ministream.resize(mini_stream_sectors * sect, 0);
+            file.extend(ministream);
+            file
+        }
+
+        // A real workbook shape: globals substream (BOUNDSHEET names the sheet), the
+        // data sheet, and a SECOND sheet substream - which must be COUNTED in the
+        // notes and surfaced by the probe, never silently dropped.
+        let mut boundsheet = Vec::new();
+        boundsheet.extend(0u32.to_le_bytes());
+        boundsheet.extend(0u16.to_le_bytes());
+        boundsheet.push(8u8);
+        boundsheet.extend(b"WELLDATA");
+        let workbook = [
+            rec(0x0809, &[0x00, 0x05, 0x05, 0x00, 0x00, 0x00]),
+            rec(0x0085, &boundsheet),
+            rec(0x000A, &[]),
+            stream.clone(),
+            rec(0x0809, &[0x00, 0x05, 0x10, 0x00, 0x00, 0x00]),
+            rec(0x000A, &[]),
+        ]
+        .concat();
+        let ole_path = std::env::temp_dir().join("sandi_t89_ole.xls");
+        std::fs::write(&ole_path, cfb("Book", &workbook)).unwrap();
+        let table = crate::biff5::parse_biff_table(ole_path.to_str().unwrap()).unwrap();
+        assert_eq!(table.version, "BIFF5");
+        assert_eq!(table.container, "OLE2 compound document");
+        assert_eq!(table.sheet.as_deref(), Some("WELLDATA"));
+        assert_eq!(table.rows[1][1], "45.5", "the mini-stream walk reaches the same cells");
+        assert!(
+            table.notes.iter().any(|n| n.contains("2 sheet substreams")),
+            "the unread sheet is counted, never silently dropped: {:?}",
+            table.notes
+        );
+        let ole_probe = probe(ole_path.to_str().unwrap(), &TableOptions::default()).unwrap();
+        assert!(
+            ole_probe.notes.iter().any(|n| n.contains("Sheet read: WELLDATA"))
+                && ole_probe.notes.iter().any(|n| n.contains("2 sheet substreams")),
+            "the reader's honesty notes surface in the probe: {:?}",
+            ole_probe.notes
+        );
+
+        let biff8 = [
+            rec(0x0809, &[0x00, 0x06, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00]),
+            rec(0x000A, &[]),
+        ]
+        .concat();
+        let b8_path = std::env::temp_dir().join("sandi_t89_biff8.xls");
+        std::fs::write(&b8_path, cfb("Workbook", &biff8)).unwrap();
+        let error = crate::biff5::parse_biff_table(b8_path.to_str().unwrap())
+            .expect_err("BIFF8 is outside the ruling and must refuse by name");
+        assert!(error.contains("BIFF8"), "{error}");
+
+        // SB-DIO-061 discipline: a record whose declared body runs past the end of the
+        // stream is LOCATED, never read as garbage (cut lands mid-body of the
+        // drawing-layer record).
+        let truncated = &stream[..stream.len() - 6];
+        let t_path = std::env::temp_dir().join("sandi_t89_trunc.xls");
+        std::fs::write(&t_path, truncated).unwrap();
+        let error = crate::biff5::parse_biff_table(t_path.to_str().unwrap())
+            .expect_err("a record past the end of the stream must refuse");
+        assert!(error.contains("offset") && error.contains("truncated"), "{error}");
+
+        for file in [&path, &ole_path, &b8_path, &t_path] {
+            let _ = std::fs::remove_file(file);
+        }
     }
 
     /// SB-DIO-007 / SB-DIO-T11 (signed DRAFT_DIO007 under DEC-076). "Field empty" and

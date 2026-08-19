@@ -439,3 +439,4 @@
 "SB-CORE-007","CORRECTNESS","src-tauri/src/modules.rs","output_identity_is_scoped_by_class_topics_carry_one_default_and_the_two_part_a_adjudications_are_pinned_exactly"
 "SB-DBM-005","CORRECTNESS","src-tauri/src/modules.rs","the_derivation_citation_travels_with_the_run_and_a_module_without_one_fails_registration"
 "SB-DBM-010","CORRECTNESS","src-tauri/src/export.rs","an_export_that_carries_computed_curves_carries_their_run_records_and_a_format_that_drops_provenance_says_so"
+"SB-DIO-060","CORRECTNESS","src-tauri/src/intake.rs","a_biff5_stream_named_xls_is_read_by_signature_and_the_version_disagreement_is_reported"

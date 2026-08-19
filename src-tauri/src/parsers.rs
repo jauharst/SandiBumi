@@ -11,6 +11,10 @@ pub enum ParseError {
     Csv(#[from] csv::Error),
     #[error("las parse error: {0}")]
     Las(String),
+    /// SB-DIO-060: a binary table reader's failure (BIFF/OLE2). The message already
+    /// names its file and record offset, so no prefix is added here.
+    #[error("{0}")]
+    Table(String),
     /// SB-DIO-061: a reader failure that names its artifact. "Which delivery broke?" must
     /// be answerable from the message alone — a probe found 23 reader failures that could
     /// not say, so every delimited-reader entry wraps its errors here.
