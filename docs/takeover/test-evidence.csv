@@ -453,3 +453,6 @@
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_thirteen_deleted_vendor_definitions_are_gone_from_the_catalog_and_the_six_derived_ones_remain"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_derived_lith2_ratio_lines_are_geometry_from_the_printed_boundary_values_and_match_the_digitized_lines_one_to_one"
 "SB-PLT-024","CORRECTNESS","tools/chart-derivation.test.mjs","the_lith2_derivation_constants_are_exactly_the_printed_chart_page_values"
+"SB-CORE-044","CORRECTNESS","tools/release-inventory.test.mjs","every_chartdig_digitized_asset_in_the_tree_is_registered_by_name_in_the_provenance_register"
+"SB-CORE-044","CORRECTNESS","tools/release-inventory.test.mjs","the_dec_083_first_sale_deferral_is_recorded_in_every_store_and_cannot_silently_vanish"
+"SB-CORE-044","CORRECTNESS","tools/release-inventory.test.mjs","the_public_chart_claim_states_what_actually_ships_and_the_stale_digitized_claim_never_returns"

@@ -6,12 +6,40 @@ This is the human-readable companion to the machine-owned blocker set in
 
 ## Live snapshot
 
-- Gate: `G2 - SILENT-WRONGNESS CLOSURE`
+- Gate: `G2 - SILENT-WRONGNESS CLOSURE` - **FORMALLY CLOSED 2026-08-20 (DEC-083)**
 - Scope: `222` Gate 2 requirements plus `20` later-gate-only requirements
 - Handled: `222 / 222`
-- Done: `164`
-- Blocked: `58`
+- Done: `222`
+- Blocked: `0`
 - Remaining unhandled: `0`
+
+---
+
+## Formal closure, 2026-08-20 (DEC-083) - and the first-sale deferred register
+
+Jauhar could not obtain counsel in the pre-ship timeframe and ruled the gate formally
+finalized (DEC-083, verbatim in `DECISIONS.md`). The last two rows - `SB-PLT-024` and
+`SB-CORE-044` - closed with every engineering arm complete: the six-of-six derivation
+program (DEC-078/079/080/081), the thirteen-id delete (DEC-082), per-value endpoint
+custody (DEC-078), the theme rename (DEC-074), and the owed fail-closed release-inventory
+proof, landed as `tools/release-inventory.test.mjs` in the green gate.
+
+**DEC-083 is a pre-ship posture, not legal clearance.** The counsel items are DEFERRED BY
+NAME to first commercial sale, and the release-inventory test fails if any of them silently
+vanishes from `CLAIMS.md`, `DECISIONS.md` or this register:
+
+- **CLAIM-013 - the shipped chart set**: the six derived overlay definitions (published
+  equations + printed page values), their keep-listed digitized remnants (apparent-position
+  mineral points and annotation lines), and the Por-4/Por-5 neutron equivalence tables in
+  `src-tauri/src/neutron_charts.rs` - a registered digitized asset that was never inside the
+  thirteen-id ruling and still ships because the neutron-porosity module math depends on it.
+- **CLAIM-012 - the endpoint library**: engineering custody is complete (DEC-078 per-value
+  provenance); whether the curated selection carries a claim beyond its rows is counsel's.
+- **Dependency attention items**: `THIRD-PARTY-LICENSES.md` is generated and gate-current -
+  inventoried, not legally cleared.
+
+Before first commercial sale: obtain the counsel dispositions above, then record them here
+and in `CLAIMS.md`; nothing else reopens at Gate 2.
 
 ---
 
@@ -179,10 +207,10 @@ coding gaps would invite silent wrongness or transfer engineering responsibility
 The first column is mechanically compared with `gate2-program.json`. Every live blocked
 requirement appears exactly once.
 
-| Requirement | Blocker class | What is missing | Exact unblocking input or action |
-|---|---|---|---|
-| `SB-CORE-044` | Source and legal | Endpoint-library arm CLOSED by DEC-078 (2026-08-19, per-value custody shipped); theme arm CLOSED by DEC-074. Remaining: the chart-payload arm CLOSED by DEC-082 (re-derivations complete, the thirteen deleted and pinned against reappearance — the chart part of the release-inventory proof now exists in tools/chart-derivation.test.mjs); counsel dispositions (CLAIM-012/013, dependency attention items) stay open first-sale items. | Execute SB-PLT-024; obtain counsel dispositions; then add the fail-closed release-inventory proof over the settled shipped set. |
-| `SB-PLT-024` | Every ruling delivered; delete EXECUTED | DEC-078 rules the route; DEC-079 the two fidelity questions; DEC-080 reclassifies Por-20; DEC-081 reclassifies Lith-1 (cited chain read in full — no printed numeric source exists); the derivable class closed COMPLETE at six of six executed (por22_ta, por22_fo, lith3, lith4, lith6_mid, lith2_thk). DEC-082 (2026-08-19): Jauhar delivered the Gate 5 word — DELETE — and the thirteen vendor definitions are out of `chartOverlays.ts`, with the deletion record in `chartOverlayPolicy.ts` and the fail-closed reappearance pin in `tools/chart-derivation.test.mjs`; deleted bytes live only in git history. | All engineering and all owner rulings on this row are done. Remaining: counsel closes CLAIM-013 over the shipped set (six derived definitions + their keep-listed digitized remnants). Field verification: the DEC-082 checklist in REVIEW.md. |
+None. The set is empty as of 2026-08-20: the final two rows (`SB-PLT-024`,
+`SB-CORE-044`) closed under DEC-083 with their counsel items moved to the first-sale
+deferred register above. Their full closure narratives live in `requirements.csv`; the
+superseded blocker rows live in git history.
 
 ## Product-owner decision packet
 

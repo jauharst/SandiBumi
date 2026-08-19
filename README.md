@@ -37,8 +37,9 @@ come only from that release's lock. Open **Project → Help → Prerequisites** 
   (k-means/GMM) + scikit-learn ML suite, workflow chains + Monte Carlo uncertainty,
   pay summary + field dashboard.
 - **Plots**: WebGPU log views, histogram/crossplot/Pickett/correlation with synchronized
-  hover, Thomas-Stieber, **19 vector-digitized Schlumberger-2013 chart overlays**
-  (D-N/sonic/PEF/Th-K/MID), interactive parameter picking that writes zone parameters.
+  hover, Thomas-Stieber, **6 chart overlays re-derived from published primary sources**
+  (Wyllie/RHG sonic porosity, Gardner-Dumanoir Pe lithology, Th/K clay, Umaa-rhomaa MID),
+  interactive parameter picking that writes zone parameters.
 - **Deliverables**: composite log plots at true print scale, vector SVG + multi-page PDF
   report generator (methodology/zone/pay tables).
 - **Workspace**: Office-style ribbon, dockable panels, sessions, client-branded themes,

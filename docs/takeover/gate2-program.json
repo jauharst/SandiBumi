@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
   "program_id": "G2-PILOT-TRUTH-CLOSURE",
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "baseline_merge_commit": "ca4f8c924373adbc3c0362202b7a914a56bd2b48",
   "approved_scope_sha256": "0412de0cc43fabbe0c5e32d4c831d65e90536ee1c348802ab67cb0f3dcd70b6b",
   "gate2_requirement_count": 222,
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 0,
-    "REMEDIATE": 2,
+    "REMEDIATE": 0,
     "PROVE": 6,
-    "RETAIN": 214
+    "RETAIN": 216
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -320,12 +320,11 @@
     "SB-POR-025",
     "SB-ENV-004",
     "SB-CORE-003",
-    "SB-CORE-005"
-  ],
-  "blocked_requirements": [
+    "SB-CORE-005",
     "SB-CORE-044",
     "SB-PLT-024"
   ],
+  "blocked_requirements": [],
   "later_gate_only": [
     {
       "requirement_id": "SB-CORE-041",
