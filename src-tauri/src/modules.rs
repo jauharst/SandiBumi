@@ -338,6 +338,42 @@ impl ShaleClayQuantity {
     }
 }
 
+/// SB-CORE-007 (signed DRAFT_CORE007 Part A/B2 under DEC-076): the identity class of a
+/// declared default output name. Absent from [`OUTPUT_IDENTITY_REGISTRY`] = CANONICAL -
+/// a custody name that must be unique across the whole catalog. `Working` is an elected
+/// working curve shared by several methods BY DESIGN and is valid only beside a unique
+/// custody-named canonical sibling in the same manifest. `Categorical` is a method flag
+/// whose values differ per producer by TYPE (never by allowlist). `Placeholder` is a
+/// manifest key resolved to an input-derived name (`workflow::resolve_output_names`)
+/// before anything is stored.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputIdentityClass {
+    Working,
+    Categorical,
+    Placeholder,
+}
+
+/// SB-CORE-007 Part A, transcribed from the SIGNED registry (DRAFT_CORE007, signed under
+/// DEC-076). Keyed by MNEMONIC - the shape Part A itself uses - because a third of the
+/// shared declarations live in PROTECTED manifests (`lrlc.rs` sw_imts/sw_rtc,
+/// `satheight.rs` sw_height) that DEC-076 did not authorize editing, so a per-manifest
+/// class field could not reach them. Any name not listed here is CANONICAL. `FTEMP` is
+/// deliberately NOT here: its two producers share the working name with no custody
+/// siblings, and which of Part A's adjudication-1 options resolves it is Jauhar's open
+/// call - the validator pins it as the ONE named unresolved case.
+pub(crate) const OUTPUT_IDENTITY_REGISTRY: &[(&str, OutputIdentityClass)] = &[
+    ("VSH", OutputIdentityClass::Working),
+    ("PHIE", OutputIdentityClass::Working),
+    ("PHIT", OutputIdentityClass::Working),
+    ("SWE", OutputIdentityClass::Working),
+    ("SWT", OutputIdentityClass::Working),
+    ("PERM", OutputIdentityClass::Working),
+    ("VOL_UWAT", OutputIdentityClass::Working),
+    ("SW_METHOD", OutputIdentityClass::Categorical),
+    ("OUT_CURVE", OutputIdentityClass::Placeholder),
+];
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ArgSpec {
     pub name: String,
@@ -2239,6 +2275,10 @@ fn module_catalog() -> &'static [ModuleSpec] {
         )
         .unwrap_or_else(|error| panic!("{error}"));
         validate_clay_unit_contract(&modules).unwrap_or_else(|error| panic!("{error}"));
+        // SB-CORE-007 (DEC-051 form + DRAFT_CORE007 classes): declaration inspection,
+        // never execution - class-scoped output uniqueness and per-topic default identity.
+        validate_output_identity_classes(&modules).unwrap_or_else(|error| panic!("{error}"));
+        validate_topic_default_identity(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
         modules
@@ -2341,6 +2381,197 @@ pub(crate) fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), S
             "SB-CORE-004 parameter-source build gate failed ({} violation{}): {}",
             failures.len(),
             if failures.len() == 1 { "" } else { "s" },
+            failures.join("; ")
+        ))
+    }
+}
+
+/// SB-CORE-007 T23, in its DEC-051 form (declaration inspection at catalog build, never
+/// execution) with DRAFT_CORE007 Part B2's class scoping: CANONICAL default names must be
+/// unique across the catalog; a WORKING name is shared by design but valid only beside a
+/// canonical custody sibling in the same manifest; CATEGORICAL is shared by type;
+/// a pattern default (braces) is PLACEHOLDER by manifest, resolved before storage. The
+/// effective declared name is `default` when a fixed rename is declared, else the key.
+/// `FTEMP` (ftemp_grad + precalc) is the ONE named unresolved duplicate - Part A
+/// adjudication 1 is Jauhar's open call under DEC-076 - so it is pinned exactly: any
+/// third producer, or any second FTEMP-like case, fails the build.
+pub(crate) fn validate_output_identity_classes(modules: &[ModuleSpec]) -> Result<(), String> {
+    use std::collections::BTreeMap;
+    let class_of = |name: &str| {
+        OUTPUT_IDENTITY_REGISTRY
+            .iter()
+            .find(|(registered, _)| *registered == name)
+            .map(|(_, class)| *class)
+    };
+    let mut canonical_sites: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut failures = Vec::new();
+    for module in modules {
+        let outs: Vec<&ArgSpec> =
+            module.args.iter().filter(|arg| arg.kind == ArgKind::LogOut).collect();
+        for arg in &outs {
+            let effective = if arg.default.is_empty() { arg.name.as_str() } else { arg.default.as_str() };
+            if effective.contains('{') {
+                continue; // placeholder by manifest: resolve_output_names owns the name
+            }
+            match class_of(effective) {
+                None => canonical_sites
+                    .entry(effective.to_string())
+                    .or_default()
+                    .push(module.name.clone()),
+                Some(OutputIdentityClass::Working) => {
+                    let has_custody_sibling = outs.iter().any(|sibling| {
+                        let sib = if sibling.default.is_empty() {
+                            sibling.name.as_str()
+                        } else {
+                            sibling.default.as_str()
+                        };
+                        sib != effective && !sib.contains('{') && class_of(sib).is_none()
+                    });
+                    if !has_custody_sibling {
+                        failures.push(format!(
+                            "{}.{effective} is a WORKING-class output with no canonical custody sibling in its own manifest - the election pattern requires the method-named curve beside it",
+                            module.name
+                        ));
+                    }
+                }
+                Some(OutputIdentityClass::Categorical) => {}
+                Some(OutputIdentityClass::Placeholder) => {
+                    if !arg.default.contains('{') {
+                        failures.push(format!(
+                            "{}.{effective} is registered PLACEHOLDER but declares no resolution pattern - an unresolved placeholder would reach storage under its manifest key",
+                            module.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    for (name, sites) in &canonical_sites {
+        if sites.len() <= 1 {
+            continue;
+        }
+        let mut sorted = sites.clone();
+        sorted.sort();
+        if name == "FTEMP" && sorted == ["ftemp_grad", "precalc"] {
+            // The first signed unresolved case (DRAFT_CORE007 Part A adjudication 1,
+            // kept open by DEC-076): both producers share the working name with no
+            // custody siblings. Pinned exactly - a third producer fails here.
+            continue;
+        }
+        if name == "VSAND" && sorted == ["ssc", "thin_bed_ts"] {
+            // The second signed unresolved case (Part A adjudication 2): same name,
+            // arguably different quantities - ssc's projected-matrix sand fraction vs
+            // thin_bed_ts's non-laminar net-sand fraction (1 - VLAM). Which of the three
+            // options resolves it is Jauhar's call; the exact pair is pinned meanwhile.
+            continue;
+        }
+        failures.push(format!(
+            "canonical output name {name} is declared by {} - custody names are unique across the catalog, and only the pinned FTEMP pair may share undecided",
+            sorted.join(", ")
+        ));
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-CORE-007 output-identity build gate failed ({}): {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
+}
+
+/// SB-CORE-007 T19 (DRAFT_CORE007 Part C, signed under DEC-076): within one sources
+/// topic, ONE default value or ABSENT - enforced at catalog construction, where the
+/// registry already refuses an unsourced default. The two Part C3 adjudications that
+/// remain Jauhar's are pinned EXACTLY rather than exempted loosely: a new divergence, or
+/// any drift in a pinned one, fails the build by name.
+pub(crate) fn validate_topic_default_identity(modules: &[ModuleSpec]) -> Result<(), String> {
+    use std::collections::BTreeMap;
+    let mut by_topic: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for module in modules {
+        for arg in &module.args {
+            if arg.kind != ArgKind::Param || arg.sources_topic.is_empty() {
+                continue;
+            }
+            by_topic
+                .entry(arg.sources_topic.clone())
+                .or_default()
+                .push((format!("{}.{}", module.name, arg.name), arg.default.trim().to_string()));
+        }
+    }
+    let mut failures = Vec::new();
+    for (topic, members) in &by_topic {
+        let mut values: Vec<&str> = members.iter().map(|(_, value)| value.as_str()).collect();
+        values.sort();
+        values.dedup();
+        if values.len() <= 1 {
+            continue;
+        }
+        let render = || {
+            members
+                .iter()
+                .map(|(site, value)| {
+                    format!("{site}={}", if value.is_empty() { "ABSENT" } else { value })
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        match topic.as_str() {
+            // SB-POR-028: MODE-SPECIFIC clamp bounds per docs/PRD_v2/11_porosity.md S5
+            // lines 1231-1232 (chart mode clamps both axes, Bateman-Konen the neutron
+            // side only, wider) - a deliberate per-mode identity the registry's own doc
+            // records; DRAFT_CORE007 Part C3.1 asks Jauhar to confirm it, so the exact
+            // current pair is pinned rather than the topic exempted.
+            t if t == crate::param_sources::SHALE_REDUCTION_CLAMP => {
+                // This topic is a BOUNDS GROUP (min/max of both crossplot axes), so it is
+                // multi-valued by design; what T19 pins is the exact shipped state,
+                // including the NPHISR_MAX 0.4-vs-1 mode split C3.1 asks Jauhar to
+                // confirm. Any drift in any bound fails by name.
+                let mut sorted = members.clone();
+                sorted.sort();
+                let expected = [
+                    ("phi_dn.NPHISR_MAX".to_string(), "0.4".to_string()),
+                    ("phi_dn.NPHISR_MIN".to_string(), "-0.015".to_string()),
+                    ("phi_dn.RHOSR_MAX".to_string(), "3".to_string()),
+                    ("phi_dn.RHOSR_MIN".to_string(), "1.95".to_string()),
+                    ("phi_dnbk.NPHISR_MAX".to_string(), "1".to_string()),
+                    ("phi_dnbk.NPHISR_MIN".to_string(), "-0.015".to_string()),
+                ];
+                if sorted != expected {
+                    failures.push(format!(
+                        "topic {topic} diverged from its pinned SB-POR-028 mode split: {}",
+                        render()
+                    ));
+                }
+            }
+            // DRAFT_CORE007 Part C3.3: the VSH indicator refuses to invent endpoints
+            // (ABSENT) while porosity ships the three-way-agreed 2.65 - reads deliberate,
+            // awaiting Jauhar's confirmation. Pinned exactly: vsh_dn.RHO_MA is the only
+            // ABSENT member and every other member ships 2.65.
+            t if t == crate::param_sources::MATRIX_DENSITY => {
+                let deliberate = members.iter().all(|(site, value)| {
+                    if site == "vsh_dn.RHO_MA" { value.is_empty() } else { value == "2.65" }
+                });
+                if !deliberate {
+                    failures.push(format!(
+                        "topic {topic} diverged from its pinned C3.3 state (vsh_dn ABSENT beside 2.65): {}",
+                        render()
+                    ));
+                }
+            }
+            _ => failures.push(format!(
+                "topic {topic} carries more than one default: {} - one topic, one default (or ABSENT), per SB-CORE-T19",
+                render()
+            )),
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-CORE-007 topic-identity build gate failed ({}): {}",
+            failures.len(),
             failures.join("; ")
         ))
     }
@@ -9183,6 +9414,115 @@ mod tests {
 
         validate_parameter_sources(module_catalog())
             .expect("the complete shipping module registry must contain zero unsourced defaults");
+    }
+
+    /// SB-CORE-007 T23+T19 (signed DRAFT_CORE007 under DEC-076, in DEC-051's
+    /// declaration-inspection form): canonical custody names are unique across the
+    /// catalog, a working name is valid only beside its custody sibling, one topic
+    /// carries one default (or ABSENT), and the ONLY tolerated duplicates are the two
+    /// Part A adjudications pinned by exact producer pair - FTEMP (adjudication 1) and
+    /// VSAND (adjudication 2), both Jauhar's open calls.
+    #[test]
+    fn output_identity_is_scoped_by_class_topics_carry_one_default_and_the_two_part_a_adjudications_are_pinned_exactly(
+    ) {
+        // The live catalog passes with ZERO exemptions beyond the two pinned pairs.
+        validate_output_identity_classes(module_catalog())
+            .expect("the shipping catalog satisfies class-scoped output identity");
+        validate_topic_default_identity(module_catalog())
+            .expect("the shipping catalog satisfies per-topic default identity");
+
+        let module = |name: &str, args: Vec<ArgSpec>| ModuleSpec {
+            name: name.into(),
+            title: name.into(),
+            category: "Prep".into(),
+            doc: String::new(),
+            args,
+        };
+
+        // A duplicate CANONICAL name across two manifests fails naming both producers.
+        let a = module("mod_a", vec![log_out("MYCURVE", "one", "")]);
+        let b = module("mod_b", vec![log_out("MYCURVE", "two", "")]);
+        let error = validate_output_identity_classes(&[a, b])
+            .expect_err("a duplicated custody name must fail the build");
+        assert!(error.contains("MYCURVE") && error.contains("mod_a") && error.contains("mod_b"), "{error}");
+
+        // A WORKING declaration with no canonical custody sibling fails - the election
+        // pattern requires the method-named curve beside it (both sides of B2).
+        let lone = module("mod_c", vec![log_out("PHIE", "working alone", "v/v")]);
+        let error = validate_output_identity_classes(&[lone])
+            .expect_err("a working name without a custody sibling must fail");
+        assert!(error.contains("mod_c.PHIE") && error.contains("custody sibling"), "{error}");
+        let paired = module(
+            "mod_d",
+            vec![log_out("PHIE_D", "custody", "v/v"), log_out("PHIE", "working", "v/v")],
+        );
+        validate_output_identity_classes(&[paired])
+            .expect("a working name beside its custody sibling is the election pattern");
+
+        // A THIRD producer of a pinned adjudication pair is not covered by the pin.
+        let third = module("mod_e", vec![log_out("FTEMP", "a third ftemp", "degC")]);
+        let mut with_third: Vec<ModuleSpec> = module_catalog().to_vec();
+        with_third.push(third);
+        validate_output_identity_classes(&with_third)
+            .expect_err("the FTEMP pin covers exactly ftemp_grad+precalc, never a third producer");
+
+        // T19: two defaults inside one topic fail by name; ABSENT everywhere passes.
+        let mk = |module_name: &str, value: &str| {
+            let mut arg = param("X", "x", "", 0.0, 0.0, 10.0, "test source");
+            arg.sources_topic = "some_shared_topic".into();
+            arg.default = value.into();
+            if value.is_empty() {
+                arg.default_source = ABSENT_DEFAULT_SOURCE.into();
+            }
+            module(module_name, vec![arg])
+        };
+        let error = validate_topic_default_identity(&[mk("mod_f", "1.0"), mk("mod_g", "2.0")])
+            .expect_err("one topic, one default");
+        assert!(
+            error.contains("some_shared_topic") && error.contains("mod_f.X=1.0") && error.contains("mod_g.X=2.0"),
+            "{error}"
+        );
+        validate_topic_default_identity(&[mk("mod_f", ""), mk("mod_g", "")])
+            .expect("ABSENT everywhere is one identity");
+    }
+
+    /// SB-CORE-007 T20 (DRAFT_CORE007 Part D, route ruled by DEC-076: the both-copies
+    /// EQUALITY TEST, no protected-file edit). The eight-transform GR ladder ships
+    /// verbatim in BOTH homes - `ssc.rs` and `modules.rs` - so this fails if either copy
+    /// changes alone. The sspw gas weight is pinned AS the unruled divergence: the sspw
+    /// twin still runs the 1.6/2 = 0.8-per-side form the SSC site replaced with equal
+    /// halves (fix-vs-deliberate is Jauhar's open method call, kept open by name in
+    /// DEC-076) - a silent "fix" of the twin fails here and forces the ruling to be
+    /// recorded first.
+    #[test]
+    fn the_gr_ladder_ships_verbatim_in_both_homes_and_the_sspw_gas_weight_is_pinned_as_the_unruled_divergence(
+    ) {
+        let strip = |s: &str| s.split_whitespace().collect::<String>();
+        let ssc = strip(include_str!("ssc.rs"));
+        let this = strip(include_str!("modules.rs"));
+        let arms = [
+            "\"STIEBER1\"=>{v=limit(v,-10.0,1.49);v/(3.0-2.0*v)}",
+            "\"STIEBER2\"=>{v=limit(v,-10.0,1.99);v/(2.0-v)}",
+            "\"STIEBER3\"=>{v=limit(v,-10.0,1.33);v/(4.0-3.0*v)}",
+            "\"LARINOV1\"=>0.33*(2.0_f64.powf(2.0*v)-1.0)",
+            "\"LARINOV2\"=>0.083*(2.0_f64.powf(3.7*v)-1.0)",
+            "\"LARINOV3\"=>0.127*(3.15_f64.powf(2.0*v)-1.0)",
+            "\"CLAVIER\"=>{v=limit(v,-2.53,1.13);1.7-(3.38-(v+0.7).powi(2)).sqrt()}",
+        ];
+        for arm in arms {
+            assert!(ssc.contains(arm), "ssc.rs lost or changed its copy of {arm}");
+            assert!(this.contains(arm), "modules.rs lost or changed its copy of {arm}");
+        }
+        // The divergence pair, pinned exactly: the fixed SSC site runs equal halves...
+        assert!(
+            ssc.contains("letmid=((phidi*phidi+np*np)/2.0).max(0.0).sqrt();"),
+            "the fixed SSC gas midpoint is gone - the T20 witness moved"
+        );
+        // ...and the sspw twin still runs the 1.6 form, AS SHIPPED, until he rules.
+        assert!(
+            ssc.contains("(phidi*phidi-1.6*(phidi*phidi-np*np).abs()/2.0).max(0.0).sqrt()"),
+            "the sspw 1.6 gas weight changed without a recorded ruling - DEC-076 kept fix-vs-deliberate open by name; record the ruling and move this pin"
+        );
     }
 
     /// CORRECTNESS — SB-CORE-004 / SB-CORE-T11 and `record_data_tools.md`'s despike-window
