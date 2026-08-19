@@ -1,4 +1,5 @@
-//! Generalized Multimin — user-defined multi-mineral / fluid optimizer, modeled on
+//! SandiMin — user-defined multi-mineral / fluid optimizer (file renamed from
+//! multimin2.rs when the internal names caught up with the product name), modeled on
 //! the reference multi-mineral solver and IP's Mineral Solver (spec extracted from both installs, see
 //! docs/multimin_ref_spec.md and docs/multimin_ip_spec.md).
 //!
@@ -286,9 +287,9 @@ fn solver_refusal(model: SwModel) -> String {
     format!("'{}' is another module's method identity, not a SandiMin solver model", model.id())
 }
 
-/// Test seam: the refusal `run_multimin` issues for a registry-only identity, without a database.
+/// Test seam: the refusal `run_sandimin` issues for a registry-only identity, without a database.
 #[cfg(test)]
-pub(crate) fn run_multimin_selectability_probe(model: SwModel) -> String {
+pub(crate) fn run_sandimin_selectability_probe(model: SwModel) -> String {
     if model.solver_selectable() {
         return String::new();
     }
@@ -710,7 +711,7 @@ fn default_phit_sh() -> f64 {
     0.10
 }
 
-/// Derived fluid quantities (also exposed to the dialog via `multimin_fluid_calc`).
+/// Derived fluid quantities (also exposed to the dialog via `sandimin_fluid_calc`).
 #[derive(Debug, Clone, Serialize)]
 pub struct FluidCalc {
     pub w: f64,
@@ -731,7 +732,7 @@ pub struct FluidCalc {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct MultiminRequest {
+pub struct SandiminRequest {
     pub components: Vec<Component>,
     pub tools: Vec<ToolSpec>,
     pub apply_well_ids: Vec<String>,
@@ -798,7 +799,10 @@ fn default_sigma_constraint() -> f64 {
 }
 
 fn default_prefix() -> String {
-    "MM".into()
+    // "SM" (SandiMin) since the DEC-082-era rename; earlier projects carry MM_* curves
+    // from the old default and keep them - a re-run under the new default writes SM_*
+    // beside them rather than silently replacing an MM_* interpretation.
+    "SM".into()
 }
 fn default_true() -> bool {
     true
@@ -816,7 +820,7 @@ pub struct CoreFit {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MultiminWellResult {
+pub struct SandiminWellResult {
     pub well_id: String,
     pub rows_solved: usize,
     pub mean_recon: f32,
@@ -834,12 +838,12 @@ pub struct MultiminWellResult {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MultiminResult {
+pub struct SandiminResult {
     /// SB-SAT-023: which effective back-out Swb rule this run's model applies — recorded because
     /// the solver's construction collapses the first group's two algebraic spellings.
     pub swb_rule: Option<String>,
     pub outputs: Vec<String>,
-    pub wells: Vec<MultiminWellResult>,
+    pub wells: Vec<SandiminWellResult>,
     /// Model degrees of freedom = (tools + soft constraints + unity) − components. 0 = exactly
     /// determined (residuals are forced to ~0 and can't validate the model); >0 = over-determined,
     /// so RECON/incoherence is a real fit-quality signal.
@@ -849,8 +853,8 @@ pub struct MultiminResult {
     pub error: Option<String>,
 }
 
-fn fail(msg: &str) -> MultiminResult {
-    MultiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
+fn fail(msg: &str) -> SandiminResult {
+    SandiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
 }
 
 /// Curve-safe token for a component name: uppercase, non-alphanumeric → '_'.
@@ -1339,11 +1343,11 @@ fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)]) -> Option<CoreFi
     Some(CoreFit { n, rms: (sse / n as f64).sqrt() as f32, bias: (sum / n as f64) as f32 })
 }
 
-pub fn run_multimin(
+pub fn run_sandimin(
     db: &Mutex<Connection>,
-    req: &MultiminRequest,
+    req: &SandiminRequest,
     progress: Option<&crate::jobs::JobHandle>,
-) -> MultiminResult {
+) -> SandiminResult {
     let n = req.components.len();
     if n < 2 {
         return fail("select at least two components");
@@ -1553,7 +1557,7 @@ pub fn run_multimin(
     // case-shadow row: every computed-curve reader resolves case-insensitively but the delete-then-
     // append writer deletes by exact curve_name. Matches curve_token()'s uppercasing of components.
     let prefix_upper = req.output_prefix.trim().to_uppercase();
-    let prefix = if prefix_upper.is_empty() { "MM" } else { prefix_upper.as_str() };
+    let prefix = if prefix_upper.is_empty() { "SM" } else { prefix_upper.as_str() };
 
     let fetch_names: Vec<String> = tools.iter().map(|t| t.curve.trim().to_uppercase()).collect();
     // PEF→U conversion needs the density curve even when RHOB is not itself a tool.
@@ -1587,7 +1591,7 @@ pub fn run_multimin(
     }
 
     let mut out_names: Vec<String> = Vec::new();
-    let mut wells: Vec<MultiminWellResult> = Vec::new();
+    let mut wells: Vec<SandiminWellResult> = Vec::new();
 
     let n_wells = req.apply_well_ids.len();
     let conn = db.lock().unwrap();
@@ -1609,7 +1613,7 @@ pub fn run_multimin(
                 if let Some(p) = progress {
                     p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
                 }
-                wells.push(MultiminWellResult {
+                wells.push(SandiminWellResult {
                     well_id: well_id.clone(),
                     rows_solved: 0,
                     mean_recon: f32::NAN,
@@ -2165,7 +2169,7 @@ pub fn run_multimin(
             };
             p.finish_item(well_id, state, msg);
         }
-        wells.push(MultiminWellResult {
+        wells.push(SandiminWellResult {
             well_id: well_id.clone(),
             rows_solved: solved,
             mean_recon: if solved > 0 { (recon_sum / solved as f64) as f32 } else { f32::NAN },
@@ -2176,7 +2180,7 @@ pub fn run_multimin(
         });
     }
 
-    MultiminResult {
+    SandiminResult {
         // SB-SAT-023: the applied Swb rule travels with the result, never implicit.
         swb_rule: post_solve.then(|| effective_backout_rule(model).to_string()),
         outputs: out_names,
@@ -2584,7 +2588,7 @@ const LIB: &[LibRow] = &[
     fl("Gas Sw",    "U", "gas",         [0.20, 0.44, 250.0, 0.0, 0.09, 0.02, 0.0, 0.0, 0.0,  3.3,  5.0], "JJJJJJJJJJJ"),
 ];
 
-pub fn multimin_library() -> Vec<Component> {
+pub fn sandimin_library() -> Vec<Component> {
     LIB.iter()
         .map(|r| {
             let mut endpoints: HashMap<String, f64> = HashMap::new();
@@ -2649,7 +2653,7 @@ mod tests {
     use super::*;
 
     fn lib_get(name: &str) -> Component {
-        multimin_library().into_iter().find(|c| c.name == name).unwrap()
+        sandimin_library().into_iter().find(|c| c.name == name).unwrap()
     }
 
     /// CORRECTNESS — SB-MIN-T09, discharged for SB-CORE-005 under DEC-078 (2026-08-19):
@@ -2666,7 +2670,7 @@ mod tests {
     ) {
         // A — completeness: every endpoint of every component has a non-empty source,
         // and the two row scalars carry their own entries.
-        for component in multimin_library() {
+        for component in sandimin_library() {
             for key in component.endpoints.keys() {
                 let source = component.endpoint_sources.get(key).map(String::as_str).unwrap_or("");
                 assert!(
@@ -2805,7 +2809,7 @@ mod tests {
 
     /// T-ADV-17. The Output prefix is free text, so nothing stops a re-run being typed `mm` after
     /// the first was `MM`. Both halves of the fix are exercised together, because either one
-    /// alone leaves the bug: `run_multimin` upper-cases the prefix (`multimin2.rs:1202`) and the
+    /// alone leaves the bug: `run_sandimin` upper-cases the prefix (`sandimin.rs:1202`) and the
     /// computed-curve write DELETEs on `upper(curve_name)` (`equations.rs:623`).
     ///
     /// Without them a re-run writes `mm_PHIE` beside the untouched `MM_PHIE`. Readers resolve
@@ -2849,10 +2853,10 @@ mod tests {
         .unwrap();
         let db = Mutex::new(conn);
 
-        let run = |prefix: &str, comps: Vec<Component>| -> MultiminResult {
-            run_multimin(
+        let run = |prefix: &str, comps: Vec<Component>| -> SandiminResult {
+            run_sandimin(
                 &db,
-                &MultiminRequest {
+                &SandiminRequest {
                     input_set: None,
                     output_set: None,
                     custody: crate::workflow::test_run_custody(),
@@ -2993,10 +2997,10 @@ mod tests {
                 ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
             ]
         };
-        let run = |comps: Vec<Component>, prefix: &str| -> MultiminResult {
-            run_multimin(
+        let run = |comps: Vec<Component>, prefix: &str| -> SandiminResult {
+            run_sandimin(
                 &db,
-                &MultiminRequest {
+                &SandiminRequest {
                     input_set: None,
                     output_set: None,
                     custody: crate::workflow::test_run_custody(),
@@ -3078,9 +3082,9 @@ mod tests {
         )
         .unwrap();
         let db = Mutex::new(conn);
-        let res = run_multimin(
+        let res = run_sandimin(
             &db,
-            &MultiminRequest {
+            &SandiminRequest {
                 input_set: None,
                 output_set: None,
                 custody: crate::workflow::test_run_custody(),
@@ -3158,10 +3162,10 @@ mod tests {
             t.push(ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 });
             t
         };
-        let run = |comps: Vec<Component>, tools: Vec<ToolSpec>, prefix: &str| -> MultiminResult {
-            run_multimin(
+        let run = |comps: Vec<Component>, tools: Vec<ToolSpec>, prefix: &str| -> SandiminResult {
+            run_sandimin(
                 &db,
-                &MultiminRequest {
+                &SandiminRequest {
                     input_set: None,
                     output_set: None,
                     custody: crate::workflow::test_run_custody(),
@@ -3499,7 +3503,7 @@ mod tests {
         // constraint ON, σ to the reviewed 0.01, and the porosity source to CEC — so an older frontend
         // (and every reviewed number) solves exactly as before. This guards the "absent = unchanged"
         // invariant the whole increment rests on.
-        let req: MultiminRequest =
+        let req: SandiminRequest =
             serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},"source_note":"test fixture values declared in the owning test"}}"#,
         ).unwrap();
         assert!(req.unity, "UNITY defaults on");
@@ -3509,7 +3513,7 @@ mod tests {
         assert!((req.sigma_constraint - 0.01).abs() < 1e-12, "σ defaults to 0.01: {}", req.sigma_constraint);
         assert_eq!(req.porosity_source, PorositySource::Cec);
         // A stray non-positive σ must not blow up the row weight; the solver falls back to the default.
-        let bad: MultiminRequest =
+        let bad: SandiminRequest =
             serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"sigma_constraint":0,"custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},"source_note":"test fixture values declared in the owning test"}}"#,
         ).unwrap();
         let sigma = if bad.sigma_constraint > 0.0 { bad.sigma_constraint } else { SIGMA_CONSTRAINT };
@@ -3546,7 +3550,7 @@ mod tests {
 
     #[test]
     fn library_has_expected_shape() {
-        let lib = multimin_library();
+        let lib = sandimin_library();
         assert_eq!(lib.len(), 27, "IP mineral-dropdown parity");
         for c in &lib {
             for k in TOOL_KEYS {
@@ -3611,7 +3615,7 @@ mod tests {
         let cal = lib_get("Calcite");
         let mut wat = lib_get("Water Sxo");
         wat.zone = String::new();
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -3634,7 +3638,7 @@ mod tests {
             sigma_constraint: 0.01,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
-        let res = run_multimin(&conn, &req, None);
+        let res = run_sandimin(&conn, &req, None);
         let err = res.error.as_deref().unwrap_or("");
         assert!(
             err.contains("need at least"),
@@ -3668,7 +3672,7 @@ mod tests {
             phit_sh: 0.1,
             ws_b: 0.0,
         };
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -3692,7 +3696,7 @@ mod tests {
             sigma_constraint: 0.01,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
-        let res = run_multimin(&conn, &req, None);
+        let res = run_sandimin(&conn, &req, None);
         let err = res.error.as_deref().unwrap_or("");
         assert!(
             err.contains("all zero"),
@@ -3702,11 +3706,11 @@ mod tests {
     }
 
     /// End-to-end smoke test for both reference fixes, driven through the actual DB path
-    /// (fetch_curve_frame → run_multimin with a PEF tool → write; and run_module vsh_dn
+    /// (fetch_curve_frame → run_sandimin with a PEF tool → write; and run_module vsh_dn
     /// with GR). #[ignore] so the normal suite never touches it. If SANDIBUMI_E2E_DB
     /// points at a project.duckdb copy with a RHOB+NPHI+GR well, it runs on that REAL
     /// field data; otherwise it seeds a synthetic well through the real schema + write
-    /// path so the new run_multimin PEF branch and vsh_dn output are still exercised
+    /// path so the new run_sandimin PEF branch and vsh_dn output are still exercised
     /// against DB-resident curves. Run with:
     ///   [SANDIBUMI_E2E_DB=<copy.duckdb>] cargo test --lib -- \
     ///       --ignored --nocapture e2e_pef_and_vsh_on_real_well
@@ -3742,7 +3746,7 @@ mod tests {
         }
 
         // Seed a synthetic well by forward-modeling a quartz/illite/water mix with the
-        // library's own endpoints, so run_multimin should recover it near-exactly and the
+        // library's own endpoints, so run_sandimin should recover it near-exactly and the
         // PEF curve (stored as U/ρe, the tool reading) round-trips through the PEF→U path.
         fn build_synthetic() -> (Mutex<Connection>, String, bool) {
             let conn = Connection::open_in_memory().expect("in-memory db");
@@ -3752,7 +3756,7 @@ mod tests {
                 "INSERT INTO wells (well_id, well_name, field_name) VALUES ('{wid}','SYNTH-1','E2E');"
             ))
             .expect("insert well");
-            let lib = multimin_library();
+            let lib = sandimin_library();
             let ep = |nm: &str, k: &str| lib.iter().find(|c| c.name == nm).unwrap().endpoints[k];
             let (n, top, step) = (300usize, 2000.0f64, 0.5f64);
             // fetch_curve_frame reads gr/res_deep/nphi/rhob as NON-optional f32, so
@@ -3826,7 +3830,7 @@ mod tests {
         }
 
         // ---- Fix 1: multimin with a PEF tool (converted to U per sample) ----
-        let lib = multimin_library();
+        let lib = sandimin_library();
         let get = |nm: &str| lib.iter().find(|c| c.name == nm).cloned().unwrap();
         let q = get("Quartz");
         let ill = get("Illite");
@@ -3842,12 +3846,12 @@ mod tests {
                 ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
             ]
         };
-        let run = |prefix: &str, with_pef: bool| -> MultiminWellResult {
+        let run = |prefix: &str, with_pef: bool| -> SandiminWellResult {
             let mut tools = base_tools();
             if with_pef {
                 tools.push(ToolSpec { key: "PEF".into(), curve: "PEF".into(), sigma: 0.3 });
             }
-            let req = MultiminRequest {
+            let req = SandiminRequest {
                 input_set: None,
                 output_set: None,
                 custody: crate::workflow::test_run_custody(),
@@ -3866,8 +3870,8 @@ mod tests {
                 enforce_water_mud: true,
                 sigma_constraint: 0.01,
             };
-            let res = run_multimin(&db, &req, None);
-            assert!(res.error.is_none(), "run_multimin error: {:?}", res.error);
+            let res = run_sandimin(&db, &req, None);
+            assert!(res.error.is_none(), "run_sandimin error: {:?}", res.error);
             res.wells.into_iter().next().unwrap()
         };
 
@@ -4195,7 +4199,7 @@ mod tests {
             phit_sh: 0.1,
             ws_b: 0.0,
         };
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -4220,7 +4224,7 @@ mod tests {
             enforce_water_mud: true,
             sigma_constraint: 0.01,
         };
-        let res = run_multimin(&db, &req, None);
+        let res = run_sandimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         assert!(res.wells[0].rows_solved > 0, "no samples solved");
         let c = db.lock().unwrap();
@@ -4318,7 +4322,7 @@ mod tests {
         crate::db::insert_core_data(&conn, &cored.to_string(), "RAW", None, &cd, &cpor, &nanv, &cgd, &nanv).unwrap();
         let db = Mutex::new(conn);
 
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -4341,7 +4345,7 @@ mod tests {
             enforce_water_mud: true,
             sigma_constraint: 0.01,
         };
-        let res = run_multimin(&db, &req, None);
+        let res = run_sandimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         let cw = res.wells.iter().find(|w| w.well_id == cored.to_string()).expect("cored well result");
         let dw = res.wells.iter().find(|w| w.well_id == dry.to_string()).expect("dry well result");
@@ -4475,7 +4479,7 @@ mod tests {
         // F. The rule is recorded ON THE RESULT of a real run, not merely derivable — this is the
         //    "record which rule was applied" clause, and it survives to the UI.
         let (db, wid, _phie) = ftemp_test_well("MM-SWBRULE", 100.0, 0.40);
-        let res = run_multimin(&db, &ftemp_req(wid, 100.0, None), None);
+        let res = run_sandimin(&db, &ftemp_req(wid, 100.0, None), None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         assert_eq!(
             res.swb_rule.as_deref(),
@@ -4617,7 +4621,7 @@ mod tests {
             phit_sh: 0.1,
             ws_b: 0.0,
         };
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -4642,7 +4646,7 @@ mod tests {
             enforce_water_mud: true,
             sigma_constraint: 0.01,
         };
-        let res = run_multimin(&db, &req, None);
+        let res = run_sandimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         assert!(res.wells[0].rows_solved > 0, "no samples solved");
         let c = db.lock().unwrap();
@@ -4711,7 +4715,7 @@ mod tests {
             phit_sh: 0.1,
             ws_b: 0.0,
         };
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -4736,7 +4740,7 @@ mod tests {
             enforce_water_mud: true,
             sigma_constraint: 0.01,
         };
-        let res = run_multimin(&db, &req, None);
+        let res = run_sandimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         assert!(res.wells[0].rows_solved > 0, "no samples solved");
         let c = db.lock().unwrap();
@@ -4816,7 +4820,7 @@ mod tests {
             phit_sh: 0.1,
             ws_b: 0.0,
         };
-        let req = MultiminRequest {
+        let req = SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -4841,7 +4845,7 @@ mod tests {
             enforce_water_mud: true,
             sigma_constraint: 0.01,
         };
-        let res = run_multimin(&db, &req, None);
+        let res = run_sandimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         assert!(res.wells[0].rows_solved > 0, "no samples solved");
         let c = db.lock().unwrap();
@@ -4939,7 +4943,7 @@ mod tests {
     }
 
     #[cfg(test)]
-    fn ftemp_req(wid: uuid::Uuid, scalar_ftemp: f64, ftemp_curve: Option<String>) -> MultiminRequest {
+    fn ftemp_req(wid: uuid::Uuid, scalar_ftemp: f64, ftemp_curve: Option<String>) -> SandiminRequest {
         let props = FluidProps {
             rw: 0.10,
             rw_temp_f: 77.0,
@@ -4956,7 +4960,7 @@ mod tests {
             phit_sh: 0.1,
             ws_b: 0.0,
         };
-        MultiminRequest {
+        SandiminRequest {
             input_set: None,
             output_set: None,
             custody: crate::workflow::test_run_custody(),
@@ -4990,8 +4994,8 @@ mod tests {
     }
 
     #[cfg(test)]
-    fn ftemp_mean_swe(db: &Mutex<Connection>, wid: uuid::Uuid, req: &MultiminRequest) -> f32 {
-        let res = run_multimin(db, req, None);
+    fn ftemp_mean_swe(db: &Mutex<Connection>, wid: uuid::Uuid, req: &SandiminRequest) -> f32 {
+        let res = run_sandimin(db, req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         assert!(res.wells[0].rows_solved > 0, "no samples solved");
         let c = db.lock().unwrap();
@@ -5053,7 +5057,7 @@ mod tests {
         let (db, wid, _phie) = ftemp_test_well("MM-FTEMP-RQC", 200.0, 0.40);
         let mut req = ftemp_req(wid, 100.0, Some("FTEMP_F".into()));
         req.recon_qc = true;
-        let res = run_multimin(&db, &req, None);
+        let res = run_sandimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
         let c = db.lock().unwrap();
         let dif_names = ["MM_RHOB_DIF", "MM_NPHI_DIF", "MM_DT_DIF", "MM_GR_DIF", "MM_CT_DIF"];

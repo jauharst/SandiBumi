@@ -234,11 +234,11 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   if (!["linear", "power", "logx", "exp"].includes(opts.regModel)) opts.regModel = "linear";
   if (!["yx", "xy", "rma"].includes(opts.regMethod)) opts.regMethod = "yx";
   if (opts.sizeMode !== "fixed") opts.sizeMode = "fill";
-  // migrate the short-lived dnOverlay option (P2-f+) to the chart registry
+  // The short-lived dnOverlay option (P2-f+) used to migrate to the CNL charts
+  // (por11/por12); those definitions were deleted under DEC-082, so a legacy value
+  // now migrates to "no overlay" — the same visible result an unresolvable id gets.
   const legacyDn = (raw as { dnOverlay?: string }).dnOverlay;
-  if (raw.chartOverlay === undefined && legacyDn) {
-    opts.chartOverlay = legacyDn === "fresh" ? "por11" : legacyDn === "salt" ? "por12" : "";
-  }
+  if (raw.chartOverlay === undefined && legacyDn) opts.chartOverlay = "";
   if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !resolveChartOverlay(opts.chartOverlay))) {
     opts.chartOverlay = "";
   }

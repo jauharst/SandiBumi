@@ -251,7 +251,7 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
     // SB-SAT-026: a finite result names its producer; a missing one claims none.
     let method_flag = swh_out
         .iter()
-        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::SwHeight.flag_code() } else { f32::NAN })
+        .map(|sw| if sw.is_finite() { crate::sandimin::SwModel::SwHeight.flag_code() } else { f32::NAN })
         .collect();
     HashMap::from([
         ("SWT_HGT".to_string(), swh_raw_out),

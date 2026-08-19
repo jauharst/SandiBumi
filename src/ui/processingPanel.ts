@@ -3,7 +3,7 @@ import { cancelJob, listJobs, type JobItem, type JobView } from "../ipc";
 /** Universal Processing panel (Phase 11): one dock pane showing live progress, the well
  *  being processed, per-well ✓/⚠/✗ outcomes, and a Cancel button — for EVERY long
  *  operation that reports into the shared job registry (workflow chains today; module runs,
- *  imports, multimin, Monte Carlo, reports as each is moved off the IPC thread).
+ *  imports, SandiMin, Monte Carlo, reports as each is moved off the IPC thread).
  *
  *  It polls `list_jobs` on a timer (same registry-and-poll model as the Workflow Builder's
  *  own bar). The Cancel button here shares the SAME cancel flag as the run, so cancelling

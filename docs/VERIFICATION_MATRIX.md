@@ -35,7 +35,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
-| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 31 | — | 19 |
+| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 34 | — | 20 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 193 | 2026-07-19 | 33 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
@@ -49,7 +49,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
 | `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 58 | — | 16 |
-| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 66 | 2026-07-20 | 18 |
+| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 69 | 2026-07-20 | 19 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |

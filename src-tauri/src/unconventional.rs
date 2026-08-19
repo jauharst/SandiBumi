@@ -136,7 +136,7 @@ pub fn kerogen_spec() -> ModuleSpec {
               then VKER = TOM·RHOB/ρ_kero (kerogen volume fraction of the BULK rock — the Passey/Vernik \
               bulk-density conversion, directly comparable to SandiMin VOL_KEROGEN). PHIT_OMC = \
               PHIT − VKER removes kerogen's apparent-porosity contribution (ρ_kero≈ρ_fluid, first \
-              order). ρ_kero default 1.10 g/cc matches the SandiMin Kerogen mineral (multimin2.rs), so \
+              order). ρ_kero default 1.10 g/cc matches the SandiMin Kerogen mineral (sandimin.rs), so \
               VKER reconciles with VOL_KEROGEN (IP's RHOTOC seed is 1.25 — override if you prefer it). \
               Cite: Passey et al. 2010 (SPE 131350); Vernik & Nur 1992. See docs/ref_unconventional.md §2."
             .into(),

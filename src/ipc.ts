@@ -2449,10 +2449,10 @@ export function runFaciesConfusion(req: FaciesConfusionRequest, scope: BackendWe
   return invoke<FaciesConfusionResult>("run_facies_confusion", { req, scope });
 }
 
-// --- Generalized Multimin (multi-mineral inversion) -----------------------
+// --- SandiMin (generalized multi-mineral inversion) -----------------------
 
 /** A mineral, clay, or fluid component (fluids are zone-typed X/U). */
-export interface MmComponent {
+export interface SmComponent {
   name: string;
   /** "mineral" | "clay" | "fluid" */
   kind: string;
@@ -2478,14 +2478,14 @@ export interface MmComponent {
 
 /** A tool in the inversion. Keys "CT"/"CXO" take a RESISTIVITY curve (the backend converts
  *  to conductivity, mho/m); sigma <= 0 on CT/CXO means auto (0.03·C^(1/w)). */
-export interface MmTool {
+export interface SmTool {
   key: string;
   curve: string;
   sigma: number;
 }
 
 /** Fluid/saturation parameters — required when CT or CXO participates. */
-export interface MmFluidProps {
+export interface SmFluidProps {
   rw: number;
   rw_temp_f: number;
   rmf: number;
@@ -2538,7 +2538,7 @@ export interface SwModelChoice {
 export type PorositySource = "cec" | "wet_clay_porosity";
 
 /** Derived fluid quantities (w, conductivities, α, auto CT/CXO uncertainties). */
-export interface MmFluidCalc {
+export interface SmFluidCalc {
   w: number;
   cw: number;
   cmf: number;
@@ -2553,17 +2553,17 @@ export interface MmFluidCalc {
   u_cxo: number;
 }
 
-export interface MultiminRequest {
+export interface SandiminRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
   /** Version the outputs into this log set; omit for the tool's own default. */
   output_set?: string;
-  components: MmComponent[];
-  tools: MmTool[];
+  components: SmComponent[];
+  tools: SmTool[];
   apply_well_ids: string[];
   output_prefix: string;
   unity: boolean;
-  fluid: MmFluidProps | null;
+  fluid: SmFluidProps | null;
   /** Optional per-depth formation-temperature curve name (°F). When set and finite at a depth, the
    *  temperature-dependent fluid quantities (Cw, Cmf, Cbw, auto CT/CXO σ, BNDWAT k, Waxman-Smits B)
    *  are recomputed for that sample; a missing or out-of-range sample (a ±999.25 null) falls back to
@@ -2590,13 +2590,13 @@ export interface MultiminRequest {
 /** Agreement between a solved output and a routine-core-analysis measurement, over the plugs that
  *  tied to a solved sample. `bias` is the mean signed (model − core), so its sign says which way
  *  the model reads. Absent (null) when no plug matched — never a zero standing in for "no data". */
-export interface MmCoreFit {
+export interface SmCoreFit {
   n: number;
   rms: number;
   bias: number;
 }
 
-export interface MultiminWellResult {
+export interface SandiminWellResult {
   well_id: string;
   rows_solved: number;
   mean_recon: number;
@@ -2604,16 +2604,16 @@ export interface MultiminWellResult {
    *  reproduces an INDEPENDENT measurement. Core φ comes against both PHIE and PHIT because which
    *  one a plug should match depends on the drying protocol (oven-dried → PHIT; humidity-dried →
    *  nearer PHIE), so the analyst reads the bracket rather than being handed one interpretation. */
-  core_phie: MmCoreFit | null;
-  core_phit: MmCoreFit | null;
+  core_phie: SmCoreFit | null;
+  core_phit: SmCoreFit | null;
   /** Solved grain density vs core ρg — a check on the MINERAL model specifically. */
-  core_gd: MmCoreFit | null;
+  core_gd: SmCoreFit | null;
   error: string | null;
 }
 
-export interface MultiminResult {
+export interface SandiminResult {
   outputs: string[];
-  wells: MultiminWellResult[];
+  wells: SandiminWellResult[];
   /** Model degrees of freedom = (tools + soft constraints + unity) − components. 0 = exactly
    *  determined (RECON forced to ~0, can't validate the model); >0 = a real fit-quality signal. */
   dof: number;
@@ -2623,36 +2623,36 @@ export interface MultiminResult {
 }
 
 /** The built-in mineral/fluid endpoint library (editable defaults for the dialog). */
-export function multiminLibrary(): Promise<MmComponent[]> {
-  return invoke<MmComponent[]>("multimin_library");
+export function sandiminLibrary(): Promise<SmComponent[]> {
+  return invoke<SmComponent[]>("sandimin_library");
 }
 
 /** Canonical saturation equation ids and their backend-owned display labels. */
-export function multiminSwModels(): Promise<SwModelChoice[]> {
-  return invoke<SwModelChoice[]>("multimin_sw_models");
+export function sandiminSwModels(): Promise<SwModelChoice[]> {
+  return invoke<SwModelChoice[]>("sandimin_sw_models");
 }
 
 /** Runs the generalized multi-mineral inversion; writes VOL_<component> + derived curves. */
-export function runMultimin(req: MultiminRequest, scope: BackendWellScope): Promise<MultiminResult> {
-  return invoke<MultiminResult>("run_multimin", { req, scope });
+export function runSandimin(req: SandiminRequest, scope: BackendWellScope): Promise<SandiminResult> {
+  return invoke<SandiminResult>("run_sandimin", { req, scope });
 }
 
 /** Derived fluid quantities (Cw, Cmf, Cbw, α, w, auto CT/CXO σ) for the dialog preview. */
-export function multiminFluidCalc(props: MmFluidProps): Promise<MmFluidCalc> {
-  return invoke<MmFluidCalc>("multimin_fluid_calc", { props });
+export function sandiminFluidCalc(props: SmFluidProps): Promise<SmFluidCalc> {
+  return invoke<SmFluidCalc>("sandimin_fluid_calc", { props });
 }
 
 /** Wet-clay picks + assumed dry-clay density for the wet→dry endpoint conversion. */
-export interface MmWetClayInput {
+export interface SmWetClayInput {
   rhob_wet: number;
   nphi_wet: number;
   gr_wet: number;
   dt_wet: number | null;
   rho_dry: number;
-  fluid: MmFluidProps | null;
+  fluid: SmFluidProps | null;
 }
 
-export interface MmDryClayCalc {
+export interface SmDryClayCalc {
   phi_clay: number;
   rhob_dry: number;
   nphi_dry: number;
@@ -2662,24 +2662,24 @@ export interface MmDryClayCalc {
   cec_equiv: number;
 }
 
-export function multiminDryClay(input: MmWetClayInput): Promise<MmDryClayCalc> {
-  return invoke<MmDryClayCalc>("multimin_dry_clay", { input });
+export function sandiminDryClay(input: SmWetClayInput): Promise<SmDryClayCalc> {
+  return invoke<SmDryClayCalc>("sandimin_dry_clay", { input });
 }
 
 /** Zone-averaged FTEMP_F / RMF from the precalc module's output curves. */
-export interface MmPrecalcFluid {
+export interface SmPrecalcFluid {
   ftemp_f: number | null;
   rmf: number | null;
   n_ftemp: number;
   n_rmf: number;
 }
 
-export function multiminFluidFromPrecalc(
+export function sandiminFluidFromPrecalc(
   wellId: string,
   top: number | null,
   bottom: number | null,
-): Promise<MmPrecalcFluid> {
-  return invoke<MmPrecalcFluid>("multimin_fluid_from_precalc", { wellId, top, bottom });
+): Promise<SmPrecalcFluid> {
+  return invoke<SmPrecalcFluid>("sandimin_fluid_from_precalc", { wellId, top, bottom });
 }
 
 export type DepthDatum = "MD" | "TVD" | "TVDSS" | "TVDKB" | "TWT" | "OWT" | "CDEPTH";
@@ -2923,7 +2923,7 @@ export interface SwSpreadRequest {
   vsh_curve?: string | null;
   qv_curve?: string | null;
   swb_curve?: string | null;
-  fluid: MmFluidProps;
+  fluid: SmFluidProps;
   /** Sw-unit gap above which a depth is flagged divergent. Backend default 0.10. */
   divergence_threshold?: number | null;
 }

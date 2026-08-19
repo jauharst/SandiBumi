@@ -3,17 +3,17 @@ import {
   getCurveData,
   listWells,
   listZones,
-  multiminDryClay,
-  multiminFluidCalc,
-  multiminFluidFromPrecalc,
-  multiminLibrary,
-  multiminSwModels,
-  runMultimin,
-  type MmComponent,
-  type MmCoreFit,
-  type MmFluidProps,
-  type MultiminRequest,
-  type MultiminResult,
+  sandiminDryClay,
+  sandiminFluidCalc,
+  sandiminFluidFromPrecalc,
+  sandiminLibrary,
+  sandiminSwModels,
+  runSandimin,
+  type SmComponent,
+  type SmCoreFit,
+  type SmFluidProps,
+  type SandiminRequest,
+  type SandiminResult,
   type SwModel,
   type WellSummary,
   type ZoneEntry,
@@ -39,7 +39,7 @@ import { requestRunCustody } from "./runCustody";
  *    dry endpoints + CEC equivalent so BNDWAT solves v_bw = φ_clay/(1−φ_clay)·v_dryclay.
  *  - Fluid autofill: zone-averaged FTEMP_F / RMF from the precalc module's curves.
  *
- *  Physics defaults are single-sourced in Rust (`multimin_library`); this dialog edits
+ *  Physics defaults are single-sourced in Rust (`sandimin_library`); this dialog edits
  *  a working copy. Spec: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md. */
 
 interface ToolRow {
@@ -122,23 +122,23 @@ function collapsibleGroup(
   opts: { open?: boolean; scroll?: boolean; grid?: boolean } = {},
 ): { root: HTMLElement; body: HTMLElement; count: HTMLElement } {
   const root = document.createElement("div");
-  root.className = "mm-collapse";
+  root.className = "sm-collapse";
   const head = document.createElement("button");
   head.type = "button";
-  head.className = "mm-collapse-head";
+  head.className = "sm-collapse-head";
   const chevron = document.createElement("span");
-  chevron.className = "mm-collapse-chevron";
+  chevron.className = "sm-collapse-chevron";
   chevron.textContent = "▾";
   const label = document.createElement("span");
   label.textContent = title;
   const count = document.createElement("span");
-  count.className = "mm-collapse-count";
+  count.className = "sm-collapse-count";
   head.append(chevron, label, count);
   const body = document.createElement("div");
   // grid → multi-column wrap grid (mineral/clay/fluid lists); scroll → capped height with scroll.
-  const cls = ["mm-collapse-body"];
-  if (opts.scroll) cls.push("mm-collapse-scroll");
-  if (opts.grid) cls.push("mm-comp-grid");
+  const cls = ["sm-collapse-body"];
+  if (opts.scroll) cls.push("sm-collapse-scroll");
+  if (opts.grid) cls.push("sm-comp-grid");
   body.className = cls.join(" ");
   const setOpen = (o: boolean): void => {
     body.style.display = o ? "" : "none";
@@ -151,13 +151,13 @@ function collapsibleGroup(
 }
 
 /** Hosted as a dock pane (workspace component "multimin"), not a popup. */
-export async function buildMultiminContent(
+export async function buildSandiminContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, library, swModels] = await Promise.all([
     listWells({ kind: "all" }).catch(() => [] as WellSummary[]),
-    multiminLibrary().catch(() => [] as MmComponent[]),
-    multiminSwModels().catch(() => []),
+    sandiminLibrary().catch(() => [] as SmComponent[]),
+    sandiminSwModels().catch(() => []),
   ]);
   if (library.length === 0 || swModels.length === 0) {
     setStatus("SandiMin library or saturation-equation catalog unavailable (backend not reachable)");
@@ -186,15 +186,15 @@ export async function buildMultiminContent(
   const tools: ToolRow[] = BASE_TOOLS.map((t) => ({ ...t }));
 
   const content = document.createElement("div");
-  content.className = "mc-dialog mm-dialog";
+  content.className = "mc-dialog sm-dialog";
 
   // Tabbed setup so the pane isn't one long scroll: Minerals (selection + endpoint matrix),
   // Log inputs, Fluid, Clay. The run controls + results sit in a persistent footer BELOW the
   // tabs, so you configure across tabs and run from anywhere without losing your place.
   const tabBar = document.createElement("div");
-  tabBar.className = "mm-tabs";
+  tabBar.className = "sm-tabs";
   const tabBody = document.createElement("div");
-  tabBody.className = "mm-tab-body";
+  tabBody.className = "sm-tab-body";
   content.appendChild(tabBar);
   content.appendChild(tabBody);
 
@@ -203,13 +203,13 @@ export async function buildMultiminContent(
   function addTab(id: string, label: string): HTMLElement {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "mm-tab";
+    btn.className = "sm-tab";
     btn.textContent = label;
     btn.addEventListener("click", () => showTab(id));
     tabBar.appendChild(btn);
     tabBtns.set(id, btn);
     const panel = document.createElement("div");
-    panel.className = "mm-tab-panel";
+    panel.className = "sm-tab-panel";
     tabBody.appendChild(panel);
     panels.set(id, panel);
     return panel;
@@ -228,14 +228,14 @@ export async function buildMultiminContent(
   // --- Components box (grouped) --------------------------------------------
   const compBox = document.createElement("div");
   // Plain container: the preset row sits at the top, then each mineral KIND becomes its own
-  // shrinkable + scrollable group (mm-collapse) so the tab opens compact instead of one long list.
+  // shrinkable + scrollable group (sm-collapse) so the tab opens compact instead of one long list.
   const compChecks = new Map<string, HTMLInputElement>();
   const groupCounts: { kind: string; el: HTMLElement }[] = [];
 
   // Model presets: replace the included set with a named grouping (existing components only —
   // endpoints/overrides are untouched, so a preset never changes reviewed numbers).
   const presetRow = document.createElement("div");
-  presetRow.className = "mm-tool-row";
+  presetRow.className = "sm-tool-row";
   const presetLab = document.createElement("span");
   presetLab.textContent = "Preset";
   const presetSel = document.createElement("select");
@@ -280,7 +280,7 @@ export async function buildMultiminContent(
     const grp = collapsibleGroup(KIND_LABEL[kind], { open: kind === "mineral", scroll: true, grid: true });
     for (const c of members) {
       const row = document.createElement("label");
-      row.className = "mm-comp-row";
+      row.className = "sm-comp-row";
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = included.has(c.name);
@@ -299,7 +299,7 @@ export async function buildMultiminContent(
       row.appendChild(span);
       if (c.kind === "fluid" && c.zone) {
         const badge = document.createElement("span");
-        badge.className = "mm-badge";
+        badge.className = "sm-badge";
         badge.textContent = c.zone === "X" ? "flushed" : "unflushed";
         row.appendChild(badge);
       }
@@ -324,7 +324,7 @@ export async function buildMultiminContent(
   const toolsCol = document.createElement("div");
   const toolsGroup = collapsibleGroup("Log inputs", { open: true, scroll: true });
   const toolsBox = document.createElement("div");
-  toolsBox.className = "mm-tools";
+  toolsBox.className = "sm-tools";
   toolsGroup.body.appendChild(toolsBox);
   toolsCol.appendChild(toolsGroup.root);
 
@@ -335,7 +335,7 @@ export async function buildMultiminContent(
 
   function renderToolRow(t: ToolRow): void {
     const row = document.createElement("div");
-    row.className = "mm-tool-row";
+    row.className = "sm-tool-row";
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = t.on;
@@ -347,17 +347,17 @@ export async function buildMultiminContent(
     });
     row.appendChild(cb);
     const lab = document.createElement("span");
-    lab.className = "mm-tool-key";
+    lab.className = "sm-tool-key";
     lab.textContent = t.label;
     lab.title = `${t.label} — ${t.key}`;
     row.appendChild(lab);
     const curve = document.createElement("input");
-    curve.className = "mm-tool-curve";
+    curve.className = "sm-tool-curve";
     curve.value = t.curve;
     curve.addEventListener("input", () => (t.curve = curve.value.trim()));
     row.appendChild(curve);
     const sig = document.createElement("input");
-    sig.className = "mm-tool-sigma";
+    sig.className = "sm-tool-sigma";
     sig.type = "number";
     sig.step = "any";
     if (t.cond && t.sigma <= 0) {
@@ -375,7 +375,7 @@ export async function buildMultiminContent(
 
   const addCustom = document.createElement("button");
   addCustom.type = "button";
-  addCustom.className = "mm-add-custom";
+  addCustom.className = "sm-add-custom";
   addCustom.textContent = "+ Add user-defined input";
   addCustom.addEventListener("click", () => {
     const name = prompt("Name of the user-defined input log (e.g. TOC, MQUA):", "USR1");
@@ -394,16 +394,16 @@ export async function buildMultiminContent(
 
   // --- Fluid properties (needed for CT/CXO) ---------------------------------
   const fluidBox = document.createElement("div");
-  fluidBox.className = "mm-fluid";
+  fluidBox.className = "sm-fluid";
   const fluidHead = document.createElement("div");
-  fluidHead.className = "mm-group-head";
+  fluidHead.className = "sm-group-head";
   fluidHead.textContent = "Fluid properties (CT/CXO — resistivity → conductivity)";
   fluidBox.appendChild(fluidHead);
 
   // Sw equation: how the deep resistivity becomes water saturation. Linear dual-water (default) is
   // the in-inversion mixing law; Indonesia/Simandoux are post-solve shaly-sand forms.
   const swRow = document.createElement("div");
-  swRow.className = "mm-tool-row";
+  swRow.className = "sm-tool-row";
   const swLab = document.createElement("span");
   swLab.textContent = "Sw equation";
   swLab.title = "How the deep resistivity (CT) is turned into water saturation";
@@ -420,7 +420,7 @@ export async function buildMultiminContent(
   // Wet-shale extras. Rsh: Indonesia/Simandoux/Juhász. Archie a: Indonesia/Simandoux. φ_sh (wet-clay
   // porosity): Juhász only. Each cell is shown/hidden per model in syncSwModel.
   const swExtra = document.createElement("div");
-  swExtra.className = "mm-fluid-grid";
+  swExtra.className = "sm-fluid-grid";
   const rshInp = numInput(4.0);
   const archieAInp = numInput(1.0);
   const indonesiaKSel = document.createElement("select");
@@ -442,7 +442,7 @@ export async function buildMultiminContent(
   const wsBInp = numInput(0);
   const mkExtraCell = (lab: string, inp: HTMLInputElement | HTMLSelectElement): HTMLLabelElement => {
     const cell = document.createElement("label");
-    cell.className = "mm-fluid-cell";
+    cell.className = "sm-fluid-cell";
     const sp = document.createElement("span");
     sp.textContent = lab;
     cell.appendChild(sp);
@@ -524,7 +524,7 @@ export async function buildMultiminContent(
   syncSwModel();
 
   const fluidGrid = document.createElement("div");
-  fluidGrid.className = "mm-fluid-grid";
+  fluidGrid.className = "sm-fluid-grid";
   fluidBox.appendChild(fluidGrid);
 
   const rwInp = numInput(0.43);
@@ -564,7 +564,7 @@ export async function buildMultiminContent(
   ];
   for (const [lab, inp] of fluidFields) {
     const cell = document.createElement("label");
-    cell.className = "mm-fluid-cell";
+    cell.className = "sm-fluid-cell";
     const sp = document.createElement("span");
     sp.textContent = lab;
     cell.appendChild(sp);
@@ -572,14 +572,14 @@ export async function buildMultiminContent(
     fluidGrid.appendChild(cell);
   }
   const fluidPreview = document.createElement("div");
-  fluidPreview.className = "mm-fluid-preview";
+  fluidPreview.className = "sm-fluid-preview";
   fluidBox.appendChild(fluidPreview);
 
   // --- Autofill FTEMP / RMF from the precalc module's curves (zone-averaged) ---
   const autofillRow = document.createElement("div");
-  autofillRow.className = "mm-tool-row";
+  autofillRow.className = "sm-tool-row";
   const autoLab = document.createElement("span");
-  autoLab.className = "mm-tool-key";
+  autoLab.className = "sm-tool-key";
   autoLab.textContent = "Autofill from precalc";
   autoLab.title = "Reads the well's FTEMP_F and RMF curves (precalc module outputs), averaged over the chosen zone";
   autofillRow.appendChild(autoLab);
@@ -627,7 +627,7 @@ export async function buildMultiminContent(
     }
     const zone = zoneList.find((z) => z.zone_name === zoneSel.value);
     try {
-      const pf = await multiminFluidFromPrecalc(well.well_id, zone?.top_depth ?? null, zone?.bottom_depth ?? null);
+      const pf = await sandiminFluidFromPrecalc(well.well_id, zone?.top_depth ?? null, zone?.bottom_depth ?? null);
       // Race guard (mirrors refreshZones): if the active well changed during the await, the form
       // now belongs to a different well — don't stamp this stale well's FTEMP/RMF onto it.
       if (selectedWell && selectedWell.well_id !== well.well_id) return;
@@ -677,13 +677,13 @@ export async function buildMultiminContent(
   // the backend derives the dry endpoints + the CEC that makes the BNDWAT
   // constraint solve bound water as v_bw = φ_clay/(1−φ_clay) · v_dryclay.
   const dryBox = document.createElement("div");
-  dryBox.className = "mm-fluid";
+  dryBox.className = "sm-fluid";
   const dryHead = document.createElement("div");
-  dryHead.className = "mm-group-head";
+  dryHead.className = "sm-group-head";
   dryHead.textContent = "Wet clay → dry clay (PHIT-basis endpoints)";
   dryBox.appendChild(dryHead);
   const dryGrid = document.createElement("div");
-  dryGrid.className = "mm-fluid-grid";
+  dryGrid.className = "sm-fluid-grid";
   dryBox.appendChild(dryGrid);
 
   const wetRhobInp = numInput(2.18);
@@ -713,7 +713,7 @@ export async function buildMultiminContent(
   ];
   for (const [lab, inp] of dryFields) {
     const cell = document.createElement("label");
-    cell.className = "mm-fluid-cell";
+    cell.className = "sm-fluid-cell";
     const sp = document.createElement("span");
     sp.textContent = lab;
     cell.appendChild(sp);
@@ -721,10 +721,10 @@ export async function buildMultiminContent(
     dryGrid.appendChild(cell);
   }
   const dryPreview = document.createElement("div");
-  dryPreview.className = "mm-fluid-preview";
+  dryPreview.className = "sm-fluid-preview";
   dryBox.appendChild(dryPreview);
   const dryApplyRow = document.createElement("div");
-  dryApplyRow.className = "mm-tool-row";
+  dryApplyRow.className = "sm-tool-row";
   const dryApplyBtn = document.createElement("button");
   dryApplyBtn.type = "button";
   dryApplyBtn.textContent = "Apply to clay + include BoundWater";
@@ -737,9 +737,9 @@ export async function buildMultiminContent(
   // tie then solves v_bw = φ/(1−φ)·v_dryclay. Techlog WCLP defaults are pre-filled; smectite's
   // placeholder φ=1.0 is handled by the backend (falls back to CEC), so it's shown read-only-ish.
   const wcpBox = document.createElement("div");
-  wcpBox.className = "mm-fluid-box";
+  wcpBox.className = "sm-fluid-box";
   const wcpHead = document.createElement("div");
-  wcpHead.className = "mm-group-head";
+  wcpHead.className = "sm-group-head";
   wcpHead.textContent = "Wet-clay porosity φ (per clay)";
   wcpBox.appendChild(wcpHead);
   const wcpNote = document.createElement("div");
@@ -749,11 +749,11 @@ export async function buildMultiminContent(
     "Dry-clay Apply also updates a clay's φ. Smectite's φ=1.0 is a placeholder — the solver falls back to its CEC there.";
   wcpBox.appendChild(wcpNote);
   const wcpGrid = document.createElement("div");
-  wcpGrid.className = "mm-fluid-grid";
+  wcpGrid.className = "sm-fluid-grid";
   const wcpInputs = new Map<string, HTMLInputElement>();
   for (const c of library.filter((x) => x.kind === "clay")) {
     const cell = document.createElement("label");
-    cell.className = "mm-fluid-cell";
+    cell.className = "sm-fluid-cell";
     const sp = document.createElement("span");
     sp.textContent = c.name;
     const inp = numInput(wcpMap.get(c.name) ?? 0, 56);
@@ -781,7 +781,7 @@ export async function buildMultiminContent(
   function refreshDryPreview(): void {
     window.clearTimeout(dryTimer);
     dryTimer = window.setTimeout(() => {
-      multiminDryClay(readWetClay())
+      sandiminDryClay(readWetClay())
         .then((dc) => {
           const dt = dc.dt_dry === null ? "—" : dc.dt_dry.toFixed(1);
           dryPreview.textContent =
@@ -800,7 +800,7 @@ export async function buildMultiminContent(
   dryApplyBtn.addEventListener("click", async () => {
     let dc;
     try {
-      dc = await multiminDryClay(readWetClay());
+      dc = await sandiminDryClay(readWetClay());
     } catch (e) {
       setStatus(`Dry-clay conversion: ${e}`);
       return;
@@ -831,7 +831,7 @@ export async function buildMultiminContent(
     );
   });
 
-  function readFluid(): MmFluidProps {
+  function readFluid(): SmFluidProps {
     return {
       rw: Number(rwInp.value) || 0.43,
       rw_temp_f: Number(rwTInp.value) || 77,
@@ -858,7 +858,7 @@ export async function buildMultiminContent(
   function refreshFluidPreview(): void {
     window.clearTimeout(previewTimer);
     previewTimer = window.setTimeout(() => {
-      multiminFluidCalc(readFluid())
+      sandiminFluidCalc(readFluid())
         .then((fc) => {
           fluidPreview.textContent =
             `w=${fc.w.toFixed(2)}  Cw=${fc.cw.toFixed(2)}  Cmf=${fc.cmf.toFixed(2)}  Cbw=${fc.cbw.toFixed(2)} mho/m` +
@@ -883,9 +883,9 @@ export async function buildMultiminContent(
   // Every constraint already runs in the solver; this panel EXPOSES them. Defaults match the reviewed
   // behavior (all on, σ=0.01, CEC), so leaving this tab untouched changes nothing.
   const psBox = document.createElement("div");
-  psBox.className = "mm-fluid-box";
+  psBox.className = "sm-fluid-box";
   const psHead = document.createElement("div");
-  psHead.className = "mm-group-head";
+  psHead.className = "sm-group-head";
   psHead.textContent = "Porosity source (clay bound water)";
   psBox.appendChild(psHead);
   const psNote = document.createElement("div");
@@ -895,18 +895,18 @@ export async function buildMultiminContent(
     "Wet Clay Porosity: k = φ/(1−φ) from the per-clay φ on the Clay tab — this moves PHIE.";
   psBox.appendChild(psNote);
   const psRow = document.createElement("div");
-  psRow.className = "mm-tool-row";
+  psRow.className = "sm-tool-row";
   const psCecLab = document.createElement("label");
   const psCecRadio = document.createElement("input");
   psCecRadio.type = "radio";
-  psCecRadio.name = "mm-porosity-source";
+  psCecRadio.name = "sm-porosity-source";
   psCecRadio.checked = true;
   psCecLab.appendChild(psCecRadio);
   psCecLab.appendChild(document.createTextNode(" Cation Exchange Capacity"));
   const psWcpLab = document.createElement("label");
   const psWcpRadio = document.createElement("input");
   psWcpRadio.type = "radio";
-  psWcpRadio.name = "mm-porosity-source";
+  psWcpRadio.name = "sm-porosity-source";
   psWcpLab.appendChild(psWcpRadio);
   psWcpLab.appendChild(document.createTextNode(" Wet Clay Porosity"));
   psRow.appendChild(psCecLab);
@@ -916,14 +916,14 @@ export async function buildMultiminContent(
 
   // Program constraints (enable toggles). UNITY lives here now (relocated from the run footer).
   const conBox = document.createElement("div");
-  conBox.className = "mm-fluid-box";
+  conBox.className = "sm-fluid-box";
   const conHead = document.createElement("div");
-  conHead.className = "mm-group-head";
+  conHead.className = "sm-group-head";
   conHead.textContent = "Program constraints";
   conBox.appendChild(conHead);
   const mkConstraint = (checked: boolean, label: string, note: string): HTMLInputElement => {
     const row = document.createElement("label");
-    row.className = "mm-tool-row";
+    row.className = "sm-tool-row";
     row.title = note;
     const cb = document.createElement("input");
     cb.type = "checkbox";
@@ -956,7 +956,7 @@ export async function buildMultiminContent(
     "For water-based mud, invasion cannot lower water saturation (Sxo ≥ Sw). Ignored for oil-based mud.",
   );
   const sigmaRow = document.createElement("label");
-  sigmaRow.className = "mm-tool-row";
+  sigmaRow.className = "sm-tool-row";
   sigmaRow.title = "Soft-constraint tolerance σ; the constraint row weight is 1/σ. Default 0.01.";
   const sigmaLab = document.createElement("span");
   sigmaLab.textContent = "Constraint tolerance σ";
@@ -975,9 +975,9 @@ export async function buildMultiminContent(
 
   // --- Endpoints table (lives under the Minerals tab, below the selection list) -----------
   const tableWrap = document.createElement("div");
-  tableWrap.className = "mm-table-wrap";
+  tableWrap.className = "sm-table-wrap";
   const tableHead = document.createElement("div");
-  tableHead.className = "mm-group-head";
+  tableHead.className = "sm-group-head";
   tableHead.textContent = "Endpoints (selected components × active logs)";
   mineralsPanel.appendChild(tableHead);
   mineralsPanel.appendChild(tableWrap);
@@ -986,7 +986,7 @@ export async function buildMultiminContent(
     tableWrap.innerHTML = "";
     const active = tools.filter((t) => t.on);
     const table = document.createElement("table");
-    table.className = "mm-endpoints";
+    table.className = "sm-endpoints";
     const thead = document.createElement("thead");
     const hr = document.createElement("tr");
     for (const h of ["Component", ...active.map((t) => t.key), "CEC", "Max"]) {
@@ -1005,21 +1005,21 @@ export async function buildMultiminContent(
     for (const c of library.filter((c) => included.has(c.name))) {
       const tr = document.createElement("tr");
       const nameTd = document.createElement("td");
-      nameTd.className = "mm-comp-name";
+      nameTd.className = "sm-comp-name";
       nameTd.textContent = c.name;
       tr.appendChild(nameTd);
       const m = overrides.get(c.name)!;
       for (const t of active) {
         const td = document.createElement("td");
-        td.className = "mm-cell";
+        td.className = "sm-cell";
         const uZoneFluid = c.kind === "fluid" && c.zone === "U";
         if (t.cond) {
           const inZone = c.kind === "fluid" && (t.key === "CT" ? c.zone !== "X" : c.zone !== "U");
           td.textContent = inZone && c.fluid_type !== "oil" && c.fluid_type !== "gas" ? "auto" : "—";
-          td.classList.add("mm-cell-auto");
+          td.classList.add("sm-cell-auto");
         } else if (uZoneFluid && !t.custom) {
           td.textContent = "—";
-          td.classList.add("mm-cell-auto");
+          td.classList.add("sm-cell-auto");
           td.title = "Unflushed-zone fluids are seen only by CT";
         } else {
           const inp = numInput(m.get(t.key) ?? 0, 58);
@@ -1033,18 +1033,18 @@ export async function buildMultiminContent(
         tr.appendChild(td);
       }
       const cecTd = document.createElement("td");
-      cecTd.className = "mm-cell";
+      cecTd.className = "sm-cell";
       if (c.kind === "clay") {
         const inp = numInput(cecMap.get(c.name) ?? 0, 48);
         inp.addEventListener("input", () => cecMap.set(c.name, Number(inp.value)));
         cecTd.appendChild(inp);
       } else {
         cecTd.textContent = "—";
-        cecTd.classList.add("mm-cell-auto");
+        cecTd.classList.add("sm-cell-auto");
       }
       tr.appendChild(cecTd);
       const maxTd = document.createElement("td");
-      maxTd.className = "mm-cell";
+      maxTd.className = "sm-cell";
       const maxInp = numInput(maxMap.get(c.name) ?? 1, 48);
       maxInp.addEventListener("input", () => maxMap.set(c.name, Number(maxInp.value)));
       maxTd.appendChild(maxInp);
@@ -1065,20 +1065,20 @@ export async function buildMultiminContent(
   // scrolling past every parameter tab. Scope selector (group / ★ pinned / selection / all)
   // instead of a per-well checklist — a 2000-well field can't be ticked one at a time.
   const runSection = document.createElement("div");
-  runSection.className = "mm-run-section";
+  runSection.className = "sm-run-section";
   const wellsHead = document.createElement("div");
-  wellsHead.className = "mm-group-head";
+  wellsHead.className = "sm-group-head";
   wellsHead.textContent = "Apply to wells";
   runSection.appendChild(wellsHead);
   runSection.appendChild(scope.el);
 
   const optsRow = document.createElement("div");
-  optsRow.className = "mm-tool-row";
+  optsRow.className = "sm-tool-row";
   const prefixLab = document.createElement("span");
   prefixLab.textContent = "Output prefix";
   const prefixInp = document.createElement("input");
-  prefixInp.className = "mm-tool-curve";
-  prefixInp.value = "MM";
+  prefixInp.className = "sm-tool-curve";
+  prefixInp.value = "SM";
   // UNITY, POROSITY, BNDWAT, WATER MUD + the porosity source now live on the Constraints tab.
   const reconLab = document.createElement("label");
   const reconCb = document.createElement("input");
@@ -1104,7 +1104,7 @@ export async function buildMultiminContent(
   runRow.className = "mc-run-row";
   const runBtn = document.createElement("button");
   runBtn.type = "button";
-  runBtn.classList.add("primary", "mm-run-btn");
+  runBtn.classList.add("primary", "sm-run-btn");
   runBtn.textContent = "Run";
   runRow.appendChild(runBtn);
   const resultBox = document.createElement("div");
@@ -1121,7 +1121,7 @@ export async function buildMultiminContent(
     // whatever path edited it — is recorded as user-supplied. The map rides the submitted
     // components into the run record's params_json.
     const USER_SUPPLIED = "user-supplied in the SandiMin dialog (this run)";
-    const runSources = (c: MmComponent): Record<string, string> => {
+    const runSources = (c: SmComponent): Record<string, string> => {
       const out: Record<string, string> = { ...(c.endpoint_sources ?? {}) };
       for (const [k, v] of overrides.get(c.name)!) {
         if (v !== c.endpoints[k]) out[k] = USER_SUPPLIED;
@@ -1130,7 +1130,7 @@ export async function buildMultiminContent(
       if ((wcpMap.get(c.name) ?? 0) !== c.wet_clay_porosity) out.WCP = USER_SUPPLIED;
       return out;
     };
-    const comps: MmComponent[] = library
+    const comps: SmComponent[] = library
       .filter((c) => included.has(c.name))
       .map((c) => ({
         name: c.name,
@@ -1157,11 +1157,11 @@ export async function buildMultiminContent(
     }
     const custody = await requestRunCustody("Run SandiMin");
     if (!custody) return;
-    const req: MultiminRequest = {
+    const req: SandiminRequest = {
       components: comps,
       tools: activeTools,
       apply_well_ids: applyWells,
-      output_prefix: prefixInp.value.trim() || "MM",
+      output_prefix: prefixInp.value.trim() || "SM",
       input_set: setPicker.inputSet(),
       output_set: setPicker.outputSet(),
       unity: unityCb.checked,
@@ -1178,9 +1178,9 @@ export async function buildMultiminContent(
     };
     runBtn.disabled = true;
     setStatus("SandiMin: running…");
-    let res: MultiminResult;
+    let res: SandiminResult;
     try {
-      res = await runMultimin(req, scope.backend());
+      res = await runSandimin(req, scope.backend());
     } catch (e) {
       setStatus(`SandiMin failed: ${e}`);
       runBtn.disabled = false;
@@ -1207,7 +1207,7 @@ export async function buildMultiminContent(
     resultBox.appendChild(dofLine);
 
     const table = document.createElement("table");
-    table.className = "mm-endpoints";
+    table.className = "sm-endpoints";
     table.innerHTML =
       "<thead><tr><th>Well</th><th>Samples solved</th><th>Incoherence (σ)</th><th>Note</th></tr></thead>";
     const tb = document.createElement("tbody");
@@ -1221,7 +1221,7 @@ export async function buildMultiminContent(
         w.error ?? "—",
       ]) {
         const td = document.createElement("td");
-        td.className = "mm-cell";
+        td.className = "sm-cell";
         td.textContent = cell;
         tr.appendChild(td);
       }
@@ -1243,11 +1243,11 @@ export async function buildMultiminContent(
         "against both porosities because the drying protocol decides which one a plug should match " +
         "(oven-dried drives off clay-bound water → PHIT; humidity-dried retains some → nearer PHIE).";
       const coreTable = document.createElement("table");
-      coreTable.className = "mm-endpoints";
+      coreTable.className = "sm-endpoints";
       coreTable.innerHTML =
         "<thead><tr><th>Well</th><th>Core φ vs PHIE</th><th>Core φ vs PHIT</th><th>Core ρg (g/cc)</th></tr></thead>";
       const coreBody = document.createElement("tbody");
-      const fitCell = (f: MmCoreFit | null): string =>
+      const fitCell = (f: SmCoreFit | null): string =>
         f ? `${f.rms.toFixed(3)}  (bias ${f.bias >= 0 ? "+" : ""}${f.bias.toFixed(3)}, n=${f.n})` : "—";
       for (const w of res.wells) {
         if (!w.core_phie && !w.core_phit && !w.core_gd) continue;
@@ -1255,7 +1255,7 @@ export async function buildMultiminContent(
         const name = wells.find((x) => x.well_id === w.well_id)?.well_name || w.well_id;
         for (const cell of [name, fitCell(w.core_phie), fitCell(w.core_phit), fitCell(w.core_gd)]) {
           const td = document.createElement("td");
-          td.className = "mm-cell";
+          td.className = "sm-cell";
           td.textContent = cell;
           tr.appendChild(td);
         }
@@ -1278,7 +1278,7 @@ export async function buildMultiminContent(
       if (reconCb.checked) {
         const firstOk = res.wells.find((w) => !w.error && w.rows_solved > 0);
         if (firstOk) {
-          const prefix = (prefixInp.value.trim() || "MM").toUpperCase();
+          const prefix = (prefixInp.value.trim() || "SM").toUpperCase();
           detachRecon = await renderReconQc(resultBox, firstOk.well_id, prefix, activeTools);
         }
       }

@@ -1,6 +1,6 @@
 //! Universal job registry (Phase 11): one progress/cancel channel every long operation
 //! reports into, so a single dock panel can show live per-well progress and a Cancel button
-//! for ANY of them — workflow chains today, and module runs / imports / multimin / Monte
+//! for ANY of them — workflow chains today, and module runs / imports / SandiMin / Monte
 //! Carlo / reports as each is moved off the IPC thread. Generalises the chain-specific
 //! registry in `chain.rs`.
 //!
@@ -711,7 +711,7 @@ mod tests {
             "montecarlo::run_monte_carlo(&conn, &req, Some(&job))",
             "ml::run_ml(&conn, &req, Some(&job))",
             "ml::apply_ml_model(&conn, &req, Some(&job))",
-            "multimin2::run_multimin(&conn, &req, Some(&job))",
+            "sandimin::run_sandimin(&conn, &req, Some(&job))",
         ];
         assert_eq!(
             lib.matches("jobs::run_job(").count(),
@@ -741,7 +741,7 @@ mod tests {
             (include_str!("workflow.rs"), "p.note_cancel_observed()", "workflow module"),
             (include_str!("montecarlo.rs"), "p.is_cancelled()", "Monte Carlo"),
             (include_str!("ml.rs"), "p.is_cancelled()", "machine learning"),
-            (include_str!("multimin2.rs"), "p.is_cancelled()", "SandiMin"),
+            (include_str!("sandimin.rs"), "p.is_cancelled()", "SandiMin"),
         ];
         for (source, observer, family) in observers {
             assert!(

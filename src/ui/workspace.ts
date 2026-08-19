@@ -363,7 +363,7 @@ export class Workspace {
       ["Plug QC (core vs petrography)", () => this.openPlugQc(group)],
       ["Mineral Classifier (point counts)", () => this.openMineralClass(group)],
       ["Pore Area (thin sections)", () => this.openPoreArea(group)],
-      ["SandiMin Solver", () => this.openMultimin(group)],
+      ["SandiMin Solver", () => this.openSandimin(group)],
       "sep",
       ["Fluid Contacts (pick + QC)", () => this.openFluidContacts(group)],
       ["Register Core Depth", () => this.openDepthReg(group)],
@@ -622,10 +622,13 @@ export class Workspace {
           () => import("./sFactorFitDialog").then((m) => m.buildSFactorFitContent()),
           "S-factor calibration",
         );
+      // The component id stays "multimin" FROZEN: saved sessions and layouts reference
+      // panes by this string, and a renamed id would drop the pane from every session
+      // saved before the SandiMin rename. Same rule as the retired "multimin" module id.
       case "multimin":
         return this.asyncPane(
-          "dock-multimin",
-          () => import("./multiminDialog").then((m) => m.buildMultiminContent(setStatus)),
+          "dock-sandimin",
+          () => import("./sandiminDialog").then((m) => m.buildSandiminContent(setStatus)),
           "SandiMin",
         );
       // Auto-generated module form (panel id "module:<name>"): the spec is looked up in
@@ -1650,7 +1653,7 @@ export class Workspace {
     this.openSingleton("resultsQc", "resultsQc", "Results QC", group);
   }
 
-  openMultimin(group?: DockviewGroupPanel): void {
+  openSandimin(group?: DockviewGroupPanel): void {
     this.openSingleton("multimin", "multimin", "SandiMin — Mineral Solver", group);
   }
 

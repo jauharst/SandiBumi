@@ -10,7 +10,7 @@ import {
 /** The Import LAS "which set?" dialog (T-IMP-02 — the Geolog/IP set model).
  *
  *  A delivery folder is one SET: `well00025_2023_fprooh.las` and its 543 siblings are
- *  the FPROOH interpretation of the field, and a well's RAW, FPROOH and MULTIMIN curves
+ *  the FPROOH interpretation of the field, and a well's RAW, FPROOH and SANDIMIN curves
  *  belong on ONE well record, not on three same-named ones. This dialog names the set and
  *  decides whether same-named files attach to the existing well.
  *
@@ -34,7 +34,7 @@ const NOISE_TOKENS = new Set([
  * A candidate at POSITION 0 is rejected: vendor names run `<well>_<project>_<product>`, so
  * a leading token shared by every file is the well or field prefix, not the set —
  * `SANDI-01/02/03` would otherwise suggest "SANDI" for what is plainly a raw log delivery.
- * Among the rest the LAST wins, which is the product suffix (`fprooh`, `multimin`, `ssc`).
+ * Among the rest the LAST wins, which is the product suffix (`fprooh`, `sandimin`, `ssc`).
  * Returns "" when nothing survives, and the caller falls back to RAW.
  */
 export function suggestSetName(paths: string[]): string {

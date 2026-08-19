@@ -372,7 +372,7 @@
    "rationale": "The real-well mineral/Vsh smoke path and large field-pipeline stress path are representative workflow evidence, not default-gate proofs.",
    "tests": [
     {
-     "key": "src/multimin2.rs|e2e_pef_and_vsh_on_real_well",
+     "key": "src/sandimin.rs|e2e_pef_and_vsh_on_real_well",
      "ignore_reason": null,
      "bare_ignore": true
     },

@@ -5,7 +5,7 @@ import {
   runCutoffSweep,
   swMethodSpread,
   type ComputedCatalogEntry,
-  type MmFluidProps,
+  type SmFluidProps,
   type SwSpreadResult,
   type WellSummary,
   type ZoneEntry,
@@ -712,7 +712,7 @@ export async function buildResultsQcContent(
   detail.append(plots);
   content.append(detail);
 
-  const fluid = (): MmFluidProps => {
+  const fluid = (): SmFluidProps => {
     const rw = num(rwIn, 0.1);
     const rwT = num(rwTIn, 75);
     return {

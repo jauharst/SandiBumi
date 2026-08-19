@@ -14756,3 +14756,34 @@ front by name instead of writing an unverifiable file. A missing sample travels 
       scratch project). The curves and depths should come back exactly, including the gaps.
 - [ ] **Open the exported file in another package you trust** (IP or Techlog) and confirm it
       loads and the units read correctly.
+
+## Gate 5 chart delete — DEC-082 (2026-08-19)
+
+Your word on the thirteen retained vendor chart definitions was DELETE, and it is executed:
+the digitized CNL/APS/adnVISION/EcoScope/Por-20/Lith-1 definitions are gone from the app.
+The six derived charts (Por-22 TA and FO, Lith-3, Lith-4, Lith-6 MID, Lith-2) remain, drawn
+from published equations and the chart pages' own printed values.
+
+- [ ] **Open a crossplot and check the chart-overlay picker** (Properties → chart overlay).
+      On an NPHI/RHOB crossplot the CNL Por-11/12, APS Por-13/14, adnVISION Por-16 and
+      EcoScope Por-18/19 entries should be GONE; Lith-3/4 and the MID/Lith-2/Por-22 charts
+      should still be offered on their matching axes.
+- [ ] **Draw one derived overlay you use** (e.g. Lith-2 on a Th vs K crossplot) and confirm
+      the six labeled Th/K ratio lines and the two dashed lines still draw as before.
+- [ ] **Open an old saved session or plot template that used a CNL overlay** — it should load
+      cleanly with no overlay drawn (never an error).
+
+## SandiMin internal rename + SM prefix (2026-08-20)
+
+The solver's internal names caught up with the product name: multimin2.rs is now sandimin.rs,
+the dialog file, IPC commands, types and CSS classes all say sandimin/SM, and the default
+output prefix is now SM (your call). Old projects keep their MM_* curves untouched; a re-run
+under the new default writes SM_* beside them rather than replacing an MM_* interpretation.
+
+- [ ] **Open SandiMin (Advance ▸ Mineral Solver) and run it on a well you know.** The dialog
+      should look and behave exactly as before; the output prefix field now offers SM, and the
+      run writes SM_PHIE / SM_SWE / VOL_* curves into the SANDIMIN set.
+- [ ] **Open a project that has MM_* curves from an earlier run** — they should still be there,
+      plot, and export exactly as before, beside any new SM_* run.
+- [ ] **Restore a saved session that had a SandiMin pane** — the pane should come back (its
+      internal id is deliberately unchanged for exactly this).

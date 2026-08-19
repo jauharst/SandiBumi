@@ -1691,7 +1691,7 @@ mod tests {
             "sw_height",
         ]) {
             assert_eq!(
-                crate::multimin2::sw_model_id_from_flag(*code),
+                crate::sandimin::sw_model_id_from_flag(*code),
                 Some(expected),
                 "a survived code must still resolve through the shared registry"
             );

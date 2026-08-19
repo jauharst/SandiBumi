@@ -1,6 +1,6 @@
 //! Results-QC — cross-method water-saturation spread ("does the Sw model choice change the answer?").
 //!
-//! The five app Sw models are pure functions in [`crate::multimin2`]; the frontend cannot call them, so
+//! The five app Sw models are pure functions in [`crate::sandimin`]; the frontend cannot call them, so
 //! the per-depth Sw *envelope* is the one genuinely-new backend metric the Results-QC dashboard needs.
 //! Everything else the dashboard shows — Buckles (Sw·φ), unity, recon rollup, cutoff sensitivity, Monte
 //! Carlo P10/P50/P90 — reuses commands that already exist, computed frontend-side.
@@ -14,7 +14,7 @@
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::multimin2::{
+use crate::sandimin::{
     fluid_calc, sw_archie, sw_dual_nonlinear, sw_indonesia, sw_juhasz,
     sw_simandoux_bardon_pied, sw_simandoux_modified_slb, sw_waxman_smits, waxman_b,
     FluidProps,

@@ -419,7 +419,7 @@ pub(crate) const METHOD_DERIVATIONS: &[(&str, DerivationClass, &str)] = &[
     ("sw_sim", DerivationClass::Cited, "Simandoux 1963 Revue de l'IFP; Bardon & Pied 1969 SPWLA 10th Paper Z (SATURATION_METHODS); DEC-065 bisection"),
     ("sw_rtc", DerivationClass::Cited, "SandiBumi LRLC study (PHE UI + LAPI ITB); docs/method_lrlc_rtc_imts.md RtC sections; lrlc.rs:1-13"),
     ("sw_imts", DerivationClass::Cited, "Same LRLC study; docs/method_lrlc_rtc_imts.md IMTS; Waxman-Smits 1968, Waxman-Thomas 1974, Juhasz 1979/1981 (12_saturation.md:473)"),
-    ("multimin", DerivationClass::Retired, "multimin.rs:1-14 - superseded by SandiMin (multimin2: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); kept so saved chains resolve; blocked at run_module"),
+    ("multimin", DerivationClass::Retired, "multimin.rs:1-14 - superseded by SandiMin (sandimin: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); kept so saved chains resolve; blocked at run_module"),
     ("sw_height", DerivationClass::Cited, "docs/PRD_v2/15_sat-height-rocktyping.md S5 Leverett + Skelt-Harrison; satheight.rs"),
     ("perm_wyllie_rose", DerivationClass::CitedPort, "Geolog Loglan perm_wyllie_rose.lls port (modules.rs header); TIMUR/MORRIS_BIGGS/TIXIER constants from that port; original papers await Jauhar (map open question 1)"),
     ("perm_coates", DerivationClass::CitedPort, "Geolog Loglan perm_coates.lls port (modules.rs header); Coates-Dumanoir original awaits Jauhar (map open question 1)"),
@@ -5240,7 +5240,7 @@ fn precalc(ctx: &ModuleContext) -> ModuleOutputs {
             let r = if trend {
                 if d > 0.0 { ctx.p("RMF_A", i) + ctx.p("RMF_B", i) * d.log10() } else { MISSING }
             } else {
-                crate::multimin2::arps_f(ctx.p("RMF_MEAS", i), to_f(ctx.p("RMF_TEMP", i)), t_f)
+                crate::sandimin::arps_f(ctx.p("RMF_MEAS", i), to_f(ctx.p("RMF_TEMP", i)), t_f)
             };
             // Non-positive resistivity is physically meaningless — leave MISSING.
             if r > 0.0 {
@@ -6811,8 +6811,8 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
                 if swb >= 1.0 { 0.0 } else { ((swt_irr - swb) / (1.0 - swb)).max(0.0) };
             let swe_l = limit(swe, swe_irr, 1.0);
             // SB-SAT-023: the lift is the shipped inverse pair, one implementation everywhere.
-            swt_arch[i] = crate::multimin2::swt_from_swe(swe, swb) as f32;
-            swt_out[i] = crate::multimin2::swt_from_swe(swe_l, swb) as f32;
+            swt_arch[i] = crate::sandimin::swt_from_swe(swe, swb) as f32;
+            swt_out[i] = crate::sandimin::swt_from_swe(swe_l, swb) as f32;
             swe_out[i] = swe_l as f32;
             vol_uwat[i] = (pe * swe_l) as f32;
             continue;
@@ -6852,9 +6852,9 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
     }
 
     let flag_model = if effective_eqn {
-        crate::multimin2::SwModel::ArchieEffective
+        crate::sandimin::SwModel::ArchieEffective
     } else {
-        crate::multimin2::SwModel::ArchieTotal
+        crate::sandimin::SwModel::ArchieTotal
     };
     let method_flag = swt_arch
         .iter()
@@ -6982,7 +6982,7 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
 
     let method_flag = swe_indo
         .iter()
-        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::Indonesia.flag_code() } else { f32::NAN })
+        .map(|sw| if sw.is_finite() { crate::sandimin::SwModel::Indonesia.flag_code() } else { f32::NAN })
         .collect();
     HashMap::from([
         ("SWE_INDO".to_string(), swe_indo),
@@ -7103,9 +7103,9 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         let swe_irr = ctx.p("SWE_IRR", i);
 
         let sat = if modified_slb {
-            crate::multimin2::sw_simandoux_modified_slb(r, pe, vs, rw, rt_sh, m, n_exp, a, c)
+            crate::sandimin::sw_simandoux_modified_slb(r, pe, vs, rw, rt_sh, m, n_exp, a, c)
         } else {
-            crate::multimin2::sw_simandoux_bardon_pied(r, pe, vs, rw, rt_sh, m, n_exp, a)
+            crate::sandimin::sw_simandoux_bardon_pied(r, pe, vs, rw, rt_sh, m, n_exp, a)
         };
         if is_missing(sat) {
             continue;
@@ -7117,9 +7117,9 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
     }
 
     let flag_model = if modified_slb {
-        crate::multimin2::SwModel::SimandouxModifiedSlb
+        crate::sandimin::SwModel::SimandouxModifiedSlb
     } else {
-        crate::multimin2::SwModel::SimandouxBardonPied
+        crate::sandimin::SwModel::SimandouxBardonPied
     };
     let method_flag = swe_sim
         .iter()
@@ -11289,7 +11289,7 @@ mod tests {
     /// "Modified" means Geolog's `Vsh·Sw` shale term in one product and IP's/Techlog's `(1−Vcl)`
     /// divisor in another, and selecting by adjective costs **7.3 saturation units and +19 % HCPV**.
     ///
-    /// The row's as-built said `multimin2.rs:115,164` mislabel the Schlumberger form as
+    /// The row's as-built said `sandimin.rs:115,164` mislabel the Schlumberger form as
     /// Bardon-Pied; that is stale — both engines now carry equation ids. What was missing is
     /// anything keeping it that way, so this pins the contract rather than changing behaviour.
     #[test]
@@ -11362,7 +11362,7 @@ mod tests {
 
         // D — the solver engine agrees with the UI: every catalogue entry is an equation id and
         // its label leads with it, exactly as the selector does. Two engines, one vocabulary.
-        for choice in crate::multimin2::sw_model_catalog() {
+        for choice in crate::sandimin::sw_model_catalog() {
             assert!(
                 choice.label.starts_with(choice.id),
                 "solver model '{}' has a label that does not lead with its id: {}",
@@ -12063,17 +12063,17 @@ mod tests {
         //    one flag - fails here even if it dodged arm A.
         let (flag_total, flag_effective) = (total["SW_METHOD"][0], effective["SW_METHOD"][0]);
         assert_ne!(flag_total.to_bits(), flag_effective.to_bits(), "one flag cannot name two methods");
-        assert_eq!(crate::multimin2::sw_model_id_from_flag(flag_total), Some("archie_total"));
-        assert_eq!(crate::multimin2::sw_model_id_from_flag(flag_effective), Some("archie_effective"));
+        assert_eq!(crate::sandimin::sw_model_id_from_flag(flag_total), Some("archie_total"));
+        assert_eq!(crate::sandimin::sw_model_id_from_flag(flag_effective), Some("archie_effective"));
 
         // G. The solver engine carries the same identity: the catalogue lists archie_effective,
         //    and its post-solve Sw is the same cited equation the module computes. Two engines,
         //    one method — pinned against the reference case rather than against each other's code.
         assert!(
-            crate::multimin2::sw_model_catalog().iter().any(|entry| entry.id == "archie_effective"),
+            crate::sandimin::sw_model_catalog().iter().any(|entry| entry.id == "archie_effective"),
             "the solver catalogue must offer the effective method"
         );
-        let solver = crate::multimin2::sw_archie(8.0, 0.20, 0.25, 2.0, 2.0, 1.0);
+        let solver = crate::sandimin::sw_archie(8.0, 0.20, 0.25, 2.0, 2.0, 1.0);
         assert!((solver - 0.883883476).abs() < 2e-3, "the shared kernel on φe gives 0.884, got {solver}");
     }
 
@@ -12272,7 +12272,7 @@ mod tests {
             ],
             &[],
         ));
-        assert_eq!(crate::multimin2::sw_model_id_from_flag(rtc["SW_METHOD"][0]), Some("sw_rtc"));
+        assert_eq!(crate::sandimin::sw_model_id_from_flag(rtc["SW_METHOD"][0]), Some("sw_rtc"));
         assert!(rtc["SW_METHOD"][1].is_nan(), "a missing result must claim no producer");
 
         let swh = crate::satheight::sw_height(&ctx_with(
@@ -12289,22 +12289,22 @@ mod tests {
             ],
             &[("OPT_SWH", "LEVERETT")],
         ));
-        assert_eq!(crate::multimin2::sw_model_id_from_flag(swh["SW_METHOD"][0]), Some("sw_height"));
+        assert_eq!(crate::sandimin::sw_model_id_from_flag(swh["SW_METHOD"][0]), Some("sw_height"));
 
         // C. The registry/selector split. The registry resolves every identity; the dialog list
         //    excludes the three module-owned ones; and the solver refuses them BY NAME — pinned on
         //    the id in the message, so the refusal cannot degrade into a generic failure.
         for id in ["sw_rtc", "sw_imts", "sw_height"] {
             assert!(
-                crate::multimin2::sw_model_catalog().iter().any(|entry| entry.id == id),
+                crate::sandimin::sw_model_catalog().iter().any(|entry| entry.id == id),
                 "the shared registry must carry {id}"
             );
             assert!(
-                !crate::multimin2::solver_selectable_models().iter().any(|entry| entry.id == id),
+                !crate::sandimin::solver_selectable_models().iter().any(|entry| entry.id == id),
                 "the SandiMin dialog must not offer {id}"
             );
         }
-        let refused = crate::multimin2::run_multimin_selectability_probe(crate::multimin2::SwModel::SwRtc);
+        let refused = crate::sandimin::run_sandimin_selectability_probe(crate::sandimin::SwModel::SwRtc);
         assert!(
             refused.contains("sw_rtc") && refused.contains("not a SandiMin solver model"),
             "the solver must refuse a registry-only identity by name: {refused}"
@@ -12490,7 +12490,7 @@ mod tests {
         // A — Archie. The module's unclipped diagnostic is the comparable curve; the clipped one
         // carries irreducible-saturation bounds the solver form does not know about.
         let arch = sw_arch(&ctx_with(1, &logs, &params, &[("OPT_RW", "CONSTANT")]));
-        let solver_arch = crate::multimin2::sw_archie(rt, phie, rw, m, n_exp, a);
+        let solver_arch = crate::sandimin::sw_archie(rt, phie, rw, m, n_exp, a);
         assert!(
             (arch["SWT_ARCH"][0] as f64 - solver_arch).abs() < TOL,
             "archie disagrees between engines: module {} vs solver {solver_arch}",
@@ -12502,11 +12502,11 @@ mod tests {
         for (option, solver) in [
             (
                 "simandoux_bardon_pied",
-                crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n_exp, a),
+                crate::sandimin::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n_exp, a),
             ),
             (
                 "simandoux_modified_slb",
-                crate::multimin2::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n_exp, a, 1.0),
+                crate::sandimin::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n_exp, a, 1.0),
             ),
         ] {
             let out = sw_sim(&ctx_with(
@@ -12525,8 +12525,8 @@ mod tests {
         // C — and the two Simandoux forms are genuinely different numbers on this sample. Without
         // this arm, arm B would still pass if BOTH engines had collapsed onto one equation — which
         // is precisely the failure that made this row P0, just relocated.
-        let bp = crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n_exp, a);
-        let slb = crate::multimin2::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n_exp, a, 1.0);
+        let bp = crate::sandimin::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n_exp, a);
+        let slb = crate::sandimin::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n_exp, a, 1.0);
         assert!(
             (bp - slb).abs() > 1e-3,
             "the two Simandoux forms returned the same number ({bp} vs {slb}); agreement between \
@@ -12633,7 +12633,7 @@ mod tests {
         // clause the chapter states explicitly, and a stronger guarantee than a blank field:
         // a caller cannot forget to set it.
         let payload = r#"{"rw":0.1,"rw_temp_f":77,"rmf":0.1,"rmf_temp_f":62,"ftemp_f":148,"m":2,"n":2,"mud_type":"WBM","rsh":4,"indonesia_k":1,"simandoux_c":1,"phit_sh":0.1,"ws_b":0}"#;
-        let without_a = serde_json::from_str::<crate::multimin2::FluidProps>(payload);
+        let without_a = serde_json::from_str::<crate::sandimin::FluidProps>(payload);
         assert!(
             without_a.is_err(),
             "the solver accepted a fluid model with no tortuosity factor - it must refuse"
@@ -12694,7 +12694,7 @@ mod tests {
 
         // The solver has no default either, and it proves it by REFUSING to deserialize without
         // one. That is a stronger guarantee than a blank field: a caller cannot forget to set it.
-        let missing_rw = serde_json::from_str::<crate::multimin2::FluidProps>("{}");
+        let missing_rw = serde_json::from_str::<crate::sandimin::FluidProps>("{}");
         assert!(
             missing_rw.is_err(),
             "the solver accepted a fluid model with no Rw — it must refuse rather than default"
@@ -12862,8 +12862,8 @@ mod tests {
     /// with presets `FULL (k=1)`, `SIMPLE (k=0)` and `TAR_SAND/Woodhouse (k=2)`. **Both the
     /// deterministic module and the solver MUST use the same parameterised form.**
     ///
-    /// The as-built said `multimin2.rs` hard-codes `k = 1` so the solver cannot run SIMPLE or
-    /// TAR_SAND. That is stale: `multimin2.rs:277` reads `vsh.powf(1.0 - k * vsh / 2.0)` — the
+    /// The as-built said `sandimin.rs` hard-codes `k = 1` so the solver cannot run SIMPLE or
+    /// TAR_SAND. That is stale: `sandimin.rs:277` reads `vsh.powf(1.0 - k * vsh / 2.0)` — the
     /// same family, spelled for the `1/√Rt` row, so squaring it returns `Vsh^(2 − k·Vsh)`. The row
     /// was a PROVE.
     ///
@@ -12922,7 +12922,7 @@ mod tests {
 
         // D — an unconfigured run uses the cited FULL preset, so a module run and a solve
         // that were never configured cannot silently pick different variants. The solver's own
-        // default is documented as k=1 at `multimin2.rs:523-525`; it is not asserted here because
+        // default is documented as k=1 at `sandimin.rs:523-525`; it is not asserted here because
         // reaching it means deserializing `FluidProps`, which has many required fields, and a test
         // that constructs a whole fluid model to read one default would break for reasons that have
         // nothing to do with this contract.
@@ -13021,7 +13021,7 @@ mod tests {
 
     /// SB-SAT-027 / SB-SAT-T12. Source: `docs/PRD_v2/12_saturation.md:1425-1431` — *"Where a closed
     /// form exists for a special case (`n = 2`), it MAY be used as a fast path and MUST be asserted
-    /// equal to the general solver."* `multimin2::solve_simandoux_root` takes a closed quadratic
+    /// equal to the general solver."* `sandimin::solve_simandoux_root` takes a closed quadratic
     /// branch when `|n - 2| < 1e-9` and a bisection branch otherwise, so the two are exercised here
     /// by straddling that guard: `n = 2.0` takes the fast path and `n = 2.0 + 2e-9` — physically the
     /// same exponent — takes the general one.
@@ -13034,8 +13034,8 @@ mod tests {
     /// this test is SB-SAT-027's qualifying proof rather than a partial one.
     ///
     /// The chapter's other as-built claim is stale and worth recording: it says `modules.rs`
-    /// transcribes `CALC_SW` while `multimin2.rs` is *"a second, different solver"*. It is not.
-    /// `sw_sim` delegates to `multimin2::sw_simandoux_*`, both of which call the one
+    /// transcribes `CALC_SW` while `sandimin.rs` is *"a second, different solver"*. It is not.
+    /// `sw_sim` delegates to `sandimin::sw_simandoux_*`, both of which call the one
     /// `solve_simandoux_root`. There is a single engine, so the requirement's "one shared
     /// root-finder" clause is met by construction.
     #[test]
@@ -13056,9 +13056,9 @@ mod tests {
 
         let mut saw_interior = false;
         for (rt, phie, vsh, rw, rsh, m, a) in cases {
-            let fast = crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, FAST, a);
+            let fast = crate::sandimin::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, FAST, a);
             let general =
-                crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, GENERAL, a);
+                crate::sandimin::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, GENERAL, a);
             assert!(
                 fast.is_finite() && general.is_finite(),
                 "both paths must produce a number for rt={rt} phie={phie} vsh={vsh}"
@@ -13086,7 +13086,7 @@ mod tests {
         // by zero, so the shale term alone must answer. Pinned from the other side too - with
         // neither term there is no equation and the result is missing, never a plausible number.
         let no_sand =
-            crate::multimin2::sw_simandoux_bardon_pied(10.0, 0.0, 0.30, 0.05, 2.0, 2.0, FAST, 1.0);
+            crate::sandimin::sw_simandoux_bardon_pied(10.0, 0.0, 0.30, 0.05, 2.0, 2.0, FAST, 1.0);
         assert!(
             no_sand.is_nan() || (0.0..=1.0).contains(&no_sand),
             "a vanished sand term must not produce a non-physical saturation: {no_sand}"
@@ -13129,7 +13129,7 @@ mod tests {
             &[("OPT_RW", "CONSTANT")],
         );
         let arch_module = sw_arch(&arch_ctx)["SWT_ARCH"][0] as f64;
-        let arch_solver = crate::multimin2::sw_archie(10.0, 0.25, 0.1, 2.0, 2.0, 1.0);
+        let arch_solver = crate::sandimin::sw_archie(10.0, 0.25, 0.1, 2.0, 2.0, 1.0);
         assert!((arch_module - 0.4).abs() <= 1e-6, "archie_total module={arch_module}");
         assert!((arch_solver - 0.4).abs() <= 1e-12, "archie_total solver={arch_solver}");
         assert!((arch_module - arch_solver).abs() <= 1e-6);
@@ -13143,7 +13143,7 @@ mod tests {
                 &[("OPT_RW", "CONSTANT"), ("OPT_INDO", variant)],
             );
             let module_sw = sw_indo(&indo_ctx)["SWE_INDO"][0] as f64;
-            let solver_sw = crate::multimin2::sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a, k);
+            let solver_sw = crate::sandimin::sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a, k);
             let v = vsh.powf(2.0 - k * vsh);
             let ff = a / phie.powf(m);
             let conductance = 1.0 / (ff * rw)
@@ -13172,13 +13172,13 @@ mod tests {
             &[("OPT_RW", "CONSTANT"), ("OPT_SIM", method)],
         );
         let bardon_module = sw_sim(&sim_ctx("simandoux_bardon_pied"))["SWE_SIM"][0] as f64;
-        let bardon_solver = crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n, a);
+        let bardon_solver = crate::sandimin::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n, a);
         assert!((bardon_module - 0.625).abs() < 5e-4, "Bardon-Pied module={bardon_module}");
         assert!((bardon_solver - 0.625).abs() < 5e-4, "Bardon-Pied solver={bardon_solver}");
         assert!((bardon_module - bardon_solver).abs() <= 1e-6);
 
         let slb_module = sw_sim(&sim_ctx("simandoux_modified_slb"))["SWE_SIM"][0] as f64;
-        let slb_solver = crate::multimin2::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n, a, 1.0);
+        let slb_solver = crate::sandimin::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n, a, 1.0);
         assert!((slb_module - 0.5524).abs() < 1e-4, "modified-SLB module={slb_module}");
         assert!((slb_solver - 0.5524).abs() < 1e-4, "modified-SLB solver={slb_solver}");
         assert!((slb_module - slb_solver).abs() <= 1e-6);
@@ -13204,7 +13204,7 @@ mod tests {
             matches!(label.as_str(), "Modified" | "Simandoux" | "Modified Simandoux")
         }));
 
-        let solver_catalog = crate::multimin2::sw_model_catalog();
+        let solver_catalog = crate::sandimin::sw_model_catalog();
         let mut flag_codes = std::collections::HashSet::new();
         for entry in &solver_catalog {
             assert!(
@@ -13213,7 +13213,7 @@ mod tests {
                 entry.flag_code
             );
             assert_eq!(
-                crate::multimin2::sw_model_id_from_flag(entry.flag_code),
+                crate::sandimin::sw_model_id_from_flag(entry.flag_code),
                 Some(entry.id),
                 "flag code {} must resolve back to {}",
                 entry.flag_code,
@@ -13226,11 +13226,11 @@ mod tests {
             });
             assert!(solver.label.starts_with(id), "solver/UI label '{}' does not lead with {id}", solver.label);
         }
-        assert_eq!(crate::multimin2::SwModel::SimandouxBardonPied.id(), "simandoux_bardon_pied");
-        assert_eq!(crate::multimin2::SwModel::SimandouxModifiedSlb.id(), "simandoux_modified_slb");
-        let legacy_solver: crate::multimin2::SwModel = serde_json::from_str("\"simandoux\"").unwrap();
+        assert_eq!(crate::sandimin::SwModel::SimandouxBardonPied.id(), "simandoux_bardon_pied");
+        assert_eq!(crate::sandimin::SwModel::SimandouxModifiedSlb.id(), "simandoux_modified_slb");
+        let legacy_solver: crate::sandimin::SwModel = serde_json::from_str("\"simandoux\"").unwrap();
         assert_eq!(legacy_solver.id(), "simandoux_modified_slb", "the old solver id keeps its old equation");
-        let legacy_archie: crate::multimin2::SwModel = serde_json::from_str("\"archie\"").unwrap();
+        let legacy_archie: crate::sandimin::SwModel = serde_json::from_str("\"archie\"").unwrap();
         assert_eq!(legacy_archie.id(), "archie_total", "the old Archie id keeps its total-porosity equation");
 
         for legacy in ["MODIFIED", "SIM_MOD"] {
@@ -13278,7 +13278,7 @@ mod tests {
             for (flag, sw) in values.iter().zip(saturation_values) {
                 if sw.is_finite() {
                     assert_eq!(*flag, flag_for(id), "{module} finite sample does not identify {id}");
-                    assert_eq!(crate::multimin2::sw_model_id_from_flag(*flag), Some(id));
+                    assert_eq!(crate::sandimin::sw_model_id_from_flag(*flag), Some(id));
                 } else {
                     assert!(flag.is_nan(), "{module} must not claim a producer for a missing result");
                 }
@@ -13338,9 +13338,9 @@ mod tests {
             assert_module_flag("sw_sim", sw_sim(&sim), "SWE_SIM", id);
         }
 
-        let (sandimin_flag_name, sandimin_flags) = crate::multimin2::saturation_method_flag_curve(
+        let (sandimin_flag_name, sandimin_flags) = crate::sandimin::saturation_method_flag_curve(
             "MM",
-            crate::multimin2::SwModel::SimandouxModifiedSlb,
+            crate::sandimin::SwModel::SimandouxModifiedSlb,
             &[true, false, true],
         );
         assert_eq!(sandimin_flag_name, "MM_SW_METHOD");
