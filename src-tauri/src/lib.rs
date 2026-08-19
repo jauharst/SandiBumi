@@ -3156,6 +3156,26 @@ fn get_log_set_manifest(
     serde_json::to_value(&record).map_err(|e| e.to_string())
 }
 
+/// SB-DIO-007: delimited export of one curve set - the source-cell-state mask's native
+/// round trip. An empty source cell exports empty; an explicitly nulled cell exports the
+/// null token; a pre-contract curve exports absents as the token and the notes say so.
+#[tauri::command]
+async fn export_delimited_set(
+    db: tauri::State<'_, DbState>,
+    well_id: String,
+    set_name: String,
+    dest_path: String,
+    null_token: String,
+) -> Result<export::DelimitedExportResult, String> {
+    let db = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db.lock().unwrap();
+        export::export_delimited_set(&conn, &well_id, &set_name, &dest_path, &null_token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -4427,6 +4447,7 @@ pub fn run() {
             set_zone_param_batch,
             confirm_log_scale_zeros,
             get_log_set_manifest,
+            export_delimited_set,
             get_table_page,
             check_referential_integrity,
             prune_referential_integrity,

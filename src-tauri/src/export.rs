@@ -499,6 +499,134 @@ fn add_generic_curves(
     Ok((held, omitted, curve_states))
 }
 
+/// SB-DIO-007: what one delimited export did, and which curves could not carry states.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DelimitedExportResult {
+    pub path: String,
+    pub rows: usize,
+    pub curves: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// SB-DIO-007 (signed DRAFT_DIO007 under DEC-076): the delimited export is the mask's
+/// NATIVE round trip - a state-1 sample exports an EMPTY cell, a state-2 sample exports
+/// `null_token`, and a measured sample exports its value. A curve with no mask (a
+/// pre-contract import) exports every absent sample as the null token AND SAYS SO in the
+/// result notes - the distinction is unavailable, never silently invented. An unknown mask
+/// version refuses the STATES the same way (values still export). Deliberately not a
+/// `REGISTERED_WRITERS` entry: surfacing a new format in the export picker is a product
+/// decision that stays with Jauhar.
+pub fn export_delimited_set(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    dest_path: &str,
+    null_token: &str,
+) -> Result<DelimitedExportResult, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT curve_id, mnemonic FROM curve_meta
+             WHERE well_id = ?1 AND set_name = ?2 ORDER BY mnemonic",
+        )
+        .map_err(|e| e.to_string())?;
+    let curves: Vec<(String, String)> = stmt
+        .query_map(duckdb::params![well_id, set_name], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<duckdb::Result<_>>()
+        .map_err(|e| e.to_string())?;
+    if curves.is_empty() {
+        return Err(format!(
+            "well {well_id} has no curves in set {set_name}: nothing to export"
+        ));
+    }
+    let mut notes: Vec<String> = Vec::new();
+    // Per curve: samples in ascending depth order (the mask's own order) and the decoded
+    // states, where a mask exists and decodes against this exact sample count.
+    let mut per_curve: Vec<std::collections::HashMap<u32, (Option<f32>, Option<u8>)>> =
+        Vec::with_capacity(curves.len());
+    let mut depth_union: Vec<f32> = Vec::new();
+    for (curve_id, mnemonic) in &curves {
+        let mut sstmt = conn
+            .prepare(
+                "SELECT depth, value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth",
+            )
+            .map_err(|e| e.to_string())?;
+        let samples: Vec<(f32, Option<f32>)> = sstmt
+            .query_map(duckdb::params![curve_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<duckdb::Result<_>>()
+            .map_err(|e| e.to_string())?;
+        let states: Option<Vec<u8>> =
+            match crate::db::get_curve_state_mask(conn, curve_id).map_err(|e| e.to_string())? {
+                None => {
+                    notes.push(format!(
+                        "{mnemonic}: no source-cell states recorded (pre-contract import); \
+                         absent samples export as the null token (SB-DIO-007)"
+                    ));
+                    None
+                }
+                Some(blob) => match crate::db::decode_state_mask(&blob, samples.len()) {
+                    Ok(states) => Some(states),
+                    Err(reason) => {
+                        notes.push(format!("{mnemonic}: {reason}"));
+                        None
+                    }
+                },
+            };
+        let mut map = std::collections::HashMap::with_capacity(samples.len());
+        for (index, (depth, value)) in samples.iter().enumerate() {
+            map.insert(
+                depth.to_bits(),
+                (*value, states.as_ref().map(|s| s[index])),
+            );
+            depth_union.push(*depth);
+        }
+        per_curve.push(map);
+    }
+    depth_union.sort_by(f32::total_cmp);
+    depth_union.dedup();
+
+    let mut out = String::new();
+    out.push_str("DEPTH");
+    for (_, mnemonic) in &curves {
+        out.push(',');
+        out.push_str(mnemonic);
+    }
+    out.push('\n');
+    for depth in &depth_union {
+        out.push_str(&format!("{depth}"));
+        for map in &per_curve {
+            out.push(',');
+            match map.get(&depth.to_bits()) {
+                // A depth this curve never carried is an EMPTY cell - absence of a row,
+                // not a masked state.
+                None => {}
+                Some((value, state)) => match state {
+                    Some(s) if *s == crate::db::CELL_STATE_EMPTY => {}
+                    Some(s) if *s == crate::db::CELL_STATE_NULLED => out.push_str(null_token),
+                    _ => match value {
+                        Some(v) if v.is_finite() => out.push_str(&format!("{v}")),
+                        // Absent with no state to say why: the null token, per the
+                        // pre-contract note above.
+                        _ => out.push_str(null_token),
+                    },
+                },
+            }
+        }
+        out.push('\n');
+    }
+    std::fs::write(dest_path, &out)
+        .map_err(|e| format!("cannot write {dest_path}: {e}"))?;
+    Ok(DelimitedExportResult {
+        path: dest_path.to_string(),
+        rows: depth_union.len(),
+        curves: curves.into_iter().map(|(_, m)| m).collect(),
+        notes,
+    })
+}
+
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
     let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
     let writer = default_writer()?;

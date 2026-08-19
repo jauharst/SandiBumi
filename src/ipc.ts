@@ -3058,6 +3058,19 @@ export async function getLogSetManifest(setId: string): Promise<AppliedStepsReco
   return invoke<AppliedStepsRecord>("get_log_set_manifest", { setId });
 }
 
+/** SB-DIO-007. Delimited export of one curve set — the source-cell-state round trip:
+ * an empty source cell exports empty, an explicitly nulled cell exports the null
+ * token, and a pre-contract curve exports absents as the token with a note saying the
+ * distinction is unavailable. The default token is T11's own literal. */
+export async function exportDelimitedSet(
+  wellId: string,
+  setName: string,
+  destPath: string,
+  nullToken = "-999.25",
+): Promise<{ path: string; rows: number; curves: string[]; notes: string[] }> {
+  return invoke("export_delimited_set", { wellId, setName, destPath, nullToken });
+}
+
 /** SB-CUT-019. A cut-off AS ENTERED: the number and the unit it was typed in.
  *
  *  The unit is not decoration. IP's own manual expresses one quantity in porosity units in one
@@ -6434,6 +6447,9 @@ export function intakeProbeArrays(
 export interface CurveCommitRequest {
   paths: string[];
   roles: string[];
+  /** SB-DIO-007: `null_token` here is the file's DECLARED null — a matching cell is
+   * stored missing and masked "explicitly nulled", distinguishable from an empty cell. */
+  opts?: { delimiter?: string; skip_lines?: number; decimal?: string; null_token?: string };
   set_name?: string;
   depth_unit?: string;
   fallback_well_id?: string;

@@ -68,6 +68,13 @@ pub struct TableOptions {
     /// `"dot"` | `"comma"` | absent to decide per token (see [`parse_number`]).
     #[serde(default)]
     pub decimal: Option<String>,
+    /// SB-DIO-007: the file's null token, DECLARED at import like the delimiter and the
+    /// decimal - a delimited file has no in-band declaration, and sniffing one would
+    /// invent a vocabulary (the LONG/WIDE/BLOCK doctrine). A cell equal to this token is
+    /// EXPLICITLY NULLED: absent in arithmetic, state 2 in the source-cell mask. Absent =
+    /// no token declared, and a `-999.25` stays the number the file wrote.
+    #[serde(default)]
+    pub null_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1640,10 +1647,49 @@ pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportRes
                 let mut wrote_any = false;
                 for c in &curve_cols {
                     let mnemonic = probe.columns[*c].header.trim().to_uppercase();
+                    // SB-DIO-007: the source-cell state is read HERE, where the cell still
+                    // exists - "empty between the delimiters" and "the file's null token" are
+                    // different facts, and both die at commit unless recorded now. A cell
+                    // outside the signed vocabulary (stray text in a numeric column) makes
+                    // the whole curve's mask absent per draft rule 6 - a partial mask would
+                    // attribute states to the wrong depths.
+                    let declared_null = req.opts.null_token.as_deref().map(str::trim);
+                    let mut states: Vec<u8> = Vec::with_capacity(keep.len());
+                    let mut unclassifiable = false;
                     let values: Vec<f32> = keep
                         .iter()
                         .map(|k| {
-                            list[*k].get(*c).and_then(|cell| parse_number(cell, decimal).0).map_or(f32::NAN, |v| v as f32)
+                            let cell = list[*k].get(*c).map(|s| s.trim()).unwrap_or("");
+                            if cell.is_empty() {
+                                states.push(db::CELL_STATE_EMPTY);
+                                return f32::NAN;
+                            }
+                            // The DECLARED token is absent in arithmetic from here on -
+                            // the same NaN an empty cell becomes, so no module can tell
+                            // them apart; only the mask can.
+                            if declared_null == Some(cell) {
+                                states.push(db::CELL_STATE_NULLED);
+                                return f32::NAN;
+                            }
+                            match parse_number(cell, decimal).0 {
+                                Some(v) => {
+                                    let v = v as f32;
+                                    // The undeclared Geolog-family sentinel: SB-DBM-030
+                                    // screens the VALUE at the store; the mask records
+                                    // that the cell was a null token, not a measurement.
+                                    if db::is_large_negative_null(v) {
+                                        states.push(db::CELL_STATE_NULLED);
+                                    } else {
+                                        states.push(db::CELL_STATE_MEASURED);
+                                    }
+                                    v
+                                }
+                                None => {
+                                    unclassifiable = true;
+                                    states.push(db::CELL_STATE_EMPTY);
+                                    f32::NAN
+                                }
+                            }
                         })
                         .collect();
                     // A column with nothing in it for this well is not stored: an all-MISSING
@@ -1680,6 +1726,28 @@ pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportRes
                                     res.notes.push(format!(
                                         "null screen: {screened} large-negative sample(s) on {mnemonic} stored as missing (undeclared Geolog-family null sentinel)"
                                     ));
+                                }
+                                // SB-DIO-007: the mask is stored in ASCENDING DEPTH order to
+                                // match every read path; a curve whose cells did not all
+                                // classify writes the whole-curve absent mask and says so.
+                                if unclassifiable {
+                                    res.notes.push(format!(
+                                        "source-cell states not recorded for {mnemonic}: a cell held text outside the measured/empty/nulled vocabulary, and a partial mask would attribute states to the wrong depths (SB-DIO-007)"
+                                    ));
+                                } else {
+                                    let mut order: Vec<usize> = (0..depths.len()).collect();
+                                    order.sort_by(|a, b| depths[*a].total_cmp(&depths[*b]));
+                                    let sorted: Vec<u8> =
+                                        order.iter().map(|i| states[*i]).collect();
+                                    if let Err(e) = db::set_curve_state_mask(
+                                        conn,
+                                        &id,
+                                        Some(&db::encode_state_mask(&sorted)),
+                                    ) {
+                                        res.notes.push(format!(
+                                            "source-cell states not recorded for {mnemonic}: {e}"
+                                        ));
+                                    }
                                 }
                                 res.samples += values.iter().filter(|v| v.is_finite()).count();
                                 wrote_any = true;
@@ -2280,6 +2348,149 @@ mod tests {
             .unwrap();
         let decoded: Vec<f32> = axis.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         assert_eq!(decoded, vec![1.0, 2.0, 4.0], "the axis is stored with the values");
+    }
+
+    /// SB-DIO-007 / SB-DIO-T11 (signed DRAFT_DIO007 under DEC-076). "Field empty" and
+    /// "field = null sentinel" are different facts (PRD D-33), and the distinction must
+    /// survive to the deliverable while both stay absent in arithmetic.
+    #[test]
+    fn an_empty_cell_and_a_null_token_import_identically_absent_and_export_distinguishably() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-T11", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // T11's witness rows: an empty cell and the null token on consecutive rows.
+        let path = std::env::temp_dir().join("sandi_t11_states.csv");
+        std::fs::write(&path, "DEPTH,RES,GR\n1000.0,,45.0\n1000.5,-999.25,52.0\n1001.0,3.4,88.0\n")
+            .unwrap();
+        let req = CurveCommit {
+            paths: vec![path.to_str().unwrap().to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into(), "CURVE".into()],
+            opts: TableOptions {
+                null_token: Some("-999.25".into()),
+                ..TableOptions::default()
+            },
+            set_name: Some("T11".into()),
+            depth_unit: None,
+            fallback_well_id: Some(w.clone()),
+        };
+        let res = commit_curves(&conn, &req);
+        assert!(res[0].error.is_none(), "{:?}", res[0].error);
+
+        // Both are absent in arithmetic: the empty cell and the null token store the SAME
+        // SQL NULL (rule 2's NaN at the writer) - no module can tell them apart, on purpose.
+        let res_id: String = conn
+            .query_row(
+                "SELECT curve_id FROM curve_meta WHERE well_id = ?1 AND mnemonic = 'RES'",
+                duckdb::params![&w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let absent: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM curve_samples WHERE curve_id = ?1 AND value IS NULL",
+                duckdb::params![&res_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(absent, 2, "empty and nulled are the same absence in arithmetic");
+
+        // ... and the export distinguishes them: empty cell vs the null token, natively.
+        let out = std::env::temp_dir().join("sandi_t11_out.csv");
+        let out_path = out.to_str().unwrap();
+        let export =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(export.notes.is_empty(), "a masked delivery needs no caveats: {:?}", export.notes);
+        let text = std::fs::read_to_string(out_path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "DEPTH,GR,RES");
+        assert_eq!(lines[1], "1000,45,", "the empty source cell exports EMPTY");
+        assert_eq!(lines[2], "1000.5,52,-999.25", "the nulled source cell exports the token");
+        assert_eq!(lines[3], "1001,88,3.4", "a measurement exports as itself");
+
+        // A pre-contract curve (NULL mask) still exports - absents become the token, and
+        // the result SAYS the distinction is unavailable rather than inventing it.
+        db::set_curve_state_mask(&conn, &res_id, None).unwrap();
+        let legacy =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(
+            legacy.notes.iter().any(|n| n.contains("RES") && n.contains("no source-cell states")),
+            "{:?}",
+            legacy.notes
+        );
+        let text = std::fs::read_to_string(out_path).unwrap();
+        assert_eq!(
+            text.lines().nth(1).unwrap(),
+            "1000,45,-999.25",
+            "without a mask the empty/nulled distinction is honestly gone"
+        );
+
+        // An unknown mask version refuses the STATES by name - the values still export.
+        conn.execute(
+            "UPDATE curve_meta SET state_mask = ?2 WHERE curve_id = ?1",
+            duckdb::params![&res_id, vec![9u8, 0, 0, 0]],
+        )
+        .unwrap();
+        let unknown =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(
+            unknown.notes.iter().any(|n| n.contains("version 9")),
+            "the refusal names the version it cannot read: {:?}",
+            unknown.notes
+        );
+        assert!(
+            std::fs::read_to_string(out_path).unwrap().contains("1001,88,3.4"),
+            "values are unaffected by a state refusal"
+        );
+
+        // A mask that misaligns with its samples is refused WHOLE - never applied shifted.
+        conn.execute(
+            "UPDATE curve_meta SET state_mask = ?2 WHERE curve_id = ?1",
+            duckdb::params![&res_id, vec![1u8, 0, 0]],
+        )
+        .unwrap();
+        let misaligned =
+            crate::export::export_delimited_set(&conn, &w, "T11", out_path, "-999.25").unwrap();
+        assert!(
+            misaligned.notes.iter().any(|n| n.contains("2 state(s) for 3 sample(s)")),
+            "{:?}",
+            misaligned.notes
+        );
+
+        // Rule 6: a cell outside the signed vocabulary makes the whole curve's mask absent
+        // (a partial mask attributes states to the wrong depths) - and the import says so.
+        let stray = std::env::temp_dir().join("sandi_t11_stray.csv");
+        std::fs::write(&stray, "DEPTH,RES\n1000.0,3.1\n1000.5,see note\n").unwrap();
+        let req2 = CurveCommit {
+            paths: vec![stray.to_str().unwrap().to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into()],
+            opts: TableOptions::default(),
+            set_name: Some("STRAY".into()),
+            depth_unit: None,
+            fallback_well_id: Some(w.clone()),
+        };
+        let res2 = commit_curves(&conn, &req2);
+        assert!(res2[0].error.is_none(), "{:?}", res2[0].error);
+        assert!(
+            res2[0].notes.iter().any(|n| n.contains("source-cell states not recorded for RES")),
+            "{:?}",
+            res2[0].notes
+        );
+        let stray_mask: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT m.state_mask FROM curve_meta m WHERE m.well_id = ?1 AND m.set_name = 'STRAY'",
+                duckdb::params![&w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(stray_mask.is_none(), "rule 6: the whole-curve mask is absent, never partial");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&stray);
+        let _ = std::fs::remove_file(&out);
     }
 
     /// **A column marked CURVE lands in the curve store, where modules can read it.**

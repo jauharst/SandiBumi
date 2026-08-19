@@ -435,3 +435,4 @@
 "SB-DIO-011","CORRECTNESS","src-tauri/src/parsers.rs","every_index_bearing_alias_list_is_discovered_mechanically_and_cites_its_source"
 "SB-DIO-057","CORRECTNESS","src-tauri/src/db.rs","a_zero_on_a_log_scale_curve_is_surfaced_before_commit_and_the_recorded_decision_governs"
 "SB-ENV-005","CORRECTNESS","src-tauri/src/equations.rs","a_manifest_rides_its_version_atomically_a_legacy_null_reads_unknown_and_an_unknown_schema_version_refuses_while_curves_still_read"
+"SB-DIO-007","CORRECTNESS","src-tauri/src/intake.rs","an_empty_cell_and_a_null_token_import_identically_absent_and_export_distinguishably"

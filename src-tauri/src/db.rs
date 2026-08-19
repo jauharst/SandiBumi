@@ -1004,6 +1004,14 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- refuses an otherwise-tied legacy collision instead of inventing which old row was last.
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS modified_seq BIGINT;
         ALTER TABLE curve_meta ALTER COLUMN modified_seq SET DEFAULT nextval('curve_meta_modified_seq');
+        -- SB-DIO-007 (signed DRAFT_DIO007 under DEC-076): the versioned source-cell-state mask,
+        -- one byte per sample in ASCENDING DEPTH order behind a one-byte version prefix
+        -- (0 = measured, 1 = empty cell, 2 = explicitly nulled). Both absent states store
+        -- f32::NAN in the samples - rule 2 is untouched by construction; the mask is consulted
+        -- only by exporters and custody surfaces, never by arithmetic. NULL = a pre-contract
+        -- import whose cell states cannot be recovered: preserved as unknown, never backfilled.
+        -- Added LAST via ALTER (the additive-column precedent above).
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS state_mask BLOB;
 
         -- SB-MLA-055. A row here DECLARES that a curve's values are class identifiers — a facies
         -- code, a litho code, a predicted class — and not a quantity. Averaging or interpolating
@@ -10194,6 +10202,81 @@ fn screen_log_scale_zeros(
              nothing was written."
         ))),
     }
+}
+
+// ---------------------------------------------------------------------------
+// SB-DIO-007 (signed DRAFT_DIO007 under DEC-076): the source-cell-state mask.
+// "Field empty" and "field = null sentinel" are different facts (PRD D-33) -
+// the mask records which, per sample, and the distinction survives to the
+// delimited deliverable. Auxiliary custody only: never a gate on measurements.
+// ---------------------------------------------------------------------------
+
+/// Version prefix of every written mask blob. A reader seeing an unknown version
+/// refuses to interpret STATES; the curve's values are unaffected.
+pub const CELL_STATE_MASK_VERSION: u8 = 1;
+/// The cell held a measurement.
+pub const CELL_STATE_MEASURED: u8 = 0;
+/// Nothing between the delimiters (or the row ended before the column).
+pub const CELL_STATE_EMPTY: u8 = 1;
+/// The cell held the file's null token (the SB-DBM-030 large-negative family).
+pub const CELL_STATE_NULLED: u8 = 2;
+
+/// Encodes per-sample states (ascending depth order) behind the version byte.
+pub fn encode_state_mask(states: &[u8]) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(states.len() + 1);
+    blob.push(CELL_STATE_MASK_VERSION);
+    blob.extend_from_slice(states);
+    blob
+}
+
+/// Decodes a stored mask against the curve's sample count. Refuses an unknown
+/// version by name, and refuses a length mismatch WHOLE - a mask that misaligns
+/// with its array attributes states to the wrong depths, which is worse than no
+/// mask at all (draft rule 6).
+pub fn decode_state_mask(blob: &[u8], expected_samples: usize) -> Result<Vec<u8>, String> {
+    let Some((&version, states)) = blob.split_first() else {
+        return Err("state mask is empty: refused whole rather than misread (SB-DIO-007)".into());
+    };
+    if version != CELL_STATE_MASK_VERSION {
+        return Err(format!(
+            "state mask carries version {version}, and this build reads version \
+             {CELL_STATE_MASK_VERSION}: cell states are refused rather than misread; the \
+             curve's values are unaffected (SB-DIO-007)"
+        ));
+    }
+    if states.len() != expected_samples {
+        return Err(format!(
+            "state mask carries {} state(s) for {expected_samples} sample(s): a misaligned mask \
+             attributes states to the wrong depths, so it is refused whole (SB-DIO-007)",
+            states.len()
+        ));
+    }
+    Ok(states.to_vec())
+}
+
+/// Stores (or clears) a curve's mask. Refuses by name when the curve does not
+/// exist - a mask exists only beside the samples it describes.
+pub fn set_curve_state_mask(conn: &Connection, curve_id: &str, mask: Option<&[u8]>) -> DbResult<()> {
+    let updated = conn.execute(
+        "UPDATE curve_meta SET state_mask = ?2 WHERE curve_id = ?1",
+        params![curve_id, mask],
+    )?;
+    if updated == 0 {
+        return Err(DbError::Invalid(format!(
+            "no curve {curve_id}: a state mask exists only beside the samples it describes (SB-DIO-007)"
+        )));
+    }
+    Ok(())
+}
+
+/// The raw stored blob; `None` = pre-contract import (unknown states).
+pub fn get_curve_state_mask(conn: &Connection, curve_id: &str) -> DbResult<Option<Vec<u8>>> {
+    let blob: Option<Vec<u8>> = conn.query_row(
+        "SELECT state_mask FROM curve_meta WHERE curve_id = ?1",
+        params![curve_id],
+        |row| row.get(0),
+    )?;
+    Ok(blob)
 }
 
 /// Atomically replaces every curve in one imported delivery using one transaction and one
