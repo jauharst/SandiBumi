@@ -37,7 +37,10 @@ import {
   type ViewportRef,
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
-import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
+import { AXIS_ALIASES, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
+// Resolution goes through the policy module: a route-2 derived overlay (DEC-078) shadows
+// its digitized coordinates the moment its derivation lands.
+import { allChartOverlays, resolveChartOverlay } from "./chartOverlayPolicy";
 import {
   applyPlotChannelPolicy,
   reconcileDepthChannels,
@@ -236,7 +239,7 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   if (raw.chartOverlay === undefined && legacyDn) {
     opts.chartOverlay = legacyDn === "fresh" ? "por11" : legacyDn === "salt" ? "por12" : "";
   }
-  if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !findChartOverlay(opts.chartOverlay))) {
+  if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !resolveChartOverlay(opts.chartOverlay))) {
     opts.chartOverlay = "";
   }
   if (!["", "winland", "pittman_r25", "pittman_r35", "pittman_r50"].includes(opts.rockOverlay)) {
@@ -1445,7 +1448,7 @@ export function drawCrossplot(
 
   // Chartbook overlay — drawn when the plot axes match the chart's axes. Linear
   // axes only, except charts that themselves need a log axis (e.g. Th/K ratio).
-  const overlayDef = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
+  const overlayDef = opts.chartOverlay ? resolveChartOverlay(opts.chartOverlay) : undefined;
   if (overlayDef) {
     const decision = authorizeProvenancedChart(
       overlayDef,
@@ -1827,7 +1830,7 @@ export async function buildCrossplotContent(
       ?.resolved[0] ?? null;
 
   function currentChartDecision(surface: ChartRenderSurface = "screen"): ChartRenderDecision {
-    const def = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
+    const def = opts.chartOverlay ? resolveChartOverlay(opts.chartOverlay) : undefined;
     return def
       ? authorizeProvenancedChart(def, xSel.value, ySel.value, typedAxes.x, typedAxes.y, surface)
       : { authorization: null, record: null, refusal: null };
@@ -2641,8 +2644,8 @@ export async function buildCrossplotContent(
     noneOpt.value = "";
     noneOpt.textContent = "— None —";
     chartSel.appendChild(noneOpt);
-    const applicable = CHART_OVERLAYS.filter((d) => matchOverlayAxes(d, xSel.value, ySel.value));
-    const other = CHART_OVERLAYS.filter((d) => !matchOverlayAxes(d, xSel.value, ySel.value));
+    const applicable = allChartOverlays().filter((d) => matchOverlayAxes(d, xSel.value, ySel.value));
+    const other = allChartOverlays().filter((d) => !matchOverlayAxes(d, xSel.value, ySel.value));
     for (const [groupLabel, list] of [
       ["For these axes", applicable],
       ["Other axes (drawn only when axes match)", other],
@@ -2659,7 +2662,7 @@ export async function buildCrossplotContent(
       }
       chartSel.appendChild(group);
     }
-    chartSel.value = opts.chartOverlay && findChartOverlay(opts.chartOverlay) ? opts.chartOverlay : "";
+    chartSel.value = opts.chartOverlay && resolveChartOverlay(opts.chartOverlay) ? opts.chartOverlay : "";
     // Rock-typing pore-throat grid (Winland/Pittman) — drawn when the axes are a φ-k pair.
     const rockSel = document.createElement("select");
     rockSel.className = "form-control";

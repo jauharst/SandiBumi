@@ -15,6 +15,8 @@
     "check:gate2-hygiene": "node tools/gate2-hygiene.mjs",
     "test:unit-registry": "node --test tools/unit-registry.test.mjs",
     "check:unit-registry": "node tools/unit-registry.mjs --check",
+    "test:chart-derivation": "node --test tools/chart-derivation.test.mjs",
+    "check:chart-derivation": "node tools/gen-derived-overlays.mjs --check",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:e2e": "node e2e/run.mjs"

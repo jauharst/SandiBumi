@@ -84,6 +84,14 @@ if ($code -eq 0) {
     $code = $LASTEXITCODE
 }
 if ($code -eq 0) {
+    & npm run test:chart-derivation
+    $code = $LASTEXITCODE
+}
+if ($code -eq 0) {
+    & npm run check:chart-derivation
+    $code = $LASTEXITCODE
+}
+if ($code -eq 0) {
     & node "tools/gen-third-party-licenses.mjs" --check
     $code = $LASTEXITCODE
 }

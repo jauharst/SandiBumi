@@ -23,6 +23,9 @@
  * omitting exactly the ids below (or delete their entries), then delete this list. The
  * overlay picker and renderer already tolerate an absent id — nothing else changes.
  */
+import { CHART_OVERLAYS, findChartOverlay, type ChartOverlayDef } from "./chartOverlays";
+import { DERIVED_CHART_OVERLAYS } from "./chartOverlaysDerived.gen";
+
 export const TOOL_RESPONSE_OVERLAY_IDS: readonly string[] = [
   "por11", // CNL, fresh invaded zone
   "por12", // CNL, salt invaded zone
@@ -38,4 +41,31 @@ export const TOOL_RESPONSE_OVERLAY_IDS: readonly string[] = [
 /** True for a chart definition that exists only as a vendor tool characterization. */
 export function isToolResponseOverlay(id: string): boolean {
   return TOOL_RESPONSE_OVERLAY_IDS.includes(id);
+}
+
+/**
+ * Route-2 execution state (DEC-078). A derived overlay carries curves computed from
+ * published equations and cited constants (`tools/gen-derived-overlays.mjs`, proven
+ * against the digitized chart by `tools/chart-derivation.test.mjs`); resolution prefers
+ * it, so the digitized coordinates for that id stop being read the moment the derivation
+ * lands — the superseded bytes leave `chartOverlays.ts` at the next chartdig regeneration,
+ * together with whatever the Gate 5 nine-id decision removes.
+ *
+ * - `por22_ta`: DERIVED (Wyllie time-average; constants stated on Por-22 p. 238 and
+ *   Por-1 p. 212). Its mineral POINTS remain digitized pending their own derivation.
+ * - `por22_fo`: NOT yet derived — the first-pass Raymer-Hunt-Gardner check left
+ *   systematic residuals beyond digitization tolerance; the published formulation the
+ *   chart used must be established first, else FO is adjudicated vendor-empirical and
+ *   joins the Gate 5 class above.
+ */
+export function resolveChartOverlay(id: string): ChartOverlayDef | undefined {
+  const base = findChartOverlay(id);
+  if (!base) return undefined;
+  const derived = DERIVED_CHART_OVERLAYS.find((d) => d.id === id);
+  return derived ? { ...base, curves: derived.curves } : base;
+}
+
+/** The overlay catalog in its stable UI order, with derived curves shadowing digitized ones. */
+export function allChartOverlays(): ChartOverlayDef[] {
+  return CHART_OVERLAYS.map((def) => resolveChartOverlay(def.id) ?? def);
 }
