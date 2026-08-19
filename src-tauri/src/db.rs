@@ -5694,7 +5694,16 @@ pub fn reapply_referential_integrity_prune(conn: &Connection, batch_id: &str) ->
 /// is rejected before execution.
 pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<QueryPage, String> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
-    let lowered = trimmed.to_lowercase();
+    // The keyword test runs on the first REAL token, not the first byte: a query opening with
+    // `--` comment lines or blanks is ordinary SQL, and refusing it as "not a SELECT" told users
+    // their SELECT was not a SELECT (finding 23). Skipping the comments makes the guard
+    // STRICTER, not looser — the token it inspects is the one DuckDB will execute.
+    let first_code_line = trimmed
+        .lines()
+        .map(str::trim_start)
+        .find(|line| !line.is_empty() && !line.starts_with("--"))
+        .unwrap_or("");
+    let lowered = first_code_line.to_lowercase();
     if !(lowered.starts_with("select") || lowered.starts_with("with")) {
         return Err("only SELECT queries are allowed here".into());
     }
@@ -5706,7 +5715,11 @@ pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<
     // Fetch one row beyond the cap so we can tell a result that fills the cap exactly (complete)
     // from one the cap actually truncated. We return at most `limit` rows; the extra row only
     // sets `truncated`, so the panel never reports a capped count as the true total.
-    let wrapped = format!("SELECT * FROM ({trimmed}) __sandibumi_q LIMIT {}", limit + 1);
+    //
+    // The wrapper's suffix sits on its OWN line: a query ending in a `--` comment would
+    // otherwise swallow the closing paren and the LIMIT, and DuckDB would report a syntax
+    // error against a query that is valid on its own (finding 23's second half).
+    let wrapped = format!("SELECT * FROM ({trimmed}\n) __sandibumi_q LIMIT {}", limit + 1);
     let mut stmt = conn.prepare(&wrapped).map_err(|e| e.to_string())?;
     let mut rows_out: Vec<Vec<Option<String>>> = Vec::new();
     {
@@ -6991,6 +7004,37 @@ mod inspector_tests {
         )
         .expect("a legitimate CTE query must still be allowed");
         assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0][0].as_deref(), Some("SANDI-1"));
+    }
+
+    /// Finding 23 (closed 2026-08-20): an ordinary SQL comment must not break the read-only
+    /// console. A leading `--` line used to hide the keyword, so a valid SELECT was refused
+    /// with a message saying it was not a SELECT — the panel's own starter opened that way.
+    /// And the LIMIT wrapper was single-line, so a TRAILING `--` swallowed the closing paren
+    /// and DuckDB reported a syntax error against a query that is valid on its own. The refusal
+    /// side of the guard is pinned next door (`readonly_query_refuses_every_write_shape…`):
+    /// `-- select` above a DELETE still refuses, because the token inspected is the real one.
+    #[test]
+    fn readonly_query_reads_through_leading_and_trailing_comments() {
+        let conn = mem_db();
+        insert_well(&conn, Uuid::new_v4(), "SANDI-1", Some("Sandi"), None, None).unwrap();
+
+        // Leading comment and blank lines above a real SELECT — the starter's original shape.
+        let page = run_readonly_query(
+            &conn,
+            "-- wells in this project\n\n  -- (edit freely)\nSELECT well_name FROM wells",
+            100,
+        )
+        .expect("a SELECT under leading comment lines is a SELECT");
+        assert_eq!(page.rows[0][0].as_deref(), Some("SANDI-1"));
+
+        // Trailing comment on the last line — must not swallow the wrapper's paren and LIMIT.
+        let page = run_readonly_query(
+            &conn,
+            "SELECT well_name FROM wells -- just the names",
+            100,
+        )
+        .expect("a trailing comment must not break the wrapped query");
         assert_eq!(page.rows[0][0].as_deref(), Some("SANDI-1"));
     }
 

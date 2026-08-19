@@ -915,7 +915,7 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
 
 **Correctness — OPEN, awaiting Jauhar's method decision (found 2026-07-31)**
 
-- [ ] **A per-zone TEMP_GRAD override makes a STEP in FTEMP, not a kink.** `precalc` computes
+- [x] **A per-zone TEMP_GRAD override makes a STEP in FTEMP, not a kink.** `precalc` computes
       every sample as `SURF_TEMP + gradient(sample) × depth(sample)` — the gradient is applied
       **from surface**, never integrated down through the zones above it. So the moment a lower
       zone carries its own gradient, the temperature profile is discontinuous at the boundary.
@@ -926,6 +926,8 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       says the trend should *kink* with "no discontinuity artifacts", so the plan and the code
       disagree and the plan describes the physical answer.
 
+      CLOSED 2026-08-20 (DEC-084 item 1, confirming his 2026-08-01 "temperature is curves only"): FTEMP is a continuous log the user computes; a per-zone TEMP_GRAD is refused by name (`a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well`, workflow.rs). The checkbox was stale — the refusal shipped 2026-08-01.
+
       **Pinned as-is, not fixed** — `a_per_zone_gradient_override_reaches_exactly_its_own_samples`
       (`workflow.rs`) asserts the 10.5 °C step explicitly, so it cannot drift or be changed
       silently. The fix is method math, not a refactor: integrating per zone means choosing what
@@ -933,7 +935,7 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       surface), and that needs a cited source. Same question applies to PGRAD, which is computed
       the same way. Logged in `docs/review_triage.md` finding 6 and in T-PREP-05's known-issue line.
 
-- [ ] **A well with NO permeability is EXEMPTED from an active PERM cutoff.** `classify_sample`
+- [x] **A well with NO permeability is EXEMPTED from an active PERM cutoff.** `classify_sample`
       correctly fails a *sample* whose PERM is missing, and there is a confirmed `[x]` for that.
       But `run_pay_summary` decides whether the cutoff runs at all per WELL —
       `perm_min.is_some() && perm.iter().any(|v| !v.is_nan())` — so a well carrying no permeability
@@ -942,11 +944,13 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       it.** The less data a well has, the more pay it books, and `n_classified` is non-zero for
       both, so no consumer downstream — dashboard, workbook, PDF — can tell them apart.
 
+      CLOSED 2026-08-20 (DEC-084 item 2, confirming the shipped rule): a requested cutoff is ALWAYS active and `perm_cutoff_no_data` separates absence of evidence from wet rock (`a_well_with_no_perm_fails_the_cutoff_and_says_why`, workflow.rs). The checkbox was stale.
+
       **Pinned as-is, not fixed** — `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff`
       (`workflow.rs`). Exclude or exempt is a petrophysical decision that changes reserves.
       `docs/review_triage.md` finding 7; T-BATCH-08 carries the known-issue line.
 
-- [ ] **Adding a permeability model to a Monte Carlo chain switches off the permeability cutoff.**
+- [x] **Adding a permeability model to a Monte Carlo chain switches off the permeability cutoff.**
       Already in AUDIT-2026-07-21, but the trigger is broader than recorded there. PERM reaches
       `has_perm_cut` only if a step CONSUMES it and none PRODUCES it, so the cutoff works on a
       chain ending in Rock Typing and goes dead the moment `perm_coates` is inserted ahead of it —
@@ -954,7 +958,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff`
       (`montecarlo.rs`), with the working chain beside it as the control. Finding 8.
 
-- [ ] **Pittman PR75 exceeds PR50 above about 79 mD.** Mercury enters the widest throats first, so
+      CLOSED 2026-08-20 (DEC-084 item 3: "dont let it off, its independent"): `has_perm_cut = req.perm_min.is_some()` unconditionally in montecarlo.rs — the produced-curve half shipped 2026-08-01, and the residual no-PERM-anywhere exemption is now closed too, with an advisory note on the result. Pins: `a_permeability_cutoff_survives_a_chain_that_models_permeability` + `a_run_with_no_permeability_anywhere_still_answers_to_an_active_perm_cutoff` (two mutations red).
+
+- [x] **Pittman PR75 exceeds PR50 above about 79 mD.** Mercury enters the widest throats first, so
       the 75 % radius must be the smaller one. The nine rows are independent regressions, and
       `PR50 − PR75 = −0.634 − 0.066·log k + 0.543·log φ%` changes sign in ordinary good sand.
       Measured at φ = 25 %, k = 100 mD: **PR50 2.907 µm against PR75 2.953 µm.** PR10–PR50 stay
@@ -964,7 +970,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       ordering come out right is precisely what the provenance rules forbid.** Pinned by
       `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand`. Finding 9.
 
-- [ ] **A failed run still writes its empty curves into the Curve Catalog.** Phase 2 of
+      CLOSED 2026-08-20 (DEC-084 item 4: "leave as paper"): the crossing is the published regressions’ own arithmetic and ships uncorrected, the same rule as the low-porosity non-monotonicity — `PITTMAN_TABLE1` holds the published table in full and no shipped row carries coefficients of its own.
+
+- [x] **A failed run still writes its empty curves into the Curve Catalog.** Phase 2 of
       `run_workflow_module_into` writes for any well whose outcome is `Computed` with a non-empty
       output map, and an all-MISSING map is still non-empty. rocktyping on a well with porosity but
       no permeability reports its error **and versions all eight outputs** as curves blank from top
@@ -974,7 +982,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`).
       Suppressing the write is one filter, but it changes behaviour for every module. Finding 10.
 
-- [ ] **Two wells with one name overwrite each other's report, and the batch count says
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — the pin is now `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (the fixed behaviour), and `docs/record_fixes.md` records the rule: a run that reports failure must not also version an interpretation (`answered` is the one helper).
+
+- [x] **Two wells with one name overwrite each other's report, and the batch count says
       otherwise.** `export_report_batch` builds each filename from the well NAME with every
       non-alphanumeric mapped to `_`, and `well_name` has no uniqueness constraint — an import with
       attach OFF creates a duplicate by design, and `SANDI/1` / `SANDI 1` collide as well. The
@@ -987,7 +997,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       suffixing the duplicate or falling back to the well id both change what lands in a client
       folder.** Finding 12.
 
-- [ ] **A Rhai equation that raises on only SOME samples reports a clean success.** A Rhai error is
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — the pin is now `two_wells_with_one_name_each_get_their_own_report_file` (report.rs), and `docs/record_fixes.md` records the rule: a batch never writes two wells to one file, and the well name is resolved BEFORE the render.
+
+- [x] **A Rhai equation that raises on only SOME samples reports a clean success.** A Rhai error is
       caught per sample and written as MISSING, and the all-MISSING guard — the only thing that
       turns a script error into a reported failure — fires only when EVERY sample failed. So a
       half-raising script yields a curve with holes and the full row count, indistinguishable from
@@ -999,6 +1011,8 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. **Not fixed: counting the
       raises changes the run summary, and whether a partially failed curve should be written at all
       is a judgement about how the equation editor is used.** Finding 13.
+
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — the pin is now `a_script_that_raises_on_only_some_samples_says_so_without_calling_the_run_a_failure` (equations.rs), and `docs/record_fixes.md` records the rule: a partial failure is a WARNING, counted at the evaluator.
 
 - [x] **T-ADV-13's TVD no-op is FIXED — the plan step is what is stale. CLOSED 2026-07-31.**
       AUDIT-2026-07-21 said `sw_height`'s TVD input had no producer anywhere in the app, and the
@@ -1013,7 +1027,7 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       `deviation_import_materializes_tvd_tvdss_curves`); nothing tested the joint, which is where the
       finding lived. Plan annotated. Finding 14.
 
-- [ ] **The report's table pages carry no footer, unlike every other deliverable surface.**
+- [x] **The report's table pages carry no footer, unlike every other deliverable surface.**
       T-REP-06 expects "Made in SandiBumi" on each table page. It is emitted by the report cover,
       every composite page, the Word document and the PowerPoint deck — but `table_pages` and
       `note_page` emit no footer at all, so the methodology, zone-parameter and pay-summary pages of
@@ -1024,7 +1038,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       the mark belongs on every page or only the cover is a branding decision on a client
       document.** Finding 15.
 
-- [ ] **HPV is not guaranteed non-negative — a dense stringer is subtracted from the SAND row.**
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — every page carries the mark now, asserted inside `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table` (report.rs:1513: "EVERY page carries the Made in SandiBumi mark, which is what T-REP-06 always asked").
+
+- [x] **HPV is not guaranteed non-negative — a dense stringer is subtracted from the SAND row.**
       T-REP-06 lists HPV ≥ 0 as a domain check, but `run_pay_summary` sums PHIE·(1−SWE)·h with no
       floor, so the row inherits the sign of PHIE. A tight carbonate streak reads low GR, clears the
       VSH cutoff and is flagged SAND, while a density porosity on a sandstone matrix reads slightly
@@ -1038,7 +1054,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       contribution here — and those are different statements about whose job it is to reject a
       non-physical porosity.** Finding 16.
 
-- [ ] **A chain whose worker thread dies jams the project switch for the rest of the session.**
+      CLOSED 2026-08-20 (DEC-084 item 5: "hpv CANT go negative", confirming his "always limit phie to 0.001"): `workflow::floored_phie` floors every pay path at PHIE_FLOOR 0.001 so the subtraction cannot happen (`a_dense_stringer_no_longer_subtracts_from_the_sand_rows_hpv`, report.rs). The checkbox was stale.
+
+- [x] **A chain whose worker thread dies jams the project switch for the rest of the session.**
       T-SHELL-09's guard itself is correct and has no window: `chain::register` runs at
       `lib.rs:2428`, before the worker thread is spawned at `:2468`, so Open Project is already
       refused the instant Run returns; completing and cancelling both release it. What has no
@@ -1057,7 +1075,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       switchable at all after a chain died mid-write, is a judgement about failure semantics.**
       Finding 17.
 
-- [ ] **The report cover states the composite's PRINT WINDOW, not the logged interval.** The
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — `run_workflow_chain` wraps `run_chain` in `catch_unwind` and a dying worker sets `ChainStatus::Failed` (chain.rs), pinned by `a_dead_chain_worker_reports_failure_and_releases_the_project_switch`.
+
+- [x] **The report cover states the composite's PRINT WINDOW, not the logged interval.** The
       cover's "Interval: … – … m" is read straight off the composite pagination (`report.rs:319`),
       which honours the render's depth window — so setting one re-dates the whole report, including
       the tables the window never touched. `run_pay_summary` works per zone and knows nothing about
@@ -1076,7 +1096,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       decision.** Correct tables-only behaviour otherwise is pinned by
       `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`. Finding 18.
 
-- [ ] **Curve Edit's "coerce invalid input to 0.0" is HALF fixed — the surviving half is one line
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — the cover takes the fix this item asked for: pinned by `a_cover_dates_itself_to_the_log_and_states_a_print_window_separately` plus `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock` (report.rs).
+
+- [x] **Curve Edit's "coerce invalid input to 0.0" is HALF fixed — the surviving half is one line
       of TypeScript.** The backend guard is correct and tested: `apply_op` refuses a non-finite
       constant outright (`curve_edit.rs:417`), writing nothing, pinned by
       `a_set_constant_refuses_a_value_that_is_not_a_number`. It is also unreachable for the case
@@ -1092,7 +1114,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       through to the existing backend refusal is one character and gives a worse message.**
       Finding 19.
 
-- [ ] **The Wells grid's editor has no 0-row check, unlike the other three.**
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — `curveEditDialog.ts` now refuses Apply when a required field (Top/Bottom/Value) is not a number, with the message "nothing was written"; `mul`/`add` keep their identity fallbacks where 0/1 genuinely are the identity. The backend refusal (`a_set_constant_refuses_a_value_that_is_not_a_number`) stands behind it.
+
+- [x] **The Wells grid's editor has no 0-row check, unlike the other three.**
       `update_standard_sample`, `update_computed_sample` and `update_core_sample` all check the
       UPDATE's row count and error with the depth named — the fix for the audit's "DB-inspector
       edit reports success on a 0-row update", now pinned by
@@ -1105,7 +1129,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       **Not fixed, though nearly mechanical: the `n == 0` check the other three already carry,
       with a message naming the well rather than a depth.** Finding 20.
 
-- [ ] **T-PETRO-02's Larionov labels are reversed, and the OPT_GR dropdown gives no rock age.**
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED — `update_well_field` (db.rs) carries the same `n == 0` check as the three sample editors, refusing with "that well is no longer in the project" and citing finding 20 in place.
+
+- [x] **T-PETRO-02's Larionov labels are reversed, and the OPT_GR dropdown gives no rock age.**
       The code is right: `LARINOV1` is `0.33*(2^(2*IGR) - 1)`, Larionov (1969) for **older rocks /
       Mesozoic and older**, giving 0.330 at IGR 0.5; `LARINOV2` is `0.083*(2^(3.7*IGR) - 1)`, the
       **Tertiary / unconsolidated** form, giving 0.216. Those are the published coefficient sets.
@@ -1125,6 +1151,8 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       empirical fits never normalised to close at 1 (LARINOV1 stops at 0.99, LARINOV2 at 0.9957,
       LARINOV3 overshoots to 1.133; VSH clamps, VSH_GR keeps the raw value). Not a defect, but it
       reads as one against the plan as written. Finding 21.
+
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): FIXED, both halves — the plan text was corrected 2026-07-31 (the correction is in `docs/manual_test_plan.md` under T-PETRO-02), and the dropdown states the rock age since 2026-08-01 ("LARINOV2 — Larionov, Tertiary / unconsolidated", modules.rs), with `the_vsh_gr_labels_agree_with_the_coefficients_they_describe` keeping label and coefficient from drifting apart. Option ids unchanged (stored in params_json).
 
 - [x] **The end-to-end harness was driving a Vite dev server, not the built app — FIXED
       2026-08-01.** `cargo build --release` compiles the same Rust as `npm run tauri build` but
@@ -1156,7 +1184,7 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       makes the guard STRICTER, not looser — it would test the first real token), and put the
       wrapper's suffix on a new line. Pinned as-is in `panels.e2e.mjs`. Finding 23.
 
-- [ ] **T-MLEQ-14's Mask note is stale a SECOND time — PLAN ONLY, no code change.** Step 3 tells
+- [x] **T-MLEQ-14's Mask note is stale a SECOND time — PLAN ONLY, no code change.** Step 3 tells
       you to search the ML pane for a mask picker, expects not to find one, and instructs you to log
       it against the dialog. **The control is there:** `mlDialog.ts` builds a `maskSel` and adds a
       "Mask (exclude)" row, kept visible for ALL tasks because it also governs the unsupervised fit
@@ -1168,7 +1196,9 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       Expected and delete the known-issue note. Now pinned from the other side by `ml.e2e.mjs`,
       which goes red the day the control is removed. Finding 24.
 
-- [ ] **T-IMP-05 is marked Fail and the behaviour has since been fixed — PLAN ONLY, but it carries
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): DONE — the plan carries the "STEP 3 IS STALE — do not log a defect against the dialog" correction, and `ml.e2e.mjs` pins the Mask control as PRESENT.
+
+- [x] **T-IMP-05 is marked Fail and the behaviour has since been fixed — PLAN ONLY, but it carries
       Jauhar's own mark.** Its Expected says every no-well-selected tool refuses with status
       `Select a well first (Wells & Tops panel)` and that **no dialog opens**. `src/ui/needWell.ts`
       (2026-07-31, after the mark) replaced that quiet status line with a NAMED REFUSAL DIALOG — so
@@ -1181,6 +1211,8 @@ domain `P1`s. The constraint remains what it has been: every lane is a PR to rea
       covered by the harness: nothing reachable from the DOM clears `appState.selectedWell` once a
       well has been clicked, and adding a test-only path to do so would be a change to the product
       to serve the tests. Finding 25.
+
+      STALE CHECKBOX, CLOSED 2026-08-20 (verified against code during the DEC-084 sweep): PLAN CORRECTED — the Expected carries the "EXPECTED IS STALE" note naming the `needWell.ts` dialog as the design. The re-run that would flip the Fail mark to Pass is Jauhar's, on the next click-through.
 
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change

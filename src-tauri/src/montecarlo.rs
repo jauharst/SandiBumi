@@ -1523,17 +1523,25 @@ pub fn run_monte_carlo(
         // never ran. Reported per well after the sweep.
         let step_err: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-        // A permeability cutoff has to survive a chain that MODELS permeability.
-        //
-        // `raw_pool` holds only EXTERNAL inputs — mnemonics no step produces — so the moment a
-        // `perm_coates` (or any other permeability model) is inserted into the chain, PERM leaves
-        // that pool and the cutoff switched itself off silently. Exactly backwards: a study that
-        // models permeability is the study whose permeability cutoff matters
-        // (`docs/review_triage.md` finding 8). The realization pool carries produced curves, so
-        // PERM really is there when `zone_metrics` reads it.
-        let has_perm_cut = req.perm_min.is_some()
-            && (produced.contains("PERM")
-                || raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false));
+        // A requested permeability cutoff is ALWAYS active — DEC-084 (2026-08-20), the same
+        // rule run_pay_summary follows. Whether a step PRODUCES perm or the project carries it
+        // decides what the samples read, never whether the cutoff applies: finding 8 closed the
+        // produced-curve half in 2026-08-01, but a run with no PERM anywhere still exempted
+        // itself — the less-data-books-more-pay inversion, closed at the well level in
+        // workflow.rs (finding 7) and closed here for Monte Carlo. Every sample without a PERM
+        // value fails the cutoff in `zone_metrics` for want of evidence, and the advisory below
+        // is what separates that zero from a wet reservoir on the result.
+        let has_perm_cut = req.perm_min.is_some();
+        if has_perm_cut
+            && !produced.contains("PERM")
+            && !raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false)
+        {
+            notes.push(format!(
+                "{well_name}: permeability cutoff is active but no PERM exists on this well \
+                 (no curve, no model step) — every sample fails it, so zero net/HPV here is \
+                 absence of evidence, not a wet reservoir"
+            ));
+        }
 
         // In-zone mask (union of the reported zone windows) for the physical-plausibility scan —
         // out-of-zone samples never enter the volumetrics, so they should not count either.
@@ -2262,6 +2270,60 @@ mod tests {
         assert_eq!(
             b_loose.zones[0].net.mid, bo.net.mid,
             "a cutoff the modelled permeability passes must not remove pay"
+        );
+    }
+
+    /// DEC-084 (2026-08-20, Jauhar: a well with no perm cannot escape the cutoff, and the
+    /// cutoff is independent of the chain) — a Monte Carlo run with NO permeability anywhere
+    /// still answers to an active permeability cutoff.
+    ///
+    /// The 2026-08-01 fix above taught `has_perm_cut` to see PRODUCED perm, but the gate still
+    /// asked whether perm exists at all, so a run with no PERM curve and no perm model quietly
+    /// exempted itself — the same less-data-books-more-pay inversion `run_pay_summary` closed at
+    /// the well level (finding 7). Now the request alone decides: every sample without a PERM
+    /// value fails the cutoff for want of evidence, and the advisory note is what separates that
+    /// zero from a wet reservoir. The control half (no cutoff → pay survives) keeps this from
+    /// being satisfied by a chain that is simply broken.
+    #[test]
+    fn a_run_with_no_permeability_anywhere_still_answers_to_an_active_perm_cutoff() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        // Deliberately NO PERM curve in the project and no permeability model in the chain.
+        let dbm = Mutex::new(conn);
+
+        let run = |perm_min: Option<crate::workflow::CutoffSpec>| -> McResult {
+            let mc = vec![McParam {
+                param: "GR_MA".into(),
+                dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
+                zone: None,
+            }];
+            let mut req = base_request(&well, mc, 24, 42);
+            req.steps = vec![step("vsh_gr"), step("phi_den"), step("sw_indo")];
+            req.perm_min = perm_min;
+            let res = run_monte_carlo(&dbm, &req, None);
+            assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+            res
+        };
+
+        // Control: the same chain with no cutoff has pay — so the zero below is the cutoff's
+        // verdict, not a chain that never ran.
+        let open = run(None);
+        assert!(open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
+        assert!(
+            open.notes.iter().all(|n| !n.contains("permeability cutoff")),
+            "no advisory without a cutoff: {:?}",
+            open.notes
+        );
+
+        // Active cutoff, no PERM anywhere: every sample fails for want of evidence.
+        let cut = run(Some(crate::workflow::CutoffEntry { value: 0.1, unit: "mD".into() }.into()));
+        assert_eq!(cut.zones[0].net.mid, 0.0, "missing permeability cannot pass an active cutoff");
+        assert_eq!(cut.zones[0].hpv.mid, 0.0, "and books no hydrocarbon volume on missing data");
+        assert!(
+            cut.notes.iter().any(|n| n.contains("permeability cutoff") && n.contains("absence of evidence")),
+            "the advisory must separate absence of evidence from a wet reservoir: {:?}",
+            cut.notes
         );
     }
 
