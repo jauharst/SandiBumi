@@ -3031,6 +3031,33 @@ export async function confirmLogScaleZeros(
   return invoke<void>("confirm_log_scale_zeros", { wellId, mnemonic, keep });
 }
 
+/** SB-ENV-005. One applied step of a log-set version's manifest — every field copied
+ * from what the run resolved; a field the runner could not describe is null, never
+ * invented. */
+export interface AppliedStep {
+  seq: number;
+  kind: "module" | "correction" | "mask" | "edit";
+  module: string | null;
+  params_digest: string | null;
+  inputs: string[];
+  outcome: { full: number; partial: number; none: number; refused: number } | null;
+  mask: string | null;
+  recovery: string | null;
+}
+
+/** SB-ENV-005. The applied-step manifest for a log-set version. `state: "unknown"` is a
+ * pre-contract version whose step history cannot be recovered — deliberately not an
+ * empty step list, because an empty list claims "nothing was applied". */
+export type AppliedStepsRecord =
+  | { state: "manifest"; manifest: { v: number; steps: AppliedStep[] } }
+  | { state: "unknown" };
+
+/** SB-ENV-005. Retrieves the manifest without re-running anything; an unknown manifest
+ * schema version rejects with a named refusal while the curves still read. */
+export async function getLogSetManifest(setId: string): Promise<AppliedStepsRecord> {
+  return invoke<AppliedStepsRecord>("get_log_set_manifest", { setId });
+}
+
 /** SB-CUT-019. A cut-off AS ENTERED: the number and the unit it was typed in.
  *
  *  The unit is not decoration. IP's own manual expresses one quantity in porosity units in one

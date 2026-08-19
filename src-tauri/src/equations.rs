@@ -1043,6 +1043,120 @@ pub struct LogSetSpec {
     pub inputs_json: String,
 }
 
+// ---------------------------------------------------------------------------
+// SB-ENV-005 (DEC-031(b), signed DRAFT_ENV005 under DEC-076): the applied-step
+// manifest - the ordered list of steps actually applied to a log-set version,
+// retrievable without re-running anything. It rides the version row itself
+// (`log_sets.applied_steps_json`), written in the same transaction that
+// allocates the version. One vocabulary answers SB-ENV-028's mask record and
+// SB-ENV-042's edit provenance too: a mask application is a step of kind
+// "mask", an interactive edit a step of kind "edit" naming its recovery curve.
+// ---------------------------------------------------------------------------
+
+/// Schema version stamped into every written manifest. A stored manifest whose
+/// `v` this build does not know REFUSES interpretation (naming the version) while
+/// the curves themselves still read - the column is consulted by nothing else.
+pub(crate) const APPLIED_STEPS_SCHEMA_VERSION: u32 = 1;
+
+/// Per-step outcome counts, copied from the run's own DEC-060 one-hot flag group
+/// (`<OUT>_FULL/_PARTIAL/_NONE/_REFUSED`) at the moment the run resolved them -
+/// never re-derived later. Absent (`None` on the step) where the writer did not
+/// have the counts: omission is representable, fabrication is not.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppliedStepOutcome {
+    pub full: u64,
+    pub partial: u64,
+    pub none: u64,
+    pub refused: u64,
+}
+
+/// One applied step. Every field is COPIED from what the run already resolved;
+/// a step the runner cannot fully describe writes the fields it has and omits
+/// the rest as `null`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppliedStep {
+    pub seq: u32,
+    /// "module" | "correction" | "mask" | "edit".
+    pub kind: String,
+    /// Module/equation identity; absent only for kind "edit".
+    #[serde(default)]
+    pub module: Option<String>,
+    /// SHA-256 hex digest of the run's resolved `params_json` (which stays on the
+    /// same row) - makes "same step re-applied?" decidable without parsing.
+    #[serde(default)]
+    pub params_digest: Option<String>,
+    /// Resolved input mnemonics with set qualification ("NPHI@RAW").
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    #[serde(default)]
+    pub outcome: Option<AppliedStepOutcome>,
+    /// The rule-11 mask flag curve this step consumed, where one was.
+    #[serde(default)]
+    pub mask: Option<String>,
+    /// The SB-ENV-037 bit-exact recovery record curve, where one exists.
+    #[serde(default)]
+    pub recovery: Option<String>,
+}
+
+/// The manifest: versioned JSON `{"v": 1, "steps": [...]}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppliedStepsManifest {
+    pub v: u32,
+    pub steps: Vec<AppliedStep>,
+}
+
+/// What a retrieval returns. `Unknown` is a pre-contract version whose step
+/// history cannot be recovered - deliberately NOT an empty step list, because an
+/// empty list claims "nothing was applied", which is an answer, not an absence.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum AppliedStepsRecord {
+    Manifest { manifest: AppliedStepsManifest },
+    Unknown,
+}
+
+/// SHA-256 hex of the resolved parameter record - the manifest references the
+/// `params_json` already on the same row rather than duplicating it.
+fn params_digest_hex(params_json: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(params_json.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// The rule-11 mask is an opt the run resolved (`opts["MASK"]`), persisted inside
+/// `params_json`. Copying it out is transcription of the run's own record; a
+/// params record without the key simply has no mask step to report.
+fn mask_from_params(params_json: &str) -> Option<String> {
+    let params: serde_json::Value = serde_json::from_str(params_json).ok()?;
+    params.get("MASK")?.as_str().map(str::to_string)
+}
+
+/// Derives the one-step manifest a complete run can honestly state about itself:
+/// its module/equation identity, its parameter digest, its resolved inputs with
+/// set qualification, and its mask. Outcome counts and recovery records belong
+/// to the rows that own them (SB-ENV-010/011, SB-ENV-037) and are omitted here,
+/// never invented.
+fn derive_applied_steps(spec: &CompleteLogSetSpec) -> AppliedStepsManifest {
+    AppliedStepsManifest {
+        v: APPLIED_STEPS_SCHEMA_VERSION,
+        steps: vec![AppliedStep {
+            seq: 1,
+            kind: "module".to_string(),
+            module: Some(spec.storage.module.clone()),
+            params_digest: Some(params_digest_hex(&spec.storage.params_json)),
+            inputs: spec
+                .ancestry
+                .inputs
+                .iter()
+                .map(|input| format!("{}@{}", input.curve, input.log_set))
+                .collect(),
+            outcome: None,
+            mask: mask_from_params(&spec.storage.params_json),
+            recovery: None,
+        }],
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SetWriteDiscipline {
     sampling_style: crate::schema_vocab::SamplingStyle,
@@ -2206,6 +2320,42 @@ pub(crate) fn set_log_set_comment(
     Ok(())
 }
 
+/// SB-ENV-005 retrieval: the manifest for one log-set version, without re-running
+/// anything - the manifest is the record, not a recipe re-executed. Three honest
+/// answers: the manifest; UNKNOWN for a pre-contract NULL (never an empty step
+/// list); a refusal naming the schema version this build does not know, while the
+/// version's curves still read (nothing else consults the column).
+pub(crate) fn get_applied_steps(
+    conn: &Connection,
+    set_id: &str,
+) -> Result<AppliedStepsRecord, String> {
+    let stored: Option<Option<String>> = conn
+        .query_row(
+            "SELECT applied_steps_json FROM log_sets WHERE set_id = ?1",
+            params![set_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some(stored) = stored else {
+        return Err(format!("no log-set version {set_id}: a manifest exists only on the version row it describes"));
+    };
+    let Some(json) = stored else {
+        return Ok(AppliedStepsRecord::Unknown);
+    };
+    let manifest: AppliedStepsManifest = serde_json::from_str(&json)
+        .map_err(|error| format!("applied-step manifest on version {set_id} does not parse: {error}"))?;
+    if manifest.v != APPLIED_STEPS_SCHEMA_VERSION {
+        return Err(format!(
+            "applied-step manifest on version {set_id} carries schema v{}, and this build reads \
+             v{APPLIED_STEPS_SCHEMA_VERSION}: the step history is refused rather than misread; \
+             the version's curves are unaffected (SB-ENV-005)",
+            manifest.v
+        ));
+    }
+    Ok(AppliedStepsRecord::Manifest { manifest })
+}
+
 /// Registers a new run event: version = 1 + the well's highest version of `set_name`
 /// (so a re-run NEVER replaces — it becomes version N+1). Returns (set_id, version).
 fn create_log_set_raw(
@@ -2214,6 +2364,7 @@ fn create_log_set_raw(
     spec: &LogSetSpec,
     discipline: SetWriteDiscipline,
     outcome_state: Option<&str>,
+    applied_steps_json: Option<&str>,
 ) -> duckdb::Result<(String, i64)> {
     let version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
@@ -2221,11 +2372,13 @@ fn create_log_set_raw(
         |r| r.get(0),
     )?;
     let set_id = Uuid::new_v4().to_string();
+    // SB-ENV-005: the manifest lands in the SAME INSERT that allocates the version -
+    // the two exist atomically or not at all. NULL is the legacy fixture path only.
     conn.execute(
         "INSERT INTO log_sets
             (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-             sampling_style, duplicate_resolution, outcome_state)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             sampling_style, duplicate_resolution, outcome_state, applied_steps_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             set_id,
             well_id,
@@ -2238,6 +2391,7 @@ fn create_log_set_raw(
             discipline.sampling_style.as_str(),
             crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
             outcome_state,
+            applied_steps_json,
         ],
     )?;
     Ok((set_id, version))
@@ -2276,13 +2430,15 @@ fn write_run_parameters(
 
 /// Legacy test-fixture entry point. Production code is inventoried by SB-CORE-T14 and must use
 /// [`create_complete_log_set`] so it cannot obtain a writable set id from partial JSON.
+/// SB-ENV-005: writes NO manifest on purpose - this path simulates the pre-contract rows
+/// whose step history is unknown.
 #[cfg(test)]
 pub(crate) fn create_log_set(
     conn: &Connection,
     well_id: &str,
     spec: &LogSetSpec,
 ) -> duckdb::Result<(String, i64)> {
-    create_log_set_raw(conn, well_id, spec, SetWriteDiscipline::default(), None)
+    create_log_set_raw(conn, well_id, spec, SetWriteDiscipline::default(), None, None)
 }
 
 pub(crate) fn create_complete_log_set(
@@ -2292,6 +2448,10 @@ pub(crate) fn create_complete_log_set(
 ) -> Result<(CompleteSetId, i64), String> {
     spec.ancestry.validate()?;
     validate_set_write_discipline(spec.discipline)?;
+    // SB-ENV-005: every complete (production) write is manifest-era - the manifest is
+    // derived from what this run already resolved and rides the version's own INSERT.
+    let applied_steps = serde_json::to_string(&derive_applied_steps(spec))
+        .map_err(|error| format!("cannot serialize applied-step manifest: {error}"))?;
     let (value, version) = crate::db::with_txn(conn, |conn| {
         let created = create_log_set_raw(
             conn,
@@ -2299,6 +2459,7 @@ pub(crate) fn create_complete_log_set(
             &spec.storage,
             spec.discipline,
             Some(RUN_OUTCOME_CLEAN),
+            Some(&applied_steps),
         )?;
         write_run_parameters(conn, &created.0, &spec.ancestry.parameters)?;
         Ok::<_, duckdb::Error>(created)
@@ -2627,6 +2788,9 @@ pub(crate) fn write_complete_own_frame(
         .map(|(name, values)| (name.as_str(), values.as_slice()))
         .collect::<Vec<_>>();
     validate_continuous_depth_uniqueness(depth, &continuous_curves)?;
+    // SB-ENV-005: a reframe is a production manifest-era write like any other.
+    let applied_steps = serde_json::to_string(&derive_applied_steps(spec))
+        .map_err(|error| format!("cannot serialize applied-step manifest: {error}"))?;
     crate::db::with_txn(conn, |conn| {
         let (set_id, version) =
             create_log_set_raw(
@@ -2635,6 +2799,7 @@ pub(crate) fn write_complete_own_frame(
                 &spec.storage,
                 spec.discipline,
                 Some(RUN_OUTCOME_CLEAN),
+                Some(&applied_steps),
             )?;
         conn.execute(
             "UPDATE log_sets SET frame = ?2 WHERE set_id = ?1",
@@ -3071,6 +3236,8 @@ pub(crate) fn create_log_sets_batch(
     }
     crate::db::with_txn(conn, |conn| {
         for (well_id, version, set_id) in &planned {
+            // SB-ENV-005: no applied_steps_json on purpose - this legacy batch entry point is
+            // test-exercised only and simulates pre-contract rows (unknown step history).
             conn.execute(
                 "INSERT INTO log_sets
                     (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
@@ -3179,13 +3346,22 @@ pub(crate) fn create_complete_log_sets_batch(
             spec,
         ));
     }
+    // SB-ENV-005: derive each well's manifest OUTSIDE the transaction (pure), so a
+    // serialization failure aborts before anything is written.
+    let mut manifests: Vec<String> = Vec::with_capacity(planned.len());
+    for (_, _, _, spec) in &planned {
+        manifests.push(
+            serde_json::to_string(&derive_applied_steps(spec))
+                .map_err(|error| format!("cannot serialize applied-step manifest: {error}"))?,
+        );
+    }
     crate::db::with_txn(conn, |conn| {
-        for (well_id, version, set_id, spec) in &planned {
+        for ((well_id, version, set_id, spec), applied_steps) in planned.iter().zip(&manifests) {
             conn.execute(
                 "INSERT INTO log_sets
                     (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                     sampling_style, duplicate_resolution, outcome_state)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                     sampling_style, duplicate_resolution, outcome_state, applied_steps_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     set_id,
                     well_id,
@@ -3198,6 +3374,7 @@ pub(crate) fn create_complete_log_sets_batch(
                     spec.discipline.sampling_style.as_str(),
                     crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
                     RUN_OUTCOME_CLEAN,
+                    applied_steps,
                 ],
             )?;
             write_run_parameters(conn, set_id, &spec.ancestry.parameters)?;
@@ -5034,6 +5211,128 @@ mod tests {
 
     use super::*;
     use duckdb::Connection;
+
+    /// SB-ENV-005 (DEC-031(b), signed DRAFT_ENV005 under DEC-076): the applied-step
+    /// manifest rides the log-set version it describes, in the same transaction.
+    #[test]
+    fn a_manifest_rides_its_version_atomically_a_legacy_null_reads_unknown_and_an_unknown_schema_version_refuses_while_curves_still_read(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = "55555555-5555-5555-5555-555555555555";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'SANDI-M1');"
+        ))
+        .unwrap();
+
+        // A production (complete) write lands the manifest WITH the version - one INSERT.
+        let depths = [1000.0f32, 1000.5, 1001.0];
+        let values = [0.21f32, 0.19, 0.23];
+        write_computed_curves_batch(&conn, well, &depths, &[("PHIE_M", &values)]).unwrap();
+        let (set_id, params_json): (String, String) = conn
+            .query_row(
+                "SELECT set_id, params_json FROM log_sets WHERE well_id = ?1",
+                params![well],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let record = get_applied_steps(&conn, &set_id).unwrap();
+        let AppliedStepsRecord::Manifest { manifest } = record else {
+            panic!("a manifest-era write must retrieve a manifest, got Unknown");
+        };
+        assert_eq!(manifest.v, APPLIED_STEPS_SCHEMA_VERSION);
+        assert_eq!(manifest.steps.len(), 1, "one run states one step about itself");
+        let step = &manifest.steps[0];
+        assert_eq!(step.kind, "module");
+        assert_eq!(step.module.as_deref(), Some("TEST_FIXTURE"));
+        // The digest references the params_json on the SAME row - recomputable, never a copy.
+        assert_eq!(
+            step.params_digest.as_deref(),
+            Some(params_digest_hex(&params_json).as_str()),
+            "params_digest must be the SHA-256 of the row's own resolved parameter record"
+        );
+        assert!(step.outcome.is_none(), "outcome counts are omitted, never invented");
+
+        // The derivation copies resolved inputs WITH set qualification and the rule-11 mask.
+        let ancestry_spec = CurveAncestry {
+            schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+            module: "TEST_FIXTURE".into(),
+            module_version: env!("CARGO_PKG_VERSION").into(),
+            inputs: vec![AncestryInput {
+                well_id: well.into(),
+                argument: "NPHI".into(),
+                curve: "NPHI".into(),
+                log_set: "RAW".into(),
+                set_version: None,
+                set_id: "imported".into(),
+                chosen_curve_id: Some("imported:nphi".into()),
+                rule: Some(CurveResolutionRule::ExplicitName),
+                rejected_candidates: Vec::new(),
+            }],
+            parameters: Vec::new(),
+            parameter_state: Some(ProvenanceAbsentState::NotApplicable),
+            zone_scope: AncestryZoneScope::WholeWell,
+            actor: AncestryActor {
+                kind: AncestryActorKind::Automated,
+                identity: "rust-test-fixture".into(),
+            },
+            timestamp_utc_ms: ancestry_timestamp_utc_ms().unwrap(),
+            outputs: vec![AncestryOutput {
+                curve: "OUT_M".into(),
+                derivation: "test_fixture:OUT_M".into(),
+            }],
+            depth_frame: None,
+            zone_set: None,
+            stochastic: None,
+            applied_model: None,
+            physics_attributes: Vec::new(),
+        };
+        let mut spec = CompleteLogSetSpec::try_new("INTERP", ancestry_spec).unwrap();
+        spec.storage.params_json = "{\"MASK\":\"BADHOLE\",\"OPT\":1}".into();
+        let derived = derive_applied_steps(&spec);
+        assert_eq!(derived.steps[0].inputs, vec!["NPHI@RAW".to_string()]);
+        assert_eq!(derived.steps[0].mask.as_deref(), Some("BADHOLE"));
+
+        // A pre-contract version reads back UNKNOWN - never an empty step list, because an
+        // empty list claims "nothing was applied", which is an answer, not an absence.
+        let legacy_spec = LogSetSpec {
+            set_name: "LEGACY".into(),
+            module: "vsh_gr".into(),
+            params_json: "{}".into(),
+            inputs_json: "[]".into(),
+        };
+        let (legacy_id, _) = create_log_set(&conn, well, &legacy_spec).unwrap();
+        let legacy = get_applied_steps(&conn, &legacy_id).unwrap();
+        assert_eq!(legacy, AppliedStepsRecord::Unknown);
+        let view = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(view["state"], "unknown");
+        assert!(view.get("manifest").is_none(), "unknown must not smuggle an empty step list");
+
+        // A manifest schema version this build does not know REFUSES by name - while the
+        // version's curves still read, because nothing else consults the column.
+        conn.execute(
+            "UPDATE log_sets SET applied_steps_json = '{\"v\":99,\"steps\":[]}' WHERE set_id = ?1",
+            params![set_id],
+        )
+        .unwrap();
+        let refusal = get_applied_steps(&conn, &set_id).expect_err("v99 must refuse").to_string();
+        assert!(refusal.contains("v99"), "the refusal names the stored version: {refusal}");
+        assert!(refusal.contains("SB-ENV-005"), "and cites the contract: {refusal}");
+        let still_read: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'PHIE_M'",
+                params![well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(still_read, 3, "a manifest refusal must never take the curves with it");
+
+        // Structural second side: a manifest exists only ON a version row, so asking for one
+        // without its version refuses naming the set.
+        let absent = "99999999-9999-9999-9999-999999999999";
+        let missing = get_applied_steps(&conn, absent).expect_err("must refuse").to_string();
+        assert!(missing.contains("no log-set version"), "{missing}");
+    }
 
     /// T-PETRO-02, the versioning half. Re-running a module must land as version N+1 and never
     /// overwrite the previous run, because that history is the only way to answer "which OPT_GR

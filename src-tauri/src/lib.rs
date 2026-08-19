@@ -3144,6 +3144,18 @@ fn confirm_log_scale_zeros(
     db::confirm_log_scale_zeros(&conn, &well_id, &mnemonic, keep).map_err(|e| e.to_string())
 }
 
+/// SB-ENV-005: the applied-step manifest for one log-set version. Retrieval never re-runs
+/// anything; a pre-contract version answers "unknown", never an empty step list.
+#[tauri::command]
+fn get_log_set_manifest(
+    db: tauri::State<DbState>,
+    set_id: String,
+) -> Result<serde_json::Value, String> {
+    let conn = db.0.lock().unwrap();
+    let record = equations::get_applied_steps(&conn, &set_id)?;
+    serde_json::to_value(&record).map_err(|e| e.to_string())
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -4414,6 +4426,7 @@ pub fn run() {
             set_well_param_overrides,
             set_zone_param_batch,
             confirm_log_scale_zeros,
+            get_log_set_manifest,
             get_table_page,
             check_referential_integrity,
             prune_referential_integrity,

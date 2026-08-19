@@ -394,7 +394,14 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- DEC-045/DEC-039: the per-VERSION free-text comment - the branch a POR module took
             -- and every limit that bound, or what the user did on that run. Versions never
             -- inherit it: a comment describes ONE run. NULL = no comment recorded.
-            comment VARCHAR
+            comment VARCHAR,
+            -- SB-ENV-005 (DEC-031(b), signed DRAFT_ENV005 under DEC-076): the one authoritative
+            -- applied-step manifest, riding the versioned interpretation it describes. Written in
+            -- the SAME transaction that allocates the version - the manifest and its version
+            -- exist atomically or not at all. NULL = a pre-contract version whose step history
+            -- cannot be recovered: preserved as UNKNOWN, never backfilled and never read as an
+            -- empty step list (an empty list claims "nothing was applied", which is an answer).
+            applied_steps_json VARCHAR
         );
 
         -- SB-DBM-011 (DEC-020/022/023): the STRUCTURED audit - Geolog's taxonomy adopted
@@ -1188,6 +1195,9 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_unit VARCHAR;
+         -- SB-ENV-005: the applied-step manifest column, added LAST (positional rule). NULL on
+         -- migrated rows is the pre-contract state, preserved as unknown - never backfilled.
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS applied_steps_json VARCHAR;
          UPDATE aux_sets SET sampling_style = '{}' WHERE sampling_style IS NULL;
          UPDATE aux_sets SET duplicate_resolution = '{}'
              WHERE duplicate_resolution IS NULL;",
@@ -5067,7 +5077,7 @@ fn table_specs() -> Vec<TableSpec> {
             columns: vec![
                 "set_id", "well_id", "set_name", "version", "module", "params_json",
                 "inputs_json", "created_at", "frame", "sampling_style",
-                "duplicate_resolution", "outcome_state", "comment",
+                "duplicate_resolution", "outcome_state", "comment", "applied_steps_json",
             ],
             well_scoped: true,
             order: "set_name, version",
