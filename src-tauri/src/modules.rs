@@ -7302,15 +7302,26 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         let rt_sh = ctx.p("RT_SH", i);
         let swe_irr = ctx.p("SWE_IRR", i);
 
+        // DEC-085 (2026-08-20, "diagnostics stay raw") executed for AUDIT-2026-08-20 finding 4.
+        // The solver's own exits clamp to [0, 1], so SWE_SIM — declared "(unlimited)" and named
+        // into the SWT_ARCH / SWE_INDO family — used to read exactly 1.000 wherever the true root
+        // was above 1, bit-identical to the SWE beside it. An Rw entered a decade low then looks
+        // like a real wet leg, which is the one ambiguity this twin exists to break. The
+        // unlimited entry point is the SAME equation without the clamp (the clamped one is
+        // literally it, clamped), so the pair cannot come from two implementations.
         let sat = if modified_slb {
-            crate::sandimin::sw_simandoux_modified_slb(r, pe, vs, rw, rt_sh, m, n_exp, a, c)
+            crate::sandimin::sw_simandoux_modified_slb_unlimited(r, pe, vs, rw, rt_sh, m, n_exp, a, c)
         } else {
-            crate::sandimin::sw_simandoux_bardon_pied(r, pe, vs, rw, rt_sh, m, n_exp, a)
+            crate::sandimin::sw_simandoux_bardon_pied_unlimited(r, pe, vs, rw, rt_sh, m, n_exp, a)
         };
         if is_missing(sat) {
             continue;
         }
         swe_sim[i] = sat as f32;
+        // Unchanged for every valid reading: `limit` clamps into [SWE_IRR, 1], which subsumes the
+        // solver's own [0, 1] — so a root the old code had already flattened to 1.0 still yields
+        // 1.0 here, and the working curve is bit-identical. What it gains is the flag: a clamp
+        // that changes a value is now RECORDED, where a pre-flattened 1.0 slipped past silently.
         let swe_l = limit(sat, swe_irr, 1.0);
         swe_out[i] = swe_l as f32;
         vol_uwat[i] = (pe * swe_l) as f32;
@@ -13461,10 +13472,10 @@ mod tests {
 
     /// SB-SAT-027 / SB-SAT-T12. Source: `docs/PRD_v2/12_saturation.md:1425-1431` — *"Where a closed
     /// form exists for a special case (`n = 2`), it MAY be used as a fast path and MUST be asserted
-    /// equal to the general solver."* `sandimin::solve_simandoux_root` takes a closed quadratic
-    /// branch when `|n - 2| < 1e-9` and a bisection branch otherwise, so the two are exercised here
-    /// by straddling that guard: `n = 2.0` takes the fast path and `n = 2.0 + 2e-9` — physically the
-    /// same exponent — takes the general one.
+    /// equal to the general solver."* `sandimin::solve_simandoux_root_unlimited` takes a closed
+    /// quadratic branch when `|n - 2| < 1e-9` and a bisection branch otherwise, so the two are
+    /// exercised here by straddling that guard: `n = 2.0` takes the fast path and `n = 2.0 + 2e-9`
+    /// — physically the same exponent — takes the general one.
     ///
     /// The chapter also specifies Geolog's guards (seed 0.5, maximum 20 iterations, tolerance
     /// `|delta| < 1e-5`, `sat = MAX(0, sat)` each step); the shipped solver instead uses 60-step
@@ -13476,7 +13487,8 @@ mod tests {
     /// The chapter's other as-built claim is stale and worth recording: it says `modules.rs`
     /// transcribes `CALC_SW` while `sandimin.rs` is *"a second, different solver"*. It is not.
     /// `sw_sim` delegates to `sandimin::sw_simandoux_*`, both of which call the one
-    /// `solve_simandoux_root`. There is a single engine, so the requirement's "one shared
+    /// `solve_simandoux_root_unlimited` (the clipped entry points being their unlimited twins
+    /// clamped — DEC-085). There is a single engine, so the requirement's "one shared
     /// root-finder" clause is met by construction.
     #[test]
     fn the_n_equals_two_closed_form_agrees_with_the_general_root_finder_on_the_same_inputs() {
@@ -13622,6 +13634,107 @@ mod tests {
         assert!((slb_module - 0.5524).abs() < 1e-4, "modified-SLB module={slb_module}");
         assert!((slb_solver - 0.5524).abs() < 1e-4, "modified-SLB solver={slb_solver}");
         assert!((slb_module - slb_solver).abs() <= 1e-6);
+    }
+
+    /// AUDIT-2026-08-20 finding 4, ruled by DEC-085 ("diagnostics stay raw").
+    ///
+    /// `SWE_SIM` is declared "(unlimited)" and named into the SWT_ARCH / SWE_INDO family, but the
+    /// Simandoux solver clamped every exit — so wherever the true root was above 1, the
+    /// diagnostic read exactly 1.000, bit-identical to the working `SWE` beside it. The pair then
+    /// AGREES on a wet leg that the parameters never actually produced, which is precisely the
+    /// ambiguity an unlimited twin exists to break; and because the value arrived pre-flattened,
+    /// `limit` recorded no clamp either, so nothing on the run said so.
+    ///
+    /// Pinned from both sides so neither a never-inflate nor an always-inflate implementation
+    /// passes: out of range the diagnostic must exceed 1 while SWE stays pinned at 1, and in
+    /// range the two must agree exactly. Both solver paths are covered — the closed quadratic
+    /// (n = 2) against an independently written root, and the bisection (n != 2), whose answer is
+    /// verified by substitution rather than a hand-carried constant.
+    #[test]
+    fn the_unlimited_simandoux_diagnostic_reports_the_root_above_one_instead_of_a_second_copy_of_swe() {
+        // Rw an order of magnitude HIGH for this rock: the sand term then conducts far less than
+        // the measured Rt does, and the equation's own answer is a saturation above 1 - the
+        // reading that says "these parameters do not describe this interval", which is the whole
+        // job of the unlimited curve.
+        let (rt, phie, vsh, rw, rsh, a, m) =
+            (2.0_f64, 0.20_f64, 0.10_f64, 0.5_f64, 4.0_f64, 1.0_f64, 2.0_f64);
+        let out_of_range = |n: f64| {
+            ctx_with(
+                1,
+                &[("RT", vec![rt as f32]), ("PHIE", vec![phie as f32]), ("VSH", vec![vsh as f32])],
+                &[
+                    ("A", a), ("M", m), ("N", n), ("C", 1.0),
+                    ("RW", rw), ("RT_SH", rsh), ("SWE_IRR", 0.0),
+                ],
+                &[("OPT_RW", "CONSTANT"), ("OPT_SIM", "simandoux_bardon_pied")],
+            )
+        };
+
+        // The equation, written out here rather than borrowed from the module:
+        //   1/Rt = phie^m . Sw^n / (a.Rw)  +  Vsh . Sw / Rsh
+        let coef_sand = phie.powf(m) / (a * rw);
+        let coef_sh = vsh / rsh;
+        let ct = 1.0 / rt;
+
+        // --- closed quadratic path (n = 2) ---
+        let quad_root = (-coef_sh + (coef_sh * coef_sh + 4.0 * coef_sand * ct).sqrt())
+            / (2.0 * coef_sand);
+        assert!(quad_root > 1.0, "fixture must be out of range to test anything: {quad_root}");
+        let out = sw_sim(&out_of_range(2.0));
+        let (diag, working) = (out["SWE_SIM"][0] as f64, out["SWE"][0] as f64);
+        assert!(
+            (diag - quad_root).abs() < 1e-5,
+            "the unlimited diagnostic must be the equation's own root {quad_root}, got {diag}"
+        );
+        assert!(
+            (working - 1.0).abs() < 1e-9,
+            "the WORKING saturation must stay clamped at 1, got {working}"
+        );
+        assert!(
+            diag - working > 1.0,
+            "diagnostic and working curve must part company here - that separation IS the signal \
+             (diag {diag}, working {working})"
+        );
+
+        // --- bisection path (n != 2), where the old code answered a flat 1.0 ---
+        let n_gen = 1.8_f64;
+        let gen = sw_sim(&out_of_range(n_gen));
+        let gen_diag = gen["SWE_SIM"][0] as f64;
+        assert!(gen_diag > 1.0, "the general-n diagnostic must clear 1 too, got {gen_diag}");
+        let residual = coef_sand * gen_diag.powf(n_gen) + coef_sh * gen_diag - ct;
+        assert!(
+            residual.abs() < 1e-6,
+            "the widened bracket must return a real root of the equation, residual {residual}"
+        );
+        assert!(
+            (gen["SWE"][0] as f64 - 1.0).abs() < 1e-9,
+            "the general-n working curve stays clamped at 1"
+        );
+
+        // --- in range, the pair must AGREE exactly (the control that kills an always-inflate
+        // implementation), and the clamped solver entry point is unchanged by all of this.
+        let in_range = ctx_with(
+            1,
+            &[("RT", vec![8.0]), ("PHIE", vec![0.20]), ("VSH", vec![0.30])],
+            &[
+                ("A", 1.0), ("M", 2.0), ("N", 2.0), ("C", 1.0),
+                ("RW", 0.25), ("RT_SH", 3.0), ("SWE_IRR", 0.0),
+            ],
+            &[("OPT_RW", "CONSTANT"), ("OPT_SIM", "simandoux_bardon_pied")],
+        );
+        let ok = sw_sim(&in_range);
+        assert!(
+            (ok["SWE_SIM"][0] - ok["SWE"][0]).abs() < 1e-9 && ok["SWE"][0] < 1.0,
+            "in range the two must be one number, got diag {} vs working {}",
+            ok["SWE_SIM"][0],
+            ok["SWE"][0]
+        );
+        assert!(
+            (crate::sandimin::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, 2.0, a) - 1.0)
+                .abs()
+                < 1e-9,
+            "the CLAMPED entry point must still answer 1 out of range - the solver path is unchanged"
+        );
     }
 
     #[test]

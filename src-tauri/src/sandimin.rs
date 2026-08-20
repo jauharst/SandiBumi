@@ -368,25 +368,57 @@ pub fn sw_indonesia(
     sw_half.powf(2.0 / n).clamp(0.0, 1.0)
 }
 
-fn solve_simandoux_root(ct: f64, coef_sand: f64, coef_sh: f64, n: f64) -> f64 {
+/// How far above Sw = 1 the unlimited root is chased before the diagnostic saturates. Each step
+/// doubles, so 40 reaches ~1.1e12 — far past any reading anyone would quote, while keeping the
+/// search bounded for a caller that hands in a degenerate coefficient.
+const SIM_ROOT_MAX_DOUBLINGS: usize = 40;
+
+/// The Simandoux family root WITHOUT the physical clamp — the raw answer the equation gives for
+/// the parameters it was handed, which is what an unlimited diagnostic curve is for (DEC-085's
+/// "diagnostics stay raw"; SB-SAT-025's rule for the saturation-height pair). An Rw entered a
+/// decade low drives the true root above 1, and a diagnostic that reports 1.000 there is
+/// bit-identical to the working curve beside it — so the pair agrees, the wet leg looks real,
+/// and the one ambiguity the unlimited twin exists to break survives (AUDIT-2026-08-20 finding 4).
+///
+/// This is the ONLY Simandoux root solver: the clipped public entry points
+/// ([`sw_simandoux_bardon_pied`], [`sw_simandoux_modified_slb`]) are their unlimited twins
+/// clamped into [0, 1], so the working curve and the diagnostic can never come from two
+/// different equations.
+fn solve_simandoux_root_unlimited(ct: f64, coef_sand: f64, coef_sh: f64, n: f64) -> f64 {
     if !(coef_sand > 0.0) {
         // Degenerate: no sand term — the shale term alone gives Sw (or NaN if no shale either).
-        return if coef_sh > 0.0 { (ct / coef_sh).clamp(0.0, 1.0) } else { f64::NAN };
+        return if coef_sh > 0.0 { ct / coef_sh } else { f64::NAN };
     }
     if (n - 2.0).abs() < 1e-9 {
-        // coef_sand·Sw² + coef_sh·Sw − ct = 0
+        // coef_sand·Sw² + coef_sh·Sw − ct = 0 — closed form, so the raw root needs no search.
         let disc = coef_sh * coef_sh + 4.0 * coef_sand * ct;
         if disc < 0.0 {
             return f64::NAN;
         }
-        return ((-coef_sh + disc.sqrt()) / (2.0 * coef_sand)).clamp(0.0, 1.0);
+        return (-coef_sh + disc.sqrt()) / (2.0 * coef_sand);
     }
-    // General n: f(Sw) = coef_sand·Sw^n + coef_sh·Sw − ct is increasing on [0,1]; f(0) = −ct < 0.
+    // General n: f(Sw) = coef_sand·Sw^n + coef_sh·Sw − ct is increasing on [0, ∞) for
+    // coef_sand > 0, coef_sh ≥ 0, n > 0; f(0) = −ct < 0, so the root is positive and unique.
     let f = |sw: f64| coef_sand * sw.powf(n) + coef_sh * sw - ct;
-    if f(1.0) <= 0.0 {
-        return 1.0;
-    }
     let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    if f(hi) <= 0.0 {
+        // The root is at or above 1 — the case the old code answered with a flat 1.0. Widen the
+        // bracket instead of truncating the answer.
+        let mut bracketed = false;
+        for _ in 0..SIM_ROOT_MAX_DOUBLINGS {
+            lo = hi;
+            hi *= 2.0;
+            if f(hi) > 0.0 {
+                bracketed = true;
+                break;
+            }
+        }
+        if !bracketed {
+            // Nothing physical reaches here (Sw^n diverges), but a caller's degenerate
+            // coefficients could: report the saturation point rather than looping or lying.
+            return hi;
+        }
+    }
     for _ in 0..60 {
         let mid = 0.5 * (lo + hi);
         if f(mid) > 0.0 {
@@ -395,8 +427,9 @@ fn solve_simandoux_root(ct: f64, coef_sand: f64, coef_sh: f64, n: f64) -> f64 {
             lo = mid;
         }
     }
-    (0.5 * (lo + hi)).clamp(0.0, 1.0)
+    0.5 * (lo + hi)
 }
+
 
 /// `simandoux_bardon_pied`, effective-porosity form, solved for Sw∈[0,1]:
 ///   1/Rt = φe^m·Sw^n / (a·Rw) + Vsh·Sw / Rsh
@@ -412,19 +445,57 @@ pub fn sw_simandoux_bardon_pied(
     n: f64,
     a: f64,
 ) -> f64 {
+    sw_simandoux_bardon_pied_unlimited(rt, phie, vsh, rw, rsh, m, n, a).clamp(0.0, 1.0)
+}
+
+/// `simandoux_bardon_pied` WITHOUT the physical clamp — the unlimited diagnostic companion of
+/// [`sw_simandoux_bardon_pied`], which is this value clamped into [0, 1]. See
+/// [`solve_simandoux_root_unlimited`] for why the raw reading is the one worth keeping.
+pub fn sw_simandoux_bardon_pied_unlimited(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+) -> f64 {
     if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
         return f64::NAN;
     }
     let vsh = vsh.clamp(0.0, 1.0);
     let coef_sand = phie.powf(m) / (a.max(1e-9) * rw);
     let coef_sh = if rsh > 0.0 { vsh / rsh } else { 0.0 };
-    solve_simandoux_root(1.0 / rt, coef_sand, coef_sh, n)
+    solve_simandoux_root_unlimited(1.0 / rt, coef_sand, coef_sh, n)
 }
 
 /// `simandoux_modified_slb`, effective-porosity form, solved for Sw∈[0,1]:
 ///   1/Rt = φe^m·Sw^n / (a·Rw·(1 − Vsh)) + Vsh^C·Sw / Rsh
 /// IP and Techlog call this `Modified Simandoux`; Geolog calls it `SCHLUM`. `C=1` reproduces IP E64.
 pub fn sw_simandoux_modified_slb(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+    c: f64,
+) -> f64 {
+    sw_simandoux_modified_slb_unlimited(rt, phie, vsh, rw, rsh, m, n, a, c).clamp(0.0, 1.0)
+}
+
+/// `simandoux_modified_slb` WITHOUT the physical clamp — the unlimited diagnostic companion of
+/// [`sw_simandoux_modified_slb`], which is this value clamped into [0, 1].
+///
+/// The `VSH >= 1` answer stays 1.0 in BOTH renderings, and that is not the clamp this function
+/// removes: it is the declared singularity convention (the 1/(1−Vsh) term has no value there),
+/// which `sw_sim` reports by name through SB-SAT-030 rather than passing off as a computed
+/// saturation. A raw reading requires an equation to have been evaluated.
+#[allow(clippy::too_many_arguments)]
+pub fn sw_simandoux_modified_slb_unlimited(
     rt: f64,
     phie: f64,
     vsh: f64,
@@ -444,7 +515,7 @@ pub fn sw_simandoux_modified_slb(
     let vsh = vsh.clamp(0.0, 1.0);
     let coef_sand = phie.powf(m) / (a.max(1e-9) * rw * (1.0 - vsh));
     let coef_sh = if rsh > 0.0 { vsh.powf(c) / rsh } else { 0.0 };
-    solve_simandoux_root(1.0 / rt, coef_sand, coef_sh, n)
+    solve_simandoux_root_unlimited(1.0 / rt, coef_sand, coef_sh, n)
 }
 
 /// Clavier-Coates-Dumanoir dual-water TOTAL water saturation (SPEJ 1984), exact form honouring m and
