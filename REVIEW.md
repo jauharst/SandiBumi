@@ -1,5 +1,54 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 16: the green gate passes in a fresh clone, and the matrix admits what it does not count
+
+> **Nothing in the application changed.** This increment is entirely about the tooling that tells
+> us the tree is healthy, so there is no click-through — the check is running the gate itself.
+
+- [ ] **The green gate could not pass in a fresh clone or worktree, and blamed the wrong thing.**
+      Git checks a committed text file out with CRLF on Windows while every generator here writes
+      LF, so `THIRD-PARTY-LICENSES.md` compared unequal and the gate stopped with
+      *"THIRD-PARTY-LICENSES.md is stale"* — naming a file the developer had never opened, on a
+      tree they had changed nothing in. Regenerating it "fixed" the message and produced no
+      committable diff, which is its own confusing signal.
+- [ ] **Three of the four generators already knew this and one did not.** `unit-registry.mjs`,
+      `gen-derived-overlays.mjs` and `generate-verification-matrix.mjs` each carried their own
+      private copy of the line-ending normalization — one of them with a comment naming git
+      autocrlf by name — and `gen-third-party-licenses.mjs` had none. Four copies of a rule is four
+      chances to miss it, and it was missed. There is now one helper
+      (`tools/generated-artifact.mjs`) and all four route through it. **A `.gitattributes` pin was
+      the obvious-looking fix and is the wrong one**: it depends on each developer's git config
+      honouring it at checkout, and it would have been a fourth answer competing with the three
+      already here.
+- [ ] **The capability matrix only ever checked one direction.** It refused a capability that
+      matched no review section, and said nothing whatever about a review section that matched no
+      capability. So a newly written section could count toward nothing, and the only symptom was a
+      total that failed to move — indistinguishable from a total that was already correct. This is
+      not hypothetical: it happened to increment 15's own entry, one increment ago, and was caught
+      only by diffing the generated file.
+- [ ] **157 of the 600 review sections count toward nothing, and the matrix now says so on its own
+      face.** They are listed by exact title in `unmapped_review_sections` in the capability map.
+      **This is acknowledged debt, not an exemption** — a section that is not on the list is
+      refused by name, and an entry that goes stale (its section retitled, removed, or since given
+      a capability) is refused too, so the list can shrink but never quietly grow. Roughly 95 are
+      requirement-shaped `SB-xxx-NNN` rows tracked by the takeover ledger instead; the other ~62
+      are older narrative entries that predate the map. **Deciding which capability each of those
+      62 belongs to is your call, not something I should assign** — every one of them moves a
+      published exercise count.
+- [ ] **Check (this replaces a click-through):** run the gate —
+      `powershell -ExecutionPolicy Bypass -File tools\check.ps1` — and confirm it is green. Then
+      open `docs/VERIFICATION_MATRIX.md` and read the new line under the headline counts: it must
+      say **157 of 600**. If you want to see the fresh-clone failure this fixes, `git stash` is not
+      enough — it needs a new `git worktree` or clone, because the CRLF only appears at checkout.
+- [ ] **Automated correctness:** two pins, each with two mutations red at two distinct assertions.
+      `a_committed_generated_file_checked_out_with_crlf_is_current_while_real_staleness_is_still_stale`
+      pins the comparison from both sides — a check that always says "current" would satisfy the
+      CRLF half alone while silently retiring every freshness gate in the repository. A companion
+      test pins that all four generators still route through the one helper, so a fifth cannot miss
+      it. `a_review_section_claimed_by_no_capability_is_refused_unless_acknowledged_and_the_acknowledgement_cannot_go_stale`
+      pins both refusals, because a generator with only the first lets the list rot into a blanket
+      exemption and one with only the second never catches the new unclaimed section.
+
 ## 2026-08-20 — Audit increment 15 (SB-ENV-057 follow-through): the banned ambiguous depth unit was hiding on two curve inputs
 
 - [ ] **What this fixes.** SB-ENV-057 retired `ft|m` — a unit that cannot say which unit the number
