@@ -3,6 +3,10 @@
 export interface TrackCurveRequest {
   curve_name: string;
   set_name?: string | null;
+  /** True when the layout draws this curve as CLASS BLOCKS. The backend cannot see a style,
+   * and min/max decimation is meaningless for a class index - see `class_curve` in
+   * `equations.rs`. Optional so an older saved payload still means "ordinary curve". */
+  class_curve?: boolean;
 }
 
 /** Stable renderer key. The unit-separator cannot occur in a set name entered through the

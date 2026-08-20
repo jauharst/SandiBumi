@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 627,
+Review sections counted toward no capability: **157** of 628,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -40,7 +40,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 34 | — | 20 |
-| `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 30 | 2026-07-18 | 7 |
+| `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 35 | 2026-07-18 | 8 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 200 | 2026-07-19 | 34 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |

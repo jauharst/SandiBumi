@@ -88,6 +88,12 @@ pub struct TrackCurveRequest {
     pub curve_name: String,
     #[serde(default)]
     pub set_name: Option<String>,
+    /// AUDIT-2026-08-20 finding 26. True when the layout draws this curve as CLASS BLOCKS
+    /// (`CurveStyle.fill == "blocks"`) - the one fact about a curve that lives in the style
+    /// and so cannot be seen from here. `#[serde(default)]` so every older payload still
+    /// deserializes as the ordinary continuous curve it was.
+    #[serde(default)]
+    pub class_curve: bool,
 }
 
 /// Stable lookup key mirrored by `src/trackCurveRequest.ts`. Unqualified curves retain their
@@ -169,11 +175,30 @@ pub fn fetch_track_data(
     depth_min: Option<f32>,
     depth_max: Option<f32>,
 ) -> duckdb::Result<Vec<TrackCurveSeries>> {
+    // fetch_track_frames returns one frame per request, in request order.
+    let class_flags: Vec<bool> = curve_requests.iter().map(|r| r.class_curve).collect();
     fetch_track_frames(conn, well_id, curve_requests, depth_min, depth_max)?
         .into_iter()
-        .map(|frame| {
-            let (dec_depth, dec_value) =
-                crate::decimate::min_max_decimate(&frame.depth, &frame.value, target_pixel_height);
+        .zip(class_flags)
+        .map(|(frame, is_class)| {
+            // AUDIT-2026-08-20 finding 26. Min/max decimation is honest for a MEASUREMENT - the
+            // extremes ARE the envelope, which is why it never averages. A CLASS INDEX has no
+            // envelope: the min and max facies in a bucket are two arbitrary numbers, so at
+            // whole-well zoom (~13 samples a bucket) one facies-7 sample painted ~2 m of facies
+            // 7 and runs of the dominant class shredded into alternating pairs. The PRINT reads
+            // the same curve undecimated and was right, so the facies column QC'd on screen was
+            // not the column that shipped.
+            //
+            // A class curve is therefore not decimated at all, rather than decimated by a second
+            // rule. Screen and print become identical BY CONSTRUCTION instead of by two
+            // algorithms somebody has to keep in step - which is the failure this file is full
+            // of warnings about. It costs nothing: the block renderer builds one geometry per
+            // RUN, and undecimated data yields fewer runs than shredded data, not more.
+            let (dec_depth, dec_value) = if is_class {
+                (frame.depth.clone(), frame.value.clone())
+            } else {
+                crate::decimate::min_max_decimate(&frame.depth, &frame.value, target_pixel_height)
+            };
             let point_count = dec_depth.len();
             let mut packed = Vec::with_capacity(point_count * 2);
             packed.extend_from_slice(&dec_depth);
@@ -5836,7 +5861,8 @@ mod tests {
         let native_value: Vec<f32> = (0..=8).map(|i| 100.0 + i as f32).collect();
         crate::db::insert_curve_samples(&conn, &curve_id, &native_depth, &native_value).unwrap();
 
-        let explicit = TrackCurveRequest { curve_name: "GR".into(), set_name: Some("WIRE_ALT".into()) };
+        let explicit =
+            TrackCurveRequest { curve_name: "GR".into(), set_name: Some("WIRE_ALT".into()), class_curve: false };
         let full = fetch_track_data(&conn, well, &[explicit.clone()], 100, None, None).unwrap();
         assert_eq!(full.len(), 1);
         assert_eq!(full[0].curve_name, track_curve_key(&explicit));
@@ -5851,7 +5877,7 @@ mod tests {
         assert!(visible_n <= 2, "one pixel bucket emits at most its min/max pair");
         assert!(visible_packed[..visible_n].iter().all(|d| *d >= 1000.0 && *d < 1002.5));
 
-        let current = TrackCurveRequest { curve_name: "GR".into(), set_name: None };
+        let current = TrackCurveRequest { curve_name: "GR".into(), set_name: None, class_curve: false };
         let standard = fetch_track_data(&conn, well, &[current], 100, None, None).unwrap();
         let standard_packed: &[f32] = bytemuck::cast_slice(&standard[0].data);
         assert_eq!(&standard_packed[..standard[0].point_count], &[1000.0, 1000.1524, 1000.3048]);
@@ -5874,6 +5900,78 @@ mod tests {
         .unwrap();
         let (_d, cols) = fetch_curve_frame(&conn, well, &["PERM".to_string()]).unwrap();
         assert!((cols["PERM"][0] - 12.5).abs() < 1e-4);
+    }
+
+    /// AUDIT-2026-08-20 finding 26. The screen decimated a FACIES curve with min/max and the
+    /// print did not, so the facies column QC'd at whole-well zoom was not the column that
+    /// shipped. Min/max is honest for a measurement - the extremes ARE the envelope - but a
+    /// class index has no envelope, so the min and max facies in a bucket are two arbitrary
+    /// numbers: one facies-7 sample painted metres of facies 7, and runs of the dominant class
+    /// shredded into alternating pairs.
+    ///
+    /// Pinned from BOTH sides, because the tempting fix - decimate a class curve by some SECOND
+    /// rule, mode or first-in-bucket - passes the first half and leaves screen and print two
+    /// algorithms that have to be kept in step. They must be BIT-IDENTICAL, and an ordinary
+    /// continuous curve must still decimate or the viewer loses the reason decimation exists.
+    #[test]
+    fn a_class_curve_reaches_the_screen_exactly_as_it_reaches_the_print_while_a_measurement_still_decimates() {
+        use crate::db;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-DECIM", None, None, None).unwrap();
+        let wid = well.to_string();
+
+        // A whole-well fetch: 4000 samples onto a 400-pixel canvas is ~10 to a bucket, the
+        // regime the finding describes. FACIES runs 40 samples of class 2 then one sample of
+        // class 7 - a thin bed the min/max rule would smear across the whole bucket.
+        let n = 4000usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.1).collect();
+        let facies: Vec<f32> = (0..n).map(|i| if i % 41 == 40 { 7.0 } else { 2.0 }).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 40.0 + (i % 100) as f32).collect();
+        db::insert_standard_curves(
+            &conn, well, depths.clone(), gr.clone(),
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let meta = db::upsert_curve_meta(&conn, &wid, "RAW", "FACIES", None, None, Some("test"), None).unwrap();
+        db::insert_curve_samples(&conn, &meta, &depths, &facies).unwrap();
+
+        let req = |name: &str, class_curve: bool| TrackCurveRequest {
+            curve_name: name.into(),
+            set_name: None,
+            class_curve,
+        };
+        let screen = |r: &[TrackCurveRequest]| fetch_track_data(&conn, &wid, r, 400, None, None).unwrap();
+        let print = |r: &[TrackCurveRequest]| fetch_track_frames(&conn, &wid, r, None, None).unwrap();
+
+        // A - the class curve reaches the screen exactly as it reaches the print.
+        let requests = [req("FACIES", true)];
+        let on_screen = &screen(&requests)[0];
+        let in_print = &print(&requests)[0];
+        assert_eq!(
+            on_screen.point_count,
+            in_print.depth.len(),
+            "a class curve must not be decimated - screen {} samples, print {}",
+            on_screen.point_count,
+            in_print.depth.len()
+        );
+        let packed: &[f32] = bytemuck::cast_slice(&on_screen.data);
+        assert_eq!(
+            &packed[on_screen.point_count..],
+            in_print.value.as_slice(),
+            "and the values must be bit-identical, not merely the same length"
+        );
+        assert_eq!(&packed[..on_screen.point_count], in_print.depth.as_slice());
+
+        // B - and an ordinary MEASUREMENT still decimates, or the viewer has lost the reason
+        // decimation exists at all.
+        let gr_screen = &screen(&[req("GR", false)])[0];
+        assert!(
+            gr_screen.point_count < n,
+            "GR must still be decimated at whole-well zoom, got {} of {n}",
+            gr_screen.point_count
+        );
     }
 
     /// DLIS/LAS same-mnemonic shadow resolution: the most recently stored curve wins by default;

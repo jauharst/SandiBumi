@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 41 (my audit P2): **the facies column you check on screen is now the one that prints**
+
+- [ ] **What was wrong.** Zoomed out to the whole well, the screen thinned every curve down to
+      the pixels it had — keeping the **minimum and maximum** in each bucket, which is right for
+      a measurement because the extremes *are* the envelope. **A facies number has no envelope.**
+      The lowest and highest class index in a bucket are just two arbitrary numbers, so a single
+      facies-7 sample painted a couple of metres of facies 7, and a long run of the dominant
+      class shredded into alternating stripes.
+- [ ] **Why it mattered.** The **print reads the curve at full resolution and was always right**
+      — so the facies column you QC'd at whole-well zoom was not the column that shipped. Zooming
+      in made them agree, which is exactly what makes it easy to miss.
+- [ ] **The fix.** A curve drawn as class blocks is **not thinned at all**. Screen and print are
+      now identical by construction rather than by two rules somebody has to keep in step. It
+      costs nothing: the block renderer draws one shape per **run**, and clean data has fewer
+      runs than shredded data, not more.
+- [ ] **Ordinary curves are untouched.** GR, RHOB, NPHI and everything else still thin exactly
+      as before \u2014 that is what keeps a 2000-well project responsive.
+- [ ] **What to check.** Open a well with a FACIES curve on the Facies layout and look at the
+      whole well at once. The blocks should read as **solid intervals**, not a striped comb, and
+      should match what Composite… prints for the same well. Zoom right in — it should look the
+      same as it did before, because that is where the two already agreed.
+
 ## 2026-08-21 — Audit increment 40 (my audit P2): **a picture delivery on the wrong datum no longer prints anyway**
 
 - [ ] **What was wrong.** A core-photo or thin-section delivery that declares **TVD or TVDSS**

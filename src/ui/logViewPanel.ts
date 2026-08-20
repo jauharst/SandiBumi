@@ -690,8 +690,16 @@ export class LogViewPanel {
       const request: TrackCurveRequest = {
         curve_name: style.curve_name,
         set_name: style.set_name,
+        class_curve: style.fill === "blocks",
       };
-      requests.set(trackCurveKey(request), request);
+      const key = trackCurveKey(request);
+      // The key is the curve's IDENTITY, so one curve drawn both as blocks and as a line in the
+      // same layout arrives here twice under one key. Class wins: it means "send this one
+      // undecimated", which is strictly more data, so the line rendering is if anything more
+      // faithful - never less. The reverse would silently shred the block track.
+      const seen = requests.get(key);
+      if (seen) seen.class_curve = seen.class_curve || request.class_curve;
+      else requests.set(key, request);
     }
     return [...requests.values()];
   }
