@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 33 (DEC-090, my audit P2): a plate near a page break is called out, not dropped
+
+- [ ] **What was wrong.** A thin section is anchored on its plug depth, and the picture is drawn
+      centred on it. At a 30 mm track and size 0.9 that box is about ±2.7 m of paper at 1:200 —
+      so **any plate within ~2.7 m of a page bottom did not fit**, printed as a bare tick, and no
+      later page ever reconsidered it. Roughly **one plate in twenty was simply absent from the
+      PDF** while the screen showed it in full.
+- [ ] **Your ruling.** *"Nudge it, but give 'caller' things, like excel."* The plate now slides
+      until it fits, and a **leader** runs from a tick at its true depth down the margin to the
+      picture — a callout. That is what makes the nudge safe: the objection to moving a plate was
+      that it gets attributed to the wrong sand, and a leader pointing at the plug depth answers
+      it directly.
+- [ ] **Still never clipped.** Half a photograph across a page break reads as a different
+      picture, and that rule is unchanged.
+- [ ] **The leader points at the plate's CENTRE.** A page-bottom nudge moves a plate by at most
+      half its height, so the moved plate usually still overlaps its own depth — a leader
+      seeking the nearest edge would vanish in exactly the case it exists for. What moved is
+      where the picture is centred.
+- [ ] **A plate that fits is untouched** and carries no leader. A callout on every plate would
+      say nothing.
+- [ ] **What to check.** Print a composite over a cored interval with thin sections, at a scale
+      where a plate lands near a page bottom (1:200 is the easy case). **The plate should appear,
+      slightly moved, with a thin leader line in the left margin running to its depth tick.**
+      Count the plates in the PDF against your delivery list — they should now all be there.
+      Plates well away from a page break should look exactly as before.
+
 ## 2026-08-20 — Audit increment 32 (DEC-089, my audit P1 × 2): one delivery, one set of units — **this changes what new imports store**
 
 - [ ] **What was wrong.** A LAS carrying `TNPH .PU 30.0` and `RHOZ .KG/M3 2400` was stored TWICE
