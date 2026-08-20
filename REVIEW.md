@@ -1,5 +1,46 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 2 (P1): "RHG" now means Raymer-Hunt-Gardner 1980, and nothing else
+
+- [ ] **Your DEC-017 ruling, executed.** The sonic method menu is now WYLLIE | RHG80 |
+      FIELD_OBSERVED. **RHG80** is the genuine three-segment 1980 transform (below 37% porosity
+      the quadratic-root inversion — the same closed form IP prints; above 47% the paper's
+      fluid-suspension form, which needs the matrix and fluid densities; 37–47% the paper's
+      straight-line bridge), at the constants DEC-079 already verified against your copy of the
+      paper. **FIELD_OBSERVED** is the old branch under its honest name — same transform, but the
+      0.625 is no longer hard-coded: CFO is a parameter that ships EMPTY, because the vendors
+      genuinely disagree (Geolog defaults 0.67, Techlog ships 0.625) and that choice is yours per
+      run, with both values and tiers disclosed in the parameter's source panel.
+- [ ] **The shale convention is fixed with it (SB-POR-013/-015).** The old branch mixed
+      conventions three ways in one line — raw Δt, a Wyllie subtraction, no floor. Both non-Wyllie
+      methods now run Geolog's EXECUTED convention: shale-reduce the slowness, floor it at DT_MA
+      (their July-1997 fix), transform, then scale by (1 − VSH). At the chapter's reference case
+      (Δt 90, Δtma 55.5, Δtsh 100, VSH 0.20, CFO 0.625) PHIE moves **0.1729 → 0.1829** (+0.99
+      p.u.) — a real number change, which is the point: the old number was neither vendor's.
+      Wyllie itself is untouched (the subtractive form is the one both vendors agree on exactly).
+- [ ] **Saved runs that recorded OPT_SON = RHG now refuse instead of silently recomputing.** The
+      legacy choice id resolves to no method. A re-run of an old chain must be re-pointed to
+      RHG80 or FIELD_OBSERVED deliberately — I did not remap it silently in either direction,
+      because both directions change numbers. If you would rather it auto-map (to RHG80, say),
+      say so and that becomes its own ruling.
+- [ ] **Click-through:** Porosity from Sonic → the method dropdown shows the three names; pick
+      FIELD_OBSERVED → the CFO field is empty and the run refuses until you enter one; enter
+      0.67 → runs. Pick RHG80 → RHO_MA is empty (the paper pairs it with your DT_MA per
+      lithology: 2.65/56, 2.71/49, 2.87/44) and the run refuses until entered. A DT reading
+      past ~196 µs/ft under RHG80 reads MISSING, not a clamped guess — no porosity produces it.
+- [ ] **Automated correctness:** three new pins — the paper round-trip
+      (`rhg80_inverts_the_papers_three_segment_transform_on_each_segment`, forward equations
+      implemented independently in the test), the convention pin at the chapter's own worked
+      numbers (`field_observed_ships_geologs_executed_shale_convention_not_the_doc_block`), and
+      the naming pin (`the_rhg_label_now_means_rhg_1980_and_the_old_approximation_answers_only_
+      as_field_observed`). Two mutations red at two distinct assertions (floor removed → red at
+      the floor; wrong quadratic root → red at the inversion). The CFO disagreement is a new
+      registry topic in all three provenance tables plus the exact-inventory test; the
+      SB-CORE-007 topic gate pin was extended deliberately for phi_son.RHO_MA ABSENT (the
+      SB-POR-019 matched-pair reason, recorded at the pin). PRD §3 note carries a dated
+      correction. SB-POR-020 (which vendor renderings to ALSO expose) stays open per DEC-017's
+      own words.
+
 ## 2026-08-20 — Audit increment 1 (P0): the Wyllie compaction correction can no longer INFLATE porosity
 
 - [ ] **What changed and why it was the audit's only P0.** With `OPT_CP=ON`, `phi_son` divided by

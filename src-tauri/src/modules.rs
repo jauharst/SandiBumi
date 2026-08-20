@@ -2796,11 +2796,19 @@ pub(crate) fn validate_topic_default_identity(modules: &[ModuleSpec]) -> Result<
             }
             // DRAFT_CORE007 Part C3.3: the VSH indicator refuses to invent endpoints
             // (ABSENT) while porosity ships the three-way-agreed 2.65 - reads deliberate,
-            // awaiting Jauhar's confirmation. Pinned exactly: vsh_dn.RHO_MA is the only
-            // ABSENT member and every other member ships 2.65.
+            // awaiting Jauhar's confirmation. phi_son.RHO_MA (DEC-017, the RHG80 suspension
+            // segment) is ABSENT for the SB-POR-019 matched-pair reason: DT_MA is ABSENT on
+            // that module, and the RHG-1980 paper pairs the two per lithology (2.65/17,850
+            // sandstone, 2.71/20,500 limestone, 2.87/22,750 dolomite) - a 2.65 default
+            // beside a user-entered limestone DT_MA would silently mismatch the pair.
+            // Pinned exactly: those two are the only ABSENT members, all others ship 2.65.
             t if t == crate::param_sources::MATRIX_DENSITY => {
                 let deliberate = members.iter().all(|(site, value)| {
-                    if site == "vsh_dn.RHO_MA" { value.is_empty() } else { value == "2.65" }
+                    if site == "vsh_dn.RHO_MA" || site == "phi_son.RHO_MA" {
+                        value.is_empty()
+                    } else {
+                        value == "2.65"
+                    }
                 });
                 if !deliberate {
                     failures.push(format!(
@@ -4753,21 +4761,32 @@ fn phi_son_spec() -> ModuleSpec {
         name: "phi_son".into(),
         title: "Porosity from Sonic".into(),
         category: "Porosity".into(),
-        doc: "WYLLIE: PHIT = (DT - DT_MA)/(DT_FL - DT_MA), shale-corrected for PHIE. \
-              RHG (Raymer-Hunt-Gardner): PHIT = 0.625*(DT - DT_MA)/DT. \
-              OPT_CP=ON applies the Wyllie lack-of-compaction correction (Cp = DT_SH/100): \
-              undercompacted shaly sands (e.g. shallow Mahakam delta) read porosity high on \
-              the straight time-average, so the WYLLIE porosity is divided by Cp. The \
-              correction can only REDUCE porosity, so it requires DT_SH >= 100 us/ft \
-              (Cp >= 1) and the run is refused otherwise (DEC-012, SB-POR-017) - below 100 \
-              the division would inflate porosity, the opposite of its purpose. RHG is \
-              self-compacting and is never Cp-corrected. DT_MA must be strictly below DT_SH \
-              (DEC-063) - an inverted pair turns the shale subtraction into an addition and \
-              is refused before the run. PHIT_SON/PHIE_SON are the bare unlimited \
-              expressions; PHIT/PHIE carry the unit-interval and ordering clamps."
+        doc: "Sonic porosity, three transforms each named for what it computes (SB-POR-014). \
+              WYLLIE: PHIT = (DT - DT_MA)/(DT_FL - DT_MA), shale-corrected SUBTRACTIVELY for \
+              PHIE - the one convention both vendors agree on exactly (SB-POR-013). RHG80: the \
+              genuine three-segment Raymer-Hunt-Gardner 1980 transform (DEC-017; primary \
+              source: Raymer, Hunt & Gardner, SPWLA 21st Annual Logging Symposium 1980, paper \
+              P, copy in Jauhar's library; constants paper-verified under DEC-079): phi < 37% \
+              inverts V = (1-phi)^2*Vma + phi*Vf as the quadratic root, phi > 47% inverts the \
+              fluid-suspension form (needs RHO_MA/RHO_FL, the paper's own density pairings), \
+              37-47% is the paper's dt-linear interpolation. FIELD_OBSERVED: \
+              PHI = CFO*(DT - DT_MA)/DT with a CITED coefficient (Geolog CFO default 0.67, \
+              normal range 0.625-0.70; Techlog ships 0.625) - the transform the pre-DEC-017 \
+              build mislabelled RHG; the old option value RHG no longer resolves. Non-Wyllie \
+              methods use the NORMALISED shale convention per Geolog's EXECUTED code \
+              (SB-POR-013/-015, F4): dtsr = (DT - VSH*DT_SH)/(1 - VSH) floored at DT_MA (the \
+              Jul-1997 floor, F5), then PHIE = transform(dtsr)*(1 - VSH). OPT_CP=ON applies \
+              the Wyllie lack-of-compaction correction (Cp = DT_SH/100) to WYLLIE only: it \
+              requires DT_SH >= 100 us/ft (Cp >= 1) and the run is refused otherwise (DEC-012, \
+              SB-POR-017) - below 100 the division would inflate porosity, the opposite of its \
+              purpose. RHG80 and FIELD_OBSERVED are self-compacting and never Cp-corrected. \
+              DT_MA must be strictly below DT_SH (DEC-063) - an inverted pair turns the shale \
+              subtraction into an addition and is refused before the run. PHIT_SON/PHIE_SON \
+              are the bare unlimited expressions; PHIT/PHIE carry the unit-interval and \
+              ordering clamps."
             .into(),
         args: vec![
-            opt("OPT_SON", "Sonic porosity method", "WYLLIE", &["WYLLIE", "RHG"]),
+            opt("OPT_SON", "Sonic porosity method", "WYLLIE", &["WYLLIE", "RHG80", "FIELD_OBSERVED"]),
             with_sources(
                 opt("OPT_CP", "Wyllie lack-of-compaction correction (Cp = DT_SH/100)", "OFF", &["OFF", "ON"]),
                 crate::param_sources::SONIC_COMPACTION_CORRECTION,
@@ -4795,6 +4814,40 @@ fn phi_son_spec() -> ModuleSpec {
                 param_open("DT_SH", "Shale transit time", "us/ft", 60.0, 150.0, true),
                 crate::param_sources::SHALE_TRANSIT_TIME,
             ),
+            // SB-POR-014 / DEC-017: the field-observation coefficient is a PARAMETER with a
+            // cited choice, never a hard-coded 0.625 - and it ships ABSENT because the two
+            // vendors genuinely disagree (Geolog CFO default 0.67, doc range 0.625-0.70, T1;
+            // Techlog ships 0.625, T3) and adjudicating between them is the interpreter's
+            // call, disclosed by the FIELD_OBSERVED_COEFFICIENT registry topic.
+            with_sources(
+                param_open_when(
+                    "CFO", "Field-observed coefficient (PHI = CFO*(dt - DT_MA)/dt)", "",
+                    0.625, 0.70,
+                    &[("OPT_SON", "FIELD_OBSERVED")],
+                    "SB-POR-014 (docs/PRD_v2/11_porosity.md section 5.2): Geolog phi_son.info CFO DEFAULT 0.67 with doc range 0.625-0.70 (T1); Techlog porosity-from-sonic File coefficient 0.625 (T3); DEC-017 requires a cited coefficient",
+                ),
+                crate::param_sources::FIELD_OBSERVED_COEFFICIENT,
+            ),
+            // RHG80's suspension segment (phi > 47%) is the paper's density-weighted form, so
+            // it needs the matrix density - ABSENT like DT_MA, because the paper pairs it per
+            // lithology (2.65 sandstone / 2.71 limestone / 2.87 dolomite beside Vma
+            // 17,850/20,500/22,750 ft/s) and SB-POR-019 wants matched pairs chosen together.
+            with_sources(
+                param_open_when(
+                    "RHO_MA", "Matrix density (RHG80 suspension segment)", "g/cc",
+                    2.0, 3.2,
+                    &[("OPT_SON", "RHG80")],
+                    "RHG 1980 paper lithology pairings (docs/research_2026-08/plt024_route2_sources_2026-08-19.md; DEC-079)",
+                ),
+                crate::param_sources::MATRIX_DENSITY,
+            ),
+            with_sources(
+                param(
+                    "RHO_FL", "Fluid density (RHG80 suspension segment)", "g/cc", 1.0, 0.5, 1.5,
+                    "RHG 1980: water at rho 1.0, Vf 5,300 ft/s throughout the paper's figures (DEC-079 verified constants)",
+                ),
+                crate::param_sources::FLUID_DENSITY,
+            ),
             log_in("BADHOLE", "Bad-hole flag (flagged samples excluded, exclusion recorded)", "", "BADHOLE", false),
             log_in("GAS_FLAG", "Gas-crossover flag from condflag (provenance record only - never a correction)", "", "XOVER_FLAG", false),
             // SB-POR-048 (DEC-068, Jauhar 2026-08-18: "coal > blank, tight just flag,
@@ -4814,12 +4867,99 @@ fn phi_son_spec() -> ModuleSpec {
     }
 }
 
+/// The RHG-1980 three-segment transform, inverted: porosity from slowness. DEC-017 (the genuine
+/// RHG product path) executed with DEC-079's paper-verified segments and constants — Raymer,
+/// Hunt & Gardner, "An improved sonic transit time-to-porosity transform", SPWLA 21st Annual
+/// Logging Symposium 1980, paper P (copy in Jauhar's library; sources banked in
+/// docs/research_2026-08/plt024_route2_sources_2026-08-19.md; the FORWARD twin is
+/// `rhgDt` in tools/gen-derived-overlays.mjs, pinned against the paper's constants by
+/// tools/chart-derivation.test.mjs).
+///
+/// - phi <= 37%: V = (1-phi)^2*Vma + phi*Vf ("can be used regardless of the nature of the
+///   saturating fluid"), inverted as the quadratic minus-root — algebraically IP's printed
+///   Hunt-Raymer form (docs/PRD_v2/11_porosity.md F3).
+/// - phi >= 47%: the fluid-suspension form dt^2 = rho*(phi*dtf^2/rho_f + (1-phi)*dtma^2/rho_ma),
+///   rho = rho_ma - phi*(rho_ma - rho_f); dt^2 is quadratic in phi and the ASCENDING-side root
+///   is taken, continuous with the middle segment. Past the suspension maximum (~78% porosity
+///   for water sand) the equation has no root: the reading is off-model and returns MISSING
+///   rather than a guessed clamp.
+/// - 37..47%: the paper's dt-linear interpolation between the two branch values at the segment
+///   ends, inverted exactly (phi is linear in dt there).
+fn rhg80_phi(dt: f64, dt_ma: f64, dt_fl: f64, rho_ma: f64, rho_fl: f64) -> f64 {
+    const LOW_END: f64 = 0.37; // the paper's own segment boundaries (DEC-079)
+    const HIGH_START: f64 = 0.47;
+    if !(dt.is_finite() && dt > 0.0)
+        || !(dt_ma.is_finite() && dt_ma > 0.0)
+        || !(dt_fl.is_finite() && dt_fl > 0.0)
+        || !(rho_ma.is_finite() && rho_ma > 0.0)
+        || !(rho_fl.is_finite() && rho_fl > 0.0)
+    {
+        return f64::NAN;
+    }
+    let vma = 1e6 / dt_ma;
+    let vf = 1e6 / dt_fl;
+    let dt_low_end = 1e6 / ((1.0 - LOW_END) * (1.0 - LOW_END) * vma + LOW_END * vf);
+    let susp = |p: f64| {
+        let rho = rho_ma - p * (rho_ma - rho_fl);
+        ((rho * p * dt_fl * dt_fl) / rho_fl + (rho * (1.0 - p) * dt_ma * dt_ma) / rho_ma).sqrt()
+    };
+    let dt_high_start = susp(HIGH_START);
+    if dt <= dt_low_end {
+        let v = 1e6 / dt;
+        let b = 2.0 * vma - vf;
+        let disc = b * b - 4.0 * vma * (vma - v);
+        if disc < 0.0 {
+            return f64::NAN;
+        }
+        (b - disc.sqrt()) / (2.0 * vma)
+    } else if dt < dt_high_start {
+        LOW_END + (HIGH_START - LOW_END) * (dt - dt_low_end) / (dt_high_start - dt_low_end)
+    } else {
+        // dt^2 = (rho_ma - p*drho)*(b0 + p*(a0 - b0)) — a quadratic in p.
+        let a0 = dt_fl * dt_fl / rho_fl;
+        let b0 = dt_ma * dt_ma / rho_ma;
+        let drho = rho_ma - rho_fl;
+        let c2 = -drho * (a0 - b0);
+        let c1 = rho_ma * (a0 - b0) - drho * b0;
+        let c0 = rho_ma * b0 - dt * dt;
+        if c2.abs() < 1e-12 {
+            if c1.abs() < 1e-12 {
+                return f64::NAN;
+            }
+            return -c0 / c1;
+        }
+        let disc = c1 * c1 - 4.0 * c2 * c0;
+        if disc < 0.0 {
+            return f64::NAN;
+        }
+        let s = disc.sqrt();
+        let r1 = (-c1 + s) / (2.0 * c2);
+        let r2 = (-c1 - s) / (2.0 * c2);
+        let (lo, hi) = if r1 <= r2 { (r1, r2) } else { (r2, r1) };
+        if lo >= HIGH_START - 1e-9 {
+            lo
+        } else if hi >= HIGH_START - 1e-9 {
+            hi
+        } else {
+            f64::NAN
+        }
+    }
+}
+
 fn phi_son(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let dt = ctx.log("DT");
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
     let coal = ctx.log("COAL_FLAG");
-    let rhg = ctx.o("OPT_SON") == "RHG";
+    let method = ctx.o("OPT_SON").to_string();
+    let rhg80 = method == "RHG80";
+    let field_observed = method == "FIELD_OBSERVED";
+    // WYLLIE is the declared default: an absent OPT_SON reaches the module as "" and must
+    // compute the default method, exactly as the pre-DEC-017 code did. An UNKNOWN id (the
+    // legacy "RHG" included) never gets this far — the public runner validates every Option
+    // value against the closed choice set before dispatch, so a saved RHG run refuses by
+    // name rather than silently recomputing as either successor.
+    let wyllie = !rhg80 && !field_observed;
     let cp_on = ctx.o("OPT_CP") == "ON";
     // SB-POR-017 (DEC-012, Jauhar 2026-08-11: refuse the run; Help may explain the condition
     // but cannot substitute for the refusal): the lack-of-compaction divisor exists to REDUCE
@@ -4828,9 +4968,10 @@ fn phi_son(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // Both cited vendor rules apply the correction only above 100 us/ft (IP
     // basicloganalysis.htm rule of thumb; Geolog phi_son.lls gates on 328.084 us/m). DT_SH of
     // exactly 100 is Cp = 1 — no correction — and passes. Checked per sample so a zone
-    // override cannot slip a sub-100 shale time into one zone of an otherwise valid run; RHG
-    // is self-compacting and never Cp-corrected, so it is deliberately not gated.
-    if cp_on && !rhg {
+    // override cannot slip a sub-100 shale time into one zone of an otherwise valid run;
+    // RHG80 and FIELD_OBSERVED are self-compacting and never Cp-corrected, so they are
+    // deliberately not gated.
+    if cp_on && wyllie {
         for i in 0..ctx.n {
             let dt_sh = ctx.p("DT_SH", i);
             if dt_sh.is_finite() && dt_sh < 100.0 {
@@ -4868,24 +5009,59 @@ fn phi_son(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         let dt_fl = ctx.p("DT_FL", i);
         let dt_sh = ctx.p("DT_SH", i);
 
-        // Wyllie lack-of-compaction divisor Cp = DT_SH/100 (Hilchie): the whole time-average
-        // porosity is scaled by 1/Cp in undercompacted section. RHG is self-compacting, so Cp
-        // never applies to it. The refusal above guarantees every finite DT_SH here is >= 100
-        // (Cp >= 1, the correction can only reduce); the > 0 arm survives only as NaN safety.
-        let cp = if cp_on && !rhg && dt_sh > 0.0 { dt_sh / 100.0 } else { 1.0 };
-        // SB-POR-003: which sonic transform answered, per sample, for the custody comment.
-        record_branch(if rhg {
-            "rhg"
-        } else if cp != 1.0 {
-            "wyllie 1/Cp"
+        let (pt, pe) = if wyllie {
+            // Wyllie lack-of-compaction divisor Cp = DT_SH/100 (Hilchie): the whole time-average
+            // porosity is scaled by 1/Cp in undercompacted section. The refusal above guarantees
+            // every finite DT_SH here is >= 100 (Cp >= 1, the correction can only reduce); the
+            // > 0 arm survives only as NaN safety.
+            let cp = if cp_on && dt_sh > 0.0 { dt_sh / 100.0 } else { 1.0 };
+            // SB-POR-003: which sonic transform answered, per sample, for the custody comment.
+            record_branch(if cp != 1.0 { "wyllie 1/Cp" } else { "wyllie" });
+            let pt = two_endpoint_fraction(d, dt_ma, dt_fl) / cp;
+            // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
+            // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand
+            // form. Wyllie keeps the SUBTRACTIVE shale convention: it is the one form both
+            // vendors agree on exactly (SB-POR-013, 11_porosity.md F2).
+            let pe = if is_missing(v) {
+                f64::NAN
+            } else {
+                pt - v * two_endpoint_fraction(dt_sh, dt_ma, dt_fl) / cp
+            };
+            (pt, pe)
         } else {
-            "wyllie"
-        });
-
-        let pt = if rhg {
-            0.625 * (d - dt_ma) / d
-        } else {
-            two_endpoint_fraction(d, dt_ma, dt_fl) / cp
+            let rho_ma = ctx.p("RHO_MA", i);
+            let rho_fl = ctx.p("RHO_FL", i);
+            let cfo = ctx.p("CFO", i);
+            let transform = |x: f64| -> f64 {
+                if rhg80 {
+                    rhg80_phi(x, dt_ma, dt_fl, rho_ma, rho_fl)
+                } else {
+                    // FIELD_OBSERVED: the transform structurally Geolog's FLD_OBSB
+                    // (CFO*(dtsr - DT_MA)/dtsr), the branch the pre-DEC-017 build shipped
+                    // under the RHG label with CFO hard-coded at 0.625 on the raw slowness.
+                    cfo * (x - dt_ma) / x
+                }
+            };
+            record_branch(if rhg80 { "rhg80" } else { "field_observed" });
+            let pt = transform(d);
+            // SB-POR-013/-015 (F4, T1 — Geolog's EXECUTED code, phi_son.lls L270-347, not its
+            // doc block): every non-Wyllie branch runs on the shale-reduced slowness
+            // dtsr = (dt - VSH*DT_SH)/(1 - VSH), FLOORED at DT_MA (the Jul-1997 floor, F5 —
+            // unfloored, a shaly sample's dtsr falls below the matrix line and the transform
+            // inverts), then rescales by (1 - VSH). Mixing this with a Wyllie subtraction is
+            // the exact convention error the old RHG branch shipped (three divergences in one
+            // line, §3.3) — worth 1.3-1.55 p.u. across vendors on identical inputs (F2).
+            let pe = if is_missing(v) {
+                f64::NAN
+            } else {
+                let dtsr = if v >= 1.0 {
+                    dt_ma
+                } else {
+                    ((d - v * dt_sh) / (1.0 - v)).max(dt_ma)
+                };
+                transform(dtsr) * (1.0 - v).max(0.0)
+            };
+            (pt, pe)
         };
         // SB-POR-002 (DEC-063): PHIT_SON is the bare transform - the unlimited diagnostic
         // keeps an off-scale reading (DT past the fluid line pushes PHIT above 1) visible
@@ -4897,9 +5073,6 @@ fn phi_son(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         }
         phit_lim[i] = pt_l as f32;
         if !is_missing(v) {
-            // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
-            // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand form.
-            let pe = pt - v * two_endpoint_fraction(dt_sh, dt_ma, dt_fl) / cp;
             phie_son[i] = pe as f32;
             // SB-POR-009 / F21: effective porosity can never exceed total porosity. Density and
             // D-N get this free because they rebuild PHIT from the limited PHIE, but sonic
@@ -7989,7 +8162,9 @@ mod tests {
                 &ctx_with(
                     2,
                     &logs,
-                    &[("DT_MA", dt_ma), ("DT_FL", 189.0), ("DT_SH", dt_sh)],
+                    // RHO_FL rides at its cited default (the real runner materializes it;
+                    // this test builds the context by hand) — WYLLIE never reads it.
+                    &[("DT_MA", dt_ma), ("DT_FL", 189.0), ("DT_SH", dt_sh), ("RHO_FL", 1.0)],
                     &[],
                 ),
             )
@@ -8122,7 +8297,7 @@ mod tests {
         for module in ["phi_den", "phi_dn", "phi_dnbk", "phi_son"] {
             for opts in [
                 HashMap::new(),
-                HashMap::from([("OPT_SON".to_string(), "RHG".to_string())]),
+                HashMap::from([("OPT_SON".to_string(), "RHG80".to_string())]),
                 HashMap::from([("OPT_CP".to_string(), "ON".to_string())]),
                 HashMap::from([("OPT_PHIEMAX".to_string(), "MAXIMUM".to_string())]),
             ] {
@@ -10434,11 +10609,16 @@ mod tests {
             .expect("Cp >= 1 computes");
         assert!((on["PHIT_SON"][0] as f64 - raw / 1.2).abs() < 1e-5, "ON {}", on["PHIT_SON"][0]);
 
-        // RHG is self-compacting: OPT_CP=ON must NOT touch its porosity.
-        let rhg_cp = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG"), ("OPT_CP", "ON")]))
-            .expect("RHG is never Cp-corrected");
-        let rhg_expect = 0.625 * (75.0 - 55.5) / 75.0;
-        assert!((rhg_cp["PHIT_SON"][0] as f64 - rhg_expect).abs() < 1e-5, "RHG+CP {}", rhg_cp["PHIT_SON"][0]);
+        // RHG80 is self-compacting: OPT_CP=ON must NOT touch its porosity.
+        let params_rhg = [
+            ("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 120.0), ("RHO_MA", 2.65), ("RHO_FL", 1.0),
+        ];
+        let rhg_off = phi_son(&ctx_with(1, &logs, &params_rhg, &[("OPT_SON", "RHG80"), ("OPT_CP", "OFF")]))
+            .expect("RHG80 computes");
+        let rhg_on = phi_son(&ctx_with(1, &logs, &params_rhg, &[("OPT_SON", "RHG80"), ("OPT_CP", "ON")]))
+            .expect("RHG80 is never Cp-corrected");
+        assert!(rhg_off["PHIT_SON"][0].is_finite(), "RHG80 {}", rhg_off["PHIT_SON"][0]);
+        assert_eq!(rhg_off["PHIT_SON"][0], rhg_on["PHIT_SON"][0], "Cp must not touch RHG80");
     }
 
     /// SB-POR-017 (DEC-012, Jauhar 2026-08-11): the Wyllie lack-of-compaction correction can
@@ -10466,10 +10646,18 @@ mod tests {
             .expect("OPT_CP OFF must still compute at DT_SH 90");
         assert!(off["PHIT_SON"][0].is_finite());
 
-        // Not over-refusing (b): RHG never applies Cp, so OPT_CP=ON + DT_SH 90 still computes.
-        let rhg = phi_son(&ctx_with(2, &logs, &params, &[("OPT_SON", "RHG"), ("OPT_CP", "ON")]))
-            .expect("RHG is never Cp-corrected and must not be gated");
+        // Not over-refusing (b): RHG80 and FIELD_OBSERVED never apply Cp, so OPT_CP=ON with
+        // the same sub-100 DT_SH still computes on both.
+        let params_rhg = [
+            ("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 90.0), ("RHO_MA", 2.65), ("RHO_FL", 1.0),
+        ];
+        let rhg = phi_son(&ctx_with(2, &logs, &params_rhg, &[("OPT_SON", "RHG80"), ("OPT_CP", "ON")]))
+            .expect("RHG80 is never Cp-corrected and must not be gated");
         assert!(rhg["PHIT_SON"][0].is_finite());
+        let params_fo = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 90.0), ("CFO", 0.625)];
+        let fo = phi_son(&ctx_with(2, &logs, &params_fo, &[("OPT_SON", "FIELD_OBSERVED"), ("OPT_CP", "ON")]))
+            .expect("FIELD_OBSERVED is never Cp-corrected and must not be gated");
+        assert!(fo["PHIT_SON"][0].is_finite());
 
         // Not over-refusing (c): DT_SH exactly 100 is Cp = 1 — no correction — and passes.
         let params_100 = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 100.0)];
@@ -10483,6 +10671,143 @@ mod tests {
         zoned.params.get_mut("DT_SH").unwrap()[1] = 90.0;
         phi_son(&zoned)
             .expect_err("a zone-overridden DT_SH below 100 must refuse the whole run (DEC-012)");
+    }
+
+    /// DEC-017 executed: RHG80 is the paper's own three-segment transform. This test implements
+    /// the FORWARD equations independently — the same arithmetic DEC-079 pinned for the chart
+    /// overlay (tools/gen-derived-overlays.mjs `rhgDt`) — at the paper's sandstone constants
+    /// (Vma 17,850 ft/s, Vf 5,300 ft/s, rho 2.65/1.0) and asserts the module INVERTS them, one
+    /// porosity per segment. The other side: a slowness past the suspension maximum has no
+    /// porosity that produces it, and must read MISSING, never a guessed clamp.
+    #[test]
+    fn rhg80_inverts_the_papers_three_segment_transform_on_each_segment() {
+        let dt_ma = 1.0e6 / 17850.0;
+        let dt_fl = 1.0e6 / 5300.0;
+        let (rho_ma, rho_fl) = (2.65f64, 1.0f64);
+        let low = |p: f64| 1.0e6 / ((1.0 - p) * (1.0 - p) * 17850.0 + p * 5300.0);
+        let susp = |p: f64| {
+            let rho = rho_ma - p * (rho_ma - rho_fl);
+            ((rho * p * dt_fl * dt_fl) / rho_fl + (rho * (1.0 - p) * dt_ma * dt_ma) / rho_ma)
+                .sqrt()
+        };
+        let forward = |phi: f64| {
+            if phi <= 0.37 {
+                low(phi)
+            } else if phi >= 0.47 {
+                susp(phi)
+            } else {
+                (0.47 - phi) / 0.1 * low(0.37) + (phi - 0.37) / 0.1 * susp(0.47)
+            }
+        };
+        let params = [
+            ("DT_MA", dt_ma), ("DT_FL", dt_fl), ("DT_SH", 130.0),
+            ("RHO_MA", rho_ma), ("RHO_FL", rho_fl),
+        ];
+        for phi in [0.15f64, 0.42, 0.60] {
+            let dt = forward(phi);
+            let logs = [("DT", vec![dt as f32]), ("VSH", vec![0.0f32])];
+            let out = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG80")]))
+                .expect("RHG80 computes");
+            assert!(
+                (out["PHIT_SON"][0] as f64 - phi).abs() < 1e-4,
+                "phi {phi}: dt {dt} inverted to {}",
+                out["PHIT_SON"][0]
+            );
+            // VSH 0: dtsr = dt and the scale is 1, so PHIE must agree with PHIT on clean rock.
+            assert!((out["PHIE_SON"][0] as f64 - phi).abs() < 1e-4);
+        }
+        // Off-model: past the suspension maximum (~196 us/ft for these constants).
+        let logs = [("DT", vec![210.0f32]), ("VSH", vec![0.0f32])];
+        let out = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG80")])).expect("runs");
+        assert!(
+            out["PHIT_SON"][0].is_nan(),
+            "past the suspension maximum must be MISSING, got {}",
+            out["PHIT_SON"][0]
+        );
+    }
+
+    /// SB-POR-013/-015 (DEC-017's "one correct shale convention"): the non-Wyllie branches run
+    /// Geolog's EXECUTED convention — dtsr = (dt − VSH·DT_SH)/(1 − VSH) floored at DT_MA, the
+    /// answer scaled by (1 − VSH) — pinned at the porosity chapter's own worked reference case
+    /// (11_porosity.md F2/F4), and from the other side: the Jul-1997 floor (F5) keeps a shaly
+    /// sample's porosity at exactly zero instead of letting the transform invert below the
+    /// matrix line.
+    #[test]
+    fn field_observed_ships_geologs_executed_shale_convention_not_the_doc_block() {
+        // Reference case: dt 90, dtma 55.5, dtsh 100, VSH 0.20 → dtsr = (90 − 20)/0.8 = 87.5;
+        // CFO 0.67 → 0.67·(32/87.5)·0.8 = 0.1960 (F4's Geolog-code number); CFO 0.625 →
+        // 0.1828571 (the §3.3 comparison table's FLD_OBSB-convention row).
+        let logs = [("DT", vec![90.0f32]), ("VSH", vec![0.20f32])];
+        let run = |cfo: f64| {
+            let params = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 100.0), ("CFO", cfo)];
+            phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "FIELD_OBSERVED")]))
+                .expect("FIELD_OBSERVED computes")
+        };
+        let geolog_67 = run(0.67);
+        assert!(
+            (geolog_67["PHIE_SON"][0] as f64 - 0.1960).abs() < 5e-4,
+            "CFO 0.67 convention value: {}",
+            geolog_67["PHIE_SON"][0]
+        );
+        let geolog_625 = run(0.625);
+        assert!(
+            (geolog_625["PHIE_SON"][0] as f64 - 0.1828571).abs() < 1e-4,
+            "CFO 0.625 convention value: {}",
+            geolog_625["PHIE_SON"][0]
+        );
+
+        // The floor (F5): dt 70, dtsh 130, VSH 0.30 → dtsr = (70 − 39)/0.7 = 44.3, below
+        // DT_MA 55.5, floored to the matrix line → transform(DT_MA) = 0 → PHIE exactly 0,
+        // never negative.
+        let logs_floor = [("DT", vec![70.0f32]), ("VSH", vec![0.30f32])];
+        let params = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 130.0), ("CFO", 0.67)];
+        let floored = phi_son(&ctx_with(1, &logs_floor, &params, &[("OPT_SON", "FIELD_OBSERVED")]))
+            .expect("computes");
+        assert_eq!(
+            floored["PHIE_SON"][0], 0.0,
+            "the Jul-1997 floor keeps the inversion at zero"
+        );
+    }
+
+    /// SB-POR-014 (DEC-017): the RHG name now means RHG-1980 and nothing else. The legacy
+    /// option value RHG resolves to NO method — a saved run must be re-pointed deliberately,
+    /// never silently remapped onto arithmetic it did not record — while the old approximation
+    /// still answers, under its honest name, with its old clean-rock value.
+    #[test]
+    fn the_rhg_label_now_means_rhg_1980_and_the_old_approximation_answers_only_as_field_observed() {
+        let spec = module_catalog().iter().find(|m| m.name == "phi_son").unwrap();
+        let choices = &spec.args.iter().find(|a| a.name == "OPT_SON").unwrap().choices;
+        assert_eq!(
+            choices.join(","),
+            "WYLLIE,RHG80,FIELD_OBSERVED",
+            "the legacy RHG choice id must not survive"
+        );
+
+        // Clean rock (VSH 0): FIELD_OBSERVED at CFO 0.625 reproduces the exact value the old
+        // mislabelled branch computed — the method survived, only its name is honest now.
+        let logs = [("DT", vec![75.0f32]), ("VSH", vec![0.0f32])];
+        let params = [
+            ("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 100.0),
+            ("CFO", 0.625), ("RHO_MA", 2.65), ("RHO_FL", 1.0),
+        ];
+        let fo = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "FIELD_OBSERVED")]))
+            .expect("computes");
+        let old_branch = 0.625 * (75.0 - 55.5) / 75.0;
+        assert!(
+            (fo["PHIT_SON"][0] as f64 - old_branch).abs() < 1e-6,
+            "FIELD_OBSERVED clean-rock value: {}",
+            fo["PHIT_SON"][0]
+        );
+
+        // And RHG80 is a genuinely different transform on the same inputs — the mislabel is
+        // gone materially, not renamed around (DEC-017's own words).
+        let rhg = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG80")])).expect("computes");
+        assert!(
+            (rhg["PHIT_SON"][0] - fo["PHIT_SON"][0]).abs() > 1e-3,
+            "RHG80 {} and FIELD_OBSERVED {} must differ",
+            rhg["PHIT_SON"][0],
+            fo["PHIT_SON"][0]
+        );
     }
 
     #[test]

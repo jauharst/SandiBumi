@@ -88,6 +88,10 @@ pub const MATRIX_TRANSIT_TIME: &str = "matrix_transit_time";
 pub const FLUID_TRANSIT_TIME: &str = "fluid_transit_time";
 pub const SHALE_TRANSIT_TIME: &str = "shale_transit_time";
 pub const SONIC_COMPACTION_CORRECTION: &str = "sonic_compaction_correction";
+/// SB-POR-014 / DEC-017: the field-observation sonic coefficient is a cited USER choice —
+/// the vendors genuinely disagree (Geolog 0.67, Techlog 0.625), so the parameter ships
+/// ABSENT and this topic discloses the competing evidence.
+pub const FIELD_OBSERVED_COEFFICIENT: &str = "field_observed_coefficient";
 pub const ARCHIE_A: &str = "archie_a";
 pub const ARCHIE_M: &str = "archie_m";
 pub const ARCHIE_N: &str = "archie_n";
@@ -907,6 +911,23 @@ const SONIC_COMPACTION_CORRECTION_SOURCES: &[ParamSource] = &[
     ),
 ];
 
+const FIELD_OBSERVED_COEFFICIENT_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "0.67",
+        "CFO DEFAULT; the module doc states the normal range 0.625 to 0.7",
+        "Geolog V14 phi_son.info CFO; docs/PRD_v2/11_porosity.md section 5.2",
+        "T1"
+    ),
+    claim!(
+        "Techlog",
+        "0.625",
+        "the File coefficient of the field-observation transform - the value the pre-DEC-017 build hard-coded under the RHG label",
+        "Techlog porosity-from-sonic.html File coefficient; docs/PRD_v2/11_porosity.md section 5.2",
+        "T3"
+    ),
+];
+
 pub fn sources_for(topic: &str) -> &'static [ParamSource] {
     match topic {
         CLUSTER_COUNT => CLUSTER_COUNT_SOURCES,
@@ -926,6 +947,7 @@ pub fn sources_for(topic: &str) -> &'static [ParamSource] {
         FLUID_TRANSIT_TIME => FLUID_TRANSIT_TIME_SOURCES,
         SHALE_TRANSIT_TIME => SHALE_TRANSIT_TIME_SOURCES,
         SONIC_COMPACTION_CORRECTION => SONIC_COMPACTION_CORRECTION_SOURCES,
+        FIELD_OBSERVED_COEFFICIENT => FIELD_OBSERVED_COEFFICIENT_SOURCES,
         ARCHIE_A => ARCHIE_A_SOURCES,
         ARCHIE_M => ARCHIE_M_SOURCES,
         ARCHIE_N => ARCHIE_N_SOURCES,
@@ -963,6 +985,7 @@ pub fn parameter_label(topic: &str) -> Option<&'static str> {
         FLUID_TRANSIT_TIME => "fluid transit time",
         SHALE_TRANSIT_TIME => "shale transit time",
         SONIC_COMPACTION_CORRECTION => "sonic compaction correction",
+        FIELD_OBSERVED_COEFFICIENT => "field-observed sonic coefficient",
         ARCHIE_A => "Archie a",
         ARCHIE_M => "Archie m",
         ARCHIE_N => "Archie n",
@@ -1325,6 +1348,7 @@ pub fn topics() -> &'static [&'static str] {
         FLUID_TRANSIT_TIME,
         SHALE_TRANSIT_TIME,
         SONIC_COMPACTION_CORRECTION,
+        FIELD_OBSERVED_COEFFICIENT,
         ARCHIE_A,
         ARCHIE_M,
         ARCHIE_N,
@@ -1613,6 +1637,10 @@ mod tests {
             FLUID_TRANSIT_TIME,
             SHALE_TRANSIT_TIME,
             SONIC_COMPACTION_CORRECTION,
+            // SB-POR-014 / DEC-017 added the field-observation coefficient: the pre-DEC-017
+            // build hard-coded Techlog's 0.625 under a mislabelled RHG branch, while Geolog's
+            // own default is 0.67 — a genuine two-vendor conflict, now disclosed.
+            FIELD_OBSERVED_COEFFICIENT,
             ARCHIE_A,
             ARCHIE_M,
             ARCHIE_N,
@@ -1669,6 +1697,9 @@ mod tests {
             ("phi_dn", "RHO_SH", SHALE_DENSITY),
             ("phi_dn", "RHO_DSH", DRY_SHALE_DENSITY),
             ("phi_dn", "NPHI_SH", SHALE_NEUTRON_ENDPOINT),
+            ("phi_son", "CFO", FIELD_OBSERVED_COEFFICIENT),
+            ("phi_son", "RHO_MA", MATRIX_DENSITY),
+            ("phi_son", "RHO_FL", FLUID_DENSITY),
             ("sw_arch", "A", ARCHIE_A),
             ("sw_arch", "M", ARCHIE_M),
             ("sw_arch", "N", ARCHIE_N),
