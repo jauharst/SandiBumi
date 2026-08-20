@@ -3,10 +3,11 @@
 //! writes a saturation-vs-height-above-FWL curve (SWH).
 //!
 //! Conventions: Pc in psi, IFT (sigma*cos theta) in dyn/cm, perm in mD, porosity v/v.
-//! DEPTHS are project-native — the depth curves, and the FWL differenced against them, are in
-//! whatever unit the project stores (SB-ENV-057's `depth` token). HEIGHTS are converted at the
-//! point of use: to metres for the Skelt-Harrison constants, to feet for the Pc gradient, and
-//! to metres for the HAFWL output, all through `units.rs`.
+//! DEPTHS AND HEIGHTS are project-native — the depth curves, the FWL differenced against them
+//! and the HAFWL height written back out are all in whatever unit the project stores
+//! (SB-ENV-057's `depth` token; DEC-087 for the height curve). Conversion happens ONLY where a
+//! published constant fixes the unit, at the point of use and through `units.rs`: to metres for
+//! the Skelt-Harrison coefficients, to feet for the hydrostatic Pc gradient.
 //! J = 0.21645 * (Pc / IFT) * sqrt(k / phi)   (the classic oilfield-unit Leverett J)
 //! Pc_res = 0.433 * (RHO_W - RHO_HC) * h_ft   (psi; 0.433 psi/ft per unit sp. gravity)
 
@@ -104,8 +105,10 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
         doc: "SWH from height above the free-water level. LEVERETT: Pc = 0.433*(RHO_W-RHO_HC)*h_ft, \
               J = 0.21645*Pc/IFT_RES*sqrt(PERM/PHIE), SWH = SWH_A * J^SWH_B (fit SWH_A/SWH_B from \
               core Pc data via Import SCAL — the fit is reported there). SKELT (Skelt-Harrison): \
-              SWH = 1 - SH_A*exp(-(SH_B/(h+SH_D))^SH_C), h in metres. Below the FWL (h <= 0) \
-              SWH = 1. Result limited to [SWT_IRR, 1]. FWL is zone-overridable for stacked \
+              SWH = 1 - SH_A*exp(-(SH_B/(h+SH_D))^SH_C), h in metres (SH_B and SH_D are metres \
+              by the published form, so the height is converted for that branch alone — the \
+              HAFWL curve itself is written in the project's own depth unit). Below the FWL \
+              (h <= 0) SWH = 1. Result limited to [SWT_IRR, 1]. FWL is zone-overridable for stacked \
               reservoirs with different contacts. Height is measured from the TVD input when a \
               TVD curve is supplied (else measured depth) so deviated wells are not over-stated \
               — MD height overstates true height by ~1/cos(inc); enter FWL on the SAME reference \
@@ -166,8 +169,10 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
             // Project-native for the same reason as FWL: this curve's samples are differenced
             // against FWL before any conversion, so both sides of that subtraction are in the
-            // project's stored unit. HAFWL below is the deliberate opposite — it IS metres,
-            // because `sw_height` converts the height before writing it.
+            // project's stored unit — and so, since DEC-087, is the HAFWL height that comes out
+            // of that subtraction. SH_B and SH_D are the deliberate opposite in this same
+            // manifest: they are metres by the published Skelt-Harrison form, and the SKELT
+            // branch converts the height to meet them.
             log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", PROJECT_DEPTH_UNIT_TOKEN, "TVD", false),
             // DEC-064 (2026-08-18, Jauhar: "it principally SWT"): the height-function saturation
             // belongs to the TOTAL porosity system, so it carries the T designator through the
@@ -177,7 +182,13 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             log_out("SWT_HGT", "SWT from height function (unlimited)", "v/v"),
             log_out("SWT", "Limited total water saturation", "v/v"),
             log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
-            log_out("HAFWL", "Height above free-water level", "m"),
+            // DEC-087 (Jauhar, 2026-08-20: "for HAFWL, follow project units"), closing
+            // SB-SHR-004. This is the ONE output in the file whose values moved: on a
+            // foot-declared project the curve used to be written in metres, so it read 3.28x
+            // smaller than the height the user could compute by hand from the FWL they typed
+            // and the TVD beside it. Nothing downstream consumes HAFWL, so no saturation moved
+            // with it — see the pin below, which asserts SWT is unchanged in both branches.
+            log_out("HAFWL", "Height above free-water level", PROJECT_DEPTH_UNIT_TOKEN),
         ],
     }
 }
@@ -188,6 +199,15 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
     let phie = ctx.log("PHIE");
     let perm = ctx.log("PERM");
     let skelt = ctx.o("OPT_SWH") == "SKELT";
+    // Same rule as `sw_rtc`'s CBW and `sw_imts`' clay volumes. The measured-depth fallback below
+    // is for a well carrying NO vertical-depth curve at all — a vertical well, where MD is the
+    // honest answer. A HOLE in a TVD curve this well DOES carry is missing geometry, and quietly
+    // switching that one sample to along-hole depth would mix two depth references inside one
+    // interpretation: on a 60 deg hold MD runs about twice the true vertical section, so the
+    // height above the contact — and the saturation read off it — would jump at the seam with
+    // nothing on the log to say why. Reachable only since `deviation::sample_at` stopped freezing
+    // TVD past the last survey station; before that a TVD curve had no holes to have.
+    let has_tvd = tvd.iter().any(|v| v.is_finite());
 
     let mut swh_out = vec![f32::NAN; ctx.n];
     let mut swh_raw_out = vec![f32::NAN; ctx.n];
@@ -200,7 +220,14 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         // fall back to measured depth when no TVD is supplied.
         let dv = {
             let t = tvd[i] as f64;
-            if t.is_nan() { depth[i] as f64 } else { t }
+            if t.is_nan() {
+                if has_tvd {
+                    continue; // a gap in a carried TVD curve withholds the sample, never MD
+                }
+                depth[i] as f64
+            } else {
+                t
+            }
         };
         if dv.is_nan() || pe.is_nan() {
             continue;
@@ -208,10 +235,12 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         let fwl = ctx.p("FWL", i);
         let swt_irr = ctx.p("SWT_IRR", i);
         let h = fwl - dv; // project-unit height above the FWL; FWL shares dv's reference
-        let h_metres =
-            crate::units::convert_depth(h, ctx.depth_unit, crate::units::DepthUnit::Metres);
-        // HAFWL's manifest unit is metres even when the project's stored depth frame is feet.
-        hafwl_out[i] = h_metres as f32;
+        // DEC-087: the height curve is delivered on the project's own depth scale, like every
+        // other depth-dimensioned curve. It is a subtraction of two project-native numbers and
+        // it is now written as one — so a reader can check it against the FWL they typed and
+        // the TVD in the next track, which is the first thing anyone does with this curve.
+        // Conversions live at the point of use below, where a published constant fixes the unit.
+        hafwl_out[i] = h as f32;
 
         if h <= 0.0 {
             // At/below the free-water level: fully water. A model statement, not a clip -
@@ -232,6 +261,12 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
             let b = ctx.p("SH_B", i);
             let c = ctx.p("SH_C", i);
             let dd = ctx.p("SH_D", i);
+            // SH_B and SH_D are declared in metres because Skelt-Harrison's published
+            // coefficients are, so the height is converted HERE to meet them rather than at the
+            // curve — exactly the rule the Leverett branch follows with feet. DEC-087 moved the
+            // HAFWL output off metres; it deliberately did not move this.
+            let h_metres =
+                crate::units::convert_depth(h, ctx.depth_unit, crate::units::DepthUnit::Metres);
             if h_metres + dd <= 0.0 {
                 1.0
             } else {
@@ -375,9 +410,10 @@ mod tests {
     /// fully-water-saturated answer with no error anywhere.
     ///
     /// Both halves are pinned together because either alone is still a lie. The LABEL half: FWL
-    /// and TVD carry the project-native token, while HAFWL in the same manifest keeps its fixed
-    /// "m" — it genuinely IS metres, because the module converts the height before writing it,
-    /// and a fix that swept every "m" in this file would have taken it too. The ARITHMETIC half:
+    /// and TVD carry the project-native token — and so does HAFWL since DEC-087 — while SH_B and
+    /// SH_D in the same manifest keep their fixed "m", because Skelt-Harrison's published
+    /// coefficients are metres and the SKELT branch converts the height to meet them. A fix that
+    /// swept every "m" in this file would take those two as well. The ARITHMETIC half:
     /// the SAME FWL number in two differently-declared projects must give DIFFERENT answers,
     /// which is what "project-native" means. Read it against its neighbour above, where
     /// CONVERTED FWL numbers give the same answer — together they say the parameter is in the
@@ -398,7 +434,9 @@ mod tests {
         };
         assert_eq!(unit_of("FWL"), PROJECT_DEPTH_UNIT_TOKEN, "FWL is differenced against raw depths");
         assert_eq!(unit_of("TVD"), PROJECT_DEPTH_UNIT_TOKEN, "TVD is the other side of that subtraction");
-        assert_eq!(unit_of("HAFWL"), "m", "HAFWL is converted before it is written and stays metres");
+        assert_eq!(unit_of("HAFWL"), PROJECT_DEPTH_UNIT_TOKEN, "DEC-087: the height follows the project");
+        assert_eq!(unit_of("SH_B"), "m", "Skelt-Harrison B is metres by the published form");
+        assert_eq!(unit_of("SH_D"), "m", "Skelt-Harrison D is metres by the published form");
 
         // One number, two declarations. In metres it is 100 m of column; in feet it is 100 ft,
         // which is 30.48 m — a third of the height, so a materially different saturation.
@@ -416,6 +454,88 @@ mod tests {
              wetter — metric Sw {metric}, foot Sw {imperial}. Equal answers would mean FWL was \
              being read as metres regardless of the project, which is what the old label claimed."
         );
+    }
+
+    /// DEC-087 (2026-08-20), closing SB-SHR-004's output-curve half. Jauhar's ruling, verbatim:
+    /// "for HAFWL, follow project units". The height curve used to be converted to metres before
+    /// it was written, which made its `"m"` label truthful but delivered a metre-valued height
+    /// beside foot-valued depths on every foot-declared project — a curve nobody can check by
+    /// eye against the FWL they typed and the TVD in the next track.
+    ///
+    /// Three assertions, and the third is the one that says what this change is NOT. The height
+    /// moved; the SATURATION did not, in either branch, because nothing downstream consumes
+    /// HAFWL and each branch still converts at the point a published constant fixes its unit —
+    /// feet for the 0.433 psi/ft hydrostatic gradient, metres for Skelt-Harrison's B and D.
+    /// Without that third assertion this pin would stay green if the ruling had been applied by
+    /// deleting the SKELT conversion instead, which would silently rescale every Skelt answer on
+    /// a foot project while making the height look right.
+    #[test]
+    fn a_height_above_the_contact_is_delivered_on_the_projects_own_depth_scale() {
+        use crate::modules::PROJECT_DEPTH_UNIT_TOKEN;
+        use crate::units::DepthUnit;
+
+        let spec = sw_height_spec();
+        let unit_of = |name: &str| {
+            spec.args
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap_or_else(|| panic!("sw_height.{name} is declared"))
+                .unit
+                .clone()
+        };
+        assert_eq!(
+            unit_of("HAFWL"),
+            PROJECT_DEPTH_UNIT_TOKEN,
+            "the height curve is project-native, like every other depth-dimensioned curve"
+        );
+        assert_eq!(
+            (unit_of("SH_B"), unit_of("SH_D")),
+            ("m".to_string(), "m".to_string()),
+            "Skelt-Harrison's published coefficients are metres and must not follow the project"
+        );
+
+        // ONE physical well, described twice: 100 m of column in a metre project, the identical
+        // 328.084 ft of column in a foot one (1900 m = 6233.5957 ft, 2000 m = 6561.6798 ft).
+        let run = |unit: DepthUnit, tvd: f32, fwl: f64, opt: &str| {
+            sw_height(&ctx_in_unit(
+                1,
+                &[
+                    ("DEPTH", vec![tvd]),
+                    ("TVD", vec![tvd]),
+                    ("PHIE", vec![0.25]),
+                    ("PERM", vec![100.0]),
+                ],
+                &[("FWL", fwl)],
+                &[("OPT_SWH", opt)],
+                unit,
+            ))
+        };
+        let metric = run(DepthUnit::Metres, 1900.0, 2000.0, "LEVERETT");
+        let imperial = run(DepthUnit::Feet, 6233.5957, 6561.6798, "LEVERETT");
+
+        assert!(
+            (metric["HAFWL"][0] - 100.0).abs() < 1e-3
+                && (imperial["HAFWL"][0] - 328.0840).abs() < 1e-2,
+            "the height must be reported in the project's own unit: metre project {} (want 100), \
+             foot project {} (want 328.084). Equal numbers would mean the curve was still being \
+             converted to metres regardless of the project.",
+            metric["HAFWL"][0],
+            imperial["HAFWL"][0]
+        );
+
+        // The delivery unit moved; the physics did not. Both branches, because they convert at
+        // two different published constants and a fix could plausibly have broken either.
+        for opt in ["LEVERETT", "SKELT"] {
+            let m = run(DepthUnit::Metres, 1900.0, 2000.0, opt)["SWT"][0];
+            let f = run(DepthUnit::Feet, 6233.5957, 6561.6798, opt)["SWT"][0];
+            assert!(m.is_finite() && m > 0.0 && m < 1.0, "{opt}: metric Sw not usable: {m}");
+            assert!(
+                (m - f).abs() < 1e-3,
+                "{opt}: the same physical height must give the same saturation whichever unit \
+                 the project declares — metric {m} vs foot {f}. This assertion is what keeps the \
+                 height's unit change from becoming a physics change."
+            );
+        }
     }
 
     /// Audit finding #3 (AUDIT-2026-08-20), the landing site. The clamp floor is the SWT_IRR
@@ -479,12 +599,20 @@ mod tests {
             (metric_sw - imperial_sw).abs() < 1e-4,
             "the same 100 m Skelt-Harrison height produced metric Sw {metric_sw} and foot Sw {imperial_sw}"
         );
+        // DEC-087: the SATURATION is unit-independent (asserted above), but the HEIGHT CURVE is
+        // now delivered on the project's own scale — so the same 100 m of column reads 100 in a
+        // metre project and 328.084 in a foot one. Both describe the identical physical height,
+        // which the conversion below states rather than assumes.
         assert!(
             (metric["HAFWL"][0] - 100.0).abs() < 1e-4
-                && (imperial["HAFWL"][0] - 100.0).abs() < 1e-3,
-            "HAFWL is declared in metres and must record the same physical height: metric {} vs foot {}",
+                && (imperial["HAFWL"][0] - 328.0840).abs() < 1e-2,
+            "HAFWL follows the project's depth unit: metric {} (want 100 m) vs foot {} (want 328.084 ft)",
             metric["HAFWL"][0],
             imperial["HAFWL"][0]
+        );
+        assert!(
+            (imperial["HAFWL"][0] as f64 * 0.3048 - metric["HAFWL"][0] as f64).abs() < 1e-2,
+            "the two declarations must describe one physical height"
         );
     }
 
@@ -598,5 +726,82 @@ mod tests {
         assert!((out["HAFWL"][0] - 50.0).abs() < 1e-3, "HAFWL={}", out["HAFWL"][0]);
         let s = out["SWT"][0];
         assert!(s.is_finite() && s > 0.0 && s < 1.0, "SWH in transition zone: {s}");
+    }
+
+    /// The other half of the survey-coverage fix in `deviation::sample_at`. The measured-depth
+    /// fallback here is for a well carrying NO vertical-depth curve at all — a vertical well,
+    /// where MD is the honest answer. It was never meant for a HOLE in a TVD curve the well does
+    /// carry, and until `sample_at` stopped freezing TVD past the last survey station a TVD curve
+    /// had no holes to have. A well logged deeper than its survey now has exactly one, and reading
+    /// those samples off MD would mix two depth references inside a single interpretation.
+    ///
+    /// Pinned from BOTH sides: the fallback must survive for a well with no TVD at all, and must
+    /// not fire for a gap in one that exists. This is `sw_rtc`'s CBW rule, restated for geometry.
+    #[test]
+    fn a_gap_in_a_carried_tvd_curve_withholds_the_sample_instead_of_switching_to_measured_depth() {
+        let md = vec![1900.0f32, 2000.0, 2100.0];
+        let phie = vec![0.25f32; 3];
+        let perm = vec![100.0f32; 3];
+        let opts = [("OPT_SWH", "LEVERETT")];
+
+        // (a) No TVD curve at all — the documented fallback, unchanged: MD is used and answers.
+        let no_tvd = sw_height(&ctx_from_spec(
+            3,
+            &[("DEPTH", md.clone()), ("PHIE", phie.clone()), ("PERM", perm.clone())],
+            &[("FWL", 2500.0)],
+            &opts,
+        ));
+        assert!(
+            no_tvd["SWT"].iter().all(|v| v.is_finite()),
+            "a well with no TVD curve must still answer off measured depth: {:?}",
+            no_tvd["SWT"]
+        );
+
+        // (b) A deviated well whose survey stops before TD, so its TVD curve has a hole. The
+        // surveyed samples answer; the un-surveyed one withholds, height included.
+        let with_hole = sw_height(&ctx_from_spec(
+            3,
+            &[
+                ("DEPTH", md.clone()),
+                ("TVD", vec![1450.0, f32::NAN, 1550.0]),
+                ("PHIE", phie.clone()),
+                ("PERM", perm.clone()),
+            ],
+            &[("FWL", 1600.0)],
+            &opts,
+        ));
+        assert!(
+            with_hole["SWT"][0].is_finite() && with_hole["SWT"][2].is_finite(),
+            "the surveyed samples must still answer: {:?}",
+            with_hole["SWT"]
+        );
+        assert!(
+            with_hole["SWT"][1].is_nan() && with_hole["HAFWL"][1].is_nan(),
+            "the un-surveyed sample must withhold, got SWT {} HAFWL {}",
+            with_hole["SWT"][1],
+            with_hole["HAFWL"][1]
+        );
+
+        // What the old fallback would have substituted there, computed by handing the module the
+        // same well with no TVD: MD 2000 against an FWL of 1600 is 400 m BELOW the contact, i.e.
+        // fully wet — so the silent switch would not shade that sample's pay, it would erase it,
+        // while its neighbours 100 m of hole away read a normal transition zone.
+        let as_md = sw_height(&ctx_from_spec(
+            3,
+            &[("DEPTH", md.clone()), ("PHIE", phie.clone()), ("PERM", perm.clone())],
+            &[("FWL", 1600.0)],
+            &opts,
+        ));
+        assert_eq!(
+            as_md["SWT"][1], 1.0,
+            "measured depth reads that sample fully wet, against the transition-zone answer its \
+             surveyed neighbour gives — that gap is what the fallback would have hidden"
+        );
+        assert!(
+            with_hole["SWT"][2] < 1.0,
+            "the neighbour must genuinely be in the transition zone for the contrast to mean \
+             anything: {}",
+            with_hole["SWT"][2]
+        );
     }
 }
