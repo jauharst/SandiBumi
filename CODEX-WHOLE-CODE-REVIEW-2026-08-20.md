@@ -46,14 +46,14 @@ list of what was found.
 | 14 | P1 | SSPW's gas branch and SSC's disagreed on the weighting | `[x]` DEC-088 — **moves numbers** |
 | 15 | P1 | RtC read a gap in CAPBW as zero bound water | `[x]` increment 10 |
 | 16 | P1 | IMTS read missing clay evidence as clean rock | `[x]` increments 10, 23 |
-| 17 | P1 | Core-to-log readers ignore the declared core datum | `[ ]` |
+| 17 | P1 | Core-to-log readers ignore the declared core datum | `[>]` increment 30 (PR #89) |
 | 18 | P1 | `rt_cutoff` accepts an inverted class ladder | `[ ]` |
 | 19 | P2 | The one-metre plug tolerance became one foot | `[x]` increment 21 |
 | 20 | P2 | Results-QC and core registration send float arrays as JSON | `[ ]` |
 | 21 | P2 | One SQL-NULL core property fails the whole four-property overlay | `[ ]` |
 
-**16 on master, 3 waiting on your merge, 1 in flight, 4 not started.** The four not started are
-numbers 17, 18, 20 and 21 — two core-datum/rock-typing correctness items and two contract items.
+**16 on master, 5 waiting on your merge, 3 not started** — numbers 18, 20 and 21: the rock-typing
+class ladder, and the two IPC/NULL contract items.
 
 ## P0 — Composite exports treat foot-project depths as metres, making true-scale client plots 3.28084 times too long.
 

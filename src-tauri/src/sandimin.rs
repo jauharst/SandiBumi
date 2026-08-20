@@ -905,6 +905,11 @@ pub struct SandiminWellResult {
     /// Solved grain density vs core ρg — a check on the MINERAL model specifically, and independent
     /// of RHOB when RHOB was not itself an input tool.
     pub core_gd: Option<CoreFit>,
+    /// Why the core calibration was not attempted, when it was not. Deliberately not `error`: the
+    /// well SOLVED, and only the independent check against core was withheld. Three blank fits
+    /// mean "this well has no core" without it, and a cross-datum delivery is the opposite —
+    /// core exists and cannot be compared. (`dof_note`'s shape, one level down.)
+    pub core_note: Option<String>,
     pub error: Option<String>,
 }
 
@@ -1691,6 +1696,7 @@ pub fn run_sandimin(
                     core_phie: None,
                     core_phit: None,
                     core_gd: None,
+                    core_note: None,
                     error: Some(e.to_string()),
                 });
                 continue;
@@ -2052,7 +2058,17 @@ pub fn run_sandimin(
         // INDEPENDENT measurement. Plugs sit on their own sparse depths, so each ties to the
         // nearest solved sample within CORE_MATCH_TOL_M. A well with no core (or an all-NULL
         // column) simply leaves these None — nothing is reported as a zero.
-        let core_plugs = crate::db::get_core_por_gd(&conn, well_id).unwrap_or_default();
+        // A refusal is CARRIED, not swallowed into an empty plug list — `unwrap_or_default` made a
+        // cross-datum core indistinguishable from a well that was never cored, and the dialog hides
+        // the whole core section when every fit is blank, so the reason would have vanished.
+        let mut core_note: Option<String> = None;
+        let core_plugs = match crate::db::get_core_por_gd(&conn, well_id) {
+            Ok(p) => p,
+            Err(e) => {
+                core_note = Some(e.to_string());
+                Vec::new()
+            }
+        };
         // Validity gates, not just non-null: core φ must be a v/v FRACTION and ρg a rock density.
         // A φ column imported in percent (15.0, not 0.15) or a 999.25-style sentinel would otherwise
         // produce a confidently wrong RMS; dropping it reports "no fit" instead, which is honest.
@@ -2247,6 +2263,7 @@ pub fn run_sandimin(
             core_phie,
             core_phit,
             core_gd,
+            core_note,
             error: write_err.or_else(|| (solved == 0).then(|| "no solvable samples (too few live input logs)".to_string())),
         });
     }

@@ -304,7 +304,16 @@ pub fn fetch_curve_data(
 /// depths rather than resampling.
 /// Only the well's ACTIVE core set is plotted — two deliveries of the same plugs overlaid
 /// would read as twice the data (see `db::list_core_sets` / the set manager to switch).
-pub fn fetch_core_series(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<TrackCurveSeries>> {
+///
+/// **Plotted at their own depths is not the same as plotted on their own datum.** The track the
+/// overlay lands in is the MD log frame, so a plug depth read as MD when the delivery declared
+/// TVD or TVDSS puts the plug beside the wrong rock — which is why the return type widened from
+/// `duckdb::Result` to `DbResult`: it has to be able to carry the refusal.
+pub fn fetch_core_series(
+    conn: &Connection,
+    well_id: &str,
+) -> crate::db::DbResult<Vec<TrackCurveSeries>> {
+    crate::db::refuse_non_md_active_set(conn, "core_sets", well_id, None)?;
     let mut stmt = conn.prepare(
         "SELECT depth, cpor, cperm, cgd, csw FROM core_data
          WHERE well_id = ?1 AND set_name = COALESCE((SELECT set_name FROM core_sets WHERE well_id = ?1

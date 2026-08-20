@@ -317,6 +317,9 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
     // (predicted class, log10 core k) at core-plug depths — for the k-variance-reduction QC.
     let mut core_groups: Vec<(i64, f64)> = Vec::new();
     let mut core_unmatched = 0usize;
+    // Wells whose core could not be READ at all — a cross-datum delivery, chiefly. Kept apart
+    // from `core_unmatched`, which counts plugs that WERE read and found no log sample nearby.
+    let mut core_refusals: Vec<String> = Vec::new();
     {
         let conn = db.lock().unwrap();
         let names = vec![pred.clone(), refc.clone()];
@@ -332,21 +335,37 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
             }
             // Does the predicted typing explain core permeability? Sample the PREDICTED class at
             // each plug depth (nearest log sample within tolerance) and pool (class, log10 k).
-            if let Ok(plugs) = crate::db::get_core_plugs(&conn, well_id) {
-                for plug in plugs {
-                    let k = plug.cperm as f64;
-                    if !(k.is_finite() && k > 0.0) {
-                        continue;
-                    }
-                    let Some(idx) = nearest_within(&d, plug.depth) else {
-                        core_unmatched += 1;
-                        continue;
-                    };
-                    if idx < pv.len() && (pv[idx] as f64).is_finite() {
-                        core_groups.push(((pv[idx] as f64).round() as i64, k.log10()));
-                    } else {
-                        core_unmatched += 1;
-                    }
+            // A refusal here is REPORTED, never swallowed. `k_var_reduction` is NaN both when no
+            // plug matched and when the core could not be read at all, and those are different
+            // statements — one says the typing explains nothing, the other says nothing was
+            // compared. The reason rides on `core_match_note`, whose whole job is to say how the
+            // plugs were put on the log's depth frame; here they were not.
+            let plugs = match crate::db::get_core_plugs(&conn, well_id) {
+                Ok(p) => p,
+                Err(e) => {
+                    // Named by WELL, never by the UUID the user has never seen.
+                    let well: String = conn
+                        .query_row("SELECT well_name FROM wells WHERE well_id = ?1", [well_id], |r| {
+                            r.get(0)
+                        })
+                        .unwrap_or_else(|_| well_id.clone());
+                    core_refusals.push(format!("{well}: {e}"));
+                    continue;
+                }
+            };
+            for plug in plugs {
+                let k = plug.cperm as f64;
+                if !(k.is_finite() && k > 0.0) {
+                    continue;
+                }
+                let Some(idx) = nearest_within(&d, plug.depth) else {
+                    core_unmatched += 1;
+                    continue;
+                };
+                if idx < pv.len() && (pv[idx] as f64).is_finite() {
+                    core_groups.push(((pv[idx] as f64).round() as i64, k.log10()));
+                } else {
+                    core_unmatched += 1;
                 }
             }
         }
@@ -355,6 +374,10 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
     res.k_var_reduction = variance_reduction(&core_groups);
     res.n_core_plugs = core_groups.len();
     res.n_core_unmatched = core_unmatched;
+    if !core_refusals.is_empty() {
+        res.core_match_note =
+            format!("{} — core NOT read for: {}", res.core_match_note, core_refusals.join("; "));
+    }
     judge(&mut res, req.accept_threshold);
     res
 }
@@ -583,5 +606,73 @@ mod tests {
         assert_eq!(res.n_core_unmatched, 3);
         // The join rule travels with the number it produced.
         assert!(res.core_match_note.contains("NEAREST") && res.core_match_note.contains(" m"));
+    }
+
+    /// Codex whole-repository review, P1, second half: adding the cross-datum guard to
+    /// `get_core_plugs` achieves nothing here while the caller swallows it.
+    ///
+    /// `if let Ok(plugs) = ...` turned every read failure into an empty plug list, so a core
+    /// delivery quoted on TVDSS produced exactly what a well with no core produces — a NaN
+    /// variance reduction over zero plugs — and nothing said which had happened. That is the
+    /// build record's own "reported success having done nothing", so the reason now rides on
+    /// `core_match_note`, whose stated job is to say how the plugs were put on the log's frame.
+    ///
+    /// Pinned from both sides: the CONFUSION half of the result must survive untouched, because
+    /// class-against-class never reads a plug. Failing the whole analysis would be the opposite
+    /// error — withholding an answer that was never in question.
+    #[test]
+    fn a_core_read_refused_for_its_datum_is_named_in_the_match_note_rather_than_left_as_a_bare_nan() {
+        use duckdb::Connection;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "FT-DATUM", None, None, None).unwrap();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![40.0; n], vec![10.0; n], vec![0.2; n], vec![2.4; n],
+            vec![80.0; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let ids = id.to_string();
+        let rt: Vec<f32> = (0..n).map(|i| if i < 10 { 1.0 } else { 2.0 }).collect();
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_LOG", &rt).unwrap();
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_REF", &rt).unwrap();
+        // Plugs that WOULD tie perfectly — so a silent skip cannot hide behind "nothing matched".
+        let cd: Vec<f32> = vec![2000.2, 2001.2, 2006.2, 2007.2];
+        let ck: Vec<f32> = vec![100.0, 120.0, 1.0, 1.2];
+        let cp = vec![0.2f32; cd.len()];
+        let nanv = vec![f32::NAN; cd.len()];
+        crate::db::insert_core_data(&conn, &ids, "RAW", None, &cd, &cp, &ck, &nanv, &nanv).unwrap();
+        crate::db::declare_set_datum(&conn, "core_sets", &ids, None, "RAW", "TVDSS").unwrap();
+
+        let db = Mutex::new(conn);
+        let req = FaciesConfusionRequest {
+            well_ids: vec![ids],
+            pred_curve: "RT_LOG".into(),
+            ref_curve: "RT_REF".into(),
+            input_set: None,
+            accept_threshold: None,
+        };
+        let res = run_facies_confusion(&db, &req);
+
+        // The confusion half is untouched — it never reads a plug.
+        assert!(res.error.is_none(), "the class comparison still answers: {:?}", res.error);
+        assert!((res.overall_purity - 1.0).abs() < 1e-9, "purity {}", res.overall_purity);
+
+        // The core half withholds, and SAYS SO by well and by datum.
+        assert_eq!(res.n_core_plugs, 0, "no plug may be tied across datums");
+        assert!(res.k_var_reduction.is_nan(), "and no statistic is reported over none");
+        assert!(
+            res.core_match_note.contains("FT-DATUM")
+                && res.core_match_note.contains("TVDSS")
+                && res.core_match_note.contains("MD"),
+            "the reason travels with the result, naming the well and both datums: {}",
+            res.core_match_note
+        );
+        // Not counted as unmatched: those plugs were never read, let alone measured against a
+        // tolerance, and booking them there would misreport the reason.
+        assert_eq!(res.n_core_unmatched, 0, "a refused read is not a failed depth match");
     }
 }

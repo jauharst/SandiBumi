@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 30 (Codex P1): every core reader now asks which datum the plugs are on
+
+- [ ] **What was wrong.** When you import core you tell SandiBumi which depth the plug depths are
+      quoted on — MD, TVD or TVDSS. There is a guard that refuses to compare a non-MD delivery
+      against the log frame, which is MD. Its own comment says it is used by *every* reader that
+      pairs a depth. **Three core readers never called it**: the one behind HFU/FZI clustering and
+      the facies core-permeability tie, the one behind SandiMin's φ and ρg calibration, and the one
+      behind the plotted core overlay on log tracks and crossplots.
+- [ ] **What that cost.** A delivery declared TVD, with a plug at 1000 m that is really MD 1200 m
+      in a deviated well: the overlay drew that plug at MD 1000, and the facies tie and SandiMin
+      found the nearest log sample near MD 1000 — **comparing the plug against rock 200 m away**.
+      Variance reduction, porosity RMS and grain-density RMS all came back as normal-looking
+      numbers. Nothing was blank, so nothing prompted a second look.
+- [ ] **What it does now.** All three refuse, with the message naming **both datums and the
+      delivery** — the same refusal the SCAL and point-data readers have always given. Declared MD
+      pairs exactly as before, and a legacy delivery that declared nothing still pairs: the guard
+      is about a *wrong* datum, never about having declared one.
+- [ ] **Two places were swallowing the refusal, and that mattered more than the missing guard.**
+      The facies tie used "if it worked, use it" and SandiMin quietly substituted an empty plug
+      list. Adding a guard behind those would have replaced a wrong answer with a **silent
+      absence** — you would have seen no core statistics and no reason. Both now report it.
+- [ ] **Where you will see it.** The facies result's core-match note gains "core NOT read for:
+      *WELL* — …" with the reason. SandiMin's Core calibration table now lists the well with the
+      reason spanning the three fit columns; before, a run where every well was cross-datum hid
+      that whole table and read as "no core in this field".
+- [ ] **A refusal only withholds what it actually invalidates.** A facies run's confusion matrix
+      never reads a plug, so it still answers in full — only the core-permeability tie withholds.
+      Failing the whole analysis would withhold an answer that was never in question.
+- [ ] **What to check.** Import a core delivery and set its datum to TVD or TVDSS (Data ▸ Core ▸
+      Data Sets…). Then: (a) open a log view with the core overlay on — it should refuse by name
+      rather than plot; (b) run HFU/FZI — it should refuse naming the well; (c) run a facies
+      confusion — the matrix should still be there, with the core note explaining what was not
+      read; (d) run SandiMin — the wells should solve, with the Core calibration table showing the
+      reason. Set the datum back to MD and all four should behave exactly as they always did.
+
 ## 2026-08-20 — Audit increment 29 (Codex P1): a part-surveyed well no longer counts the unsurveyed section as zero rock
 
 - [ ] **What was wrong.** Statistics ▸ Thickness reports gross, net and N/G twice — measured along
