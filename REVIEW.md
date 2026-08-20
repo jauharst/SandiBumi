@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 30 (my audit, P2): a FACIES track no longer prints a value scale it does not have
+
+- [ ] **What was wrong.** A class-blocks track colours whole intervals by rock class — the numbers
+      0..8 are labels, not a measurement. On screen the header says `class blocks` where the
+      min/max would be. **In print it did not**: the composite header always took the track's
+      first curve and printed its limits, so a FACIES track printed `0 … 8` as though the colours
+      sat on a value axis.
+- [ ] **The second half, which is worse.** If a track merely LISTED the blocks curve first and a
+      real curve after it, the print used the blocks curve's meaningless limits **instead of the
+      real curve's**. So a GR drawn over facies blocks printed a scale of 0..8 with GR against it.
+- [ ] **What it does now.** The print takes the first curve that actually HAS a scale, and only
+      when no curve in the track has one does it name the display `class blocks`, matching the
+      screen. CLAUDE.md already stated this contract; the print simply was not obeying it.
+- [ ] **What to check.** Open a well with a FACIES curve, use the built-in **Facies** layout, and
+      export a composite (Plot → Composite…). The facies track header should read `class blocks`
+      with no numbers. Then add a real curve (say GR) into that same track and re-export: the
+      header should show **GR's** scale, not 0..8.
+
 ## 2026-08-20 — Audit increment 33 (Codex P2): Results-QC and core registration stop shipping their curves as text
 
 - [ ] **What was wrong.** The app has a standing rule that curve data never crosses between the
