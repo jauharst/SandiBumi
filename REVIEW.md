@@ -15347,3 +15347,30 @@ nothing clicks it yet.
 With this the whole import family is closed: LAS/DLIS read the index unit, core is declared with
 a probe guess, intake is declared, deviation and SCAL are asked in their dialogs, tops and point
 data read the file's own declaration.
+
+## The plug-pairing tolerance is now one sample in YOUR unit
+
+"One standard 6-inch sample" is a physical length, but the number was written as a bare `0.15`
+and compared against depths in whatever unit your project stores. So on a metre project it was
+six inches, as intended — and on a **foot project it was 0.15 ft, about 1.8 inches**, a third of
+a sample.
+
+That is not a rounding problem. It changes what pairs:
+
+- **Plug QC** reported most plugs as having no partner, so the cloud thinned out and the
+  correlation was computed on whatever survived.
+- **Calibrate S…** dropped the same plugs before fitting, so S — which multiplies the whole
+  clay-charge term in `sw_imts` — was fitted on a handful of samples instead of the suite.
+- The petrography **agreement check** reads the same tolerance and was equally strict.
+
+Both panes now label the field with your project's unit — **Depth tolerance (ft)** — and default
+to one real sample in it: 0.15 on metres, 0.5 on feet. **A metre project's number does not move**:
+0.15 m is what shipped and what the method note says, and re-deriving it as 0.1524 would change
+every existing project's pairing for a millimetre of nothing.
+
+- [ ] **On a foot project, open Plug QC** — the field should read *Depth tolerance (ft)* and show
+      0.5. Run it against a suite you know pairs, and check the pair count is the whole suite.
+- [ ] **Open Calibrate S…** on the same project — same label, same default, and the fit should now
+      use the plugs it was dropping.
+- [ ] **On a metre project** — 0.15, and identical results to before. This is worth one check on a
+      well you have already run.

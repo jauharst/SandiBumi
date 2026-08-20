@@ -90,6 +90,20 @@ export function argumentUnitLabel(unit: string | null | undefined): string {
   return unit === PROJECT_DEPTH_UNIT_TOKEN ? storedDepthLabel() : unit;
 }
 
+/** The default "these two measurements are the same plug" tolerance, in the project's STORED
+ *  unit — one standard 6-inch log sample.
+ *
+ *  **Kept in step with `units::same_depth_tolerance` in Rust**, which is the authority; the two
+ *  numbers are deliberately not a conversion of each other (0.15 m is what shipped and what the
+ *  documentation says, 0.5 ft is six inches exactly). This copy exists so a dialog can SHOW the
+ *  default it is about to send — the backend still resolves it for any caller that sends nothing.
+ *
+ *  It belongs to `storedDepthLabel`, not `shownDepthLabel`: the user types it, it reaches the
+ *  backend unconverted, and it is compared straight against the stored depth grid. */
+export function sameDepthTolerance(): number {
+  return appState.projectDepthUnit.get() === "FT" ? 0.5 : 0.15;
+}
+
 /** Switches the unit depths are DISPLAYED in. Stored data is untouched — this is why the
  *  two units are separate settings in the first place. */
 export function setDisplayDepthUnit(unit: DepthUnit): void {

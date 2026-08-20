@@ -986,9 +986,15 @@ pub struct SFactorFitRequest {
     pub cec_kaol: f64,
     #[serde(default = "default_cec_ill")]
     pub cec_ill: f64,
-    /// How far a plug depth may sit from the nearest log sample and still be paired with it.
-    #[serde(default = "default_depth_tol")]
-    pub depth_tol: f64,
+    /// How far a plug depth may sit from the nearest log sample and still be paired with it, in
+    /// the PROJECT's own depth unit (it is typed in the dialog, which labels it).
+    ///
+    /// `None` — the field absent — means "use the project's own default", one standard 6-inch
+    /// sample. It shipped as a plain `f64` defaulting to `0.15`, which is that sample in metres
+    /// and 1.8 inches in a foot project; the fit then found no log sample within tolerance for
+    /// most plugs and was made on whatever handful survived.
+    #[serde(default)]
+    pub depth_tol: Option<f64>,
 }
 
 fn default_cec_kaol() -> f64 {
@@ -996,12 +1002,6 @@ fn default_cec_kaol() -> f64 {
 }
 fn default_cec_ill() -> f64 {
     25.0
-}
-/// One standard 6-inch log sample, in metres. A plug quoted to the centimetre lands inside one
-/// sample of its true depth once the core is depth-shifted to the log; anything looser is
-/// pairing a measurement with rock it did not come from.
-fn default_depth_tol() -> f64 {
-    0.15
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1111,9 +1111,17 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
     if req.cec_kaol <= 0.0 && req.cec_ill <= 0.0 {
         return s_err("both literature CEC constants are zero — the clay model then predicts no exchange capacity anywhere and S cannot be defined");
     }
-    if !(req.depth_tol.is_finite() && req.depth_tol > 0.0) {
-        return s_err("the depth tolerance must be positive");
-    }
+    // A tolerance the caller TYPED is already in the project's unit and is taken verbatim; an
+    // absent one resolves to one standard 6-inch sample expressed in that unit — 0.15 m or 0.5 ft.
+    let depth_tol = match req.depth_tol {
+        Some(t) if t.is_finite() && t > 0.0 => t,
+        Some(_) => return s_err("the depth tolerance must be positive"),
+        None => {
+            let conn = db_mx.lock().unwrap();
+            let unit = crate::units::project_depth_unit(&conn).ok().flatten().unwrap_or_default();
+            crate::units::same_depth_tolerance(unit)
+        }
+    };
 
     let mut pts: Vec<SFactorPoint> = Vec::new();
     let (mut ex_nomatch, mut ex_noclay, mut ex_nolab, mut ex_noclaydata) =
@@ -1173,7 +1181,7 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
                         continue;
                     };
                     let ld = depth[idx] as f64;
-                    if (ld - d).abs() > req.depth_tol {
+                    if (ld - d).abs() > depth_tol {
                         // Never stretch to the nearest sample regardless of distance: a CEC
                         // paired with rock it was not cut from is a fabricated data point, and
                         // it would look exactly like a real one in the scatter.
@@ -2334,7 +2342,7 @@ mod tests {
             vill_curve: "VILL_SYN".into(),
             cec_kaol: 8.0,
             cec_ill: 25.0,
-            depth_tol: 0.15,
+            depth_tol: Some(0.15),
         }
     }
 
@@ -2435,7 +2443,7 @@ mod tests {
         // Widen the tolerance past the shift and the same plugs pair — so the guard is the
         // tolerance doing its job, not a broken depth lookup.
         let mut wide = s_req(vec![w]);
-        wide.depth_tol = 0.3;
+        wide.depth_tol = Some(0.3);
         let r2 = run_s_factor_fit(&db, &wide);
         assert!(r2.error.is_none(), "{:?}", r2.error);
         assert_eq!(r2.n_points, 30);

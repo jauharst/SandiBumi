@@ -154,6 +154,28 @@ pub fn mm_per_stored_unit(stored: DepthUnit) -> f64 {
     convert_depth(1.0, stored, DepthUnit::Metres) * 1000.0
 }
 
+/// How far a core plug may sit from a log sample, or from another measurement of the same plug,
+/// and still be treated as the same depth — expressed in the project's OWN unit.
+///
+/// The intent is ONE standard 6-inch log sample, which is what `plugqc` and the S-factor
+/// calibration have always documented: a plug quoted to the centimetre lands inside one sample of
+/// its true depth once the core is registered against the log, and anything looser pairs a
+/// measurement with rock it did not come from. Both of those shipped the metre figure `0.15` as a
+/// bare number and compared it against depths in the project's unit — so on a FOOT project the
+/// tolerance silently became 0.15 ft, 1.8 inches, roughly a third of a sample. Pairs that should
+/// have matched were reported as "no plug within the depth tolerance", and an S fit was made on
+/// whatever handful happened to survive.
+///
+/// The metre figure stays exactly `0.15` — it is what shipped, it is what the documentation says,
+/// and moving it to 0.1524 would change every metre project's pairing for a millimetre. The foot
+/// figure is `0.5`, which is six inches exactly. Both are the same statement in their own unit.
+pub fn same_depth_tolerance(unit: DepthUnit) -> f64 {
+    match unit {
+        DepthUnit::Metres => 0.15,
+        DepthUnit::Feet => 0.5,
+    }
+}
+
 /// Converts a whole depth index in place. NaN is preserved (missing stays missing).
 /// Defers to `convert_depth` per sample so the scalar and array paths can never drift.
 pub fn convert_depths(values: &mut [f32], from: DepthUnit, to: DepthUnit) {
