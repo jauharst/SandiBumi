@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 35 (my audit P2): a raw FTEMP can no longer masquerade into Rw — **this one overstated hydrocarbon**
+
+- [ ] **What was wrong.** `sw_arch`, `sw_indo` and `sw_sim` — the three saturation modules you
+      use most — declared FTEMP as an ordinary input, so they would happily resolve a **raw
+      imported** FTEMP curve instead of the one `precalc` computes.
+- [ ] **Why that is dangerous.** The import's degF→degC rule only converts a curve labelled
+      exactly `degF` or `DEGF`. A curve labelled `"F"`, `"DEG F"`, `"deg.F"`, or with **no unit
+      at all**, passes straight through. So 200°F gets read as 200°C: **Rw comes out 1.93× too
+      low, and Sw about 1.39× too low.** Hydrocarbon overstated, computing and plotting, with
+      nothing on the log to show it.
+- [ ] **The contract already existed.** `gascorr` and `nphi_env_corr` both declared their FTEMP
+      as computed-only for exactly this reason. The saturation modules were the hole in it — not
+      a new rule, a missed one.
+- [ ] **What it does now.** FTEMP in those modules resolves from `precalc` / `ftemp_grad` output
+      or a log set, never from the raw import store. The pin sweeps the WHOLE manifest, so a
+      module added later cannot reopen the hole quietly.
+- [ ] **What to check — and what may change.** If a well of yours carries an imported FTEMP
+      curve and you ran Archie / Indonesia / Simandoux with Rw source **MEASURED** or
+      **SALINITY**, that run was using it. Now the module wants `precalc`'s FTEMP: run
+      **Formation Temperature** (or `precalc`) first, then re-run saturation. **If your imported
+      FTEMP was in °F, the new Sw will read HIGHER — that is the correction, not a regression.**
+      Compare one well before and after and check the Rw the run reports.
+
 ## 2026-08-20 — Audit increment 34 (my audit P2 × 2): the log view agrees with the print again — **this changes what you see**
 
 - [ ] **Zero is not a small permeability.** On a log track the viewer used to substitute a tiny

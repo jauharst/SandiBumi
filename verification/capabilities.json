@@ -51,7 +51,7 @@
     {
       "id": "formation-temperature",
       "title": "Formation-temperature curves",
-      "review_section_patterns": ["formation temperature"]
+      "review_section_patterns": ["formation temperature", "FTEMP"]
     },
     {
       "id": "curve-editing",

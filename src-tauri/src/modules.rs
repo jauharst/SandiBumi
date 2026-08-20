@@ -6868,9 +6868,18 @@ fn rw_args() -> Vec<ArgSpec> {
             &[("OPT_RW", "SALINITY")],
             "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
         ),
-        log_in(
+        // A raw imported FTEMP must never reach Rw. The degF->degC import rule converts only a
+        // curve labelled `degF`/`DEGF`, so `"F"`, `"DEG F"`, `"deg.F"` and a curve delivered with
+        // NO unit at all pass through untouched - and 200 degF read as degC gives Rw 1.93x too
+        // low, hence Sw about 1.39x too low, in the three most-used saturation modules. That is
+        // hydrocarbon overstated, computing and plotting, with nothing on the log to show it.
+        //
+        // `computed_only` is the contract that exists for exactly this, and `gascorr` and
+        // `nphi_env_corr` already declare their FTEMP that way: resolve from precalc / a log set
+        // and never from the RAW import store. This was the one saturation-side hole in it.
+        log_in_computed(
             "FTEMP",
-            "Formation temperature (for MEASURED/SALINITY)",
+            "Formation temperature (precalc, for MEASURED/SALINITY)",
             "degC",
             "FTEMP",
             false,
@@ -8273,6 +8282,41 @@ mod tests {
     /// `ssc`/`sspw` are proved structurally rather than executed: both bound effective porosity with
     /// total porosity as the upper limit, so the invariant holds by construction there. Their file
     /// is protected, and the 2026-08-16 authorization covered SB-POR-008 only.
+    /// A unit-contract input is resolved from COMPUTED provenance in every module that takes it.
+    ///
+    /// `rw_args` declared FTEMP as a plain `log_in`, so `sw_arch`, `sw_indo` and `sw_sim` - the
+    /// three most-used saturation modules - would resolve a RAW imported FTEMP. The degF->degC
+    /// import rule converts only a curve labelled `degF`/`DEGF`, so `"F"`, `"DEG F"`, `"deg.F"`
+    /// and a curve delivered with no unit at all pass through untouched, and 200 degF read as
+    /// degC gives Rw 1.93x too low and Sw about 1.39x too low: hydrocarbon overstated, with
+    /// nothing on the log to show it. `gascorr` and `nphi_env_corr` already declared theirs
+    /// correctly, which is the evidence the contract was the project's own and this was a hole
+    /// in it rather than a new rule.
+    ///
+    /// Asserted over the WHOLE manifest rather than the three modules by name, so a module added
+    /// later cannot reopen the hole quietly.
+    #[test]
+    fn a_temperature_or_pressure_input_never_resolves_from_the_raw_import_store() {
+        let mut checked = 0usize;
+        for m in list_modules() {
+            for a in &m.args {
+                // INPUTS only. `ftemp_grad` and `precalc` PRODUCE FTEMP, and a producer has
+                // nothing to resolve - the sweep caught them the first time it ran, which is
+                // the distinction worth keeping visible.
+                if a.kind != ArgKind::LogIn || !matches!(a.name.as_str(), "FTEMP" | "FPRESS") {
+                    continue;
+                }
+                checked += 1;
+                assert!(
+                    a.computed_only,
+                    "{}'s {} must be computed_only - a raw {} in the wrong unit would masquerade                      as the {} this module assumes",
+                    m.name, a.name, a.name, a.unit
+                );
+            }
+        }
+        assert!(checked >= 4, "the sweep must actually reach the modules: {checked} input(s)");
+    }
+
     #[test]
     fn every_porosity_method_keeps_total_porosity_at_or_above_effective_porosity_at_every_sample() {
         use crate::units::DepthUnit;
