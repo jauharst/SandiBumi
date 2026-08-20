@@ -387,7 +387,7 @@
 - **Current implementation:** `rt_cutoff` maps every finite sample missing both higher criteria to class 3 using four unsourced defaults; Lucia maps below-floor RFN to class 1. Port classification also has a fixed silent scheme.
 - **As-built status:** `PRESENT-DIVERGENT`.
 - **Release disposition and risk:** `PILOT-BLOCKER`; `SILENT-WRONGNESS`.
-- **Automated evidence:** `CHARACTERIZATION`. `rt_cutoff_ladders_by_vsh_and_phie` and `an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class` pin current behavior, including the divergence; T26's unclassified control and source-or-entry rule are missing.
+- **Automated evidence:** `CHARACTERIZATION`. `rt_cutoff_ladders_by_vsh_and_phie` pins current behavior including the divergence, and `a_cutoff_ladder_must_be_monotone_and_an_inverted_one_is_refused_before_it_scatters_a_class` now ENFORCES the ladder ordering rather than characterizing its absence (Codex 2026-08-20: an inverted ladder refuses at `run_module` against a declared `ValidityRule::NotAbove`, with equality allowed on both axes). That closes the ordering half only — this requirement's own contract is untouched, so T26's unclassified control and source-or-entry rule are still missing and the status stays `PRESENT-DIVERGENT`.
 - **Manual evidence:** none.
 - **Source/parameter boundary:** all four reservoir-flag cutoffs remain `UNSOURCED`; no house boundary is approved.
 - **UI/IPC/provenance surface:** module parameters appear as defaults and output only a numeric class with no source/unclassified state.

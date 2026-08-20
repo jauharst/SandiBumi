@@ -88,7 +88,7 @@ function conditionDependencies(
   if (condition.kind === "required_companion") return { all: [], any: condition.any_of };
   if (condition.kind === "required_where_finite") return { all: [condition.input, owner.name], any: [] };
   if (condition.kind === "numeric_range" && owner.kind === "log_in") return { all: [owner.name], any: [] };
-  if (condition.kind === "less_than") {
+  if (condition.kind === "less_than" || condition.kind === "not_above") {
     return { all: [owner.name, condition.other].filter(isLog), any: [] };
   }
   return { all: [], any: [] };

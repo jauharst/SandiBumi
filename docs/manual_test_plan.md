@@ -2846,7 +2846,7 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
    warning. Worth noting in your Notes as a cross-field validation ticket, since RT_LOG feeds the
    facies tie-in in T-RT-15.
 
-   **Automated coverage - pinned (pile B, 2026-07-31):** `an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class` (rocktyping.rs) - the sane 1/2/3 ladder and MISSING propagation, then the inverted case pinned AS-IS.
+   **Automated coverage - pinned (pile B, 2026-07-31; ENFORCED 2026-08-20):** `a_cutoff_ladder_must_be_monotone_and_an_inverted_one_is_refused_before_it_scatters_a_class` (rocktyping.rs) - the sane 1/2/3 ladder and MISSING propagation unchanged, and the inverted case now REFUSED at `run_module` on both axes rather than pinned AS-IS, with equality allowed because a shared cutoff split on the other axis is a real ladder.
 
    **Result — T-RT-07:**
 

@@ -1786,7 +1786,8 @@ fn validity_input_arguments(spec: &modules::ModuleSpec) -> HashSet<String> {
                         names.insert(input.clone());
                     }
                 }
-                modules::ValidityRule::LessThan { other } => {
+                modules::ValidityRule::LessThan { other }
+                | modules::ValidityRule::NotAbove { other } => {
                     if owner.kind == ArgKind::LogIn {
                         names.insert(owner.name.clone());
                     }

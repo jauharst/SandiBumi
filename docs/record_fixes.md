@@ -460,3 +460,51 @@ from both sides: a COMPLETE survey must still answer, and its answer must not be
 in disguise. Without that second half, an implementation that simply copied MD into the vertical
 column would pass the refusal half perfectly — so the fixture's surveyed well is deviated, and 2.4 m
 of true vertical thickness must come back where 3.0 m of hole was drilled.
+
+## A cutoff ladder that is not monotone is not a ladder (2026-08-20)
+
+Codex whole-repository review, P1. `rt_cutoff` assigns a three-class rock type from a Vsh and PHIE
+cutoff pair. Its own doc required VSH1 ≤ VSH2 and PHI1 ≥ PHI2, and nothing enforced it — the dialog
+range-checks each of the four fields against 0–1 independently, so `VSH1 = 0.50, VSH2 = 0.20` ran.
+
+**The failure is not a shift, it is a SCATTER.** Class 1 is tested first, so an inverted Vsh pair
+makes the best-class gate the LOOSER one. Moderately shaly rock then splits: its porous half is
+PROMOTED to best and its tight half DEMOTED to non-net, in the same run, with class 2 left meaning
+something else entirely. On the worked fixture a sample at Vsh 0.30, PHIE 0.20 went from class 2 to
+class 1 while a sample at Vsh 0.30, PHIE 0.08 went from class 2 to class 3 — one bad ordering
+promoting and demoting rock simultaneously, with no validation error. RT_LOG feeds the facies
+tie-in, so the scattered classes are then scored against core and published.
+
+**This was already known and deliberately deferred**, and the deferral note gave two reasons. Both
+are answered rather than overruled:
+
+- *"A cross-field validation is a UI decision."* It is not, once it is a declared validity condition
+  in the manifest. `run_module` enforces declared preconditions at the public dispatch boundary, so
+  saved chains, Monte Carlo and batch runs are all covered — and none of those opens a dialog. A
+  check that lives only in the dialog protects only the one caller that has one.
+- *"Silently repairing the ladder would change published class counts."* Nothing is repaired. A
+  valid ladder computes exactly what it always did; only an inverted one, which was producing
+  scattered nonsense, refuses instead. Auto-swapping the pair would have been the silent repair,
+  and is not what shipped.
+
+**Equality had to be allowed, and that is why a rule was added rather than reused.**
+`ValidityRule::LessThan` is STRICT, and a ladder whose two classes share a boundary on one axis and
+separate on the other is a real interpretation — one shale cutoff split by porosity, or one
+porosity floor split by shaliness. A strict rule would have made this fix refuse a ladder that was
+never wrong, which is a new defect traded for an old one. `ValidityRule::NotAbove` is `LessThan`
+with equality allowed; both share one arm in each enforcement site so the strict and non-strict
+comparisons cannot drift. The source states it in exactly that form —
+`ref_rocktyping_shf.md §Cutoff-based electrofacies tie-in` writes the middle class as
+`v1 <= Vsh < v2` and `p2 <= PHIE < p1` — so ≤ is cited, not chosen.
+
+**The two axes are guarded independently.** A single condition watching only shale volume would let
+`PHI2 > PHI1` through with a valid Vsh pair, which scatters the same way on the other axis.
+
+The characterization test that pinned this AS-IS is REWRITTEN in the same commit rather than
+deleted — the house rule that a defect pinned by a test written to go red when fixed makes the fix
+and the rewrite one action. It is now
+`a_cutoff_ladder_must_be_monotone_and_an_inverted_one_is_refused_before_it_scatters_a_class`, which
+pins the sane ladder unchanged, both refusals by condition id and source, and both equality cases
+as VALID. Three mutations red at three distinct assertions — pointing the rule at the wrong axis,
+treating `NotAbove` as strict (which refuses the shared-cutoff ladder), and letting the porosity
+axis compare against itself.

@@ -160,9 +160,12 @@ your wells.
   `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`), with the
   same well plus permeability as the control. **Found a defect while writing it** — see finding 10.
 - [x] **T-RT-07** — RT_LOG ladder and the inconsistent-cutoff case ·
-  `an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class` (`rocktyping.rs`). Step 4
-  asked what an inverted ladder does; it is worse than silent acceptance — the middle class splits,
-  half promoted to BEST and half demoted to non-net in the same run. Pinned as-is.
+  `a_cutoff_ladder_must_be_monotone_and_an_inverted_one_is_refused_before_it_scatters_a_class`
+  (`rocktyping.rs`). Step 4 asked what an inverted ladder does; it is worse than silent acceptance
+  — the middle class splits, half promoted to BEST and half demoted to non-net in the same run.
+  Pinned as-is until 2026-08-20, when the Codex review CLOSED it: the ordering is a declared
+  `ValidityRule::NotAbove` enforced at `run_module`, so an inverted ladder refuses on either axis
+  while equal cutoffs still run.
 - [~] **T-RT-08** — Pittman r10–r75 family and the APEX selector ·
   `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand` (`rocktyping.rs`). **Graded
   honestly:** `pittman_r35_matches_published_regression`, `pittman_apex_selector_switches_controlling_radius`

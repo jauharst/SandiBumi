@@ -193,6 +193,14 @@ pub enum ValidityRule {
     RequiredWhereFinite { input: String },
     /// The argument's numeric value must be strictly below another numeric argument per sample.
     LessThan { other: String },
+    /// The argument's numeric value must not EXCEED another numeric argument per sample —
+    /// [`ValidityRule::LessThan`] with equality allowed.
+    ///
+    /// The distinction is not pedantry. A cutoff ladder whose two classes share a boundary on one
+    /// axis and separate on the other is a real interpretation — clean sand split by porosity, or
+    /// one porosity floor split by shaliness — and a strict rule would refuse it. Where a source
+    /// writes `v1 <= Vsh < v2`, this is the rule that says so.
+    NotAbove { other: String },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -745,11 +753,11 @@ pub(crate) fn opt_labelled(
     a
 }
 
-fn validity(id: &str, statement: &str, source: &str, rule: ValidityRule) -> ValidityCondition {
+pub(crate) fn validity(id: &str, statement: &str, source: &str, rule: ValidityRule) -> ValidityCondition {
     ValidityCondition { id: id.into(), statement: statement.into(), source: source.into(), rule }
 }
 
-fn with_validity(mut arg: ArgSpec, conditions: Vec<ValidityCondition>) -> ArgSpec {
+pub(crate) fn with_validity(mut arg: ArgSpec, conditions: Vec<ValidityCondition>) -> ArgSpec {
     arg.validity_conditions = conditions;
     arg
 }
@@ -2587,7 +2595,7 @@ pub(crate) fn validate_validity_manifests(modules: &[ModuleSpec]) -> Result<(), 
                         referenced.push(("companion input", input));
                         None
                     }
-                    ValidityRule::LessThan { other } => {
+                    ValidityRule::LessThan { other } | ValidityRule::NotAbove { other } => {
                         referenced.push(("comparison argument", other));
                         None
                     }
@@ -3107,27 +3115,36 @@ fn collect_sample_precondition_violations(
                     };
                     (format!("{}{}", format_numeric_range(*min, *max), suffix), unit.clone(), affected)
                 }
-                ValidityRule::LessThan { other } => {
+                // One arm for both, so the strict and the non-strict comparison cannot drift apart.
+                ValidityRule::LessThan { other } | ValidityRule::NotAbove { other } => {
                     if !spec.args.iter().any(|candidate| candidate.name == *other) {
                         return Err(format!(
                             "module '{}' has an invalid validity manifest: '{}' names unknown comparison argument '{}'",
                             spec.name, condition.id, other
                         ));
                     }
+                    let strict = matches!(condition.rule, ValidityRule::LessThan { .. });
                     let affected = (0..ctx.n)
                         .filter_map(|index| {
                             let value = numeric_value_at(spec, ctx, &arg.name, index)?;
                             let other_value = numeric_value_at(spec, ctx, other, index)?;
-                            (value.is_finite() && other_value.is_finite() && value >= other_value)
-                                .then_some(PreconditionAffectedSample {
+                            let violated = if strict {
+                                value >= other_value
+                            } else {
+                                value > other_value
+                            };
+                            (value.is_finite() && other_value.is_finite() && violated).then_some(
+                                PreconditionAffectedSample {
                                     index,
                                     offending_value: value,
                                     comparison_value: Some(other_value),
-                                })
+                                },
+                            )
                         })
                         .collect::<Vec<_>>();
+                    let relation = if strict { "less than" } else { "at most" };
                     (
-                        format!("less than '{other}' at the same sample"),
+                        format!("{relation} '{other}' at the same sample"),
                         arg.unit.clone(),
                         affected,
                     )
@@ -3378,13 +3395,15 @@ fn validate_declared_preconditions_ignoring(
                         }
                     }
                 }
-                ValidityRule::LessThan { other } => {
+                // One arm for both, so the strict and the non-strict comparison cannot drift apart.
+                ValidityRule::LessThan { other } | ValidityRule::NotAbove { other } => {
                     if !spec.args.iter().any(|candidate| candidate.name == *other) {
                         return Err(format!(
                             "module '{}' has an invalid validity manifest: '{}' names unknown comparison argument '{}'",
                             spec.name, condition.id, other
                         ));
                     }
+                    let strict = matches!(condition.rule, ValidityRule::LessThan { .. });
                     for index in 0..ctx.n {
                         if ignored_samples.contains(&index) {
                             continue;
@@ -3397,14 +3416,18 @@ fn validate_declared_preconditions_ignoring(
                         else {
                             continue;
                         };
-                        if value.is_finite() && other_value.is_finite() && value >= other_value {
+                        let violated =
+                            if strict { value >= other_value } else { value > other_value };
+                        if value.is_finite() && other_value.is_finite() && violated {
+                            let relation = if strict { "not less than" } else { "above" };
                             return Err(format!(
-                                "precondition '{}' on '{}' failed before {} ran: value {} at sample {} is not less than '{}' value {}. {} Source: {}",
+                                "precondition '{}' on '{}' failed before {} ran: value {} at sample {} is {} '{}' value {}. {} Source: {}",
                                 condition.id,
                                 arg.name,
                                 spec.name,
                                 value,
                                 index,
+                                relation,
                                 other,
                                 other_value,
                                 condition.statement,
