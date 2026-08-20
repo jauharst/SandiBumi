@@ -3505,6 +3505,12 @@ pub fn list_image_recipes(
 /// Every printable picture of one dataset in a depth window, pixels included — the composite
 /// exporter's read path. Non-printable rows come back too (with their bytes) so the exporter
 /// can draw a labelled placeholder rather than silently dropping a plate.
+///
+/// AUDIT-2026-08-20 finding 25. The datum guard was on [`list_well_images`] (screen) and NOT
+/// here, so a delivery declaring TVD or TVDSS showed nothing on screen and printed every plate
+/// — the deliverable disagreeing with the thing it was checked against, and in the direction
+/// that ships. The plate is placed against the MD log frame exactly as a core plug is, so a
+/// cross-datum delivery puts it beside the wrong rock; same guard, same reason, both sides.
 pub fn read_images_for_print(
     conn: &Connection,
     well_id: &str,
@@ -3512,6 +3518,7 @@ pub fn read_images_for_print(
     depth_top: f32,
     depth_bottom: f32,
 ) -> DbResult<Vec<(ImageInfo, Vec<u8>)>> {
+    refuse_non_md_active_set(conn, "image_sets", well_id, Some(dataset))?;
     let mut stmt = conn.prepare(&format!(
         "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
                 i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
@@ -8103,6 +8110,47 @@ mod inspector_tests {
         // as present when any part of it is on the page.
         assert_eq!(read_images_for_print(&conn, &w, "CORE PHOTO", 1000.5, 1010.0).unwrap().len(), 1);
         assert_eq!(read_images_for_print(&conn, &w, "CORE PHOTO", 1002.0, 1010.0).unwrap().len(), 0);
+    }
+
+    /// AUDIT-2026-08-20 finding 25. The datum guard sat on the SCREEN reader only, so a picture
+    /// delivery declaring TVD or TVDSS showed NOTHING on screen and printed EVERY plate - and
+    /// the print is the half that ships. (The core pair had the same split in the opposite
+    /// direction and was closed by the core-datum increment; this is the other half of the same
+    /// finding.) A plate is placed against the MD log frame exactly as a core plug is, so a
+    /// cross-datum delivery puts it beside the wrong rock.
+    ///
+    /// Pinned from BOTH sides. A refusal alone would also be produced by a print reader that had
+    /// simply stopped returning pictures, so an MD delivery must still print; and the refusal
+    /// must NAME both datums and the delivery, because the guard is about a WRONG datum and
+    /// never about having declared one.
+    #[test]
+    fn the_print_reader_refuses_a_cross_datum_picture_delivery_exactly_as_the_screen_does() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-IMG-DATUM", None, None, None).unwrap();
+        let w = wid.to_string();
+        let bytes = b"\xFF\xD8_______________\xFF\xD9";
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate("CP-1", 1000.0, Some(1001.0), bytes)])
+            .unwrap();
+        let print = |c: &Connection| read_images_for_print(c, &w, "CORE PHOTO", 999.0, 1010.0);
+        let screen = |c: &Connection| list_well_images(c, &w, Some("CORE PHOTO"));
+
+        // Declared MD: both sides carry the plate, as they always have.
+        declare_set_datum(&conn, "image_sets", &w, Some("CORE PHOTO"), "RAW", "MD").unwrap();
+        assert_eq!(screen(&conn).unwrap().len(), 1, "an MD delivery draws on screen");
+        assert_eq!(print(&conn).unwrap().len(), 1, "and prints");
+
+        // Declared TVDSS: both refuse, naming both datums and the delivery.
+        declare_set_datum(&conn, "image_sets", &w, Some("CORE PHOTO"), "RAW", "TVDSS").unwrap();
+        for (what, text) in [
+            ("list_well_images", screen(&conn).expect_err("the screen must refuse").to_string()),
+            ("read_images_for_print", print(&conn).expect_err("the print must refuse too").to_string()),
+        ] {
+            assert!(
+                text.contains("TVDSS") && text.contains("MD") && text.contains("CORE PHOTO"),
+                "{what} must name both datums and the delivery, got: {text}"
+            );
+        }
     }
 
     #[test]

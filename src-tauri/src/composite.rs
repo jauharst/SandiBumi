@@ -307,8 +307,13 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
             if key.is_empty() || images.contains_key(&key) {
                 continue;
             }
+            // NOT unwrap_or_default. CLAUDE.md's rule for this store is that a plate the PDF
+            // cannot embed prints a NAMED FRAME, never a silent gap, so a deliverable can be
+            // checked against the delivery list - and swallowing the read turned a refused or
+            // failed dataset into an empty track that reads as "no plates in this interval".
+            // The layout ASKED for this track; if it cannot be honoured the export says why.
             let rows = crate::db::read_images_for_print(conn, &spec.well_id, &key, top, bottom)
-                .unwrap_or_default();
+                .map_err(|e| format!("cannot print the {key} pictures: {e}"))?;
             let entries = rows
                 .into_iter()
                 .map(|(info, data)| {

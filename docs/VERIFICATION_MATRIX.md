@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 626,
+Review sections counted toward no capability: **157** of 627,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -28,7 +28,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
 | `image-data` | Depth-registered image data | Not exercised | 0 / 30 | — | 3 |
-| `core-depth-registration` | Core-depth registration | Not exercised | 0 / 55 | — | 9 |
+| `core-depth-registration` | Core-depth registration | Not exercised | 0 / 60 | — | 10 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 109 | — | 18 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 44 | — | 9 |

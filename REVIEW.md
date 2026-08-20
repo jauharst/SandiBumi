@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 40 (my audit P2): **a picture delivery on the wrong datum no longer prints anyway**
+
+- [ ] **What was wrong.** A core-photo or thin-section delivery that declares **TVD or TVDSS**
+      showed **nothing on screen** — correctly, because a plate is placed against the MD log frame
+      exactly as a core plug is, so a cross-datum delivery puts it beside the wrong rock — but
+      the **composite print had no such guard and drew every plate**. The half that ships was
+      the half that got it wrong.
+- [ ] **The other half of this was already fixed.** The core readers had the same split in the
+      *opposite* direction (refused on print, drew on screen) and were closed by the core-datum
+      increment. This is the picture half of the same finding; screen and print now agree on
+      both stores.
+- [ ] **And it no longer fails quietly.** The composite used to swallow any failure reading a
+      picture dataset and print an **empty track**, which reads as *"there were no plates in
+      this interval"*. It now stops and says why. That is the same rule the PDF already follows
+      for a plate it cannot embed — a **named frame, never a silent gap** — so a deliverable can
+      always be checked against the delivery list.
+- [ ] **A declared datum is not the problem; a WRONG one is.** A delivery declaring MD prints
+      exactly as before. Nothing about declaring a datum refuses anything.
+- [ ] **What to check.** Take a well with core photographs. In Data Sets, confirm the picture
+      delivery's datum is MD — the composite should print the plates as it always has. If you
+      have a delivery on TVDSS, put its track in a layout and press Composite…: it should now
+      **refuse by name**, telling you the delivery and both datums, instead of printing plates
+      against the wrong depths.
+
 ## 2026-08-20 — Audit increment 39 (my audit P2): **percent-delivered PHIE and VSH now land in the same units as everything else**
 
 - [ ] **What was wrong.** A vendor or partner interpretation set that carries `PHIE .%` **30.0**
