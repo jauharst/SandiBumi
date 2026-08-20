@@ -41,6 +41,18 @@ Calibrates XRD mineralogy to lab CEC and focuses charge on the ACTIVE pore water
   stability; SwE from the CBW split. m*, n* trend high when dispersed kaolinite present.
 - Result on their LRLC samples: SwE lower than Archie everywhere; slightly lower than
   Waxman-Smits on most samples → unlocks hidden pay.
+- **Missing clay is not zero clay.** A gap in ONE mineral curve reads as zero of *that
+  mineral*; a sample where BOTH VKAOL and VILL are missing carries no clay information at
+  all and the module **refuses it** — SWT, SWE, QVEFF and SW_METHOD all withhold together.
+  Qv = 0 collapses the excess-conductivity term, so a both-missing sample would otherwise
+  return an Archie answer under an IMTS method flag: finite, plausible, and most wrong in
+  exactly the shaly rock this method exists for. Measured zeros are different and still
+  answer — clean rock genuinely does reduce to Archie. The S-factor calibration
+  (`fit_s_factor`) has always excluded a both-missing plug for the same reason, and the
+  module now shares that rule sample by sample. Pinned by
+  `imts_refuses_a_sample_with_no_clay_evidence_instead_of_reading_it_as_clean_rock` and
+  `imts_on_measured_clean_rock_reduces_to_archie_form`, which pin the two sides against
+  each other.
 
 Context: Waxman-Smits Co=Cw/F*+B·Qv/F*; dual-water (Clavier); Juhasz normalized Qvn.
 IMTS separates Qv into CBW vs CAPBW roles. Inputs pair naturally with SSC/SSPW outputs

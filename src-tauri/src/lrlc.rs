@@ -393,8 +393,20 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
 
-        let vk = if (vkaol[i] as f64).is_nan() { 0.0 } else { limit(vkaol[i] as f64, 0.0, 1.0) };
-        let vi = if (vill[i] as f64).is_nan() { 0.0 } else { limit(vill[i] as f64, 0.0, 1.0) };
+        let (vk_raw, vi_raw) = (vkaol[i] as f64, vill[i] as f64);
+        // The S-factor calibration below has always drawn this line and the module did not.
+        // A missing curve reads as ZERO clay of that mineral, but a sample where BOTH are
+        // missing carries no clay information at all and must not be read as clean rock:
+        // IMTS *is* the clay-charge model, so with both gone Qv_eff collapses to 0, the
+        // Waxman-Smits excess term vanishes, and the solver quietly returns an Archie answer
+        // under an IMTS method flag — finite, plausible, and most wrong in exactly the shaly
+        // intervals the method exists for. Refusing the sample leaves SWT, SWE, QVEFF and
+        // SW_METHOD all missing together, which is the honest statement.
+        if vk_raw.is_nan() && vi_raw.is_nan() {
+            continue;
+        }
+        let vk = if vk_raw.is_nan() { 0.0 } else { limit(vk_raw, 0.0, 1.0) };
+        let vi = if vi_raw.is_nan() { 0.0 } else { limit(vi_raw, 0.0, 1.0) };
         let swirr = {
             let s = swirr_log[i] as f64;
             let s = if s.is_nan() { ctx.p("SWIRR_DEF", i) } else { s };
@@ -1190,9 +1202,11 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
                     }
                     let vk = vkv.and_then(|c| c.get(idx)).map(|v| *v as f64).unwrap_or(f64::NAN);
                     let vi = viv.and_then(|c| c.get(idx)).map(|v| *v as f64).unwrap_or(f64::NAN);
-                    // A missing clay curve reads as ZERO clay of that mineral (what the module
-                    // does), but a plug where BOTH are missing carries no clay information at all
-                    // and must not be read as a clean plug.
+                    // A missing clay curve reads as ZERO clay of that mineral, but a plug where
+                    // BOTH are missing carries no clay information at all and must not be read as
+                    // a clean plug. `sw_imts` now applies the identical rule sample by sample —
+                    // it did not until 2026-08-20, and this guard was the evidence that the
+                    // distinction was already the project's own.
                     if vk.is_nan() && vi.is_nan() {
                         ex_noclaydata += 1;
                         continue;
@@ -1597,6 +1611,71 @@ mod tests {
         }
     }
 
+    /// Codex whole-repository review, P1. IMTS builds its clay charge from the kaolinite and
+    /// illite volumes, and both curves are OPTIONAL inputs. Each NaN was independently replaced
+    /// by zero, so a sample carrying NEITHER got `QVEFF = 0` — the Waxman-Smits excess term
+    /// vanished, the iterative solver still converged, and the module returned an Archie answer
+    /// under an IMTS method flag. Finite, plausible, and most wrong in exactly the shaly
+    /// intervals the method exists for.
+    ///
+    /// The project had already drawn this line, one function away: `fit_s_factor` excludes a
+    /// plug where both minerals are missing because it "carries no clay information at all".
+    /// The production module now shares that rule sample by sample.
+    ///
+    /// Pinned from BOTH sides, because the lazier fix would pass one arm and fail the method:
+    /// refusing whenever EITHER curve has a hole would break the documented
+    /// one-missing-reads-as-zero-of-that-mineral convention, which arm (b) asserts.
+    #[test]
+    fn imts_refuses_a_sample_with_no_clay_evidence_instead_of_reading_it_as_clean_rock() {
+        let spec = sw_imts_spec();
+        // One shaly sample, described three ways; everything else held identical.
+        let base: Vec<(&str, Vec<f32>)> =
+            vec![("RT", vec![10.0]), ("PHIT", vec![0.20]), ("SWIRR", vec![0.20])];
+        let run = |extra: Vec<(&str, Vec<f32>)>| {
+            let mut logs = base.clone();
+            logs.extend(extra);
+            sw_imts(&ctx_with(logs, &spec, 1))
+        };
+
+        // (a) Both minerals logged — the control: a real clay charge and a real saturation.
+        let both = run(vec![("VKAOL", vec![0.20]), ("VILL", vec![0.10])]);
+        assert!(both["QVEFF"][0] > 0.0, "the control must carry clay charge: {}", both["QVEFF"][0]);
+        assert!(
+            both["SWT"][0].is_finite() && both["SWT"][0] > 0.0 && both["SWT"][0] < 1.0,
+            "the control must produce a usable saturation: {}",
+            both["SWT"][0]
+        );
+
+        // (b) ONE mineral logged — still answers, reading the absent mineral as zero OF THAT
+        // MINERAL. Dropping the illite charge must RAISE Sw: less conductivity is attributed to
+        // clay, so more is attributed to water. A guard that refused any hole would fail here.
+        let one = run(vec![("VKAOL", vec![0.20])]);
+        assert!(
+            one["QVEFF"][0] > 0.0 && one["SWT"][0].is_finite(),
+            "one logged mineral is still clay evidence: QVEFF {} SWT {}",
+            one["QVEFF"][0],
+            one["SWT"][0]
+        );
+        assert!(
+            one["SWT"][0] > both["SWT"][0],
+            "removing the illite charge must raise Sw, not leave it unchanged: {} vs {}",
+            one["SWT"][0],
+            both["SWT"][0]
+        );
+
+        // (c) NEITHER logged — no clay evidence at all. Every output withholds TOGETHER, the
+        // method flag included: a curve asserting IMTS produced it, over an Archie number, is
+        // worse than a gap, because it is the half that survives into a report.
+        let neither = run(vec![]);
+        for curve in ["SWT", "SWE", "SWT_IMTS", "SWE_IMTS", "QVEFF", "SW_METHOD", "VOL_UWAT"] {
+            assert!(
+                neither[curve][0].is_nan(),
+                "{curve} must be missing where there is no clay evidence, got {}",
+                neither[curve][0]
+            );
+        }
+    }
+
     #[test]
     fn rtc_lowers_sw_versus_archie_when_capillary_water_present() {
         // LRLC scenario: Rt 4 ohm.m, PHIT 0.25, plenty of capillary water.
@@ -1872,19 +1951,36 @@ mod tests {
         assert!(out["SWE_IMTS"][0] <= out["SWT_IMTS"][0]);
     }
 
+    /// Waxman-Smits with Qv = 0 IS Archie, and on genuinely clean rock that degeneracy is the
+    /// right answer — this test pins it.
+    ///
+    /// It used to demonstrate that by supplying **no clay curves at all**, which is a different
+    /// statement: "the rock has no clay" versus "nobody logged the clay". The module could not
+    /// tell them apart either, which is why the Codex P1 defect survived a test that looked like
+    /// it covered this case. The clay volumes are now MEASURED ZEROS, so this asserts the
+    /// equation's behaviour on clean rock, and
+    /// `imts_refuses_a_sample_with_no_clay_evidence_instead_of_reading_it_as_clean_rock` asserts
+    /// the absent-evidence case next door. Neither alone would pass a lazier implementation.
     #[test]
-    fn imts_without_clay_reduces_to_archie_form() {
+    fn imts_on_measured_clean_rock_reduces_to_archie_form() {
         let spec = sw_imts_spec();
         // RT 8 ohm.m keeps the Archie-form answer below 1 so the limit does not bite.
         let ctx = ctx_with(
-            vec![("RT", vec![8.0]), ("PHIT", vec![0.25]), ("SWIRR", vec![0.2])],
+            vec![
+                ("RT", vec![8.0]),
+                ("PHIT", vec![0.25]),
+                ("SWIRR", vec![0.2]),
+                // Measured zero clay, not absent clay. This is the whole point of the test.
+                ("VKAOL", vec![0.0]),
+                ("VILL", vec![0.0]),
+            ],
             &spec,
             1,
         );
         let out = sw_imts(&ctx);
         let expect = ((1.0 / 0.25_f64.powf(1.9)) * (1.0 / 8.0) * 0.3).powf(1.0 / 1.9) as f32;
         assert!((out["SWT_IMTS"][0] - expect).abs() < 1e-4, "{} vs {}", out["SWT_IMTS"][0], expect);
-        assert_eq!(out["QVEFF"][0], 0.0);
+        assert_eq!(out["QVEFF"][0], 0.0, "no clay measured means no clay charge");
     }
 
     #[test]

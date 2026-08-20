@@ -3194,11 +3194,16 @@ SAMPLE,DEPTH,PERM,PORO,PC,SW\n\
 }
 
 /// A deviation survey as parsed from CSV: measured depth, inclination (deg), azimuth (deg).
+///
+/// `dropped` names the stations that carried no usable geometry and were left out, with the
+/// reason — the import turns them into a warning rather than swallowing them, because a
+/// silently shortened survey is its own quiet failure.
 #[derive(Debug, Clone, Default)]
 pub struct DeviationSurvey {
     pub md: Vec<f32>,
     pub inc: Vec<f32>,
     pub azi: Vec<f32>,
+    pub dropped: Vec<(f32, &'static str)>,
 }
 
 // Source: `docs/takeover/DRAFT_DIO011_dev_md_aliases.md`, SIGNED per DEC-076 (2026-08-19).
@@ -3214,7 +3219,28 @@ const DEV_INC_ALIASES: [&str; 4] = ["INC", "INCL", "INCLINATION", "DEVI"];
 const DEV_AZI_ALIASES: [&str; 5] = ["AZI", "AZIM", "AZIMUTH", "HAZI", "AZM"];
 
 /// Parses a deviation-survey CSV (MD/INC/AZI columns, alias-tolerant, arbitrary order).
-/// Rows sort by MD ascending; a missing INC/AZI is treated as 0 (vertical/north).
+/// Rows sort by MD ascending.
+///
+/// **A missing inclination is not a vertical station.** INC used to be optional and every gap —
+/// an absent column, a blank cell, an unparseable one — was replaced by 0, so a station whose
+/// cell was lost in export was silently read as vertical and the whole path below it computed on
+/// the wrong TVD. It is finite, plausible and persists as a normal curve (CLAUDE.md rule 2:
+/// missing continuous data is NaN, never zero).
+///
+/// Such a station is **DROPPED and reported**, not substituted and not fatal (Jauhar's ruling,
+/// 2026-08-20). Dropping is not a guess: minimum curvature already draws a circular arc between
+/// consecutive stations, so leaving one out simply draws that arc between the neighbours that
+/// were actually measured — for a constant build it reproduces the full survey's TVD exactly,
+/// and it degrades only in proportion to how non-uniform the real build was and how far apart
+/// the survivors are. Substituting 0° asserted a vertical station instead, which is wrong
+/// essentially always. An absent INC COLUMN is still refused: there are no neighbours to draw
+/// between.
+///
+/// **A missing AZIMUTH costs a station only where it can change the answer.** `minimum_curvature`
+/// reaches azimuth solely through `sin(i1)·sin(i2)·cos(a2−a1)` in the dogleg term, so a station
+/// declared exactly vertical multiplies its own azimuth by zero — which is what keeps a vertical
+/// well surveyed as `MD,INC` with no azimuth column importable, the common case. A blank azimuth
+/// at a station that is actually deviated is missing geometry and that station drops too.
 pub fn parse_deviation_csv<P: AsRef<Path>>(path: P) -> ParseResult<DeviationSurvey> {
     let path = path.as_ref();
     parse_deviation_csv_unnamed(path).map_err(|error| error.named(path))
@@ -3226,10 +3252,18 @@ fn parse_deviation_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Deviation
     let headers: Vec<String> = rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
     let idx_md = resolve_header_index(&headers, &DEV_MD_ALIASES)
         .ok_or_else(|| ParseError::Las("deviation CSV has no recognizable MD column".into()))?;
-    let idx_inc = resolve_header_index(&headers, &DEV_INC_ALIASES);
+    let idx_inc = resolve_header_index(&headers, &DEV_INC_ALIASES).ok_or_else(|| {
+        ParseError::Las(
+            "deviation CSV has no recognizable INC column - a file that states no inclination \
+             states no geometry, and reading it as vertical would put every TVD on the driller's \
+             depth. Expected one of INC, INCL, INCLINATION or DEVI."
+                .into(),
+        )
+    })?;
     let idx_azi = resolve_header_index(&headers, &DEV_AZI_ALIASES);
 
     let mut rows: Vec<(f32, f32, f32)> = Vec::new();
+    let mut dropped: Vec<(f32, &'static str)> = Vec::new();
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {
@@ -3243,13 +3277,36 @@ fn parse_deviation_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Deviation
         if md.is_nan() {
             continue;
         }
-        let inc = get(idx_inc);
+        let inc = get(Some(idx_inc));
         let azi = get(idx_azi);
-        rows.push((md, if inc.is_nan() { 0.0 } else { inc }, if azi.is_nan() { 0.0 } else { azi }));
+        if inc.is_nan() {
+            dropped.push((md, "no inclination"));
+            continue;
+        }
+        // Exactly-zero is the DECLARED vertical station, where minimum curvature multiplies the
+        // azimuth by sin(inc) = 0 and the value cannot reach the answer. Anywhere else a blank
+        // azimuth is missing data. No tolerance is invented here: a threshold would be a silent
+        // decision about how vertical counts as vertical.
+        if azi.is_nan() && inc != 0.0 {
+            dropped.push((md, "no azimuth at a deviated station"));
+            continue;
+        }
+        rows.push((md, inc, if azi.is_nan() { 0.0 } else { azi }));
     }
     rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    dropped.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    if rows.is_empty() && !dropped.is_empty() {
+        // Every station lost its geometry, so there is nothing to draw an arc between. Said by
+        // name rather than left to surface as the generic "no survey stations found", which
+        // would be a puzzling thing to read about a file full of rows.
+        return Err(ParseError::Las(format!(
+            "deviation CSV: not one of its {} stations carries a usable inclination, so the file \
+             states no geometry at all",
+            dropped.len()
+        )));
+    }
 
-    let mut survey = DeviationSurvey::default();
+    let mut survey = DeviationSurvey { dropped, ..Default::default() };
     for (md, inc, azi) in rows {
         survey.md.push(md);
         survey.inc.push(inc);
@@ -4932,6 +4989,117 @@ mod las_depth_tests {
             "the FIRST station at 2000 m must win — the 5 deg copy would straighten the well \
              and move every TVD below it, got {}",
             survey.inc[at_2000]
+        );
+    }
+
+    /// Codex whole-repository review, P1. INC and AZI used to be OPTIONAL and every gap — an
+    /// absent column, a blank cell, an unparseable one — was replaced by 0, i.e. read as a
+    /// measured vertical/north station. A cell lost in export therefore straightened the well
+    /// silently, and minimum curvature integrates station to station, so every TVD below it moved.
+    /// The result is finite, plausible, persisted and plotted, and it reaches saturation-height
+    /// through the TVD curve. CLAUDE.md rule 2 already said missing continuous data is NaN and
+    /// never zero; this is that rule reaching the survey parser.
+    ///
+    /// **Jauhar ruled the remedy (2026-08-20): drop the station, do not refuse the file.** That is
+    /// not a guess — minimum curvature already draws a circular arc between consecutive stations,
+    /// so leaving one out draws that arc between the neighbours that were actually measured. Arm
+    /// (e) proves the point numerically: on a constant build the survey WITHOUT the middle station
+    /// reproduces the full survey's TVD exactly, while substituting 0° misses it by 173 m.
+    ///
+    /// The azimuth half is pinned from BOTH sides deliberately, because the blanket fix breaks a
+    /// real and common delivery: a vertical well surveyed as `MD,INC` with no azimuth column at
+    /// all. `minimum_curvature` reaches azimuth only through `sin(i1)·sin(i2)·cos(a2−a1)`, so at a
+    /// station declared exactly vertical the value cannot affect the answer — that one must still
+    /// import, while a blank azimuth at a deviated station costs that station.
+    #[test]
+    fn a_survey_station_with_no_inclination_is_dropped_and_reported_never_read_as_vertical() {
+        let write = |name: &str, body: &str| {
+            let path = std::env::temp_dir().join(format!("sandibumi_dev_{name}.csv"));
+            std::fs::write(&path, body).unwrap();
+            path
+        };
+        let run = |name: &str, body: &str| {
+            let path = write(name, body);
+            let out = parse_deviation_csv(&path);
+            std::fs::remove_file(&path).ok();
+            out
+        };
+
+        // (a) The review's own scenario: the middle station's inclination was lost in export.
+        // The station leaves the survey and is REPORTED by MD; the file still imports.
+        let blank_inc = run("blank_inc", "MD,INC,AZI\n0,0,90\n1000,,90\n2000,60,90\n")
+            .expect("one blank cell must not cost the whole delivery");
+        assert_eq!(blank_inc.md, vec![0.0, 2000.0], "the station without geometry is left out");
+        assert_eq!(
+            blank_inc.dropped,
+            vec![(1000.0, "no inclination")],
+            "and it is named, with its reason, so the shortened survey cannot be silent"
+        );
+        assert!(
+            blank_inc.inc.iter().all(|v| v.is_finite()) && blank_inc.md.len() == blank_inc.inc.len(),
+            "no invented station is left behind: {blank_inc:?}"
+        );
+
+        // (b) No inclination column at all — an arbitrarily deviated well would import as vertical.
+        let no_inc = run("no_inc", "MD,AZI\n0,90\n1000,90\n2000,90\n")
+            .expect_err("a file with no INC column states no geometry");
+        assert!(
+            no_inc.to_string().contains("INC"),
+            "the refusal must name the missing column: {no_inc}"
+        );
+
+        // (c) A VERTICAL well surveyed with no azimuth column must still import. This is the arm
+        // the blanket fix would break, and it is the commonest survey there is.
+        let vertical = run("vertical_no_azi", "MD,INC\n0,0\n1000,0\n2000,0\n")
+            .expect("a vertical survey carries no azimuth and must still import");
+        assert_eq!(vertical.md.len(), 3, "every station must survive");
+        assert!(
+            vertical.azi.iter().all(|a| *a == 0.0),
+            "an unused azimuth at a vertical station reads 0: {:?}",
+            vertical.azi
+        );
+
+        // (d) The same blank azimuth where the station is actually deviated IS missing geometry,
+        // so that station drops too — and the file still imports.
+        let deviated = run("deviated_no_azi", "MD,INC,AZI\n0,0,90\n1000,30,\n2000,60,90\n")
+            .expect("a blank azimuth costs its station, not the delivery");
+        assert_eq!(
+            deviated.dropped,
+            vec![(1000.0, "no azimuth at a deviated station")],
+            "the reason must distinguish it from the inclination case: {:?}",
+            deviated.dropped
+        );
+
+        // (f) Dropping has a floor: if NOTHING carries geometry there are no neighbours to draw
+        // an arc between, so the file is refused by name rather than importing as an empty survey.
+        let all_blank = run("all_blank_inc", "MD,INC,AZI\n0,,90\n1000,,90\n2000,,90\n")
+            .expect_err("a file where every station lost its inclination states no geometry");
+        assert!(
+            all_blank.to_string().contains("not one of its 3 stations"),
+            "and it says so in those terms rather than as an empty-file error: {all_blank}"
+        );
+
+        // (e) WHY dropping is a remedy and substituting was not, in metres. Three stations on a
+        // constant build: dropping the middle one reproduces the full survey's TVD EXACTLY,
+        // because minimum curvature's arc from 0 to 60 deg passes through 30 deg at 1000 m by
+        // construction. Reading the blank cell as 0 deg asserts a vertical station instead and
+        // misses by 173 m. Both numbers are computed here, not quoted.
+        let azi = [90.0, 90.0, 90.0];
+        let truth =
+            crate::deviation::minimum_curvature(&[0.0, 1000.0, 2000.0], &[0.0, 30.0, 60.0], &azi, 0.0);
+        let dropped_station =
+            crate::deviation::minimum_curvature(&[0.0, 2000.0], &[0.0, 60.0], &azi[..2], 0.0);
+        let coerced =
+            crate::deviation::minimum_curvature(&[0.0, 1000.0, 2000.0], &[0.0, 0.0, 60.0], &azi, 0.0);
+        let (a, keep, bad) = (truth[2].tvd, dropped_station[1].tvd, coerced[2].tvd);
+        assert!(
+            (keep - a).abs() < 0.05,
+            "dropping the station must reproduce the surveyed TVD on a constant build: {keep} vs {a}"
+        );
+        assert!(
+            (bad - a) > 100.0,
+            "while reading the blank as vertical misses it by enough to matter: {bad} vs {a}. If \
+             this ever shrinks, the survey geometry changed, not the fix."
         );
     }
 

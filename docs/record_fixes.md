@@ -291,3 +291,87 @@ k must be UNCORRECTED air permeability.
 crossover, the 12 % boundary and the old table's inversion at 25 % sand side by side — so "still not
 perfectly monotone" can never be read as "the correction did not work".
 
+
+
+## Missing clay evidence is not zero clay (2026-08-20)
+
+Codex whole-repository review, P1. `sw_imts` builds its clay charge from the kaolinite and illite
+volume curves, both of which are OPTIONAL inputs, and each NaN was independently replaced by zero.
+A sample carrying NEITHER therefore got `QVEFF = 0`, which collapses the Waxman-Smits excess term
+to nothing: the iterative solver still converged, and the module returned **an Archie answer under
+an IMTS method flag** - finite, plausible, in range, and most wrong in exactly the shaly intervals
+the method exists to interpret. On one worked sample the difference is SWT 0.365 with the clay
+volumes against 0.500 without them.
+
+**The project had already drawn the line, one function away.** `fit_s_factor` excludes a plug where
+both minerals are missing, with a comment saying it carries no clay information at all and must not
+be read as a clean plug. That guard is the evidence that the distinction was always the project's
+own; the production module simply never applied it. It does now, sample by sample, and the
+calibration comment names the module so the two cannot drift apart again.
+
+Three things this fix had to keep straight, and only the first is obvious:
+
+- **One missing mineral still reads as zero OF THAT MINERAL** and still answers. Refusing any hole
+  would be the lazier fix and would throw away every well that logged kaolinite but not illite.
+- **Measured zeros still reduce to Archie**, because on genuinely clean rock that degeneracy is
+  correct. The old test proved this using ABSENT curves, so it could not tell "the rock has no clay"
+  from "nobody logged the clay" - which is why the defect survived a test that looked like it
+  covered the case. It now supplies measured zeros and is renamed
+  `imts_on_measured_clean_rock_reduces_to_archie_form`; the absent case is its neighbour.
+- **Every output withholds together** - SWT, SWE, their unlimited twins, QVEFF, VOL_UWAT and
+  SW_METHOD. The method flag matters most: a curve asserting IMTS produced a number, over an
+  Archie number, is the half that survives into a report.
+
+Because a refused sample writes nothing, a run supplied with NEITHER clay curve now produces an
+empty result and `workflow::answered` reports it as a failure instead of versioning an
+interpretation - the same rule as every other refusal here, reached without a second mechanism.
+
+
+## A survey states no geometry past its last station (2026-08-20)
+
+Codex whole-repository review, P1. `deviation::sample_at` CLAMPED to the end stations outside the
+surveyed range, and `materialize_tvd_curves` calls it for every sample on the full log grid - so a
+partial survey wrote long finite plateaus that height, correlation and report calculations then
+consumed as real geometry. The contradiction was already in the tree: the comment on that very call
+in `ingest.rs` describes NaN outside the survey's MD range, and the function never did it.
+
+**Both ends were wrong, in different ways, and the fix differs at each because only one of them has
+a convention to fall back on.**
+
+- **Past the LAST station: MISSING.** Holding TVD at the last station's value over real hole is a
+  zero vertical increment, which no trajectory can produce - on a well logged to 3000 m with
+  stations to 2000 m that was a 1000 m plateau presented as a normal curve. Continuing the last
+  inclination instead would be an extrapolation nobody authorized. So the geometry is unknown and
+  now says so.
+- **Above the FIRST station: vertical continuation.** `minimum_curvature`'s anchor already assumes
+  the hole is vertical from surface, taking the first station's TVD as its own MD, and the clamp
+  CONTRADICTED it - a survey delivered from 300 m down put TVD 300 at MD 0, a TVD deeper than its
+  own MD, which no well can be. The continuation is written as a relative step from the first
+  station rather than `TVD = MD` so it stays continuous whatever produced the stations.
+
+**What the plateau was worth, and it is worth stating that it pulled two ways at once.** A frozen
+(too shallow) TVD makes the height above the free-water level too LARGE, so `sw_height` reads too
+little water - optimistic pay. The same frozen TVDSS makes FTEMP too LOW, so Arps returns an Rw
+that is too HIGH and the resistivity saturation too high - pessimistic pay. One plateau, two
+answers biased in opposite directions, neither recoverable from anything on the log.
+
+**The second half of the fix is in `sw_height`, and the first half is what made it necessary.** Its
+measured-depth fallback exists for a well carrying NO vertical-depth curve at all - a vertical well,
+where MD is the honest answer - but it fired on any NaN, and until `sample_at` stopped freezing,
+a TVD curve had no holes to have. A well logged deeper than its survey now has exactly one, and
+falling back there would switch that sample from true vertical to along-hole depth inside a single
+interpretation: on the worked fixture the surveyed neighbours sit 100 and 150 m ABOVE the contact
+while measured depth puts the sample 400 m BELOW it, fully wet. So the fallback is now gated on
+whether the well carries a TVD curve at all - `sw_rtc`'s CBW rule and `sw_imts`' clay-volume rule,
+restated for geometry. `phimax` and `precalc` already withheld on a missing TVDSS and needed no
+change, which is the evidence the pattern was the project's own.
+
+**The visible consequence, and it is deliberate**: a partial survey now leaves the un-surveyed
+section without TVD, so everything that needs true vertical depth there returns nothing rather than
+a plausible frozen value. Extending the survey, or removing it so the documented MD fallback
+applies well-wide, are both recoveries; a silent plateau was not.
+
+Pinned by `a_survey_states_no_geometry_past_its_last_station_and_says_so` (both ends, plus the
+TVD-never-exceeds-MD invariant) and
+`a_gap_in_a_carried_tvd_curve_withholds_the_sample_instead_of_switching_to_measured_depth` (the
+fallback survives for a well with no TVD, and does not fire for a gap in one that exists).
