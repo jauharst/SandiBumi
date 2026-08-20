@@ -2536,3 +2536,41 @@ test("a_disputed_parameter_stays_empty_beside_every_source_and_failed_evidence_l
   assert.match(unavailable.textContent, /Source comparison unavailable/);
   assert.match(unavailable.textContent, /not thereby adjudicated/);
 });
+
+test("the_lorenz_capacity_totals_follow_the_projects_depth_unit_while_the_coefficient_stays_unit_free", async () => {
+  // CORRECTNESS - Codex whole-repo P1. Two different kinds of number share one headline and only
+  // the capacity totals are lengths. k is in mD and phi is v/v, so each of Sigma-k-h and
+  // Sigma-phi-h carries exactly one factor of depth; the coefficient is built from cumulative
+  // FRACTIONS of those same sums, so a uniform depth factor cancels out of it exactly. The
+  // fixture is the finding's own scenario: a 100 ft interval at 1 mD and phi 0.20, which the
+  // backend returns as total_kh 100 and total_phih 20 in the project's own unit.
+  const { lorenzHeadline } = await load("/src/ui/lorenzDialog.ts");
+  const res = { lorenz_coefficient: 0.42, total_kh: 100, total_phih: 20 };
+
+  // A metre project: nothing converts, and this is the control that says the fix did not move
+  // the reading anyone already had.
+  const metres = lorenzHeadline(res, "m", (v) => v);
+  assert.match(metres, /100\.0 mD·m/);
+  assert.match(metres, /20\.00 m/);
+
+  // A foot project READ IN FEET: the numbers are unchanged and the LABEL is what must follow,
+  // because these totals arrive in the project's own unit and are not being converted at all.
+  const feet = lorenzHeadline(res, "ft", (v) => v);
+  assert.match(feet, /100\.0 mD·ft/, "the totals are project-native, so feet must say ft");
+  assert.match(feet, /20\.00 ft/);
+  assert.doesNotMatch(feet, /mD·m/, "the hard-coded metre label is what this fixes");
+
+  // A foot project read in METRES: now the numbers convert too, and both must move together -
+  // 100 ft is 30.48 mD·m and 20 ft is 6.096 m, the finding's own arithmetic.
+  const shown = (v) => v * 0.3048;
+  const converted = lorenzHeadline(res, "m", shown);
+  assert.match(converted, /30\.48 mD·m/);
+  assert.match(converted, /6\.096 m/);
+
+  // THE OTHER SIDE, and the one that matters most: the coefficient is unit-free and must be
+  // byte-identical in all three. A fix that converted everything on the line would be a wrong
+  // heterogeneity answer, which is the whole point of the plot.
+  for (const line of [metres, feet, converted]) {
+    assert.match(line, /Lorenz coefficient 0\.420 /, `coefficient must not convert: ${line}`);
+  }
+});

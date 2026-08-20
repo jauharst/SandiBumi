@@ -68,7 +68,14 @@ export function shownDepthLabel(): string {
  *  a converted heading are the same lie, and both have shipped from this codebase — so the pair
  *  lives in one place rather than being re-derived per panel. Applies to any length in the
  *  project's depth dimension: a depth, a thickness, and hydrocarbon pore thickness, which is one.
- *  Never to a ratio, a volume fraction or a sample count. */
+ *  Never to a ratio, a volume fraction or a sample count.
+ *
+ *  The trap is a unit-free number sitting BESIDE length-bearing ones. The **Lorenz coefficient**
+ *  is the worked example: Σk·h and Σφ·h each carry one factor of depth and must convert, while
+ *  the coefficient built from cumulative FRACTIONS of those same sums must not — the factor
+ *  cancels out of it exactly. Converting the whole line reports a heterogeneity of 0.128 where
+ *  the answer is 0.420, which is the entire point of the plot, wrong and plausible. Decide per
+ *  VALUE, never per line. */
 export function toShownDepth(value: number): number {
   return convertDepth(value, appState.projectDepthUnit.get(), appState.displayDepthUnit.get());
 }

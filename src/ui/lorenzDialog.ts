@@ -1,6 +1,7 @@
 import { listCurveCatalog, listWells, resolveWellScope, runLorenz, type LorenzResult } from "../ipc";
 import { appState } from "../state";
 import { formRow } from "./modal";
+import { shownDepthLabel, toShownDepth } from "../depthUnitPref";
 import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
 import { preferredCurveSelect } from "./plotCommon";
 import { recordProcess } from "../processLog";
@@ -159,6 +160,33 @@ function fmtLc(lc: number | null): string {
   return lc == null || !Number.isFinite(lc) ? "—" : lc.toFixed(3);
 }
 
+/** The headline line, as a pure function so the UNIT decision is testable without a DOM.
+ *
+ *  Two different kinds of number sit on one line and only one of them is a length.
+ *
+ *  - The **Lorenz coefficient is unit-free and must never be converted.** It is built from
+ *    cumulative FRACTIONS of Σk·h and Σφ·h, so a uniform depth factor cancels out of it exactly;
+ *    it is the same number whether the project stores feet or metres. Converting it would be a
+ *    plausible-looking error with no upper bound on the damage - it is the heterogeneity answer.
+ *  - **Both capacity totals ARE lengths.** k is in mD and φ is v/v, so Σk·h and Σφ·h each carry
+ *    exactly one factor of depth. They were printed as `mD·m` and `m` whatever the depth column
+ *    actually held: on a 100 ft interval at 1 mD the headline read `100 mD·m` for a true 30.48.
+ *
+ *  `shown` is the stored→display conversion and `unit` its label, injected rather than imported
+ *  so a test can drive both units without a project.
+ */
+export function lorenzHeadline(
+  res: Pick<LorenzResult, "lorenz_coefficient" | "total_kh" | "total_phih">,
+  unit: string,
+  shown: (v: number) => number,
+): string {
+  return (
+    `Lorenz coefficient ${fmtLc(res.lorenz_coefficient)} (0 homogeneous … 1 heterogeneous) • ` +
+    `Σk·h ${shown(res.total_kh).toPrecision(4)} mD·${unit} • ` +
+    `Σφ·h ${shown(res.total_phih).toPrecision(4)} ${unit}`
+  );
+}
+
 /** Renders the results and returns a cleanup that detaches the plot's resize observer. */
 function renderLorenz(host: HTMLElement, res: LorenzResult): () => void {
   host.innerHTML = "";
@@ -175,15 +203,16 @@ function renderLorenz(host: HTMLElement, res: LorenzResult): () => void {
   // Headline: the heterogeneity number + capacity totals.
   const headline = document.createElement("div");
   headline.className = "mc-hist-caption";
-  headline.textContent =
-    `Lorenz coefficient ${fmtLc(res.lorenz_coefficient)} (0 homogeneous … 1 heterogeneous) • ` +
-    `Σk·h ${res.total_kh.toPrecision(4)} mD·m • Σφ·h ${res.total_phih.toPrecision(4)} m`;
+  const du = shownDepthLabel();
+  headline.textContent = lorenzHeadline(res, du, toShownDepth);
   host.appendChild(headline);
 
   const table = document.createElement("table");
   table.className = "mc-table";
   const head = document.createElement("tr");
-  for (const h of ["", "Unit", "Top", "Base", "n", "Storage %", "Flow %", "Slope", "Character", "φ mean", "k mean (mD)"]) {
+  // Top and Base are stored depths and carried NO unit at all, which is not better than a wrong
+  // one - a reader cannot tell 1000 ft from 1000 m. Converted and labelled like every other read.
+  for (const h of ["", "Unit", `Top (${du})`, `Base (${du})`, "n", "Storage %", "Flow %", "Slope", "Character", "φ mean", "k mean (mD)"]) {
     const th = document.createElement("th");
     th.textContent = h;
     head.appendChild(th);
@@ -214,8 +243,8 @@ function renderLorenz(host: HTMLElement, res: LorenzResult): () => void {
 
     const cells = [
       String(u.unit),
-      u.depth_top.toFixed(1),
-      u.depth_base.toFixed(1),
+      toShownDepth(u.depth_top).toFixed(1),
+      toShownDepth(u.depth_base).toFixed(1),
       String(u.n),
       (u.storage_frac * 100).toFixed(1),
       (u.flow_frac * 100).toFixed(1),
