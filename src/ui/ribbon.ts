@@ -2129,10 +2129,21 @@ export class Ribbon {
           if (result.error) {
             setStatus(`Deviation import failed: ${result.error}`);
           } else {
+            const warnings = result.warnings ?? [];
             setStatus(`Imported ${result.rows} survey station(s); TVD/TVDSS computed for ${well.well_name}.`);
             recordProcess("Import", `Imported deviation survey (${result.rows} stations) ← ${path}`, well.well_name);
+            // A dropped station is not a failure, so it must not close the pane silently: the
+            // import stays open carrying the warning, and it also goes into the process history
+            // so the shortened survey is still findable after the pane is dismissed.
+            for (const warning of warnings) {
+              recordProcess("Import", `Deviation survey: ${warning}`, well.well_name);
+            }
             this.workspace.notifyDataChanged();
-            close();
+            if (warnings.length > 0) {
+              setStatus(`Imported ${result.rows} station(s) — ${warnings.join(" ")}`);
+            } else {
+              close();
+            }
           }
         })
         .catch((err) => setStatus(`Deviation import failed: ${err}`));

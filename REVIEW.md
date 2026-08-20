@@ -47,42 +47,52 @@
       unconditional fallback prints `SWT 1, HAFWL -400` at the gap; dropping the fallback entirely
       blanks every vertical well).
 
-## 2026-08-20 — Audit increment 22 (Codex P1): a survey station with no inclination is refused, not read as vertical
+## 2026-08-20 — Audit increment 22 (Codex P1): a survey station with no inclination is dropped and reported, never read as vertical
 
-> **One judgement call in here, flagged rather than buried** — see the last item. Say the word and
-> I will change it.
+> **Rewritten to your ruling.** The first pass refused the whole survey; you asked whether the
+> station could be filled in from its neighbours instead. It turns out it does not even need
+> filling in — see the second item, which is the interesting part.
 
 - [ ] **What this fixes, in metres.** The deviation parser treated INC and AZI as optional and
       replaced every gap — an absent column, a blank cell, an unparseable one — with **0**, i.e.
       with a *measured* vertical/north station. Minimum curvature integrates station to station, so
       one cell lost in export straightened the well and moved every TVD below it. On a three-station
       survey that is 30° at 1000 m and 60° at 2000 m: the true TVD at 2000 m is **1653.99 m**, and
-      with that middle cell blank it imported as **1826.99 m**. **173 m of imaginary column**, on a
-      file that reported a clean import — and TVD is what saturation-height measures your height
-      above the contact from.
-- [ ] **What it does now.** The survey is refused by name, naming the station's MD, so you can fix
-      the cell and re-import. An absent INC column is refused too — a file that states no
-      inclination states no geometry.
-- [ ] **Your vertical wells still import.** A vertical well delivered as `MD,INC` with no azimuth
-      column at all is the commonest survey there is, and it still works: minimum curvature reaches
-      azimuth only through `sin(inc)`, so at a station declared exactly vertical the azimuth cannot
-      affect the answer. A blank azimuth at a station that is actually deviated **is** refused.
-- [ ] **Click-through:** re-import a deviation survey you have already loaded — unchanged, and TVD
-      identical. Then copy it, blank one INC cell in the middle, and import that: you should get a
-      refusal naming that station's MD, and **nothing written**. If you have a vertical well with an
+      with that middle cell read as vertical it imported as **1826.99 m**. **173 m of imaginary
+      column**, on a file that reported a clean import — and TVD is what saturation-height measures
+      your height above the contact from.
+- [ ] **Your instinct was better than my refusal, and here is why.** Minimum curvature *already*
+      draws a circular arc between consecutive stations. So a station with no geometry does not need
+      a guessed value — **leaving it out** draws that arc between the neighbours that were actually
+      measured. On the survey above, the two survivors alone give **1653.99 m: the exact same answer
+      as the full three-station survey**, because the arc from 0° to 60° passes through 30° at
+      1000 m by construction. It degrades only in proportion to how non-uniform the real build was
+      and how far apart the survivors are. Substituting 0° asserted a vertical station, which is
+      wrong essentially always. Both numbers are computed in the test, not quoted.
+- [ ] **So the station is dropped and REPORTED — your delivery is never blocked by one bad cell.**
+      The import pane **stays open** carrying a warning that names each dropped station's MD and
+      reason, instead of closing on success, and the same warning goes into the process history so
+      it is still findable later. A survey that quietly got shorter is its own silent failure.
+- [ ] **Two refusals survive, both because there is nothing to draw an arc between**: a file with no
+      INC column at all, and a file where not one station carries a usable inclination. Those say so
+      by name.
+- [ ] **Your vertical wells still import whole.** A vertical well delivered as `MD,INC` with no
+      azimuth column is the commonest survey there is: minimum curvature reaches azimuth only
+      through `sin(inc)`, so at a station declared exactly vertical the azimuth cannot affect the
+      answer. A blank azimuth at a station that **is** deviated costs that station.
+- [ ] **Click-through:** re-import a survey you have already loaded — unchanged, TVD identical, pane
+      closes as before. Then copy it, blank one INC cell in the middle, and import that: it should
+      **succeed**, report one fewer station, and leave the pane open with a warning naming that MD.
+      Check the process history carries the same line. If you have a vertical well with an
       `MD,INC`-only survey, confirm it still imports.
-- [ ] **The judgement call.** I chose **refuse the whole survey** over two alternatives: dropping the
-      bad station (which silently changes geometry too) or letting the gap flow through as a missing
-      TVD from that station down (a silent hole in every height calc below it). A survey is a short
-      table you can fix in seconds, so a loud refusal seemed clearly better than either — but it is
-      a choice, and if you would rather have one of the others on your own deliveries, say so.
 - [ ] **Automated correctness:** one pin,
-      `a_survey_station_with_no_inclination_is_refused_instead_of_read_as_vertical`, with four arms
-      (blank INC cell, absent INC column, vertical survey with no azimuth, blank azimuth at a
-      deviated station) plus the 173 m itself, so that number cannot quietly shrink without the test
-      saying the survey geometry changed. Two mutations red at two distinct assertions: restoring
-      the zero coercion accepts the straightened well `inc: [0, 0, 60]`, and the blanket
-      "refuse any blank azimuth" fix rejects an ordinary vertical survey.
+      `a_survey_station_with_no_inclination_is_dropped_and_reported_never_read_as_vertical`, with six
+      arms (dropped INC station reported by MD, absent INC column, vertical survey with no azimuth,
+      blank azimuth at a deviated station, the all-blank refusal, and both TVD figures) so neither
+      number can quietly move without the test saying the survey geometry changed. Two mutations red
+      at two distinct assertions: restoring the zero coercion keeps the straightened station in the
+      survey, and dropping vertical stations for a blank azimuth too rejects an ordinary vertical
+      well.
 
 ## 2026-08-20 — Audit increment 21 (Codex P1): IMTS refuses a sample with no clay evidence instead of calling it clean rock
 
