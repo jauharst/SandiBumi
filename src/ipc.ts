@@ -3602,6 +3602,10 @@ export interface CoreTableImportResult {
   extra_rows: number;
   extra_items: string[];
   precision: SamplePrecisionReport;
+  /** Things the import DID that succeeded but you must be told about — currently the
+   *  percent-versus-fraction scale of the porosity and saturation columns, whenever the file
+   *  declared nothing and SandiBumi had to decide. */
+  warnings?: string[];
   error: string | null;
 }
 

@@ -20,7 +20,8 @@
     {
       "id": "core-point-import",
       "title": "Core and point-data import",
-      "review_section_patterns": ["Core & aux import", "Core import", "point.data", "SCAL deliveries", "Tops.style imports", "well surface coordinates", "Import plates"]
+      "review_section_patterns": ["Core & aux import", "Core import", "point.data", "SCAL deliveries", "percent core column",
+        "Tops.style imports", "well surface coordinates", "Import plates"]
     },
     {
       "id": "delivery-sets",

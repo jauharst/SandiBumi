@@ -514,3 +514,42 @@ how vertical counts as vertical, which is the same class of decision this whole 
 Pinned by `a_survey_station_with_no_inclination_is_dropped_and_reported_never_read_as_vertical`,
 which carries all six arms plus both TVD figures computed rather than quoted, so neither can
 quietly move without the test saying the survey geometry changed.
+
+## A percent column is percent because the file says so (2026-08-20)
+
+Core and SCAL porosity and saturation were converted to v/v by one rule: a median above 1.5 means
+percent, divide by 100. **That inference is sound. Its converse was assumed, and is false.**
+
+A tight-rock RCAL table headed `PORO (%)` with values 0.8, 1.0 and 1.2 has a median of 1.0, so it
+was stored verbatim — 0.8, 1.0 and 1.2 v/v, which is 80%, 100% and 120% porosity. A hundred times
+too high, permanently, and the first two even pass the later `<= 1.0` validity gate. Nothing
+downstream can reconstruct the lost factor of 100: it feeds phi-k, the Leverett-J fit, every
+saturation-height law and the core overlay, all of which keep computing and plotting.
+
+The file usually said so, and nobody was reading it. **The depth column has always had its unit
+read from the units row with the column header as fallback** (`declared_unit`); the percent
+question never consulted either. So the fix is not a new mechanism, it is the existing one applied
+to the columns that were missing it — `fraction_scale_token`, deliberately not `unit_token_guess`,
+because that splits on every non-alphanumeric character and therefore cannot see the one character
+that matters most here: `%`.
+
+**The order is declaration, then what is definitionally possible, then the median** — and the
+middle term outranks the first, which is the part worth remembering. Porosity and saturation are
+bounded at 1.0 by their own definitions, so a column carrying 22 is not a fraction however loudly
+its units row says `V/V` — and real deliveries say exactly that. A declaration its own numbers
+refute is not evidence, it is a mistake in the file; obeying it would store 2200% porosity, worse
+than the guess it replaced. That case gets its own name (`DeclarationContradicted`) and is always
+reported, because it usually means the wrong column was mapped.
+
+None of this invents a threshold. 1.0 is a definition, not a petrophysical choice — which matters,
+because the tempting fix here is a cutoff like "a fraction porosity above 0.5 is not rock". That is
+true and it is still a parameter, and a parameter is cited or asked about, never rounded into
+existence.
+
+**Where all three are silent, the old behaviour stands and the user is TOLD it was a guess.** Both
+parse routes carry a `ScaleEvidence` — the legacy `parse_core_csv` and, more importantly,
+`parse_core_table_mapped`, which is the route the import wizard actually takes and which had its
+own copy of the conversion. The guessed-fraction case is the one reading that can be silently a
+hundred times wrong, so it reaches the status line and the process history rather than nothing at
+all. Still open: an explicit percent/fraction override in the wizard, for the file that declares
+nothing and whose values are ambiguous either way.

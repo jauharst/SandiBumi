@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 608,
+Review sections counted toward no capability: **157** of 609,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -18,7 +18,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `las-import` | LAS import | Not exercised | 0 / 145 | — | 46 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
-| `core-point-import` | Core and point-data import | Not exercised | 0 / 57 | — | 11 |
+| `core-point-import` | Core and point-data import | Not exercised | 0 / 65 | — | 12 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 208 | 2026-08-13 | 70 |
