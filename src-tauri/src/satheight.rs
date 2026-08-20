@@ -245,7 +245,14 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
 
         // SB-SAT-025: raw first, clip second - the diagnostic keeps what the fit said.
         swh_raw_out[i] = sw as f32;
-        swh_out[i] = sw.clamp(swt_irr.max(0.0), 1.0) as f32;
+        // The clamp floor is a PARAMETER, and `f64::clamp` asserts lo <= hi — with the release
+        // profile's panic = "abort", an SWT_IRR above 1 (a percent-entered 25, an unbounded
+        // Monte Carlo draw) took the whole process down instead of failing the run. The range
+        // guards upstream (workflow::resolve_param_arrays and the Monte Carlo plan/draw checks)
+        // refuse such values by name; this bounds the floor itself so no future caller can
+        // reintroduce the abort — same backstop rule as modules::limit. `.max(0.0)` also turns
+        // a NaN floor into 0.0, which is the behaviour this line always had.
+        swh_out[i] = sw.clamp(swt_irr.max(0.0).min(1.0), 1.0) as f32;
     }
 
     // SB-SAT-026: a finite result names its producer; a missing one claims none.
@@ -343,6 +350,37 @@ mod tests {
         assert!(
             (metric - imperial).abs() < 1e-3,
             "same well, same height above FWL, different declared unit: metric Sw {metric} vs foot Sw {imperial}"
+        );
+    }
+
+    /// Audit finding #3 (AUDIT-2026-08-20), the landing site. The clamp floor is the SWT_IRR
+    /// PARAMETER, and `f64::clamp` asserts lo <= hi — an SWT_IRR above 1 (a percent-entered 25,
+    /// an unbounded Monte Carlo draw) aborted the whole process under the release profile's
+    /// panic = "abort". The range guards upstream now refuse such values by name; this pins the
+    /// landing site itself so a future caller cannot reintroduce the abort: the floor is
+    /// bounded, the sample computes, and Sw is pinned to 1 — continuous with what SWT_IRR = 1
+    /// means. The SB-SAT-025 unclipped diagnostic keeps the fit's own value, proving the bound
+    /// sits on the clamp floor and never on the model evaluation.
+    #[test]
+    fn a_swt_irr_above_one_pins_sw_to_one_instead_of_aborting_the_process() {
+        let logs: Vec<(&str, Vec<f32>)> = vec![
+            ("DEPTH", vec![1900.0]),
+            ("TVD", vec![1900.0]),
+            ("PHIE", vec![0.25]),
+            ("PERM", vec![100.0]),
+        ];
+        let ctx = ctx_from_spec(1, &logs, &[("SWT_IRR", 25.0)], &[("OPT_SWH", "LEVERETT")]);
+        let out = sw_height(&ctx);
+        let sw = out["SWT"][0];
+        assert!(sw.is_finite(), "the sample must still compute, got {sw}");
+        assert!(
+            (sw - 1.0).abs() < 1e-6,
+            "an irreducible saturation floor past 1 can only mean all water: Sw {sw}"
+        );
+        let raw = out["SWT_HGT"][0];
+        assert!(
+            raw.is_finite() && raw < 1.0,
+            "the raw diagnostic must stay the fit's own value, got {raw}"
         );
     }
 
