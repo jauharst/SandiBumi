@@ -212,6 +212,11 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
             track.curves.iter().map(|curve| equations::TrackCurveRequest {
                 curve_name: curve.curve_name.clone(),
                 set_name: curve.set_name.clone(),
+                // The print reads through `fetch_track_frames`, which never decimated, so this
+                // changes nothing here. Set truthfully anyway: a field that says "not a class
+                // curve" about the FACIES track would be a false statement waiting for the
+                // first reader who believes it.
+                class_curve: curve.fill.as_deref() == Some("blocks"),
             })
         })
         .collect();
@@ -839,6 +844,7 @@ fn build_page(
                 let request = equations::TrackCurveRequest {
                     curve_name: cs.curve_name.clone(),
                     set_name: cs.set_name.clone(),
+                    class_curve: cs.fill.as_deref() == Some("blocks"),
                 };
                 let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue ;
                 };
@@ -862,6 +868,7 @@ fn build_page(
                     let request = equations::TrackCurveRequest {
                         curve_name: rs.curve_name.clone(),
                         set_name: rs.set_name.clone(),
+                        class_curve: rs.fill.as_deref() == Some("blocks"),
                     };
                     let reference = curve_frames.get(&equations::track_curve_key(&request))?;
                     Some((reference.value.as_slice(), reference.depth.as_slice(), rs.min, rs.max))
