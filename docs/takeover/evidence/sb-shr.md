@@ -90,7 +90,7 @@
 ### SB-SHR-002
 
 - **Specified contract:** FWL and every length-bearing shape parameter carry explicit units and re-express when the project unit changes.
-- **Current implementation:** `sw_height_spec` hard-codes metres on FWL, Skelt B/D and HAFWL. Brooks-Corey `he` and Thomeer `hd` are untyped tuple entries. The unit carrier refuses a declaration change over committed data; it does not re-express fitted or registered coefficients.
+- **Current implementation:** `sw_height_spec` declares FWL, the TVD channel and (since DEC-087) HAFWL with `modules::PROJECT_DEPTH_UNIT_TOKEN`; Skelt B/D keep an explicit `"m"` because the published coefficients are metres and the SKELT branch converts the height to meet them. Brooks-Corey `he` and Thomeer `hd` are untyped tuple entries. The unit carrier refuses a declaration change over committed data; it does not re-express fitted or registered coefficients.
 - **As-built status:** `PRESENT-DIVERGENT`; some labels exist, but the required typed re-expression contract does not.
 - **Release disposition and risk:** `PILOT-BLOCKER`; `SILENT-WRONGNESS`.
 - **Automated evidence:** `MISSING`; T03 has no observable parameter-re-expression test. The unit-change refusal test proves a different data-I/O policy.
@@ -118,10 +118,10 @@
 ### SB-SHR-004
 
 - **Specified contract:** height outputs, prompts, plot axes and export headers use the declared project unit.
-- **Current implementation:** HAFWL is numerically converted to metres and declared as metres even in a foot project; SHF plots say only height/log H; prompts omit or imply a fixed unit; generic curve export uses stored/canonical metadata rather than a domain-wide declared-unit contract.
-- **As-built status:** `PRESENT-DIVERGENT`.
-- **Release disposition and risk:** `PILOT-BLOCKER`; `SILENT-WRONGNESS`.
-- **Automated evidence:** `MISSING`; the general LAS depth-header tests do not exercise HAFWL, FWL, the SHF axis and export together as T05 requires.
+- **Current implementation:** the OUTPUT-CURVE and PROMPT halves are closed. HAFWL is written as the raw project-native `FWL - TVD` and declares the project token (DEC-087, Jauhar's ruling "for HAFWL, follow project units"); FWL and TVD did the same earlier, and `depthUnitPref::argumentUnitLabel` resolves the token to the stored unit in every dialog. Still divergent: SHF plots say only height/log H, and generic curve export uses stored/canonical metadata rather than a domain-wide declared-unit contract - module outputs never write a `curve_unit` row, so an exported HAFWL column falls back to an equation-name lookup.
+- **As-built status:** `PARTIAL` (output curve and prompts conform; plot axis and export header do not).
+- **Release disposition and risk:** `PILOT-BLOCKER`; `SILENT-WRONGNESS` on the export header only - the stored values are now project-native, so a reader inside the app is no longer misled.
+- **Automated evidence:** `PARTIAL`. `a_height_above_the_contact_is_delivered_on_the_projects_own_depth_scale` proves the curve follows the project in both branches while the saturation does not move, and `the_free_water_level_is_declared_in_the_unit_the_height_is_actually_measured_in` proves the prompt half; neither exercises the SHF axis or the LAS export header as T05 requires.
 - **Manual evidence:** none.
 - **Source/parameter boundary:** project depth unit is stored state; no display unit is guessed.
 - **UI/IPC/provenance surface:** the manifest, dialog axis text, IPC tuples and exported curve unit can disagree or omit the height unit.
