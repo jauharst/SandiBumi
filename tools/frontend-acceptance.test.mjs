@@ -2026,6 +2026,85 @@ test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => 
   assert.doesNotMatch(status.textContent, /\. FLAG curves written\./);
 });
 
+test("a_dashboard_csv_carries_lengths_and_a_heading_in_one_resolved_unit_and_leaves_the_dimensionless_columns_alone", async () => {
+  // CORRECTNESS — the Field Dashboard's CSV is a client deliverable. It printed a
+  // hard-coded "(m)" over values the backend returns in the PROJECT's stored unit, so a
+  // foot-declared project exported a header claiming metres above columns of feet: wrong by
+  // 3.28084x with every number plausible. The two halves are pinned separately because
+  // either alone still ships a wrong file — a converted value under a stale heading is the
+  // same lie as a stale value under a converted heading. HPV rides with the lengths because
+  // it is a hydrocarbon pore THICKNESS; N/G and the volume-fraction averages are
+  // dimensionless and must survive the conversion untouched.
+  const { appState } = await load("/src/state.ts");
+  const { M_PER_FT } = await load("/src/units.ts");
+  const { buildDashboardCsv } = await load("/src/ui/dashboardPanel.ts");
+  const project = appState.projectDepthUnit.get();
+  const display = appState.displayDepthUnit.get();
+
+  const row = {
+    well_id: "w1",
+    well_name: "SANDI-1",
+    zone: "A",
+    flag: "PAY",
+    top: 1000,
+    bottom: 1050,
+    gross: 50,
+    net: 25,
+    not_net: 20,
+    unknown: 5,
+    ntg_known: 0.55,
+    residual_absorbed: 0,
+    frame: "MD",
+    weights_source: "MD",
+    unfiltered: [],
+    ntg: 0.5,
+    avg_vsh: 0.3,
+    avg_phie: 0.18,
+    avg_swe: 0.4,
+    hpv: 12.5,
+    n_classified: 100,
+    perm_cutoff_no_data: false,
+    quicklook_phie_excluded: false,
+  };
+  const cell = (csv, label) => {
+    const [head, data] = csv.split("\r\n");
+    const at = head.split(",").indexOf(label);
+    assert.ok(at >= 0, `no column headed ${label} in: ${head}`);
+    return data.split(",")[at];
+  };
+
+  try {
+    // A foot project read in feet: nothing to convert, and the heading says so.
+    appState.projectDepthUnit.set("FT");
+    appState.displayDepthUnit.set("FT");
+    const asStored = buildDashboardCsv([row]);
+    assert.match(asStored.split("\r\n")[0], /HPV \(ft\)/, "the heading follows the displayed unit");
+    assert.equal(cell(asStored, "Net (ft)"), "25");
+    assert.equal(cell(asStored, "HPV (ft)"), "12.5");
+
+    // The same foot project read in metres: the lengths convert, the heading moves with them,
+    // and the dimensionless columns do not move at all.
+    appState.displayDepthUnit.set("M");
+    const asDisplayed = buildDashboardCsv([row]);
+    assert.match(asDisplayed.split("\r\n")[0], /HPV \(m\)/);
+    assert.doesNotMatch(asDisplayed.split("\r\n")[0], /\(ft\)/);
+    assert.equal(Number(cell(asDisplayed, "HPV (m)")), 12.5 * M_PER_FT);
+    assert.equal(Number(cell(asDisplayed, "Net (m)")), 25 * M_PER_FT);
+    assert.equal(cell(asDisplayed, "N/G"), "0.5", "a ratio is not a length");
+    assert.equal(cell(asDisplayed, "Avg PHIE"), "0.18", "a volume fraction is not a length");
+
+    // A metre project stays byte-identical to what it always exported.
+    appState.projectDepthUnit.set("M");
+    const metric = buildDashboardCsv([row]);
+    assert.match(metric.split("\r\n")[0], /HPV \(m\)/);
+    assert.equal(cell(metric, "HPV (m)"), "12.5");
+    assert.equal(cell(metric, "Top (m)"), "1000");
+  } finally {
+    appState.projectDepthUnit.set(project);
+    appState.displayDepthUnit.set(display);
+  }
+});
+
 test("a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_result", async () => {
   // CORRECTNESS — SB-CORE-002 / SB-CORE-T09 cites R21 in 04_CORE_REQUIREMENTS.md:
   // a zero-contributor advisory is a rendered warning, while a clean result renders none.

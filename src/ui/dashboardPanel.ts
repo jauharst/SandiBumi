@@ -1,5 +1,6 @@
 import { resolveWellScope, runPaySummary, type BackendWellScope, type PaySummaryRow } from "../ipc";
 import { appState } from "../state";
+import { convertDepth, unitLabel } from "../units";
 import { loadCutoffDefaults } from "./cutoffs";
 import { escapeHtml } from "./safeDom";
 import { reportDashboardCompletion } from "./reportingHonesty";
@@ -14,28 +15,56 @@ import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 type Metric = "avg_phie" | "avg_swe" | "ntg" | "hpv" | "net";
 type SortKey = keyof PaySummaryRow;
 
-const METRICS: { key: Metric; label: string; digits: number }[] = [
+/** Every row field that is a LENGTH in the project's stored depth unit — depths, thicknesses,
+ *  and HPV, which is a hydrocarbon pore THICKNESS (φe·(1−Sw)·h) and so converts like one.
+ *  Everything else on the row (N/G, the volume-fraction averages, sample counts) is
+ *  dimensionless and must never be touched by a unit conversion. */
+const LENGTH_KEYS = new Set<SortKey>(["top", "bottom", "gross", "net", "not_net", "unknown", "hpv"]);
+
+/** Stored → display conversion for one row field, applied at the moment of DISPLAY only.
+ *  The backend returns project-unit values (`workflow.rs` accumulates raw sample thickness);
+ *  this panel used to print and export them under a hard-coded "(m)", so a foot-declared
+ *  project delivered a CSV whose HPV column was labelled metres and carried feet — a client
+ *  deliverable wrong by exactly 3.28084x, with every number plausible. */
+const toDisplay = (key: SortKey, value: number): number =>
+  LENGTH_KEYS.has(key)
+    ? convertDepth(value, appState.projectDepthUnit.get(), appState.displayDepthUnit.get())
+    : value;
+
+/** Same conversion for an already-aggregated length (a sum or a weighted mean of one). */
+const lenToDisplay = (value: number): number =>
+  convertDepth(value, appState.projectDepthUnit.get(), appState.displayDepthUnit.get());
+
+const depthUnit = (): string => unitLabel(appState.displayDepthUnit.get());
+
+/** `len` marks a length-valued column: it carries the depth unit in its heading and its
+ *  values go through `toDisplay`. */
+const METRICS: { key: Metric; label: string; digits: number; len?: true }[] = [
   { key: "avg_phie", label: "Avg PHIE", digits: 3 },
   { key: "avg_swe", label: "Avg SWE", digits: 3 },
   { key: "ntg", label: "N/G", digits: 2 },
-  { key: "hpv", label: "HPV (m)", digits: 2 },
-  { key: "net", label: "Net (m)", digits: 1 },
+  { key: "hpv", label: "HPV", digits: 2, len: true },
+  { key: "net", label: "Net", digits: 1, len: true },
 ];
 
-const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean }[] = [
+/** The metric's heading, with the unit resolved at render time rather than baked in. */
+const metricLabel = (m: (typeof METRICS)[number]): string =>
+  m.len ? `${m.label} (${depthUnit()})` : m.label;
+
+const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean; len?: true }[] = [
   { key: "well_name", label: "Well", num: false },
   { key: "zone", label: "Zone", num: false },
-  { key: "top", label: "Top", digits: 1, num: true },
-  { key: "bottom", label: "Bottom", digits: 1, num: true },
-  { key: "gross", label: "Gross", digits: 1, num: true },
-  { key: "net", label: "Net", digits: 1, num: true },
+  { key: "top", label: "Top", digits: 1, num: true, len: true },
+  { key: "bottom", label: "Bottom", digits: 1, num: true, len: true },
+  { key: "gross", label: "Gross", digits: 1, num: true, len: true },
+  { key: "net", label: "Net", digits: 1, num: true, len: true },
   // SB-CUT-003: the four-way partition, reported side by side because that is the only way to
   // read it. Gross = Net + Not net + Unknown exactly, and "Unknown" is footage nothing could
   // judge — no VSH/PHIE/SWE at the sample, or no sample at all. A zone that is 40 % net because
   // the rest is shale and one that is 40 % net because the rest was never logged print the same
   // N/G, and only these two columns separate them.
-  { key: "not_net", label: "Not net", digits: 1, num: true },
-  { key: "unknown", label: "Unknown", digits: 1, num: true },
+  { key: "not_net", label: "Not net", digits: 1, num: true, len: true },
+  { key: "unknown", label: "Unknown", digits: 1, num: true, len: true },
   { key: "ntg", label: "N/G", digits: 2, num: true },
   // SB-CUT-004: the same net measured against only the footage that could be judged. Both are
   // labelled because they answer different questions; where nothing was judged this is MISSING
@@ -44,8 +73,12 @@ const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean }[
   { key: "avg_vsh", label: "Avg VSH", digits: 2, num: true },
   { key: "avg_phie", label: "Avg PHIE", digits: 3, num: true },
   { key: "avg_swe", label: "Avg SWE", digits: 3, num: true },
-  { key: "hpv", label: "HPV (m)", digits: 2, num: true },
+  { key: "hpv", label: "HPV", digits: 2, num: true, len: true },
 ];
+
+/** A grid column's heading, with the depth unit resolved at render time. */
+const colLabel = (c: (typeof GRID_COLS)[number]): string =>
+  c.len ? `${c.label} (${depthUnit()})` : c.label;
 
 // Guards null/undefined/NaN/Infinity → "—". Note: the Rust backend's f64::NAN
 // crosses the IPC boundary as JSON `null` (serde_json has no NaN), so a plain
@@ -156,7 +189,7 @@ export async function buildDashboardContent(
     },
   );
   const metricSeg = buildSeg(
-    METRICS.map((m) => ({ value: m.key, label: m.label })),
+    METRICS.map((m) => ({ value: m.key, label: metricLabel(m) })),
     () => metricVal,
     (v) => {
       metricVal = v as Metric;
@@ -228,8 +261,10 @@ export async function buildDashboardContent(
     // aggregation, never a second implementation of it.
     const flagSfx = flagVal === "PAY" ? "PAY" : flagVal;
     wrap.append(
-      kpi(`TOTAL NET ${flagSfx}`, fmt(sum(rows, "net"), 1), "kpi-accent", "m"),
-      kpi("TOTAL HPV", fmt(sum(rows, "hpv"), 2), "kpi-accent2", "m"),
+      // Summed in the STORED unit, converted once for display — summing converted values would
+      // accumulate the conversion's rounding across every row.
+      kpi(`TOTAL NET ${flagSfx}`, fmt(lenToDisplay(sum(rows, "net")), 1), "kpi-accent", depthUnit()),
+      kpi("TOTAL HPV", fmt(lenToDisplay(sum(rows, "hpv")), 2), "kpi-accent2", depthUnit()),
       kpi(`MEAN PHIE (${flagVal})`, fmt(weightedMean(rows, "avg_phie", "net"), 3), "kpi-neutral"),
       kpi(`MEAN SWE (${flagVal})`, fmt(weightedMean(rows, "avg_swe", "net"), 3), "kpi-neutral"),
       kpi("ZONES EXCLUDED", String(excluded.length), "kpi-neutral", excluded.length ? "no results" : ""),
@@ -281,8 +316,9 @@ export async function buildDashboardContent(
     sec.innerHTML = `<h4>By zone — ${escapeHtml(flagVal)}</h4>`;
     const table = document.createElement("table");
     table.className = "summary-table";
+    const u = escapeHtml(depthUnit());
     table.innerHTML =
-      "<thead><tr><th>Zone</th><th>Wells</th><th>Σ Net (m)</th><th>Σ HPV (m)</th>" +
+      `<thead><tr><th>Zone</th><th>Wells</th><th>Σ Net (${u})</th><th>Σ HPV (${u})</th>` +
       "<th>Mean N/G</th><th>Mean PHIE</th><th>Mean SWE</th></tr></thead>";
     const tb = document.createElement("tbody");
     for (const [zone, zr] of byZone) {
@@ -290,7 +326,7 @@ export async function buildDashboardContent(
       const tr = document.createElement("tr");
       tr.innerHTML =
         `<td>${zone}</td><td>${new Set(zr.map((r) => r.well_id)).size}</td>` +
-        `<td>${fmt(sum(zr, "net"), 1)}</td><td>${fmt(sum(zr, "hpv"), 2)}</td>` +
+        `<td>${fmt(lenToDisplay(sum(zr, "net")), 1)}</td><td>${fmt(lenToDisplay(sum(zr, "hpv")), 2)}</td>` +
         `<td>${fmt(mean(zr, "ntg"), 2)}</td><td>${fmt(netW("avg_phie"), 3)}</td><td>${fmt(netW("avg_swe"), 3)}</td>`;
       tb.appendChild(tr);
     }
@@ -304,13 +340,20 @@ export async function buildDashboardContent(
   const sectionBoxPlots = (rows: PaySummaryRow[], metric: (typeof METRICS)[number], nExcluded: number) => {
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
-    sec.innerHTML = `<h4>${escapeHtml(metric.label)} distribution by zone</h4>`;
+    sec.innerHTML = `<h4>${escapeHtml(metricLabel(metric))} distribution by zone</h4>`;
     const byZone = groupBy(rows, (r) => r.zone);
+    // Converted BEFORE the box statistics rather than after: percentiles and whiskers land on
+    // real samples (`distribution.ts`), and converting a chosen sample is the same number
+    // whichever side of the summary it happens on — but converting first keeps the axis, the
+    // box edges and the outlier dots in one unit with no site left behind.
     const stats = Array.from(byZone.entries())
-      .map(([zone, zr]) => ({ zone, box: boxStats(zr.map((r) => r[metric.key] as number)) }))
+      .map(([zone, zr]) => ({
+        zone,
+        box: boxStats(zr.map((r) => toDisplay(metric.key, r[metric.key] as number))),
+      }))
       .filter((s) => s.box);
     if (stats.length === 0) {
-      sec.innerHTML += `<div class="dashboard-empty">No finite ${metric.label} values.</div>`;
+      sec.innerHTML += `<div class="dashboard-empty">No finite ${metricLabel(metric)} values.</div>`;
       return sec;
     }
     const lo = Math.min(...stats.map((s) => s.box!.min));
@@ -346,7 +389,7 @@ export async function buildDashboardContent(
     const htr = document.createElement("tr");
     for (const col of GRID_COLS) {
       const th = document.createElement("th");
-      th.textContent = col.label + (sortKey === col.key ? (sortDir === 1 ? " ▲" : " ▼") : "");
+      th.textContent = colLabel(col) + (sortKey === col.key ? (sortDir === 1 ? " ▲" : " ▼") : "");
       th.classList.add("sortable");
       th.addEventListener("click", () => {
         if (sortKey === col.key) sortDir = sortDir === 1 ? -1 : 1;
@@ -372,7 +415,7 @@ export async function buildDashboardContent(
       tr.innerHTML = GRID_COLS.map((c) => {
         if (!c.num) return `<td>${escapeHtml(String(r[c.key]))}</td>`;
         if (cls === "row-excluded" && CLASSIFIED_COLS.has(c.key)) return "<td>—</td>";
-        return `<td>${fmt(r[c.key] as number, c.digits ?? 2)}</td>`;
+        return `<td>${fmt(toDisplay(c.key, r[c.key] as number), c.digits ?? 2)}</td>`;
       }).join("");
       tb.appendChild(tr);
     };
@@ -440,7 +483,27 @@ export async function buildDashboardContent(
   // genuine wet zone in a spreadsheet, where there is no dimmed styling to say otherwise.
   csvBtn.addEventListener("click", () => exportCsv(rowsForFlag().rows, flagVal));
 
-  return { el };
+  // Both units are read at render time, so a change to either must repaint: the display unit is
+  // switchable from the log view at any moment, and the project unit is re-read on a project
+  // switch. Without this the panel would keep the old unit in its headings while the rest of the
+  // application had moved - the same mislabelling this increment exists to remove, one step
+  // removed. The metric pill is rebuilt too, since its own labels carry the unit.
+  // The metric pill's labels are relabelled IN PLACE rather than rebuilt: `buildSeg`'s click
+  // handlers close over the element they were built on, so replacing its children would leave
+  // the pressed-state painting pointing at a detached node.
+  const repaint = () => {
+    metricSeg.querySelectorAll("button").forEach((b) => {
+      const m = METRICS.find((x) => x.key === b.dataset.v);
+      if (m) b.textContent = metricLabel(m);
+    });
+    if (allRows.length > 0) render();
+  };
+  const unsubscribe = [
+    appState.displayDepthUnit.subscribe(repaint),
+    appState.projectDepthUnit.subscribe(repaint),
+  ];
+
+  return { el, dispose: () => unsubscribe.forEach((off) => off()) };
 }
 
 // ---------------------------------------------------------------------------
@@ -532,19 +595,28 @@ function renderBoxPlots(stats: { zone: string; box: BoxStats }[], lo: number, hi
 // CSV export (client-side blob download of the user's own summary)
 // ---------------------------------------------------------------------------
 
-function exportCsv(rows: PaySummaryRow[], flag: string): void {
-  const header = GRID_COLS.map((c) => c.label);
+/** The CSV text the dashboard exports, separated from the download so the deliverable itself is
+ *  testable. The header carries the SAME resolved unit the grid shows and the values go through
+ *  the SAME conversion — this file leaves the building, and a header that says metres over feet
+ *  is a reserves error nobody downstream can detect, because every number in it is plausible. */
+export function buildDashboardCsv(rows: PaySummaryRow[]): string {
+  const header = GRID_COLS.map((c) => colLabel(c));
   const lines = [header.join(",")];
   for (const r of rows) {
     lines.push(
       GRID_COLS.map((c) => {
         const v = r[c.key];
         if (v == null) return ""; // null (backend NaN→null) → empty cell, not the string "null"
-        return typeof v === "number" ? (Number.isNaN(v) ? "" : v) : `"${String(v).replace(/"/g, '""')}"`;
+        if (typeof v !== "number") return `"${String(v).replace(/"/g, '""')}"`;
+        return Number.isNaN(v) ? "" : toDisplay(c.key, v);
       }).join(","),
     );
   }
-  const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  return lines.join("\r\n");
+}
+
+function exportCsv(rows: PaySummaryRow[], flag: string): void {
+  const blob = new Blob([buildDashboardCsv(rows)], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
