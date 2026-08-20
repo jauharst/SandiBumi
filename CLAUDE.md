@@ -833,6 +833,11 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
 - **`PITTMAN_TABLE1` holds the published table in full and the shipped rows carry no coefficients of
   their own.** The family is non-monotone below ~11% porosity and that is the paper's own
   arithmetic, not something to correct.
+- **Missing clay evidence is not zero clay.** In `sw_imts` a gap in ONE mineral curve reads as zero
+  of that mineral, but a sample where BOTH VKAOL and VILL are missing is refused outright — Qv = 0
+  collapses the excess-conductivity term, so it would otherwise ship an Archie answer under an IMTS
+  method flag. Measured zeros still reduce to Archie, and the two cases are pinned against each
+  other; the S-factor calibration has always drawn the same line.
 
 ### `docs/record_parallel_lanes.md` — running a second agent beside Claude Code
 

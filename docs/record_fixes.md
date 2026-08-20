@@ -291,3 +291,37 @@ k must be UNCORRECTED air permeability.
 crossover, the 12 % boundary and the old table's inversion at 25 % sand side by side — so "still not
 perfectly monotone" can never be read as "the correction did not work".
 
+
+
+## Missing clay evidence is not zero clay (2026-08-20)
+
+Codex whole-repository review, P1. `sw_imts` builds its clay charge from the kaolinite and illite
+volume curves, both of which are OPTIONAL inputs, and each NaN was independently replaced by zero.
+A sample carrying NEITHER therefore got `QVEFF = 0`, which collapses the Waxman-Smits excess term
+to nothing: the iterative solver still converged, and the module returned **an Archie answer under
+an IMTS method flag** - finite, plausible, in range, and most wrong in exactly the shaly intervals
+the method exists to interpret. On one worked sample the difference is SWT 0.365 with the clay
+volumes against 0.500 without them.
+
+**The project had already drawn the line, one function away.** `fit_s_factor` excludes a plug where
+both minerals are missing, with a comment saying it carries no clay information at all and must not
+be read as a clean plug. That guard is the evidence that the distinction was always the project's
+own; the production module simply never applied it. It does now, sample by sample, and the
+calibration comment names the module so the two cannot drift apart again.
+
+Three things this fix had to keep straight, and only the first is obvious:
+
+- **One missing mineral still reads as zero OF THAT MINERAL** and still answers. Refusing any hole
+  would be the lazier fix and would throw away every well that logged kaolinite but not illite.
+- **Measured zeros still reduce to Archie**, because on genuinely clean rock that degeneracy is
+  correct. The old test proved this using ABSENT curves, so it could not tell "the rock has no clay"
+  from "nobody logged the clay" - which is why the defect survived a test that looked like it
+  covered the case. It now supplies measured zeros and is renamed
+  `imts_on_measured_clean_rock_reduces_to_archie_form`; the absent case is its neighbour.
+- **Every output withholds together** - SWT, SWE, their unlimited twins, QVEFF, VOL_UWAT and
+  SW_METHOD. The method flag matters most: a curve asserting IMTS produced a number, over an
+  Archie number, is the half that survives into a report.
+
+Because a refused sample writes nothing, a run supplied with NEITHER clay curve now produces an
+empty result and `workflow::answered` reports it as a failure instead of versioning an
+interpretation - the same rule as every other refusal here, reached without a second mechanism.
