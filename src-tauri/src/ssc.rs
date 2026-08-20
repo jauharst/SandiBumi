@@ -21,9 +21,11 @@
 //!   The two source files disagree — the 2022 spec-only `porosity_sspw.lls` writes
 //!   c = 1.6, the 2025 exec body `sspw.lls` writes the even split c = 1 — and the
 //!   disagreement is real petrophysics rather than a transcription error to
-//!   adjudicate, so it ships as the user's dial with each module defaulting to what
-//!   it already ran: SSC 1 (since 2026-07-29), SSPW 1.6. Jauhar's ruling, on the
-//!   field observation that the even split still reads optimistic in his rock.
+//!   adjudicate, so it ships as the user's dial. Jauhar ruled 1.6 for SSPW on the
+//!   field observation that the even split still reads optimistic in his rock
+//!   (DEC-086), then extended the same experience to SSC (DEC-088), so BOTH now
+//!   default to 1.6. **DEC-088 moved SSC's gas numbers**, which was the ruling and
+//!   not a side effect: SSC ran the even split from 2026-07-29 until then.
 //!
 //! Reference-inherited quirks (line-verified against the .lls, 2026-07-29) — kept
 //! for parity, do NOT "fix" without changing the Loglan too:
@@ -124,8 +126,8 @@ pub fn ssc_spec() -> ModuleSpec {
             param_open("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 1.0, true),
             param(
                 "GAS_C", "Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)",
-                "", 1.0, 0.0, 2.0,
-                "sspw.lls (2025-02-28) gas branch, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1; DEC-086",
+                "", 1.6, 0.0, 2.0,
+                "sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it: Jauhar rules 1.6 here too, extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately",
             ),
             log_in("GR", "Gamma ray (normalized)", "gapi", "GRN", true),
             log_in("RHOB", "Bulk density (corrected)", "g/cc", "RHOB", true),
@@ -203,9 +205,9 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // (`PHIT = (((dphi_volan)**2+(NPHI)**2)/2)**(0.5)`) — and c = 2 hands the answer to
         // the neutron outright. Above c = 1 the two corrected legs CROSS: at 1.6 the corrected
         // density is 0.2·φD²+0.8·φN² and the corrected neutron its mirror, so the D-N crossover
-        // is not closed but reversed. SSC therefore defaults to 1, which is what it has run
-        // since 2026-07-29; SSPW defaults to 1.6 on Jauhar's own field observation. Neither is
-        // hard-coded any more — the rock decides, per well and per zone.
+        // is not closed but reversed. BOTH modules default to 1.6 — SSPW under DEC-086 and SSC
+        // under DEC-088, on Jauhar's own field observation that the even split still reads
+        // optimistic. Neither is hard-coded any more — the rock decides, per well and per zone.
         //
         // NPHI enters squared, so a negative neutron loses its sign here — the Loglan squares
         // it identically.
@@ -619,9 +621,10 @@ mod tests {
             ("ssc", "DCLF_SI") => 0.1,
             ("ssc", "PHIT_CL") => 0.24,
             ("ssc", "SWIRR_MIN") => 0.0,
-            // DEC-086: each module's shipped default, stated here so every existing fixture
-            // keeps the numbers it was written against.
-            ("ssc", "GAS_C") => 1.0,
+            // DEC-086 then DEC-088: each module's shipped default, stated here so the fixtures
+            // exercise what actually ships. SSC's moved 1.0 -> 1.6 under DEC-088, which DOES move
+            // SSC gas numbers - that was the ruling, not a side effect.
+            ("ssc", "GAS_C") => 1.6,
             ("sspw", "RHOB_MAT") => 2.65,
             ("sspw", "NPHI_MAT") => 0.0,
             ("sspw", "RHOB_SH") => 2.4,
@@ -816,16 +819,19 @@ mod tests {
         assert!((out["PHIT_SSPW"][0] - 0.1515).abs() < 0.002);
     }
 
-    /// DEC-086. The gas-conditioning weight is the user's dial, and the two modules ship
-    /// DIFFERENT defaults on purpose — SSC the even split, SSPW 1.6 on Jauhar's field
-    /// observation that the even split still reads optimistic.
+    /// DEC-086 then DEC-088. The gas-conditioning weight is the user's dial, and BOTH modules now
+    /// ship 1.6 on Jauhar's field observation that the even split still reads optimistic — first
+    /// for SSPW (DEC-086), then extended to SSC when he was asked whether the same experience
+    /// applied to his SSC work (DEC-088).
     ///
-    /// That asymmetry looks exactly like an inconsistency somebody would tidy up, which is why
-    /// it is pinned from both sides. It is also why the dial itself is pinned: harmonising the
-    /// two defaults and harmonising the two ARITHMETICS are different mistakes, and only
-    /// checking the defaults would let the second one through.
+    /// **Agreement is not the contract here; the RULED VALUE is.** The two arrived at 1.6 by two
+    /// separate rulings over two different reference files, so this pins the number and its source
+    /// rather than the fact that they match — a later ruling could legitimately move one alone.
+    /// The dial itself is pinned for the reason it always was: harmonising the two defaults and
+    /// harmonising the two ARITHMETICS are different mistakes, and only checking the defaults
+    /// would let the second one through.
     #[test]
-    fn the_gas_conditioning_weight_is_the_users_dial_and_the_two_modules_ship_different_defaults() {
+    fn the_gas_conditioning_weight_is_the_users_dial_and_both_modules_ship_the_ruled_default() {
         // One gas sand, read by both modules. Clean (VSH 0.10 is the existing SSPW fixture's
         // shale) so the density-porosity arithmetic is visible in PHIT with little dilution.
         // RHOB 2.20 against a 2.65 matrix and 1.00 fluid gives phiDI = 0.272727; NPHI 0.10 is
@@ -853,11 +859,8 @@ mod tests {
                 .parse::<f64>()
                 .expect("GAS_C default must be numeric")
         };
-        assert!((declared(&ssc_spec()) - 1.0).abs() < 1e-12, "SSC ships the even split");
-        assert!(
-            (declared(&sspw_spec()) - 1.6).abs() < 1e-12,
-            "SSPW ships 1.6 (DEC-086) — deliberately NOT the same as SSC's"
-        );
+        assert!((declared(&ssc_spec()) - 1.6).abs() < 1e-12, "SSC ships 1.6 (DEC-088)");
+        assert!((declared(&sspw_spec()) - 1.6).abs() < 1e-12, "SSPW ships 1.6 (DEC-086)");
 
         let run_sspw = |gas_c: Option<f64>| -> f64 {
             let spec = sspw_spec();
@@ -898,24 +901,36 @@ mod tests {
             (run_sspw(Some(1.0)) - phi_at(1.0)).abs() < 1e-5,
             "and the dial reaches the even split when the user asks for it"
         );
-        // The two defaults must not be the same number, and 1.6 must be the CONSERVATIVE one —
-        // that is the whole content of the ruling, not an incidental difference.
+        // 1.6 must be the CONSERVATIVE side of the even split — that is the whole content of both
+        // rulings, and the reason a well-meaning tidy-up back to the RMS midpoint is a defect.
         assert!(
             sspw_default < phi_at(1.0) - 1e-4,
             "1.6 must read lower than the even split, got {sspw_default} vs {}",
             phi_at(1.0)
         );
 
-        // SSC keeps the even split it has run since 2026-07-29, and answers the dial too.
+        // DEC-088: SSC now ships the same ruled weight, asserted through the RUN as well as the
+        // manifest, because the ruling is about the number the module computes with rather than
+        // the string it advertises. The dial still reaches the even split, which must read HIGHER.
+        // Compared as "much nearer 1.6 than the even split" rather than against an absolute
+        // tolerance, because SSC's PHIT is not the bare corrected density porosity: it runs
+        // through the sand-silt-clay framework, whose RHOMA follows the projected point. Past
+        // c = 1 the corrected legs CROSS, which shifts that projection — so SSC lands close to
+        // phi(1.6) but not exactly on it, while SSPW (whose PHIT is the density leg itself) does.
         let ssc_default = run_ssc(None);
+        let (to_ruled, to_even) =
+            ((ssc_default - phi_at(1.6)).abs(), (ssc_default - phi_at(1.0)).abs());
         assert!(
-            (ssc_default - phi_at(1.0)).abs() < 2e-3,
-            "SSC defaults to the even split: expected about {}, got {ssc_default}",
+            to_ruled < to_even / 3.0,
+            "SSC must default to the ruled 1.6, not the even split: got {ssc_default}, which is \
+             {to_ruled} from phi(1.6) = {} and {to_even} from phi(1.0) = {}",
+            phi_at(1.6),
             phi_at(1.0)
         );
         assert!(
-            run_ssc(Some(1.6)) < ssc_default - 1e-4,
-            "and SSC's dial moves the same way SSPW's does"
+            run_ssc(Some(1.0)) > ssc_default + 1e-4,
+            "and the dial still reaches the even split, which reads higher: {} vs {ssc_default}",
+            run_ssc(Some(1.0))
         );
     }
 

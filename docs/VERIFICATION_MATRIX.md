@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 606,
+Review sections counted toward no capability: **157** of 608,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -35,7 +35,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `porosity` | Porosity interpretation | Not exercised | 0 / 75 | — | 21 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 166 | 2026-08-13 | 43 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 21 | — | 3 |
-| `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
+| `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 7 | — | 2 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
@@ -52,7 +52,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
 | `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 58 | — | 16 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 64 | — | 17 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 69 | 2026-07-20 | 19 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |

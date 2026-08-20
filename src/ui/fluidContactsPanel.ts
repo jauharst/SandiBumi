@@ -17,6 +17,7 @@ import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
 import { formRow } from "./modal";
+import { metresInStored, shownDepthLabel, storedDepthLabel, toShownDepth } from "../depthUnitPref";
 
 /**
  * Fluid contacts — the stored table, and whether it can be trusted
@@ -331,14 +332,23 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
     "own. Wells more than the tolerance off their group's surface are named.";
   qcBox.appendChild(qcNote);
 
+  // "3 m off the surface is a different contact" is a judgement about DISTANCE, so the box is
+  // pre-filled in the project's own unit and labelled with it. A bare 3 on a foot project is
+  // 0.91 m, and two picks 5 ft apart - 1.5 m, well inside anyone's tolerance - would be reported
+  // as disagreeing. The number reaches the backend unconverted, which is why the label names the
+  // STORED unit and not the display one.
   const tolIn = document.createElement("input");
   tolIn.className = "form-control";
   tolIn.type = "number";
   tolIn.step = "0.5";
-  tolIn.value = "3";
+  tolIn.value = String(Math.round(metresInStored(3) * 100) / 100);
   tolIn.style.width = "6rem";
   qcBox.appendChild(
-    formRow("Flag beyond", tolIn, "Depth units. A well further than this from its group's surface is named.")
+    formRow(
+      `Flag beyond (${storedDepthLabel()})`,
+      tolIn,
+      "A well further than this from its group's surface is named."
+    )
   );
 
   const qcOut = document.createElement("div");
@@ -352,7 +362,7 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
 
   const refreshQc = async (): Promise<void> => {
     qcOut.innerHTML = "";
-    const tol = Number(tolIn.value) || 3;
+    const tol = Number(tolIn.value) || metresInStored(3);
     let groups: ContactGroup[] = [];
     try {
       groups = await contactGroups();
@@ -387,12 +397,20 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
         line.style.color = "var(--text-dim)";
       } else {
         const flagged = res.wells.filter((w) => w.flagged);
+        // These are READ, so unlike the box above they follow the display preference and are
+        // converted. Depths, a spread and residuals are all lengths in the depth dimension.
+        const su = shownDepthLabel();
         line.textContent =
-          `${res.n} well(s), mean ${res.mean_tvdss.toFixed(1)} TVDSS, spread ${res.rms.toFixed(2)}` +
+          `${res.n} well(s), mean ${toShownDepth(res.mean_tvdss).toFixed(1)} TVDSS (${su}), ` +
+          `spread ${toShownDepth(res.rms).toFixed(2)} ${su}` +
           (res.plane ? " (fitted as a dipping surface)" : " (flat mean)") +
           (flagged.length
             ? ` — off the surface: ${flagged
-                .map((w) => `${w.well_name} ${w.residual >= 0 ? "+" : ""}${w.residual.toFixed(1)}`)
+                .map(
+                  (w) =>
+                    `${w.well_name} ${w.residual >= 0 ? "+" : ""}` +
+                    `${toShownDepth(w.residual).toFixed(1)} ${su}`
+                )
                 .join(", ")}`
             : " — every well agrees.");
         if (flagged.length) line.style.color = "var(--warn)";

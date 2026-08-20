@@ -8,7 +8,7 @@ Ported into `ssc.rs` / `modules.rs` (modules `ssc`, `sspw`).
 
 N-D crossplot with 6 framework points: fluid (RHOB_FL 1, NPHI_FL 1), matrix (2.65, 0),
 wet clay (RHOB_WCL 2.3, NPHI_WCL 0.6), dry clay (RHOB_DCL 2.71), wet silt (NPHI_WSI 0.3),
-DCLF_SI 0.1 (dry-clay fraction at silt point). GR_MA 10, GR_SH 150 (defaults).
+DCLF_SI 0.1 (dry-clay fraction at silt point). GR_MA 10, GR_SH 150, GAS_C 1.6 (defaults).
 
 Algorithm (all lines y=RHOB on x=NPHI):
 
@@ -23,11 +23,13 @@ Algorithm (all lines y=RHOB on x=NPHI):
    *cross*: at 1.6 the corrected density is 0.2·PHIDI²+0.8·NPHI² and the corrected neutron its
    mirror, so the D-N crossover is reversed rather than closed.
 
-   **The two source files disagree and both are shipped as defaults, on Jauhar's ruling** —
-   the 2022 spec-only `porosity_sspw.lls` writes c=1.6, the 2025 exec body `sspw.lls` writes
-   the even split. `ssc` defaults to **1.0** (what it has run since 2026-07-29); `sspw`
-   defaults to **1.6** (what it has always run), because in his rock the even split still
-   reads optimistic. Neither is a constant any more.
+   **The two source files disagree and Jauhar ruled between them** — the 2022 spec-only
+   `porosity_sspw.lls` writes c=1.6, the 2025 exec body `sspw.lls` writes the even split.
+   **Both modules now ship c=1.6**: `sspw` under DEC-086 (what it has always run) and `ssc`
+   under DEC-088, because in his rock the even split still reads optimistic and that
+   observation is about the rock, not about which module is reading it. DEC-088 therefore
+   MOVED SSC's gas numbers — a re-run of a gas well reads lower PHIT than it did before
+   2026-08-20. Neither is a constant any more; a well whose rock disagrees dials it back.
 2. **Derived points**: NPHI_DCL from dry-clay density on the clay-water line
    (M1=(1−RHOB_WCL)/(1−NPHI_WCL)); RHOB_WSI on the matrix–wet-clay line at NPHI_WSI;
    dry silt = intersection of the (fluid→wet silt) line with the dry line (matrix→dry clay).

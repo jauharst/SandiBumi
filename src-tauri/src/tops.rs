@@ -72,9 +72,14 @@ pub struct AutoCorrRequest {
     pub top_name: String,
     /// Log used for pattern matching (GR is the field standard).
     pub curve: String,
-    /// Half-length (depth units) of the correlation window around the marker.
+    /// Half-length of the correlation window around the marker, in the project's STORED depth
+    /// unit — it is applied straight to the stored depth grid, never converted. The dialog
+    /// labels it with that unit for the same reason.
     pub half_window: f32,
-    /// How far above/below the initial guess to search in each target well.
+    /// How far above/below the initial guess to search in each target well, in the project's
+    /// STORED depth unit. Same contract as `half_window`: a metre number typed against a foot
+    /// grid searches a third of the section asked for and can settle on a nearer local peak,
+    /// which is a plausible wrong proposal rather than an error.
     pub search_range: f32,
     pub target_well_ids: Vec<String>,
     /// "shift" (rigid best-lag, the fast default) or "warp" (elastic depth-warp
@@ -343,6 +348,22 @@ pub fn autocorrelate_multi(conn: &Connection, req: &MultiAutoCorrRequest) -> Mul
 
     // Per-marker local window: half the smaller neighbour spacing (clamped), so a marker's
     // window does not bleed into a neighbour's feature. A single marker gets a default window.
+    //
+    // The spacing itself is measured off the markers, so it is already in the project's unit and
+    // needs nothing. The three CONSTANTS do: 8 m is the least section a GR pattern can be matched
+    // on, 30 m the most before a window starts spanning more than one feature, and 40 m the
+    // assumed spacing when a lone marker has no neighbour to measure against. Left bare on a foot
+    // project they become 8, 30 and 40 FEET — a 2.4 m window that matches noise, and a
+    // correlation that reads plausible and proposes the wrong pick.
+    let unit = crate::units::project_depth_unit(conn)
+        .ok()
+        .flatten()
+        .unwrap_or(crate::units::DepthUnit::Metres);
+    let (win_min, win_max, lone_spacing) = (
+        crate::units::metres_in(8.0, unit) as f32,
+        crate::units::metres_in(30.0, unit) as f32,
+        crate::units::metres_in(40.0, unit) as f32,
+    );
     let half_window = |k: usize| -> f32 {
         let mut sp = f32::INFINITY;
         if k > 0 {
@@ -352,9 +373,9 @@ pub fn autocorrelate_multi(conn: &Connection, req: &MultiAutoCorrRequest) -> Mul
             sp = sp.min(markers[k + 1].1 - markers[k].1);
         }
         if !sp.is_finite() {
-            sp = 40.0;
+            sp = lone_spacing;
         }
-        (sp / 2.0).clamp(8.0, 30.0)
+        (sp / 2.0).clamp(win_min, win_max)
     };
 
     let mut proposals = Vec::new();

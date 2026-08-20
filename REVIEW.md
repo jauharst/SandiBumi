@@ -1,5 +1,82 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — A correlation window is an amount of ROCK, not a number (Codex P1)
+
+- [ ] **What was wrong, and why nothing ever caught it.** Every window in the correlation and
+      contact-picking tools was picked as an amount of *section* and then written as a plain number
+      applied straight to the depth column. Five metres to average a contact's contrast over. Two
+      for "these two picks are the same crossing". Three of section for the deep resistivity to fall
+      through. Eight to thirty for a marker's pattern window. Three of residual before two wells are
+      called disagreeing. Ten and twenty-five pre-filled in the Autocorrelate boxes. On a **metre**
+      project every one is right. On a **foot** project every one measures **3.28× less rock than it
+      was chosen to measure** — and nothing says so, because the number and the depths agree
+      arithmetically. No guard fires. Nothing looks wrong. They just stop meaning what they meant.
+- [ ] **What that does to a foot project, in order of how much it would annoy you.** The 8 m pattern
+      window becomes 2.4 m — too little log to match a GR shape on, so a nearer local peak wins and
+      you get a proposal that is plausible and in the wrong place. The 2 m merge becomes 2 ft and
+      stops collapsing duplicate Sw crossings, so the candidate list floods with the same contact
+      listed three times. The 5 m contrast window averages a metre and a half either side, so a
+      contact scores cleaner than it is. And the consistency check flags wells it should not: two
+      picks of one OWC **5 ft apart are 1.5 m apart**, well inside anybody's tolerance, and a bare
+      3.0 threshold called them inconsistent.
+- [ ] **What you will see now.** Wherever you TYPE a distance the box says which unit — `Window ±
+      (ft)`, `Search ± (ft)`, `Flag beyond (ft)` — and the number pre-filled in it is the same
+      amount of rock as before: 32.8, 82 and 9.84 on a foot project, still 10, 25 and 3 on a metre
+      one. Wherever you READ a distance it is converted and labelled: the correlation panel's
+      residual and RMS columns carried a hard-coded `m`, which printed a foot project's numbers
+      3.28× too big under a metre heading — and a residual is exactly what the flag threshold is
+      judged against, so the screen disagreed with itself.
+- [ ] **The conversion is exact, on purpose.** 3 m becomes 9.84 ft, not 10 ft. Rounding it would be
+      me picking a new threshold rather than restating yours, and picking a parameter is not mine to
+      do. The one place the app *does* use a hand-picked pair is the plug-pairing tolerance — 0.15 m
+      and 0.5 ft — because six inches is a real anchor there: one standard log sample. Nothing here
+      has an anchor like that, so nothing here gets rounded.
+- [ ] **Nothing on a metre project changes.** Checked both ways: every default, label and printed
+      number on a metre project is exactly what it was. This only ever moves on a foot project, and
+      there it moves toward what you asked for.
+- [ ] **What to check.** On a foot project: open Autocorrelate and confirm the two boxes read `ft`
+      with 32.8 and 82 in them; run a multi-marker correlation and see whether the proposals land
+      better than they used to. Open the fluid-contacts pane, look at `Flag beyond (ft)` = 9.84, and
+      re-run the group check — wells that used to be flagged for a few feet of scatter should now
+      come back clean. Suggest a contact from logs and see whether the candidate list is shorter.
+
+## 2026-08-20 — SSC's gas coefficient follows SSPW to 1.6 (DEC-088) — **this one moves numbers**
+
+- [ ] **Read the DEC-086 section at the bottom of this file first if you have not.** That one made
+      the gas-conditioning weight a dial, `GAS_C`, on both SSC and SSPW, and deliberately left each
+      module defaulting to whatever it already did — SSPW 1.6, SSC 1.0 — so that nothing you had
+      already run would move. This is the follow-up you ruled on with "yes please": your reason for
+      1.6 was that **the RMS midpoint still comes out optimistic in your rock**, and that is a
+      statement about the formation, not about which of the two modules is reading the logs. So SSC
+      now ships 1.6 as well.
+- [ ] **What this means when you re-run a gas well through SSC.** PHIT comes out **lower** than it
+      did before today, everywhere the gas branch fires — that is, everywhere NPHI sits at or below
+      the density porosity and the crossover opens. On the same gas sand the DEC-086 note used
+      (RHOB 2.20, NPHI 0.10, 2.65 matrix), SSC's own run goes from **0.205 to 0.159** — 4.6 porosity
+      units lower. Nothing else about SSC changed; this is the coefficient and only the coefficient.
+- [ ] **Why 4.6 and not the 5.4 the DEC-086 note quoted.** 5.4 p.u. is the gap in the bare
+      two-log arithmetic, and SSPW shows it exactly because SSPW's PHIT *is* the corrected density
+      leg. SSC's is not: it projects the corrected point onto the dry line and takes its matrix
+      density from the mineral fractions it solves. Below c = 1 that projection tracks the bare
+      arithmetic almost exactly; **above c = 1 the two corrected legs cross** — the correction
+      overshoots past the midpoint and puts the neutron on the density's side — which shifts the
+      projected point and takes a little of the gap back. Both numbers are right; they answer
+      different questions.
+- [ ] **The dial is untouched.** `GAS_C` is still a parameter on the SSC dialog, range 0 to 2, and
+      still settable per zone in the zone-parameter table. If a particular sand disagrees with 1.6,
+      set it there — that is what DEC-086 was for. 1.6 is the starting point, not a constant.
+- [ ] **What to check.** Open a gas well you have interpreted with SSC before, run it again, and put
+      the new PHIT beside the old one. It should read lower through the gas sands and be
+      indistinguishable outside them (the branch does not fire where NPHI is above the density
+      porosity, so shales and wet sands are untouched). If the drop looks too large for a sand you
+      know, dial `GAS_C` back on that zone and tell me — the point of DEC-086 was that this is the
+      rock's call, not the software's.
+- [ ] **One provenance note, because it is a departure and should not be silent.** SSPW's 1.6 is
+      what `porosity_sspw.lls` actually writes, so its default cites the file. SSC has no such
+      source — `sspw.lls`'s gas branch writes the even split, which is exactly why SSC ran 1.0. Its
+      citation string now says that in as many words: the source is unchanged, and the shipped
+      default departs from it on your ruling. Anyone reading the code later will see the override
+      rather than a 1.6 that looks like it came out of the Loglan.
 ## 2026-08-20 — Audit increment 25 (Codex P1): a survey states no geometry past its last station
 
 > **This one changes what you SEE on wells whose survey stops short of TD.** Read the third item
@@ -15749,8 +15826,9 @@ lands:
 | **1.6** | **80% of the way to the neutron — your SSPW default** |
 | 2 | the neutron outright |
 
-**Nothing you have run changes.** Each module now declares `GAS_C` with a default equal to
-exactly what it already did: SSPW 1.6, SSC 1.0. The parameter appears in both dialogs like any
+**Nothing you have run changes** *(as of DEC-086 — see the DEC-088 section at the top of this
+file, which changed SSC's half of this the same day)*. Each module declares `GAS_C` with a
+default equal to exactly what it already did: SSPW 1.6, SSC 1.0. The parameter appears in both dialogs like any
 other endpoint, so you can set it per well, and per zone through the zone-parameter table.
 
 What it is worth: on a gas sand at RHOB 2.20 / NPHI 0.10 against a 2.65 matrix, PHIT is **0.151

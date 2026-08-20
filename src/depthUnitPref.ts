@@ -104,6 +104,20 @@ export function sameDepthTolerance(): number {
   return appState.projectDepthUnit.get() === "FT" ? 0.5 : 0.15;
 }
 
+/** A default that was chosen as a PHYSICAL SIZE in metres, restated in the project's STORED unit.
+ *
+ *  **The twin of `units::metres_in` in Rust**, and used for the same reason on this side of the
+ *  bridge: a correlation window, a search range or a flag threshold pre-filled in a box is a
+ *  judgement about how much SECTION the operation needs, and it reaches the backend unconverted
+ *  to meet the stored depth grid. A bare `10` in that box is 10 m on a metre project and 10 ft —
+ *  3 m — on a foot one, which is too little section to match a GR pattern on. The label already
+ *  names the unit (see [`storedDepthLabel`]); this makes the number under it mean the same thing.
+ *
+ *  Belongs to `storedDepthLabel`, never `shownDepthLabel`: the value is about to be SENT. */
+export function metresInStored(valueM: number): number {
+  return convertDepth(valueM, "M", appState.projectDepthUnit.get());
+}
+
 /** Switches the unit depths are DISPLAYED in. Stored data is untouched — this is why the
  *  two units are separate settings in the first place. */
 export function setDisplayDepthUnit(unit: DepthUnit): void {

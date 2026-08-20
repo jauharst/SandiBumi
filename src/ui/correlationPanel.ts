@@ -21,6 +21,7 @@ import {
 } from "../ipc";
 import { appState, type BrushSelection, type TopInterval } from "../state";
 import { openModal } from "./modal";
+import { shownDepthLabel, toShownDepth } from "../depthUnitPref";
 import {
   attachAccessiblePlotKeyboard,
   buildPlotStatisticsRecord,
@@ -1365,21 +1366,27 @@ export async function buildCorrelationContent(
       }
       const summary = document.createElement("div");
       summary.className = "contacts-consistency-summary";
-      const rms = Number.isFinite(r.rms) ? `${r.rms.toFixed(1)} m` : "—";
-      summary.textContent = `${r.n} wells · ${r.plane ? "dip plane" : "flat mean"} · mean ${r.mean_tvdss.toFixed(1)} TVDSS · rms ${rms}`;
+      // Every number below is a length in the depth dimension and arrives in the project's
+      // STORED unit, so it is converted for reading and labelled with the display unit. The
+      // `m` here used to be hard-coded, which made a foot project's residuals read 3.28x too
+      // large under a metre heading - and a residual is exactly what the flag threshold above
+      // is judged against, so the two disagreed on screen.
+      const su = shownDepthLabel();
+      const rms = Number.isFinite(r.rms) ? `${toShownDepth(r.rms).toFixed(1)} ${su}` : "—";
+      summary.textContent = `${r.n} wells · ${r.plane ? "dip plane" : "flat mean"} · mean ${toShownDepth(r.mean_tvdss).toFixed(1)} TVDSS · rms ${rms}`;
       conResults.appendChild(summary);
       const table = document.createElement("table");
       table.className = "dbgrid";
-      table.innerHTML = `<thead><tr><th>Well</th><th>TVDSS</th><th>Predicted</th><th>Resid</th><th></th></tr></thead>`;
+      table.innerHTML = `<thead><tr><th>Well</th><th>TVDSS (${su})</th><th>Predicted (${su})</th><th>Resid (${su})</th><th></th></tr></thead>`;
       const tb = document.createElement("tbody");
       for (const w of r.wells) {
         const tr = document.createElement("tr");
         if (w.flagged) tr.classList.add("weak-match");
         const cells = [
           w.well_name,
-          w.tvdss.toFixed(1),
-          Number.isFinite(w.predicted) ? w.predicted.toFixed(1) : "—",
-          Number.isFinite(w.residual) ? w.residual.toFixed(1) : "—",
+          toShownDepth(w.tvdss).toFixed(1),
+          Number.isFinite(w.predicted) ? toShownDepth(w.predicted).toFixed(1) : "—",
+          Number.isFinite(w.residual) ? toShownDepth(w.residual).toFixed(1) : "—",
           w.flagged ? "⚠" : "",
         ];
         for (const t of cells) {
