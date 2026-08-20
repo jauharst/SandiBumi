@@ -1672,6 +1672,28 @@ fn draw_point_series(
                         });
                     }
                 }
+                // The individual plugs behind the summary. The field's own doc says it: on a
+                // sparse cored interval seeing them is often the point - which makes it a
+                // deliberate choice the reader made, and the print was silently dropping it
+                // from the deliverable while the screen honoured it. Ticks sit ABOVE the box
+                // so they never obscure the median, matching the viewer.
+                if ps.show_samples.unwrap_or(false) {
+                    let tick = box_h / 3.0;
+                    let top = mid - box_h / 2.0;
+                    for v in &vals {
+                        let Some(x) = x_at(*v) else { continue };
+                        ops.push(DrawOp::Fill {
+                            pts: vec![
+                                (x - 0.15, top - tick),
+                                (x + 0.15, top - tick),
+                                (x + 0.15, top),
+                                (x - 0.15, top),
+                            ],
+                            fill: ps.color.clone(),
+                            opacity: 0.55,
+                        });
+                    }
+                }
             }
         }
         _ => {
@@ -1979,7 +2001,23 @@ fn draw_track_header(ops: &mut Vec<DrawOp>, track: &crate::layout::Track, tx0: f
         bold: true,
         s: track.title.clone(),
     });
-    if let Some(c) = track.curves.first() {
+    // A class-blocks curve has no value axis - the blocks always span the track - so it must
+    // neither print one nor stand in for a real curve's scale. The screen gives every curve its
+    // own scale line and writes "class blocks" on that one; the print header has a single line,
+    // so it takes the first curve that HAS a scale and names the display only when none does.
+    let scale_curve = track.curves.iter().find(|c| c.fill.as_deref() != Some("blocks"));
+    if scale_curve.is_none() && !track.curves.is_empty() {
+        ops.push(DrawOp::Text {
+            x: (tx0 + tx1) / 2.0,
+            y: bot - 1.2,
+            size: 2.4,
+            anchor: Anchor::Middle,
+            color: "#555555".into(),
+            bold: false,
+            s: "class blocks".into(),
+        });
+    }
+    if let Some(c) = scale_curve {
         let tag = if track.scale_type == ScaleType::Log { " (log)" } else { "" };
         ops.push(DrawOp::Text {
             x: tx0 + 0.8,
@@ -2680,6 +2718,108 @@ mod tests {
                 .count();
             assert_eq!(walls, 2, "page {} lost the casing string", p.idx);
         }
+    }
+
+    /// `show_samples` reaches the deliverable, not just the screen.
+    ///
+    /// A box glyph summarises a cored interval; the option draws the individual plugs behind it,
+    /// and the field's own doc says why - "on a sparse interval seeing the plugs behind the
+    /// summary is often the point". The screen honoured it and the print did not, so a choice
+    /// the reader deliberately made was dropped from the PDF with nothing to say so. Pinned from
+    /// both sides: OFF must stay clean, or "always draw them" would pass the ON half.
+    #[test]
+    fn the_plugs_behind_a_box_glyph_reach_the_print_when_the_reader_asked_for_them() {
+        let style = |show: bool| -> crate::layout::PointStyle {
+            serde_json::from_value(serde_json::json!({
+                "source": "core", "item": "CPOR", "color": "#c67139",
+                "min": 0.0, "max": 0.4, "display": "box", "show_samples": show
+            }))
+            .unwrap()
+        };
+        // Five plugs over one metre, so they land in a single depth bin and get one box.
+        let core: Vec<(String, f32, f32)> = [0.10f32, 0.14, 0.18, 0.22, 0.26]
+            .iter()
+            .enumerate()
+            .map(|(i, v)| ("CPOR".to_string(), 100.0 + i as f32 * 0.1, *v))
+            .collect();
+        let render = |show: bool| -> Vec<DrawOp> {
+            let mut ops = Vec::new();
+            draw_point_series(
+                &mut ops, &style(show), ScaleType::Linear, &core, &[], 0.0, 30.0, 90.0, 110.0,
+                &|d: f32| d as f64,
+            );
+            ops
+        };
+        // The tick is the only translucent fill the box path emits; the box body is 0.5.
+        let ticks = |ops: &[DrawOp]| -> usize {
+            ops.iter()
+                .filter(|o| matches!(o, DrawOp::Fill { opacity, .. } if (*opacity - 0.55).abs() < 1e-9))
+                .count()
+        };
+
+        let on = render(true);
+        assert!(ticks(&on) >= 5, "every plug must print, got {} tick(s)", ticks(&on));
+
+        let off = render(false);
+        assert_eq!(ticks(&off), 0, "and OFF must print none - the option is the reader's");
+        assert!(
+            off.len() > 3,
+            "the box itself still prints either way, or this test proves nothing: {}",
+            off.len()
+        );
+    }
+
+    /// A class-blocks track prints no value axis, and never borrows one curve's scale for another.
+    ///
+    /// CLAUDE.md already states it - "min/max on a blocks curve is ignored (header shows
+    /// `class blocks` instead of editable scale)" - and the screen obeys it per curve row. The
+    /// print header carries ONE scale line, so it used to take `curves.first()` whatever that
+    /// was: a FACIES track printed `0 ... 8` as though the colours sat on a value axis, and a
+    /// track that merely LISTED the blocks curve first printed those meaningless limits instead
+    /// of the real curve's. Pinned from both sides so neither half can regress alone.
+    #[test]
+    fn a_class_blocks_track_prints_no_value_scale_and_never_borrows_a_real_curves_one() {
+        let track = |curves: serde_json::Value| -> crate::layout::Track {
+            serde_json::from_value(serde_json::json!({
+                "title": "Facies", "width_weight": 1.0, "scale_type": "linear", "curves": curves
+            }))
+            .unwrap()
+        };
+        let header = |t: &crate::layout::Track| -> Vec<String> {
+            let mut ops = Vec::new();
+            draw_track_header(&mut ops, t, 0.0, 30.0, 0.0, 10.0);
+            ops.iter()
+                .filter_map(|o| match o {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let blocks = serde_json::json!({
+            "curve_name": "FACIES", "color": "#000000", "min": 0.0, "max": 8.0, "fill": "blocks"
+        });
+        let gr = serde_json::json!({
+            "curve_name": "GR", "color": "#111111", "min": 0.0, "max": 150.0
+        });
+
+        // Blocks alone: the display is named, and 8 never appears as a limit.
+        let only = header(&track(serde_json::json!([blocks])));
+        assert!(only.iter().any(|s| s == "class blocks"), "must name the display: {only:?}");
+        assert!(
+            !only.iter().any(|s| s.contains('8')),
+            "a class index is not a value axis, so its max must not print: {only:?}"
+        );
+
+        // Listed FIRST beside a real curve: the real curve's scale is the one that prints.
+        let pair = header(&track(serde_json::json!([blocks, gr])));
+        assert!(
+            pair.iter().any(|s| s.contains("150")),
+            "the real curve owns the scale line: {pair:?}"
+        );
+        assert!(
+            !pair.iter().any(|s| s == "class blocks"),
+            "and with a real scale present there is nothing to name: {pair:?}"
+        );
     }
 
     #[test]

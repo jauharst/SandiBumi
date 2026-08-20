@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 617,
+Review sections counted toward no capability: **157** of 619,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -40,7 +40,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 34 | — | 20 |
-| `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
+| `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 30 | 2026-07-18 | 7 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 200 | 2026-07-19 | 34 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
@@ -48,7 +48,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 20 | — | 6 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 50 | — | 14 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
-| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
+| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 55 | 2026-07-19 | 12 |
 | `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
 | `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
@@ -57,7 +57,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 12 | — | 7 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
-| `composite` | Composite log plots | Not exercised | 0 / 15 | — | 5 |
+| `composite` | Composite log plots | Not exercised | 0 / 18 | — | 6 |
 | `report` | Report deliverables | Partially exercised | 8 / 97 | 2026-08-14 | 24 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
@@ -66,6 +66,6 @@ this table, so every figure above reads low by whatever those sections cover.
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
-| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 65 | — | 12 |
+| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 69 | — | 13 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 176 | 2026-08-13 | 57 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 174 | 2026-08-13 | 51 |

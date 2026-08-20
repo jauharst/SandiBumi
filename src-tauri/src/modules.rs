@@ -3643,7 +3643,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
 
 const GR_ENDPOINT_PICKING_GUIDANCE: (&str, &str) = (
     "IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value.",
-    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; method_workflow_standards.md",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md",
 );
 
 const ND_CROSSPLOT_PICKING_GUIDANCE: (&str, &str) = (
@@ -7739,12 +7739,12 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
 
 const GR_NORMALIZATION_PERCENTILE_GUIDANCE: (&str, &str) = (
     "P3/P97 is a named SandiBumi house preset for selecting well percentiles. It selects positions in the distribution; it is not a gamma-ray endpoint value.",
-    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5.1; method_workflow_standards.md",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5.1; docs/workflow_standards.md",
 );
 
 const GR_NORMALIZATION_REFERENCE_GUIDANCE: (&str, &str) = (
     "Compute well percentiles over a common reference interval containing comparable rock. Derive one reference pair from the study distribution or an agreed reference, then use that same pair for every well in the study.",
-    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; method_workflow_standards.md",
+    "docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; docs/workflow_standards.md",
 );
 
 fn gr_normalize_spec() -> ModuleSpec {
@@ -7768,7 +7768,7 @@ fn gr_normalize_spec() -> ModuleSpec {
                 with_sources(
                     param(
                         "P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0,
-                        "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                        "docs/workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
                     ),
                     crate::param_sources::PERCENTILE_REFERENCE_LOW,
                 ),
@@ -7778,7 +7778,7 @@ fn gr_normalize_spec() -> ModuleSpec {
                 with_sources(
                     param(
                         "P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0,
-                        "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                        "docs/workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
                     ),
                     crate::param_sources::PERCENTILE_REFERENCE_HIGH,
                 ),
@@ -15833,7 +15833,7 @@ mod tests {
                 arg.default.parse::<f64>().is_ok(),
                 "the named P3/P97 preset is cited and must remain selectable"
             );
-            assert!(arg.default_source.contains("method_workflow_standards.md"));
+            assert!(arg.default_source.contains("docs/workflow_standards.md"));
             assert!(
                 !arg.guidance.is_empty(),
                 "the preset must be described as a named convention rather than an endpoint"

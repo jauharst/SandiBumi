@@ -259,7 +259,7 @@ divergence class this whole chapter exists to prevent (dossier §2.6, BL-6).
 Techlog's "Dual water" hard-codes `φtsh²` (**T3** `modules-quanti-saturation-dualw.gif`) where
 its own "Juhasz" uses `φtsh^m*` (**T3** `image1252.gif`). Identical at `m* = 2`; divergent
 otherwise. At φtsh 0.4 (Techlog's own default), Rsh 5, `m* = 1.6` (Jauhar's own KKT
-Waxman-Smits value, **T4** `method_workflow_standards`): Dual water gives `Cwsh = 1.250`,
+Waxman-Smits value, **T4** `docs/workflow_standards.md`): Dual water gives `Cwsh = 1.250`,
 Juhasz gives `Cwsh = 0.866` — **44 % apart**. At Rw 1.0 the coefficient `Cwsh − Cw` is
 **+0.250** in Dual water and **−0.134** in Juhasz — **opposite signs, same inputs, same
 product** (dossier §3.6).
