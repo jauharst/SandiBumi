@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isGeneratedFileCurrent } from './generated-artifact.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -62,8 +63,25 @@ function loadMap(jsonText) {
   if (parsed.schema_version !== 1 || !Array.isArray(parsed.capabilities)) {
     throw new Error('capability map must have schema_version 1 and a capabilities array');
   }
+  // REQUIRED, never defaulted to an empty list. This matrix used to check one direction only — it
+  // refused a capability matching no review section, and said nothing at all about a review
+  // section matching no capability. A new section could therefore count toward nothing, silently,
+  // and the only symptom was a total that failed to move. Defaulting an absent key to `[]` would
+  // restore exactly that, so an absent key is an error.
+  const acknowledged = parsed.unmapped_review_sections;
+  if (!Array.isArray(acknowledged) || !acknowledged.every((value) => typeof value === 'string')) {
+    throw new Error(
+      'capability map must carry unmapped_review_sections as an array of REVIEW.md section titles',
+    );
+  }
+  const duplicate = acknowledged.find(
+    (title, index) => acknowledged.indexOf(title) !== index,
+  );
+  if (duplicate !== undefined) {
+    throw new Error(`duplicate unmapped_review_sections entry: "${duplicate}"`);
+  }
   const ids = new Set();
-  return parsed.capabilities.map((capability, index) => {
+  const capabilities = parsed.capabilities.map((capability, index) => {
     const where = `capabilities[${index}]`;
     if (!/^[a-z0-9][a-z0-9-]*$/u.test(capability.id ?? '')) {
       throw new Error(`${where}.id must be a lowercase stable identifier`);
@@ -99,6 +117,17 @@ function loadMap(jsonText) {
       patterns: patterns.map((pattern) => new RegExp(pattern, 'iu')),
     };
   });
+  return { capabilities, acknowledgedUnmapped: acknowledged };
+}
+
+/** Does any capability claim this section? Selector matching is on the title alone, so a title is
+ *  either claimed or unclaimed — never both. A `not_listed` capability carries no selectors and
+ *  therefore claims nothing, which is what it means. */
+function isMapped(capability, section) {
+  return (
+    capability.exact.has(section.title)
+    || capability.patterns.some((pattern) => pattern.test(section.title))
+  );
 }
 
 function escapeCell(value) {
@@ -113,7 +142,38 @@ function renderMatrix(reviewText, mapText) {
       `checked REVIEW.md section "${undatedExercise.rawTitle}" has no ledger date`,
     );
   }
-  const capabilities = loadMap(mapText);
+  const { capabilities, acknowledgedUnmapped } = loadMap(mapText);
+
+  // The reverse direction of the `capability matches no REVIEW.md section` check below. A section
+  // nothing claims contributes to no capability's count, which is a defensible state for the
+  // historical entries that predate this map — but only while it is WRITTEN DOWN. An unlisted one
+  // is refused by name, so a new review section cannot quietly count toward nothing.
+  const unmappedTitles = new Set(
+    sections
+      .filter((section) => !capabilities.some((capability) => isMapped(capability, section)))
+      .map((section) => section.title),
+  );
+  const unacknowledged = [...unmappedTitles].filter((title) => !acknowledgedUnmapped.includes(title));
+  if (unacknowledged.length > 0) {
+    throw new Error(
+      `${unacknowledged.length} REVIEW.md section(s) match no capability and are not acknowledged in `
+        + 'verification/capabilities.json: map each to a capability\'s selectors, or add its exact '
+        + `title to unmapped_review_sections: ${unacknowledged.map((title) => `"${title}"`).join(', ')}`,
+    );
+  }
+  // And the list cannot rot into a blanket exemption: an entry survives only while its section is
+  // still present and still unclaimed. Retitle a section, or give it a capability, and its stale
+  // acknowledgement has to go — otherwise the list would slowly stop describing anything and would
+  // keep excusing sections nobody had looked at in a year.
+  const staleAcknowledgements = acknowledgedUnmapped.filter((title) => !unmappedTitles.has(title));
+  if (staleAcknowledgements.length > 0) {
+    throw new Error(
+      `${staleAcknowledgements.length} unmapped_review_sections entr(ies) no longer name an unmapped `
+        + 'REVIEW.md section (retitled, removed, or since mapped) and must be deleted: '
+        + `${staleAcknowledgements.map((title) => `"${title}"`).join(', ')}`,
+    );
+  }
+
   const rows = capabilities.map((capability) => {
     if (capability.notListed) {
       return {
@@ -125,11 +185,7 @@ function renderMatrix(reviewText, mapText) {
         sections: 0,
       };
     }
-    const matched = sections.filter(
-      (section) =>
-        capability.exact.has(section.title) ||
-        capability.patterns.some((pattern) => pattern.test(section.title)),
-    );
+    const matched = sections.filter((section) => isMapped(capability, section));
     if (matched.length === 0) {
       throw new Error(`capability ${capability.id} matches no REVIEW.md section`);
     }
@@ -179,6 +235,10 @@ function renderMatrix(reviewText, mapText) {
     '',
     `Capabilities with recorded exercise: **${exercised} / ${rows.length}**. Fully exercised: **${fullyExercised} / ${rows.length}**.`,
     '',
+    `Review sections counted toward no capability: **${unmappedTitles.size}** of ${sections.length},`,
+    'each named in `unmapped_review_sections` in the capability map. They contribute to no count in',
+    'this table, so every figure above reads low by whatever those sections cover.',
+    '',
     '| Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |',
     '|---|---|---|---:|---|---:|',
     ...rows.map(
@@ -198,7 +258,7 @@ function main() {
   );
   if (args.check) {
     const actual = fs.existsSync(args.output) ? fs.readFileSync(args.output, 'utf8') : '';
-    if (actual.replaceAll('\r\n', '\n') !== expected) {
+    if (!isGeneratedFileCurrent(actual, expected)) {
       throw new Error(
         `${path.relative(repo, args.output)} is out of date; run node tools/generate-verification-matrix.mjs`,
       );
