@@ -277,6 +277,36 @@
 - [ ] **Where this came from.** The independent Codex adversarial review of `a6565bd9`, its
       single P0. Its other findings are being worked in order; the SSPW gas-conditioning one
       needs your ruling before anything moves, and I have not touched it.
+## 2026-08-20 — Audit increment 6 (P1): the Simandoux "unlimited" curve is genuinely unlimited now
+
+- [ ] **What was wrong (audit finding #4), and your "diagnostics stay raw" ruling executed.**
+      `SWE_SIM` is labelled *(unlimited)* and sits in the same family as SWT_ARCH and SWE_INDO —
+      the QC companion that shows what the equation really said. But the Simandoux root solver
+      clamped every one of its exits, so wherever the true Sw came out above 1 the "unlimited"
+      curve read exactly **1.000 — the same number as the working SWE beside it**. Overlay the
+      two and they agree; the wet leg looks real. That is exactly the ambiguity the raw twin
+      exists to break, and nothing flagged it either: the run records a clamp only when clamping
+      *changes* a value, and this value arrived already flattened.
+- [ ] **What changed.** `sw_sim` now reads the raw root. The clamped entry point is literally the
+      raw one with the clamp applied, so the working curve and the diagnostic can never come from
+      two different equations. **Your SWE, VOL_UWAT and pay numbers do not move** — for any
+      reading in range the two paths are identical, and out of range SWE still clamps to 1 exactly
+      as before. What you gain: SWE_SIM now reads (say) 2.35 where the parameters don't describe
+      the rock, and the run records that a clamp happened.
+- [ ] **Click-through:** a shaly interval with Rw deliberately set an order of magnitude too high
+      (or Rt too low for the porosity) → run Saturation → Simandoux. On the log view put SWE_SIM
+      and SWE in one track: SWE must sit on 1.0 while SWE_SIM climbs above it. In a good interval
+      the two curves must lie exactly on top of each other. The VSH ≥ 1 case still reports 1.0 by
+      name (SB-SAT-030) — that is a singularity, not a computed saturation, and is unchanged.
+- [ ] **Automated correctness:** `the_unlimited_simandoux_diagnostic_reports_the_root_above_one_
+      instead_of_a_second_copy_of_swe` pins both solver paths (the closed quadratic against an
+      independently written root; the general-exponent bisection verified by substituting the
+      answer back into the equation) and both directions — out of range they must part company by
+      more than 1.0, in range they must agree exactly, and the clamped solver entry point must
+      still answer 1. Two mutations red at two distinct assertions. The saturation PRD's
+      SB-SAT-025 as-built note carried the false claim that SWE_SIM was already unclipped; it now
+      carries a dated correction (the other two gaps in that note stand).
+
 ## 2026-08-20 — Audit increment 5 (P2): one geothermal gradient, not two — your R-3 executed
 
 - [ ] **What changed (audit finding #30, DEC-085 R-3: "the right one is 0.026 degF/ft").** The two

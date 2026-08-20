@@ -1398,6 +1398,20 @@ range".
 (`:2201`) are emitted unclipped, but `sw_arch`'s **effective** result has no unclipped
 counterpart, and the LRLC modules emit clamped values only (`lrlc.rs:153`, `:161`, `:281`).
 
+> **Correction (2026-08-20, AUDIT-2026-08-20 finding 4; DEC-085 "diagnostics stay raw").** The
+> `SWE_SIM` half of that as-built statement was **wrong when written**: the curve was declared
+> unclipped and named into this family, but every exit of the shared Simandoux root solver
+> clamped to [0, 1] (`sandimin::solve_simandoux_root`), so wherever the true root exceeded 1 the
+> "unlimited" diagnostic read exactly 1.000 — bit-identical to the `SWE` beside it, and unflagged,
+> because `limit` records a clamp only when it changes a value and this one arrived pre-flattened.
+> `sw_sim` now takes `sandimin::sw_simandoux_*_unlimited`, which is the same equation without the
+> clamp (the clamped entry point is literally it, clamped), so the pair cannot come from two
+> implementations. The working `SWE` is bit-identical for every reading. The `VSH >= 1`
+> singularity still answers 1.0 in both renderings and stays reported by name under SB-SAT-030 —
+> a raw reading requires an equation to have been evaluated. Pinned by
+> `the_unlimited_simandoux_diagnostic_reports_the_root_above_one_instead_of_a_second_copy_of_swe`.
+> The other two gaps in this note (`sw_arch` effective, the LRLC modules) are unchanged and stand.
+
 **Verified by.** SB-SAT-T38
 
 ---
