@@ -1,5 +1,54 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 10 (Codex P1): RtC and IMTS saturation — a gap in a bound-water curve is missing data, not zero
+
+> **This one moves numbers on real wells** — but only at depths where the answer was wrong.
+> Please field-verify it against an RtC/IMTS run you already trust.
+
+- [ ] **What this fixes.** RtC substituted **zero** for a missing CAPBW sample. Zero capillary-
+      bound water is a real geological claim; a gap in the curve is not. So a hole at one depth
+      removed conductivity the rock actually has: the excess-conductivity term went negative, the
+      guard clamped it to zero, the corrected resistivity came back as **raw Rt**, and the module
+      published a finite, plausible, cleaner-sand saturation with nothing on any output to say the
+      input was missing. At Rt 20, PHIT 0.25, RW 0.30, m = n = 2, Qv 0.30, CAPBW 0.08 the honest
+      answer is **SWT 0.397**; with that one sample missing the old code printed **0.490** — about
+      **9 saturation units of water invented from an absent measurement**.
+- [ ] **The same rule on the clay-bound side, on both modules.** A hole in CBW used to publish
+      SWE = SWT, which states the depth has no clay-bound water. It now withholds **only** the
+      effective trio (SWE, SWE_RTC, VOL_UWAT) — SWT, RT_CORR and CEX_RTC do not depend on CBW and
+      are still answered. Applied to `sw_rtc` and `sw_imts` alike, because the identical line sat
+      in both.
+- [ ] **What did NOT change, deliberately.** A well that carries **no** CAPBW or CBW anywhere runs
+      exactly as before: the correction simply has no capillary term and every sample answers.
+      That is the SSC-only well the module has always allowed, and it is bit-identical. The
+      discriminator is per-well and per-curve — *does this well carry any measurement on this
+      role at all* — because the runner hands a module every declared input as an all-NaN vector
+      whether or not the curve exists, so there is no other honest signal available.
+- [ ] **Click-through:** run **Sw from RtC** on a well whose CAPBW has a gap (a washout interval
+      is the usual cause) — SWT, SWE and RT_CORR must now be **blank across the gap** instead of
+      drawing through it, and the values either side must be unchanged. Then run it on a well with
+      no CAPBW curve at all: the result must be identical to what you got before this change.
+      Repeat on **Sw from IMTS** with a gapped CBW: SWT should still draw, SWE should blank.
+- [ ] **One existing test had to be corrected, and it is worth knowing why.** The VOL_UWAT
+      identity test used a CBW curve reading `[0.05, NaN, 0.05]` for its "no clay-bound water"
+      arm — a hole, not an absent curve. That test was the thing holding this defect in place: it
+      asserted a gap must publish PHIT × SWT. Its sentence always said *"when no clay-bound water
+      is supplied"*, so the fixture now uses a well that carries none. The identity itself is
+      untouched.
+- [ ] **Automated correctness:** one pin,
+      `a_hole_in_a_curve_the_well_carries_is_missing_data_and_never_zero_bound_water`, with three
+      arms — the hole blanks every RtC output at that depth while its neighbour still reads 0.397;
+      the absent role still answers 0.490 at every sample; a CBW hole blanks only the effective
+      trio. The arithmetic in it is derived from the equation, not quoted from the review. Two
+      mutations red at two distinct assertions, pinning the discriminator from both sides (never
+      present → the hole silently computes; always present → the SSC-only well goes blank).
+- [ ] **Not folded in, and flagged rather than decided.** `sw_imts` still reads a missing VKAOL or
+      VILL as zero clay of that mineral. That one is a *documented* convention with a matching
+      guard in its own S-factor fit ("a plug where BOTH are missing carries no clay information
+      and must not be read as a clean plug"), so the module's gap is that it has no equivalent of
+      that both-missing rule. Same family, different question — say the word and it becomes its
+      own increment.
+
 ## 2026-08-20 — Audit increment 9 (Codex P1): the free-water level asks for the unit it actually uses
 
 - [ ] **What this fixes.** The saturation-height module computes height above the contact as

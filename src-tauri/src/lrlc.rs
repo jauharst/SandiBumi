@@ -25,6 +25,24 @@ fn limit(v: f64, lo: f64, hi: f64) -> f64 {
 /// Lets a module declared against SSC output names (PHIT_SSC/CWSH/CBW) also run on a well
 /// processed through the SSPW workflow (PHIT_SSPW/CAPBW_SSPW/CBW_SSPW) without a silent
 /// all-NaN run — a missing `alt` stays NaN, so an SSC-only well is byte-for-byte unchanged.
+/// Does this well carry ANY measurement on an optional role?
+///
+/// The discriminator the runner cannot give us. `workflow::fetch_module_logs` inserts EVERY
+/// declared input under its argument name, filling an unresolved one with all-NaN
+/// (`workflow.rs`, `unwrap_or_else(|| vec![f32::NAN; depth.len()])`), and `build_opts` writes
+/// `__IN_<arg>` from the manifest's default mnemonic whether or not that curve exists — so
+/// neither `logs` nor `in_curve` says whether the role was actually bound. The curve's own
+/// content does, and it asks the right question anyway: **this well** either has capillary-bound
+/// water measured on it or it does not.
+///
+/// A role the well carries nothing for is an absent TERM — the correction collapses to the base
+/// resistivity model, which is what an SSC-only well should get and what this module has always
+/// allowed. A hole inside a curve the well DOES carry is missing DATA, and the two must not be
+/// answered the same way.
+fn role_present(values: &[f32]) -> bool {
+    values.iter().any(|v| v.is_finite())
+}
+
 fn prefer(primary: &[f32], alt: &[f32]) -> Vec<f32> {
     primary
         .iter()
@@ -153,6 +171,9 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
     let capbw = prefer(&ctx.log("CAPBW"), &ctx.log("CAPBW_SSPW"));
     let qv_log = ctx.log("QV");
     let cbw = prefer(&ctx.log("CBW"), &ctx.log("CBW_SSPW"));
+    // Asked once per well, not per sample: whether the well carries these optional roles at all.
+    let has_capbw = role_present(&capbw);
+    let has_cbw = role_present(&cbw);
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
@@ -170,7 +191,17 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         if rt_i.is_nan() || pt.is_nan() || rw.is_nan() || rt_i <= 0.0 || pt <= 0.0 {
             continue;
         }
-        let cap = if (capbw[i] as f64).is_nan() { 0.0 } else { limit(capbw[i] as f64, 0.0, 1.0) };
+        // Zero capillary-bound water is a real geological claim; NaN is the project's only way to
+        // say "nothing measured here" (rule 2). Substituting 0.0 for a hole in a curve the well
+        // DOES carry turned the hole into a finite, plausible, cleaner-sand saturation with
+        // nothing on any output to mark it — the missing input removed conductivity the rock
+        // actually has, so RT_CORR came back as raw RT and SWT read too high. A well carrying no
+        // CAPBW at all still runs without the capillary term, exactly as before.
+        let cap = match capbw[i] as f64 {
+            v if !v.is_nan() => limit(v, 0.0, 1.0),
+            _ if has_capbw => continue, // measured elsewhere in this well, absent here
+            _ => 0.0,                   // never measured in this well: no capillary term
+        };
         let qv = qv_at(qv_log[i] as f64, pt, ctx.p("CEC", i), ctx.p("RHOG", i));
 
         let ct = 1.0 / rt_i;
@@ -192,6 +223,13 @@ pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
         cex_o[i] = cex_applied as f32;
 
         let cb = cbw[i] as f64;
+        // The same rule on the clay-bound side, with a narrower blast radius. SWT, RT_CORR and
+        // CEX_RTC are already written above and do not depend on CBW, so only the EFFECTIVE trio
+        // is withheld. Falling through to the no-clay branch would publish SWE = SWT, which
+        // states this depth has no clay-bound water — the one thing a hole cannot support.
+        if cb.is_nan() && has_cbw {
+            continue;
+        }
         if !cb.is_nan() && pt > cb {
             let swb = limit(cb / pt, 0.0, 0.99);
             swe_raw_o[i] = ((swt_raw - swb) / (1.0 - swb)) as f32;
@@ -335,6 +373,7 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
     let vill = ctx.log("VILL");
     let swirr_log = ctx.log("SWIRR");
     let cbw = prefer(&ctx.log("CBW"), &ctx.log("CBW_SSPW"));
+    let has_cbw = role_present(&cbw);
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
@@ -414,6 +453,11 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         swt_o[i] = sw as f32;
 
         let cb = cbw[i] as f64;
+        // Same rule as sw_rtc: a hole in a CBW curve this well carries withholds the EFFECTIVE
+        // trio; SWT is already written and does not depend on it.
+        if cb.is_nan() && has_cbw {
+            continue;
+        }
         if !cb.is_nan() && pt > cb {
             let swb = limit(cb / pt, 0.0, 0.99);
             swe_raw_o[i] = ((sw_raw - swb) / (1.0 - swb)) as f32;
@@ -1333,17 +1377,25 @@ mod tests {
     /// already emits - so it equals PHIT*SWT - CBW wherever the clip does not bind, and
     /// degenerates to PHIT*SWT when no clay-bound water is supplied. A missing saturation
     /// carries no water volume.
+    ///
+    /// **Fixture corrected 2026-08-20.** The degenerate arm used to be the middle sample of a
+    /// well whose CBW curve read `[0.05, NaN, 0.05]` — a HOLE, not an absent role. That made this
+    /// test the pin holding the defect the Codex review found, because it asserted a hole
+    /// publishes `PHIT*SWT`, i.e. the claim that this depth has no clay-bound water. The identity
+    /// under test is unchanged; the degenerate case now comes from a well that carries no CBW at
+    /// all, which is what the sentence above always said. The hole itself is pinned next door in
+    /// `a_hole_in_a_curve_the_well_carries_is_missing_data_and_never_zero_bound_water`.
     #[test]
     fn vol_uwat_is_the_effective_volume_identity_on_both_lrlc_modules() {
         let spec = sw_rtc_spec();
         let out = sw_rtc(&ctx_with(
             vec![
-                ("RT", vec![4.0, 4.0, f32::NAN]),
-                ("PHIT", vec![0.25, 0.25, 0.25]),
-                ("CBW", vec![0.05, f32::NAN, 0.05]),
+                ("RT", vec![4.0, f32::NAN]),
+                ("PHIT", vec![0.25, 0.25]),
+                ("CBW", vec![0.05, 0.05]),
             ],
             &spec,
-            3,
+            2,
         ));
         let (pt, cb) = (0.25f64, 0.05f64);
         let expected = ((pt - cb) * out["SWE"][0] as f64) as f32;
@@ -1352,13 +1404,20 @@ mod tests {
             "with CBW: VOL_UWAT {} must be PHIE x SWE {expected}",
             out["VOL_UWAT"][0]
         );
-        let expected_nocbw = (pt * out["SWT"][1] as f64) as f32;
+        assert!(out["VOL_UWAT"][1].is_nan(), "no saturation, no water volume");
+
+        // The degenerate case: a well carrying no clay-bound water anywhere. PHIE is then PHIT.
+        let no_cbw = sw_rtc(&ctx_with(
+            vec![("RT", vec![4.0]), ("PHIT", vec![0.25])],
+            &spec,
+            1,
+        ));
+        let expected_nocbw = (pt * no_cbw["SWT"][0] as f64) as f32;
         assert!(
-            (out["VOL_UWAT"][1] - expected_nocbw).abs() < 1e-6,
+            (no_cbw["VOL_UWAT"][0] - expected_nocbw).abs() < 1e-6,
             "without CBW: VOL_UWAT {} must be PHIT x SWT {expected_nocbw}",
-            out["VOL_UWAT"][1]
+            no_cbw["VOL_UWAT"][0]
         );
-        assert!(out["VOL_UWAT"][2].is_nan(), "no saturation, no water volume");
 
         // Clip-binding sample: RT 0.1 drives the raw SWT far past 1, the limited pair
         // lands on the clamp, and VOL_UWAT must follow the LIMITED curve - the raw
@@ -1555,6 +1614,95 @@ mod tests {
         // above 1 - that is exactly the out-of-range evidence they exist to carry.
         assert!(out["SWE"][0] <= out["SWT"][0], "SWE <= SWT");
         assert!(out["CEX_RTC"][0] > 0.0);
+    }
+
+    /// From the Codex adversarial review of a6565bd9 (P1). RtC substituted 0.0 for a missing
+    /// CAPBW sample, so a HOLE in a curve the well carries became the geological claim "no
+    /// capillary-bound water here". That removes conductivity the rock actually has: the excess
+    /// term goes negative, clamps to zero, `RT_CORR` comes back as raw `RT`, and the module
+    /// publishes a finite, plausible, cleaner-sand saturation with nothing on any output to mark
+    /// it. Rule 2 gives NaN as the project's only way to say "not measured".
+    ///
+    /// Both sides are pinned because the fix must not close the intended door. A well that
+    /// carries NO capillary-bound water at all still runs without the capillary term — the
+    /// SSC-only case the module has always allowed — and must be bit-identical to before.
+    ///
+    /// The arithmetic is derived here rather than quoted. At RT 20, PHIT 0.25, RW 0.30, M = N = 2,
+    /// QV 0.30 and the fixture RtC coefficients: Cex = (0.45·0.08 + 0.0057·0.30 − 0.0071)·0.25·2.25
+    /// = 0.017218125 mho/m, so Ct_corr = 0.05 − 0.017218125 and SWT = (0.30·Ct_corr/0.0625)^0.5
+    /// = 0.3966775. With no capillary term the bracket is negative, the clamp holds Cex at 0,
+    /// RT_CORR stays 20 and SWT = (0.30·0.05/0.0625)^0.5 = 0.4898979 — 0.093 v/v of water that a
+    /// missing sample used to invent.
+    #[test]
+    fn a_hole_in_a_curve_the_well_carries_is_missing_data_and_never_zero_bound_water() {
+        let spec = sw_rtc_spec();
+        let two = |v: [f32; 2]| v.to_vec();
+
+        // Arm 1 — the well carries CAPBW, and sample 1 is a hole.
+        let holed = sw_rtc(&ctx_with(
+            vec![
+                ("RT", two([20.0, 20.0])),
+                ("PHIT", two([0.25, 0.25])),
+                ("QV", two([0.30, 0.30])),
+                ("CAPBW", two([0.08, f32::NAN])),
+            ],
+            &spec,
+            2,
+        ));
+        assert!((holed["SWT"][0] as f64 - 0.3966775).abs() < 1e-6, "got {}", holed["SWT"][0]);
+        assert!((holed["RT_CORR"][0] as f64 - 30.504664).abs() < 1e-4, "got {}", holed["RT_CORR"][0]);
+        for curve in ["SWT", "SWT_RTC", "SWE", "RT_CORR", "CEX_RTC", "SW_METHOD"] {
+            assert!(
+                holed[curve][1].is_nan(),
+                "{curve} must be MISSING where the capillary curve has a hole, got {}",
+                holed[curve][1]
+            );
+        }
+
+        // Arm 2 — the well carries no capillary-bound water anywhere. Unchanged: the correction
+        // has no capillary term and every sample answers, which is the SSC-only well.
+        let absent = sw_rtc(&ctx_with(
+            vec![
+                ("RT", two([20.0, 20.0])),
+                ("PHIT", two([0.25, 0.25])),
+                ("QV", two([0.30, 0.30])),
+                ("CAPBW", two([f32::NAN, f32::NAN])),
+            ],
+            &spec,
+            2,
+        ));
+        for i in 0..2 {
+            assert!(
+                (absent["SWT"][i] as f64 - 0.4898979).abs() < 1e-6,
+                "an absent role is a model without the term, not a missing answer: got {}",
+                absent["SWT"][i]
+            );
+            assert!((absent["RT_CORR"][i] as f64 - 20.0).abs() < 1e-6);
+        }
+
+        // Arm 3 — a hole on the clay-bound side withholds only the EFFECTIVE trio. SWT does not
+        // depend on CBW and is still answerable, so withholding it too would be its own overreach.
+        let cbw_hole = sw_rtc(&ctx_with(
+            vec![
+                ("RT", two([20.0, 20.0])),
+                ("PHIT", two([0.25, 0.25])),
+                ("QV", two([0.30, 0.30])),
+                ("CAPBW", two([0.08, 0.08])),
+                ("CBW", two([0.05, f32::NAN])),
+            ],
+            &spec,
+            2,
+        ));
+        assert!(cbw_hole["SWT"][1].is_finite(), "SWT does not depend on CBW");
+        assert!((cbw_hole["SWT"][1] as f64 - 0.3966775).abs() < 1e-6);
+        for curve in ["SWE", "SWE_RTC", "VOL_UWAT"] {
+            assert!(
+                cbw_hole[curve][1].is_nan(),
+                "{curve} must be MISSING rather than claiming SWE = SWT, got {}",
+                cbw_hole[curve][1]
+            );
+        }
+        assert!(cbw_hole["SWE"][0].is_finite(), "the measured sample still answers");
     }
 
     /// SSPW fallback: sw_rtc must run on a well whose porosity came from the SSPW workflow
