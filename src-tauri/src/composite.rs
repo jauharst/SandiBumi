@@ -1979,7 +1979,23 @@ fn draw_track_header(ops: &mut Vec<DrawOp>, track: &crate::layout::Track, tx0: f
         bold: true,
         s: track.title.clone(),
     });
-    if let Some(c) = track.curves.first() {
+    // A class-blocks curve has no value axis - the blocks always span the track - so it must
+    // neither print one nor stand in for a real curve's scale. The screen gives every curve its
+    // own scale line and writes "class blocks" on that one; the print header has a single line,
+    // so it takes the first curve that HAS a scale and names the display only when none does.
+    let scale_curve = track.curves.iter().find(|c| c.fill.as_deref() != Some("blocks"));
+    if scale_curve.is_none() && !track.curves.is_empty() {
+        ops.push(DrawOp::Text {
+            x: (tx0 + tx1) / 2.0,
+            y: bot - 1.2,
+            size: 2.4,
+            anchor: Anchor::Middle,
+            color: "#555555".into(),
+            bold: false,
+            s: "class blocks".into(),
+        });
+    }
+    if let Some(c) = scale_curve {
         let tag = if track.scale_type == ScaleType::Log { " (log)" } else { "" };
         ops.push(DrawOp::Text {
             x: tx0 + 0.8,
@@ -2680,6 +2696,59 @@ mod tests {
                 .count();
             assert_eq!(walls, 2, "page {} lost the casing string", p.idx);
         }
+    }
+
+    /// A class-blocks track prints no value axis, and never borrows one curve's scale for another.
+    ///
+    /// CLAUDE.md already states it - "min/max on a blocks curve is ignored (header shows
+    /// `class blocks` instead of editable scale)" - and the screen obeys it per curve row. The
+    /// print header carries ONE scale line, so it used to take `curves.first()` whatever that
+    /// was: a FACIES track printed `0 ... 8` as though the colours sat on a value axis, and a
+    /// track that merely LISTED the blocks curve first printed those meaningless limits instead
+    /// of the real curve's. Pinned from both sides so neither half can regress alone.
+    #[test]
+    fn a_class_blocks_track_prints_no_value_scale_and_never_borrows_a_real_curves_one() {
+        let track = |curves: serde_json::Value| -> crate::layout::Track {
+            serde_json::from_value(serde_json::json!({
+                "title": "Facies", "width_weight": 1.0, "scale_type": "linear", "curves": curves
+            }))
+            .unwrap()
+        };
+        let header = |t: &crate::layout::Track| -> Vec<String> {
+            let mut ops = Vec::new();
+            draw_track_header(&mut ops, t, 0.0, 30.0, 0.0, 10.0);
+            ops.iter()
+                .filter_map(|o| match o {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let blocks = serde_json::json!({
+            "curve_name": "FACIES", "color": "#000000", "min": 0.0, "max": 8.0, "fill": "blocks"
+        });
+        let gr = serde_json::json!({
+            "curve_name": "GR", "color": "#111111", "min": 0.0, "max": 150.0
+        });
+
+        // Blocks alone: the display is named, and 8 never appears as a limit.
+        let only = header(&track(serde_json::json!([blocks])));
+        assert!(only.iter().any(|s| s == "class blocks"), "must name the display: {only:?}");
+        assert!(
+            !only.iter().any(|s| s.contains('8')),
+            "a class index is not a value axis, so its max must not print: {only:?}"
+        );
+
+        // Listed FIRST beside a real curve: the real curve's scale is the one that prints.
+        let pair = header(&track(serde_json::json!([blocks, gr])));
+        assert!(
+            pair.iter().any(|s| s.contains("150")),
+            "the real curve owns the scale line: {pair:?}"
+        );
+        assert!(
+            !pair.iter().any(|s| s == "class blocks"),
+            "and with a real scale present there is nothing to name: {pair:?}"
+        );
     }
 
     #[test]
