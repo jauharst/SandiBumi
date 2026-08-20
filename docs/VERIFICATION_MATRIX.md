@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 613,
+Review sections counted toward no capability: **157** of 614,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -36,17 +36,17 @@ this table, so every figure above reads low by whatever those sections cover.
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 166 | 2026-08-13 | 43 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 21 | — | 3 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 7 | — | 2 |
-| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
+| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 33 | — | 7 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 34 | — | 20 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
-| `machine-learning` | Machine-learning models | Partially exercised | 7 / 193 | 2026-07-19 | 33 |
+| `machine-learning` | Machine-learning models | Partially exercised | 7 / 200 | 2026-07-19 | 34 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 18 | 2026-07-18 | 8 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 20 | — | 6 |
-| `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 43 | — | 13 |
+| `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 50 | — | 14 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
 | `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
@@ -67,5 +67,5 @@ this table, so every figure above reads low by whatever those sections cover.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 65 | — | 12 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 169 | 2026-08-13 | 56 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 176 | 2026-08-13 | 57 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 174 | 2026-08-13 | 51 |

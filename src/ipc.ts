@@ -1059,6 +1059,9 @@ export type ValidityCondition = {
   | { kind: "required_value"; when?: ValidityBranch | null }
   | { kind: "required_where_finite"; input: string }
   | { kind: "less_than"; other: string }
+  /** `less_than` with equality allowed — for a ladder whose two classes may share a boundary on
+   *  one axis and separate on the other. */
+  | { kind: "not_above"; other: string }
 );
 
 export interface ArgSpec {

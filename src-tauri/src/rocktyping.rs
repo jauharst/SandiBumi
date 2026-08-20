@@ -20,7 +20,8 @@
 //! confirm PGS against the primary SPE 125350 if a copy becomes available.
 
 use crate::modules::{
-    log_in, log_out, opt, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_out, opt, param, param_open, validity, with_validity, ModuleContext, ModuleOutputs,
+    ModuleSpec, ValidityRule,
 };
 use std::collections::HashMap;
 
@@ -250,10 +251,39 @@ pub fn rt_cutoff_spec() -> ModuleSpec {
               with missing Vsh or PHIE stay MISSING."
             .into(),
         args: vec![
-            param_open("VSH1", "Vsh cutoff for RT1 (best)", "v/v", 0.0, 1.0, true),
+            // The ladder must be MONOTONE, and the two conditions below are what make it so. RT1's
+            // admissible region has to sit INSIDE RT2's, or the classes stop being a ladder: class
+            // 1 is tested first, so an inverted Vsh pair makes the best-class gate the looser one
+            // and moderately shaly rock splits — the porous half promoted to BEST, the tight half
+            // demoted to non-net, in the same run and with class 2 left meaning something else.
+            // Declared here rather than in the dialog because saved chains, Monte Carlo and batch
+            // runs all reach `run_module` and none of them opens a dialog.
+            with_validity(
+                param_open("VSH1", "Vsh cutoff for RT1 (best)", "v/v", 0.0, 1.0, true),
+                vec![validity(
+                    "rt_cutoff.vsh_ladder_order",
+                    "The best class's shale cutoff must not exceed the moderate class's — equal is \
+                     allowed, and separates the two on porosity alone.",
+                    "docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based electrofacies \
+                     tie-in, which writes the middle class as v1 <= Vsh < v2",
+                    ValidityRule::NotAbove { other: "VSH2".into() },
+                )],
+            ),
             param_open("PHI1", "PHIE cutoff for RT1 (best)", "v/v", 0.0, 1.0, true),
             param_open("VSH2", "Vsh cutoff for RT2 (moderate)", "v/v", 0.0, 1.0, true),
-            param_open("PHI2", "PHIE cutoff for RT2 (moderate)", "v/v", 0.0, 1.0, true),
+            // Stated on PHI2 rather than PHI1 because the rule reads naturally beside the field it
+            // constrains: the moderate class's porosity floor cannot sit above the best class's.
+            with_validity(
+                param_open("PHI2", "PHIE cutoff for RT2 (moderate)", "v/v", 0.0, 1.0, true),
+                vec![validity(
+                    "rt_cutoff.phi_ladder_order",
+                    "The moderate class's porosity floor must not exceed the best class's — equal \
+                     is allowed, and separates the two on shale volume alone.",
+                    "docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based electrofacies \
+                     tie-in, which writes the middle class as p2 <= PHIE < p1",
+                    ValidityRule::NotAbove { other: "PHI1".into() },
+                )],
+            ),
             log_in("VSH", "Shale volume", "v/v", "VSH", true),
             log_in("PHIE", "Effective porosity", "v/v", "PHIE", true),
             log_out("RT_LOG", "Cutoff rock-type class (1/2/3)", "-"),
@@ -508,43 +538,83 @@ mod tests {
         ModuleContext { n, logs, params, opts: HashMap::new(), depth_unit: Default::default() }
     }
 
-    /// T-RT-07 — the RT_LOG ladder on sane cutoffs, and what an inverted one actually does.
+    /// T-RT-07 — the RT_LOG ladder on a sane ladder, and the refusal of an inverted one.
     ///
-    /// The module doc requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2, and nothing enforces it: the dialog
-    /// range-checks each field against 0–1 independently, so `VSH1 = 0.50, VSH2 = 0.20` runs.
-    /// The plan's step 4 asks what happens. It is worse than "no warning" — the ladder does not
-    /// merely shift, it SCATTERS. Because class 1 is tested first and its Vsh gate is now the
-    /// looser one, moderately shaly rock splits: the porous half is promoted to BEST and the
-    /// tight half is demoted to non-net, with class 2 left meaning something else entirely.
+    /// Codex whole-repository review, P1. This test used to pin the defect AS-IS: the module doc
+    /// required VSH1 ≤ VSH2 and PHI1 ≥ PHI2, nothing enforced it, and `VSH1 = 0.50, VSH2 = 0.20`
+    /// ran. The result was worse than "no warning" — the ladder did not shift, it SCATTERED.
+    /// Class 1 is tested first, so the inverted pair made the BEST-class gate the looser one:
+    /// moderately shaly rock split, its porous half promoted to best and its tight half demoted
+    /// to non-net in the same run, with class 2 left meaning something else entirely.
     ///
-    /// Pinned AS-IS, not endorsed — a cross-field validation is a UI decision, and RT_LOG feeds
-    /// the facies tie-in, so silently repairing the ladder would change published class counts.
+    /// The old note gave two reasons for deferring, and both are answered rather than overruled.
+    /// "A cross-field validation is a UI decision" — it is not, now that it is a declared
+    /// `ValidityRule::NotAbove` in the manifest: `run_module` enforces it, so saved chains, Monte
+    /// Carlo and batch runs are covered, none of which opens a dialog. "Silently repairing the
+    /// ladder would change published class counts" — nothing is repaired. A valid ladder computes
+    /// exactly what it always did; only an inverted one, which was producing scattered nonsense,
+    /// now refuses instead.
+    ///
+    /// Equality is ALLOWED on both axes, and that half is pinned too: two classes sharing a Vsh
+    /// boundary and separating on porosity is a real interpretation, and a strict rule would have
+    /// made this fix refuse a ladder that was never wrong.
     #[test]
-    fn an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class() {
+    fn a_cutoff_ladder_must_be_monotone_and_an_inverted_one_is_refused_before_it_scatters_a_class() {
+        use crate::modules::run_module;
+
         // best | moderate+porous | moderate+tight | non-net | missing Vsh | missing PHIE
         let vsh = vec![0.10f32, 0.30, 0.30, 0.60, f32::NAN, 0.10];
         let phie = vec![0.20f32, 0.20, 0.08, 0.03, 0.20, f32::NAN];
 
-        // CHARACTERIZATION inputs: the historical ladder values are explicit test data now;
+        // A sane ladder is untouched by the guard — the historical values are explicit test data;
         // SB-CORE-004 deliberately leaves all four interpretation cutoffs ABSENT in the manifest.
-        let sane = rt_cutoff(&cutoff_ctx(vsh.clone(), phie.clone(), 0.15, 0.12, 0.35, 0.06))["RT_LOG"].clone();
+        let ctx = cutoff_ctx(vsh.clone(), phie.clone(), 0.15, 0.12, 0.35, 0.06);
+        let sane = run_module("rt_cutoff", &ctx).expect("a monotone ladder runs")
+            ["RT_LOG"]
+            .clone();
         assert_eq!(sane[0], 1.0, "clean and porous is the best class");
         assert_eq!(sane[1], 2.0, "moderately shaly but porous is the middle class");
         assert_eq!(sane[2], 2.0, "moderately shaly and tighter is still the middle class");
         assert_eq!(sane[3], 3.0, "shaly and tight is non-net");
         assert!(sane[4].is_nan() && sane[5].is_nan(), "a missing input stays MISSING, never class 3");
 
-        // Inverted, exactly as step 4 asks: VSH1 0.50 > VSH2 0.20.
-        let bad = rt_cutoff(&cutoff_ctx(vsh, phie, 0.50, 0.12, 0.20, 0.06))["RT_LOG"].clone();
-        assert_eq!(bad[0], 1.0, "the genuinely best rock is unaffected");
-        assert_eq!(bad[1], 1.0, "middle rock is PROMOTED to best — the damaging direction");
-        assert_eq!(bad[2], 3.0, "and its tighter half is DEMOTED to non-net in the same run");
-        assert_eq!(bad[3], 3.0);
-        assert!(bad[4].is_nan() && bad[5].is_nan(), "MISSING is unaffected by the cutoffs");
+        // The inversion that used to scatter: VSH1 0.50 > VSH2 0.20. It is refused BY NAME, with
+        // the condition id, both values and the source that states the rule.
+        let inverted = cutoff_ctx(vsh.clone(), phie.clone(), 0.50, 0.12, 0.20, 0.06);
+        let refused = run_module("rt_cutoff", &inverted)
+            .expect_err("an inverted Vsh ladder must refuse, not scatter")
+            .to_string();
+        assert!(
+            refused.contains("rt_cutoff.vsh_ladder_order")
+                && refused.contains("0.5")
+                && refused.contains("0.2")
+                && refused.contains("ref_rocktyping_shf.md"),
+            "the refusal names the condition, both values and its source: {refused}"
+        );
 
-        // Stated as the reader would see it: one sample moved two classes without any warning.
-        assert_ne!(sane[1], bad[1]);
-        assert_ne!(sane[2], bad[2]);
+        // The porosity axis is guarded too, and independently — PHI2 above PHI1 with a valid Vsh
+        // pair would otherwise slip through a guard that only watched shale volume.
+        let phi_inverted = cutoff_ctx(vsh.clone(), phie.clone(), 0.15, 0.06, 0.35, 0.12);
+        let phi_refused = run_module("rt_cutoff", &phi_inverted)
+            .expect_err("a moderate-class porosity floor above the best class's must refuse")
+            .to_string();
+        assert!(
+            phi_refused.contains("rt_cutoff.phi_ladder_order"),
+            "the porosity rule refuses on its own: {phi_refused}"
+        );
+
+        // EQUALITY IS A LADDER, not an inversion. Both axes, both directions.
+        let shared_vsh = cutoff_ctx(vsh.clone(), phie.clone(), 0.35, 0.12, 0.35, 0.06);
+        let shared = run_module("rt_cutoff", &shared_vsh)
+            .expect("one shale cutoff split by porosity is a real interpretation")["RT_LOG"]
+            .clone();
+        assert_eq!(shared[1], 1.0, "at Vsh 0.30 under a shared 0.35 cutoff, porosity decides");
+        assert_eq!(shared[2], 2.0, "and the tighter half falls to the middle class, not out of it");
+        let shared_phi = cutoff_ctx(vsh, phie, 0.15, 0.12, 0.35, 0.12);
+        assert!(
+            run_module("rt_cutoff", &shared_phi).is_ok(),
+            "one porosity floor split by shale volume is a real interpretation too"
+        );
     }
 
     /// Builds a ModuleContext for `pittman_rx` from PHI/PERM and the APEX selector.

@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 31 (Codex P1): a rock-type cutoff ladder that runs backwards is refused
+
+- [ ] **What was wrong.** Rock Type from Cutoffs builds three classes from a Vsh and a PHIE cutoff
+      pair. Its own help says it needs VSH1 ≤ VSH2 and PHI1 ≥ PHI2, and **nothing checked it** —
+      each of the four boxes was only range-checked 0–1 on its own, so `VSH1 = 0.50` with
+      `VSH2 = 0.20` ran happily.
+- [ ] **What that did to your classes.** Not a shift — a **scatter**. Class 1 is tested first, so
+      an inverted pair makes the *best*-class gate the looser one. Moderately shaly rock then
+      splits down the middle: at Vsh 0.30, the sample with PHIE 0.20 was **promoted to class 1**
+      and the sample with PHIE 0.08 was **demoted to class 3**, in the same run, with class 2 left
+      meaning something else. RT_LOG then feeds the facies tie-in, so those scattered classes get
+      scored against your core and published.
+- [ ] **What it does now.** The run refuses before it computes anything, naming the rule, the two
+      values and the source it comes from. Both axes are checked independently — a bad porosity
+      pair with a good Vsh pair scatters just the same, so one guard would not have been enough.
+- [ ] **Nothing is "corrected" for you.** A valid ladder computes exactly what it always did. Only
+      an inverted one — which was producing nonsense — now stops. Swapping your numbers silently
+      would have changed published class counts, which is why it does not happen.
+- [ ] **Equal cutoffs are still allowed, deliberately.** `VSH1 = VSH2` with different porosity
+      floors is a real interpretation — one shale cutoff, split by porosity — and so is one
+      porosity floor split by shaliness. A stricter rule would have refused a ladder that was never
+      wrong.
+- [ ] **The check is in the module, not the dialog.** Saved workflow chains, Monte Carlo runs and
+      batch runs never open the parameter dialog, so a check that lived only there would have
+      protected the one path you were least likely to get wrong.
+- [ ] **What to check.** Petrophysics ▸ Rock Typing ▸ Rock Type from Cutoffs. Enter VSH1 0.50 and
+      VSH2 0.20 (leave the porosities sane) and run — it should **refuse by name** rather than
+      write RT_LOG. Do the same with PHI2 above PHI1. Then set VSH1 = VSH2 = 0.35 with PHI1 0.12
+      and PHI2 0.06 — that **should run**, splitting clean rock by porosity. Finally run a normal
+      ladder (0.15 / 0.12 / 0.35 / 0.06) and confirm the classes are exactly what you got before.
+
 ## 2026-08-20 — Audit increment 30 (Codex P1): every core reader now asks which datum the plugs are on
 
 - [ ] **What was wrong.** When you import core you tell SandiBumi which depth the plug depths are

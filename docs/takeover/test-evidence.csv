@@ -314,7 +314,7 @@
 "SB-SHR-021","CHARACTERIZATION","src-tauri/src/rocktyping.rs","the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic"
 "SB-SHR-022","CHARACTERIZATION","src-tauri/src/hfu.rs","run_hfu_skips_invalid_and_notes_capped_k"
 "SB-SHR-022","CHARACTERIZATION","src-tauri/src/lorenz.rs","invalid_samples_are_skipped_not_counted"
-"SB-SHR-023","CHARACTERIZATION","src-tauri/src/rocktyping.rs","an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class"
+"SB-SHR-023","CHARACTERIZATION","src-tauri/src/rocktyping.rs","a_cutoff_ladder_must_be_monotone_and_an_inverted_one_is_refused_before_it_scatters_a_class"
 "SB-SHR-023","CHARACTERIZATION","src-tauri/src/rocktyping.rs","rt_cutoff_ladders_by_vsh_and_phie"
 "SB-SHR-026","CHARACTERIZATION","src-tauri/src/thomeer.rs","run_thomeer_standardizes_fluid_systems"
 "SB-SHR-030","CHARACTERIZATION","src-tauri/src/lorenz.rs","smlp_auto_finds_three_flow_units"
