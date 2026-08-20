@@ -176,6 +176,28 @@ pub fn same_depth_tolerance(unit: DepthUnit) -> f64 {
     }
 }
 
+/// A constant that was chosen as a PHYSICAL SIZE in metres, restated in the unit the project
+/// stores. Use it wherever a hard-coded window width, merge distance or flag threshold is about
+/// to meet the stored depth grid.
+///
+/// The codebase is full of such numbers — a 5 m contrast window, a 2 m candidate-merge cluster,
+/// an 8–30 m correlation window, a 3 m contact-consistency threshold — every one of them picked
+/// with a metre-sized reservoir in mind and then applied straight to whatever the depth column
+/// holds. On a foot project each silently shrinks by 3.28×: the 5 m window becomes 5 ft, too
+/// narrow to average a contact's contrast over, and the 2 m merge stops collapsing the duplicate
+/// picks it exists to collapse. Nothing on screen says so, because the constant and the depths
+/// agree arithmetically. They simply no longer measure what they were chosen to measure.
+///
+/// Deliberately an EXACT conversion rather than a hand-picked round number per unit — the
+/// opposite choice from [`same_depth_tolerance`] above, and for a stated reason. Six inches is a
+/// real anchor there: one standard log sample, so `0.5` ft is the honest foot value and not a
+/// rounding of 0.15 m. These constants have no such anchor, and writing 10 ft for 3 m would be
+/// choosing a NEW parameter rather than restating the one that was chosen. A parameter is cited
+/// or asked about; it is never rounded into existence.
+pub fn metres_in(value_m: f64, unit: DepthUnit) -> f64 {
+    convert_depth(value_m, DepthUnit::Metres, unit)
+}
+
 /// Converts a whole depth index in place. NaN is preserved (missing stays missing).
 /// Defers to `convert_depth` per sample so the scalar and array paths can never drift.
 pub fn convert_depths(values: &mut [f32], from: DepthUnit, to: DepthUnit) {

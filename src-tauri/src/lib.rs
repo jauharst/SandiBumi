@@ -3884,7 +3884,9 @@ fn check_contact_consistency(
         &contact_type,
         compartment.as_deref(),
         &zones.unwrap_or_default(),
-        flag_abs.unwrap_or(3.0),
+        // Passed through as-is: the default is 3 metres in the project's own unit and is
+        // resolved inside, where the connection that knows the unit is.
+        flag_abs,
         &well_ids,
     ))
 }

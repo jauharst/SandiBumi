@@ -53,7 +53,21 @@ pub struct ContactSuggestResult {
 
 /// Depths where `v` rises through `cutoff` with increasing depth (finite samples only),
 /// each with a contrast confidence. For Sw this is the hydrocarbon→water crossover.
-fn upward_crossovers(depth: &[f32], v: &[f32], cutoff: f32) -> Vec<(f32, f32)> {
+///
+/// `unit` is the project's STORED depth unit: the contrast window and the merge cluster below
+/// were both chosen as physical sizes in metres, and `depth` is whatever the project holds, so
+/// they are restated through [`units::metres_in`] rather than used as bare numbers.
+fn upward_crossovers(
+    depth: &[f32],
+    v: &[f32],
+    cutoff: f32,
+    unit: crate::units::DepthUnit,
+) -> Vec<(f32, f32)> {
+    // 5 m of section either side to average the contrast over, and ~2 m for "these two picks
+    // are the same crossing". Both are physical judgements about how thick a contact's
+    // transition is, not sample counts, so they follow the unit and not the depth column.
+    let contrast_window = crate::units::metres_in(5.0, unit) as f32;
+    let merge_cluster = crate::units::metres_in(2.0, unit) as f32;
     let mut out = Vec::new();
     for i in 1..depth.len() {
         let (s0, s1) = (v[i - 1], v[i]);
@@ -64,7 +78,7 @@ fn upward_crossovers(depth: &[f32], v: &[f32], cutoff: f32) -> Vec<(f32, f32)> {
         if s0 < cutoff && s1 >= cutoff {
             let t = (cutoff - s0) / (s1 - s0);
             let dc = d0 + t * (d1 - d0);
-            out.push((dc, window_contrast(depth, v, dc, 5.0)));
+            out.push((dc, window_contrast(depth, v, dc, contrast_window)));
         }
     }
     // Collapse near-duplicate crossings from noisy Sw (dithering across the cutoff) — keep the
@@ -73,7 +87,7 @@ fn upward_crossovers(depth: &[f32], v: &[f32], cutoff: f32) -> Vec<(f32, f32)> {
     let mut merged: Vec<(f32, f32)> = Vec::new();
     for (d, c) in out {
         match merged.last_mut() {
-            Some(last) if (d - last.0).abs() < 2.0 => {
+            Some(last) if (d - last.0).abs() < merge_cluster => {
                 if c > last.1 {
                     *last = (d, c);
                 }
@@ -249,9 +263,17 @@ pub fn suggest_contacts(conn: &Connection, req: &ContactSuggestRequest) -> Conta
         None
     };
 
+    // Every window below was chosen as a physical thickness in metres. `depth` is whatever the
+    // project stores, so they are restated in that unit rather than used bare — on a foot
+    // project the bare numbers are 3.28x too narrow and quietly stop resolving a contact.
+    let unit = crate::units::project_depth_unit(conn)
+        .ok()
+        .flatten()
+        .unwrap_or(crate::units::DepthUnit::Metres);
+
     let mut cands = Vec::new();
     if let Some(sw) = pick(&sw_names) {
-        for (d, c) in upward_crossovers(&depth, &sw, cutoff) {
+        for (d, c) in upward_crossovers(&depth, &sw, cutoff, unit) {
             cands.push(ContactCandidate {
                 contact_type: "OWC".into(),
                 depth: d,
@@ -262,7 +284,10 @@ pub fn suggest_contacts(conn: &Connection, req: &ContactSuggestRequest) -> Conta
         }
     }
     if let Some(rt) = pick(&res_names) {
-        if let Some((d, c)) = resistivity_drop(&depth, &rt, 3.0) {
+        // 3 m of section over which the deep resistivity must fall — the thickness of a
+        // transition zone, not a sample count.
+        if let Some((d, c)) = resistivity_drop(&depth, &rt, crate::units::metres_in(3.0, unit) as f32)
+        {
             cands.push(ContactCandidate {
                 contact_type: "OWC".into(),
                 depth: d,
@@ -583,14 +608,28 @@ pub fn compare_zone_top_to_contact(
 /// `None`/empty checks the contacts that state none — it does NOT mean "all of them". Two sands, or
 /// two fault blocks, pooled into one fit produce a surface neither is on and then flag every well
 /// as disagreeing with it, which is the exact opposite of what a QC is for.
+///
+/// `flag_abs` is a residual threshold in the project's STORED depth unit — the same unit the
+/// TVDSS residuals it is compared against are in — so a caller passes it through unconverted.
+/// `None` takes the default, which is 3 METRES restated in that unit: the threshold is a
+/// judgement about how far apart two picks of one contact can be and still be the same contact,
+/// which is a physical distance. A bare 3.0 on a foot project is 0.91 m, and two picks 5 ft
+/// apart — 1.5 m, well inside anyone's tolerance — would be flagged as disagreeing.
 pub fn check_contact_consistency(
     conn: &Connection,
     contact_type: &str,
     compartment: Option<&str>,
     zones: &[String],
-    flag_abs: f32,
+    flag_abs: Option<f32>,
     well_ids: &[String],
 ) -> ContactConsistency {
+    let flag_abs = flag_abs.unwrap_or_else(|| {
+        let unit = crate::units::project_depth_unit(conn)
+            .ok()
+            .flatten()
+            .unwrap_or(crate::units::DepthUnit::Metres);
+        crate::units::metres_in(3.0, unit) as f32
+    });
     let want_comp =
         compartment.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
     let mut want_zones: Vec<String> =
@@ -1059,12 +1098,12 @@ mod tests {
             add_contact(&conn, w, "OWC", &["LOWER"], -2400.0);
         }
 
-        let upper = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0, &all_well_ids(&conn));
+        let upper = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], Some(3.0), &all_well_ids(&conn));
         assert_eq!(upper.n, 3, "the upper sand sees only its own three picks");
         assert!(upper.rms < 0.01, "and they are flat: rms {}", upper.rms);
         assert!(upper.wells.iter().all(|w| !w.flagged), "so nothing is flagged");
 
-        let lower = check_contact_consistency(&conn, "OWC", None, &["LOWER".into()], 3.0, &all_well_ids(&conn));
+        let lower = check_contact_consistency(&conn, "OWC", None, &["LOWER".into()], Some(3.0), &all_well_ids(&conn));
         assert_eq!(lower.n, 3);
         assert!(lower.rms < 0.01, "rms {}", lower.rms);
         assert!((lower.mean_tvdss - (-2400.0)).abs() < 0.01, "on its own surface, not a blend");
@@ -1079,10 +1118,10 @@ mod tests {
         // checked against anything) and neither sand moves.
         add_contact(&conn, &a, "OWC", &[], -2200.0);
         add_contact(&conn, &b, "OWC", &[], -2200.0);
-        let upper2 = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0, &all_well_ids(&conn));
+        let upper2 = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], Some(3.0), &all_well_ids(&conn));
         assert_eq!(upper2.n, 3, "the unmarked picks did not join the upper sand");
         assert!((upper2.mean_tvdss - (-2000.0)).abs() < 0.01);
-        let unmarked = check_contact_consistency(&conn, "OWC", None, &[], 3.0, &all_well_ids(&conn));
+        let unmarked = check_contact_consistency(&conn, "OWC", None, &[], Some(3.0), &all_well_ids(&conn));
         assert_eq!(unmarked.n, 2, "they are their own group");
         assert!((unmarked.mean_tvdss - (-2200.0)).abs() < 0.01);
     }
@@ -1107,7 +1146,7 @@ mod tests {
         assert_eq!(groups[0].n_well, 2);
 
         let g = &groups[0];
-        let chk = check_contact_consistency(&conn, "OWC", g.compartment.as_deref(), &g.zones, 3.0, &all_well_ids(&conn));
+        let chk = check_contact_consistency(&conn, "OWC", g.compartment.as_deref(), &g.zones, Some(3.0), &all_well_ids(&conn));
         assert_eq!(chk.n, 2, "both wells are in the same group");
         assert!(chk.rms < 1.0);
 
@@ -1139,13 +1178,13 @@ mod tests {
         assert_eq!(groups.len(), 2, "one sand, two compartments, two groups: {groups:?}");
 
         let north =
-            check_contact_consistency(&conn, "OWC", Some("NORTH"), &["UPPER".into()], 3.0, &all_well_ids(&conn));
+            check_contact_consistency(&conn, "OWC", Some("NORTH"), &["UPPER".into()], Some(3.0), &all_well_ids(&conn));
         assert_eq!(north.n, 2);
         assert!(north.rms < 1.0, "the north block is flat within itself: {}", north.rms);
         assert!((north.mean_tvdss - (-2000.25)).abs() < 0.5);
 
         let south =
-            check_contact_consistency(&conn, "OWC", Some("SOUTH"), &["UPPER".into()], 3.0, &all_well_ids(&conn));
+            check_contact_consistency(&conn, "OWC", Some("SOUTH"), &["UPPER".into()], Some(3.0), &all_well_ids(&conn));
         assert!((south.mean_tvdss - (-2060.25)).abs() < 0.5, "and sits on its own level");
 
         // The control: the compartment is doing the work. Strip it and all four pool into one fit
@@ -1153,7 +1192,7 @@ mod tests {
         for w in [&a, &b, &c, &d] {
             add_contact(&conn, w, "GWC", &["UPPER"], if w == &a || w == &b { -2000.0 } else { -2060.0 });
         }
-        let pooled = check_contact_consistency(&conn, "GWC", None, &["UPPER".into()], 3.0, &all_well_ids(&conn));
+        let pooled = check_contact_consistency(&conn, "GWC", None, &["UPPER".into()], Some(3.0), &all_well_ids(&conn));
         assert_eq!(pooled.n, 4);
         assert!(
             pooled.rms > 10.0,
@@ -1234,12 +1273,135 @@ mod tests {
         assert!(check_fwl_agreement(&conn, 0.1, &all_well_ids(&conn)).is_empty(), "no marker, no comparison");
     }
 
+    /// SB-ENV-057 family. Every window in this module was chosen as a THICKNESS OF ROCK - 5 m to
+    /// average a contact's contrast over, ~2 m for "these two picks are the same crossing", 3 m of
+    /// section for the resistivity to fall through, 3 m of residual before two wells are calling
+    /// different contacts. Each one used to be a bare number applied straight to the stored depth
+    /// column, so on a foot project it measured 3.28x less rock than it was chosen to measure and
+    /// nothing said so: the constant and the depths agreed arithmetically, they just stopped
+    /// meaning what they meant.
+    ///
+    /// Pinned from BOTH sides, because a lazier fix passes half of it. Converting only the merge
+    /// would still score the contrast over a third of the intended section; converting only the
+    /// contrast would still flood the list with duplicate picks. The same physical well is built
+    /// in metres and in feet and must yield the same answer in both.
+    #[test]
+    fn a_contact_is_picked_over_the_same_thickness_of_rock_whether_the_project_stores_feet_or_metres()
+    {
+        use crate::units::DepthUnit;
+
+        // One well, 0.5 m sampling. Sw is 0.2 in the hydrocarbon leg and 0.9 below the contact,
+        // with two deliberate features:
+        //   - a one-sample dither to 0.6 at 2048.5, which puts a SECOND upward crossing 0.84 m
+        //     above the real one. 0.84 m is 2.75 ft: inside a converted merge (6.56 ft) and
+        //     outside a bare one (2.0 ft), so the merge either collapses them or does not.
+        //   - a low-Sw streak 2.5-4.5 m BELOW the contact, which a 5 m contrast window sees and a
+        //     bare 5 ft (1.52 m) window does not - so the confidence differs if the window did
+        //     not follow the unit.
+        let build = |unit: DepthUnit| -> Vec<(f32, f32)> {
+            let (depth, sw): (Vec<f32>, Vec<f32>) = (0..81)
+                .map(|i| {
+                    let d_m = 2030.0 + i as f32 * 0.5;
+                    let s = if (d_m - 2048.5).abs() < 1e-3 {
+                        0.6
+                    } else if d_m < 2050.0 {
+                        0.2
+                    } else if (2052.0..=2054.0).contains(&d_m) {
+                        // Deliberately ABOVE the 0.5 cutoff: it must drag the mean below the
+                        // contact down without itself being an upward crossing, or it would add
+                        // a third candidate and the merge assertion would be measuring the wrong
+                        // thing.
+                        0.55
+                    } else {
+                        0.9
+                    };
+                    (crate::units::convert_depth(d_m as f64, DepthUnit::Metres, unit) as f32, s)
+                })
+                .unzip();
+            upward_crossovers(&depth, &sw, 0.5, unit)
+        };
+
+        let m = build(DepthUnit::Metres);
+        let f = build(DepthUnit::Feet);
+
+        // (a) The merge cluster. Two crossings 0.84 m apart are ONE crossing in both projects.
+        assert_eq!(m.len(), 1, "the dither should merge into one candidate in metres: {m:?}");
+        assert_eq!(
+            f.len(),
+            m.len(),
+            "and the same rock must give the same candidate count in feet: {f:?} vs {m:?}"
+        );
+
+        // (b) The depth agrees once converted back - the arithmetic never depended on the unit,
+        // and this is the control that says so.
+        let f_in_m = crate::units::convert_depth(f[0].0 as f64, DepthUnit::Feet, DepthUnit::Metres);
+        assert!(
+            (f_in_m - m[0].0 as f64).abs() < 0.05,
+            "same contact, different unit: {f_in_m} m from the foot project vs {} m",
+            m[0].0
+        );
+
+        // (c) The contrast window. Same section averaged means the same confidence; a bare 5 ft
+        // window would miss the streak below and score this contact CLEANER than it is.
+        assert!(
+            (f[0].1 - m[0].1).abs() < 0.02,
+            "confidence must not depend on the storage unit: {} in feet vs {} in metres",
+            f[0].1,
+            m[0].1
+        );
+
+        // (d) The consistency default, which is the same statement about a different distance.
+        // Three wells whose OWC picks span 10 ft agree by any reasonable reading - 3 m - and a
+        // bare 3.0 default on a foot project would flag the outer two.
+        //
+        // The wells carry NO surface coordinates on purpose, so the check falls back to the flat
+        // mean it documents for coordless wells. Three wells WITH coordinates define a plane
+        // exactly, every residual is zero, and the assertion would pass whatever the threshold
+        // said - which would make this look like a pin and be nothing of the kind.
+        let conn = db();
+        crate::units::set_project_depth_unit(&conn, DepthUnit::Feet).unwrap();
+        let wells: Vec<String> = ["SANDI-1", "SANDI-2", "SANDI-3"]
+            .iter()
+            .map(|name| {
+                let id = uuid::Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO wells (well_id, well_name) VALUES (?1, ?2)",
+                    duckdb::params![id, name],
+                )
+                .unwrap();
+                id
+            })
+            .collect();
+        // Mean -6500 ft, residuals -5 / 0 / +5 ft. Deliberately between the two thresholds in
+        // play: outside a bare 3.0 and comfortably inside 3 m restated as 9.84 ft.
+        for (w, dz) in wells.iter().zip([-5.0f64, 0.0, 5.0]) {
+            add_contact(&conn, w, "OWC", &["UPPER"], -6500.0 + dz);
+        }
+        let chk =
+            check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], None, &all_well_ids(&conn));
+        assert_eq!(chk.n, 3, "all three picks are in the group");
+        assert!(
+            chk.wells.iter().all(|w| !w.flagged),
+            "picks spanning 10 ft - 3 m - must not be called inconsistent by a default that means \
+             3 METRES: {:?}",
+            chk.wells.iter().map(|w| (w.well_name.clone(), w.residual, w.flagged)).collect::<Vec<_>>()
+        );
+        // And the other side, so a default that had simply grown too permissive would not pass:
+        // an explicit tight threshold still flags them.
+        let tight =
+            check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], Some(1.0), &all_well_ids(&conn));
+        assert!(
+            tight.wells.iter().any(|w| w.flagged),
+            "an explicit 1 ft threshold must still flag a 10 ft spread"
+        );
+    }
+
     #[test]
     fn sw_crossover_finds_known_depth() {
         // Sw ~0.2 in the hydrocarbon leg, ~0.9 below the contact at 2050.
         let depth: Vec<f32> = (0..101).map(|i| 2000.0 + i as f32).collect();
         let sw: Vec<f32> = depth.iter().map(|&d| if d < 2050.0 { 0.2 } else { 0.9 }).collect();
-        let xs = upward_crossovers(&depth, &sw, 0.5);
+        let xs = upward_crossovers(&depth, &sw, 0.5, crate::units::DepthUnit::Metres);
         assert_eq!(xs.len(), 1, "expected one crossover, got {xs:?}");
         let (d, c) = xs[0];
         assert!((d - 2050.0).abs() <= 1.0, "crossover at {d}, expected ~2050");

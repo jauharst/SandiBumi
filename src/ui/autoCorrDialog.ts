@@ -10,7 +10,7 @@ import {
   type MultiWellProposal,
   type WellSummary,
 } from "../ipc";
-import { storedDepthLabel } from "../depthUnitPref";
+import { metresInStored, storedDepthLabel } from "../depthUnitPref";
 import { recordProcess } from "../processLog";
 import { bumpDataVersion, filterByActiveGroup } from "../state";
 import { pushUndo } from "../undo";
@@ -105,16 +105,20 @@ export async function buildAutoCorrContent(
   maxStretchInput.step = "0.1";
   maxStretchInput.min = "1";
 
+  // 10 m of pattern and a 25 m search were both chosen as an amount of SECTION, so they are
+  // restated in the project's unit rather than pre-filled bare. Left bare on a foot project the
+  // box would offer a 3 m window and a 7.6 m search - too little log to match a GR shape on, and
+  // too short to reach a peak the user can see is further away.
   const windowInput = document.createElement("input");
   windowInput.className = "form-control";
   windowInput.type = "number";
-  windowInput.value = "10";
+  windowInput.value = String(Math.round(metresInStored(10) * 10) / 10);
   windowInput.step = "1";
 
   const searchInput = document.createElement("input");
   searchInput.className = "form-control";
   searchInput.type = "number";
-  searchInput.value = "25";
+  searchInput.value = String(Math.round(metresInStored(25) * 10) / 10);
   searchInput.step = "1";
 
   content.appendChild(formRow("Source well", Object.assign(document.createElement("span"), { textContent: well.well_name })));

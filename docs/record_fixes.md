@@ -291,3 +291,46 @@ k must be UNCORRECTED air permeability.
 crossover, the 12 % boundary and the old table's inversion at 25 % sand side by side — so "still not
 perfectly monotone" can never be read as "the correction did not work".
 
+## A window is a thickness of rock, not a number (2026-08-20)
+
+Every window in the correlation and contact-picking tools was chosen as an amount of SECTION and
+then written as a bare number applied straight to the stored depth column. Five metres to average a
+contact's contrast over. Two for "these two picks are the same crossing". Three of section for the
+deep resistivity to fall through. Eight to thirty for a marker's pattern window, forty for the
+spacing a lone marker has no neighbour to measure against. Three of residual before two wells are
+calling different contacts. Ten and twenty-five pre-filled in the autocorrelation boxes.
+
+On a metre project every one of them is right. On a foot project every one of them measures
+**3.28x less rock than it was chosen to measure**, and nothing anywhere says so — the constant and
+the depths agree arithmetically, so no guard fires and no number looks wrong. They simply stop
+meaning what they meant. A 5 m contrast window becomes 5 ft and averages a metre and a half either
+side of the crossing; the 2 m merge stops collapsing the duplicate picks it exists to collapse and
+the candidate list floods; the 8 m correlation window becomes 2.4 m, too little log to match a GR
+shape on, so a nearer local peak wins and the proposal is plausible and wrong.
+
+The consistency threshold is the one a reader sees. Two picks of one contact 5 ft apart are 1.5 m
+apart — inside anyone's tolerance — and a bare 3.0 default flagged the well as disagreeing.
+
+**A constant chosen as a physical size goes through `units::metres_in`** (`depthUnitPref.metresInStored`
+on the frontend), which restates it in whatever the project stores. Deliberately an EXACT conversion
+and not a hand-picked round number per unit — that is the opposite choice from
+`units::same_depth_tolerance`, and for a stated reason. Six inches is a real anchor there, one
+standard log sample, so 0.5 ft is the honest foot value and not a rounding of 0.15 m. These have no
+such anchor, and writing 10 ft for 3 m would be **choosing a new parameter rather than restating the
+one that was chosen**. A parameter is cited or asked about; it is never rounded into existence.
+
+The two halves of the doctrine stay separate and both appear here. A number the user TYPES reaches
+the backend unconverted, so its box is LABELLED with the stored unit and pre-filled through
+`metresInStored` — the label says `ft` and the default under it is 32.8. A number the user READS is
+converted for viewing and labelled with the display unit: the correlation panel's residuals and RMS
+carried a hard-coded `m`, which on a foot project printed them 3.28x too large under a metre
+heading — and a residual is exactly what the flag threshold is judged against, so the two disagreed
+on the same screen.
+
+`a_contact_is_picked_over_the_same_thickness_of_rock_whether_the_project_stores_feet_or_metres`
+builds one physical well twice, in metres and in feet, and requires the same candidate count, the
+same depth and the same confidence — pinned from both sides, because converting only the merge would
+still score the contrast over a third of the intended section and converting only the contrast would
+still flood the list. Its fourth part pins the consistency default through the flat-mean path
+specifically: three wells WITH coordinates define a plane exactly, every residual is zero, and an
+assertion there would pass whatever the threshold said.

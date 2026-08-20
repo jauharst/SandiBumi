@@ -816,6 +816,12 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
 
 ### `docs/record_fixes.md` — findings that moved numbers
 
+- **A constant chosen as a physical SIZE goes through `units::metres_in`** (`metresInStored` on the
+  frontend), never straight into the stored depth column. A contrast window, a merge cluster, a
+  correlation window, a flag threshold — each is an amount of ROCK, and left bare it measures 3.28×
+  less of it on a foot project with nothing to say so. The conversion is EXACT; a round foot number
+  would be choosing a new parameter rather than restating the one that was chosen, which only
+  `same_depth_tolerance` may do because six inches is a real anchor.
 - **A partial failure is a WARNING, counted at the evaluator and never inferred from the output** —
   counting missing output samples would flag every equation ever run over a washout.
 - **A run that reports failure must not also version an interpretation.** `answered` is the one

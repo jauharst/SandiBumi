@@ -1,5 +1,45 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — A correlation window is an amount of ROCK, not a number (Codex P1)
+
+- [ ] **What was wrong, and why nothing ever caught it.** Every window in the correlation and
+      contact-picking tools was picked as an amount of *section* and then written as a plain number
+      applied straight to the depth column. Five metres to average a contact's contrast over. Two
+      for "these two picks are the same crossing". Three of section for the deep resistivity to fall
+      through. Eight to thirty for a marker's pattern window. Three of residual before two wells are
+      called disagreeing. Ten and twenty-five pre-filled in the Autocorrelate boxes. On a **metre**
+      project every one is right. On a **foot** project every one measures **3.28× less rock than it
+      was chosen to measure** — and nothing says so, because the number and the depths agree
+      arithmetically. No guard fires. Nothing looks wrong. They just stop meaning what they meant.
+- [ ] **What that does to a foot project, in order of how much it would annoy you.** The 8 m pattern
+      window becomes 2.4 m — too little log to match a GR shape on, so a nearer local peak wins and
+      you get a proposal that is plausible and in the wrong place. The 2 m merge becomes 2 ft and
+      stops collapsing duplicate Sw crossings, so the candidate list floods with the same contact
+      listed three times. The 5 m contrast window averages a metre and a half either side, so a
+      contact scores cleaner than it is. And the consistency check flags wells it should not: two
+      picks of one OWC **5 ft apart are 1.5 m apart**, well inside anybody's tolerance, and a bare
+      3.0 threshold called them inconsistent.
+- [ ] **What you will see now.** Wherever you TYPE a distance the box says which unit — `Window ±
+      (ft)`, `Search ± (ft)`, `Flag beyond (ft)` — and the number pre-filled in it is the same
+      amount of rock as before: 32.8, 82 and 9.84 on a foot project, still 10, 25 and 3 on a metre
+      one. Wherever you READ a distance it is converted and labelled: the correlation panel's
+      residual and RMS columns carried a hard-coded `m`, which printed a foot project's numbers
+      3.28× too big under a metre heading — and a residual is exactly what the flag threshold is
+      judged against, so the screen disagreed with itself.
+- [ ] **The conversion is exact, on purpose.** 3 m becomes 9.84 ft, not 10 ft. Rounding it would be
+      me picking a new threshold rather than restating yours, and picking a parameter is not mine to
+      do. The one place the app *does* use a hand-picked pair is the plug-pairing tolerance — 0.15 m
+      and 0.5 ft — because six inches is a real anchor there: one standard log sample. Nothing here
+      has an anchor like that, so nothing here gets rounded.
+- [ ] **Nothing on a metre project changes.** Checked both ways: every default, label and printed
+      number on a metre project is exactly what it was. This only ever moves on a foot project, and
+      there it moves toward what you asked for.
+- [ ] **What to check.** On a foot project: open Autocorrelate and confirm the two boxes read `ft`
+      with 32.8 and 82 in them; run a multi-marker correlation and see whether the proposals land
+      better than they used to. Open the fluid-contacts pane, look at `Flag beyond (ft)` = 9.84, and
+      re-run the group check — wells that used to be flagged for a few feet of scatter should now
+      come back clean. Suggest a contact from logs and see whether the candidate list is shorter.
+
 ## 2026-08-20 — SSC's gas coefficient follows SSPW to 1.6 (DEC-088) — **this one moves numbers**
 
 - [ ] **Read the DEC-086 section at the bottom of this file first if you have not.** That one made
