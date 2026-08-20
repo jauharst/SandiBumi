@@ -309,22 +309,34 @@ pub fn bin_by_depth(depth: &[f32], value: &[f32], bin: f32) -> Vec<(f32, f32, Ve
         return Vec::new();
     }
     let n = depth.len().min(value.len());
+    // Key and regroup in f64 on the INTEGER key, exactly as the TypeScript twin does (JS
+    // numbers are f64 and its Map is keyed by the integer id). The old code regrouped by
+    // re-deriving the key from an f32 bin top (`(top / bin).floor()`), and above ~1024 m the
+    // f32 quotient's ulp is coarse enough that the round-trip lands one bin off — every
+    // mis-keyed sample then opened its own group, so the printed box plot degenerated to
+    // one-plug boxes while the screen drew proper quartiles from the same data
+    // (AUDIT-2026-08-20 finding 5).
+    let bin_f64 = bin as f64;
     let mut keyed: Vec<(i64, f32)> = Vec::with_capacity(n);
     for i in 0..n {
         let (d, v) = (depth[i], value[i]);
         if !d.is_finite() || !v.is_finite() {
             continue;
         }
-        keyed.push(((d / bin).floor() as i64, v));
+        keyed.push(((d as f64 / bin_f64).floor() as i64, v));
     }
     keyed.sort_by_key(|(k, _)| *k);
     let mut out: Vec<(f32, f32, Vec<f32>)> = Vec::new();
+    let mut last_key: Option<i64> = None;
     for (k, v) in keyed {
         match out.last_mut() {
-            Some((top, _, vals)) if (*top / bin).floor() as i64 == k => vals.push(v),
+            Some((_, _, vals)) if last_key == Some(k) => vals.push(v),
             _ => {
-                let top = k as f32 * bin;
-                out.push((top, top + bin, vec![v]));
+                // Same arithmetic shape as the TS twin (`k * bin` and `k * bin + bin` in f64),
+                // narrowed to f32 only at the edge.
+                let top_f64 = k as f64 * bin_f64;
+                out.push((top_f64 as f32, (top_f64 + bin_f64) as f32, vec![v]));
+                last_key = Some(k);
             }
         }
     }
@@ -562,6 +574,52 @@ mod tests {
         assert_eq!(bins[0].2, vec![0.2, 0.24]);
         assert_eq!(bins[1].2, vec![0.31]);
         assert_eq!((bins[0].0, bins[0].1), (1000.0, 1005.0));
+    }
+
+    /// AUDIT-2026-08-20 finding 5. The print side (composite.rs) bins core plugs through this
+    /// function while the screen bins through the TypeScript twin, and the two must agree —
+    /// that is this module's header contract. The old regroup re-derived each group's key from
+    /// an f32 bin top, and above ~1024 m the f32 quotient's ulp made the round-trip land one
+    /// bin off: every mis-keyed plug opened its own group, so the printed box plot degenerated
+    /// to one-plug boxes while the screen showed proper quartiles from the same data. The
+    /// expectation here is computed independently with the TS twin's exact arithmetic (f64,
+    /// integer key), so this pins BOTH directions: a regroup that fragments and one that
+    /// over-merges each disagree with it. (The shallow-depth behaviour and the barren-gap rule
+    /// stay pinned by the test above.)
+    #[test]
+    fn deep_depth_bins_match_the_typescript_twin_instead_of_fragmenting() {
+        // The audit's measured failure region: bin 0.7 m at 2500 m, a plug every 0.1 m.
+        let depth: Vec<f32> = (0..700).map(|i| 2500.0 + i as f32 * 0.1).collect();
+        let value: Vec<f32> = (0..700).map(|i| 0.1 + (i % 10) as f32 * 0.01).collect();
+        let got = bin_by_depth(&depth, &value, 0.7);
+
+        // Independent forward implementation of the TypeScript twin's grouping.
+        let mut expected: Vec<(i64, Vec<f32>)> = Vec::new();
+        for (d, v) in depth.iter().zip(&value) {
+            let k = (*d as f64 / 0.7f64).floor() as i64;
+            match expected.last_mut() {
+                Some((lk, vals)) if *lk == k => vals.push(*v),
+                _ => expected.push((k, vec![*v])),
+            }
+        }
+        // 700 plugs over 70 m in 0.7 m boxes is ~100 boxes; the broken regroup opened hundreds.
+        assert!(
+            (99..=101).contains(&got.len()) && got.len() == expected.len(),
+            "box count {} must match the screen's grouping {} (fragmentation is the defect)",
+            got.len(),
+            expected.len()
+        );
+        for ((top, base, vals), (k, evals)) in got.iter().zip(&expected) {
+            assert_eq!(vals, evals, "the box at top {top} holds the wrong plugs");
+            assert!(
+                ((*k as f64 * 0.7) as f32 - top).abs() < 1e-3,
+                "box top drifted from its key: {top}"
+            );
+            assert!(
+                (base - top - 0.7).abs() < 1e-3,
+                "box height must stay the bin height: {top}..{base}"
+            );
+        }
     }
 
     #[test]

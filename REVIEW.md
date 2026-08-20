@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 4 (P1): the printed box plot agrees with the screen again, and your three rulings are on the record
+
+- [ ] **Your rulings R-1 / R-2 / R-3 are recorded as DEC-085** (DECISIONS.md, verbatim), and the
+      three §B1c gate boxes are closed against it. R-1: standard curves convert at import to the
+      project's default working units (existing projects will migrate once — that execution is
+      findings #6/#7, a coming increment). R-2: the [0,1] clamp is correct for SWE_INDO; sw_indo
+      will delegate to the SandiMin engine (finding #51). R-3: the house geothermal-gradient
+      default is 0.026 °F/ft; the writer defaulting 0.03 °C/m gets corrected (finding #30).
+- [ ] **One scope question back to you on R-2, deliberately NOT assumed.** You ruled Sw is 0–1 for
+      SWE_INDO. The OTHER diagnostic companions (SWT_ARCH, SWT_HGT, and finding #4's SWE_SIM)
+      deliberately carry the RAW equation answer — an Sw of 1.3 there is the QC signal that Rw or
+      m is wrong in that interval, and the Monte Carlo plausibility count reads those raw values
+      by design. Does your ruling extend to them (clip everything), or do the diagnostics stay
+      raw? Finding #4 waits on this one word; nothing else does.
+- [ ] **The fix in this increment (audit finding #5).** The core-plug box plots on a composite
+      print are binned by depth in Rust, while the screen bins in TypeScript — and above ~1024 m
+      the Rust side lost precision (single-precision arithmetic) and split one depth bin into
+      many: on a measured sweep, 13% of realistic (bin, depth) pairs disagreed, and a 0.7 m bin
+      at 2500 m broke into one-plug boxes — the printed deliverable showed no quartile spread
+      where the screen showed proper boxes. Rust now groups exactly the way the screen does
+      (double precision, integer bin key). Shallow wells and the barren-gap rule are unchanged.
+- [ ] **Click-through:** a well with core plugs below ~1500 m, point-data track set to box
+      display with a small bin (0.5–1 m) → Composite print/PDF: the printed boxes must show the
+      same spread as the screen, not a column of single-plug ticks.
+- [ ] **Automated correctness:** `deep_depth_bins_match_the_typescript_twin_instead_of_fragmenting`
+      pins the grouping against an independent implementation of the TS twin's arithmetic at the
+      audit's measured failure case (0.7 m bin at 2500 m), both directions — fragmenting and
+      over-merging each fail it. Two mutations red at two distinct assertions.
+
 ## 2026-08-20 — Audit increment 3 (P1): a bad Monte Carlo input refuses the study instead of killing the app
 
 - [ ] **What this fixes (audit finding #3).** The deterministic batch runner already refuses a
