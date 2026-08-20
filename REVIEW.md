@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 39 (my audit P2): **percent-delivered PHIE and VSH now land in the same units as everything else**
+
+- [ ] **What was wrong.** A vendor or partner interpretation set that carries `PHIE .%` **30.0**
+      and `VSH .%` **45.0** was **warned about at import and then stored exactly as delivered**.
+      The warning was correct and it was also the whole story — nothing between it and the modules
+      ever looked at the unit again, so `sw_arch` and `sw_indo` read **30.0 and 45.0 as v/v**.
+- [ ] **The fix.** Porosity, shale volume and clay volume now convert from percent at import,
+      exactly the way neutron porosity always has. One conversion, in one place — the same rule
+      the standard six moved onto two increments ago.
+- [ ] **A porosity unit still does not label clay.** `pu` and `p.u.` convert for **porosity
+      only**. A `VCL .pu` curve is a mislabelled file, and quietly converting it would assert
+      something the file never said — so it stays raw and stays **reported**, with the report now
+      naming the *unit* as unreviewed rather than claiming the whole family has no coverage.
+- [ ] **What this does NOT do.** A curve whose header says `V/V` while the numbers are plainly
+      percent (PHIE reading 30.0 under a `V/V` label) still passes through. That is a different
+      mechanism — judging the data against the definitional bound rather than reading the
+      declaration — and the core-table importer already has it. Named here, not done here.
+- [ ] **What to check.** Import a returned interpretation LAS whose PHIE/VSH headers say `%` or
+      `.PU`. Put PHIE on a log view: it should read **0–0.3**, not 0–30. Run `sw_indo` on it — the
+      SWE should be sensible rather than pinned. Then check the import report still lists
+      anything it genuinely could not convert.
+
 ## 2026-08-20 — Audit increment 38 (my audit P2): **a broken-down shaly-sand solve no longer reports 100% hydrocarbon**
 
 - [ ] **Where.** The conductivity root shared by **Dual-Water (non-linear)**, **Juhász** and

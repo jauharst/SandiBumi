@@ -794,7 +794,13 @@ mod tests {
         let queried = crate::list_convertible_unit_families();
         assert_eq!(
             queried,
-            ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"]
+            // POR / VSH / VSH_UNCLIPPED / VCL joined for AUDIT-2026-08-20 finding 19: percent
+            // is now a reviewed conversion for every fraction family, so they DO carry
+            // arithmetic and the query would understate coverage by leaving them out.
+            [
+                "CALI", "BS", "RHOB", "DRHO", "NPHI", "POR", "VSH", "VSH_UNCLIPPED", "VCL", "DT",
+                "DTS", "TEMP",
+            ]
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>()
@@ -893,7 +899,7 @@ mod tests {
                 automatic: true,
             },
             ExpectedRule {
-                families: &["NPHI"],
+                families: &["NPHI", "POR"],
                 from_unit: "pu",
                 to_unit: "v/v",
                 factor: 1.0 / 100.0,
@@ -902,7 +908,7 @@ mod tests {
                 automatic: true,
             },
             ExpectedRule {
-                families: &["NPHI"],
+                families: &["NPHI", "POR", "VSH", "VSH_UNCLIPPED", "VCL"],
                 from_unit: "%",
                 to_unit: "v/v",
                 factor: 1.0 / 100.0,
@@ -911,7 +917,7 @@ mod tests {
                 automatic: true,
             },
             ExpectedRule {
-                families: &["NPHI"],
+                families: &["NPHI", "POR"],
                 from_unit: "p.u.",
                 to_unit: "v/v",
                 factor: 1.0 / 100.0,
@@ -1117,4 +1123,70 @@ mod tests {
         assert!((slowness[0] - 0.3048).abs() < f32::EPSILON);
     }
 
+    /// AUDIT-2026-08-20 finding 19. A returned interpretation set carrying `PHIE .%` 30.0 and
+    /// `VSH .%` 45.0 was WARNED at import and then stored raw - so `sw_arch` and `sw_indo` read
+    /// 30.0 and 45.0 as v/v. The warning was right (SB-DIO-025) and it was also the whole story:
+    /// nothing between it and the modules ever looked at the unit again.
+    ///
+    /// Closed at the IMPORT boundary, not at consumption, because DEC-089 already ruled the
+    /// shape - one delivery, one numeric domain, converted in one place - and adding a second
+    /// conversion mechanism inside the read path is exactly the split DEC-089 closed.
+    ///
+    /// Pinned from BOTH sides. `%` is arithmetic and applies to every fraction family, but `pu`
+    /// is "porosity unit" and says nothing about a clay volume - a `VCL .pu` curve is a
+    /// mislabelled file, and converting it would assert something the file never said. So the
+    /// lazy widening - hand all three spellings to all five families - has to fail here.
+    #[test]
+    fn a_percent_delivered_porosity_or_shale_volume_converts_but_a_porosity_unit_never_labels_clay() {
+        let conv = |curve: &str, family: &str, unit: &str, v: f32| -> (f32, bool) {
+            let mut vals = [v];
+            let applied = convert_to_canonical(curve, family, Some(unit), &mut vals).is_some();
+            (vals[0], applied)
+        };
+
+        // A - the delivery that started it. Percent converts for porosity AND for the volumes.
+        for (curve, family) in [
+            ("PHIE", "POR"),
+            ("PHIT", "POR"),
+            ("VSH", "VSH"),
+            ("VSH_GR", "VSH_UNCLIPPED"),
+            ("VCL", "VCL"),
+        ] {
+            let (got, applied) = conv(curve, family, "%", 30.0);
+            assert!(applied, "{curve} .% must convert");
+            assert!((got - 0.30).abs() < 1e-6, "{curve} .% 30.0 -> {got}, wanted 0.30");
+        }
+        // Porosity keeps the two porosity-unit spellings it has always had.
+        for unit in ["pu", "p.u."] {
+            let (got, applied) = conv("PHIE", "POR", unit, 30.0);
+            assert!(applied && (got - 0.30).abs() < 1e-6, "PHIE .{unit} -> {got}");
+        }
+
+        // B - and a porosity unit stamped on a clay or shale volume is NOT quietly converted.
+        // It stays raw and stays reported, which is the honest reading of a file that says
+        // something it cannot mean.
+        for (curve, family) in [("VSH", "VSH"), ("VSH_GR", "VSH_UNCLIPPED"), ("VCL", "VCL")] {
+            for unit in ["pu", "p.u."] {
+                let (got, applied) = conv(curve, family, unit, 30.0);
+                assert!(
+                    !applied && (got - 30.0).abs() < 1e-6,
+                    "{curve} .{unit} must NOT convert - a porosity unit does not label a volume of clay; got {got}"
+                );
+                let report = unconverted_unit(curve, Some(family), Some(unit))
+                    .unwrap_or_else(|| panic!(
+                        "{curve} .{unit} must still be REPORTED as unconverted rather than passing quietly"
+                    ));
+                // And the report must say WHY correctly. These families now DO have conversion
+                // coverage - for percent - so "no declared numeric conversion coverage" would be
+                // a false reason, and the one a reader would act on by adding the whole family
+                // rather than the one unit spelling. That reason string is what
+                // CONVERTIBLE_FAMILIES decides, which is why this change touches both halves.
+                assert!(
+                    report.reason.contains("has no reviewed conversion rule"),
+                    "{curve} .{unit} must be reported as an unreviewed UNIT, not as an uncovered                      family; got: {}",
+                    report.reason
+                );
+            }
+        }
+    }
 }

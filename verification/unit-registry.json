@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registry_version": "curve-units-v2",
-  "source_sha256": "ee552f348a656549391e9d8cc3f0e77bf5d8addf7eaf65fe93f27046010591f1",
+  "source_sha256": "b8c27a5cb43cf6bd097ff5dbba53f5802b74250042ec63456960b71e1ef2f066",
   "populations": {
     "families": 20,
     "aliases": 151,
