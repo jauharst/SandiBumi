@@ -264,3 +264,53 @@ switching the active delivery later cannot rewrite what this one has been throug
 No migration: `CREATE TABLE IF NOT EXISTS` runs on every open, the `ml_models` precedent. Nothing
 is written when a shift moved no plugs.
 
+
+## Every core reader asks which datum the plugs are quoted on (2026-08-20)
+
+Codex whole-repository review, P1. `db::refuse_non_md_active_set` is SB-DBM-031's guard, and its
+own doc comment says it is "shared by every depth-pairing reader of the four delivery stores so
+the refusal text cannot drift." Three core readers never called it:
+
+- **`get_core_plugs`** — HFU/FZI clustering and the facies core-permeability tie
+- **`get_core_por_gd`** — SandiMin's φ and ρg calibration
+- **`equations::fetch_core_series`** — the plotted log-track and crossplot overlay
+
+The guarded siblings `get_core_point_series` and `get_scal_pc` prove the datum was available all
+along. **A comment that describes a shared rule is not the rule**, and this is the second time in
+one review that a doc comment described behaviour the code never had — `sample_at` promised NaN
+outside the surveyed range and clamped instead. The existing pin said "on every guarded store" and
+exercised four readers, which is exactly how three unguarded ones stayed invisible.
+
+**What it costs.** A delivery declared TVD with a plug at 1000 m corresponds to MD 1200 m in a
+deviated well. The log frame is MD. The overlay draws the plug at MD 1000; the facies tie and
+SandiMin find the nearest log sample near MD 1000 and compare the plug to rock 200 m away. Class
+variance reduction, porosity RMS and grain-density RMS all come back finite, so **the category
+error is not self-revealing** — there is no NaN, no empty result, nothing to prompt a second look.
+
+**A guard behind a swallow is not a guard, and two of the four callers swallowed.** `hfu.rs`
+already returned the refusal named by well and `lib.rs` already propagated it to the frontend.
+`facies_tie.rs` used `if let Ok(plugs) = …` and `sandimin.rs` used `.unwrap_or_default()`, so
+adding the guard there would have converted a wrong answer into a SILENT ABSENCE — `record_fixes`'
+"four ways an operation reported success having done nothing", arrived at from a new direction.
+So each now reports:
+
+- **Facies** appends the reason to `core_match_note`, whose stated job is to say how the plugs were
+  put on the log's depth frame; here they were not. It is kept apart from `n_core_unmatched`, which
+  counts plugs that WERE read and found no log sample nearby — a refused read is not a failed depth
+  match, and booking it there would misreport the reason.
+- **SandiMin** gains `SandiminWellResult.core_note`, deliberately not `error`: the well SOLVED and
+  only the independent check was withheld. Three blank fits alone read as "this well has no core",
+  and a cross-datum delivery is the opposite statement — core exists and cannot be compared. The
+  dialog hid the whole core section when every fit was blank, so without the note the reason had
+  nowhere to appear at all.
+
+**The confusion half of a facies run survives untouched**, and that is the other side of the rule:
+class-against-class never reads a plug, so failing the whole analysis would withhold an answer that
+was never in question. A refusal is scoped to what it actually invalidates.
+
+Pinned by `every_core_reader_refuses_a_cross_datum_delivery_and_not_merely_the_two_that_already_did`
+(all three readers, from both sides — MD pairs before and after, the refusal names both datums and
+the delivery, and an undeclared legacy set stays the preserved unknown) and by
+`a_core_read_refused_for_its_datum_is_named_in_the_match_note_rather_than_left_as_a_bare_nan` (the
+reason is reported, and the confusion result is not collateral damage). Four mutations red at four
+distinct assertions.

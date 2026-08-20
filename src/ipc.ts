@@ -2608,6 +2608,10 @@ export interface SandiminWellResult {
   core_phit: SmCoreFit | null;
   /** Solved grain density vs core ρg — a check on the MINERAL model specifically. */
   core_gd: SmCoreFit | null;
+  /** Why the core calibration was not attempted, when it was not. Not `error` — the well SOLVED,
+   *  and only the independent check against core was withheld. Three blank fits alone would read
+   *  as "this well has no core"; a cross-datum delivery is the opposite statement. */
+  core_note: string | null;
   error: string | null;
 }
 

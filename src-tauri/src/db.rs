@@ -4100,7 +4100,7 @@ pub fn declare_set_datum(
 /// log depth with, say, a TVDSS plug depth is a category error that silently produces a
 /// number (F-17). A legacy set with no declaration (NULL) is the preserved unknown and
 /// passes exactly as it always did; refusing it would relabel unknown as wrong.
-fn refuse_non_md_active_set(
+pub(crate) fn refuse_non_md_active_set(
     conn: &Connection,
     store: &str,
     well_id: &str,
@@ -4183,7 +4183,12 @@ pub struct CorePlugRow {
 
 /// One well's core plugs (depth ascending) with porosity/permeability only, from the
 /// ACTIVE core set. NULL φ or k become NaN so the caller can skip them.
+///
+/// Every caller pairs these depths against an MD log frame — HFU/FZI clustering and the facies
+/// core-permeability tie both find the nearest log sample to a plug — so the datum guard applies
+/// here exactly as it does to the sibling readers.
 pub fn get_core_plugs(conn: &Connection, well_id: &str) -> DbResult<Vec<CorePlugRow>> {
+    refuse_non_md_active_set(conn, "core_sets", well_id, None)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT depth, cpor, cperm FROM core_data
          WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
@@ -4241,7 +4246,11 @@ pub fn get_core_point_series(conn: &Connection, well_id: &str) -> DbResult<Vec<(
 
 /// One well's core plugs (depth ascending) with porosity + grain density only, from the
 /// ACTIVE core set. NULL φ or ρg become NaN so the caller can skip them.
+///
+/// SandiMin ties each plug to the nearest solved sample, which sits on the MD log frame, so the
+/// datum guard applies here too.
 pub fn get_core_por_gd(conn: &Connection, well_id: &str) -> DbResult<Vec<CoreQcRow>> {
+    refuse_non_md_active_set(conn, "core_sets", well_id, None)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT depth, cpor, cgd FROM core_data
          WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
@@ -7274,6 +7283,78 @@ mod inspector_tests {
             .unwrap();
         assert_eq!(datum, None, "nothing backfills MD onto an undeclared delivery");
         assert!(!get_core_point_series(&conn, &lw).unwrap().is_empty(), "and it still pairs");
+    }
+
+    /// Codex whole-repository review, P1: the guard above says it is shared by EVERY depth-pairing
+    /// reader, and three core readers never called it.
+    ///
+    /// `get_core_point_series` and `get_scal_pc` were guarded and are pinned by the test above;
+    /// `get_core_plugs` (HFU/FZI clustering, the facies core-permeability tie), `get_core_por_gd`
+    /// (SandiMin's φ and ρg calibration) and `equations::fetch_core_series` (the plotted log and
+    /// crossplot overlay) were not. Each pairs a plug depth against the MD log frame — nearest
+    /// sample, or the track a plug is drawn in — so a delivery declared TVD or TVDSS put the plug
+    /// beside the wrong rock and every downstream number stayed finite and plausible.
+    ///
+    /// Pinned from both sides. A refusal alone would also be produced by a reader that had simply
+    /// stopped returning core, so MD must still pair before and after, and the refusal must NAME
+    /// both datums and the delivery — the guard is about a WRONG datum, never about having
+    /// declared one.
+    #[test]
+    fn every_core_reader_refuses_a_cross_datum_delivery_and_not_merely_the_two_that_already_did() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-DATUM-2", None, None, None).unwrap();
+        let w = id.to_string();
+        insert_core_data(
+            &conn, &w, "CORE", None,
+            &[1000.0, 1001.0], &[0.18, 0.19], &[10.0, 11.0], &[2.65, 2.65], &[0.3, 0.3],
+        )
+        .unwrap();
+
+        // The three readers the guard was missing from, each reached the way its caller reaches it.
+        let plugs = |c: &Connection| get_core_plugs(c, &w);
+        let por_gd = |c: &Connection| get_core_por_gd(c, &w);
+        let series = |c: &Connection| crate::equations::fetch_core_series(c, &w);
+
+        // Declared MD: all three pair, as they always have.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "MD").unwrap();
+        assert_eq!(plugs(&conn).unwrap().len(), 2, "MD plugs pair with an MD log frame");
+        assert_eq!(por_gd(&conn).unwrap().len(), 2, "and so do the SandiMin calibration plugs");
+        assert!(
+            series(&conn).unwrap().iter().any(|s| s.point_count > 0),
+            "and the overlay has something to draw"
+        );
+
+        // Declared TVDSS: all three refuse, NAMING both datums and the delivery.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "TVDSS").unwrap();
+        for (what, text) in [
+            ("get_core_plugs", plugs(&conn).expect_err("HFU/facies must refuse").to_string()),
+            ("get_core_por_gd", por_gd(&conn).expect_err("SandiMin must refuse").to_string()),
+            ("fetch_core_series", series(&conn).expect_err("the overlay must refuse").to_string()),
+        ] {
+            assert!(
+                text.contains("TVDSS") && text.contains("MD") && text.contains("CORE"),
+                "{what} must name both datums and the delivery, got: {text}"
+            );
+        }
+
+        // Back on MD everything pairs again — the refusal is about the datum, not about the
+        // reader having been taught to fail.
+        declare_set_datum(&conn, "core_sets", &w, None, "CORE", "MD").unwrap();
+        assert_eq!(plugs(&conn).unwrap().len(), 2);
+        assert_eq!(por_gd(&conn).unwrap().len(), 2);
+        assert!(series(&conn).unwrap().iter().any(|s| s.point_count > 0));
+
+        // And the preserved unknown still passes: a legacy delivery that declared nothing is
+        // unknown, never inferred to be wrong.
+        let legacy = Uuid::new_v4();
+        insert_well(&conn, legacy, "SANDI-DATUM-2-LEGACY", None, None, None).unwrap();
+        let lw = legacy.to_string();
+        insert_core_data(&conn, &lw, "CORE", None, &[1000.0], &[0.2], &[10.0], &[2.65], &[0.4])
+            .unwrap();
+        assert_eq!(get_core_plugs(&conn, &lw).unwrap().len(), 1, "undeclared still pairs");
+        assert_eq!(get_core_por_gd(&conn, &lw).unwrap().len(), 1);
+        assert!(crate::equations::fetch_core_series(&conn, &lw).unwrap().iter().any(|s| s.point_count > 0));
     }
 
     /// SB-DBM-041 exact T42 (`22_database-model.md` section 6), unblocked by SB-DBM-011's

@@ -71,7 +71,7 @@
     {
       "id": "core-depth-registration",
       "title": "Core-depth registration",
-      "review_section_patterns": ["Register core depth", "shift per barrel", "shifted core", "re.registration", "core carries its own depth", "follow the core"]
+      "review_section_patterns": ["Register core depth", "shift per barrel", "shifted core", "re.registration", "core carries its own depth", "follow the core", "datum"]
     },
     {
       "id": "core-imaging",

@@ -1234,7 +1234,9 @@ export async function buildSandiminContent(
     // Only rendered when some well actually has plugs. RECON above measures the fit to the model's
     // OWN input logs; this measures it against an INDEPENDENT measurement, which is the one that
     // can tell you the endpoints are wrong.
-    if (res.wells.some((w) => w.core_phie || w.core_phit || w.core_gd)) {
+    // A well whose core could not be READ is shown too, with the reason in place of the fits —
+    // otherwise a cross-datum delivery hides this whole section and reads as "no core here".
+    if (res.wells.some((w) => w.core_phie || w.core_phit || w.core_gd || w.core_note)) {
       const coreCap = document.createElement("div");
       coreCap.className = "mc-chain-note";
       coreCap.textContent =
@@ -1250,9 +1252,22 @@ export async function buildSandiminContent(
       const fitCell = (f: SmCoreFit | null): string =>
         f ? `${f.rms.toFixed(3)}  (bias ${f.bias >= 0 ? "+" : ""}${f.bias.toFixed(3)}, n=${f.n})` : "—";
       for (const w of res.wells) {
-        if (!w.core_phie && !w.core_phit && !w.core_gd) continue;
+        if (!w.core_phie && !w.core_phit && !w.core_gd && !w.core_note) continue;
         const tr = document.createElement("tr");
         const name = wells.find((x) => x.well_id === w.well_id)?.well_name || w.well_id;
+        if (w.core_note) {
+          // The reason spans the three fit columns: there is no number to put in any of them.
+          const td = document.createElement("td");
+          td.className = "sm-cell";
+          td.textContent = name;
+          const note = document.createElement("td");
+          note.className = "sm-cell";
+          note.colSpan = 3;
+          note.textContent = w.core_note;
+          tr.append(td, note);
+          coreBody.appendChild(tr);
+          continue;
+        }
         for (const cell of [name, fitCell(w.core_phie), fitCell(w.core_phit), fitCell(w.core_gd)]) {
           const td = document.createElement("td");
           td.className = "sm-cell";
