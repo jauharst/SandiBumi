@@ -318,6 +318,10 @@ fn cover_page(
     header: &composite::WellHeader,
     interval: (f32, f32),
     window: Option<(f32, f32)>,
+    // The project's stored depth unit. Every depth on this cover is a stored depth printed
+    // verbatim — the logged interval, the print window, TD and KB — so the unit is named, never
+    // assumed. TD and KB ride along because they are depths on the same grid.
+    depth_unit: crate::units::DepthUnit,
     pw: f64,
     ph: f64,
 ) -> Vec<DrawOp> {
@@ -342,15 +346,16 @@ fn cover_page(
         text(&mut ops, cx, y, 3.6, Anchor::Middle, false, "#333333", format!("Field: {f}"));
         y += 6.0;
     }
-    let mut meta = format!("Interval: {:.1} – {:.1} m", interval.0, interval.1);
+    let du = depth_unit.label();
+    let mut meta = format!("Interval: {:.1} – {:.1} {du}", interval.0, interval.1);
     if let Some((wt, wb)) = window {
-        meta.push_str(&format!("   ·   Log pages printed over {wt:.1} – {wb:.1} m"));
+        meta.push_str(&format!("   ·   Log pages printed over {wt:.1} – {wb:.1} {du}"));
     }
     if let Some(td) = header.td {
-        meta.push_str(&format!("   ·   TD: {td:.1} m"));
+        meta.push_str(&format!("   ·   TD: {td:.1} {du}"));
     }
     if let Some(kb) = header.kb {
-        meta.push_str(&format!("   ·   KB: {kb:.1} m"));
+        meta.push_str(&format!("   ·   KB: {kb:.1} {du}"));
     }
     text(&mut ops, cx, y, 3.2, Anchor::Middle, false, "#555555", meta);
 
@@ -377,8 +382,18 @@ fn report_pages_with_degradations(
     db: &Mutex<Connection>,
     spec: &ReportSpec,
 ) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String, Vec<String>), String> {
-    let (composite_pages, pw, ph, well_name, header, zones, zparams, logged, ml_prov) = {
+    let (composite_pages, pw, ph, well_name, header, zones, zparams, logged, ml_prov, depth_unit) = {
         let conn = db.lock().unwrap();
+        // Every depth and thickness printed below comes from the project's own depth column and
+        // is NOT converted — `run_pay_summary` accumulates raw sample thickness, and the zone
+        // tops are stored depths. So the headings name the project's unit. They used to say "(m)"
+        // unconditionally: on a foot project this PDF stated a client's net pay and hydrocarbon
+        // pore thickness in metres over numbers that were feet, overstating both by 3.28084x
+        // while every figure stayed plausible. The workbook path (`office.rs`) already did this
+        // correctly, which is what proves the raw values are deliberately project-native.
+        let depth_unit = crate::units::project_depth_unit(&conn)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
         let header = composite::fetch_header(&conn, &spec.composite.well_id)?;
         let zones = db::list_zones(&conn, &spec.composite.well_id).map_err(|e| e.to_string())?;
         let zparams = db::list_zone_params(&conn, &spec.composite.well_id).map_err(|e| e.to_string())?;
@@ -390,8 +405,9 @@ fn report_pages_with_degradations(
         // run_pay_summary takes it itself.
         let logged = db::logged_interval(&conn, &spec.composite.well_id);
         let (cpages, pw, ph, name) = composite::render_pages(&conn, &spec.composite)?;
-        (cpages, pw, ph, name, header, zones, zparams, logged, ml_prov)
+        (cpages, pw, ph, name, header, zones, zparams, logged, ml_prov, depth_unit)
     };
+    let du = depth_unit.label();
 
     // The PDF's pay-summary pass is a real persisted computation. Run it before
     // collecting disclosures so the report carries the ancestry of the exact FLAG
@@ -448,7 +464,7 @@ fn report_pages_with_degradations(
         let mut degradations: Vec<String> = Vec::new();
 
         // 1 — cover
-        pages.push(cover_page(spec, &header, interval, window, pw, ph));
+        pages.push(cover_page(spec, &header, interval, window, depth_unit, pw, ph));
 
         // 2 — methodology table
         let rows_src = if spec.methodology.is_empty() { default_methodology(spec) } else { spec.methodology.clone() };
@@ -562,10 +578,11 @@ fn report_pages_with_degradations(
             }
         }
         if !z_rows.is_empty() {
+            let (z_top, z_bottom) = (format!("Top ({du})"), format!("Bottom ({du})"));
             let z_cols: [(&str, f64, Anchor); 5] = [
                 ("Zone", usable * 0.26, Anchor::Start),
-                ("Top (m)", usable * 0.13, Anchor::End),
-                ("Bottom (m)", usable * 0.13, Anchor::End),
+                (z_top.as_str(), usable * 0.13, Anchor::End),
+                (z_bottom.as_str(), usable * 0.13, Anchor::End),
                 ("Parameter", usable * 0.28, Anchor::Start),
                 ("Value", usable * 0.20, Anchor::End),
             ];
@@ -654,18 +671,24 @@ fn report_pages_with_degradations(
                         ]
                     })
                     .collect();
+                // Every length column names the unit, not only HPV. Four unlabelled thickness
+                // columns beside one labelled "(m)" invites the reader to assume the rest match
+                // it — which on a foot project they never did.
+                let p_len = |name: &str| format!("{name} ({du})");
+                let (p_top, p_bottom) = (p_len("Top"), p_len("Bottom"));
+                let (p_gross, p_net, p_hpv) = (p_len("Gross"), p_len("Net"), p_len("HPV"));
                 let p_cols: [(&str, f64, Anchor); 11] = [
                     ("Zone", usable * 0.16, Anchor::Start),
                     ("Flag", usable * 0.11, Anchor::Start),
-                    ("Top", usable * 0.08, Anchor::End),
-                    ("Bottom", usable * 0.08, Anchor::End),
-                    ("Gross", usable * 0.08, Anchor::End),
-                    ("Net", usable * 0.08, Anchor::End),
+                    (p_top.as_str(), usable * 0.08, Anchor::End),
+                    (p_bottom.as_str(), usable * 0.08, Anchor::End),
+                    (p_gross.as_str(), usable * 0.08, Anchor::End),
+                    (p_net.as_str(), usable * 0.08, Anchor::End),
                     ("NTG", usable * 0.07, Anchor::End),
                     ("VSH", usable * 0.07, Anchor::End),
                     ("PHIE", usable * 0.08, Anchor::End),
                     ("SWE", usable * 0.07, Anchor::End),
-                    ("HPV (m)", usable * 0.12, Anchor::End),
+                    (p_hpv.as_str(), usable * 0.12, Anchor::End),
                 ];
                 pages.extend(table_pages(&pay_section, &well_name, pay_caveat.as_deref(), &p_cols, &p_rows, pw, ph, 2.4));
             }
@@ -1180,6 +1203,84 @@ mod tests {
         // The zero it is explaining must really be there — a note about a number the page does not
         // print would be worse than no note.
         assert!(noted.contains("PAY"), "the pay row is on the page: {noted}");
+    }
+
+    /// From the Codex whole-repository review of a6565bd9 (P0). The report PDF is the client
+    /// deliverable, and every depth and thickness it prints comes straight off the project's own
+    /// depth column — `run_pay_summary` accumulates raw sample thickness and the zone tops are
+    /// stored depths. The headings said "(m)" unconditionally, so a foot-declared project handed
+    /// a client a document stating net pay and hydrocarbon pore thickness in metres over numbers
+    /// that were feet: both overstated by 3.28084x, every figure plausible, nothing on the page
+    /// to catch it.
+    ///
+    /// Two arms because a fix that just wrote "ft" everywhere would be as wrong as the original.
+    /// The metre arm must still read "(m)", and the four thickness columns that carried NO unit
+    /// at all — Top, Bottom, Gross, Net, beside a labelled HPV — must now name it too: unlabelled
+    /// columns next to one that says metres invite exactly the assumption that was false.
+    #[test]
+    fn the_report_pdf_heads_its_thicknesses_in_the_projects_own_depth_unit() {
+        use crate::units::DepthUnit;
+
+        let headings = |feet: bool| -> String {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            if feet {
+                crate::units::set_project_depth_unit(&conn, DepthUnit::Feet).unwrap();
+            }
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-UNITS", None, None, None).unwrap();
+            let w = wid.to_string();
+            let n = 20usize;
+            let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+                vec![2.4; n], nan.clone(), nan,
+            )
+            .unwrap();
+            db::upsert_md_zone(&conn, &w, "ZoneA", 1000.0, 1009.5).unwrap();
+            crate::db::set_zone_param(&conn, &w, "ZoneA", "RW", Some(0.3), None).unwrap();
+            write_report_inputs(
+                &conn,
+                &w,
+                &depth,
+                &[
+                    ("VSH", vec![0.2f32; n].as_slice()),
+                    ("PHIE", vec![0.20f32; n].as_slice()),
+                    ("SWE", vec![0.30f32; n].as_slice()),
+                ],
+            );
+            let dbm = Mutex::new(conn);
+            let mut spec = batch_spec();
+            spec.composite.well_id = w;
+            spec.tables_only = true;
+            let (pages, _pw, _ph, _name) = report_pages(&dbm, &spec).expect("render");
+            pages
+                .iter()
+                .flatten()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        let metric = headings(false);
+        assert!(metric.contains("HPV (m)"), "a metre project must be unchanged: {metric}");
+        assert!(metric.contains("Top (m)"), "and its zone table too: {metric}");
+        assert!(metric.contains("1009.5 m"), "and its cover interval: {metric}");
+        assert!(!metric.contains("(ft)"), "with no feet anywhere: {metric}");
+
+        let foot = headings(true);
+        assert!(foot.contains("1009.5 ft"), "the cover states the interval in feet: {foot}");
+        for heading in ["Top (ft)", "Bottom (ft)", "Gross (ft)", "Net (ft)", "HPV (ft)"] {
+            assert!(
+                foot.contains(heading),
+                "a foot project must head every thickness column {heading}: {foot}"
+            );
+        }
+        assert!(!foot.contains("(m)"), "and must not print metres anywhere: {foot}");
     }
 
     /// A well whose name sanitizes to nothing at all still gets a usable filename. `_report.pdf`
@@ -1716,7 +1817,8 @@ mod tests {
             td: Some(900.0),
             kb: Some(15.0),
         };
-        let ops = cover_page(&spec, &header, (400.0, 850.0), None, 210.0, 297.0);
+        let ops =
+            cover_page(&spec, &header, (400.0, 850.0), None, crate::units::DepthUnit::Metres, 210.0, 297.0);
         let texts: Vec<String> = ops
             .iter()
             .filter_map(|op| match op {

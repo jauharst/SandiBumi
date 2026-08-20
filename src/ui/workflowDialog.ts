@@ -15,6 +15,7 @@ import {
   type ModuleSpec,
 } from "../ipc";
 import { bumpDataVersion } from "../state";
+import { argumentUnitLabel } from "../depthUnitPref";
 import { buildLogSetPicker } from "./logSetPicker";
 import { buildRunCustodyControls } from "./runCustody";
 import { formRow } from "./modal";
@@ -450,7 +451,7 @@ export async function buildWorkflowContent(
       } else if (arg.kind === "option") {
         box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), argumentHint(arg)));
       } else if (arg.kind === "param") {
-        const unit = arg.unit ? ` [${arg.unit}]` : "";
+        const unit = arg.unit ? ` [${argumentUnitLabel(arg.unit)}]` : "";
         const control = paramControl(step, arg, onChanged);
         box.appendChild(
           editorRow(
@@ -839,7 +840,7 @@ export async function buildWorkflowContent(
       if (col.unit) {
         const u = document.createElement("span");
         u.className = "workflow-grid-unit";
-        u.textContent = col.unit;
+        u.textContent = argumentUnitLabel(col.unit);
         th.appendChild(u);
       }
       const topics = [
