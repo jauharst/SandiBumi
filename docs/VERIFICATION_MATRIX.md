@@ -11,13 +11,13 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 136 | — | 44 |
+| `las-import` | LAS import | Not exercised | 0 / 138 | — | 45 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
-| `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
+| `core-point-import` | Core and point-data import | Not exercised | 0 / 57 | — | 11 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 197 | 2026-08-13 | 67 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 199 | 2026-08-13 | 68 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 94 | 2026-08-13 | 21 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
