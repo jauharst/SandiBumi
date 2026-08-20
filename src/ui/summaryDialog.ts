@@ -1,5 +1,6 @@
 import { runPaySummary, type PaySummaryRow } from "../ipc";
 import { bumpDataVersion } from "../state";
+import { shownDepthLabel, toShownDepth } from "../depthUnitPref";
 import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
@@ -119,9 +120,16 @@ export function renderPaySummaryTable(container: HTMLElement, rows: PaySummaryRo
   wrap.className = "summary-table-wrap";
   const table = document.createElement("table");
   table.className = "summary-table";
+  // Every length column carries the unit it is being READ in, and its value is converted to
+  // match. Only HPV used to be labelled, and it said metres over whatever the project stored;
+  // Top through Net said nothing at all, which on a mixed-unit desk is the same problem quieter.
+  // Not escaped, deliberately: `unitLabel` returns "m" or "ft" and nothing else, so there is no
+  // untrusted text here to escape — unlike the well and zone names below, which come from data.
+  const u = shownDepthLabel();
   table.innerHTML =
-    "<thead><tr><th>Well</th><th>Zone</th><th>Flag</th><th>Top</th><th>Bottom</th><th>Gross</th>" +
-    "<th>Net</th><th>N/G</th><th>Avg VSH</th><th>Avg PHIE</th><th>Avg SWE</th><th>HPV (m)</th></tr></thead>";
+    `<thead><tr><th>Well</th><th>Zone</th><th>Flag</th><th>Top (${u})</th><th>Bottom (${u})</th>` +
+    `<th>Gross (${u})</th><th>Net (${u})</th><th>N/G</th><th>Avg VSH</th><th>Avg PHIE</th>` +
+    `<th>Avg SWE</th><th>HPV (${u})</th></tr></thead>`;
   const tbody = document.createElement("tbody");
   let uninterpreted = 0;
   for (const r of rows) {
@@ -138,11 +146,15 @@ export function renderPaySummaryTable(container: HTMLElement, rows: PaySummaryRo
       tr.title = "VSH/PHIE/SWE not computed for this well — no sample could be classified";
     }
     const cell = (v: number, d: number) => (none ? "—" : fmt(v, d));
+    // `len` marks the depth-dimensioned values. N/G and the volume-fraction averages are
+    // dimensionless and go through `fmt` untouched — converting a net-to-gross of 0.50 into
+    // 0.15 would still look like a legal number.
+    const len = (v: number) => toShownDepth(v);
     tr.innerHTML =
       `<td>${r.well_name}</td><td>${r.zone}</td><td>${r.flag}</td>` +
-      `<td>${fmt(r.top, 1)}</td><td>${fmt(r.bottom, 1)}</td><td>${fmt(r.gross, 1)}</td>` +
-      `<td>${cell(r.net, 1)}</td><td>${cell(r.ntg, 2)}</td><td>${fmt(r.avg_vsh)}</td>` +
-      `<td>${fmt(r.avg_phie, 3)}</td><td>${fmt(r.avg_swe)}</td><td>${cell(r.hpv, 2)}</td>`;
+      `<td>${fmt(len(r.top), 1)}</td><td>${fmt(len(r.bottom), 1)}</td><td>${fmt(len(r.gross), 1)}</td>` +
+      `<td>${cell(len(r.net), 1)}</td><td>${cell(r.ntg, 2)}</td><td>${fmt(r.avg_vsh)}</td>` +
+      `<td>${fmt(r.avg_phie, 3)}</td><td>${fmt(r.avg_swe)}</td><td>${cell(len(r.hpv), 2)}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);

@@ -1,7 +1,7 @@
 import { getProjectDepthUnit } from "./ipc";
 import { appState, setStatus } from "./state";
 import type { DepthUnit } from "./units";
-import { unitLabel } from "./units";
+import { convertDepth, unitLabel } from "./units";
 
 /** Loading and persisting the depth-unit settings.
  *
@@ -60,6 +60,17 @@ export function storedDepthLabel(): string {
  *  so following the view preference is free and is what the reader asked for. */
 export function shownDepthLabel(): string {
   return unitLabel(appState.displayDepthUnit.get());
+}
+
+/** A stored length converted for reading, the numeric partner of [`shownDepthLabel`].
+ *
+ *  Always used together with it. A converted value under a stale heading and a stale value under
+ *  a converted heading are the same lie, and both have shipped from this codebase — so the pair
+ *  lives in one place rather than being re-derived per panel. Applies to any length in the
+ *  project's depth dimension: a depth, a thickness, and hydrocarbon pore thickness, which is one.
+ *  Never to a ratio, a volume fraction or a sample count. */
+export function toShownDepth(value: number): number {
+  return convertDepth(value, appState.projectDepthUnit.get(), appState.displayDepthUnit.get());
 }
 
 /** The unit to PRINT beside a module argument.

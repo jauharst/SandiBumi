@@ -9,6 +9,7 @@ import {
   saveDocument,
   type CutoffSweepResult,
 } from "../ipc";
+import { shownDepthLabel, toShownDepth } from "../depthUnitPref";
 import { recordProcess } from "../processLog";
 import { appState, bumpDataVersion } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
@@ -294,7 +295,10 @@ export async function buildCutoffContent(
     let yMax = 0;
     for (const s of sweep.series) {
       for (const v of s.values) {
-        const y = normalise ? (s.peak > 0 ? v / s.peak : 0) : v;
+        // A normalised series is a fraction of its own peak, so the conversion cancels — but it
+        // is applied on both sides rather than branched around, because a ratio of two converted
+        // numbers is the one place where doing it "unnecessarily" cannot be wrong.
+        const y = normalise ? (s.peak > 0 ? v / s.peak : 0) : metricValue(sweep.metric, v);
         if (y > yMax) yMax = y;
       }
     }
@@ -319,7 +323,7 @@ export async function buildCutoffContent(
       if (s.cutoffs.length < 2) return;
       const pts: [number, number][] = s.cutoffs.map((c, k) => {
         const v = s.values[k];
-        return [c, normalise ? (s.peak > 0 ? v / s.peak : 0) : v];
+        return [c, normalise ? (s.peak > 0 ? v / s.peak : 0) : metricValue(sweep!.metric, v)];
       });
       pc!.drawLine(pts, faciesColor(i), 1.8);
     });
@@ -447,8 +451,19 @@ export async function buildCutoffContent(
     readout.textContent = "";
   }
 
+  /** NET and HPV are thicknesses in the project's stored unit — HPV is hydrocarbon pore
+   *  thickness — so the sweep plots and reads them out in the unit being displayed. NTG is a
+   *  ratio and must never be touched: a net-to-gross of 0.50 converted to 0.15 is still a legal
+   *  number, so nothing downstream would catch it. */
+  const isMetricLength = (m: string): boolean => m !== "NTG";
+
+  function metricValue(m: string, v: number): number {
+    return isMetricLength(m) ? toShownDepth(v) : v;
+  }
+
   function metricLabel(m: string): string {
-    return m === "HPV" ? "HC pore-thickness (m)" : m === "NTG" ? "Net-to-gross" : "Net thickness (m)";
+    const u = shownDepthLabel();
+    return m === "HPV" ? `HC pore-thickness (${u})` : m === "NTG" ? "Net-to-gross" : `Net thickness (${u})`;
   }
 
   function renderSweepLegend(): void {
@@ -492,7 +507,7 @@ export async function buildCutoffContent(
     const m = sweep.metric;
     const parts = sweep.series.map((s) => {
       if (s.cutoffs.length < 2) return `${s.well_name}: —`;
-      const v = interpAt(s.cutoffs, s.values, pickedCutoff!);
+      const v = metricValue(m, interpAt(s.cutoffs, s.values, pickedCutoff!));
       return `${s.well_name}: ${m === "NTG" ? v.toFixed(3) : v.toFixed(2)}`;
     });
     readout.textContent = `${sweepReq.property} = ${pickedCutoff.toFixed(3)} → ${metricLabel(sweep.metric)}  |  ${parts.join("  ·  ")}`;
