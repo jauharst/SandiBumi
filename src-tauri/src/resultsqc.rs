@@ -87,6 +87,54 @@ pub struct SwSpreadResult {
     pub notes: Vec<String>,
 }
 
+/// Everything in [`SwSpreadResult`] EXCEPT the per-depth arrays, which travel as packed `f32`
+/// columns beside it. `columns` names them in the order they are packed.
+#[derive(Debug, Clone, Serialize)]
+struct SwSpreadHeader<'a> {
+    columns: Vec<&'a str>,
+    /// Rows in every column. A panel checks this once instead of trusting four lengths to agree.
+    n: usize,
+    method_names: Vec<&'a str>,
+    mean_spread: f32,
+    max_spread: f32,
+    max_spread_depth: f32,
+    frac_divergent: f32,
+    n_samples: usize,
+    notes: &'a [String],
+}
+
+/// Packs one envelope for the IPC bridge: scalars and notes as JSON, every per-depth array as raw
+/// `f32`.
+///
+/// Rule 3, and here the scale is not hypothetical. A 500,000-sample well with seven available Sw
+/// models returns depth plus seven method arrays plus `sw_min`, `sw_max` and `spread` — 5.5 MILLION
+/// numbers. As JSON that is millions of textual values allocated as a nested object and parsed on
+/// the UI thread; packed it is about 22 MB of float bytes the frontend casts in place.
+///
+/// **One shared depth column, not one per method.** Every method is evaluated on the same frame,
+/// so pairing each with its own copy of depth — which is what [`crate::equations::pack_curve_series`]
+/// would do — would have made the payload half again as large to say nothing new.
+pub fn pack_sw_spread(res: &SwSpreadResult) -> Result<Vec<u8>, String> {
+    let mut columns: Vec<&str> = vec!["depth", "sw_min", "sw_max", "spread"];
+    columns.extend(res.methods.iter().map(|m| m.name.as_str()));
+    let header = SwSpreadHeader {
+        columns: columns.clone(),
+        n: res.depth.len(),
+        method_names: res.methods.iter().map(|m| m.name.as_str()).collect(),
+        mean_spread: res.mean_spread,
+        max_spread: res.max_spread,
+        max_spread_depth: res.max_spread_depth,
+        frac_divergent: res.frac_divergent,
+        n_samples: res.n_samples,
+        notes: &res.notes,
+    };
+    let json = serde_json::to_string(&header).map_err(|e| e.to_string())?;
+    let mut packed: Vec<&[f32]> =
+        vec![&res.depth, &res.sw_min, &res.sw_max, &res.spread];
+    packed.extend(res.methods.iter().map(|m| m.values.as_slice()));
+    Ok(crate::equations::pack_frame(&json, &packed))
+}
+
 /// Scalar inputs shared by every per-depth model, derived once from [`FluidProps`].
 struct SpreadParams {
     /// Formation-water resistivity at formation temperature (ohm·m) — Archie/Simandoux/Indonesia.
@@ -443,6 +491,93 @@ pub fn sw_method_spread(conn: &Connection, req: &SwSpreadRequest) -> Result<SwSp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Codex whole-repository review, P2: rule 3 says a `Vec<f32>` never crosses the bridge as JSON.
+    ///
+    /// Results-QC derived `Serialize` on depth, every model and the three envelope arrays and
+    /// handed the struct straight to the command. On a 500,000-sample well with seven available Sw
+    /// models that is 5.5 MILLION numbers in one `invoke` — serialized as text, allocated as a
+    /// nested JSON object and parsed on the UI thread — where the packed form is about 22 MB of
+    /// float bytes the frontend casts in place.
+    ///
+    /// This pins the ENVELOPE, which is the part that can silently break: a reader that pairs
+    /// columns by position rather than by the header's names would put one model's saturation
+    /// under another model's label, and every number would still look like a saturation.
+    ///
+    /// Pinned from both sides — the bytes must decode back to exactly the values that went in
+    /// (NaN included, since that is how rule 2 spells "missing" and there is no null in an `f32`
+    /// column), AND the header must carry the names in the packed order, so a decoder cannot get
+    /// the right answer by luck.
+    #[test]
+    fn the_sw_envelope_crosses_as_bytes_and_its_header_names_the_columns_in_packed_order() {
+        let res = SwSpreadResult {
+            depth: vec![2000.0, 2000.5, 2001.0],
+            methods: vec![
+                SwMethodSeries { name: "ARCHIE".into(), values: vec![0.4, f32::NAN, 0.6] },
+                SwMethodSeries { name: "INDONESIA".into(), values: vec![0.45, 0.5, 0.55] },
+            ],
+            sw_min: vec![0.4, 0.5, 0.55],
+            sw_max: vec![0.45, 0.5, 0.6],
+            spread: vec![0.05, 0.0, 0.05],
+            mean_spread: 0.0333,
+            max_spread: 0.05,
+            max_spread_depth: 2000.0,
+            frac_divergent: 0.0,
+            n_samples: 3,
+            notes: vec!["two models ran".into()],
+        };
+        let packed = pack_sw_spread(&res).expect("the envelope packs");
+
+        // Decode exactly as `decodeFrame` does on the other side of the bridge.
+        let u32_at = |o: usize| {
+            u32::from_le_bytes(packed[o..o + 4].try_into().unwrap()) as usize
+        };
+        let header_len = u32_at(0);
+        let header: serde_json::Value =
+            serde_json::from_slice(&packed[4..4 + header_len]).expect("header is JSON");
+        let mut off = 4 + header_len;
+        let n_columns = u32_at(off);
+        off += 4;
+        let mut columns: Vec<Vec<f32>> = Vec::new();
+        for _ in 0..n_columns {
+            let len = u32_at(off);
+            off += 4;
+            columns.push(
+                packed[off..off + len * 4]
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+                    .collect(),
+            );
+            off += len * 4;
+        }
+        assert_eq!(off, packed.len(), "the envelope is fully consumed, with nothing trailing");
+
+        // The header names every column, in the order they were packed.
+        let names: Vec<&str> =
+            header["columns"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(
+            names,
+            vec!["depth", "sw_min", "sw_max", "spread", "ARCHIE", "INDONESIA"],
+            "a decoder pairs by NAME, so the header must state the packed order"
+        );
+        assert_eq!(names.len(), n_columns, "one name per packed column, never more or fewer");
+
+        // Every value survives the round trip, NaN included.
+        let by_name = |n: &str| &columns[names.iter().position(|c| *c == n).unwrap()];
+        assert_eq!(by_name("depth"), &res.depth);
+        assert_eq!(by_name("sw_min"), &res.sw_min);
+        assert_eq!(by_name("INDONESIA"), &res.methods[1].values);
+        let archie = by_name("ARCHIE");
+        assert_eq!(archie[0], 0.4);
+        assert!(archie[1].is_nan(), "a non-physical sample stays MISSING across the bridge");
+        assert_eq!(archie[2], 0.6);
+
+        // The scalars stay in JSON, where they belong — they are not per-depth arrays.
+        assert_eq!(header["n_samples"], 3);
+        assert_eq!(header["notes"][0], "two models ran");
+        assert_eq!(header["method_names"][0], "ARCHIE");
+    }
+
 
     fn fluid() -> FluidProps {
         FluidProps {

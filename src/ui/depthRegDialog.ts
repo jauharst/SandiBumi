@@ -286,11 +286,19 @@ export async function buildDepthRegContent(): Promise<{ el: HTMLElement }> {
     const dMax = Math.max(...cd) + margin;
     const y = (d: number): number => pad.t + ((d - dMin) / (dMax - dMin || 1)) * plotH;
 
-    const span = (vals: number[]): [number, number] => {
-      const f = vals.filter((v) => Number.isFinite(v));
-      if (!f.length) return [0, 1];
-      const lo = Math.min(...f);
-      const hi = Math.max(...f);
+    // ArrayLike, and iterative rather than `Math.min(...vals)`: the log vector now arrives packed
+    // and full-resolution, and spreading a few hundred thousand samples into a call throws
+    // "Maximum call stack size exceeded" — on the long wells this pane is most useful for.
+    const span = (vals: ArrayLike<number>): [number, number] => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i < vals.length; i++) {
+        const v = vals[i];
+        if (!Number.isFinite(v)) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      if (lo === Infinity) return [0, 1];
       return hi > lo ? [lo, hi] : [lo - 1, lo + 1];
     };
     const [logLo, logHi] = span(res.log_value);

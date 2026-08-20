@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 33 (Codex P2): Results-QC and core registration stop shipping their curves as text
+
+- [ ] **What was wrong.** The app has a standing rule that curve data never crosses between the
+      calculation engine and the screen as text — it goes as raw numbers. Two panels broke it.
+      **Results-QC** sent depth, every saturation model and the three envelope curves as text; on a
+      500,000-sample well with seven models available that is **5.5 million numbers in one
+      message**, written out as text, rebuilt as objects and parsed on the same thread that draws
+      the window. **Core registration** did the same with the well's whole log curve.
+- [ ] **What you would have felt.** A long, high-resolution well makes the Results-QC pane and the
+      core-registration preview slow to appear or freeze the window while they load. Nothing was
+      *wrong* with the numbers — this is a speed and responsiveness problem, which is why it sat at
+      P2 rather than higher.
+- [ ] **What it does now.** Both send the curves as raw numbers — about 22 MB of binary for that
+      same 500,000-sample case instead of millions of text values — with the summary figures, model
+      names and notes still travelling as ordinary text, which is where they belong.
+- [ ] **Curves are matched by name, not by their place in the message.** That is the part worth
+      knowing: if the two sides ever disagreed about order, one model's saturation would appear
+      under another model's name and **every number would still look like a saturation**. Both
+      sides now look up each curve by name, and a test on each side pins it.
+- [ ] **One real bug fell out of it.** The core-registration preview worked out its plot range in a
+      way that breaks on a very long curve — it happened never to have been given one before. On a
+      few-hundred-thousand-sample log that would have thrown an error instead of drawing. Fixed.
+- [ ] **What to check.** Open **Results-QC** on your longest, highest-resolution well with several
+      saturation models available — the envelope plot and the model list should look exactly as
+      before, and should appear faster. Then open **Data ▸ Core ▸ Register Depth…**, run a
+      proposal on a well with a long log, and confirm the overlay and the correlogram draw
+      normally and the proposed shift is unchanged. Nothing about the numbers should differ; only
+      the speed.
+
 ## 2026-08-20 — Audit increment 32 (Codex P2): one blank core column no longer blanks the whole core overlay
 
 - [ ] **What was wrong.** The core overlay draws four separate things — porosity, permeability,

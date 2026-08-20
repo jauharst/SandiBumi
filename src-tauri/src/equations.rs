@@ -113,6 +113,38 @@ pub fn track_curve_key(request: &TrackCurveRequest) -> String {
 ///   repeat curve_count times:
 ///     [u32 name_byte_len][name utf8][u32 point_count][f32 depth × pc][f32 value × pc]
 /// (`depth[pc]` then `value[pc]` are already laid out in each series' `data`.)
+/// Packs a JSON header plus raw `f32` COLUMNS for a command whose result is scalars *and*
+/// per-depth arrays.
+///
+/// Rule 3 says a `Vec<f32>` never crosses the bridge as JSON, and [`pack_curve_series`] already
+/// serves the pure-curve commands. This is its sibling for a result that also carries metadata a
+/// panel needs — model names, notes, summary statistics — which legitimately belong in JSON. The
+/// two travel in one response rather than two commands, because a header fetched separately from
+/// its columns can be fetched against a different run.
+///
+/// ```text
+/// u32 header_len | header_len bytes of UTF-8 JSON | u32 n_columns | per column: u32 len, len × f32
+/// ```
+///
+/// Column ORDER is the contract and the header names it; the columns themselves are anonymous, so
+/// a reader that ignores the header's names cannot silently pair the wrong ones. Floats are
+/// native-endian, the same convention `pack_curve_series` uses, because the frontend reads them
+/// with `Float32Array` — which is also native-endian — and every platform this ships on is
+/// little-endian.
+pub fn pack_frame(header_json: &str, columns: &[&[f32]]) -> Vec<u8> {
+    let header = header_json.as_bytes();
+    let cap = 8 + header.len() + columns.iter().map(|c| 4 + c.len() * 4).sum::<usize>();
+    let mut buf = Vec::with_capacity(cap);
+    buf.extend_from_slice(&(header.len() as u32).to_le_bytes());
+    buf.extend_from_slice(header);
+    buf.extend_from_slice(&(columns.len() as u32).to_le_bytes());
+    for column in columns {
+        buf.extend_from_slice(&(column.len() as u32).to_le_bytes());
+        buf.extend_from_slice(bytemuck::cast_slice(column));
+    }
+    buf
+}
+
 pub fn pack_curve_series(series: &[TrackCurveSeries]) -> Vec<u8> {
     let cap = 4 + series.iter().map(|s| 8 + s.curve_name.len() + s.data.len()).sum::<usize>();
     let mut buf = Vec::with_capacity(cap);
