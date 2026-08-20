@@ -53,7 +53,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
-| `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
+| `composite` | Composite log plots | Not exercised | 0 / 15 | — | 5 |
 | `report` | Report deliverables | Partially exercised | 8 / 84 | 2026-08-14 | 22 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |

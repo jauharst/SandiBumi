@@ -1,5 +1,43 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 13 (Codex P0): a printed composite measures true on a foot project
+
+> **Put a ruler on it.** This one changes the physical geometry of an exported plot, so the check
+> is a printed page and a scale rule, not a screen.
+
+- [ ] **What this fixes.** The composite exporter worked out its page geometry as `1000 mm ÷ scale`
+      — millimetres per **metre** — and then added that metre count straight onto the project's
+      stored depths. On a metre project that is right. **On a foot project it drew a 100 ft
+      interval as if it were 100 m**: the sheet came out **3.28084× too long**, the header's
+      "1:500" was physically about **1:152**, and the page breaks fell in the wrong rock. Nothing
+      on the page said so — the curves are there, the grid is even, and the only symptom is a
+      ruler disagreeing with your tops.
+- [ ] **What it does now.** The scale is millimetres per **stored unit**: 1000 mm per metre, 304.8
+      mm per foot, both derived from the one foot constant in the codebase. Page spans, the depth
+      grid step and every curve's y position all follow it, so a printed 1:200 is a true 1:200
+      whichever unit the project is declared in. **Metre projects are bit-identical** — the metre
+      case of the new constant is exactly 1000.
+- [ ] **Click-through (foot project):** Plot → Composite… → 1:200, A4, Render. Export the PDF,
+      print it at 100% (no "fit to page"), and measure: **1 ft of section must be 1.524 mm**, so a
+      100 ft sand is 152.4 mm. Equivalently, 1 m of rock is 5 mm. Check the depth grid labels step
+      by a sensible round number of feet, and that the page range shown under the preview now says
+      **ft**. On a metre project, render the same plot you rendered before this change and confirm
+      the page count and every page's depth range are unchanged.
+- [ ] **Automated correctness:** one pin,
+      `a_foot_declared_project_prints_the_same_physical_scale_a_metre_one_does`. One physical well
+      described twice, and the scale is **measured off the artwork's own depth labels** rather
+      than recomputed — the claim asserted is "a metre of rock occupies the same paper either
+      way", which is the only thing a print scale can mean. Pagination is asserted separately,
+      because a page covering the right rock at the wrong scale and the right scale over the wrong
+      span are different bugs. Two mutations red at two distinct assertions: reverting the scale
+      prints the foot project at 16.404 mm per metre (the 3.28084 factor exactly), and paginating
+      in metres puts 14.2 m of rock on a page that should hold 46.6 m.
+- [ ] **Where this came from.** The second Codex review — whole-repository this time — which
+      Jauhar ran against the same commit. Its other P0 is the pay-unit labelling family, already
+      closed for the dashboard, the pay-summary table, the cutoff sweep and Results QC by
+      increments 8, 11 and 12; the **PDF report's own `Top (m)` / `HPV (m)` headings are the
+      remaining piece** and are next.
+
 ## 2026-08-20 — Audit increment 12: every depth you READ now says which unit it is in, and the units family closes
 
 - [ ] **What this fixes.** The other half of increments 8 and 11: the places that *show* you a
