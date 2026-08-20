@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isGeneratedFileCurrent } from './generated-artifact.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REGISTRY_PATH = 'registry/unit-registry.json';
@@ -296,8 +297,9 @@ export function checkArtifacts(root, artifacts) {
   for (const [relative, expected] of artifacts) {
     const target = path.join(root, relative);
     if (!fs.existsSync(target)) fail(`generated output is missing: ${relative}`);
-    const actual = fs.readFileSync(target, 'utf8').replaceAll('\r\n', '\n');
-    if (actual !== expected.replaceAll('\r\n', '\n')) fail(`generated output is stale: ${relative}`);
+    if (!isGeneratedFileCurrent(fs.readFileSync(target, 'utf8'), expected)) {
+      fail(`generated output is stale: ${relative}`);
+    }
   }
 }
 
