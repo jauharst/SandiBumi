@@ -419,3 +419,44 @@ still score the contrast over a third of the intended section and converting onl
 still flood the list. Its fourth part pins the consistency default through the flat-mean path
 specifically: three wells WITH coordinates define a plane exactly, every residual is zero, and an
 assertion there would pass whatever the threshold said.
+
+## Unsurveyed section is not zero rock (2026-08-20)
+
+Codex whole-repository review, P1. `statistics::thickness` sums each sample's own depth step, half
+to the neighbour above and half below — so a sample's VERTICAL step needs three finite TVD values,
+its own and both neighbours'. `vstep` returned `Some(0.0)` wherever any of the three was missing,
+and `any_tvd` went true on the first sample that produced a number, which was every sample. So one
+finite TVD value anywhere in a well switched the whole row from measured to vertical, and every
+unsurveyed slab was booked as zero thickness of rock.
+
+**The damage is not the lost slab, it is the ratio.** A gap shrinks GROSS while a net interval
+sitting in the surveyed part keeps its own thickness, so N/G RISES. On the review's own fixture —
+four samples one apart, TVD present at three of them, a flag firing over the top two — the measured
+answer is gross 3, net 1.5, N/G 0.5, and the shipped path returned gross 1, net 1, N/G **1.0**.
+Every foot of the interval, net. The measured gross was printed in the next column and disagreed by
+a factor of three, with nothing in the row to say which was reporting on what.
+
+**This became reachable BECAUSE of the fix above it.** Until `sample_at` stopped freezing past the
+last station, a materialized TVD curve had no holes to have; a well logged deeper than its survey
+now has exactly one, which is precisely the condition that used to be counted as zero rock. Two
+findings from the same review, and the second is the first one's consequence.
+
+**Partial coverage refuses, and the refusal is the whole interval.** The rule the struct already
+carried for a well with NO survey — blank rather than a copy of the measured value, because a
+vertical well and an unsurveyed deviated well look identical in the data — now extends to a well
+surveyed over part of the interval. Reporting the vertical thickness of the covered part instead
+would put a thickness for a DIFFERENT interval in the same row as the measured one, which is the
+defect restated rather than fixed. Nothing is lost by refusing: the measured numbers were never in
+doubt, they stand in their own columns, and the row's ratio falls back to them.
+
+**The neighbour a step needs may sit outside the interval, and TVD follows MD there on purpose.**
+That reach is what makes the sum the interval's true span rather than a half-step short at each end.
+It does mean a zone surveyed exactly to its own boundaries refuses — the vertical distance from the
+zone top down to its first sample is genuinely unknown — and that is the conservative side of a
+choice whose other side is two grosses measured over different intervals, printed side by side.
+
+Pinned by `a_partly_surveyed_interval_reports_its_measured_thickness_rather_than_a_vertical_one`,
+from both sides: a COMPLETE survey must still answer, and its answer must not be the measured number
+in disguise. Without that second half, an implementation that simply copied MD into the vertical
+column would pass the refusal half perfectly — so the fixture's surveyed well is deviated, and 2.4 m
+of true vertical thickness must come back where 3.0 m of hole was drilled.

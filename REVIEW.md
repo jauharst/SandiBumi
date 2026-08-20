@@ -1,5 +1,46 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 29 (Codex P1): a part-surveyed well no longer counts the unsurveyed section as zero rock
+
+- [ ] **What was wrong.** Statistics ▸ Thickness reports gross, net and N/G twice — measured along
+      the hole, and true vertical where the well is surveyed. A sample's vertical thickness is
+      half the step to the sample above plus half the step below, so it needs **three** TVD
+      values, not one. Where any of the three was missing, the panel booked that slab as **zero
+      vertical metres** — and one finite TVD value anywhere in the well was enough to switch the
+      whole row from measured to vertical.
+- [ ] **Why that is worse than losing a slab.** A gap shrinks **gross** while a net interval
+      sitting in the surveyed part keeps its full thickness. So the **ratio rises**. On a four-
+      sample interval with TVD missing at one place and a flag firing over the top half, the
+      honest answer is gross 3, net 1.5, **N/G 0.5** — the panel reported gross 1, net 1, **N/G
+      1.0**. Every foot of the interval, net. The measured gross sat in the next column
+      disagreeing by a factor of three, with nothing to say which column was reporting on what.
+- [ ] **This became reachable because of increment 25.** Until a survey stopped freezing past its
+      last station, a TVD curve had no holes to have. A well logged deeper than its survey now has
+      exactly one — which is precisely the section that used to be counted as zero rock. Same
+      review, and the second finding is the first one's consequence.
+- [ ] **What it does now.** If the well is not surveyed across the **whole** interval, the two TVD
+      columns go blank and the row's N/G falls back to the measured depths. The rule the panel
+      already applied to a well with *no* survey — blank rather than a copy of the measured value,
+      because a vertical well and an unsurveyed deviated well look identical in the data — now
+      covers a well surveyed over only part of it.
+- [ ] **Why not just report the surveyed part.** That would put a thickness for a **different
+      interval** in the same row as the measured one, which is the same defect wearing a smaller
+      number. Nothing is lost by refusing: the measured columns were never in doubt and are still
+      there.
+- [ ] **The conservative edge, stated plainly.** A step reaches to its neighbour even when that
+      neighbour sits just outside the interval — that reach is what makes the sum the interval's
+      true span rather than a half-step short at each end. So a zone surveyed *exactly* to its own
+      boundaries will also refuse, because the vertical distance from the zone top down to its
+      first sample genuinely is unknown. If you hit that and want the vertical answer, extend the
+      survey past the zone.
+- [ ] **What to check.** Take a deviated well with a survey that stops short of TD. Run
+      Statistics ▸ Thickness over a zone below the last station: **Gross TVD and Net TVD should be
+      blank and N/G should read off the measured depths.** Then run it over a zone well inside the
+      surveyed section: both TVD columns should fill, and **Gross TVD should be shorter than Gross
+      MD** — a deviated well is drilled through more section than it stands up in. Before this,
+      the first case returned a vertical gross far shorter than the measured one and an N/G
+      inflated toward 1.
+
 ## 2026-08-20 — Audit increment 28 (Codex P1): comparing two log versions now pairs them by DEPTH
 
 - [ ] **What was wrong.** Statistics ▸ Versus compares the same curve in two log sets — what a

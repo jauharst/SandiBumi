@@ -161,7 +161,7 @@
     {
       "id": "cutoffs-pay",
       "title": "Cutoffs, net flags and pay summaries",
-      "review_section_patterns": ["Cutoff", "pay summary", "net.flag", "net pay"]
+      "review_section_patterns": ["Cutoff", "pay summary", "net.flag", "net pay", "unsurveyed"]
     },
     {
       "id": "well-scope",
