@@ -446,7 +446,9 @@ async function computeCutoff(
   const dNet = Math.abs((Number.isFinite(vHi) ? vHi : net) - (Number.isFinite(vLo) ? vLo : net));
   const sens = net > 0 ? dNet / net : Infinity;
   const status: CheckStatus = sens <= CUT_SENS_OK ? "ok" : sens <= CUT_SENS_WARN ? "warn" : "alert";
-  const detail = `NET ${net.toFixed(1)} m @ PHIE≥${phieMin.toFixed(2)} · ±0.02φ → ±${(sens * 100).toFixed(0)}% net`;
+  // Net pay is a THICKNESS in the project's own unit; the `m` here was hard-coded, so a 100 ft
+  // net read `NET 100.0 m`. The sensitivity beside it is a ratio and is unaffected.
+  const detail = `NET ${toShownDepth(net).toFixed(1)} ${shownDepthLabel()} @ PHIE≥${phieMin.toFixed(2)} · ±0.02φ → ±${(sens * 100).toFixed(0)}% net`;
   const tooltip =
     `Sweeping the PHIE≥ cutoff by ±0.02 v/v around ${phieMin.toFixed(2)} (VSH≤${held(vshMax)}, SWE≤${held(sweMax)} held) moves net pay by ${(sens * 100).toFixed(0)}%.\n` +
     (status === "ok"
@@ -464,25 +466,35 @@ function csvCell(v: string | number | null): string {
 }
 
 function scorecardCsv(well: WellSummary, zones: ZoneDatum[]): string {
+  const csvUnit = shownDepthLabel();
+  /** A length for the CSV, converted like every other value the user READS. `null` stays null. */
+  const csvDepth = (v: number | null | undefined): number | null =>
+    v === null || v === undefined || !Number.isFinite(v) ? null : toShownDepth(v);
   const header = [
-    "well", "zone", "top", "base", "models", "mean_spread", "max_spread", "max_spread_depth",
+    // The four LENGTH columns name their unit and carry the same converted value the panel
+    // shows, so a scorecard and its export cannot disagree. `cutoff_net_m` was the only one that
+    // named a unit at all and it named the wrong one on a foot project; `top`, `base` and
+    // `max_spread_depth` named none, which is not better - a reader cannot tell 1000 ft from
+    // 1000 m. Everything else here is a ratio, a count or a sigma and is unit-free.
+    "well", "zone", `top_${csvUnit}`, `base_${csvUnit}`, "models", "mean_spread", "max_spread",
+    `max_spread_depth_${csvUnit}`,
     "frac_divergent", "bvw_mean", "bvw_cv", "bvw_n",
     "recon_curve", "recon_mean_sigma", "recon_max_sigma", "recon_frac_gt2",
     "mc_key", "mc_p50", "mc_band", "mc_rel_band",
-    "cutoff_property", "cutoff_net_m", "cutoff_sens_frac", "cutoff_peak",
+    "cutoff_property", `cutoff_net_${csvUnit}`, "cutoff_sens_frac", "cutoff_peak",
   ];
   const lines = [header.join(",")];
   for (const z of zones) {
     const s = z.spread;
     lines.push(
       [
-        csvCell(well.well_name), csvCell(z.name), csvCell(z.top), csvCell(z.base),
+        csvCell(well.well_name), csvCell(z.name), csvCell(csvDepth(z.top)), csvCell(csvDepth(z.base)),
         csvCell(s ? s.methods.map((m) => m.name).join(" | ") : z.spreadErr ?? ""),
-        csvCell(s?.mean_spread ?? null), csvCell(s?.max_spread ?? null), csvCell(s?.max_spread_depth ?? null),
+        csvCell(s?.mean_spread ?? null), csvCell(s?.max_spread ?? null), csvCell(csvDepth(s?.max_spread_depth)),
         csvCell(s?.frac_divergent ?? null), csvCell(z.buckles.mean), csvCell(z.buckles.cv), csvCell(z.buckles.n),
         csvCell(z.recon.curve), csvCell(z.recon.mean), csvCell(z.recon.max), csvCell(z.recon.fracGt2),
         csvCell(z.mc.key), csvCell(z.mc.p50), csvCell(z.mc.band), csvCell(z.mc.rel),
-        csvCell(z.cutoff.property), csvCell(z.cutoff.net), csvCell(z.cutoff.sens), csvCell(z.cutoff.peak),
+        csvCell(z.cutoff.property), csvCell(csvDepth(z.cutoff.net)), csvCell(z.cutoff.sens), csvCell(z.cutoff.peak),
       ].join(","),
     );
   }

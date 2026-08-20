@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 609,
+Review sections counted toward no capability: **157** of 610,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -21,7 +21,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 65 | — | 12 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 208 | 2026-08-13 | 70 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 213 | 2026-08-13 | 71 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 98 | 2026-08-13 | 22 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -55,7 +55,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 64 | — | 17 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 69 | 2026-07-20 | 19 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
-| `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
+| `results-qc` | Results QC | Not exercised | 0 / 6 | — | 6 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 15 | — | 5 |
 | `report` | Report deliverables | Partially exercised | 8 / 97 | 2026-08-14 | 24 |

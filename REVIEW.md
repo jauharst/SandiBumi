@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 27 (Codex P1): Lorenz and Results-QC state their thicknesses in YOUR unit
+
+- [ ] **The last of the unit family.** Lorenz printed its two capacity totals as `mD·m` and `m`
+      no matter what your depth column held, and Results-QC printed net pay as `NET 100.0 m`.
+      On a foot project both are the right number under the wrong name — a 100 ft interval at
+      1 mD showed `100 mD·m` when the metric truth is 30.48.
+- [ ] **The Lorenz coefficient itself was never wrong, and must stay that way.** It is built from
+      cumulative *fractions* of Σk·h and Σφ·h, so a uniform depth factor cancels out of it exactly
+      — the same number in feet or metres. Only the totals are lengths (k is mD, φ is v/v, so each
+      sum carries one factor of depth). The test pins that from both sides, and it is worth saying
+      why: a fix that converted everything on that line would report a heterogeneity of **0.128
+      where the answer is 0.420**, which is the whole point of the plot, reading plausibly wrong.
+- [ ] **The unit table gained its units.** Lorenz's Top and Base columns carried no unit at all,
+      which is not better than a wrong one — you cannot tell 1000 ft from 1000 m by looking. They
+      now say which, and convert with your display setting like every other depth you read.
+- [ ] **The Results-QC scorecard CSV now names its units too.** Four columns are lengths — top,
+      base, max_spread_depth, net — and only one named a unit at all (`cutoff_net_m`), wrongly.
+      All four now carry the unit in the header and the same converted value the panel shows, so
+      a scorecard and its export can no longer disagree. Everything else in that file is a ratio,
+      a count or a sigma and is untouched.
+- [ ] **What to check.** On a foot project, run Lorenz on a zone and confirm the headline says
+      `mD·ft` and the Top/Base columns say `ft`; switch the display unit to metres and confirm the
+      totals move by 3.28 while the coefficient does not budge. Export a Results-QC scorecard and
+      look at the header row.
+
 ## 2026-08-20 — Audit increment 26 (Codex P1): a percent core column is percent because your FILE says so
 
 - [ ] **The one that could already have cost you a study.** Core and SCAL porosity and saturation
