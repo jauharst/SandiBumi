@@ -2943,14 +2943,21 @@ pub(crate) fn canonical_option_value(module: &str, argument: &str, value: &str) 
 /// Registry build gate for SB-ENV-057. A numeric parameter may name a fixed unit (`m`, `ft`)
 /// when its implementation performs an explicit conversion, or use the single project-native
 /// token. Ambiguous union spellings cannot say which unit a supplied number is in and are refused.
+///
+/// **The check is over EVERY argument, deliberately not only [`ArgKind::Param`].** `unit` lives on
+/// `ArgSpec`, so every kind carries one, and a curve is as capable of being a project-native length
+/// as a parameter is — `satheight`'s `TVD` input and `phimax`/`precalc`'s `TVDSS` inputs all are.
+/// A `Param`-only filter was the original spelling and it let two `LogIn` declarations keep the
+/// banned token through the whole SB-ENV-057 sweep, because the gate never looked at them; the
+/// frontend then printed that token verbatim in the workflow grid, since `argumentUnitLabel`
+/// resolves the one project-depth token and passes every other string through untouched.
 fn validate_project_depth_unit_tokens(modules: &[ModuleSpec]) -> Result<(), String> {
     let invalid = modules
         .iter()
         .flat_map(|module| {
             module.args.iter().filter_map(move |argument| {
-                (argument.kind == ArgKind::Param
-                    && matches!(argument.unit.as_str(), "m|ft" | "ft|m"))
-                .then(|| format!("{}.{}={}", module.name, argument.name, argument.unit))
+                matches!(argument.unit.as_str(), "m|ft" | "ft|m")
+                    .then(|| format!("{}.{}={}", module.name, argument.name, argument.unit))
             })
         })
         .collect::<Vec<_>>();
@@ -5166,7 +5173,13 @@ fn phimax_spec() -> ModuleSpec {
                 "docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters",
             ),
             log_in("PHI", "Porosity to cap", "v/v", "PHIE", true),
-            log_in("TVDSS", "True vertical depth subsea (trend modes)", "ft|m", "TVDSS", false),
+            log_in(
+                "TVDSS",
+                "True vertical depth subsea (trend modes)",
+                PROJECT_DEPTH_UNIT_TOKEN,
+                "TVDSS",
+                false,
+            ),
             log_out_as("PHI_CAP", "{PHI}_CAP", "Capped porosity", "v/v"),
             log_out_as("PHI_MAX", "{PHI}_MAX", "φmax ceiling curve", "v/v"),
         ],
@@ -5387,7 +5400,7 @@ fn precalc_spec() -> ModuleSpec {
                 &[("OPT_RMF", "TREND")],
                 "docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters",
             ),
-            log_in("TVDSS", "True vertical depth subsea", "ft|m", "TVDSS", false),
+            log_in("TVDSS", "True vertical depth subsea", PROJECT_DEPTH_UNIT_TOKEN, "TVDSS", false),
             log_in("RT", "Deep resistivity", "ohmm", "RES_DEEP", false),
             log_in("RXO", "Flushed-zone resistivity", "ohmm", "RXO", false),
             log_out("FTEMP", "Formation temperature (always degC)", "degC"),
@@ -11125,8 +11138,14 @@ mod tests {
 
         let mut declared = BTreeSet::new();
         for module in module_catalog() {
-            for argument in module.args.iter().filter(|argument| argument.kind == ArgKind::Param) {
-                if expected.contains(&(module.name.as_str(), argument.name.as_str())) {
+            // The INVENTORY above is a parameter inventory, so membership stays gated on
+            // `ArgKind::Param`. The BAN is a statement about the token itself and therefore sweeps
+            // every argument kind — the `Param` filter that used to wrap this whole loop is what
+            // let `phimax`/`precalc`'s `TVDSS` inputs keep the legacy spelling.
+            for argument in &module.args {
+                if argument.kind == ArgKind::Param
+                    && expected.contains(&(module.name.as_str(), argument.name.as_str()))
+                {
                     assert_eq!(
                         argument.unit, PROJECT_DEPTH_UNIT_TOKEN,
                         "{}.{} must use the one project-depth-length token",
@@ -11136,9 +11155,10 @@ mod tests {
                 }
                 assert!(
                     !matches!(argument.unit.as_str(), "m|ft" | "ft|m"),
-                    "{}.{} retains the ambiguous legacy project-depth token {:?}",
+                    "{}.{} ({:?}) retains the ambiguous legacy project-depth token {:?}",
                     module.name,
                     argument.name,
+                    argument.kind,
                     argument.unit
                 );
             }
@@ -11183,6 +11203,79 @@ mod tests {
             assert_eq!(
                 argument.unit, "m",
                 "{module_name}.{argument_name} is fixed in metres and must not masquerade as native project depth"
+            );
+        }
+    }
+
+    /// CORRECTNESS — SB-ENV-057's ban on the ambiguous project-depth spelling is a statement about
+    /// the TOKEN, so the gate reads every argument's `unit`, not only a parameter's.
+    ///
+    /// The original gate filtered to [`ArgKind::Param`], and the sweep that was supposed to retire
+    /// `ft|m` therefore never looked at curve declarations — `phimax.TVDSS` and `precalc.TVDSS`
+    /// kept the banned spelling with the gate green and the inventory test agreeing. A curve is as
+    /// capable of being a project-native length as a parameter is (`satheight.TVD` declares the
+    /// token and always did), and the frontend proves the cost: `argumentUnitLabel` resolves the
+    /// one token and passes every other string through untouched, so the workflow grid printed
+    /// `ft|m` verbatim as those inputs' column unit instead of the project's own `m`/`ft`.
+    ///
+    /// Pinned from BOTH sides, because either alone is satisfied by the lazier half of the fix:
+    /// the two call sites must carry the token, AND the gate must refuse the token on an input and
+    /// on an output. Fixing only the call sites leaves the next `log_in("…", "ft|m", …)` unguarded;
+    /// widening only the gate leaves these two shipping.
+    #[test]
+    fn the_ambiguous_depth_token_gate_reads_curve_declarations_not_only_parameters() {
+        let catalog = module_catalog();
+        let module_named = |name: &str| {
+            catalog
+                .iter()
+                .find(|module| module.name == name)
+                .unwrap_or_else(|| panic!("{name} is registered"))
+                .clone()
+        };
+        let unit_of = |module: &ModuleSpec, argument_name: &str| {
+            module
+                .args
+                .iter()
+                .find(|argument| argument.name == argument_name)
+                .unwrap_or_else(|| panic!("{}.{argument_name} is declared", module.name))
+                .unit
+                .clone()
+        };
+
+        // Side one: the shipping declarations. Both are vertical depths read straight off the
+        // project's own depth column, so they name the project-native token like `satheight.TVD`.
+        for module_name in ["phimax", "precalc"] {
+            let module = module_named(module_name);
+            assert_eq!(
+                unit_of(&module, "TVDSS"),
+                PROJECT_DEPTH_UNIT_TOKEN,
+                "{module_name}.TVDSS is a project-native depth input and must name the one token"
+            );
+        }
+
+        // Side two: the gate itself, on each curve kind. A `Param`-only filter passes both.
+        for (module_name, argument_name, kind, ambiguous_unit) in [
+            ("phimax", "TVDSS", ArgKind::LogIn, "ft|m"),
+            ("precalc", "FTEMP", ArgKind::LogOut, "m|ft"),
+        ] {
+            let mut mutated = module_named(module_name);
+            let argument = mutated
+                .args
+                .iter_mut()
+                .find(|argument| argument.name == argument_name)
+                .unwrap_or_else(|| panic!("{module_name}.{argument_name} is declared"));
+            assert_eq!(argument.kind, kind, "{module_name}.{argument_name} changed kind");
+            argument.unit = ambiguous_unit.into();
+
+            let error = match validate_project_depth_unit_tokens(&[mutated]) {
+                Err(error) => error,
+                Ok(()) => panic!(
+                    "an ambiguous project-depth token on a {kind:?} must fail the registry gate"
+                ),
+            };
+            assert!(
+                error.contains(&format!("{module_name}.{argument_name}={ambiguous_unit}")),
+                "{kind:?} declaration identity missing: {error}"
             );
         }
     }
