@@ -17,6 +17,7 @@ import {
   type ModuleSpec,
   type Pctl,
 } from "../ipc";
+import { argumentUnitLabel } from "../depthUnitPref";
 import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
@@ -299,7 +300,7 @@ export async function buildMonteCarloContent(
       for (const c of candidates) {
         const o = document.createElement("option");
         o.value = c.name;
-        o.textContent = c.unit ? `${c.name} [${c.unit}]` : c.name;
+        o.textContent = c.unit ? `${c.name} [${argumentUnitLabel(c.unit)}]` : c.name;
         if (c.name === row.param) o.selected = true;
         paramSel.appendChild(o);
       }

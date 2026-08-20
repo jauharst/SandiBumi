@@ -3641,13 +3641,25 @@ export interface TopsImportResult {
   tops_written: number;
   wells_matched: number;
   unmatched_wells: string[];
+  /** The unit the file's depths were READ as — what the caller asked for, else what the file
+   *  declared on its depth column, else the project's own. Reported so a conversion is never
+   *  silent. */
+  depth_unit: string | null;
   error: string | null;
 }
 
 /** Imports formation tops from CSV/TXT. Multi-well files match wells by name;
- *  files without a WELL column land in `defaultWellId` (the selected well). */
-export function importTopsCsv(defaultWellId: string | null, path: string): Promise<TopsImportResult> {
-  return invoke<TopsImportResult>("import_tops_csv", { defaultWellId, path });
+ *  files without a WELL column land in `defaultWellId` (the selected well).
+ *
+ *  `depthUnit` ("m" / "ft") overrides what the file declares on its depth column; null means
+ *  believe the file, and where the file says nothing, the project's own unit — which is what
+ *  every import before this one assumed. Depths are converted onto the project scale either way. */
+export function importTopsCsv(
+  defaultWellId: string | null,
+  path: string,
+  depthUnit: string | null = null,
+): Promise<TopsImportResult> {
+  return invoke<TopsImportResult>("import_tops_csv", { defaultWellId, path, depthUnit });
 }
 
 export interface AuxImportResult {
@@ -3712,8 +3724,21 @@ export function importAuxData(
   followCore = false,
   /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
   depthDatum = "MD",
+  /** Audit finding 8: the UNIT the delivery's depths are quoted in ("m"/"ft"). Overrides what the
+   *  file declares on its own TOP column; null means believe the file, and where it says nothing,
+   *  the project's own unit — what every import before this one assumed. An interval converts at
+   *  both ends, so a sample keeps its thickness. */
+  depthUnit: string | null = null,
 ): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore, depthDatum });
+  return invoke<AuxImportResult>("import_aux_data", {
+    wellId,
+    dataset,
+    path,
+    setName,
+    followCore,
+    depthDatum,
+    depthUnit,
+  });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {
@@ -3811,8 +3836,22 @@ export function importScalFiles(
   followCore = false,
   /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
   depthDatum = "MD",
+  /** Audit finding 8: the UNIT the delivery's depths are quoted in ("m"/"ft"), declared by the
+   *  user in the same dialog. null means the project's own unit — what every import before this
+   *  one assumed. The depths convert onto the project scale before the core record is applied. */
+  depthUnit: string | null = null,
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore, depthDatum });
+  return invoke<ScalImportResult>("import_scal_files", {
+    wellId,
+    paths,
+    format,
+    system,
+    iftLab,
+    setName,
+    followCore,
+    depthDatum,
+    depthUnit,
+  });
 }
 
 export interface ThomeerSampleFit {
@@ -5271,7 +5310,9 @@ export interface SFactorFitRequest {
   /** Held fixed; S multiplies these, so the fitted S belongs to them only. */
   cec_kaol?: number;
   cec_ill?: number;
-  /** How far a plug may sit from the nearest log sample and still be paired with it. */
+  /** How far a plug may sit from the nearest log sample and still be paired with it, in the
+   *  PROJECT's stored depth unit (it is typed in the pane, which labels it). Omitted means the
+   *  project's own default — one standard 6-inch sample, 0.15 m or 0.5 ft. */
   depth_tol?: number;
 }
 
@@ -5492,14 +5533,26 @@ export interface WellPathStation {
 /** Imports a deviation survey CSV (MD/INC/AZI) and computes minimum-curvature TVD/TVDSS.
  *  `datumElevation` (KB above MSL) is used for TVDSS; null falls back to the well's KB.
  *  `surveyName` versions the survey — a second import lands BESIDE the first (auto-suffixed
- *  if the name is taken) and becomes the active one, never overwriting it. */
+ *  if the name is taken) and becomes the active one, never overwriting it.
+ *
+ *  `depthUnit` is the unit the FILE's MD column is written in ("M" / "FT"); null means it is
+ *  already the project's unit, which is what every earlier import assumed without asking.
+ *  It governs the file's numbers only — `datumElevation` is typed in the project's own unit,
+ *  which is what the dialog labels it as. */
 export function importDeviationCsv(
   wellId: string,
   path: string,
   datumElevation: number | null,
   surveyName: string | null = null,
+  depthUnit: string | null = null,
 ): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_deviation_csv", { wellId, path, datumElevation, surveyName });
+  return invoke<CoreImportResult>("import_deviation_csv", {
+    wellId,
+    path,
+    datumElevation,
+    surveyName,
+    depthUnit,
+  });
 }
 
 /** One core delivery of a well (T-IMP-08). Exactly one is `active`; every core reader —
@@ -5999,6 +6052,8 @@ export interface PlugQcRequest {
   well_ids: string[];
   x: PlugSource;
   y: PlugSource;
+  /** In the PROJECT's stored depth unit (typed in the pane, which labels it). A non-positive
+   *  value means the project's own default — one standard 6-inch sample, 0.15 m or 0.5 ft. */
   depth_tol: number;
 }
 

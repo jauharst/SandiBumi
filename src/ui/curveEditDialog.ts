@@ -1,5 +1,6 @@
 import { editCurve, restoreCurveValues, type CurveEditRequest } from "../ipc";
 import { bumpDataVersion, setStatus } from "../state";
+import { storedDepthLabel } from "../depthUnitPref";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
 import { requestRunCustody } from "./runCustody";
@@ -45,10 +46,14 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
   const hintEl = document.createElement("div");
   hintEl.className = "form-hint";
 
+  // These three are compared against, or added to, the STORED depth grid by `curve_edit.rs`
+  // without conversion, so they are labelled in the project's own unit. A hard-coded "(m)" told
+  // a foot-project user that a +3 shift was three metres when the resample moves the curve 3 ft.
+  const du = storedDepthLabel();
   const rows = {
-    delta: formRow("Shift (m)", deltaInput, "Positive moves the curve deeper"),
-    top: formRow("Top (m)", topInput),
-    bottom: formRow("Bottom (m)", bottomInput),
+    delta: formRow(`Shift (${du})`, deltaInput, "Positive moves the curve deeper"),
+    top: formRow(`Top (${du})`, topInput),
+    bottom: formRow(`Bottom (${du})`, bottomInput),
     value: formRow("Value", valueInput),
     mul: formRow("Multiplier a", mulInput),
     add: formRow("Offset b", addInput),
@@ -110,8 +115,8 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         return Number.isFinite(v) ? v : dflt;
       };
       const REQUIRED: Partial<Record<keyof typeof rows, [HTMLInputElement, string]>> = {
-        top: [topInput, "Top (m)"],
-        bottom: [bottomInput, "Bottom (m)"],
+        top: [topInput, `Top (${du})`],
+        bottom: [bottomInput, `Bottom (${du})`],
         value: [valueInput, "Value"],
       };
       const missing = VISIBLE[op]

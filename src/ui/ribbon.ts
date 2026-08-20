@@ -34,13 +34,13 @@ import type { ImportResult } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { syncWellGroups } from "./wellGroups";
-import { syncDepthUnits } from "../depthUnitPref";
+import { storedDepthLabel, syncDepthUnits } from "../depthUnitPref";
 import { clearUndoStacks, nextRedoLabel, nextUndoLabel, onUndoChange, pushUndo, redo, redoDepth, undo, undoDepth } from "../undo";
 import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
-import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildDepthUnitSelect, buildFollowCoreRow } from "./followCore";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
@@ -1499,7 +1499,12 @@ export class Ribbon {
     input.step = "0.1";
     input.className = "form-control";
     input.placeholder = "e.g. 2.5";
-    content.appendChild(formRow("Shift (m)", input, "+ = plugs move deeper"));
+    // `db::shift_core_depths` does `depth = depth + delta` on the stored plug depths, so the
+    // number typed here is in the project's own unit. Resolved once and reused by every message
+    // below, so the field, the refusal, the status line, the history entry and the undo label
+    // cannot drift apart about what was moved.
+    const du = storedDepthLabel();
+    content.appendChild(formRow(`Shift (${du})`, input, "+ = plugs move deeper"));
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Apply Shift";
@@ -1518,21 +1523,21 @@ export class Ribbon {
       });
       const sign = delta > 0 ? "+" : "";
       setStatus(
-        `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} m`
+        `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} ${du}`
       );
-      recordProcess("Edit", `Core shift ${sign}${delta} m (${n.plugs} plugs, ${n.extras} point samples)`, well.well_name);
+      recordProcess("Edit", `Core shift ${sign}${delta} ${du} (${n.plugs} plugs, ${n.extras} point samples)`, well.well_name);
       this.workspace.notifyDataChanged();
     };
     apply.addEventListener("click", () => {
       const delta = Number(input.value);
       if (!Number.isFinite(delta) || delta === 0) {
-        setStatus("Enter a non-zero shift in metres");
+        setStatus(`Enter a non-zero shift in ${du}`);
         return;
       }
       void doShift(delta)
         .then(() => {
           pushUndo({
-            label: `core shift ${delta} m (${well.well_name})`,
+            label: `core shift ${delta} ${du} (${well.well_name})`,
             undo: () => void doShift(-delta, "undo"),
             redo: () => void doShift(delta),
           });
@@ -1930,6 +1935,17 @@ export class Ribbon {
     content.appendChild(
       formRow("Depth datum", scalDatumSel, "The datum the plug depths are quoted in (declared once for the delivery)."),
     );
+    // Audit finding 8: a Pc curve is read AT a depth — Thomeer and the J-fit QC pair each plug
+    // with the log's porosity and permeability there — so a delivery quoting feet into a metre
+    // project files every plug 3.28x too deep and every pairing is with the wrong rock.
+    const scalUnitSel = buildDepthUnitSelect();
+    content.appendChild(
+      formRow(
+        "Depth unit in file",
+        scalUnitSel,
+        `The unit the plug depths are quoted in. Converted to the project's depth unit (${storedDepthLabel()}) before the core depth record is applied.`,
+      ),
+    );
 
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
@@ -1958,6 +1974,7 @@ export class Ribbon {
         setInput.value.trim() || "SCAL",
         scalFollowCore.checked(),
         scalDatumSel.value,
+        scalUnitSel.value || null,
       )
         .then((result) => {
           if (result.error) {
@@ -2011,7 +2028,16 @@ export class Ribbon {
       const unmatched = result.unmatched_wells.length
         ? ` — unmatched well name(s): ${result.unmatched_wells.slice(0, 5).join(", ")}${result.unmatched_wells.length > 5 ? "…" : ""}`
         : "";
-      setStatus(`Tops: ${result.tops_written} marker(s) across ${result.wells_matched} well(s)${unmatched}`);
+      // Audit finding 8: a tops file in feet is converted onto the project's scale, and there is
+      // no dialog here to have said so beforehand — so the status line is where the user learns
+      // a marker moved. Stated on every import, not only on the converting one: silence about
+      // the ordinary case is what makes silence about the other case unreadable.
+      const project = storedDepthLabel();
+      const read = result.depth_unit;
+      const unitNote = !read ? "" : read === project ? ` (${project})` : ` — read as ${read}, stored as ${project}`;
+      setStatus(
+        `Tops: ${result.tops_written} marker(s) across ${result.wells_matched} well(s)${unitNote}${unmatched}`,
+      );
       recordProcess(
         "Import",
         `Imported tops (${result.tops_written} markers, ${result.wells_matched} wells) ← ${path}`,
@@ -2061,12 +2087,29 @@ export class Ribbon {
         "Names this survey. A name already used on the well is suffixed (SURVEY → SURVEY_1) — an import never overwrites an earlier survey. The new survey becomes active and drives TVD/TVDSS.",
       ),
     );
+    // Audit finding 8: the survey's MD column was read raw, so a foot survey delivered into a
+    // metre project put every station 3.28x too deep — and TVD/TVDSS ride that error onto the
+    // log grid, into sw_height and into the saturation-height fits. Same control the core
+    // wizard already carries. Unlike core there is no probe step to guess from, so the default
+    // is "Same as project", which is exactly what every earlier import silently assumed.
+    const unitSel = buildDepthUnitSelect();
+    content.appendChild(
+      formRow(
+        "Depth unit in file",
+        unitSel,
+        `The unit the survey's MD column is written in. Converted to the project's depth unit (${storedDepthLabel()}) on import.`,
+      ),
+    );
     const datumInput = document.createElement("input");
     datumInput.type = "number";
     datumInput.step = "0.1";
     datumInput.className = "form-control";
     datumInput.placeholder = "e.g. 25 (optional)";
-    content.appendChild(formRow("Datum / KB (m)", datumInput, "TVDSS reference; blank = well KB"));
+    // The datum is typed here, not read from the file, so it is in the PROJECT's unit whatever
+    // the file says — which is why the unit above governs the MD column and nothing else.
+    content.appendChild(
+      formRow(`Datum / KB (${storedDepthLabel()})`, datumInput, "TVDSS reference; blank = well KB"),
+    );
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Import Survey";
@@ -2081,7 +2124,7 @@ export class Ribbon {
         return;
       }
       setStatus(`Importing deviation survey for ${well.well_name}…`);
-      void importDeviationCsv(well.well_id, path, datum, nameInput.value.trim() || "SURVEY")
+      void importDeviationCsv(well.well_id, path, datum, nameInput.value.trim() || "SURVEY", unitSel.value || null)
         .then((result) => {
           if (result.error) {
             setStatus(`Deviation import failed: ${result.error}`);
@@ -2231,19 +2274,23 @@ export class Ribbon {
     tdInput.type = "number";
     tdInput.step = "0.1";
     tdInput.className = "form-control";
-    tdInput.placeholder = "total depth (m)";
+    // TD and KB are depths on the project's own grid. Surface X/Y below are deliberately NOT
+    // touched: a UTM easting is metres because the projection is, and it has nothing to do with
+    // which unit this project's depths are logged in.
+    const du = storedDepthLabel();
+    tdInput.placeholder = `total depth (${du})`;
     if (well.td != null) tdInput.value = String(well.td);
-    content.appendChild(formRow("TD (m)", tdInput));
+    content.appendChild(formRow(`TD (${du})`, tdInput));
 
     const kbInput = document.createElement("input");
     kbInput.type = "number";
     kbInput.step = "0.1";
     kbInput.className = "form-control";
-    kbInput.placeholder = "KB elevation (m)";
+    kbInput.placeholder = `KB elevation (${du})`;
     // Show the CURRENT KB — it silently drives TVDSS in deviation import, so editing it blind
     // (the old behaviour: always-empty field) risked poisoning every TVDSS.
     if (well.kb != null) kbInput.value = String(well.kb);
-    content.appendChild(formRow("KB (m)", kbInput, "datum for TVDSS"));
+    content.appendChild(formRow(`KB (${du})`, kbInput, "datum for TVDSS"));
 
     // Surface location for the Field Map — the manual-entry counterpart to the CSV importer.
     const xInput = document.createElement("input");

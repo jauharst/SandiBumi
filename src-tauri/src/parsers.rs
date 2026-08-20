@@ -3371,16 +3371,27 @@ fn read_delimited<P: AsRef<Path>>(path: P) -> ParseResult<(Vec<String>, Vec<Vec<
 /// two-column "NAME DEPTH" (or three-column "WELL NAME DEPTH") files are also accepted:
 /// if no known headers are found and the last column of the first line parses as a
 /// number, the first line is treated as data.
-/// Returns `(has_well_column, records)` — the flag lets the importer tell a genuinely
-/// column-less single-well file (fall back to the selected well) from a multi-well file with a
-/// blank WELL cell (skip the row instead of misrouting it), both of which yield `record.well ==
-/// None`. Mirrors `parse_locations_file`.
-pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRecord>)> {
+/// Returns `(has_well_column, declared_depth_unit, records)`. The flag lets the importer tell a
+/// genuinely column-less single-well file (fall back to the selected well) from a multi-well file
+/// with a blank WELL cell (skip the row instead of misrouting it), both of which yield
+/// `record.well == None`. Mirrors `parse_locations_file`.
+///
+/// `declared_depth_unit` is `"m"` / `"ft"` when the file states one on the DEPTH column it was
+/// actually read from — a units row under the header, else a unit token in that column's own
+/// header (`TOP_MD_FT`, `DEPTH (m)`). It is read off the resolved column rather than sniffed from
+/// the file at large, because a unit read off a different column than the numbers is worse than
+/// no unit at all. `None` means the file states nothing, which is not a licence to guess: the
+/// importer treats it as the project's own unit, exactly as it always has.
+pub fn parse_tops_file<P: AsRef<Path>>(
+    path: P,
+) -> ParseResult<(bool, Option<&'static str>, Vec<TopsRecord>)> {
     let path = path.as_ref();
     parse_tops_file_unnamed(path).map_err(|error| error.named(path))
 }
 
-fn parse_tops_file_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRecord>)> {
+fn parse_tops_file_unnamed<P: AsRef<Path>>(
+    path: P,
+) -> ParseResult<(bool, Option<&'static str>, Vec<TopsRecord>)> {
     let (headers, mut rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("tops file is empty".into()));
@@ -3424,6 +3435,18 @@ fn parse_tops_file_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<To
         }
     };
 
+    // The unit the file declares on THIS depth column: a units row under the header first (the
+    // delivery convention `,,FEET,`), else a unit token in the column's own header. Same order
+    // `probe_core_table` uses. The units row is removed here rather than left to be dropped as an
+    // unparsable depth further down, so it can never be counted as a skipped marker.
+    let header_unit = headers.get(idx_depth).and_then(|h| unit_token_guess(h));
+    let declared_unit = if rows.first().is_some_and(|r| is_units_row(r, idx_depth)) {
+        let units = rows.remove(0);
+        units.get(idx_depth).and_then(|c| unit_token_guess(c)).or(header_unit)
+    } else {
+        header_unit
+    };
+
     let mut out = Vec::new();
     for row in rows {
         let depth = row
@@ -3445,7 +3468,7 @@ fn parse_tops_file_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<To
     if out.is_empty() {
         return Err(ParseError::Las("tops file has no parsable rows".into()));
     }
-    Ok((idx_well.is_some(), out))
+    Ok((idx_well.is_some(), declared_unit, out))
 }
 
 /// One well-surface-location row. `well` is None when this row carries no well name —
@@ -3525,6 +3548,12 @@ pub struct IntervalData {
     /// non-blank (T-IMP-11 — multi-well aux files route rows by name, like tops).
     pub wells: Vec<Option<String>>,
     pub has_well_column: bool,
+    /// `"m"` / `"ft"` when the file STATES a unit on the TOP column it was read from — a units
+    /// row under the header, else a unit token in that column's own header. Read off the resolved
+    /// depth column rather than sniffed from the file at large, exactly as `parse_tops_file` does:
+    /// a unit taken from a different column converts with confidence and is worse than none.
+    /// `None` means the file says nothing, which the importer treats as the project's own unit.
+    pub depth_unit: Option<&'static str>,
 }
 
 // Source: aux point-data interval labels (T-IMP-10/-11 import path). The depth-bearing
@@ -3558,11 +3587,23 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
         return Err(ParseError::Las("file has no value columns besides depth".into()));
     }
 
+    // The unit this file declares on the TOP column, read before the rows so a units row is
+    // consumed here rather than silently dropped below as an unparsable depth.
+    let mut rows = rows;
+    let header_unit = headers.get(idx_top).and_then(|h| unit_token_guess(h));
+    let depth_unit = if rows.first().is_some_and(|r| is_units_row(r, idx_top)) {
+        let units = rows.remove(0);
+        units.get(idx_top).and_then(|c| unit_token_guess(c)).or(header_unit)
+    } else {
+        header_unit
+    };
+
     let mut out = IntervalData {
         items,
         rows: Vec::new(),
         wells: Vec::new(),
         has_well_column: idx_well.is_some(),
+        depth_unit,
     };
     for row in rows {
         let top = row
@@ -4236,9 +4277,10 @@ mod tops_aux_tests {
             "arshilla_tops_test.csv",
             "# exported tops\nWell Name,Surface,MD\nSANDI-1,TOP_A,1000.5\nSANDI-1,TOP_B,1100.0\nSANDI-2,TOP_A,1010.0\n,BAD_ROW,\n",
         );
-        let (has_well, recs) = parse_tops_file(&p).unwrap();
+        let (has_well, unit, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
         assert!(has_well, "multi-well file has a WELL column");
+        assert_eq!(unit, None, "a bare MD header declares no unit");
         assert_eq!(recs.len(), 3, "row without depth skipped");
         assert_eq!(recs[0].well.as_deref(), Some("SANDI-1"));
         assert_eq!(recs[2].well.as_deref(), Some("SANDI-2"));
@@ -4263,7 +4305,7 @@ mod tops_aux_tests {
              SANDI-1,TOP_OVERFLOW,1.0E+40\n\
              SANDI-1,TOP_B,1100.0\n",
         );
-        let (_, recs) = parse_tops_file(&p).unwrap();
+        let (_, _, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
         assert_eq!(recs.len(), 2, "only the two real tops survive, got {recs:?}");
         assert!(
@@ -4278,7 +4320,7 @@ mod tops_aux_tests {
     #[test]
     fn tops_txt_headerless_whitespace() {
         let p = temp("arshilla_tops_test.txt", "TOP_A  1000.5\nTOP_B\t1100\n");
-        let (has_well, recs) = parse_tops_file(&p).unwrap();
+        let (has_well, _unit, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
         assert!(!has_well, "headerless 2-column file has no WELL column");
         assert_eq!(recs.len(), 2);

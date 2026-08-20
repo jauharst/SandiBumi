@@ -1,5 +1,282 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 14 (Codex P0): the PDF report states its depths in the project's own unit
+
+- [ ] **What this fixes, and it is the one that leaves the building.** The report PDF printed
+      `Top (m)`, `Bottom (m)` and `HPV (m)` unconditionally, and its cover stated the interval, the
+      print window, TD and KB in metres. Every one of those numbers comes straight off the
+      project's own depth column — the pay engine accumulates raw sample thickness, the zone tops
+      are stored depths. **On a foot project this handed a client a document stating net pay and
+      hydrocarbon pore thickness in metres over numbers that were feet**: both overstated by
+      3.28084×, every figure plausible, nothing on the page to catch it.
+- [ ] **Four columns had no unit at all, which is not better.** In the pay table only HPV was
+      labelled; Top, Bottom, Gross and Net carried nothing. An unlabelled thickness column beside
+      one that says metres invites the reader to assume the rest match it — which they never did.
+      All five now name the unit.
+- [ ] **Nothing converts.** This is a labelling fix: the numbers in the PDF are the same numbers,
+      correctly described. A metre project's report is unchanged word for word.
+- [ ] **Click-through (foot project):** Plot → Deliverables → Report… → Render, then Save PDF.
+      The cover must read **Interval: … ft**, with TD and KB in ft; the Zone Parameters table must
+      head **Top (ft) / Bottom (ft)**; the Pay Summary table must head **Top / Bottom / Gross /
+      Net / HPV all in (ft)**. Cross-check one zone's Net and HPV against the same well in the
+      Field Dashboard — they must agree, both in ft. On a metre project render the report you
+      rendered before and confirm it is unchanged.
+- [ ] **Automated correctness:** one pin,
+      `the_report_pdf_heads_its_thicknesses_in_the_projects_own_depth_unit`, which renders a real
+      report on each declaration and reads the text off the drawn page. Two arms, because writing
+      "ft" everywhere would be as wrong as the original: the metre arm must still say `(m)` with
+      no feet anywhere, and the foot arm must carry all five headings plus the cover interval with
+      no metres anywhere. Two mutations red at two distinct assertions — a hard-coded HPV metre
+      heading, and a cover that ignores the project's unit.
+- [ ] **This closes both P0s from the whole-repository Codex review.** The other one, the composite
+      print scale, is increment 13. `CODEX-WHOLE-CODE-REVIEW-2026-08-20.md` is committed here
+      alongside the fixes, as the first review was.
+
+## 2026-08-20 — Audit increment 13 (Codex P0): a printed composite measures true on a foot project
+
+> **Put a ruler on it.** This one changes the physical geometry of an exported plot, so the check
+> is a printed page and a scale rule, not a screen.
+
+- [ ] **What this fixes.** The composite exporter worked out its page geometry as `1000 mm ÷ scale`
+      — millimetres per **metre** — and then added that metre count straight onto the project's
+      stored depths. On a metre project that is right. **On a foot project it drew a 100 ft
+      interval as if it were 100 m**: the sheet came out **3.28084× too long**, the header's
+      "1:500" was physically about **1:152**, and the page breaks fell in the wrong rock. Nothing
+      on the page said so — the curves are there, the grid is even, and the only symptom is a
+      ruler disagreeing with your tops.
+- [ ] **What it does now.** The scale is millimetres per **stored unit**: 1000 mm per metre, 304.8
+      mm per foot, both derived from the one foot constant in the codebase. Page spans, the depth
+      grid step and every curve's y position all follow it, so a printed 1:200 is a true 1:200
+      whichever unit the project is declared in. **Metre projects are bit-identical** — the metre
+      case of the new constant is exactly 1000.
+- [ ] **Click-through (foot project):** Plot → Composite… → 1:200, A4, Render. Export the PDF,
+      print it at 100% (no "fit to page"), and measure: **1 ft of section must be 1.524 mm**, so a
+      100 ft sand is 152.4 mm. Equivalently, 1 m of rock is 5 mm. Check the depth grid labels step
+      by a sensible round number of feet, and that the page range shown under the preview now says
+      **ft**. On a metre project, render the same plot you rendered before this change and confirm
+      the page count and every page's depth range are unchanged.
+- [ ] **Automated correctness:** one pin,
+      `a_foot_declared_project_prints_the_same_physical_scale_a_metre_one_does`. One physical well
+      described twice, and the scale is **measured off the artwork's own depth labels** rather
+      than recomputed — the claim asserted is "a metre of rock occupies the same paper either
+      way", which is the only thing a print scale can mean. Pagination is asserted separately,
+      because a page covering the right rock at the wrong scale and the right scale over the wrong
+      span are different bugs. Two mutations red at two distinct assertions: reverting the scale
+      prints the foot project at 16.404 mm per metre (the 3.28084 factor exactly), and paginating
+      in metres puts 14.2 m of rock on a page that should hold 46.6 m.
+- [ ] **Where this came from.** The second Codex review — whole-repository this time — which
+      Jauhar ran against the same commit. Its other P0 is the pay-unit labelling family, already
+      closed for the dashboard, the pay-summary table, the cutoff sweep and Results QC by
+      increments 8, 11 and 12; the **PDF report's own `Top (m)` / `HPV (m)` headings are the
+      remaining piece** and are next.
+
+## 2026-08-20 — Audit increment 12: every depth you READ now says which unit it is in, and the units family closes
+
+- [ ] **What this fixes.** The other half of increments 8 and 11: the places that *show* you a
+      depth or a thickness. **Cutoffs & Pay Summary** carried a unit on one column only — HPV said
+      metres over whatever the project stored, and Top / Bottom / Gross / Net said nothing at all,
+      which on a mixed-unit desk is the same problem quieter. The **cutoff sensitivity sweep**
+      plotted and read out net thickness and HC pore-thickness under a metre axis. The
+      **Results QC** Sw-envelope drew its depth axis as metres. All three now show the unit you
+      are reading in, with the values converted to match.
+- [ ] **Heading and value move together, always.** A converted number under a stale heading and a
+      stale number under a converted heading are the same lie, so each label was fixed in the same
+      change that converted its values, and every pin asserts both. HPV converts with the
+      thicknesses because it **is** one; N/G, Avg VSH, Avg PHIE and Avg SWE are dimensionless and
+      are left exactly alone.
+- [ ] **One trap worth naming.** The Results QC crosshair comes from the log view in **stored**
+      depths. Converting the axis and leaving the crosshair alone would have put it at the wrong
+      sand rather than producing any visible error — so the depth column is converted **once**, at
+      the top, and the crosshair rides the same conversion. That panel now also repaints when you
+      flip the display unit, which it did not before.
+- [ ] **The sweep list is now empty of excuses.** After increment 11 the guard tolerated five
+      "display labels still awaiting conversion". Those five are gone. The **only** hard-coded
+      depth units left anywhere in the frontend are the core importer's own metres/feet **picker**
+      and the two **UTM map coordinates** — and the guard now says so, with no third category.
+- [ ] **Click-through (foot project):** Petrophysics → **Cutoffs & Summary** → Compute — every
+      length column heads **(ft)** with foot values, and Avg PHIE / N/G are unchanged. Switch the
+      sweep Metric between Net thickness and HC pore-thickness — the y-axis and the readout both
+      say ft; Net-to-gross stays a plain ratio. Open **Results QC**, pick a zone — the Sw-envelope
+      depth axis reads ft, and hovering a depth in a log view lands the crosshair on the same bed.
+      Now flip the log view's depth display to metres and confirm all three switch together,
+      values and labels. On a metre project everything reads as it always did.
+- [ ] **Automated correctness:** two pins —
+      `the_pay_summary_table_heads_and_converts_its_thicknesses_together_and_leaves_the_ratios_alone`
+      (both halves, both directions, ratios untouched), and the increment-11 sweep now asserting
+      the shorter list. Two mutations red at two distinct assertions on each: a hard-coded HPV
+      heading, and values passed through unconverted.
+- [ ] **Also in here, and worth knowing.** The test file had picked up four stray NUL bytes, which
+      made **git treat it as binary** — that is why an earlier commit showed a 4,884-line rewrite
+      instead of a small diff. Replaced with proper JSON keys and normalised to LF; PR #66 was
+      corrected at source rather than patched afterwards.
+
+## 2026-08-20 — Audit increment 11 (Codex P1): every depth you TYPE now says which unit it is in
+
+- [ ] **What this fixes.** Six dialogs asked for a depth in **metres** and then sent the number
+      straight to the engine, where it is compared against — or added to — the depth grid the
+      project actually stores. On a foot project every one of them was asking for the wrong
+      number: a "+3.0 m" curve shift moves the curve **3 ft**, a "+2.5 m" core shift moves the
+      plugs **2.5 ft**, and a "Top 3000 m / Bottom 3010 m" edit is matched against foot depths, so
+      it edits the wrong interval or nothing at all. All six now read in the project's own unit.
+- [ ] **The six.** Right-click a curve → **Edit…** (Shift / Top / Bottom, and the "needs a
+      number" refusal that names them); **Data ▸ Core ▸ Shift Core…** (the field, the refusal, the
+      status line, the history entry and the undo label, all from one resolved unit so they cannot
+      drift); **Import Deviation** (Datum / KB); **Well Header…** (TD and KB); the tops
+      **autocorrelation** window and search range, whose backend already documented them as
+      "depth units"; and the **Composite** depth top / bottom.
+- [ ] **Deliberately NOT changed: Surface X and Surface Y.** A UTM easting is in metres because
+      the *projection* is, and that has nothing to do with which unit this project's depths are
+      logged in. Sweeping them along would have been a new defect wearing the fix's clothes.
+- [ ] **Click-through (foot project):** open each of the six — every depth field must read
+      **(ft)**, and your usual foot numbers must behave as they always did. On Shift Core, check
+      the status line, the Processing history entry and the Undo label all say ft too. Flip the
+      log view's depth display to metres: these labels must **stay ft**, because the stored grid
+      has not moved. Surface X / Surface Y must still say metres. On a metre project everything
+      reads exactly as before.
+- [ ] **A standing guard, not just six fixes.** A sweep test now refuses **any** hard-coded depth
+      unit anywhere in the frontend unless it is on a classified list, so the next dialog someone
+      writes fails the gate rather than shipping. Three classifications are allowed: the core
+      importer's own metres/feet **picker**, the two **map coordinates**, and five **display
+      labels still awaiting conversion** — the pay-summary table's HPV column, the cutoff dialog's
+      two thickness metrics, and the Results QC depth axis. Those five are listed rather than
+      quietly tolerated: relabelling a computed thickness without also converting its value would
+      be the Field Dashboard defect inverted, so each gets its own conversion and its own pin.
+      That is the next increment.
+- [ ] **Automated correctness:** one pin,
+      `every_hard_coded_depth_unit_label_left_in_the_frontend_is_one_somebody_classified`, with
+      two mutations red at two distinct assertions — a reintroduced `Shift (m)` fails as
+      unclassified, and a classified row whose source line was changed fails as stale, so the
+      list cannot rot into a rubber stamp.
+
+## 2026-08-20 — Audit increment 10 (Codex P1): RtC and IMTS saturation — a gap in a bound-water curve is missing data, not zero
+
+> **This one moves numbers on real wells** — but only at depths where the answer was wrong.
+> Please field-verify it against an RtC/IMTS run you already trust.
+
+- [ ] **What this fixes.** RtC substituted **zero** for a missing CAPBW sample. Zero capillary-
+      bound water is a real geological claim; a gap in the curve is not. So a hole at one depth
+      removed conductivity the rock actually has: the excess-conductivity term went negative, the
+      guard clamped it to zero, the corrected resistivity came back as **raw Rt**, and the module
+      published a finite, plausible, cleaner-sand saturation with nothing on any output to say the
+      input was missing. At Rt 20, PHIT 0.25, RW 0.30, m = n = 2, Qv 0.30, CAPBW 0.08 the honest
+      answer is **SWT 0.397**; with that one sample missing the old code printed **0.490** — about
+      **9 saturation units of water invented from an absent measurement**.
+- [ ] **The same rule on the clay-bound side, on both modules.** A hole in CBW used to publish
+      SWE = SWT, which states the depth has no clay-bound water. It now withholds **only** the
+      effective trio (SWE, SWE_RTC, VOL_UWAT) — SWT, RT_CORR and CEX_RTC do not depend on CBW and
+      are still answered. Applied to `sw_rtc` and `sw_imts` alike, because the identical line sat
+      in both.
+- [ ] **What did NOT change, deliberately.** A well that carries **no** CAPBW or CBW anywhere runs
+      exactly as before: the correction simply has no capillary term and every sample answers.
+      That is the SSC-only well the module has always allowed, and it is bit-identical. The
+      discriminator is per-well and per-curve — *does this well carry any measurement on this
+      role at all* — because the runner hands a module every declared input as an all-NaN vector
+      whether or not the curve exists, so there is no other honest signal available.
+- [ ] **Click-through:** run **Sw from RtC** on a well whose CAPBW has a gap (a washout interval
+      is the usual cause) — SWT, SWE and RT_CORR must now be **blank across the gap** instead of
+      drawing through it, and the values either side must be unchanged. Then run it on a well with
+      no CAPBW curve at all: the result must be identical to what you got before this change.
+      Repeat on **Sw from IMTS** with a gapped CBW: SWT should still draw, SWE should blank.
+- [ ] **One existing test had to be corrected, and it is worth knowing why.** The VOL_UWAT
+      identity test used a CBW curve reading `[0.05, NaN, 0.05]` for its "no clay-bound water"
+      arm — a hole, not an absent curve. That test was the thing holding this defect in place: it
+      asserted a gap must publish PHIT × SWT. Its sentence always said *"when no clay-bound water
+      is supplied"*, so the fixture now uses a well that carries none. The identity itself is
+      untouched.
+- [ ] **Automated correctness:** one pin,
+      `a_hole_in_a_curve_the_well_carries_is_missing_data_and_never_zero_bound_water`, with three
+      arms — the hole blanks every RtC output at that depth while its neighbour still reads 0.397;
+      the absent role still answers 0.490 at every sample; a CBW hole blanks only the effective
+      trio. The arithmetic in it is derived from the equation, not quoted from the review. Two
+      mutations red at two distinct assertions, pinning the discriminator from both sides (never
+      present → the hole silently computes; always present → the SSC-only well goes blank).
+- [ ] **Not folded in, and flagged rather than decided.** `sw_imts` still reads a missing VKAOL or
+      VILL as zero clay of that mineral. That one is a *documented* convention with a matching
+      guard in its own S-factor fit ("a plug where BOTH are missing carries no clay information
+      and must not be read as a clean plug"), so the module's gap is that it has no equivalent of
+      that both-missing rule. Same family, different question — say the word and it becomes its
+      own increment.
+
+## 2026-08-20 — Audit increment 9 (Codex P1): the free-water level asks for the unit it actually uses
+
+- [ ] **What this fixes.** The saturation-height module computes height above the contact as
+      `FWL − TVD` on the **raw** depth sample, and only converts afterwards. So the free-water
+      level you type has always been in the project's own unit — but the dialog labelled that
+      field **m**. On a foot-declared project a careful user, reading the label, would enter the
+      metre-equivalent number and have it subtracted from foot depths: **the contact lands about
+      3.28× too shallow**, and the module returns a finite, plausible, fully-water-saturated
+      answer with no error anywhere. Nothing about the arithmetic changed — only the label, which
+      now tells the truth.
+- [ ] **The token now resolves everywhere a unit is printed.** The manifest says "project-native"
+      with one token; the five places that print a module argument's unit — the module dialog's
+      input suffix and output labels, the per-well parameter grid, the workflow per-step editor
+      and its grid header, and the Monte Carlo parameter picker — now resolve it to the project's
+      unit instead of printing the literal word `depth`. It resolves to the **stored** unit, not
+      your display preference, and that is deliberate: this is a number travelling *to* the
+      engine unconverted, so labelling it with a view setting would invite the very mis-entry the
+      token exists to prevent. (Read-only panels are the opposite case — see increment 8.)
+- [ ] **Click-through:** Saturation → Sw from height (SWH) on a **foot** project — the FWL field
+      must read **ft**, and entering your usual foot value gives the answer it always did. Switch
+      the log view's depth display to metres: the FWL label must **stay ft**, because the stored
+      grid has not moved. On a metre project it reads **m**, unchanged. Then check the same
+      resolution in Batch → Workflow (per-step ⚙ editor and the grid header), the per-well
+      parameter grid, and Batch → Monte Carlo's parameter list — none of them should print the
+      word `depth` anywhere.
+- [ ] **HAFWL is deliberately untouched, and needs your word.** The height-above-contact **output
+      curve** is converted to metres before it is written, so its `m` label is true — it is not the
+      same defect. But it means a foot-declared project gets a metre-valued curve beside foot
+      depths. The PRD chapter (SB-SHR-004) says every height-dimensioned curve should follow the
+      project's unit; the code says always metres, matching the Skelt-Harrison constants, which
+      are metres by the published form. **Changing it moves numbers on every foot project**, so I
+      have not. Which do you want HAFWL delivered in?
+- [ ] **Automated correctness:** two pins —
+      `the_free_water_level_is_declared_in_the_unit_the_height_is_actually_measured_in` (the label
+      half: FWL and TVD carry the project-native token while HAFWL in the same manifest keeps its
+      fixed `m`, so a sweep of every `m` in the file would fail; and the arithmetic half: the same
+      FWL number in a metre and a foot project must give *different* answers, read against its
+      neighbour where *converted* numbers give the same one), and
+      `a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference`
+      (the token resolves to the stored unit, ignores the display toggle, and leaves every fixed
+      unit alone). Two mutations red at two distinct assertions on each side.
+
+## 2026-08-20 — Audit increment 8 (Codex P0): the Field Dashboard shows and exports depth units, not a hard-coded metre
+
+- [ ] **What this fixes.** The Field Dashboard printed `(m)` on every thickness it showed —
+      the Total Net and Total HPV cards, the by-zone table, the box-plot heading, the grid
+      columns and the CSV header — while the numbers underneath were whatever unit the project
+      is stored in. On a metre project that was right by luck. On a **foot-declared project it
+      was a client deliverable claiming metres over columns of feet: wrong by 3.28084×**, with
+      every number in it perfectly plausible. Nothing in the file said otherwise. The backend
+      was never at fault — it accumulates thickness in the project's own unit and always did.
+- [ ] **What it does now.** The panel reads the project's stored unit and your chosen display
+      unit and resolves both at render time: the headings carry the unit you are reading in, and
+      the lengths are converted to match it. HPV converts with the thicknesses because it **is**
+      a thickness — hydrocarbon pore feet, φe·(1−Sw)·h. N/G, Avg VSH, Avg PHIE, Avg SWE and the
+      sample counts are dimensionless and are left exactly alone; converting those would turn a
+      net-to-gross of 0.50 into 0.15, which is still a legal-looking number nobody would catch.
+- [ ] **Click-through (metre project — nothing should move).** Petrophysics → Batch → Field
+      Dashboard… → Compute. Every heading still says `(m)` and every number is what it was
+      before this change. Export CSV and confirm the header row and values are unchanged.
+- [ ] **Click-through (foot project — the fix).** Open a foot-declared project, Compute, and
+      check the Total Net / Total HPV cards now read **ft**, as do Top / Bottom / Gross / Net /
+      Not net / Unknown / HPV in the grid, the by-zone table and the box-plot heading. Export
+      CSV: the header must say `Net (ft)` and `HPV (ft)` with the foot values under them.
+- [ ] **Click-through (the display toggle).** With the dashboard open, flip the depth unit from
+      a log view's toolbar. The dashboard must relabel and re-convert **live** — headings, cards,
+      by-zone table, box plots, grid and the next CSV export all in the new unit together. A
+      panel showing metres while the rest of the application had moved to feet would be the same
+      mislabelling one step removed.
+- [ ] **Automated correctness:** one pin,
+      `a_dashboard_csv_carries_lengths_and_a_heading_in_one_resolved_unit_and_leaves_the_dimensionless_columns_alone`
+      — a foot project read in feet exports unconverted values under `(ft)`; the same project
+      read in metres converts the lengths, moves the heading with them and leaves N/G and Avg
+      PHIE untouched; a metre project is byte-identical to what it always exported. Both halves
+      are pinned separately because either alone still ships a wrong file. Two mutations red at
+      two distinct assertions (a hard-coded `(m)` heading; converting every column instead of
+      only the lengths — which prints N/G 0.5 as 0.1524).
+- [ ] **Where this came from.** The independent Codex adversarial review of `a6565bd9`, its
+      single P0. Its other findings are being worked in order; the SSPW gas-conditioning one
+      needs your ruling before anything moves, and I have not touched it.
 ## 2026-08-20 — Audit increment 6 (P1): the Simandoux "unlimited" curve is genuinely unlimited now
 
 - [ ] **What was wrong (audit finding #4), and your "diagnostics stay raw" ruling executed.**
@@ -15018,3 +15295,169 @@ only #129 (connection pool), which waits on your 100-well benchmark run.
 - [ ] **T-IMP-05 re-run** (your Fail mark from before the needWell dialog existed): click an
       importer with no well selected — the named refusal dialog is the designed behaviour
       now, so the item should flip to Pass.
+
+## A deviation survey now says what unit its depths are in (audit finding 8)
+
+The survey importer was the last depth-bearing importer still reading its file raw. Hand it a
+survey whose MD column is in feet, on a project you declared in metres, and it stored 8000 as
+8000 — every station 3.28 times too deep. Nothing in the app could catch that afterwards,
+because TVD and TVDSS are computed from those stations and then written onto the log grid,
+where `sw_height`, the saturation-height fits and the TVDSS correlation view all read them.
+A well would simply have been in the wrong place, in a way that plots perfectly well.
+
+Import Deviation now carries the same **Depth unit in file** box the core wizard has. It
+defaults to *Same as project*, which is exactly what every earlier import silently assumed, so
+nothing you have already imported changes and nothing you re-import behaves differently unless
+you say feet.
+
+One thing that deliberately does **not** convert: the Datum / KB you type in the dialog. That
+box is labelled in the project's own unit, and the well's KB is already stored in it — the
+file's unit governs the file's numbers and nothing else. A survey in feet with a 25 m datum is
+a perfectly ordinary delivery.
+
+A project that has not declared a depth unit yet is now refused by name rather than guessed at,
+which is the rule the core-table importer has always followed.
+
+- [ ] **Import a deviation survey with Depth unit in file = Feet (ft) on a metre project** —
+      the stored TVD should come out about 3.28 times shallower than the MD numbers in the
+      file. A vertical 8000 ft survey should reach 2438.4 m TVD.
+- [ ] **Import the same file with Same as project** — it should behave exactly as it did
+      before this change (stations at 8000).
+- [ ] **Check the TVDSS on the foot import** — with a datum of 25 it should be TVD − 25, not
+      TVD − 7.62. The datum you typed is metres because the dialog says metres.
+- [ ] **Try a deviation import into a brand-new project with no LAS in it yet** — it should
+      refuse with a message naming the missing depth-unit declaration, instead of storing
+      numbers nobody can interpret.
+
+**Still open, same defect, not fixed here:** the tops importer (`import_tops_file`), the SCAL
+Pc importer (`import_scal_files`) and the point-data/aux importer (`import_aux_file`) all take
+depths from a file with no unit resolution either. They are the next increments; naming them
+here so nothing looks closed that is not.
+
+## A tops file now says what unit its markers are in (audit finding 8, second site)
+
+Same defect as the deviation survey, one file over — and this one is worse, because a top is
+not one number. A top is the boundary of a zone, so every zone parameter, every pay summary
+and every report drawn from them inherits whatever the tops file was misread as. A tops file
+delivered in feet, imported into a metre project, put every marker 3.28 times too deep.
+
+Tops import has no dialog — you pick a file and it loads — so the rule had to work without
+asking you anything:
+
+1. If the file **declares** a unit on its depth column, that is used. That means a units row
+   under the header (`,FEET`, the delivery convention) or a unit in the depth header itself
+   (`TOP_MD_FT`, `DEPTH (m)`).
+2. If it declares nothing, the project's own unit is assumed — exactly what every tops import
+   before this one did, so nothing you have already loaded changes.
+
+The unit is read from the **same column the depths came from**. A `FEET` sitting under a
+different column is not accepted as if it described this one.
+
+The status line now always names the unit — `Tops: 9 marker(s) across 3 well(s) (m)`, or
+`— read as ft, stored as m` when it converted. It says so on ordinary imports too, deliberately:
+if it only spoke up when something moved, you would have no reason to trust its silence.
+
+- [ ] **Import a tops file with a units row saying FEET on a metre project** — the markers
+      should land at 0.3048 × the numbers in the file, and the status line should say
+      *read as ft, stored as m*.
+- [ ] **Import a normal tops file with no unit anywhere** — identical to before, and the status
+      line should just name your project unit in brackets.
+- [ ] **Check a file whose depth header is something like `TOP_MD_FT`** — that counts as a
+      declaration too.
+- [ ] **Open a well that already has tops and re-import** — depths update, colours survive,
+      as before.
+
+**Still open, same defect:** the SCAL Pc importer (`import_scal_files`) and the point-data /
+aux importer (`import_aux_file`). Both take a depth *datum* but no depth *unit*. Next.
+
+## A SCAL delivery now says what unit its plug depths are in (audit finding 8, third site)
+
+Third and last of the importers that read depths from a file without asking what unit they
+were in. A Pc delivery quoting feet, imported into a metre project, filed every plug 3.28
+times too deep — and a Pc curve is read *at* a depth: Thomeer and the J-fit QC pair each plug
+with the log's porosity and permeability there, and the saturation-height module carries the
+fitted A and B back onto that same interval. Every one of those pairings would have been with
+the wrong rock.
+
+Import SCAL now has a **Depth unit in file** box, right under Depth datum — the two together
+are what put a plug on your project's scale. It defaults to *Same as project*, so an untouched
+dialog behaves exactly as it always did.
+
+The part worth checking on real data: the conversion happens **before** the core depth record
+is applied, not after. Your core record is already in the project's unit, so a foot depth has
+to become metres first and only then take the core's correction. Doing it the other way round
+gives a number about 1.4 m off on a 2000 m plug — perfectly plausible, and nothing downstream
+could tell.
+
+- [ ] **Import a Pc delivery with Depth unit in file = Feet (ft)**, with *follow the core depth
+      record* OFF — the plugs should land at 0.3048 × the numbers in the file.
+- [ ] **Same file with follow-core ON**, on a well whose core you have registered — the plug
+      should end up at (converted depth + the core's shift). Cross-check one plug against the
+      Shift Core history.
+- [ ] **Import a normal metre delivery with the box left alone** — identical to before.
+- [ ] **Check the Thomeer / Pc QC plot afterwards** — the plugs should sit against the right
+      part of the log.
+
+Housekeeping in the same change: the metres/feet picker is now one shared control
+(`buildDepthUnitSelect`) used by the core wizard, Import Deviation and Import SCAL, instead of
+three copies of the same three options.
+
+## Point data now says what unit its depths are in (audit finding 8, fourth and last site)
+
+This closes the family. The point-data importer — XRD, CEC, oil show, petrography counts,
+perforations — read its depths raw, so a delivery in feet filed every sample 3.28 times too
+deep: a mineral count against the wrong sand, a perforation against the wrong interval.
+
+Two things it now gets right that are easy to get wrong:
+
+- **An interval converts at both ends.** A top scaled without its base is not a shallower
+  sample, it is a sample of a different thickness — a 20 ft perforation would have come out
+  4608 m long.
+- **The conversion happens before the core depth record**, for the same reason as SCAL: your
+  core corrections are already in the project's unit.
+
+It reads the unit the same way tops does — a units row under the header, or a unit in the
+depth column's own header — and falls back to your project's unit when the file says nothing,
+which is what it always did.
+
+**Note on where this shows up.** There is currently no ribbon button for a standalone point-data
+import; the path most deliveries take is the core wizard's extra columns, which ride the plugs'
+already-converted depths. So this is a backend command with no button today. It is still a
+registered command, and a 3.28× error sitting in one of those is not something to leave because
+nothing clicks it yet.
+
+- [ ] **If a point-data import button reappears**, check a feet delivery lands at 0.3048 × the
+      file numbers, top and base both.
+- [ ] **Re-import an XRD or perforation file you already have** — no unit anywhere in the file
+      means nothing changes.
+
+With this the whole import family is closed: LAS/DLIS read the index unit, core is declared with
+a probe guess, intake is declared, deviation and SCAL are asked in their dialogs, tops and point
+data read the file's own declaration.
+
+## The plug-pairing tolerance is now one sample in YOUR unit
+
+"One standard 6-inch sample" is a physical length, but the number was written as a bare `0.15`
+and compared against depths in whatever unit your project stores. So on a metre project it was
+six inches, as intended — and on a **foot project it was 0.15 ft, about 1.8 inches**, a third of
+a sample.
+
+That is not a rounding problem. It changes what pairs:
+
+- **Plug QC** reported most plugs as having no partner, so the cloud thinned out and the
+  correlation was computed on whatever survived.
+- **Calibrate S…** dropped the same plugs before fitting, so S — which multiplies the whole
+  clay-charge term in `sw_imts` — was fitted on a handful of samples instead of the suite.
+- The petrography **agreement check** reads the same tolerance and was equally strict.
+
+Both panes now label the field with your project's unit — **Depth tolerance (ft)** — and default
+to one real sample in it: 0.15 on metres, 0.5 on feet. **A metre project's number does not move**:
+0.15 m is what shipped and what the method note says, and re-deriving it as 0.1524 would change
+every existing project's pairing for a millimetre of nothing.
+
+- [ ] **On a foot project, open Plug QC** — the field should read *Depth tolerance (ft)* and show
+      0.5. Run it against a suite you know pairs, and check the pair count is the whole suite.
+- [ ] **Open Calibrate S…** on the same project — same label, same default, and the fit should now
+      use the plugs it was dropping.
+- [ ] **On a metre project** — 0.15, and identical results to before. This is worth one check on a
+      well you have already run.

@@ -46,9 +46,29 @@ use crate::distribution;
 /// STATISTICS are always computed on every pair, before any decimation.
 const MAX_POINTS: usize = 5000;
 
-/// Default depth tolerance. One standard 6-inch core sample, the same default the S-factor
-/// calibration uses for the same pairing problem.
-pub const DEFAULT_DEPTH_TOL: f32 = 0.15;
+/// Default depth tolerance ON A METRE PROJECT. One standard 6-inch core sample, the same default
+/// the S-factor calibration uses for the same pairing problem.
+///
+/// The suffix is load-bearing, and so is `#[cfg(test)]`. This shipped as a bare `pub const` named
+/// `DEFAULT_DEPTH_TOL` and compared against depths in whatever unit the project stores, so a FOOT
+/// project silently paired at 0.15 ft — 1.8 inches, about a third of a sample — and reported the
+/// plugs it then failed to reach as "no plug within the depth tolerance". No live path may reach
+/// for a fixed number again: they resolve [`default_depth_tol`], which asks the project. What is
+/// left is the value a metre-project TEST states outright, and the compiler now enforces that.
+#[cfg(test)]
+const DEFAULT_DEPTH_TOL_METRES: f32 = 0.15;
+
+/// The default pairing tolerance in the PROJECT's own unit — 0.15 m or 0.5 ft, both one standard
+/// 6-inch sample. See [`crate::units::same_depth_tolerance`] for why the two numbers are not a
+/// conversion of each other.
+///
+/// An undeclared project falls back to metres rather than refusing: this is the value used when
+/// the CALLER supplied nothing, `DepthUnit::default()` is documented as metres, and failing a
+/// whole QC run over an unset preference would be worse than the behaviour this replaces.
+pub fn default_depth_tol(conn: &Connection) -> f32 {
+    let unit = crate::units::project_depth_unit(conn).ok().flatten().unwrap_or_default();
+    crate::units::same_depth_tolerance(unit) as f32
+}
 
 /// psi to pascal, so the Washburn algebra below can be written in the units it is stated in.
 const PSI_TO_PA: f64 = 6894.757;
@@ -446,7 +466,7 @@ pub fn run_plug_qc(conn: &Connection, req: &PlugQcRequest) -> Result<PlugQcResul
     let tol = if req.depth_tol.is_finite() && req.depth_tol > 0.0 {
         req.depth_tol
     } else {
-        DEFAULT_DEPTH_TOL
+        default_depth_tol(conn)
     };
 
     let mut res = PlugQcResult {
@@ -585,7 +605,7 @@ pub fn score_against_plugs(
     let tol = if depth_tol.is_finite() && depth_tol > 0.0 {
         depth_tol
     } else {
-        DEFAULT_DEPTH_TOL
+        default_depth_tol(conn)
     };
     let mut res = Agreement {
         reference_label: label_for(reference),
@@ -692,6 +712,59 @@ mod tests {
         }
     }
 
+    /// "One standard 6-inch sample" is a physical length, and the tolerance is compared against
+    /// depths in the PROJECT's unit — so it shipped as a bare `0.15` that meant six inches on a
+    /// metre project and 1.8 inches on a foot one, roughly a third of a sample. A foot project
+    /// then reported most of its plugs as having no partner, and the S-factor calibration next
+    /// door was fitted on whatever handful survived.
+    ///
+    /// Both halves are pinned. The foot project must get a real six inches, and the metre
+    /// project's number must NOT move — 0.15 m is what shipped and what the documentation says,
+    /// and re-deriving it as 0.1524 would change every existing project's pairing for a
+    /// millimetre of no petrophysical content.
+    #[test]
+    fn a_plug_pairing_tolerance_is_one_sample_in_the_projects_own_unit() {
+        let pair_at = |unit: crate::units::DepthUnit, gap: f32| -> usize {
+            let (conn, w) = mem();
+            crate::units::set_project_depth_unit(&conn, unit).unwrap();
+            // Plugs 5 apart, so an offset that misses its own plug cannot land on the next one
+            // instead — which would answer "did it pair?" with the wrong pairing.
+            core(&conn, &w, &[2000.0, 2005.0], &[0.20, 0.24]);
+            aux(&conn, &w, "VPORE_TS", &[(2000.0 + gap, 0.19), (2005.0 + gap, 0.25)]);
+            run_plug_qc(
+                &conn,
+                &PlugQcRequest {
+                    well_ids: vec![w.clone()],
+                    x: src_core("CPOR"),
+                    y: src_aux("VPORE_TS"),
+                    // Nothing supplied — this is the path that resolves the project's default.
+                    depth_tol: 0.0,
+                },
+            )
+            .unwrap()
+            .n_pairs
+        };
+
+        // A foot project: 0.3 ft is well inside one 6-inch sample and must pair. Under the old
+        // bare 0.15 it was outside the tolerance and both sides were dropped.
+        assert_eq!(
+            pair_at(crate::units::DepthUnit::Feet, 0.3),
+            2,
+            "0.3 ft is inside one 6-inch sample — a foot project must not pair at 0.15 ft"
+        );
+        // …and it is still a tolerance, not a licence: 0.9 ft is nearly two samples away.
+        assert_eq!(pair_at(crate::units::DepthUnit::Feet, 0.9), 0, "0.9 ft is not the same plug");
+
+        // A metre project is untouched: 0.1 m pairs, 0.2 m does not, exactly as before.
+        assert_eq!(pair_at(crate::units::DepthUnit::Metres, 0.1), 2, "0.1 m is inside 0.15 m");
+        assert_eq!(
+            pair_at(crate::units::DepthUnit::Metres, 0.1524),
+            0,
+            "0.1524 m is outside the shipped 0.15 m — re-deriving the metre default from six \
+             inches would silently move every existing project's pairing"
+        );
+    }
+
     /// The whole point of the pane: a plate measurement beside the plug it was cut from.
     #[test]
     fn a_section_pairs_with_the_plug_it_was_cut_from() {
@@ -714,7 +787,7 @@ mod tests {
                 well_ids: vec![w.clone()],
                 x: src_core("CPOR"),
                 y: src_aux("VPORE_TS"),
-                depth_tol: DEFAULT_DEPTH_TOL,
+                depth_tol: DEFAULT_DEPTH_TOL_METRES,
             },
         )
         .unwrap();
@@ -740,7 +813,7 @@ mod tests {
                 well_ids: vec![w.clone()],
                 x: src_core("CPOR"),
                 y: src_aux("VPORE_TS"),
-                depth_tol: DEFAULT_DEPTH_TOL,
+                depth_tol: DEFAULT_DEPTH_TOL_METRES,
             },
         )
         .unwrap();
@@ -764,7 +837,7 @@ mod tests {
                 well_ids: vec![w.clone()],
                 x: src_core("CPOR"),
                 y: src_aux("VPORE_TS"),
-                depth_tol: DEFAULT_DEPTH_TOL,
+                depth_tol: DEFAULT_DEPTH_TOL_METRES,
             },
         )
         .unwrap();
@@ -794,7 +867,7 @@ mod tests {
                 well_ids: vec![w.clone()],
                 x: src_core("CPOR"),
                 y: src_aux("PORE_D50"),
-                depth_tol: DEFAULT_DEPTH_TOL,
+                depth_tol: DEFAULT_DEPTH_TOL_METRES,
             },
         )
         .unwrap();
@@ -860,7 +933,7 @@ mod tests {
                     saturation: DEFAULT_HG_SATURATION,
                     ..Default::default()
                 },
-                depth_tol: DEFAULT_DEPTH_TOL,
+                depth_tol: DEFAULT_DEPTH_TOL_METRES,
             },
         )
         .unwrap();
@@ -901,7 +974,7 @@ mod tests {
                 well_ids: vec![w.clone()],
                 x: src_aux("VPORE_TS"),
                 y: src_core("CPOR"),
-                depth_tol: DEFAULT_DEPTH_TOL,
+                depth_tol: DEFAULT_DEPTH_TOL_METRES,
             },
         )
         .unwrap();
@@ -911,7 +984,7 @@ mod tests {
             .zip(&plate_values)
             .map(|(d, v)| MeasuredSample { depth: *d, value: *v })
             .collect();
-        let live = score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL)
+        let live = score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL_METRES)
             .unwrap();
 
         assert_eq!(live.n_pairs, saved.n_pairs, "same pairing");
@@ -935,7 +1008,7 @@ mod tests {
             MeasuredSample { depth: 2400.0, value: 0.31 },
         ];
         let res =
-            score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL).unwrap();
+            score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL_METRES).unwrap();
         assert_eq!(res.n_pairs, 1);
         assert_eq!(res.n_unpaired, 2, "the stranded plate and the plug it left behind");
         // Four pairs are the floor both correlations inherit, and a blank with no reason reads as
@@ -968,9 +1041,9 @@ mod tests {
                 .map(|(d, v)| MeasuredSample { depth: *d, value: v.powf(1.4) * scale })
                 .collect()
         };
-        let a = score_against_plugs(&conn, &w, &mk(1.0), &src_core("CPOR"), DEFAULT_DEPTH_TOL)
+        let a = score_against_plugs(&conn, &w, &mk(1.0), &src_core("CPOR"), DEFAULT_DEPTH_TOL_METRES)
             .unwrap();
-        let b = score_against_plugs(&conn, &w, &mk(100.0), &src_core("CPOR"), DEFAULT_DEPTH_TOL)
+        let b = score_against_plugs(&conn, &w, &mk(100.0), &src_core("CPOR"), DEFAULT_DEPTH_TOL_METRES)
             .unwrap();
 
         assert!((a.spearman - 1.0).abs() < 1e-4, "the ordering is perfect: {}", a.spearman);
@@ -988,7 +1061,7 @@ mod tests {
         let (conn, w) = mem();
         let in_hand = [MeasuredSample { depth: 2000.0, value: 0.2 }];
         let res =
-            score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL).unwrap();
+            score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL_METRES).unwrap();
         assert_eq!(res.n_pairs, 0);
         assert!(res.notes.iter().any(|n| n.contains("nothing to check")), "{:?}", res.notes);
     }

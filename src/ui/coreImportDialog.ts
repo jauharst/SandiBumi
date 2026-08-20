@@ -8,7 +8,7 @@ import {
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
-import { buildDatumSelect } from "./followCore";
+import { buildDatumSelect, buildDepthUnitSelect } from "./followCore";
 import { suggestSetName } from "./importSetDialog";
 
 /** Core import v2 wizard (T-IMP-07): probe → CONFIRM → commit.
@@ -271,15 +271,7 @@ export async function openCoreImportWizard(
   wrap.appendChild(setHint);
 
   // --- Depth unit (the silent-3.28× guard). ---
-  const unitSel = document.createElement("select");
-  unitSel.className = "form-control";
-  for (const [v, label] of [["", "Same as project"], ["m", "Metres (m)"], ["ft", "Feet (ft)"]] as const) {
-    const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = label;
-    unitSel.appendChild(opt);
-  }
-  unitSel.value = lead.depth_unit_guess ?? "";
+  const unitSel = buildDepthUnitSelect(lead.depth_unit_guess);
   wrap.appendChild(
     formRow(
       "Depth unit in file",
