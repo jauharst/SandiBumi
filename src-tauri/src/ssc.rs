@@ -17,9 +17,13 @@
 //! - `RANNORMAL(SWIRR_MIN*PHIT, 0.005)` becomes deterministic `SWIRR_MIN*PHIT`.
 //! - NPHIMA is limited to [0,1] (the Loglan's 0.5–5 limit is a copy-paste of the
 //!   RHOMA limit and would clamp every neutron matrix value up to 0.5).
-//! - Gas/HC conditioning uses the RMS midpoint from sspw.lls's gas branch (the SSC
-//!   Loglan declares PHID/PHIDI but carries no correction code); an earlier 1.6
-//!   weight overshot the midpoint and was fixed 2026-07-29.
+//! - Gas/HC conditioning is a DECLARED PARAMETER, `GAS_C`, not a constant (DEC-086).
+//!   The two source files disagree — the 2022 spec-only `porosity_sspw.lls` writes
+//!   c = 1.6, the 2025 exec body `sspw.lls` writes the even split c = 1 — and the
+//!   disagreement is real petrophysics rather than a transcription error to
+//!   adjudicate, so it ships as the user's dial with each module defaulting to what
+//!   it already ran: SSC 1 (since 2026-07-29), SSPW 1.6. Jauhar's ruling, on the
+//!   field observation that the even split still reads optimistic in his rock.
 //!
 //! Reference-inherited quirks (line-verified against the .lls, 2026-07-29) — kept
 //! for parity, do NOT "fix" without changing the Loglan too:
@@ -39,6 +43,8 @@
 //! next to the spec-only `porosity_sspw.lls` (2022) this port was reconstructed
 //! from. Re-porting sspw() against it is pending Jauhar's sign-off; until then the
 //! declared NPHI_* parameters here are read by the UI but unused by the math.
+//! The GAS COEFFICIENT half of that divergence is SETTLED under DEC-086 and is not
+//! part of the pending re-port: whichever PHIT solve wins, `GAS_C` stays the dial.
 
 use crate::modules::{
     log_in, log_out, opt, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
@@ -116,6 +122,11 @@ pub fn ssc_spec() -> ModuleSpec {
             param_open("DCLF_SI", "Dry clay fraction at dry silt", "v/v", 0.0, 1.0, true),
             param_open("PHIT_CL", "Total porosity of clay", "v/v", 0.0, 0.8, true),
             param_open("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 1.0, true),
+            param(
+                "GAS_C", "Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)",
+                "", 1.0, 0.0, 2.0,
+                "sspw.lls (2025-02-28) gas branch, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1; DEC-086",
+            ),
             log_in("GR", "Gamma ray (normalized)", "gapi", "GRN", true),
             log_in("RHOB", "Bulk density (corrected)", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity (sandstone units)", "v/v", "NPHI", true),
@@ -175,18 +186,29 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         let dclf_si = ctx.p("DCLF_SI", i);
         let phit_cl = ctx.p("PHIT_CL", i);
         let swirr_min = ctx.p("SWIRR_MIN", i);
-        if r.is_nan() || np.is_nan() || rhob_ma.is_nan() || rhob_fl.is_nan() {
+        let gas_c = ctx.p("GAS_C", i);
+        // GAS_C joins the guard rather than being allowed to propagate: `f64::NAN.max(0.0)`
+        // returns 0.0, so a NaN weight would silently make the corrected porosity ZERO on
+        // every gas sample instead of failing visibly.
+        if r.is_nan() || np.is_nan() || rhob_ma.is_nan() || rhob_fl.is_nan() || gas_c.is_nan() {
             continue;
         }
 
-        // Gas/HC conditioning: pull points above the sand base line back onto it at the
-        // RMS midpoint, matching the reference gas branch in sspw.lls
-        // (`PHIT = (((dphi_volan)**2+(NPHI)**2)/2)**(0.5)`). The previous form weighted
-        // the pull by 1.6/2 = 0.8 per side, which overshoots the midpoint and *inverts*
-        // the D-N crossover (phid² became 0.2·φD²+0.8·φN², nphi_cor² its mirror); only
-        // equal halves land both corrected values on sqrt((φD²+φN²)/2), i.e. on the
-        // base line as the comment always claimed. NPHI enters squared, so a negative
-        // neutron loses its sign here — the Loglan squares it identically.
+        // Gas/HC conditioning: pull a point above the sand base line back onto it.
+        //
+        // ONE equation with a dial (DEC-086). Writing Δ = |φDI² − φN²|, the corrected pair is
+        // φD² = φDI² − c·Δ/2 and φN² = φN² + c·Δ/2, so c weights where the answer lands:
+        // c = 0 keeps the density untouched, c = 1 is the even split — the RMS midpoint
+        // sqrt((φDI²+φN²)/2) that both legs share, matching sspw.lls's gas branch
+        // (`PHIT = (((dphi_volan)**2+(NPHI)**2)/2)**(0.5)`) — and c = 2 hands the answer to
+        // the neutron outright. Above c = 1 the two corrected legs CROSS: at 1.6 the corrected
+        // density is 0.2·φD²+0.8·φN² and the corrected neutron its mirror, so the D-N crossover
+        // is not closed but reversed. SSC therefore defaults to 1, which is what it has run
+        // since 2026-07-29; SSPW defaults to 1.6 on Jauhar's own field observation. Neither is
+        // hard-coded any more — the rock decides, per well and per zone.
+        //
+        // NPHI enters squared, so a negative neutron loses its sign here — the Loglan squares
+        // it identically.
         let phidi = (rhob_ma - r) / (rhob_ma - rhob_fl);
         let gas_pull = np <= 1.05 * phidi;
         // SB-POR-003: the gas branch is a per-sample identity for the run's custody comment.
@@ -196,8 +218,11 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
             "no gas conditioning"
         });
         let (rhob_cor, nphi_cor) = if gas_pull {
-            let mid = ((phidi * phidi + np * np) / 2.0).max(0.0).sqrt();
-            (rhob_ma - (rhob_ma - rhob_fl) * mid, mid)
+            let (d2, n2) = (phidi * phidi, np * np);
+            let pull = gas_c * (d2 - n2).abs() / 2.0;
+            let phid = (d2 - pull).max(0.0).sqrt();
+            let nphi_c = (n2 + pull).max(0.0).sqrt();
+            (rhob_ma - (rhob_ma - rhob_fl) * phid, nphi_c)
         } else {
             (r, np)
         };
@@ -414,6 +439,11 @@ pub fn sspw_spec() -> ModuleSpec {
             param_open("RHOB_DSH", "Dry shale grain density (0 p.u. shale)", "g/cc", 2.0, 3.0, true),
             param_open("VOL_CBW_SH", "Clay-bound water volume in wet shale", "v/v", 0.0, 1.0, true),
             param_open("SWIRR_MIN", "Minimum irreducible water saturation", "v/v", 0.0, 1.0, true),
+            param(
+                "GAS_C", "Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)",
+                "", 1.6, 0.0, 2.0,
+                "porosity_sspw.lls (2022) gas branch c = 1.6; RULED by Jauhar DEC-086 on field observation that the even split still reads optimistic",
+            ),
             // SB-POR-008: the water filling shale porosity is FORMATION water, so PHIT_SH is
             // anchored on RHO_W and not on the invaded-zone RHOB_FL below. Both ship at 1.00, so
             // this separates only once salt water is selected.
@@ -468,6 +498,7 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
         let swirr_min = ctx.p("SWIRR_MIN", i);
         let rhob_fl = ctx.p("RHOB_FL", i);
         let rho_w = ctx.p("RHO_W", i);
+        let gas_c = ctx.p("GAS_C", i);
         // Shale/CBW params joined the guard: with any of them NaN, `(phit_sh -
         // vol_cbw_sh).max(0.0)` silently swallowed the NaN into 0.0 and a NaN `cbw`
         // then reached `limit` as a NaN clamp bound. Outputs are NaN-initialised, so
@@ -480,12 +511,19 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
             || rhob_sh.is_nan()
             || rhob_dsh.is_nan()
             || vol_cbw_sh.is_nan()
+            // Same reason as SSC's: `f64::NAN.max(0.0)` is 0.0, so a NaN weight would put
+            // PHIT at zero on every gas sample rather than failing where it can be seen.
+            || gas_c.is_nan()
         {
             continue;
         }
         let vsh = limit(vsh, 0.0, 1.0);
 
-        // Same gas conditioning as SSC when a neutron log is available.
+        // Same gas conditioning as SSC (DEC-086), and the same dial — only the DEFAULT differs
+        // (1.6 here, 1 there). SSPW corrects the density leg only, because its PHIT is a
+        // density porosity against the VSH-mixed dry matrix; there is no corrected neutron to
+        // carry, so the leg-crossing that c > 1 produces in SSC has no visible counterpart here
+        // — the symptom is a PHIT biased low, which is exactly the conservatism Jauhar ruled for.
         let phidi = (rhob_mat - r) / (rhob_mat - rhob_fl);
         let gas_pull = !np.is_nan() && np <= 1.05 * phidi;
         // SB-POR-003: same custody identity as SSC's gas branch.
@@ -495,7 +533,8 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
             "no gas conditioning"
         });
         let rhob_cor = if gas_pull {
-            let phid = (phidi * phidi - 1.6 * (phidi * phidi - np * np).abs() / 2.0).max(0.0).sqrt();
+            let (d2, n2) = (phidi * phidi, np * np);
+            let phid = (d2 - gas_c * (d2 - n2).abs() / 2.0).max(0.0).sqrt();
             rhob_mat - (rhob_mat - rhob_fl) * phid
         } else {
             r
@@ -580,6 +619,9 @@ mod tests {
             ("ssc", "DCLF_SI") => 0.1,
             ("ssc", "PHIT_CL") => 0.24,
             ("ssc", "SWIRR_MIN") => 0.0,
+            // DEC-086: each module's shipped default, stated here so every existing fixture
+            // keeps the numbers it was written against.
+            ("ssc", "GAS_C") => 1.0,
             ("sspw", "RHOB_MAT") => 2.65,
             ("sspw", "NPHI_MAT") => 0.0,
             ("sspw", "RHOB_SH") => 2.4,
@@ -587,6 +629,7 @@ mod tests {
             ("sspw", "RHOB_DSH") => 2.71,
             ("sspw", "VOL_CBW_SH") => 0.1,
             ("sspw", "SWIRR_MIN") => 0.0,
+            ("sspw", "GAS_C") => 1.6,
             ("sspw", "RHOB_FL") | ("sspw", "NPHI_FL") => 1.0,
             // SB-POR-008: fresh formation water, equal to this fixture's fluid density on purpose.
             // Holding them equal is what makes these existing assertions a control proving the
@@ -771,6 +814,109 @@ mod tests {
         assert!((out["PHIT_SSPW"][0] - out["PHIFF_SSPW"][0]).abs() < 1e-6);
         // Pure density porosity: (2.65-2.40)/(2.65-1.0) = 0.1515
         assert!((out["PHIT_SSPW"][0] - 0.1515).abs() < 0.002);
+    }
+
+    /// DEC-086. The gas-conditioning weight is the user's dial, and the two modules ship
+    /// DIFFERENT defaults on purpose — SSC the even split, SSPW 1.6 on Jauhar's field
+    /// observation that the even split still reads optimistic.
+    ///
+    /// That asymmetry looks exactly like an inconsistency somebody would tidy up, which is why
+    /// it is pinned from both sides. It is also why the dial itself is pinned: harmonising the
+    /// two defaults and harmonising the two ARITHMETICS are different mistakes, and only
+    /// checking the defaults would let the second one through.
+    #[test]
+    fn the_gas_conditioning_weight_is_the_users_dial_and_the_two_modules_ship_different_defaults() {
+        // One gas sand, read by both modules. Clean (VSH 0.10 is the existing SSPW fixture's
+        // shale) so the density-porosity arithmetic is visible in PHIT with little dilution.
+        // RHOB 2.20 against a 2.65 matrix and 1.00 fluid gives phiDI = 0.272727; NPHI 0.10 is
+        // well under 1.05*phiDI, so both modules take the gas branch.
+        let d2: f64 = ((2.65 - 2.20) / (2.65 - 1.0f64)).powi(2);
+        let n2: f64 = 0.10f64 * 0.10;
+        let phi_at = |c: f64| (d2 - c * (d2 - n2).abs() / 2.0).max(0.0).sqrt();
+
+        // The algebra this test is written against, stated independently of the module code:
+        // c = 1 is the RMS midpoint, c = 0 leaves the density alone, c = 2 hands it to NPHI.
+        assert!((phi_at(1.0) - ((d2 + n2) / 2.0).sqrt()).abs() < 1e-12, "c = 1 is the even split");
+        assert!((phi_at(0.0) - d2.sqrt()).abs() < 1e-12, "c = 0 is no correction at all");
+        assert!((phi_at(2.0) - n2.sqrt()).abs() < 1e-12, "c = 2 is the neutron outright");
+
+        // The SHIPPED defaults, read off the manifests. Asserted separately from the runs below
+        // because `ctx_with` fills every parameter from the fixture table rather than from the
+        // spec — so a run alone would pin the fixture and let a changed manifest default through,
+        // which is exactly what the first draft of this test did.
+        let declared = |spec: &ModuleSpec| -> f64 {
+            spec.args
+                .iter()
+                .find(|a| a.name == "GAS_C")
+                .unwrap_or_else(|| panic!("{} must declare GAS_C", spec.name))
+                .default
+                .parse::<f64>()
+                .expect("GAS_C default must be numeric")
+        };
+        assert!((declared(&ssc_spec()) - 1.0).abs() < 1e-12, "SSC ships the even split");
+        assert!(
+            (declared(&sspw_spec()) - 1.6).abs() < 1e-12,
+            "SSPW ships 1.6 (DEC-086) — deliberately NOT the same as SSC's"
+        );
+
+        let run_sspw = |gas_c: Option<f64>| -> f64 {
+            let spec = sspw_spec();
+            let mut ctx = ctx_with(
+                vec![("RHOB", vec![2.20]), ("NPHI", vec![0.10]), ("VSH", vec![0.0])],
+                &spec,
+                1,
+            );
+            if let Some(c) = gas_c {
+                ctx.params.insert("GAS_C".into(), vec![c]);
+            }
+            let out = sspw(&ctx);
+            out["PHIT_SSPW"][0] as f64
+        };
+        let run_ssc = |gas_c: Option<f64>| -> f64 {
+            let spec = ssc_spec();
+            let mut ctx = ctx_with(
+                vec![("GR", vec![10.0]), ("RHOB", vec![2.20]), ("NPHI", vec![0.10])],
+                &spec,
+                1,
+            );
+            if let Some(c) = gas_c {
+                ctx.params.insert("GAS_C".into(), vec![c]);
+            }
+            let out = ssc(&ctx);
+            out["PHIT_SSC"][0] as f64
+        };
+
+        // VSH 0 in SSPW makes the dry matrix pure quartz, so PHIT IS the corrected density
+        // porosity and the coefficient's effect is readable directly.
+        let sspw_default = run_sspw(None);
+        assert!(
+            (sspw_default - phi_at(1.6)).abs() < 1e-5,
+            "SSPW defaults to 1.6 (DEC-086): expected {}, got {sspw_default}",
+            phi_at(1.6)
+        );
+        assert!(
+            (run_sspw(Some(1.0)) - phi_at(1.0)).abs() < 1e-5,
+            "and the dial reaches the even split when the user asks for it"
+        );
+        // The two defaults must not be the same number, and 1.6 must be the CONSERVATIVE one —
+        // that is the whole content of the ruling, not an incidental difference.
+        assert!(
+            sspw_default < phi_at(1.0) - 1e-4,
+            "1.6 must read lower than the even split, got {sspw_default} vs {}",
+            phi_at(1.0)
+        );
+
+        // SSC keeps the even split it has run since 2026-07-29, and answers the dial too.
+        let ssc_default = run_ssc(None);
+        assert!(
+            (ssc_default - phi_at(1.0)).abs() < 2e-3,
+            "SSC defaults to the even split: expected about {}, got {ssc_default}",
+            phi_at(1.0)
+        );
+        assert!(
+            run_ssc(Some(1.6)) < ssc_default - 1e-4,
+            "and SSC's dial moves the same way SSPW's does"
+        );
     }
 
     /// SB-POR-003's SSC/SSPW half (DEC-039 form): the two flagship porosity methods record

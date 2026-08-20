@@ -15486,3 +15486,41 @@ every existing project's pairing for a millimetre of nothing.
       use the plugs it was dropping.
 - [ ] **On a metre project** — 0.15, and identical results to before. This is worth one check on a
       well you have already run.
+
+## The gas-conditioning coefficient is yours to set now (DEC-086)
+
+You ruled 1.6 for SSPW, and then that `c` should be a user input. Both are in.
+
+The gas correction is one equation with a dial. Writing Δ = |PHID² − NPHI²|, the corrected
+pair is PHID² − c·Δ/2 and NPHI² + c·Δ/2, so **c** decides where between the two logs the answer
+lands:
+
+| c | Where it lands |
+|---|---|
+| 0 | density untouched — no correction |
+| 1 | the even split, the RMS midpoint |
+| **1.6** | **80% of the way to the neutron — your SSPW default** |
+| 2 | the neutron outright |
+
+**Nothing you have run changes.** Each module now declares `GAS_C` with a default equal to
+exactly what it already did: SSPW 1.6, SSC 1.0. The parameter appears in both dialogs like any
+other endpoint, so you can set it per well, and per zone through the zone-parameter table.
+
+What it is worth: on a gas sand at RHOB 2.20 / NPHI 0.10 against a 2.65 matrix, PHIT is **0.151
+at c = 1.6 and 0.205 at c = 1** — 5.4 porosity units. The gap grows with the size of the
+crossover, so it is largest in the best gas sands.
+
+One thing the record had wrong, now fixed: `docs/method_ssc_sspw.md` still printed 1.6 for the
+**SSC** gas step, which stopped being true on 2026-07-29 when SSC moved to the even split. The
+note now states both defaults and where they come from.
+
+- [ ] **Open SSC and SSPW parameter dialogs** — there should be a *Gas-conditioning weight* field,
+      showing 1.0 in SSC and 1.6 in SSPW.
+- [ ] **Re-run a gas well you know** with the box untouched — the answer must be identical to
+      before, in both modules.
+- [ ] **Then push SSPW's c to 1.0 on the same well** and look at PHIT over the gas sand. That
+      difference is the thing you were describing as over-optimistic; worth confirming the sign
+      and size against your own core or test data.
+- [ ] **Set it per zone** in the zone-parameter table on a well with both a gas sand and a wet
+      sand — the wet zone should be unaffected whatever you choose, because with no crossover
+      the correction does nothing at any c.
