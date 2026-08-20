@@ -15314,3 +15314,36 @@ could tell.
 Housekeeping in the same change: the metres/feet picker is now one shared control
 (`buildDepthUnitSelect`) used by the core wizard, Import Deviation and Import SCAL, instead of
 three copies of the same three options.
+
+## Point data now says what unit its depths are in (audit finding 8, fourth and last site)
+
+This closes the family. The point-data importer — XRD, CEC, oil show, petrography counts,
+perforations — read its depths raw, so a delivery in feet filed every sample 3.28 times too
+deep: a mineral count against the wrong sand, a perforation against the wrong interval.
+
+Two things it now gets right that are easy to get wrong:
+
+- **An interval converts at both ends.** A top scaled without its base is not a shallower
+  sample, it is a sample of a different thickness — a 20 ft perforation would have come out
+  4608 m long.
+- **The conversion happens before the core depth record**, for the same reason as SCAL: your
+  core corrections are already in the project's unit.
+
+It reads the unit the same way tops does — a units row under the header, or a unit in the
+depth column's own header — and falls back to your project's unit when the file says nothing,
+which is what it always did.
+
+**Note on where this shows up.** There is currently no ribbon button for a standalone point-data
+import; the path most deliveries take is the core wizard's extra columns, which ride the plugs'
+already-converted depths. So this is a backend command with no button today. It is still a
+registered command, and a 3.28× error sitting in one of those is not something to leave because
+nothing clicks it yet.
+
+- [ ] **If a point-data import button reappears**, check a feet delivery lands at 0.3048 × the
+      file numbers, top and base both.
+- [ ] **Re-import an XRD or perforation file you already have** — no unit anywhere in the file
+      means nothing changes.
+
+With this the whole import family is closed: LAS/DLIS read the index unit, core is declared with
+a probe guess, intake is declared, deviation and SCAL are asked in their dialogs, tops and point
+data read the file's own declaration.

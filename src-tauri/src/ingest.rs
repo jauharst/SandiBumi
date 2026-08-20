@@ -2748,6 +2748,7 @@ pub fn import_aux_file(
     set_name: Option<&str>,
     follow_core: bool,
     depth_datum: &str,
+    depth_unit: Option<&str>,
 ) -> AuxImportResult {
     let fail = |e: String| AuxImportResult {
         path: path.to_string(),
@@ -2772,10 +2773,37 @@ pub fn import_aux_file(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "RAW".to_string());
 
-    let data = match parsers::parse_interval_file(path) {
+    let mut data = match parsers::parse_interval_file(path) {
         Ok(d) => d,
         Err(e) => return fail(e.to_string()),
     };
+
+    // Audit finding 8, fourth and last site. A point dataset — XRD, CEC, oil show, petrography,
+    // perforations — delivered in feet and read into a metre project filed every sample 3.28084x
+    // too deep, so a mineral count sat against the wrong sand and a perforation against the wrong
+    // interval. Precedence and order both follow the earlier sites: an explicit argument, else
+    // what the FILE declares on its own TOP column, else the project's unit; and the conversion
+    // lands HERE, before the core depth record is applied below, because `core_depth_pairs` are
+    // already on the project's scale.
+    //
+    // An interval converts at BOTH ends and stays an interval: a thickness scaled at one end only
+    // is not a shallower sample, it is a sample of a different thickness.
+    let project_unit = match crate::units::require_project_depth_unit(conn, "point-data import") {
+        Ok(unit) => unit,
+        Err(error) => return fail(error),
+    };
+    let file_unit = depth_unit
+        .and_then(crate::units::DepthUnit::parse)
+        .or_else(|| data.depth_unit.and_then(crate::units::DepthUnit::parse))
+        .unwrap_or(project_unit);
+    if file_unit != project_unit {
+        let to_project = |d: f32| crate::units::convert_depth(d as f64, file_unit, project_unit) as f32;
+        for (top, base, _) in &mut data.rows {
+            *top = to_project(*top);
+            *base = base.map(to_project);
+        }
+    }
+    let data = data;
 
     // One AuxRow batch per routing target. `None` key = the selected-well fallback
     // (only used when the file has no well column).
@@ -5179,6 +5207,7 @@ GR.API :
         let wb = Uuid::new_v4();
         db::insert_well(&conn, wa, "W-A", None, None, None).unwrap();
         db::insert_well(&conn, wb, "W-B", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         // Two records sharing a name → ambiguous, must never be guessed at.
         db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
         db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
@@ -5544,6 +5573,7 @@ GR.API :
         let wb = Uuid::new_v4();
         db::insert_well(&conn, wa, "W-A", None, None, None).unwrap();
         db::insert_well(&conn, wb, "W-B", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
 
         let csv = "WELL,TOP,BASE,LITHOLOGY,QUARTZ\n\
                    W-A,1000.0,1002.0,Sandstone,72.1\n\
@@ -5553,7 +5583,7 @@ GR.API :
         let path = std::env::temp_dir().join("sandibumi_aux_v2_test.csv");
         std::fs::write(&path, csv).unwrap();
 
-        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None, false, "MD");
+        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None, false, "MD", None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B routed by the WELL column");
         let notes = res.notes.as_deref().unwrap_or("");
@@ -6205,11 +6235,12 @@ GR.API :
         db::create_schema(&conn).unwrap();
         let w = Uuid::new_v4();
         db::insert_well(&conn, w, "AUX-1", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let ids = w.to_string();
 
         let xrd = std::env::temp_dir().join("arshilla_aux_xrd.csv");
         std::fs::write(&xrd, "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n").unwrap();
-        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None, false, "MD");
+        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None, false, "MD", None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.dataset, "XRD", "dataset name normalized upper");
         assert_eq!(res.rows, 5, "empty cell is skipped, text cell kept");
@@ -6226,7 +6257,7 @@ GR.API :
         // Perforation intervals in a second dataset; both coexist.
         let perf = std::env::temp_dir().join("arshilla_aux_perf.csv");
         std::fs::write(&perf, "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n").unwrap();
-        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None, false, "MD");
+        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None, false, "MD", None);
         assert!(res2.error.is_none());
         assert_eq!(res2.rows, 2);
         let perfs = db::list_aux_data(&conn, &ids, Some("PERFORATION")).unwrap();
@@ -6238,7 +6269,7 @@ GR.API :
         // A SECOND XRD delivery: kept beside the first (never overwritten), live, and
         // counted alone — the whole point of the set model applied to point data.
         std::fs::write(&xrd, "Depth,Quartz\n2000.0,50.0\n").unwrap();
-        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None, false, "MD");
+        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None, false, "MD", None);
         assert!(res3.error.is_none());
         assert_eq!(res3.sets, vec!["RAW_1".to_string()], "auto-suffixed, not overwritten");
         let counts = db::list_aux_datasets(&conn, &ids).unwrap();
@@ -6266,7 +6297,7 @@ GR.API :
         std::fs::remove_file(&perf).ok();
 
         // Unknown well errors cleanly.
-        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false, "MD");
+        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false, "MD", None);
         assert!(bad.error.is_some());
     }
 
@@ -6533,6 +6564,7 @@ GR.API :
         db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-LATE", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let w = wid.to_string();
 
         // Plugs 2000–2019 as delivered, then registered: upper half +1, lower half +3.
@@ -6559,7 +6591,7 @@ GR.API :
         let path = xrd.to_str().unwrap();
 
         // Off: the samples land where the file says, which is now the wrong rock.
-        let plain = import_aux_file(&conn, &w, "XRD", path, Some("ASWRITTEN"), false, "MD");
+        let plain = import_aux_file(&conn, &w, "XRD", path, Some("ASWRITTEN"), false, "MD", None);
         assert!(plain.error.is_none(), "{:?}", plain.error);
         let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
         assert!(
@@ -6568,7 +6600,7 @@ GR.API :
         );
 
         // On: each sample follows the barrel it was cut from.
-        let followed = import_aux_file(&conn, &w, "XRD", path, Some("FOLLOWED"), true, "MD");
+        let followed = import_aux_file(&conn, &w, "XRD", path, Some("FOLLOWED"), true, "MD", None);
         assert!(followed.error.is_none(), "{:?}", followed.error);
         let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
         let depths: Vec<f32> = {
@@ -6598,13 +6630,89 @@ GR.API :
         // A well with no core says so rather than pretending it mapped anything.
         let w2 = uuid::Uuid::new_v4();
         db::insert_well(&conn, w2, "SANDI-NOCORE", None, None, None).unwrap();
-        let none = import_aux_file(&conn, &w2.to_string(), "XRD", path, None, true, "MD");
+        let none = import_aux_file(&conn, &w2.to_string(), "XRD", path, None, true, "MD", None);
         assert!(none.error.is_none(), "{:?}", none.error);
         assert!(
             none.notes.unwrap_or_default().contains("no core to follow"),
             "asking to follow a core that is not there must be said out loud"
         );
         std::fs::remove_file(&xrd).ok();
+    }
+
+    /// Audit finding 8, fourth and last site. A point delivery — XRD, CEC, oil show, petrography,
+    /// perforations — read in feet into a metre project filed every sample 3.28084x too deep, so
+    /// a mineral count sat against the wrong sand and a perforation against the wrong interval.
+    ///
+    /// Two halves, pinned separately. An interval converts at BOTH ends: a thickness scaled at one
+    /// end only is not a shallower sample, it is a sample of a different thickness, and a
+    /// perforation that grew by 4 m is a completion record nobody can use. And the conversion runs
+    /// BEFORE the core depth record, whose corrections are already on the project's scale.
+    #[test]
+    fn a_point_dataset_in_feet_converts_at_both_ends_before_it_follows_the_core() {
+        // 6600 ft = 2011.68 m and 6620 ft = 2017.776 m, both exact (foot = 0.3048 m).
+        let run = |body: &str, unit: Option<&str>, follow: bool| -> Vec<(f32, Option<f32>)> {
+            let mut conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+            let wid = uuid::Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-AUX-UNIT", None, None, None).unwrap();
+            let w = wid.to_string();
+
+            // A cored interval on the PROJECT's scale, registered 2 m deeper against the log.
+            let d: Vec<f32> = (0..30).map(|i| 2000.0 + i as f32).collect();
+            let v = vec![0.2f32; 30];
+            let nan = vec![f32::NAN; 30];
+            db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+            db::apply_core_run_shifts(
+                &mut conn,
+                &w,
+                &[db::RunShift { top: 2000.0, base: 2029.0, delta: 2.0, ..Default::default() }],
+                &db::ShiftTargets::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+            let path = std::env::temp_dir().join(format!("sandibumi_auxunit_{w}.csv"));
+            std::fs::write(&path, body).unwrap();
+            let res = import_aux_file(&conn, &w, "XRD", path.to_str().unwrap(), Some("DELIVERY"), follow, "MD", unit);
+            std::fs::remove_file(&path).ok();
+            assert!(res.error.is_none(), "{:?}", res.error);
+            let mut out: Vec<(f32, Option<f32>)> = db::list_aux_data(&conn, &w, Some("XRD"))
+                .unwrap()
+                .iter()
+                .map(|r| (r.depth_top, r.depth_base))
+                .collect();
+            out.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-3);
+            out
+        };
+        // The units row is one cell per column, and the unit is read off the TOP column's own
+        // cell — a FEET under some other column says nothing about this one.
+        let feet = "TOP,BASE,KAOLINITE\nFEET,FEET,\n6600,6620,0.10\n";
+
+        // Declared by the file, core record not consulted.
+        let rows = run(feet, None, false);
+        assert_eq!(rows.len(), 1, "the units row is not counted as a sample: {rows:?}");
+        assert!((rows[0].0 - 2011.68).abs() < 1e-2, "6600 ft is 2011.68 m, got {:?}", rows[0]);
+        assert!(
+            rows[0].1.is_some_and(|b| (b - 2017.776).abs() < 1e-2),
+            "6620 ft is 2017.776 m — a converted top over an unconverted base would make this \
+             sample 4608 m thick, got {:?}",
+            rows[0]
+        );
+
+        // Following the core: converted FIRST, then the barrel's 2 m, and the base takes the
+        // SAME offset so the sample keeps the 6.096 m of rock it measured.
+        let rows = run(feet, None, true);
+        assert!((rows[0].0 - 2013.68).abs() < 1e-2, "2011.68 + the core's 2 m, got {:?}", rows[0]);
+        assert!(
+            rows[0].1.is_some_and(|b| (b - 2019.776).abs() < 1e-2),
+            "the base takes the top's offset, got {:?}",
+            rows[0]
+        );
+
+        // Says nothing: unchanged from every point-data import before this one.
+        let rows = run("TOP,BASE,KAOLINITE\n6600,6620,0.10\n", None, false);
+        assert!((rows[0].0 - 6600.0).abs() < 1e-2, "no declaration means the project's own unit, got {:?}", rows[0]);
     }
 
     /// SB-DIO-062 / SB-DIO-T95. The required encodings and reported choice are specified

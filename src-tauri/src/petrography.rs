@@ -4282,7 +4282,7 @@ mod field_tests {
         // meant to check.
         let mut counted = 0usize;
         for path in &counts {
-            let r = crate::ingest::import_aux_file(&conn, &w, "POINTCOUNT", path, Some("LAB"), false, "MD");
+            let r = crate::ingest::import_aux_file(&conn, &w, "POINTCOUNT", path, Some("LAB"), false, "MD", None);
             assert!(r.error.is_none(), "point-count import failed: {:?}", r.error);
             counted += r.rows;
         }

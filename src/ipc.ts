@@ -3724,8 +3724,21 @@ export function importAuxData(
   followCore = false,
   /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
   depthDatum = "MD",
+  /** Audit finding 8: the UNIT the delivery's depths are quoted in ("m"/"ft"). Overrides what the
+   *  file declares on its own TOP column; null means believe the file, and where it says nothing,
+   *  the project's own unit — what every import before this one assumed. An interval converts at
+   *  both ends, so a sample keeps its thickness. */
+  depthUnit: string | null = null,
 ): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore, depthDatum });
+  return invoke<AuxImportResult>("import_aux_data", {
+    wellId,
+    dataset,
+    path,
+    setName,
+    followCore,
+    depthDatum,
+    depthUnit,
+  });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {

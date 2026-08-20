@@ -3548,6 +3548,12 @@ pub struct IntervalData {
     /// non-blank (T-IMP-11 — multi-well aux files route rows by name, like tops).
     pub wells: Vec<Option<String>>,
     pub has_well_column: bool,
+    /// `"m"` / `"ft"` when the file STATES a unit on the TOP column it was read from — a units
+    /// row under the header, else a unit token in that column's own header. Read off the resolved
+    /// depth column rather than sniffed from the file at large, exactly as `parse_tops_file` does:
+    /// a unit taken from a different column converts with confidence and is worse than none.
+    /// `None` means the file says nothing, which the importer treats as the project's own unit.
+    pub depth_unit: Option<&'static str>,
 }
 
 // Source: aux point-data interval labels (T-IMP-10/-11 import path). The depth-bearing
@@ -3581,11 +3587,23 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
         return Err(ParseError::Las("file has no value columns besides depth".into()));
     }
 
+    // The unit this file declares on the TOP column, read before the rows so a units row is
+    // consumed here rather than silently dropped below as an unparsable depth.
+    let mut rows = rows;
+    let header_unit = headers.get(idx_top).and_then(|h| unit_token_guess(h));
+    let depth_unit = if rows.first().is_some_and(|r| is_units_row(r, idx_top)) {
+        let units = rows.remove(0);
+        units.get(idx_top).and_then(|c| unit_token_guess(c)).or(header_unit)
+    } else {
+        header_unit
+    };
+
     let mut out = IntervalData {
         items,
         rows: Vec::new(),
         wells: Vec::new(),
         has_well_column: idx_well.is_some(),
+        depth_unit,
     };
     for row in rows {
         let top = row
