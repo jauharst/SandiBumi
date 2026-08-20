@@ -10,6 +10,7 @@ import {
   type PageSize,
   type WellSummary,
 } from "../ipc";
+import { storedDepthLabel } from "../depthUnitPref";
 import { appState } from "../state";
 import { formRow } from "./modal";
 
@@ -83,7 +84,11 @@ export async function buildCompositeContent(
   content.appendChild(formRow("Layout", layoutSel));
   content.appendChild(formRow("Print scale", scaleSel));
   content.appendChild(formRow("Page size", pageSel));
-  content.appendChild(formRow("Depth top / bottom (m)", rangeWrap, "Blank = full logged interval"));
+  // A print range is matched against the stored depth column, and the named print scale is
+  // itself derived from the stored unit (`units::pxPerUnitAt1to1`), so this is project-native.
+  content.appendChild(
+    formRow(`Depth top / bottom (${storedDepthLabel()})`, rangeWrap, "Blank = full logged interval"),
+  );
 
   const btnRow = document.createElement("div");
   btnRow.className = "pick-row";

@@ -43,6 +43,25 @@ export async function syncDepthUnits(): Promise<void> {
  *  uses to say "this length is in whatever unit the project stores". */
 export const PROJECT_DEPTH_UNIT_TOKEN = "depth";
 
+/** The unit label for a depth a user TYPES — the project's stored unit.
+ *
+ *  Every such field reaches the backend unconverted and is compared against, or added to, the
+ *  stored depth grid: a curve shift, a core shift, a top/bottom interval, a correlation window,
+ *  a print range, a TD or KB. Labelling any of them with the display preference would invite a
+ *  metre number typed against a foot grid, which lands as a plausible wrong answer rather than
+ *  an error. Deliberately the mirror of [`shownDepthLabel`]. */
+export function storedDepthLabel(): string {
+  return unitLabel(appState.projectDepthUnit.get());
+}
+
+/** The unit label for a depth a user READS — the display unit, converted for viewing.
+ *
+ *  For an axis, a heading, a computed thickness, an exported column. Nothing is being entered,
+ *  so following the view preference is free and is what the reader asked for. */
+export function shownDepthLabel(): string {
+  return unitLabel(appState.displayDepthUnit.get());
+}
+
 /** The unit to PRINT beside a module argument.
  *
  *  A project-native length has no fixed unit of its own: the number the user types goes to the
@@ -57,7 +76,7 @@ export const PROJECT_DEPTH_UNIT_TOKEN = "depth";
  *  the module converts itself) and passes through untouched. */
 export function argumentUnitLabel(unit: string | null | undefined): string {
   if (!unit) return "";
-  return unit === PROJECT_DEPTH_UNIT_TOKEN ? unitLabel(appState.projectDepthUnit.get()) : unit;
+  return unit === PROJECT_DEPTH_UNIT_TOKEN ? storedDepthLabel() : unit;
 }
 
 /** Switches the unit depths are DISPLAYED in. Stored data is untouched — this is why the

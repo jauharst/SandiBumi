@@ -34,7 +34,7 @@ import type { ImportResult } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { syncWellGroups } from "./wellGroups";
-import { syncDepthUnits } from "../depthUnitPref";
+import { storedDepthLabel, syncDepthUnits } from "../depthUnitPref";
 import { clearUndoStacks, nextRedoLabel, nextUndoLabel, onUndoChange, pushUndo, redo, redoDepth, undo, undoDepth } from "../undo";
 import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
@@ -1499,7 +1499,12 @@ export class Ribbon {
     input.step = "0.1";
     input.className = "form-control";
     input.placeholder = "e.g. 2.5";
-    content.appendChild(formRow("Shift (m)", input, "+ = plugs move deeper"));
+    // `db::shift_core_depths` does `depth = depth + delta` on the stored plug depths, so the
+    // number typed here is in the project's own unit. Resolved once and reused by every message
+    // below, so the field, the refusal, the status line, the history entry and the undo label
+    // cannot drift apart about what was moved.
+    const du = storedDepthLabel();
+    content.appendChild(formRow(`Shift (${du})`, input, "+ = plugs move deeper"));
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Apply Shift";
@@ -1518,21 +1523,21 @@ export class Ribbon {
       });
       const sign = delta > 0 ? "+" : "";
       setStatus(
-        `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} m`
+        `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} ${du}`
       );
-      recordProcess("Edit", `Core shift ${sign}${delta} m (${n.plugs} plugs, ${n.extras} point samples)`, well.well_name);
+      recordProcess("Edit", `Core shift ${sign}${delta} ${du} (${n.plugs} plugs, ${n.extras} point samples)`, well.well_name);
       this.workspace.notifyDataChanged();
     };
     apply.addEventListener("click", () => {
       const delta = Number(input.value);
       if (!Number.isFinite(delta) || delta === 0) {
-        setStatus("Enter a non-zero shift in metres");
+        setStatus(`Enter a non-zero shift in ${du}`);
         return;
       }
       void doShift(delta)
         .then(() => {
           pushUndo({
-            label: `core shift ${delta} m (${well.well_name})`,
+            label: `core shift ${delta} ${du} (${well.well_name})`,
             undo: () => void doShift(-delta, "undo"),
             redo: () => void doShift(delta),
           });
@@ -2066,7 +2071,10 @@ export class Ribbon {
     datumInput.step = "0.1";
     datumInput.className = "form-control";
     datumInput.placeholder = "e.g. 25 (optional)";
-    content.appendChild(formRow("Datum / KB (m)", datumInput, "TVDSS reference; blank = well KB"));
+    // The datum is subtracted from TVD to make TVDSS, and TVD is stored in the project's unit.
+    content.appendChild(
+      formRow(`Datum / KB (${storedDepthLabel()})`, datumInput, "TVDSS reference; blank = well KB"),
+    );
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Import Survey";
@@ -2231,19 +2239,23 @@ export class Ribbon {
     tdInput.type = "number";
     tdInput.step = "0.1";
     tdInput.className = "form-control";
-    tdInput.placeholder = "total depth (m)";
+    // TD and KB are depths on the project's own grid. Surface X/Y below are deliberately NOT
+    // touched: a UTM easting is metres because the projection is, and it has nothing to do with
+    // which unit this project's depths are logged in.
+    const du = storedDepthLabel();
+    tdInput.placeholder = `total depth (${du})`;
     if (well.td != null) tdInput.value = String(well.td);
-    content.appendChild(formRow("TD (m)", tdInput));
+    content.appendChild(formRow(`TD (${du})`, tdInput));
 
     const kbInput = document.createElement("input");
     kbInput.type = "number";
     kbInput.step = "0.1";
     kbInput.className = "form-control";
-    kbInput.placeholder = "KB elevation (m)";
+    kbInput.placeholder = `KB elevation (${du})`;
     // Show the CURRENT KB — it silently drives TVDSS in deviation import, so editing it blind
     // (the old behaviour: always-empty field) risked poisoning every TVDSS.
     if (well.kb != null) kbInput.value = String(well.kb);
-    content.appendChild(formRow("KB (m)", kbInput, "datum for TVDSS"));
+    content.appendChild(formRow(`KB (${du})`, kbInput, "datum for TVDSS"));
 
     // Surface location for the Field Map — the manual-entry counterpart to the CSV importer.
     const xInput = document.createElement("input");
