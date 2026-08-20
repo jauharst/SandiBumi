@@ -1361,6 +1361,105 @@ fixes (1 already fixed); #135 resolved the 4 held items per Jauhar (below). Comm
 - [~] Histogram full-range re-bin — **declined (left as-is)** by Jauhar (would change bar heights /
       the mode-P50 read). (#135)
 
+## B1c. Whole-code audit backlog (§4c) — 2026-08-20 three-pass adversarial audit
+
+**The authority is `AUDIT-2026-08-20.md` at the repo root** — every item below carries its full
+failure scenario, verification note and (passes 2–3) its proposal there, under the same finding
+number. Three read-only passes over the whole tree at master `460f229b`+`e374251f`: physics &
+contracts (5 adversarial dimension reviews), structure (thermo-nuclear over the Gate-2 diff),
+slop rubric. 85 confirmed findings (1 P0 · 9 P1 · 36 P2 · 39 P3) + 1 plausible; evidence bar was
+green first (gate 190s, 38/38 ignored tests, zero skips). **Restructurings (49–62) are PROPOSALS
+requiring behaviour-preserving proof; parameter conflicts (30, 51's clamp) are Jauhar's rulings,
+never an agent's.**
+
+**Rulings this backlog waits on (fix nothing in these until the word comes):**
+- [ ] **R-1 (findings 6, 7):** what unit domain does `standard_curves` hold — canonical (convert
+      at import, one migration for existing projects) or delivered-native (convert at every read)?
+      One doctrine decision before ANY units fix, or labels get converted onto still-wrong values.
+- [ ] **R-2 (finding 51):** is the [0,1] clamp correct for `SWE_INDO` on both engines? A straight
+      delegation to `sandimin::sw_indonesia` moves SWE_INDO in the Sw>1 region.
+- [ ] **R-3 (finding 30):** the two FTEMP gradient defaults (0.03 °C/m vs 0.026 °F/ft = 0.0474
+      °C/m, both DEC-077-attributed) disagree by 58% — which is the house default, or do both
+      stand with the divergence named?
+
+**P0 — increment 1 (rulings already exist; execution was missing):**
+- [ ] **#1** `modules.rs:4848` — phi_son Wyllie Cp INFLATES porosity for DT_SH<100; DEC-012 says
+      refuse the run. Includes REWRITING `phi_son_wyllie_cp_opt_in_only_scales_wyllie`, which
+      pins the ruled-against behaviour green.
+
+**P1:**
+- [ ] **#2** `modules.rs:4767` — "RHG" label on a non-RHG transform; DEC-017: real RHG or a
+      separately named `FIELD_OBSERVED` method, never a rename-around.
+- [ ] **#3** `montecarlo.rs:1161` — MC bypasses the declared-range guard; a bad SWT_IRR draw or
+      zone param ABORTS the process at `satheight.rs:248`'s clamp.
+- [ ] **#4** `modules.rs:7032` — SWE_SIM "unlimited" twin is solver-capped at 1.0 (cosmetic);
+      sweep arm E is name-only for sw_sim/sw_indo.
+- [ ] **#5** `distribution.rs:323` — bin_by_depth f32 key round-trip fragments printed depth bins
+      >~1024 m; TS twin immune; one f64 cast + a non-exact-bin test.
+- [ ] **#6** `ingest.rs:1009` — standard six stored UNCONVERTED vs converted generic store
+      (viewer/plots/editor/reframe vs modules read different domains). Waits on R-1.
+- [ ] **#7** `export.rs:900` — LAS export labels canonical units over unconverted values. Waits on R-1.
+- [ ] **#8** `ingest.rs:1500` — deviation MD imported with NO depth-unit resolution (only depth
+      importer without one); ft survey into metric project corrupts TVD→FTEMP→Rw→Sw.
+- [ ] **#63** `axisRange.ts:325` — dead `??` fallback disables the PHIE unit-limit row; every
+      porosity axis silently autoscales (registry family is POR, row keyed PHIE).
+- [ ] **#64** `param_sources.rs:937` — three drifted topic tables; SHALE_REDUCTION_CLAMP's sourced
+      default yields NO disclosure; `topics()` test pins the omission — rewrite it.
+
+**P2 (physics/units/limits/agreement — audit findings 9–28):**
+- [ ] **#9** `lrlc.rs:60` — sw_imts Qv volume-fraction form vs spec weight fractions (−24%→−4% φ-dependent bias)
+- [ ] **#10** `montecarlo.rs:776` — MC pay path never floors PHIE (DEC-084 item 5's rule, unapplied in MC)
+- [ ] **#11** `sandimin.rs:493` — sw_cond_root returns SWT=0.0 unflagged at n=1 when no root exists
+- [ ] **#12** `montecarlo.rs:1281` — MC ignores a step's MASK (2026-07-20 #1, alive inside MC, pinned as-is)
+- [ ] **#13** `ssc.rs:312` — two capillary-water rules not in the banked spec; PHIFF=0 on tight clean rock
+- [ ] **#14** `satheight.rs:113` — FWL declared "m", consumed project-unit (SB-SHR-004; 3 companion PRD claims stale)
+- [ ] **#15** `ribbon.ts:2230` — Well Header hard-labels TD/KB "(m)" regardless of project unit
+- [ ] **#16** `facies_tie.rs:283` — CORE_MATCH_TOL_M metre constant vs project-unit depths; "within 1 m" printed
+- [ ] **#17** `plugqc.rs:49` — DEFAULT_DEPTH_TOL 0.15 m vs project-unit depths; feeds S-factor CEC fit
+- [ ] **#18** `modules.rs:6635` — FTEMP plain log_in defeats the computed_only contract; °F label holes
+- [ ] **#19** `unit_registry.rs:45` — %-delivered PHIE/VSH warned at import, consumed unconverted
+- [ ] **#20** `composite.rs:1139` — step curve holds one interval INTO a NaN gap in print, not on screen
+- [ ] **#21** `composite.rs:178` — log-track non-positives: screen clamps, print breaks; min=0 prints nothing
+- [ ] **#22** `composite.rs:1534` — show_samples honoured on screen, ignored in print
+- [ ] **#23** `composite.rs:1969` — blocks track prints a numeric scale it does not use
+- [ ] **#24** `composite.rs:1434` — plate near a page break dropped from the PDF, never carried forward
+- [ ] **#25** `db.rs:4216/:3345` — non-MD datum refusal on one side of each pair, opposite directions
+- [ ] **#26** `logViewPanel.ts:722` — screen FACIES blocks from decimated data; QC'd column ≠ shipped column
+- [ ] **#27** `modules.rs:3758` — Larionov rounded 0.33/0.083 vs SB-CLY-004's exact normalised form
+- [ ] **#28** `modules.rs:7161` — perm coefficients bare literals; no citation in the distributed tree
+
+**P2 (structure — audit findings 49–59, proposals):**
+- [ ] **#49** `workflow.rs` — two zero-coupled subsystems, 15.7k lines; paysummary.rs split
+- [ ] **#50** `workflow.rs:2430` — 940-line runner, four module names inside, 7-tuple ×3
+- [ ] **#51** `modules.rs:6923` — sw_indo duplicates sandimin::sw_indonesia. Waits on R-2.
+- [ ] **#52** `db.rs:5371` — one integrity class ×4 shapes on a PK-less table; positional misattribution
+- [ ] **#53** `equations.rs` — ancestry/log-set subsystem (~2.6k lines) → ancestry.rs + logset.rs
+- [ ] **#54** `workflow.rs:847` — eight reserved-key guard copies (legacy-check asymmetry unreadable)
+- [ ] **#55** `workflow.rs:4226` — stringly cutoff slots; silent `_ => perm` fallback (the fail-active slot)
+- [ ] **#56** `parsers.rs` — 12 of 23 public parsers lose the filename (wrapper-pair shape: check SB-DIO-061)
+- [ ] **#57** 3 plot panels — reloadContext triplicated; createContextLoader extraction
+- [ ] **#58** `modules.rs:1695` — shale/clay contract table: unlisted arg silently never validated
+- [ ] **#59** `check.ps1:52` — twelve gate blocks all fail as "takeover ledger"
+
+**P2 (slop hiding structure/provenance hazards — audit findings 65–71):**
+- [ ] **#65** 13+ sites — orphaned doc comments; provenance blocks on the wrong items (mechanical sweep)
+- [ ] **#66** `workflow.rs:4587` — comment asserts overwrite-in-place above the refusal forbidding it
+- [ ] **#67** `plotting.rs` — 13 cfg(test) production-shaped items invisible to gate2-hygiene
+- [ ] **#68** `ipc.ts`+`axisRange.ts` — twelve dead new TS exports; no gate covers exports
+- [ ] **#69** `ingest.rs:589` — ImportResult literal ×14; constructor precedent exists
+- [ ] **#70** `equations.rs:2394` — INSERT INTO log_sets ×4; restore_log_set divergence unassessed
+- [ ] **#71** `runCustody.ts:78` — misplaced doc + vestigial let-close stub
+
+**P3 (audit findings 29–48, 60–62, 72–85 — see the report; cheap systematic sweeps first):**
+- [ ] **#72+#73** cargo fmt sweep (92 sites, zero baseline) + `cargo fmt --check` in the gate;
+      the mangling reaches operator-facing messages (#73)
+- [ ] **#32** P_LOW/P_HIGH cites a nonexistent path ×4 — point at `docs/workflow_standards.md:17-20`
+- [ ] **#29 #31 #33 #34 #35 #36 #37 #38 #39 #40 #41 #42 #43 #44 #45 #46 #47 #48** — limits/agreement/
+      provenance long tail (report carries each)
+- [ ] **#60 #61 #62 #74 #75 #76 #77 #78 #79 #80 #81 #82 #83 #84 #85** — structure/slop long tail
+- [ ] **PL-1** `sandimin.rs:2367` — PLAUSIBLE: solve_bounded_lsq quality-gating on budget
+      exhaustion/singular sub-solve unestablished — needs its own dedicated pass
+
 ## B2. Interpretation-workflow open items (§4)
 
 _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-review--trust--safety--interpretation-workflow-4).)_
