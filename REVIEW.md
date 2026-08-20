@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 23 (Codex P1): IMTS refuses a sample with no clay evidence instead of calling it clean rock
+
+- [ ] **What this fixes.** IMTS builds its clay charge from the kaolinite and illite volume curves,
+      and both are optional inputs. Each gap was independently read as zero — so a sample carrying
+      **neither** got `QVEFF = 0`, the Waxman-Smits excess term vanished, the solver still
+      converged, and you got **an Archie answer with `SW_METHOD` saying IMTS**. In range, plausible,
+      and most wrong in exactly the shaly rock the method exists for. On one worked sample it is
+      **SWT 0.365 with the clay volumes against 0.500 without them**.
+- [ ] **Your own calibration already knew.** The S-factor fit has always excluded a plug where both
+      minerals are missing, saying it "carries no clay information at all". The module simply never
+      applied the same rule. It does now, sample by sample, and the calibration's comment names the
+      module so the two cannot drift apart again.
+- [ ] **One missing mineral still answers.** A gap in *one* curve still reads as zero of *that*
+      mineral, which is the convention you have always had — refusing every hole would throw away
+      any well that logged kaolinite but not illite. Only **both** missing refuses.
+- [ ] **Measured zeros still reduce to Archie**, because on genuinely clean rock that is correct.
+      The old test proved this using *absent* curves, so it could not tell "the rock has no clay"
+      from "nobody logged the clay" — which is why the defect survived a test that looked like it
+      covered the case. It now uses measured zeros.
+- [ ] **Click-through:** on a well where you have VKAOL and VILL, run Advance → IMTS and note SWT
+      over a shaly interval — unchanged. Then run it again on a well that has **neither** curve: you
+      should now get **no curves and a reported failure**, where before you got a full SWT track.
+      That empty result is the point — nothing is written, so no log-set version is allocated for an
+      interpretation that had no clay evidence behind it. Finally run a well with **only one** of
+      the two and confirm it still produces SWT as it always did.
+- [ ] **Automated correctness:** one pin,
+      `imts_refuses_a_sample_with_no_clay_evidence_instead_of_reading_it_as_clean_rock`, with the
+      same sample described three ways — both minerals, one mineral, neither. Two mutations red at
+      two distinct assertions: removing the guard conjures **SWT 0.7897** out of no clay evidence at
+      all, and the lazier "refuse any hole" fix withholds a well that logged only kaolinite.
+
 ## 2026-08-20 — Audit increment 22 (DEC-087): HAFWL is delivered on the project's own depth scale
 
 > **Your ruling, executed: *"for HAFWL, follow project units."*** This is the one increment in the
