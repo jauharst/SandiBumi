@@ -9177,6 +9177,16 @@ mod tests {
                 ("DCLF_SI", 0.1),
                 ("PHIT_CL", 0.24),
                 ("SWIRR_MIN", 0.0),
+                // Pinned at the even split rather than left to the manifest, because the exact
+                // f32s below were captured on 2026-08-18 when SSC's gas weight WAS 1.0 and this
+                // test's job is the re-typing, not the shipped default. DEC-088 moved that
+                // default to 1.6 and moved these numbers with it (sample 0 is a marginal gas
+                // trigger - NPHI 0.150 against a density porosity of 0.1515 - so the shift is
+                // small, but it takes VSH off exactly zero and the *_GR family stops being
+                // degenerate). The shipped default has its own pin in ssc.rs; leaving it to leak
+                // in here would make a re-typing regression and a ruled parameter change
+                // indistinguishable in the same assertion.
+                ("GAS_C", 1.0),
             ],
         );
         let ssc_out = run_module("ssc", &ssc_ctx).expect("ssc runs");
@@ -9194,6 +9204,11 @@ mod tests {
                 ("RHOB_DSH", 2.71),
                 ("VOL_CBW_SH", 0.1),
                 ("SWIRR_MIN", 0.0),
+                // Same reasoning as SSC's above. SSPW's default has not moved (1.6 under
+                // DEC-086, and DEC-088 left it alone), so this changes nothing today - it
+                // stops the NEXT ruling on this coefficient from silently reopening a
+                // re-typing pin the way DEC-088 reopened SSC's.
+                ("GAS_C", 1.6),
             ],
         );
         let sspw_out = run_module("sspw", &sspw_ctx).expect("sspw runs");

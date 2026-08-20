@@ -31,7 +31,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `porosity` | Porosity interpretation | Not exercised | 0 / 75 | — | 21 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 160 | 2026-08-13 | 42 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 21 | — | 3 |
-| `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
+| `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 7 | — | 2 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
