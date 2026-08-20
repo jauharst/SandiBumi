@@ -659,6 +659,20 @@ The label is the finding, not the arithmetic: an analyst who selects "Raymer-Hun
 IP's manual recommends it over Wyllie (F3) gets a different published transform, mis-cited, with
 neither vendor's shale discipline.
 
+*(Corrected 2026-08-20 — DEC-017 executed. `OPT_SON` is now `WYLLIE | RHG80 | FIELD_OBSERVED`:
+`RHG80` is the paper's own three-segment transform (constants per DEC-079's verification; the
+low segment inverted as IP's printed quadratic root), `FIELD_OBSERVED` is the old branch under
+its honest name with `CFO` a cited ABSENT parameter (Geolog 0.67 / Techlog 0.625 disclosed via
+the registry), and both non-Wyllie branches now run Geolog's executed shale convention —
+`dtsr = (Δt − VSH·DT_SH)/(1 − VSH)` floored at `DT_MA`, answer × (1 − VSH) — closing all three
+divergences named above. The legacy `RHG` option value resolves to no method: a saved run is
+re-pointed deliberately, never silently remapped. Pinned by
+`rhg80_inverts_the_papers_three_segment_transform_on_each_segment`,
+`field_observed_ships_geologs_executed_shale_convention_not_the_doc_block` — which pins this
+section's own 0.1828571 reference value — and
+`the_rhg_label_now_means_rhg_1980_and_the_old_approximation_answers_only_as_field_observed`.
+SB-POR-020's vendor-rendering choice remains open per DEC-017's own words.)*
+
 **The compaction correction is applied in the wrong direction at its own default.**
 `modules.rs:904` computes `cp = DT_SH/100`, and `:909` divides Wyllie porosity by it. The module
 doc at `:865-868` states the intent correctly — *"undercompacted shaly sands … read porosity high
