@@ -62,6 +62,6 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
-| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
+| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 65 | — | 12 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 163 | 2026-08-13 | 55 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 168 | 2026-08-13 | 50 |

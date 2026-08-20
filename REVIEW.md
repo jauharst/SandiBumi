@@ -1,5 +1,211 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 20 (DEC-087): HAFWL is delivered on the project's own depth scale
+
+> **Your ruling, executed: *"for HAFWL, follow project units."*** This is the one increment in the
+> depth-unit family that **moves numbers**. Everything before it was labelling.
+
+- [ ] **What changed.** The height-above-contact curve used to be converted to metres before it was
+      written, so its `m` label was true — but on a foot project it delivered a metre-valued height
+      beside foot-valued depths. `HAFWL` is now the raw project-native subtraction `FWL − TVD`, so
+      it reads in feet on a foot project and metres on a metre one. **A foot project's HAFWL is now
+      3.28084× larger than it was**, and it now equals what you get subtracting by hand from the FWL
+      you typed and the TVD in the next track — which is the first thing anyone does with this curve.
+- [ ] **Your saturation did not move, in either model.** Nothing downstream consumes HAFWL, and each
+      branch still converts where a *published* constant fixes the unit: feet for the 0.433 psi/ft
+      hydrostatic gradient, metres for Skelt-Harrison's B and D. `SH_B` and `SH_D` keep their fixed
+      `m` label for exactly that reason — their published coefficients are metres, and re-reading
+      them as feet would change what the equation means. So `SWT` and `SWT_HGT` are bit-identical.
+- [ ] **One thing to know about old projects.** A foot project that already ran Sw-from-height has a
+      **metre-valued HAFWL sitting in it from before this change**. Nothing migrates it — re-run the
+      module and the curve is rewritten on the new scale. Until you do, an old HAFWL and a new one
+      in the same project disagree by 3.28084×.
+- [ ] **Click-through (foot project):** Saturation → Sw from height (SWH). The output list must now
+      show **Height above free-water level (ft)**. Run it, then in a log view read HAFWL at one
+      depth and check it equals `FWL − TVD` in feet at that same depth. Confirm `SWT` is unchanged
+      from your previous run. Then switch `OPT_SWH` to **SKELT** and confirm `SWT` is *also*
+      unchanged — that is the half a careless fix would have broken.
+- [ ] **Click-through (metre project):** unchanged in every respect — HAFWL still reads metres and
+      still says `m`.
+- [ ] **Automated correctness:** one pin,
+      `a_height_above_the_contact_is_delivered_on_the_projects_own_depth_scale`. Three assertions:
+      the manifest (HAFWL project-native, `SH_B`/`SH_D` still fixed metres, so a blanket sweep of
+      every `m` in the file fails), the height (one physical well reads 100 in a metre project and
+      328.084 in a foot one), and — the important one — **the saturation is identical in both
+      branches**, which is what stops the unit change from becoming a physics change. Two mutations
+      red at two distinct assertions: reverting the curve to metres prints `100.00003` where
+      `328.084` was due, and deleting the Skelt metre conversion gives **Sw 0.152 metric against
+      0.027 foot** — a 12-saturation-unit overstatement of pay behind a height that looked right.
+- [ ] **This closes SB-SHR-004's output-curve half**, the last open arm of the depth-unit family.
+      Still open and recorded as such in the PRD chapter: an exported LAS still gets HAFWL's unit
+      from a name-based fallback, because module outputs never write a `curve_unit` row.
+
+## 2026-08-20 — Audit increment 19: the plug-pairing tolerance is now one sample in YOUR unit
+
+"One standard 6-inch sample" is a physical length, but the number was written as a bare `0.15`
+and compared against depths in whatever unit your project stores. So on a metre project it was
+six inches, as intended — and on a **foot project it was 0.15 ft, about 1.8 inches**, a third of
+a sample.
+
+That is not a rounding problem. It changes what pairs:
+
+- **Plug QC** reported most plugs as having no partner, so the cloud thinned out and the
+  correlation was computed on whatever survived.
+- **Calibrate S…** dropped the same plugs before fitting, so S — which multiplies the whole
+  clay-charge term in `sw_imts` — was fitted on a handful of samples instead of the suite.
+- The petrography **agreement check** reads the same tolerance and was equally strict.
+
+Both panes now label the field with your project's unit — **Depth tolerance (ft)** — and default
+to one real sample in it: 0.15 on metres, 0.5 on feet. **A metre project's number does not move**:
+0.15 m is what shipped and what the method note says, and re-deriving it as 0.1524 would change
+every existing project's pairing for a millimetre of nothing.
+
+- [ ] **On a foot project, open Plug QC** — the field should read *Depth tolerance (ft)* and show
+      0.5. Run it against a suite you know pairs, and check the pair count is the whole suite.
+- [ ] **Open Calibrate S…** on the same project — same label, same default, and the fit should now
+      use the plugs it was dropping.
+- [ ] **On a metre project** — 0.15, and identical results to before. This is worth one check on a
+      well you have already run.
+
+## 2026-08-20 — Audit increment 18 (finding 8, fourth and last site): point data now says what unit its depths are in
+
+This closes the family. The point-data importer — XRD, CEC, oil show, petrography counts,
+perforations — read its depths raw, so a delivery in feet filed every sample 3.28 times too
+deep: a mineral count against the wrong sand, a perforation against the wrong interval.
+
+Two things it now gets right that are easy to get wrong:
+
+- **An interval converts at both ends.** A top scaled without its base is not a shallower
+  sample, it is a sample of a different thickness — a 20 ft perforation would have come out
+  4608 m long.
+- **The conversion happens before the core depth record**, for the same reason as SCAL: your
+  core corrections are already in the project's unit.
+
+It reads the unit the same way tops does — a units row under the header, or a unit in the
+depth column's own header — and falls back to your project's unit when the file says nothing,
+which is what it always did.
+
+**Note on where this shows up.** There is currently no ribbon button for a standalone point-data
+import; the path most deliveries take is the core wizard's extra columns, which ride the plugs'
+already-converted depths. So this is a backend command with no button today. It is still a
+registered command, and a 3.28× error sitting in one of those is not something to leave because
+nothing clicks it yet.
+
+- [ ] **If a point-data import button reappears**, check a feet delivery lands at 0.3048 × the
+      file numbers, top and base both.
+- [ ] **Re-import an XRD or perforation file you already have** — no unit anywhere in the file
+      means nothing changes.
+
+With this the whole import family is closed: LAS/DLIS read the index unit, core is declared with
+a probe guess, intake is declared, deviation and SCAL are asked in their dialogs, tops and point
+data read the file's own declaration.
+
+## 2026-08-20 — Audit increment 17 (finding 8, third site): a SCAL delivery now says what unit its plug depths are in
+
+Third and last of the importers that read depths from a file without asking what unit they
+were in. A Pc delivery quoting feet, imported into a metre project, filed every plug 3.28
+times too deep — and a Pc curve is read *at* a depth: Thomeer and the J-fit QC pair each plug
+with the log's porosity and permeability there, and the saturation-height module carries the
+fitted A and B back onto that same interval. Every one of those pairings would have been with
+the wrong rock.
+
+Import SCAL now has a **Depth unit in file** box, right under Depth datum — the two together
+are what put a plug on your project's scale. It defaults to *Same as project*, so an untouched
+dialog behaves exactly as it always did.
+
+The part worth checking on real data: the conversion happens **before** the core depth record
+is applied, not after. Your core record is already in the project's unit, so a foot depth has
+to become metres first and only then take the core's correction. Doing it the other way round
+gives a number about 1.4 m off on a 2000 m plug — perfectly plausible, and nothing downstream
+could tell.
+
+- [ ] **Import a Pc delivery with Depth unit in file = Feet (ft)**, with *follow the core depth
+      record* OFF — the plugs should land at 0.3048 × the numbers in the file.
+- [ ] **Same file with follow-core ON**, on a well whose core you have registered — the plug
+      should end up at (converted depth + the core's shift). Cross-check one plug against the
+      Shift Core history.
+- [ ] **Import a normal metre delivery with the box left alone** — identical to before.
+- [ ] **Check the Thomeer / Pc QC plot afterwards** — the plugs should sit against the right
+      part of the log.
+
+Housekeeping in the same change: the metres/feet picker is now one shared control
+(`buildDepthUnitSelect`) used by the core wizard, Import Deviation and Import SCAL, instead of
+three copies of the same three options.
+
+## 2026-08-20 — Audit increment 16 (finding 8, second site): a tops file now says what unit its markers are in
+
+Same defect as the deviation survey, one file over — and this one is worse, because a top is
+not one number. A top is the boundary of a zone, so every zone parameter, every pay summary
+and every report drawn from them inherits whatever the tops file was misread as. A tops file
+delivered in feet, imported into a metre project, put every marker 3.28 times too deep.
+
+Tops import has no dialog — you pick a file and it loads — so the rule had to work without
+asking you anything:
+
+1. If the file **declares** a unit on its depth column, that is used. That means a units row
+   under the header (`,FEET`, the delivery convention) or a unit in the depth header itself
+   (`TOP_MD_FT`, `DEPTH (m)`).
+2. If it declares nothing, the project's own unit is assumed — exactly what every tops import
+   before this one did, so nothing you have already loaded changes.
+
+The unit is read from the **same column the depths came from**. A `FEET` sitting under a
+different column is not accepted as if it described this one.
+
+The status line now always names the unit — `Tops: 9 marker(s) across 3 well(s) (m)`, or
+`— read as ft, stored as m` when it converted. It says so on ordinary imports too, deliberately:
+if it only spoke up when something moved, you would have no reason to trust its silence.
+
+- [ ] **Import a tops file with a units row saying FEET on a metre project** — the markers
+      should land at 0.3048 × the numbers in the file, and the status line should say
+      *read as ft, stored as m*.
+- [ ] **Import a normal tops file with no unit anywhere** — identical to before, and the status
+      line should just name your project unit in brackets.
+- [ ] **Check a file whose depth header is something like `TOP_MD_FT`** — that counts as a
+      declaration too.
+- [ ] **Open a well that already has tops and re-import** — depths update, colours survive,
+      as before.
+
+**Still open, same defect:** the SCAL Pc importer (`import_scal_files`) and the point-data /
+aux importer (`import_aux_file`). Both take a depth *datum* but no depth *unit*. Next.
+
+## 2026-08-20 — Audit increment 15 (finding 8): a deviation survey now says what unit its depths are in
+
+The survey importer was the last depth-bearing importer still reading its file raw. Hand it a
+survey whose MD column is in feet, on a project you declared in metres, and it stored 8000 as
+8000 — every station 3.28 times too deep. Nothing in the app could catch that afterwards,
+because TVD and TVDSS are computed from those stations and then written onto the log grid,
+where `sw_height`, the saturation-height fits and the TVDSS correlation view all read them.
+A well would simply have been in the wrong place, in a way that plots perfectly well.
+
+Import Deviation now carries the same **Depth unit in file** box the core wizard has. It
+defaults to *Same as project*, which is exactly what every earlier import silently assumed, so
+nothing you have already imported changes and nothing you re-import behaves differently unless
+you say feet.
+
+One thing that deliberately does **not** convert: the Datum / KB you type in the dialog. That
+box is labelled in the project's own unit, and the well's KB is already stored in it — the
+file's unit governs the file's numbers and nothing else. A survey in feet with a 25 m datum is
+a perfectly ordinary delivery.
+
+A project that has not declared a depth unit yet is now refused by name rather than guessed at,
+which is the rule the core-table importer has always followed.
+
+- [ ] **Import a deviation survey with Depth unit in file = Feet (ft) on a metre project** —
+      the stored TVD should come out about 3.28 times shallower than the MD numbers in the
+      file. A vertical 8000 ft survey should reach 2438.4 m TVD.
+- [ ] **Import the same file with Same as project** — it should behave exactly as it did
+      before this change (stations at 8000).
+- [ ] **Check the TVDSS on the foot import** — with a datum of 25 it should be TVD − 25, not
+      TVD − 7.62. The datum you typed is metres because the dialog says metres.
+- [ ] **Try a deviation import into a brand-new project with no LAS in it yet** — it should
+      refuse with a message naming the missing depth-unit declaration, instead of storing
+      numbers nobody can interpret.
+
+**Still open, same defect, not fixed here:** the tops importer (`import_tops_file`), the SCAL
+Pc importer (`import_scal_files`) and the point-data/aux importer (`import_aux_file`) all take
+depths from a file with no unit resolution either. They are the next increments; naming them
+here so nothing looks closed that is not.
+
 ## 2026-08-20 — Audit increment 14 (Codex P0): the PDF report states its depths in the project's own unit
 
 - [ ] **What this fixes, and it is the one that leaves the building.** The report PDF printed
@@ -222,17 +428,16 @@
       resolution in Batch → Workflow (per-step ⚙ editor and the grid header), the per-well
       parameter grid, and Batch → Monte Carlo's parameter list — none of them should print the
       word `depth` anywhere.
-- [ ] **HAFWL is deliberately untouched, and needs your word.** The height-above-contact **output
-      curve** is converted to metres before it is written, so its `m` label is true — it is not the
-      same defect. But it means a foot-declared project gets a metre-valued curve beside foot
-      depths. The PRD chapter (SB-SHR-004) says every height-dimensioned curve should follow the
-      project's unit; the code says always metres, matching the Skelt-Harrison constants, which
-      are metres by the published form. **Changing it moves numbers on every foot project**, so I
-      have not. Which do you want HAFWL delivered in?
+- [ ] **ANSWERED — nothing to check here; the work is increment 20 at the top of this file.** This
+      item asked which unit a height-above-contact curve should be *delivered* in. You ruled *"for
+      HAFWL, follow project units"* (DEC-087) and it was executed the same day, so click through
+      increment 20 instead of this line. The `m` label on `SH_B`/`SH_D` stays, because those are
+      Skelt-Harrison's published metre coefficients and the SKELT branch converts to meet them.
 - [ ] **Automated correctness:** two pins —
       `the_free_water_level_is_declared_in_the_unit_the_height_is_actually_measured_in` (the label
-      half: FWL and TVD carry the project-native token while HAFWL in the same manifest keeps its
-      fixed `m`, so a sweep of every `m` in the file would fail; and the arithmetic half: the same
+      half: FWL and TVD carry the project-native token — and since DEC-087 so does HAFWL — while
+      `SH_B`/`SH_D` in the same manifest keep their fixed `m`, so a sweep of every `m` in the file
+      would fail; and the arithmetic half: the same
       FWL number in a metre and a foot project must give *different* answers, read against its
       neighbour where *converted* numbers give the same one), and
       `a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference`
@@ -15320,169 +15525,3 @@ only #129 (connection pool), which waits on your 100-well benchmark run.
 - [ ] **T-IMP-05 re-run** (your Fail mark from before the needWell dialog existed): click an
       importer with no well selected — the named refusal dialog is the designed behaviour
       now, so the item should flip to Pass.
-
-## A deviation survey now says what unit its depths are in (audit finding 8)
-
-The survey importer was the last depth-bearing importer still reading its file raw. Hand it a
-survey whose MD column is in feet, on a project you declared in metres, and it stored 8000 as
-8000 — every station 3.28 times too deep. Nothing in the app could catch that afterwards,
-because TVD and TVDSS are computed from those stations and then written onto the log grid,
-where `sw_height`, the saturation-height fits and the TVDSS correlation view all read them.
-A well would simply have been in the wrong place, in a way that plots perfectly well.
-
-Import Deviation now carries the same **Depth unit in file** box the core wizard has. It
-defaults to *Same as project*, which is exactly what every earlier import silently assumed, so
-nothing you have already imported changes and nothing you re-import behaves differently unless
-you say feet.
-
-One thing that deliberately does **not** convert: the Datum / KB you type in the dialog. That
-box is labelled in the project's own unit, and the well's KB is already stored in it — the
-file's unit governs the file's numbers and nothing else. A survey in feet with a 25 m datum is
-a perfectly ordinary delivery.
-
-A project that has not declared a depth unit yet is now refused by name rather than guessed at,
-which is the rule the core-table importer has always followed.
-
-- [ ] **Import a deviation survey with Depth unit in file = Feet (ft) on a metre project** —
-      the stored TVD should come out about 3.28 times shallower than the MD numbers in the
-      file. A vertical 8000 ft survey should reach 2438.4 m TVD.
-- [ ] **Import the same file with Same as project** — it should behave exactly as it did
-      before this change (stations at 8000).
-- [ ] **Check the TVDSS on the foot import** — with a datum of 25 it should be TVD − 25, not
-      TVD − 7.62. The datum you typed is metres because the dialog says metres.
-- [ ] **Try a deviation import into a brand-new project with no LAS in it yet** — it should
-      refuse with a message naming the missing depth-unit declaration, instead of storing
-      numbers nobody can interpret.
-
-**Still open, same defect, not fixed here:** the tops importer (`import_tops_file`), the SCAL
-Pc importer (`import_scal_files`) and the point-data/aux importer (`import_aux_file`) all take
-depths from a file with no unit resolution either. They are the next increments; naming them
-here so nothing looks closed that is not.
-
-## A tops file now says what unit its markers are in (audit finding 8, second site)
-
-Same defect as the deviation survey, one file over — and this one is worse, because a top is
-not one number. A top is the boundary of a zone, so every zone parameter, every pay summary
-and every report drawn from them inherits whatever the tops file was misread as. A tops file
-delivered in feet, imported into a metre project, put every marker 3.28 times too deep.
-
-Tops import has no dialog — you pick a file and it loads — so the rule had to work without
-asking you anything:
-
-1. If the file **declares** a unit on its depth column, that is used. That means a units row
-   under the header (`,FEET`, the delivery convention) or a unit in the depth header itself
-   (`TOP_MD_FT`, `DEPTH (m)`).
-2. If it declares nothing, the project's own unit is assumed — exactly what every tops import
-   before this one did, so nothing you have already loaded changes.
-
-The unit is read from the **same column the depths came from**. A `FEET` sitting under a
-different column is not accepted as if it described this one.
-
-The status line now always names the unit — `Tops: 9 marker(s) across 3 well(s) (m)`, or
-`— read as ft, stored as m` when it converted. It says so on ordinary imports too, deliberately:
-if it only spoke up when something moved, you would have no reason to trust its silence.
-
-- [ ] **Import a tops file with a units row saying FEET on a metre project** — the markers
-      should land at 0.3048 × the numbers in the file, and the status line should say
-      *read as ft, stored as m*.
-- [ ] **Import a normal tops file with no unit anywhere** — identical to before, and the status
-      line should just name your project unit in brackets.
-- [ ] **Check a file whose depth header is something like `TOP_MD_FT`** — that counts as a
-      declaration too.
-- [ ] **Open a well that already has tops and re-import** — depths update, colours survive,
-      as before.
-
-**Still open, same defect:** the SCAL Pc importer (`import_scal_files`) and the point-data /
-aux importer (`import_aux_file`). Both take a depth *datum* but no depth *unit*. Next.
-
-## A SCAL delivery now says what unit its plug depths are in (audit finding 8, third site)
-
-Third and last of the importers that read depths from a file without asking what unit they
-were in. A Pc delivery quoting feet, imported into a metre project, filed every plug 3.28
-times too deep — and a Pc curve is read *at* a depth: Thomeer and the J-fit QC pair each plug
-with the log's porosity and permeability there, and the saturation-height module carries the
-fitted A and B back onto that same interval. Every one of those pairings would have been with
-the wrong rock.
-
-Import SCAL now has a **Depth unit in file** box, right under Depth datum — the two together
-are what put a plug on your project's scale. It defaults to *Same as project*, so an untouched
-dialog behaves exactly as it always did.
-
-The part worth checking on real data: the conversion happens **before** the core depth record
-is applied, not after. Your core record is already in the project's unit, so a foot depth has
-to become metres first and only then take the core's correction. Doing it the other way round
-gives a number about 1.4 m off on a 2000 m plug — perfectly plausible, and nothing downstream
-could tell.
-
-- [ ] **Import a Pc delivery with Depth unit in file = Feet (ft)**, with *follow the core depth
-      record* OFF — the plugs should land at 0.3048 × the numbers in the file.
-- [ ] **Same file with follow-core ON**, on a well whose core you have registered — the plug
-      should end up at (converted depth + the core's shift). Cross-check one plug against the
-      Shift Core history.
-- [ ] **Import a normal metre delivery with the box left alone** — identical to before.
-- [ ] **Check the Thomeer / Pc QC plot afterwards** — the plugs should sit against the right
-      part of the log.
-
-Housekeeping in the same change: the metres/feet picker is now one shared control
-(`buildDepthUnitSelect`) used by the core wizard, Import Deviation and Import SCAL, instead of
-three copies of the same three options.
-
-## Point data now says what unit its depths are in (audit finding 8, fourth and last site)
-
-This closes the family. The point-data importer — XRD, CEC, oil show, petrography counts,
-perforations — read its depths raw, so a delivery in feet filed every sample 3.28 times too
-deep: a mineral count against the wrong sand, a perforation against the wrong interval.
-
-Two things it now gets right that are easy to get wrong:
-
-- **An interval converts at both ends.** A top scaled without its base is not a shallower
-  sample, it is a sample of a different thickness — a 20 ft perforation would have come out
-  4608 m long.
-- **The conversion happens before the core depth record**, for the same reason as SCAL: your
-  core corrections are already in the project's unit.
-
-It reads the unit the same way tops does — a units row under the header, or a unit in the
-depth column's own header — and falls back to your project's unit when the file says nothing,
-which is what it always did.
-
-**Note on where this shows up.** There is currently no ribbon button for a standalone point-data
-import; the path most deliveries take is the core wizard's extra columns, which ride the plugs'
-already-converted depths. So this is a backend command with no button today. It is still a
-registered command, and a 3.28× error sitting in one of those is not something to leave because
-nothing clicks it yet.
-
-- [ ] **If a point-data import button reappears**, check a feet delivery lands at 0.3048 × the
-      file numbers, top and base both.
-- [ ] **Re-import an XRD or perforation file you already have** — no unit anywhere in the file
-      means nothing changes.
-
-With this the whole import family is closed: LAS/DLIS read the index unit, core is declared with
-a probe guess, intake is declared, deviation and SCAL are asked in their dialogs, tops and point
-data read the file's own declaration.
-
-## The plug-pairing tolerance is now one sample in YOUR unit
-
-"One standard 6-inch sample" is a physical length, but the number was written as a bare `0.15`
-and compared against depths in whatever unit your project stores. So on a metre project it was
-six inches, as intended — and on a **foot project it was 0.15 ft, about 1.8 inches**, a third of
-a sample.
-
-That is not a rounding problem. It changes what pairs:
-
-- **Plug QC** reported most plugs as having no partner, so the cloud thinned out and the
-  correlation was computed on whatever survived.
-- **Calibrate S…** dropped the same plugs before fitting, so S — which multiplies the whole
-  clay-charge term in `sw_imts` — was fitted on a handful of samples instead of the suite.
-- The petrography **agreement check** reads the same tolerance and was equally strict.
-
-Both panes now label the field with your project's unit — **Depth tolerance (ft)** — and default
-to one real sample in it: 0.15 on metres, 0.5 on feet. **A metre project's number does not move**:
-0.15 m is what shipped and what the method note says, and re-deriving it as 0.1524 would change
-every existing project's pairing for a millimetre of nothing.
-
-- [ ] **On a foot project, open Plug QC** — the field should read *Depth tolerance (ft)* and show
-      0.5. Run it against a suite you know pairs, and check the pair count is the whole suite.
-- [ ] **Open Calibrate S…** on the same project — same label, same default, and the fit should now
-      use the plugs it was dropping.
-- [ ] **On a metre project** — 0.15, and identical results to before. This is worth one check on a
-      well you have already run.
