@@ -805,6 +805,12 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
   whole-well extent, and neither screen nor SVG/PDF writes/resamples. Curve Catalog statistics scan
   finite values, Wells/Set expansion uses metadata inventory, and a normal LAS delivery is one
   decoded parse plus one atomic columnar transaction. The full contract is in the record below.
+- **A percent column is percent because the FILE says so** — units row first, then the column
+  header, the same two sources in the same order the depth unit has always used. A median above
+  1.5 does mean percent; the converse does not hold, and tight rock quoted in percent used to land
+  a hundred times too high. **The definitional bound outranks the declaration**: porosity and
+  saturation are bounded at 1.0, so a column carrying 22 is not a fraction however loudly its units
+  row says `V/V`. 1.0 is a definition, not a chosen cutoff — do not add one.
 - **LONG / WIDE / BLOCK is declared, never sniffed.** A depth is the number that carries a UNIT, and
   a label line is rejoined with the file's own DELIMITER — joined with a space, `4640,0 ft` becomes
   a depth of zero.

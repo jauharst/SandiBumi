@@ -2248,6 +2248,17 @@ pub struct CoreColumns {
     pub cgd: Vec<f32>,
     pub csw: Vec<f32>,
     pub index_resolution: Option<IndexResolution>,
+    /// How each column's percent-versus-fraction scale was settled. Carried so the import can
+    /// tell the user which columns the FILE declared and which SandiBumi had to guess — the
+    /// guessed-fraction case is the one that can be silently wrong.
+    pub cpor_scale: ScaleEvidence,
+    pub csw_scale: ScaleEvidence,
+}
+
+impl Default for ScaleEvidence {
+    fn default() -> Self {
+        ScaleEvidence::Empty
+    }
 }
 
 // Source: `docs/PRD_v2/21_data-io.md` §5.3, core-table path. Unlike LAS, a
@@ -2274,20 +2285,120 @@ fn resolve_header_index(headers: &[String], aliases: &[&str]) -> Option<usize> {
         .find_map(|alias| headers.iter().position(|h| header_matches(h, alias)))
 }
 
-/// RCAL reports usually quote porosity and saturation in percent (22.5) while every
-/// curve in SandiBumi is v/v. Values are only fractions when they all sit in [0, 1],
-/// so a median above 1.5 can only mean percent — divide through by 100.
-fn percent_to_fraction(vals: &mut [f32]) {
+/// What a porosity or saturation column DECLARES it is measured in.
+///
+/// Read from the units row or the column's own header — the same two places, in the same order,
+/// that the depth column's unit has always been read from (`declared_unit` below). The percent
+/// question was the one that never consulted them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FractionScale {
+    /// The file says percent: `%`, `PCT`, `PERCENT`, or `p.u.` — porosity units, which ARE percent.
+    Percent,
+    /// The file says it is already a fraction: `v/v`, `frac`, `dec`.
+    Fraction,
+}
+
+/// Reads a declared scale out of a header or units cell.
+///
+/// Deliberately NOT `unit_token_guess`: that splits on every non-alphanumeric character, so `%`
+/// is consumed as a delimiter and `V/V` arrives as two `V`s. The character that matters most here
+/// is the one that function cannot see.
+pub(crate) fn fraction_scale_token(s: &str) -> Option<FractionScale> {
+    let t = s.trim().to_ascii_uppercase();
+    if t.contains('%') {
+        return Some(FractionScale::Percent);
+    }
+    // Keep `/` and `.` so `V/V` and `P.U.` survive tokenisation.
+    for tok in t.split(|c: char| !(c.is_ascii_alphanumeric() || c == '/' || c == '.')) {
+        match tok.trim_matches('.') {
+            "PCT" | "PERCENT" | "PU" | "P.U" => return Some(FractionScale::Percent),
+            "V/V" | "VV" | "FRAC" | "FRACTION" | "DEC" | "DECIMAL" => {
+                return Some(FractionScale::Fraction)
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// How a column's scale was settled, so a caller can tell the user whether the file said it or
+/// SandiBumi guessed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScaleEvidence {
+    /// Nothing to convert — the column is empty.
+    Empty,
+    /// The file declared it, in the units row or the header.
+    Declared(FractionScale),
+    /// The file declared a FRACTION and its own values refute it — something exceeds 1.0, and
+    /// porosity and saturation are bounded at 1.0 by definition. The declaration is not evidence
+    /// here, it is an error in the file, so it is overruled and the column is read as percent.
+    /// Always worth saying out loud: it often means the wrong column was mapped.
+    DeclarationContradicted,
+    /// Nothing was declared and the median put it above the fraction range.
+    GuessedPercent,
+    /// Nothing was declared, but reading it as a fraction is IMPOSSIBLE — a value exceeded 1.0,
+    /// and porosity and saturation are both bounded at 1.0 by definition.
+    ImpossibleAsFraction,
+    /// Nothing was declared and it was left as a fraction. **This is the reading that can be
+    /// silently wrong**, and the only one a caller needs to pass on to the user.
+    GuessedFraction,
+}
+
+/// Converts a porosity or saturation column to v/v, and says what it based that on.
+///
+/// **The declaration wins.** RCAL reports usually quote percent (22.5) while every curve in
+/// SandiBumi is v/v, and the old rule was a median above 1.5 means percent. That inference is
+/// sound; its CONVERSE was assumed and is false. Tight rock quoted in percent — `PORO (%)` with
+/// values 0.8, 1.0, 1.2 — has a median of 1.0, so it was stored verbatim as 0.8, 1.0 and 1.2 v/v:
+/// 80%, 100% and 120% porosity, a hundred times too high, and the first two even pass the later
+/// `<= 1.0` validity gate. No downstream guard can reconstruct the lost factor of 100.
+///
+/// So the order is: what the file DECLARES, then what is definitionally possible, then the median.
+/// The middle test invents nothing — porosity and saturation are bounded at 1.0 by their own
+/// definitions, so a column carrying 1.2 cannot be a fraction whatever its median says. Where all
+/// three are silent the old behaviour stands, and the caller is told it was a guess.
+fn percent_to_fraction_declared(vals: &mut [f32], declared: Option<FractionScale>) -> ScaleEvidence {
     let mut finite: Vec<f32> = vals.iter().copied().filter(|v| v.is_finite()).collect();
     if finite.is_empty() {
-        return;
+        return ScaleEvidence::Empty;
     }
-    finite.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    if finite[finite.len() / 2] > 1.5 {
+    let divide = |vals: &mut [f32]| {
         for v in vals.iter_mut() {
             *v /= 100.0;
         }
+    };
+    finite.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // The definitional bound outranks EVERYTHING, the declaration included. Porosity and
+    // saturation are both bounded at 1.0 by their own definitions, so a column carrying 22 is not
+    // a fraction however loudly the units row says `V/V` — and real deliveries do say exactly
+    // that. A declaration that its own numbers refute is not evidence, it is a mistake in the
+    // file, and honouring it would store 2200% porosity: worse than the guess it replaced.
+    let impossible_as_fraction = finite[finite.len() - 1] > 1.0;
+    if let Some(scale) = declared {
+        if scale == FractionScale::Percent {
+            divide(vals);
+            return ScaleEvidence::Declared(scale);
+        }
+        if impossible_as_fraction {
+            divide(vals);
+            return ScaleEvidence::DeclarationContradicted;
+        }
+        return ScaleEvidence::Declared(scale);
     }
+    if finite[finite.len() / 2] > 1.5 {
+        divide(vals);
+        return ScaleEvidence::GuessedPercent;
+    }
+    if impossible_as_fraction {
+        divide(vals);
+        return ScaleEvidence::ImpossibleAsFraction;
+    }
+    ScaleEvidence::GuessedFraction
+}
+
+/// The undeclared-column form, kept so the SCAL paths that have no header context read the same.
+fn percent_to_fraction(vals: &mut [f32]) {
+    percent_to_fraction_declared(vals, None);
 }
 
 /// Parses a routine-core-analysis CSV (arbitrary column order, alias-resolved headers —
@@ -2328,6 +2439,10 @@ fn parse_core_csv_with_depth_column_unnamed<P: AsRef<Path>>(
 
     let mut cols = CoreColumns::default();
     cols.index_resolution = Some(index_resolution);
+    // A units row is dropped below as a row whose depth will not parse. Its CELLS are read first:
+    // that row is where a delivery states `%` or `v/v`, and dropping it unread is what left the
+    // percent question to a guess. Same two sources, same order, as the depth unit above.
+    let mut units_row: Option<Vec<String>> = None;
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {
@@ -2339,6 +2454,12 @@ fn parse_core_csv_with_depth_column_unnamed<P: AsRef<Path>>(
         };
         let depth = get(Some(idx_depth));
         if depth.is_nan() {
+            if units_row.is_none() && cols.depth.is_empty() {
+                let row: Vec<String> = record.iter().map(|c| c.to_string()).collect();
+                if is_units_row(&row, idx_depth) {
+                    units_row = Some(row);
+                }
+            }
             continue; // a row with no depth can't be stored (PRIMARY KEY includes depth)
         }
         cols.depth.push(depth);
@@ -2347,8 +2468,16 @@ fn parse_core_csv_with_depth_column_unnamed<P: AsRef<Path>>(
         cols.cgd.push(get(idx_cgd));
         cols.csw.push(get(idx_csw));
     }
-    percent_to_fraction(&mut cols.cpor);
-    percent_to_fraction(&mut cols.csw);
+    let declared = |idx: Option<usize>| -> Option<FractionScale> {
+        let i = idx?;
+        units_row
+            .as_ref()
+            .and_then(|r| r.get(i))
+            .and_then(|c| fraction_scale_token(c))
+            .or_else(|| headers.get(i).and_then(|h| fraction_scale_token(h)))
+    };
+    cols.cpor_scale = percent_to_fraction_declared(&mut cols.cpor, declared(idx_cpor));
+    cols.csw_scale = percent_to_fraction_declared(&mut cols.csw, declared(idx_csw));
     // Dedup duplicate depths (first occurrence wins, file order kept) so a repeated plug depth
     // can't abort the whole well's core import on the core_data (well_id, depth) PK — mirrors the
     // LAS sanitize path. (NaN depths were already skipped above.)
@@ -2862,6 +2991,134 @@ mod core_csv_tests {
         assert!(cols.cperm[1].is_nan(), "empty cell must be NaN");
         assert!((cols.cperm[2] - 300.0).abs() < 1e-3, "perm stays in mD");
         assert!((cols.cgd[0] - 2.65).abs() < 1e-6);
+    }
+
+    /// A tight-rock RCAL table headed `PORO (%)` whose values are 0.8, 1.0 and 1.2 has a MEDIAN
+    /// OF 1.0, so the old median-above-1.5 rule left it verbatim: 0.8, 1.0 and 1.2 v/v, which is
+    /// 80%, 100% and 120% porosity - a hundred times too high, and the first two even pass the
+    /// later `<= 1.0` validity gate. Nothing downstream can reconstruct the lost factor of 100.
+    ///
+    /// The old rule was not wrong, its CONVERSE was assumed: a median above 1.5 does mean percent,
+    /// but a median below it does not mean fraction. Pinned from BOTH sides, because either half
+    /// alone still ships the bug - honouring the declaration does nothing for a file that declares
+    /// nothing, and the definitional bound does nothing for a column that never exceeds 1.0.
+    #[test]
+    fn a_percent_column_is_read_as_percent_when_the_file_says_so_and_when_a_fraction_is_impossible()
+    {
+        // (a) THE DECLARATION. `PORO (%)` with tight-rock values - the finding's own scenario.
+        let path = write_temp_csv(
+            "sandi_scale_declared.csv",
+            "Depth,PORO (%),SW (%)
+             2001.0,0.8,1.1
+             2002.0,1.0,1.3
+             2003.0,1.2,1.5
+",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            cols.cpor_scale,
+            ScaleEvidence::Declared(FractionScale::Percent),
+            "the header says percent and that must be what decides it"
+        );
+        assert!(
+            (cols.cpor[0] - 0.008).abs() < 1e-6,
+            "0.8 percent is 0.008 v/v, not 0.8 - got {}",
+            cols.cpor[0]
+        );
+
+        // (b) THE UNITS ROW, which is where a delivery usually states it. Headers say nothing.
+        let path = write_temp_csv(
+            "sandi_scale_units_row.csv",
+            "Depth,PORO,SW
+             m,%,%
+             2001.0,0.8,1.1
+             2002.0,1.0,1.3
+             2003.0,1.2,1.5
+",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(cols.depth.len(), 3, "the units row is not a plug");
+        assert_eq!(cols.cpor_scale, ScaleEvidence::Declared(FractionScale::Percent));
+        assert!((cols.cpor[0] - 0.008).abs() < 1e-6, "got {}", cols.cpor[0]);
+
+        // (c) NOTHING DECLARED, but the fraction reading is impossible: 1.2 exceeds 1.0, and both
+        // porosity and saturation are bounded at 1.0 by definition. This invents no threshold.
+        let path = write_temp_csv(
+            "sandi_scale_impossible.csv",
+            "Depth,PORO,SW
+             2001.0,0.8,1.1
+             2002.0,1.0,1.3
+             2003.0,1.2,1.5
+",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            cols.cpor_scale,
+            ScaleEvidence::ImpossibleAsFraction,
+            "1.2 v/v is not a porosity, so the column cannot be a fraction whatever its median"
+        );
+        assert!((cols.cpor[0] - 0.008).abs() < 1e-6, "got {}", cols.cpor[0]);
+
+        // (d) THE CONTROL, and the reason neither rule may be applied harder. An ordinary
+        // fractional delivery declaring `v/v` must pass through untouched, and so must an
+        // undeclared one that is unambiguously already a fraction.
+        let path = write_temp_csv(
+            "sandi_scale_fraction.csv",
+            "Depth,PORO (v/v),SW
+             2001.0,0.225,0.45
+             2002.0,0.180,0.50
+             2003.0,0.250,0.40
+",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(cols.cpor_scale, ScaleEvidence::Declared(FractionScale::Fraction));
+        assert!((cols.cpor[0] - 0.225).abs() < 1e-6, "a declared fraction is not divided");
+        assert_eq!(
+            cols.csw_scale,
+            ScaleEvidence::GuessedFraction,
+            "SW declares nothing and is a plain fraction - guessed, and the caller is told so"
+        );
+        assert!((cols.csw[0] - 0.45).abs() < 1e-6);
+
+        // (e) THE DECLARATION THAT ITS OWN NUMBERS REFUTE - a real delivery shape, and the case
+        // that says the definitional bound outranks the declaration and not merely the median.
+        // A units row saying `V/V` beside a value of 22 is not evidence, it is a mistake in the
+        // file; honouring it would store 2200% porosity, worse than the guess it replaced.
+        let path = write_temp_csv(
+            "sandi_scale_contradicted.csv",
+            "Depth,PORO,SW
+             m,V/V,V/V
+             2001.0,24.5,45.0
+             2002.0,22.0,50.0
+             2003.0,18.0,40.0
+",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            cols.cpor_scale,
+            ScaleEvidence::DeclarationContradicted,
+            "a declared v/v carrying 22 must be overruled, not obeyed"
+        );
+        assert!((cols.cpor[0] - 0.245).abs() < 1e-6, "got {}", cols.cpor[0]);
+
+        // (f) And the ordinary percent delivery the median rule was written for still works with
+        // nothing declared, so this change cannot have moved any existing import.
+        let path = write_temp_csv(
+            "sandi_scale_ordinary.csv",
+            "Depth,PORO,SW
+             2001.0,22.5,45.0
+             2002.0,18.0,50.0
+",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(cols.cpor_scale, ScaleEvidence::GuessedPercent);
+        assert!((cols.cpor[0] - 0.225).abs() < 1e-6);
     }
 
     /// SB-DIO-013, `docs/record_data_tools.md` and `21_data-io.md` §5.3: the
@@ -3957,6 +4214,10 @@ pub struct MappedCoreTable {
     pub rows: Vec<MappedCoreRow>,
     pub extra_names: Vec<String>,
     pub precision_reduced_values: usize,
+    /// How each column's percent-versus-fraction scale was settled, so the import can tell the
+    /// user which the FILE declared and which SandiBumi had to guess.
+    pub cpor_scale: ScaleEvidence,
+    pub csw_scale: ScaleEvidence,
 }
 
 /// Extracts core rows under the dialog-confirmed `mapping`. The units row (when present)
@@ -3981,9 +4242,15 @@ fn parse_core_table_mapped_unnamed<P: AsRef<Path>>(
             headers.len()
         )));
     }
-    if rows.first().is_some_and(|r| is_units_row(r, mapping.depth)) {
-        rows.remove(0);
-    }
+    // The units row is KEPT here rather than discarded: it is where a delivery states `%` or
+    // `v/v`, and this is the route the import wizard actually takes. Removing it unread is what
+    // left the percent question to a median guess on the very path a user goes through.
+    let units_row: Option<Vec<String>> =
+        if rows.first().is_some_and(|r| is_units_row(r, mapping.depth)) {
+            Some(rows.remove(0))
+        } else {
+            None
+        };
 
     let mut precision_reduced_values = 0usize;
     // Extra columns out of range for THIS file are dropped (multi-file imports confirm the
@@ -4026,18 +4293,27 @@ fn parse_core_table_mapped_unnamed<P: AsRef<Path>>(
             extras: extra_cells,
         });
     }
-    // File-wide percent→fraction on porosity and saturation (same heuristic and scope as
-    // the legacy parser: one decision per file, never per well, so a well whose few plugs
-    // all sit under 1.0 can't dodge a conversion the rest of the file clearly needs).
+    // File-wide percent→fraction on porosity and saturation. Scope is unchanged - one decision
+    // per FILE, never per well, so a well whose few plugs all sit under 1.0 can't dodge a
+    // conversion the rest of the file clearly needs. What changed is the EVIDENCE: the units row
+    // and the column header are consulted before the median, exactly as in `parse_core_csv`.
+    let declared = |idx: Option<usize>| -> Option<FractionScale> {
+        let i = idx?;
+        units_row
+            .as_ref()
+            .and_then(|r| r.get(i))
+            .and_then(|c| fraction_scale_token(c))
+            .or_else(|| headers.get(i).and_then(|h| fraction_scale_token(h)))
+    };
     let mut cpor: Vec<f32> = out.iter().map(|r| r.cpor).collect();
     let mut csw: Vec<f32> = out.iter().map(|r| r.csw).collect();
-    percent_to_fraction(&mut cpor);
-    percent_to_fraction(&mut csw);
+    let cpor_scale = percent_to_fraction_declared(&mut cpor, declared(mapping.cpor));
+    let csw_scale = percent_to_fraction_declared(&mut csw, declared(mapping.csw));
     for (r, (p, s)) in out.iter_mut().zip(cpor.into_iter().zip(csw)) {
         r.cpor = p;
         r.csw = s;
     }
-    Ok(MappedCoreTable { rows: out, extra_names, precision_reduced_values })
+    Ok(MappedCoreTable { rows: out, extra_names, precision_reduced_values, cpor_scale, csw_scale })
 }
 
 #[cfg(test)]

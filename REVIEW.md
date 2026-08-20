@@ -1,5 +1,43 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 26 (Codex P1): a percent core column is percent because your FILE says so
+
+- [ ] **The one that could already have cost you a study.** Core and SCAL porosity and saturation
+      were converted to v/v by a single rule: if the median is above 1.5 it must be percent, so
+      divide by 100. That rule is right. **Its opposite was assumed, and it is wrong.** A tight-rock
+      RCAL table headed `PORO (%)` with values 0.8, 1.0 and 1.2 has a median of 1.0 — so it was
+      stored exactly as it came: 0.8, 1.0 and 1.2 v/v. **80%, 100% and 120% porosity.** A hundred
+      times too high, and the first two even pass the later "porosity must be ≤ 1.0" check.
+- [ ] **Nothing downstream could have caught it.** Those numbers feed phi-k, the Leverett-J fit,
+      every saturation-height law and the core overlay. All of them keep computing and keep
+      plotting. The factor of 100 is gone the moment the file is read — it cannot be reconstructed
+      later, which is why this was worth doing before anything else on the list.
+- [ ] **Your file usually said so, and nobody was reading it.** The depth column has always had its
+      unit read from the units row, falling back to the column header. The percent question never
+      looked at either. It does now, in the same two places and the same order — so `PORO (%)`, or
+      a units row of `%`, or `v/v`, decides it. Both import routes were fixed: the older one and
+      the mapped one the **import wizard actually uses**, which had its own separate copy.
+- [ ] **When your file contradicts itself, the numbers win — and you get told.** One real delivery
+      shape has a units row saying `V/V` above values of 24.5, 22 and 18. Obeying that would store
+      2200% porosity, worse than the guess it replaced. Porosity and saturation cannot exceed 1.0
+      by definition, so a column carrying 22 is not a fraction whatever its units row claims: the
+      declaration is overruled, the column is read as percent, and the import says so — because
+      that usually means the wrong column got mapped, and you want to know.
+- [ ] **1.0 is a definition, not a cutoff I chose.** The tempting fix here was a rule like "a
+      fraction porosity above 0.5 isn't rock". That is true, and it is still a parameter — so it
+      would need a source or your word, and it is not in here. Only the definitional bound is.
+- [ ] **Where your file says nothing, the old behaviour stands and you are told it was a guess.**
+      An undeclared column that reads as an ordinary fraction still imports exactly as before —
+      nothing you have already loaded changes — but the status line and the Processing history now
+      say the scale was guessed, and what it would mean if the guess is wrong.
+- [ ] **What to check.** Import a core table with `%` in a porosity header and confirm the values
+      land as fractions. Import one with no units at all and look at the status line — it should
+      name the column and say it guessed. If you have a tight-rock RCAL delivery in percent, that
+      is the one worth re-importing: check it against what is stored now.
+- [ ] **Still open, and deliberately not in this change.** There is no explicit percent/fraction
+      **override** in the wizard yet, for a file that declares nothing and whose values are genuinely
+      ambiguous either way. Everything above is automatic; the manual override is the next step.
+
 ## 2026-08-20 — A correlation window is an amount of ROCK, not a number (Codex P1)
 
 - [ ] **What was wrong, and why nothing ever caught it.** Every window in the correlation and

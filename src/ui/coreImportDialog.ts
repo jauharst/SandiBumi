@@ -123,6 +123,7 @@ function report(
   const setsUsed = new Set<string>();
   let wells = new Set<string>();
   const problems: string[] = [];
+  const scaleNotes = new Set<string>();
   const storagePrecisions = new Set<string>();
   let precisionReduced = 0;
   for (const { path, res, skipped } of results) {
@@ -148,6 +149,15 @@ function report(
       } else if (o.problem) problems.push(`${o.well_name}: ${o.problem}`);
     }
     if (res.skipped_blank_well > 0) problems.push(`${base}: ${res.skipped_blank_well} blank-well row(s) skipped`);
+    // The percent-versus-fraction scale, whenever the FILE declared nothing and SandiBumi had to
+    // decide. Not an "issue" — the import succeeded — but the guessed-fraction case is the one
+    // reading that can be a hundred times wrong with nothing downstream able to notice, so it is
+    // never left unsaid. It goes to the status line AND the process history, because a status
+    // line is read once and this is worth finding again.
+    for (const w of res.warnings ?? []) {
+      scaleNotes.add(`${base}: ${w}`);
+      recordProcess("Import", `Core scale — ${base}: ${w}`, well?.well_name);
+    }
     const precisionResult = res.precision.reduced
       ? `${res.precision.values_reduced} value(s) reduced: ${res.precision.source_precision} → ${res.precision.destination_precision}`
       : `no values reduced: ${res.precision.source_precision} → ${res.precision.destination_precision}`;
@@ -157,6 +167,8 @@ function report(
     );
   }
   const probNote = problems.length ? ` ${problems.length} issue(s): ${problems.slice(0, 3).join("; ")}${problems.length > 3 ? "; …" : ""}` : "";
+  const scales = [...scaleNotes];
+  const scaleNote = scales.length ? ` ${scales.slice(0, 2).join(" ")}${scales.length > 2 ? ` (+${scales.length - 2} more in History)` : ""}` : "";
   const items = [...extraItems];
   const extraNote = extraRows
     ? ` Plus ${extraRows} point-data value(s) from ${items.slice(0, 4).join(", ")}${items.length > 4 ? ", …" : ""}.`
@@ -180,7 +192,7 @@ function report(
   if (rows === 0) {
     setStatus(`Core import: nothing imported.${precisionNote}${probNote || " (no matching wells?)"}`);
   } else {
-    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${setNote}${extraNote}${precisionNote}${probNote}`);
+    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${setNote}${extraNote}${precisionNote}${scaleNote}${probNote}`);
   }
   if (problems.length) {
     for (const p of problems) recordProcess("Import", `Core import issue — ${p}`, well?.well_name);

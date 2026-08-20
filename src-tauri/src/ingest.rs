@@ -1882,7 +1882,34 @@ pub struct CoreTableImportResult {
     /// Numeric text is parsed at f64 precision before the deliberate f32 storage cast.
     /// The report names that boundary and counts only values that actually changed.
     pub precision: parsers::SamplePrecisionReport,
+    /// Things the import DID that succeeded but the user must be told about — currently the
+    /// percent-versus-fraction scale of the porosity and saturation columns, whenever the file
+    /// declared nothing and SandiBumi had to decide. A guess that lands on "fraction" is the one
+    /// reading that can be silently a hundred times wrong, so it is never left unsaid.
+    #[serde(default)]
+    pub warnings: Vec<String>,
     pub error: Option<String>,
+}
+
+/// Describes how one column's percent-versus-fraction scale was settled, in the user's terms.
+/// Returns `None` where the file declared it — there is nothing to warn about then.
+fn scale_note(role: &str, evidence: parsers::ScaleEvidence) -> Option<String> {
+    use parsers::ScaleEvidence::*;
+    match evidence {
+        Empty | Declared(_) => None,
+        DeclarationContradicted => Some(format!(
+            "{role} is declared v/v in the file but carries a value above 1.0, which no porosity              or saturation can be. The declaration was overruled and the column read as PERCENT -              check that the right column was mapped."
+        )),
+        GuessedPercent => Some(format!(
+            "{role} declared no unit; read as PERCENT and divided by 100 (its values are above the              fraction range). State % or v/v in a units row or the column header to be certain."
+        )),
+        ImpossibleAsFraction => Some(format!(
+            "{role} declared no unit and was read as PERCENT: a value above 1.0 cannot be a              fraction. State % or v/v in a units row or the column header to be certain."
+        )),
+        GuessedFraction => Some(format!(
+            "{role} declared no unit and was read as a FRACTION (v/v), unchanged. If the file is              in percent - tight rock quoted as 0.8 or 1.2 reads this way - every value is now 100x              too high. State % in a units row or the column header and import again."
+        )),
+    }
 }
 
 /// Imports one core table under a dialog-confirmed mapping (probe → confirm → commit).
@@ -1929,6 +1956,7 @@ pub fn import_core_table(
                 extra_rows: 0,
                 extra_items: vec![],
                 precision: parsers::SamplePrecisionReport::new("f64 numeric parse", "f32 storage", 0),
+                warnings: Vec::new(),
                 error: Some(error),
             }
         }
@@ -1942,6 +1970,7 @@ pub fn import_core_table(
         extra_rows: 0,
         extra_items: Vec::new(),
         precision: parsers::SamplePrecisionReport::new("f64 numeric parse", "f32 storage", 0),
+        warnings: Vec::new(),
         error: Some(e),
     };
 
@@ -1954,6 +1983,13 @@ pub fn import_core_table(
         "f32 storage",
         table.precision_reduced_values,
     );
+    let warnings: Vec<String> = [
+        scale_note("Core porosity", table.cpor_scale),
+        scale_note("Core water saturation", table.csw_scale),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let rows = table.rows;
     let extra_names = table.extra_names;
     let extras_dataset = extras_dataset
@@ -2220,6 +2256,7 @@ pub fn import_core_table(
         extra_rows,
         extra_items: if extra_rows > 0 { extra_names } else { Vec::new() },
         precision,
+        warnings,
         error: None,
     }
 }
