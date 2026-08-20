@@ -16,6 +16,7 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
+import { isGeneratedFileCurrent } from "./generated-artifact.mjs";
 
 function crates() {
   const raw = execSync('cargo tree --prefix none --format "{p}|{l}" --edges normal', {
@@ -140,7 +141,7 @@ const output = header + section("Rust crates", rust) + section("JavaScript packa
 const summary = `${rust.size} crates, ${node.size} npm packages, ${copyleft.length} copyleft, ${unknown.length} undeclared`;
 
 if (process.argv.includes("--check")) {
-  if (!existsSync(outputPath) || readFileSync(outputPath, "utf8") !== output) {
+  if (!existsSync(outputPath) || !isGeneratedFileCurrent(readFileSync(outputPath, "utf8"), output)) {
     console.error(`${outputPath} is stale; run node tools/gen-third-party-licenses.mjs`);
     process.exitCode = 1;
   } else {
