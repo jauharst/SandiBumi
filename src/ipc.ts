@@ -933,6 +933,37 @@ export interface TrackCurveSeries {
  *  Each data block is `slice()`d into a fresh buffer because the preceding name bytes leave
  *  the read offset at an arbitrary (non-4-aligned) position — a Float32Array view needs a
  *  4-aligned offset, and slice() copies into a 0-aligned buffer. */
+/** Unpacks the `equations::pack_frame` envelope: a JSON header plus anonymous `f32` columns.
+ *
+ *  The partner of `decodeCurveBuffer` for a command whose result is scalars *and* per-depth
+ *  arrays. Column ORDER is the contract and `header.columns` names it, so a caller pairs by name
+ *  rather than by position and cannot silently read the wrong array.
+ *
+ *  `Float32Array` is native-endian and so are the packed bytes, which is the same assumption
+ *  `decodeCurveBuffer` has always made.
+ *
+ *  Exported for the acceptance test: this is the reading half of a bridge whose writing half is
+ *  pinned in Rust, and a mistake in the offset arithmetic here is SILENT — misaligned floats still
+ *  look like saturations. */
+export function decodeFrame<H>(buf: ArrayBuffer): { header: H; columns: Float32Array[] } {
+  const view = new DataView(buf);
+  let off = 0;
+  const headerLen = view.getUint32(off, true);
+  off += 4;
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off, headerLen))) as H;
+  off += headerLen;
+  const count = view.getUint32(off, true);
+  off += 4;
+  const columns: Float32Array[] = [];
+  for (let i = 0; i < count; i++) {
+    const len = view.getUint32(off, true);
+    off += 4;
+    columns.push(new Float32Array(buf.slice(off, off + len * 4)));
+    off += len * 4;
+  }
+  return { header, columns };
+}
+
 function decodeCurveBuffer(buf: ArrayBuffer): TrackCurveSeries[] {
   const view = new DataView(buf);
   const dec = new TextDecoder();
@@ -2937,16 +2968,17 @@ export interface SwSpreadRequest {
 
 export interface SwMethodSeries {
   name: string;
-  /** Sw per depth for this model; NaN → null where a sample was non-physical. */
-  values: (number | null)[];
+  /** Sw per depth for this model. A non-physical sample is NaN — the array is packed `f32`, so
+   *  "missing" needs no separate null and survives as the value rule 2 already uses. */
+  values: Float32Array;
 }
 
 export interface SwSpreadResult {
-  depth: number[];
+  depth: Float32Array;
   methods: SwMethodSeries[];
-  sw_min: (number | null)[];
-  sw_max: (number | null)[];
-  spread: (number | null)[];
+  sw_min: Float32Array;
+  sw_max: Float32Array;
+  spread: Float32Array;
   mean_spread: number | null;
   max_spread: number | null;
   max_spread_depth: number | null;
@@ -2957,9 +2989,48 @@ export interface SwSpreadResult {
   notes: string[];
 }
 
-/** Per-depth water-saturation envelope across the app's Sw models. Read-only — computes nothing to disk. */
-export function swMethodSpread(req: SwSpreadRequest): Promise<SwSpreadResult> {
-  return invoke<SwSpreadResult>("sw_method_spread", { req });
+/** The JSON half of the `sw_method_spread` envelope — everything that is not a per-depth array. */
+interface SwSpreadHeader {
+  columns: string[];
+  n: number;
+  method_names: string[];
+  mean_spread: number;
+  max_spread: number;
+  max_spread_depth: number;
+  frac_divergent: number;
+  n_samples: number;
+  notes: string[];
+}
+
+/** NaN is how the backend says "no answer"; the panel's summary scalars are `null` there instead,
+ *  because a NaN in a headline number reads as a broken widget rather than as an absent result. */
+const finiteOrNull = (v: number): number | null => (Number.isFinite(v) ? v : null);
+
+/** Per-depth water-saturation envelope across the app's Sw models. Read-only — computes nothing to
+ *  disk. Numeric data travels as raw bytes per rule 3: a 500,000-sample well with seven models is
+ *  5.5 million numbers, which as JSON would be parsed on the UI thread. */
+export async function swMethodSpread(req: SwSpreadRequest): Promise<SwSpreadResult> {
+  const buf = await invoke<ArrayBuffer>("sw_method_spread", { req });
+  const { header, columns } = decodeFrame<SwSpreadHeader>(buf);
+  const column = (name: string): Float32Array => {
+    const i = header.columns.indexOf(name);
+    // Paired BY NAME, never by position — a column read off the wrong index is a plausible curve.
+    if (i < 0) throw new Error(`sw_method_spread returned no '${name}' column`);
+    return columns[i];
+  };
+  return {
+    depth: column("depth"),
+    methods: header.method_names.map((name) => ({ name, values: column(name) })),
+    sw_min: column("sw_min"),
+    sw_max: column("sw_max"),
+    spread: column("spread"),
+    mean_spread: finiteOrNull(header.mean_spread),
+    max_spread: finiteOrNull(header.max_spread),
+    max_spread_depth: finiteOrNull(header.max_spread_depth),
+    frac_divergent: finiteOrNull(header.frac_divergent),
+    n_samples: header.n_samples,
+    notes: header.notes,
+  };
 }
 
 export interface ZoneParamEntry {
@@ -4866,8 +4937,8 @@ export interface LagPoint {
 
 export interface RegistrationResult {
   core: RegPoint[];
-  log_depth: number[];
-  log_value: number[];
+  log_depth: Float32Array;
+  log_value: Float32Array;
   proposed_delta: number;
   correlation: number;
   current_r: number;
@@ -4883,9 +4954,58 @@ export interface RegistrationResult {
   error: string | null;
 }
 
-/** Proposes the shift that best aligns a well's core with a log. Writes nothing. */
-export function proposeRegistration(req: RegistrationRequest): Promise<RegistrationResult> {
-  return invoke<RegistrationResult>("propose_registration", { req });
+/** The JSON half of the `propose_registration` envelope. `scan` stays here deliberately: it is one
+ *  rung per LAG rather than per sample, and each rung carries an integer pair count that must not
+ *  be squeezed through an `f32`. */
+interface RegistrationHeader {
+  columns: string[];
+  n_core: number;
+  n_log: number;
+  proposed_delta: number;
+  correlation: number;
+  current_r: number;
+  n_pairs: number;
+  like_for_like: boolean;
+  matched_on: string;
+  log_family: string;
+  ref_family: string;
+  reference_label: string;
+  scan: LagPoint[];
+  notes: string[];
+  error: string | null;
+}
+
+/** Proposes the shift that best aligns a well's core with a log. Writes nothing. The core and log
+ *  vectors travel as raw bytes per rule 3. */
+export async function proposeRegistration(req: RegistrationRequest): Promise<RegistrationResult> {
+  const buf = await invoke<ArrayBuffer>("propose_registration", { req });
+  const { header, columns } = decodeFrame<RegistrationHeader>(buf);
+  const column = (name: string): Float32Array => {
+    const i = header.columns.indexOf(name);
+    if (i < 0) throw new Error(`propose_registration returned no '${name}' column`);
+    return columns[i];
+  };
+  const coreDepth = column("core_depth");
+  const coreValue = column("core_value");
+  // Re-paired into points because that is how the overlay draws a plug — one depth, one value.
+  const core: RegPoint[] = Array.from(coreDepth, (depth, i) => ({ depth, value: coreValue[i] }));
+  return {
+    core,
+    log_depth: column("log_depth"),
+    log_value: column("log_value"),
+    proposed_delta: header.proposed_delta,
+    correlation: header.correlation,
+    current_r: header.current_r,
+    n_pairs: header.n_pairs,
+    like_for_like: header.like_for_like,
+    matched_on: header.matched_on,
+    log_family: header.log_family,
+    ref_family: header.ref_family,
+    reference_label: header.reference_label,
+    scan: header.scan,
+    notes: header.notes,
+    error: header.error,
+  };
 }
 
 // --- Interactive curve editing (P2-d: log-view right-click menu) ---

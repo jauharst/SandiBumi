@@ -3709,11 +3709,13 @@ fn list_core_references(db: tauri::State<DbState>, well_id: String) -> Result<Ve
 async fn propose_registration(
     db: tauri::State<'_, DbState>,
     req: registration::RegistrationRequest,
-) -> Result<registration::RegistrationResult, String> {
+) -> Result<tauri::ipc::Response, String> {
     let mx = db.0.clone();
-    tauri::async_runtime::spawn_blocking(move || registration::propose_registration(&mx, &req))
+    // Rule 3: the log's full depth/value vectors are raw float arrays and cross as BYTES.
+    let res = tauri::async_runtime::spawn_blocking(move || registration::propose_registration(&mx, &req))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(registration::pack_registration(&res)?))
 }
 
 /// Interactive curve edit from the log view's right-click menu: wireline shift or an
@@ -3946,9 +3948,11 @@ fn apply_fwl_to_zone_params(
 fn sw_method_spread(
     db: tauri::State<DbState>,
     req: resultsqc::SwSpreadRequest,
-) -> Result<resultsqc::SwSpreadResult, String> {
+) -> Result<tauri::ipc::Response, String> {
     let conn = db.0.lock().unwrap();
-    resultsqc::sw_method_spread(&conn, &req)
+    // Rule 3: depth, every model and the three envelope arrays cross as BYTES, not JSON numbers.
+    let res = resultsqc::sw_method_spread(&conn, &req)?;
+    Ok(tauri::ipc::Response::new(resultsqc::pack_sw_spread(&res)?))
 }
 
 /// Read-only SQL over the project database (full DuckDB SQL, SELECT-only). Async: the user

@@ -280,6 +280,67 @@ pub struct RegistrationResult {
     pub error: Option<String>,
 }
 
+/// Everything in [`RegistrationResult`] EXCEPT the per-sample arrays, which travel as packed `f32`
+/// columns beside it.
+///
+/// **`scan` stays in the header on purpose.** It is one rung per LAG, bounded by the scan range and
+/// step rather than by the log, so it is metadata-sized — and each rung carries an integer PAIR
+/// COUNT. Squeezing a count through `f32` is exact only to 2^24, and a pair count that silently
+/// rounds is precisely the kind of quiet wrongness the packed path exists to avoid. Bytes are for
+/// measurements, not for counts.
+#[derive(Debug, Clone, Serialize)]
+struct RegistrationHeader<'a> {
+    columns: Vec<&'a str>,
+    n_core: usize,
+    n_log: usize,
+    proposed_delta: f32,
+    correlation: f32,
+    current_r: f32,
+    n_pairs: usize,
+    like_for_like: bool,
+    matched_on: &'a str,
+    log_family: &'a str,
+    ref_family: &'a str,
+    reference_label: &'a str,
+    scan: &'a [LagPoint],
+    notes: &'a [String],
+    error: Option<&'a str>,
+}
+
+/// Packs one envelope for the IPC bridge: scalars, the lag scan and notes as JSON, every per-sample
+/// array as raw `f32`.
+///
+/// Rule 3. `log_depth`/`log_value` are the WELL's full vectors — the arrays the contract is about —
+/// and the core columns ride the same envelope rather than a second JSON channel, because a
+/// fully cored well is thousands of plugs and because one mechanism needs no per-array judgement
+/// about which is "big enough" to deserve bytes.
+pub fn pack_registration(res: &RegistrationResult) -> Result<Vec<u8>, String> {
+    let (core_depth, core_value): (Vec<f32>, Vec<f32>) =
+        res.core.iter().map(|p| (p.depth, p.value)).unzip();
+    let header = RegistrationHeader {
+        columns: vec!["core_depth", "core_value", "log_depth", "log_value"],
+        n_core: core_depth.len(),
+        n_log: res.log_depth.len(),
+        proposed_delta: res.proposed_delta,
+        correlation: res.correlation,
+        current_r: res.current_r,
+        n_pairs: res.n_pairs,
+        like_for_like: res.like_for_like,
+        matched_on: &res.matched_on,
+        log_family: &res.log_family,
+        ref_family: &res.ref_family,
+        reference_label: &res.reference_label,
+        scan: &res.scan,
+        notes: &res.notes,
+        error: res.error.as_deref(),
+    };
+    let json = serde_json::to_string(&header).map_err(|e| e.to_string())?;
+    Ok(crate::equations::pack_frame(
+        &json,
+        &[&core_depth, &core_value, &res.log_depth, &res.log_value],
+    ))
+}
+
 fn fail(msg: impl Into<String>) -> RegistrationResult {
     RegistrationResult {
         core: Vec::new(),

@@ -553,3 +553,50 @@ own copy of the conversion. The guessed-fraction case is the one reading that ca
 hundred times wrong, so it reaches the status line and the process history rather than nothing at
 all. Still open: an explicit percent/fraction override in the wizard, for the file that declares
 nothing and whose values are ambiguous either way.
+
+## Per-depth arrays cross the bridge as bytes, scalars as JSON (2026-08-20)
+
+Codex whole-repository review, P2. Rule 3 is binding: a `Vec<f32>` never crosses Tauri's IPC bridge
+as JSON. Two commands did it anyway.
+
+**Results-QC** derived `Serialize` on depth, every Sw model and the three envelope arrays and handed
+the struct straight to the command. On a 500,000-sample well with seven available models that is
+depth plus seven method arrays plus `sw_min`, `sw_max` and `spread` — **5.5 million numbers in one
+`invoke`**, serialized as text, allocated as a nested JSON object and parsed on the UI thread. The
+packed form is about 22 MB of float bytes the frontend casts in place. **Core registration** did the
+same with the well's full `log_depth`/`log_value` vectors.
+
+**One envelope, not two formats.** `equations::pack_frame` is the sibling of `pack_curve_series` for
+a result that carries scalars AND arrays: `u32 header_len | JSON header | u32 n_columns | per column
+u32 len + len × f32`. `pack_curve_series` was the wrong tool here because it pairs every series with
+its OWN depth copy — right for independent curves, wrong for a set of models evaluated on one frame,
+where it would have made the payload half again as large to say nothing new.
+
+**Column ORDER is the contract and the header names it.** The columns themselves are anonymous, and
+both callers pair BY NAME rather than by position — a column read off the wrong index is not an
+error, it is one model's saturation under another model's label, and every number still looks like a
+saturation.
+
+**What stays in JSON is decided, not left over.** Scalars, notes and model names belong there. So
+does registration's lag `scan`: it is one rung per LAG rather than per sample, so it is
+metadata-sized, and each rung carries an integer PAIR COUNT that is exact in `f32` only to 2^24 — a
+count that silently rounds is the same class of quiet wrongness the packed path exists to prevent.
+**Bytes are for measurements, not for counts.**
+
+**NaN needs no null.** A JSON array spelled a non-physical sample `null`; an `f32` column spells it
+NaN, which is what rule 2 already requires everywhere else in the codebase. The frontend types
+became `Float32Array`, and the panel's existing `Number.isFinite` guards work unchanged.
+
+**One latent bug fell out of the change.** `depthRegDialog`'s `span` helper did
+`Math.min(...vals)`. It had only ever been handed short arrays; now that it receives the full
+packed log vector, spreading a few hundred thousand samples into a call throws "Maximum call stack
+size exceeded" — on exactly the long wells the pane is most useful for. It iterates now.
+
+Pinned on BOTH sides of the bridge, because a mistake on either is silent. Rust:
+`the_sw_envelope_crosses_as_bytes_and_its_header_names_the_columns_in_packed_order` decodes the
+bytes the way the frontend does, checks the envelope is fully consumed with nothing trailing, and
+requires the header to name the columns in the packed order. Frontend:
+`the_packed_ipc_envelope_decodes_to_the_columns_the_header_names_and_keeps_a_missing_sample_missing`
+builds the envelope by hand and reads it back. Two mutations red at two distinct assertions, one per
+side: a four-byte over-advance in the decoder turns a real saturation into NaN, and packing
+`sw_max` where the header says `sw_min` swaps two arrays that are individually plausible.

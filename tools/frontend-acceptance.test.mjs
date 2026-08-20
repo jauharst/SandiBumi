@@ -2574,3 +2574,55 @@ test("the_lorenz_capacity_totals_follow_the_projects_depth_unit_while_the_coeffi
     assert.match(line, /Lorenz coefficient 0\.420 /, `coefficient must not convert: ${line}`);
   }
 });
+
+test("the_packed_ipc_envelope_decodes_to_the_columns_the_header_names_and_keeps_a_missing_sample_missing", async () => {
+  // Codex whole-repository review, P2. `equations::pack_frame` writes a JSON header plus anonymous
+  // f32 columns; `decodeFrame` is the reading half. The Rust side pins what is WRITTEN — this pins
+  // what is READ, because a mistake in this offset arithmetic is silent: misaligned floats still
+  // look like saturations, and nothing downstream can tell.
+  const { decodeFrame } = await load("/src/ipc.ts");
+
+  const header = JSON.stringify({ columns: ["depth", "ARCHIE"], n: 3 });
+  const headerBytes = new TextEncoder().encode(header);
+  const depth = [2000, 2000.5, 2001];
+  // NaN is how rule 2 spells "missing"; an f32 column has no null, so it has to survive as NaN.
+  // Values chosen exact in f32 — 0.4 is not, and would fail on the round trip for a reason that
+  // has nothing to do with the envelope.
+  const archie = [0.5, NaN, 0.75];
+  const size = 4 + headerBytes.length + 4 + (4 + depth.length * 4) + (4 + archie.length * 4);
+  const buf = new ArrayBuffer(size);
+  const view = new DataView(buf);
+  let off = 0;
+  view.setUint32(off, headerBytes.length, true);
+  off += 4;
+  new Uint8Array(buf).set(headerBytes, off);
+  off += headerBytes.length;
+  view.setUint32(off, 2, true);
+  off += 4;
+  for (const column of [depth, archie]) {
+    view.setUint32(off, column.length, true);
+    off += 4;
+    for (const v of column) {
+      view.setFloat32(off, v, true);
+      off += 4;
+    }
+  }
+  assert.equal(off, size, "the fixture writes exactly the envelope it describes");
+
+  const decoded = decodeFrame(buf);
+  assert.deepEqual(decoded.header.columns, ["depth", "ARCHIE"], "the header round-trips");
+  assert.equal(decoded.columns.length, 2, "one array per packed column");
+  assert.ok(decoded.columns[0] instanceof Float32Array, "columns arrive as Float32Array, not JSON numbers");
+  assert.deepEqual(Array.from(decoded.columns[0]), depth, "depth survives byte for byte");
+
+  // The second column is the one that proves the offsets: it is only correct if the first
+  // column's length prefix and payload were both consumed exactly.
+  const values = decoded.columns[1];
+  assert.equal(values[0], 0.5);
+  assert.ok(Number.isNaN(values[1]), "a non-physical sample stays MISSING across the bridge");
+  assert.equal(values[2], 0.75);
+
+  // And pairing is BY NAME, the rule the callers follow.
+  const byName = (name) => decoded.columns[decoded.header.columns.indexOf(name)];
+  assert.equal(byName("ARCHIE")[0], 0.5, "a column is found by its name, never by its position");
+});
