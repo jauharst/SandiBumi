@@ -347,6 +347,9 @@ same class as `SB-CORE-002` — a correct number presented under an incorrect la
 version of the depth-unit defect a client actually sees, because it appears on the plot legend and
 in any LAS export of `HAFWL`.
 
+*(Corrected 2026-08-20: the `FWL` prompt half is closed — see the as-built note under `SB-SHR-004`
+in §4.1. The `HAFWL` half is not a labelling defect and is open for a ruling, also recorded there.)*
+
 **Net.** The domain half of `SB-CORE-001` is not one defect but four, of which one is closed. §4
 specifies the remaining three and §6 supplies the tests, including the branch-parity test that
 would have caught the Skelt case at the time the Leverett case was fixed.
@@ -631,6 +634,26 @@ the point where a height enters a model.
 `satheight.rs:125` labels `HAFWL` as `"m"` unconditionally; `satheight.rs:110` prompts for `FWL`
 in `"m"` unconditionally.
 *Verified by* `SB-SHR-T05`.
+
+**As-built correction, 2026-08-20 — the prompt half is closed; the output-curve half is not, and
+is not a labelling question.** The `FWL` parameter and the `TVD` input channel now declare
+`modules::PROJECT_DEPTH_UNIT_TOKEN`, and every dialog that prints a module argument's unit
+resolves that token to the project's **stored** unit (`depthUnitPref::argumentUnitLabel`). That
+was an unambiguous defect: `sw_height` computes `h = FWL - dv` against the raw depth sample and
+converts only afterwards, so the number entered was always project-native and the label
+contradicted the arithmetic. No numbers moved. Pinned by
+`the_free_water_level_is_declared_in_the_unit_the_height_is_actually_measured_in` and
+`a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference`.
+
+`HAFWL` is deliberately untouched and this requirement as written does not fit it. The curve is
+not a mislabelled project-native height — `sw_height` **converts** the height to metres before
+writing it, so `"m"` is a true statement about the values stored. Making it follow the project
+would change the numbers written on every foot-declared project, which is a product decision
+about what a height-above-contact curve should be delivered in, not a label fix. **Open for
+Jauhar's ruling**, stated as the choice it is: `HAFWL` always in metres (as built, and consistent
+with the Skelt-Harrison constants, which are metres by the published form), or `HAFWL` in the
+project's unit (this requirement as written, and consistent with how every other depth-dimensioned
+curve is stored). Until then nothing changes.
 
 ### 4.2 Constants: one derivation, one definition site, one source
 

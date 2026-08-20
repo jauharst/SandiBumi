@@ -519,12 +519,15 @@ async fn import_tops_csv(
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     default_well_id: Option<String>,
     path: String,
+    // Overrides what the file declares on its depth column; absent means "believe the file,
+    // else the project's own unit". See `ingest::import_tops_file`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::TopsImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import tops", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_tops_file(&c, default_well_id.as_deref(), &path))
+        Ok(ingest::import_tops_file(&c, default_well_id.as_deref(), &path, depth_unit.as_deref()))
     })
     .await
 }
@@ -542,13 +545,25 @@ async fn import_aux_data(
     set_name: Option<String>,
     follow_core: Option<bool>,
     depth_datum: String,
+    // Overrides what the file declares on its TOP column; absent means "believe the file, else
+    // the project's own unit". See `ingest::import_aux_file`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::AuxImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let follow_core = follow_core.unwrap_or(false);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core, &depth_datum))
+        Ok(ingest::import_aux_file(
+            &c,
+            &well_id,
+            &dataset,
+            &path,
+            set_name.as_deref(),
+            follow_core,
+            &depth_datum,
+            depth_unit.as_deref(),
+        ))
     })
     .await
 }
@@ -1323,6 +1338,9 @@ async fn import_scal_files(
     set_name: Option<String>,
     follow_core: Option<bool>,
     depth_datum: String,
+    // The unit the FILES quote their plug depths in; absent means the project's own. See
+    // `ingest::import_scal_files`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let follow_core = follow_core.unwrap_or(false);
@@ -1333,7 +1351,18 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core, &depth_datum))
+        Ok(ingest::import_scal_files(
+            &c,
+            &well_id,
+            &paths,
+            &format,
+            &system,
+            ift_lab,
+            set_name.as_deref(),
+            follow_core,
+            &depth_datum,
+            depth_unit.as_deref(),
+        ))
     })
     .await
 }
@@ -1587,12 +1616,22 @@ async fn import_deviation_csv(
     path: String,
     datum_elevation: Option<f32>,
     survey_name: Option<String>,
+    // The unit the FILE's MD column is in; absent means "already the project unit", which is
+    // what every pre-existing caller sends. See `ingest::import_deviation_csv`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import deviation", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation, survey_name.as_deref()))
+        Ok(ingest::import_deviation_csv(
+            &c,
+            &well_id,
+            &path,
+            datum_elevation,
+            survey_name.as_deref(),
+            depth_unit.as_deref(),
+        ))
     })
     .await
 }

@@ -2,14 +2,17 @@
 //! (`scal_pc` table), Leverett-J function fitting, and the `sw_height` module that
 //! writes a saturation-vs-height-above-FWL curve (SWH).
 //!
-//! Conventions: Pc in psi, IFT (sigma*cos theta) in dyn/cm, perm in mD, porosity v/v,
-//! depths/heights in metres (converted to ft only inside the Pc gradient formula).
+//! Conventions: Pc in psi, IFT (sigma*cos theta) in dyn/cm, perm in mD, porosity v/v.
+//! DEPTHS are project-native — the depth curves, and the FWL differenced against them, are in
+//! whatever unit the project stores (SB-ENV-057's `depth` token). HEIGHTS are converted at the
+//! point of use: to metres for the Skelt-Harrison constants, to feet for the Pc gradient, and
+//! to metres for the HAFWL output, all through `units.rs`.
 //! J = 0.21645 * (Pc / IFT) * sqrt(k / phi)   (the classic oilfield-unit Leverett J)
 //! Pc_res = 0.433 * (RHO_W - RHO_HC) * h_ft   (psi; 0.433 psi/ft per unit sp. gravity)
 
 use crate::modules::{
     log_in, log_out, opt, param, param_open, param_open_when, ModuleContext, ModuleOutputs,
-    ModuleSpec,
+    ModuleSpec, PROJECT_DEPTH_UNIT_TOKEN,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -110,7 +113,14 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_SWH", "Saturation-height model", "LEVERETT", &["LEVERETT", "SKELT"]),
-            param_open("FWL", "Free-water level (same reference as the vertical-depth input; negative = subsea TVDSS)", "m", -10000.0, 20000.0, true),
+            // SB-ENV-057: PROJECT-NATIVE, not metres. `sw_height` computes `h = FWL - dv` against
+            // the raw TVD/DEPTH sample and only converts AFTERWARDS, so the number entered here
+            // is in whatever unit the project stores — which is what the feet-equivalence test
+            // below has always asserted (FWL 6561.6798 on a foot project answers FWL 2000 on a
+            // metre one). Declaring "m" told a foot-project user to enter a metre value that
+            // would be differenced against foot depths: a free-water level 3.28x too shallow,
+            // returning a finite, plausible, fully-water-saturated answer with no error.
+            param_open("FWL", "Free-water level (same reference as the vertical-depth input; negative = subsea TVDSS)", PROJECT_DEPTH_UNIT_TOKEN, -10000.0, 20000.0, true),
             param(
                 "RHO_W", "Water density", "g/cc", 1.0, 0.8, 1.3,
                 "docs/ref_shf.md:56 and Techlog sand-summary water-density default; docs/PRD_v2/15_sat-height-rocktyping.md §5.1",
@@ -154,7 +164,11 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             param_open("SWT_IRR", "Irreducible water saturation (lower clamp)", "v/v", 0.0, 0.8, true),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
-            log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", "m", "TVD", false),
+            // Project-native for the same reason as FWL: this curve's samples are differenced
+            // against FWL before any conversion, so both sides of that subtraction are in the
+            // project's stored unit. HAFWL below is the deliberate opposite — it IS metres,
+            // because `sw_height` converts the height before writing it.
+            log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", PROJECT_DEPTH_UNIT_TOKEN, "TVD", false),
             // DEC-064 (2026-08-18, Jauhar: "it principally SWT"): the height-function saturation
             // belongs to the TOTAL porosity system, so it carries the T designator through the
             // family pattern (SWT_RTC / SWT_IMTS): SWT is the limited result - exactly the
@@ -350,6 +364,57 @@ mod tests {
         assert!(
             (metric - imperial).abs() < 1e-3,
             "same well, same height above FWL, different declared unit: metric Sw {metric} vs foot Sw {imperial}"
+        );
+    }
+
+    /// SB-ENV-057, from the Codex adversarial review of a6565bd9 (P1). `sw_height` computes
+    /// `h = FWL - dv` against the RAW TVD/DEPTH sample and converts only afterwards, so FWL and
+    /// the TVD channel are project-native — yet the manifest declared them "m". A foot-project
+    /// user reading that label would enter a metre free-water level to be subtracted from foot
+    /// depths, putting the contact roughly 3.28x too shallow and returning a finite, plausible,
+    /// fully-water-saturated answer with no error anywhere.
+    ///
+    /// Both halves are pinned together because either alone is still a lie. The LABEL half: FWL
+    /// and TVD carry the project-native token, while HAFWL in the same manifest keeps its fixed
+    /// "m" — it genuinely IS metres, because the module converts the height before writing it,
+    /// and a fix that swept every "m" in this file would have taken it too. The ARITHMETIC half:
+    /// the SAME FWL number in two differently-declared projects must give DIFFERENT answers,
+    /// which is what "project-native" means. Read it against its neighbour above, where
+    /// CONVERTED FWL numbers give the same answer — together they say the parameter is in the
+    /// project's unit and nothing else.
+    #[test]
+    fn the_free_water_level_is_declared_in_the_unit_the_height_is_actually_measured_in() {
+        use crate::modules::PROJECT_DEPTH_UNIT_TOKEN;
+        use crate::units::DepthUnit;
+
+        let spec = sw_height_spec();
+        let unit_of = |name: &str| {
+            spec.args
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap_or_else(|| panic!("sw_height.{name} is declared"))
+                .unit
+                .clone()
+        };
+        assert_eq!(unit_of("FWL"), PROJECT_DEPTH_UNIT_TOKEN, "FWL is differenced against raw depths");
+        assert_eq!(unit_of("TVD"), PROJECT_DEPTH_UNIT_TOKEN, "TVD is the other side of that subtraction");
+        assert_eq!(unit_of("HAFWL"), "m", "HAFWL is converted before it is written and stays metres");
+
+        // One number, two declarations. In metres it is 100 m of column; in feet it is 100 ft,
+        // which is 30.48 m — a third of the height, so a materially different saturation.
+        let logs: Vec<(&str, Vec<f32>)> =
+            vec![("DEPTH", vec![1900.0]), ("TVD", vec![1900.0]), ("PHIE", vec![0.25]), ("PERM", vec![100.0])];
+        let opts = [("OPT_SWH", "LEVERETT")];
+        let metric =
+            sw_height(&ctx_in_unit(1, &logs, &[("FWL", 2000.0)], &opts, DepthUnit::Metres))["SWT"][0];
+        let imperial =
+            sw_height(&ctx_in_unit(1, &logs, &[("FWL", 2000.0)], &opts, DepthUnit::Feet))["SWT"][0];
+        assert!(metric.is_finite() && imperial.is_finite(), "both must compute: {metric} vs {imperial}");
+        assert!(
+            imperial > metric,
+            "100 ft of column holds less hydrocarbon than 100 m, so the foot project must read \
+             wetter — metric Sw {metric}, foot Sw {imperial}. Equal answers would mean FWL was \
+             being read as metres regardless of the project, which is what the old label claimed."
         );
     }
 

@@ -14731,7 +14731,8 @@ mod tests {
         // hundreds of metres apart — far too large to be confused with interpolation slop.
         let csv = std::env::temp_dir().join(format!("sandibumi_devheight_{dev}.csv"));
         std::fs::write(&csv, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let imported = ingest::import_deviation_csv(&conn, &dev, csv.to_str().unwrap(), Some(25.0), None);
+        let imported =
+            ingest::import_deviation_csv(&conn, &dev, csv.to_str().unwrap(), Some(25.0), None, None);
         std::fs::remove_file(&csv).ok();
         assert!(imported.error.is_none(), "survey import failed: {:?}", imported.error);
 
