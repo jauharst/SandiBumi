@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 36 (DEC-089, second half): **your existing projects are migrated onto one set of units**
+
+- [ ] **What this finishes.** The previous increment made new imports store canonical units.
+      Projects you already had kept the old split — modules reading 0.30 v/v while the log view
+      read 30.0 PU off the same curve. This closes that, on open.
+- [ ] **How it works.** On opening a project, the six standard curves are re-projected from the
+      generic store — the same thing import now does, so a migrated project and a re-imported
+      one land on identical numbers. It runs once and stamps itself.
+- [ ] **A curve is converted whole or not at all.** If the generic store cannot supply a value
+      at every depth the stored curve has one, that curve is **left exactly as it was**. A
+      half-converted curve — part v/v, part PU — would be worse than an unconverted one and
+      nothing on the log could show you which samples were which.
+- [ ] **Older projects are untouched, and that is not luck.** A project from before the generic
+      store had its generic curves backfilled FROM these same columns, so both sides already
+      hold the same numbers and there is no split to close.
+- [ ] **It tells you when it acts.** If anything is converted you get a startup note saying how
+      many curves, and it lands in Processing history. If the migration fails, **the project
+      still opens** — unchanged — rather than refusing to launch over a display-domain tidy-up.
+- [ ] **What to check.** Open a project that has a LAS delivered in PU or kg/m³. Watch for the
+      startup note. Then put NPHI on a log view and a crossplot: it should read **0–0.3 v/v**,
+      matching what a porosity module computes. Close and re-open — the note should NOT appear
+      again. Open a normal metric project: nothing should change and no note should appear.
+
 ## 2026-08-20 — Audit increment 35 (my audit P2): a raw FTEMP can no longer masquerade into Rw — **this one overstated hydrocarbon**
 
 - [ ] **What was wrong.** `sw_arch`, `sw_indo` and `sw_sim` — the three saturation modules you
