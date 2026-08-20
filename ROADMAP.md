@@ -1373,14 +1373,19 @@ requiring behaviour-preserving proof; parameter conflicts (30, 51's clamp) are J
 never an agent's.**
 
 **Rulings this backlog waits on (fix nothing in these until the word comes):**
-- [ ] **R-1 (findings 6, 7):** what unit domain does `standard_curves` hold — canonical (convert
-      at import, one migration for existing projects) or delivered-native (convert at every read)?
-      One doctrine decision before ANY units fix, or labels get converted onto still-wrong values.
-- [ ] **R-2 (finding 51):** is the [0,1] clamp correct for `SWE_INDO` on both engines? A straight
-      delegation to `sandimin::sw_indonesia` moves SWE_INDO in the Sw>1 region.
-- [ ] **R-3 (finding 30):** the two FTEMP gradient defaults (0.03 °C/m vs 0.026 °F/ft = 0.0474
-      °C/m, both DEC-077-attributed) disagree by 58% — which is the house default, or do both
-      stand with the divergence named?
+- [x] **R-1 (findings 6, 7):** **RULED 2026-08-20 (DEC-085): CANONICAL** — "convert it to
+      'default' active unit choosen to work in active project." Imports convert on the way in to
+      the project's default working units; existing delivered-native projects migrate once.
+      Findings 6/7 and the units family 14–19 are now executable.
+- [x] **R-2 (finding 51):** **RULED 2026-08-20 (DEC-085): the clamp is correct** — "every
+      property have their own limits, such vshale 0-1, phie, 0.001-0.45, sw 0-1." sw_indo may
+      delegate to `sandimin::sw_indonesia`. Scope note: ruled on SWE_INDO as asked; whether it
+      extends to the OTHER raw diagnostic companions (SWT_ARCH, SWT_HGT/SB-SAT-025, PHIE_DN/
+      DEC-070, finding 4's SWE_SIM) is an open question flagged on finding 4 — that wider reading
+      would also break the MC plausibility tally, which counts Sw>1 on unlimited companions.
+- [x] **R-3 (finding 30):** **RULED 2026-08-20 (DEC-085): 0.026 °F/ft** — "the right one is
+      0.026 degF/ft" (= 0.0474 °C/m). The 0.03 °C/m writer's default is brought into agreement.
+      Finding 30 is now executable.
 
 **P0 — increment 1 (rulings already exist; execution was missing):**
 - [ ] **#1** `modules.rs:4848` — phi_son Wyllie Cp INFLATES porosity for DT_SH<100; DEC-012 says
