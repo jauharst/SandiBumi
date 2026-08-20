@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 625,
+Review sections counted toward no capability: **157** of 626,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -21,7 +21,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 65 | — | 12 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 39 | — | 6 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 226 | 2026-08-13 | 73 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 231 | 2026-08-13 | 74 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 98 | 2026-08-13 | 22 |
 | `formation-temperature` | Formation-temperature curves | Not exercised | 0 / 5 | — | 2 |
@@ -31,8 +31,8 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-depth-registration` | Core-depth registration | Not exercised | 0 / 55 | — | 9 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 109 | — | 18 |
-| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 39 | — | 8 |
-| `porosity` | Porosity interpretation | Not exercised | 0 / 80 | — | 22 |
+| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 44 | — | 9 |
+| `porosity` | Porosity interpretation | Not exercised | 0 / 85 | — | 23 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 166 | 2026-08-13 | 43 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 21 | — | 3 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 7 | — | 2 |

@@ -2,7 +2,7 @@
 # Canonical curve and unit registry
 
 - Registry version: `curve-units-v2`
-- Source SHA-256: `ee552f348a656549391e9d8cc3f0e77bf5d8addf7eaf65fe93f27046010591f1`
+- Source SHA-256: `b8c27a5cb43cf6bd097ff5dbba53f5802b74250042ec63456960b71e1ef2f066`
 - Population: 20 families, 151 exact aliases, 3 vendor alias patterns, 4 pattern exclusions, 46 unit tokens, 10 conversion rules
 
 ## Families

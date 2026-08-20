@@ -45,7 +45,7 @@
     { "family": "RES_SHAL", "canonical_unit": "ohm.m", "quantity_kind": "resistivity", "aliases": ["RES_SHAL", "RESS", "RSHAL", "SFL", "SFLU", "LL8", "SN", "AT10", "AHT10", "RLA1", "R25P", "BSAV"] },
     { "family": "RXO", "canonical_unit": "ohm.m", "quantity_kind": "resistivity", "aliases": ["RXO", "RXOZ", "MSFL", "RMLL"] }
   ],
-  "convertible_families": ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"],
+  "convertible_families": ["CALI", "BS", "RHOB", "DRHO", "NPHI", "POR", "VSH", "VSH_UNCLIPPED", "VCL", "DT", "DTS", "TEMP"],
   "unit_tokens": [
     { "token": "gAPI", "quantity_kind": "gamma_ray", "canonical_unit": "gAPI" },
     { "token": "GAPI", "quantity_kind": "gamma_ray", "canonical_unit": "gAPI" },
@@ -100,9 +100,9 @@
     { "families": ["DT", "DTS"], "from_unit": "us/m", "to_unit": "us/ft", "factor_expression": "0.3048", "offset_expression": "0.0", "derivation": "1 international ft = 0.3048 m; (us/m) x (m/ft) = us/ft", "automatic": true },
     { "families": ["DT", "DTS"], "from_unit": "usec/m", "to_unit": "us/ft", "factor_expression": "0.3048", "offset_expression": "0.0", "derivation": "1 usec = 1 us and 1 international ft = 0.3048 m; factor = 0.3048", "automatic": true },
     { "families": ["RHOB", "DRHO"], "from_unit": "kg/m3", "to_unit": "g/cc", "factor_expression": "0.001", "offset_expression": "0.0", "derivation": "1 g/cc = 1000 kg/m3; kg/m3 -> g/cc divides by 1000", "automatic": true },
-    { "families": ["NPHI"], "from_unit": "pu", "to_unit": "v/v", "factor_expression": "0.01", "offset_expression": "0.0", "derivation": "1 porosity unit = 1 percent = 0.01 v/v", "automatic": true },
-    { "families": ["NPHI"], "from_unit": "%", "to_unit": "v/v", "factor_expression": "0.01", "offset_expression": "0.0", "derivation": "1 percent = 1/100 = 0.01 v/v", "automatic": true },
-    { "families": ["NPHI"], "from_unit": "p.u.", "to_unit": "v/v", "factor_expression": "0.01", "offset_expression": "0.0", "derivation": "p.u. denotes porosity percent; 1 percent = 0.01 v/v", "automatic": true },
+    { "families": ["NPHI", "POR"], "from_unit": "pu", "to_unit": "v/v", "factor_expression": "0.01", "offset_expression": "0.0", "derivation": "1 porosity unit = 1 percent = 0.01 v/v; porosity families only, because a porosity unit does not label a shale or clay volume", "automatic": true },
+    { "families": ["NPHI", "POR", "VSH", "VSH_UNCLIPPED", "VCL"], "from_unit": "%", "to_unit": "v/v", "factor_expression": "0.01", "offset_expression": "0.0", "derivation": "1 percent = 1/100 = 0.01 v/v, the same arithmetic for every fraction family: neutron porosity, porosity, shale volume and clay volume", "automatic": true },
+    { "families": ["NPHI", "POR"], "from_unit": "p.u.", "to_unit": "v/v", "factor_expression": "0.01", "offset_expression": "0.0", "derivation": "p.u. denotes porosity percent; 1 percent = 0.01 v/v; porosity families only, for the same reason as pu", "automatic": true },
     { "families": ["TEMP"], "from_unit": "DEGF", "to_unit": "DEGC", "factor_expression": "1.0 / 1.8", "offset_expression": "-32.0", "derivation": "T42 fixes degC = (degF - 32) / 1.8; factor = 1/1.8 and offset = -32 degF", "automatic": true },
     { "families": ["QV"], "from_unit": "MEQ/L", "to_unit": "meq/mL", "factor_expression": "1.0e-3", "offset_expression": "0.0", "derivation": "1 L = 10^3 mL; meq/L -> meq/mL therefore multiplies by 10^-3", "automatic": false }
   ]
