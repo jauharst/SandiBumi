@@ -314,3 +314,33 @@ the delivery, and an undeclared legacy set stays the preserved unknown) and by
 `a_core_read_refused_for_its_datum_is_named_in_the_match_note_rather_than_left_as_a_bare_nan` (the
 reason is reported, and the confusion result is not collateral damage). Four mutations red at four
 distinct assertions.
+
+## A missing measurement is not a failed overlay (2026-08-20)
+
+Codex whole-repository review, P2, in the same reader as the datum guard above.
+`fetch_core_series` promises four INDEPENDENT series — CPOR, CPERM, CGD, CSW — "each holding only
+its own non-NaN samples". It read every cell straight as `f32`, and DuckDB cannot turn a SQL NULL
+into one. That failed the ROW, and one failed row failed the whole command.
+
+So a legacy plug carrying a perfectly good porosity and grain density plotted **nothing**, because
+its permeability cell was NULL. Not the permeability point — the whole overlay, for the whole well.
+The sibling `db::get_core_point_series` had the right shape all along: `Option<f32>`, dropped
+independently per property.
+
+**It needs an OLD project to reproduce, which is why it is P2 rather than P1.** Today's import and
+edit writers pass `f32::NAN`, never SQL NULL, so a blank cell in a fresh delivery is already safe.
+But the four measurement columns are nullable in the schema, the pre-set-era migration copies
+whatever a legacy project had, and nothing normalizes them — so the rows exist, and the reader had
+no guard.
+
+**Depth stays a plain `f32` and is deliberately not given the same treatment.** It is `NOT NULL` in
+the schema and part of the primary key; a null there would be a corrupt key rather than a missing
+measurement, and reading it as absent would hide a real problem behind a quiet skip.
+
+Pinned by `a_null_core_property_empties_its_own_series_instead_of_failing_the_whole_overlay`, whose
+fixture inserts the NULLs with raw SQL precisely because no current writer can produce them. From
+both sides: the properties that ARE present must still come back, and the null one must come back
+EMPTY rather than as a point at zero — a plug measured at 0 mD is a measurement, and "nobody
+measured it" is not. Two mutations red at two distinct assertions: reading the cell as bare `f32`
+again fails with DuckDB's own `InvalidColumnType(2, "cperm", Null)`, and mapping a null to `0.0`
+puts a phantom plug on the plot.

@@ -320,13 +320,21 @@ pub fn fetch_core_series(
                                                      ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')
          ORDER BY depth",
     )?;
+    // The four measurement columns are NULLABLE in the schema and a pre-set-era project keeps
+    // whatever it had, so each is read as `Option<f32>` and a missing cell becomes NaN — which
+    // `pack` below already drops from that property's own series. Reading them straight as `f32`
+    // made DuckDB fail the ROW, and one failed row failed the whole command: a plug carrying a
+    // real porosity and grain density plotted NOTHING because its permeability cell was NULL.
+    // Depth is `NOT NULL` in the schema and stays a plain `f32`; a null there would be a
+    // corrupt key, not a missing measurement, and must not be quietly read as absent.
     let rows = stmt.query_map(params![well_id], |row| {
+        let opt = |v: Option<f32>| v.unwrap_or(f32::NAN);
         Ok((
             row.get::<_, f32>(0)?,
-            row.get::<_, f32>(1)?,
-            row.get::<_, f32>(2)?,
-            row.get::<_, f32>(3)?,
-            row.get::<_, f32>(4)?,
+            opt(row.get::<_, Option<f32>>(1)?),
+            opt(row.get::<_, Option<f32>>(2)?),
+            opt(row.get::<_, Option<f32>>(3)?),
+            opt(row.get::<_, Option<f32>>(4)?),
         ))
     })?;
 
@@ -4601,6 +4609,59 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// Codex whole-repository review, P2: one SQL-NULL cell failed the WHOLE core overlay.
+    ///
+    /// The four measurement columns are nullable in the schema and the pre-set-era migration
+    /// copies whatever a legacy project had. `fetch_core_series` promises four INDEPENDENT
+    /// series, each holding only its own non-NaN samples - but it read every cell straight as
+    /// `f32`, and DuckDB cannot turn SQL NULL into one. That failed the ROW, and one failed row
+    /// failed the command, so a plug carrying a perfectly good porosity and grain density
+    /// plotted NOTHING because its permeability cell was NULL. The sibling
+    /// `db::get_core_point_series` had the right shape all along.
+    ///
+    /// Today's writers pass `f32::NAN` rather than NULL, which is why this needs a legacy row to
+    /// reproduce and why the fixture inserts the NULLs with raw SQL - the point is precisely that
+    /// an OLD project can hold them.
+    ///
+    /// Pinned from both sides: the properties that ARE present must still come back, and the null
+    /// one must come back EMPTY rather than as a point at zero - a plug at 0 mD is a measurement,
+    /// and "nobody measured it" is not.
+    #[test]
+    fn a_null_core_property_empties_its_own_series_instead_of_failing_the_whole_overlay() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-NULLCORE", None, None, None).unwrap();
+        let well = id.to_string();
+
+        // A legacy row exactly as the migration would have preserved it: real porosity and grain
+        // density, SQL NULL permeability and saturation.
+        conn.execute(
+            "INSERT INTO core_data (well_id, set_name, depth, cpor, cperm, cgd, csw, depth_orig)              VALUES (?1, 'RAW', 1000.0, 0.20, NULL, 2.65, NULL, 1000.0)",
+            duckdb::params![well],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO core_sets (well_id, set_name, active) VALUES (?1, 'RAW', 1)",
+            duckdb::params![well],
+        )
+        .unwrap();
+
+        let series = super::fetch_core_series(&conn, &well)
+            .expect("a NULL measurement is missing data, not a failed command");
+        let count = |name: &str| {
+            series
+                .iter()
+                .find(|s| s.curve_name == name)
+                .unwrap_or_else(|| panic!("{name} series is always returned"))
+                .point_count
+        };
+        assert_eq!(count("CPOR"), 1, "the porosity that WAS measured must still plot");
+        assert_eq!(count("CGD"), 1, "and so must the grain density");
+        assert_eq!(count("CPERM"), 0, "the unmeasured permeability contributes no point");
+        assert_eq!(count("CSW"), 0, "never a point at zero, which would be a measurement");
+    }
+
     /// CORRECTNESS — SB-DBM-035 / SB-DBM-T35. The exact v1/v2 archive plus current v3,
     /// refused archive UPDATE/DELETE, restore-to-v4, source-version record and unchanged v1-v3
     /// expectations come from `22_database-model.md` §6 T35, sourced there to SB-CORE-010,
