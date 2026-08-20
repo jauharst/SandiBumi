@@ -10,6 +10,7 @@ import {
   type WellSummary,
   type ZoneEntry,
 } from "../ipc";
+import { shownDepthLabel, toShownDepth } from "../depthUnitPref";
 import { appState } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
@@ -236,7 +237,9 @@ function spreadCheck(spread: SwSpreadResult): { status: CheckStatus; detail: str
   const status: CheckStatus = frac <= SPREAD_FRAC_OK ? "ok" : frac <= SPREAD_FRAC_WARN ? "warn" : "alert";
   const mean = spread.mean_spread ?? NaN;
   const max = spread.max_spread ?? NaN;
-  const worstAt = Number.isFinite(spread.max_spread_depth ?? NaN) ? ` @ ${(spread.max_spread_depth ?? 0).toFixed(0)} m` : "";
+  const worstAt = Number.isFinite(spread.max_spread_depth ?? NaN)
+    ? ` @ ${toShownDepth(spread.max_spread_depth ?? 0).toFixed(0)} ${shownDepthLabel()}`
+    : "";
   const detail = `mean ${mean.toFixed(3)} · max ${max.toFixed(3)}${worstAt} · ${(frac * 100).toFixed(0)}% divergent`;
   return { status, detail, tooltip: `Models: ${models}\n${spread.notes.join("\n")}` };
 }
@@ -507,13 +510,17 @@ function drawEnvelope(canvas: HTMLCanvasElement, spread: SwSpreadResult | null):
   const theme = readTheme(canvas);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+  const depthLabel = `Depth (${shownDepthLabel()})`;
   if (!spread || spread.depth.length < 2) {
     // clear + hint
-    const pc = new PlotCanvas(canvas, { label: "Sw", min: 0, max: 1, log: false, invert: false }, { label: "Depth (m)", min: 0, max: 1, log: false, invert: true });
+    const pc = new PlotCanvas(canvas, { label: "Sw", min: 0, max: 1, log: false, invert: false }, { label: depthLabel, min: 0, max: 1, log: false, invert: true });
     pc.drawFrame();
     return;
   }
-  const depths = spread.depth;
+  // Converted ONCE, here, so every axis bound, band vertex, model line and the crosshair below
+  // all live in the same space. Converting the axis and leaving one consumer on stored depths
+  // would put the crosshair at the wrong sand rather than produce an obvious error.
+  const depths = spread.depth.map(toShownDepth);
   let dMin = Infinity;
   let dMax = -Infinity;
   for (const d of depths) {
@@ -526,7 +533,7 @@ function drawEnvelope(canvas: HTMLCanvasElement, spread: SwSpreadResult | null):
   const pc = new PlotCanvas(
     canvas,
     { label: "Sw (v/v)", min: 0, max: 1, log: false, invert: false },
-    { label: "Depth (m)", min: dMin, max: dMax, log: false, invert: true },
+    { label: depthLabel, min: dMin, max: dMax, log: false, invert: true },
   );
   pc.drawFrame();
 
@@ -571,7 +578,9 @@ function drawEnvelope(canvas: HTMLCanvasElement, spread: SwSpreadResult | null):
   }
 
   // crosshair depth marker (horizontal)
-  const hd = appState.hoverDepth.get();
+  // `hoverDepth` is broadcast in STORED units by the log view, so it converts like the rest.
+  const hoverStored = appState.hoverDepth.get();
+  const hd = hoverStored === null ? null : toShownDepth(hoverStored);
   if (hd !== null && hd >= dMin && hd <= dMax) {
     const [, py] = pc.toPx(0, hd);
     ctx.save();
@@ -896,6 +905,11 @@ export async function buildResultsQcContent(
     }
   });
   const unsubTheme = appState.themeVersion.subscribe(() => drawDetail());
+  // The depth axis is drawn in the DISPLAYED unit, which is switchable from the log view at any
+  // moment, and the project unit is re-read on a project switch. Without these the axis would
+  // keep its old label and its old numbers while the rest of the application had moved.
+  const unsubShown = appState.displayDepthUnit.subscribe(() => drawDetail());
+  const unsubStored = appState.projectDepthUnit.subscribe(() => drawDetail());
   const disposeEnvResize = attachResizeRedraw(envCanvas, drawDetail);
   const disposeBuckResize = attachResizeRedraw(buckCanvas, drawDetail);
 
@@ -904,6 +918,8 @@ export async function buildResultsQcContent(
     dispose: () => {
       unsubHover();
       unsubTheme();
+      unsubShown();
+      unsubStored();
       disposeEnvResize();
       disposeBuckResize();
       if (rafId) cancelAnimationFrame(rafId);

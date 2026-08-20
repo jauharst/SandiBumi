@@ -11,13 +11,13 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 136 | — | 44 |
+| `las-import` | LAS import | Not exercised | 0 / 138 | — | 45 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
-| `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
+| `core-point-import` | Core and point-data import | Not exercised | 0 / 57 | — | 11 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 154 | 2026-08-13 | 59 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 202 | 2026-08-13 | 69 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 94 | 2026-08-13 | 21 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -29,7 +29,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 39 | — | 8 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 75 | — | 21 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 144 | 2026-08-13 | 39 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 151 | 2026-08-13 | 40 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
@@ -41,7 +41,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 18 | 2026-07-18 | 8 |
-| `field-dashboard` | Field Dashboard | Not exercised | 0 / 13 | — | 5 |
+| `field-dashboard` | Field Dashboard | Not exercised | 0 / 20 | — | 6 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 31 | — | 11 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
@@ -53,8 +53,8 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
-| `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
-| `report` | Report deliverables | Partially exercised | 8 / 84 | 2026-08-14 | 22 |
+| `composite` | Composite log plots | Not exercised | 0 / 15 | — | 5 |
+| `report` | Report deliverables | Partially exercised | 8 / 90 | 2026-08-14 | 23 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |

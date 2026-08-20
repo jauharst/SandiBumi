@@ -1968,6 +1968,66 @@ test("an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_z
   assert.match(host.children[1].textContent, /1 of 2 row\(s\).*no sample could be classified/);
 });
 
+test("the_pay_summary_table_heads_and_converts_its_thicknesses_together_and_leaves_the_ratios_alone", async () => {
+  // CORRECTNESS — SB-ENV-057. The other place these numbers are read, and the one where the
+  // stale label was quietest: only HPV carried a unit at all, and it said metres over whatever
+  // the project stored, while Top through Net said nothing. Heading and value are asserted
+  // together because either alone still misreports — the same rule the Field Dashboard's CSV
+  // follows. HPV converts with the thicknesses because it is one; N/G and the volume-fraction
+  // averages are dimensionless and must come through untouched.
+  const { appState } = await load("/src/state.ts");
+  const { M_PER_FT } = await load("/src/units.ts");
+  const { renderPaySummaryTable } = await load("/src/ui/summaryDialog.ts");
+  const project = appState.projectDepthUnit.get();
+  const display = appState.displayDepthUnit.get();
+  const row = {
+    well_id: "w1",
+    well_name: "SANDI-1",
+    zone: "A",
+    flag: "PAY",
+    top: 1000,
+    bottom: 1050,
+    gross: 50,
+    net: 25,
+    ntg: 0.5,
+    avg_vsh: 0.3,
+    avg_phie: 0.18,
+    avg_swe: 0.4,
+    hpv: 12.5,
+    n_classified: 100,
+    perm_cutoff_no_data: false,
+  };
+
+  try {
+    appState.projectDepthUnit.set("FT");
+    appState.displayDepthUnit.set("FT");
+    const asStored = document.createElement("div");
+    renderPaySummaryTable(asStored, [row]);
+    const storedHead = asStored.children[0].children[0].innerHTML;
+    assert.match(storedHead, /<th>Net \(ft\)<\/th>/);
+    assert.match(storedHead, /<th>HPV \(ft\)<\/th>/);
+    assert.doesNotMatch(storedHead, /\(m\)/);
+    const storedBody = asStored.children[0].children[0].children[0].children[0].innerHTML;
+    assert.match(storedBody, /<td>25\.0<\/td>/, "a foot project read in feet converts nothing");
+    assert.match(storedBody, /<td>12\.50<\/td>/);
+
+    appState.displayDepthUnit.set("M");
+    const asShown = document.createElement("div");
+    renderPaySummaryTable(asShown, [row]);
+    const shownHead = asShown.children[0].children[0].innerHTML;
+    assert.match(shownHead, /<th>HPV \(m\)<\/th>/, "the heading moves with the values");
+    assert.doesNotMatch(shownHead, /\(ft\)/);
+    const shownBody = asShown.children[0].children[0].children[0].children[0].innerHTML;
+    assert.match(shownBody, new RegExp(`<td>${(25 * M_PER_FT).toFixed(1)}</td>`));
+    assert.match(shownBody, new RegExp(`<td>${(12.5 * M_PER_FT).toFixed(2)}</td>`));
+    assert.match(shownBody, /<td>0\.50<\/td>/, "N/G is a ratio and does not convert");
+    assert.match(shownBody, /<td>0\.180<\/td>/, "a volume fraction does not convert");
+  } finally {
+    appState.projectDepthUnit.set(project);
+    appState.displayDepthUnit.set(display);
+  }
+});
+
 test("a_partial_ml_run_reports_the_written_count_and_an_all_failed_run_writes_no_success_history", async () => {
   // CORRECTNESS — SB-CORE-002 / SB-CORE-T06 cites R18 in 04_CORE_REQUIREMENTS.md:
   // visible status and persistent History count successful well outcomes, never requested scope.
@@ -2024,6 +2084,204 @@ test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => 
   assert.match(status.textContent, /Stats only — no FLAG curves written/);
   assert.match(status.textContent, /run Cutoffs & Summary to persist flags/);
   assert.doesNotMatch(status.textContent, /\. FLAG curves written\./);
+});
+
+/** Every hard-coded depth-unit label left in the frontend, each classified. A row is a claim
+ *  that the literal is CORRECT as written; the sweep below refuses any occurrence that is not
+ *  on this list, and any row here that no longer exists.
+ *
+ *  - `unit-picker` — the control whose whole job is choosing between metres and feet.
+ *  - `map-coordinate` — a UTM easting or northing. Metres because the PROJECTION is, which has
+ *    nothing to do with which unit this project's depths are logged in. These must never be
+ *    swept along with the depth family.
+ *
+ *  There is deliberately no third category. Every label over a depth, a thickness or a
+ *  hydrocarbon pore thickness now resolves from the project, and each was converted in the same
+ *  change that relabelled it — a converted value under a stale heading and a stale value under a
+ *  converted heading are the same lie.
+ */
+const HARD_CODED_DEPTH_UNIT_LABELS = [
+  // `buildDepthUnitSelect` is the ONE depth-unit picker (core wizard, Import Deviation, Import
+  // SCAL). Three copies of these labels would be three places for this classification to drift,
+  // so the helper is where they live and this list stays one file long.
+  ["src/ui/followCore.ts", "Metres (m)", "unit-picker"],
+  ["src/ui/followCore.ts", "Feet (ft)", "unit-picker"],
+  ["src/ui/ribbon.ts", "easting (m)", "map-coordinate"],
+  ["src/ui/ribbon.ts", "northing (m)", "map-coordinate"],
+];
+
+test("every_hard_coded_depth_unit_label_left_in_the_frontend_is_one_somebody_classified", async () => {
+  // CORRECTNESS — SB-ENV-057. A depth a user TYPES is labelled in the project's stored unit
+  // (it reaches the backend unconverted); a depth a user READS is labelled in the display unit.
+  // Neither can be a literal, because the project decides. This sweep is the standing guard: a
+  // new dialog that hard-codes a metre label fails here instead of shipping a foot project a
+  // form that asks for metres. Rows are matched as (file, literal) pairs, so moving a line is
+  // free and changing what it claims is not.
+  const files = [];
+  const walk = async (dir) => {
+    const { readdir } = await import("node:fs/promises");
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith(".ts")) files.push(full);
+    }
+  };
+  await walk("src");
+
+  const found = [];
+  for (const file of files) {
+    const text = await readFile(file, "utf8");
+    for (const raw of text.split(/\r?\n/)) {
+      const trimmed = raw.trim();
+      // Prose about the rule is not the rule being broken.
+      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+      for (const pattern of [
+        /"([^"\n]*(?:^|\s)\((?:m|ft)\)[^"\n]*)"/g,
+        /`([^`\n]*(?:^|\s)\((?:m|ft)\)[^`\n]*)`/g,
+      ]) {
+        let match;
+        while ((match = pattern.exec(raw))) found.push(JSON.stringify([file, match[1]]));
+      }
+    }
+  }
+
+  const classified = new Set(HARD_CODED_DEPTH_UNIT_LABELS.map(([f, l]) => JSON.stringify([f, l])));
+  const unclassified = [...new Set(found)].filter((row) => !classified.has(row));
+  assert.deepEqual(
+    unclassified.map((row) => JSON.parse(row)),
+    [],
+    "a hard-coded depth-unit label must be resolved from the project, or classified as a unit picker, a map coordinate, or a display label still awaiting its conversion",
+  );
+
+  const present = new Set(found);
+  const stale = HARD_CODED_DEPTH_UNIT_LABELS.filter(([f, l]) => !present.has(JSON.stringify([f, l])));
+  assert.deepEqual(
+    stale.map(([f, l]) => [f, l]),
+    [],
+    "a classified row that no longer exists must be deleted, so the list keeps meaning what it says",
+  );
+});
+
+test("a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference", async () => {
+  // CORRECTNESS — SB-ENV-057. A module argument declared with the project-native depth token
+  // has no fixed unit: the number the user types goes to the backend unconverted and is
+  // differenced against the stored depth grid. So its label must name the STORED unit — and
+  // deliberately NOT the display unit, which is the opposite choice from a read-only panel
+  // like the Field Dashboard, and for the opposite reason: there the number is leaving, here
+  // it is arriving. Labelling a free-water level with a view preference would invite exactly
+  // the mis-entry the token exists to prevent. Every genuinely fixed unit — including the
+  // metres a module converts for itself — must pass through untouched.
+  const { appState } = await load("/src/state.ts");
+  const { argumentUnitLabel, PROJECT_DEPTH_UNIT_TOKEN } = await load("/src/depthUnitPref.ts");
+  const project = appState.projectDepthUnit.get();
+  const display = appState.displayDepthUnit.get();
+
+  try {
+    appState.projectDepthUnit.set("FT");
+    appState.displayDepthUnit.set("FT");
+    assert.equal(argumentUnitLabel(PROJECT_DEPTH_UNIT_TOKEN), "ft");
+
+    // The user switches the VIEW to metres. The stored grid has not moved, so neither does
+    // the label on an input whose value is compared against that grid.
+    appState.displayDepthUnit.set("M");
+    assert.equal(
+      argumentUnitLabel(PROJECT_DEPTH_UNIT_TOKEN),
+      "ft",
+      "an input label follows the stored unit, never the view preference",
+    );
+
+    appState.projectDepthUnit.set("M");
+    assert.equal(argumentUnitLabel(PROJECT_DEPTH_UNIT_TOKEN), "m");
+
+    // Fixed units are untouched, the converted metres among them.
+    for (const fixed of ["m", "ft", "g/cc", "v/v", "mD", "dyn/cm", "degC"]) {
+      assert.equal(argumentUnitLabel(fixed), fixed);
+    }
+    assert.equal(argumentUnitLabel(""), "");
+    assert.equal(argumentUnitLabel(null), "");
+  } finally {
+    appState.projectDepthUnit.set(project);
+    appState.displayDepthUnit.set(display);
+  }
+});
+
+test("a_dashboard_csv_carries_lengths_and_a_heading_in_one_resolved_unit_and_leaves_the_dimensionless_columns_alone", async () => {
+  // CORRECTNESS — the Field Dashboard's CSV is a client deliverable. It printed a
+  // hard-coded "(m)" over values the backend returns in the PROJECT's stored unit, so a
+  // foot-declared project exported a header claiming metres above columns of feet: wrong by
+  // 3.28084x with every number plausible. The two halves are pinned separately because
+  // either alone still ships a wrong file — a converted value under a stale heading is the
+  // same lie as a stale value under a converted heading. HPV rides with the lengths because
+  // it is a hydrocarbon pore THICKNESS; N/G and the volume-fraction averages are
+  // dimensionless and must survive the conversion untouched.
+  const { appState } = await load("/src/state.ts");
+  const { M_PER_FT } = await load("/src/units.ts");
+  const { buildDashboardCsv } = await load("/src/ui/dashboardPanel.ts");
+  const project = appState.projectDepthUnit.get();
+  const display = appState.displayDepthUnit.get();
+
+  const row = {
+    well_id: "w1",
+    well_name: "SANDI-1",
+    zone: "A",
+    flag: "PAY",
+    top: 1000,
+    bottom: 1050,
+    gross: 50,
+    net: 25,
+    not_net: 20,
+    unknown: 5,
+    ntg_known: 0.55,
+    residual_absorbed: 0,
+    frame: "MD",
+    weights_source: "MD",
+    unfiltered: [],
+    ntg: 0.5,
+    avg_vsh: 0.3,
+    avg_phie: 0.18,
+    avg_swe: 0.4,
+    hpv: 12.5,
+    n_classified: 100,
+    perm_cutoff_no_data: false,
+    quicklook_phie_excluded: false,
+  };
+  const cell = (csv, label) => {
+    const [head, data] = csv.split("\r\n");
+    const at = head.split(",").indexOf(label);
+    assert.ok(at >= 0, `no column headed ${label} in: ${head}`);
+    return data.split(",")[at];
+  };
+
+  try {
+    // A foot project read in feet: nothing to convert, and the heading says so.
+    appState.projectDepthUnit.set("FT");
+    appState.displayDepthUnit.set("FT");
+    const asStored = buildDashboardCsv([row]);
+    assert.match(asStored.split("\r\n")[0], /HPV \(ft\)/, "the heading follows the displayed unit");
+    assert.equal(cell(asStored, "Net (ft)"), "25");
+    assert.equal(cell(asStored, "HPV (ft)"), "12.5");
+
+    // The same foot project read in metres: the lengths convert, the heading moves with them,
+    // and the dimensionless columns do not move at all.
+    appState.displayDepthUnit.set("M");
+    const asDisplayed = buildDashboardCsv([row]);
+    assert.match(asDisplayed.split("\r\n")[0], /HPV \(m\)/);
+    assert.doesNotMatch(asDisplayed.split("\r\n")[0], /\(ft\)/);
+    assert.equal(Number(cell(asDisplayed, "HPV (m)")), 12.5 * M_PER_FT);
+    assert.equal(Number(cell(asDisplayed, "Net (m)")), 25 * M_PER_FT);
+    assert.equal(cell(asDisplayed, "N/G"), "0.5", "a ratio is not a length");
+    assert.equal(cell(asDisplayed, "Avg PHIE"), "0.18", "a volume fraction is not a length");
+
+    // A metre project stays byte-identical to what it always exported.
+    appState.projectDepthUnit.set("M");
+    const metric = buildDashboardCsv([row]);
+    assert.match(metric.split("\r\n")[0], /HPV \(m\)/);
+    assert.equal(cell(metric, "HPV (m)"), "12.5");
+    assert.equal(cell(metric, "Top (m)"), "1000");
+  } finally {
+    appState.projectDepthUnit.set(project);
+    appState.displayDepthUnit.set(display);
+  }
 });
 
 test("a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_result", async () => {

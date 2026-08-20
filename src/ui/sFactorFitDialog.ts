@@ -6,6 +6,7 @@ import {
   type SFactorFitResult,
 } from "../ipc";
 import { setStatus } from "../state";
+import { sameDepthTolerance, storedDepthLabel } from "../depthUnitPref";
 import { recordProcess } from "../processLog";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
@@ -178,11 +179,14 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
   };
   const kaolIn = mkNum("Kaolinite CEC (meq/100g)", 8, "0.1", "Literature constant. Held fixed — S multiplies it");
   const illIn = mkNum("Illite CEC (meq/100g)", 25, "0.1", "Literature constant. Held fixed — S multiplies it");
+  // Typed, so it is in the project's STORED unit and reaches the backend unconverted — and the
+  // default is one 6-inch sample expressed in that unit, not a bare 0.15 that means 1.8 inches
+  // on a foot project and drops most of the plugs the fit needs.
   const tolIn = mkNum(
-    "Depth tolerance",
-    0.15,
+    `Depth tolerance (${storedDepthLabel()})`,
+    sameDepthTolerance(),
     "0.01",
-    "A plug further than this from any log sample is dropped, not snapped. Depth-shift the core first."
+    "One standard 6-inch sample. A plug further than this from any log sample is dropped, not snapped. Depth-shift the core first."
   );
 
   // ---- result -------------------------------------------------------------
@@ -330,7 +334,7 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
       vill_curve: viIn.value.trim(),
       cec_kaol: num(kaolIn, 8),
       cec_ill: num(illIn, 25),
-      depth_tol: num(tolIn, 0.15),
+      depth_tol: num(tolIn, sameDepthTolerance()),
     };
     runBtn.disabled = true;
     runBtn.textContent = "Fitting…";

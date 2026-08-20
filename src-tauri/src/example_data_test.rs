@@ -271,6 +271,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         None,
         false,
         "MD",
+        None,
     );
     assert!(aux.error.is_none(), "{:?}", aux.error);
     assert_eq!(aux.wells_imported, 3, "rows routed to all three wells: {:?}", aux.notes);
@@ -281,7 +282,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
 
 #[test]
 fn tops_deviation_locations_examples_parse() {
-    let (has_well, tops) = parsers::parse_tops_file(example("tops_multiwell.csv")).unwrap();
+    let (has_well, _unit, tops) = parsers::parse_tops_file(example("tops_multiwell.csv")).unwrap();
     assert!(has_well);
     assert_eq!(tops.len(), 9, "3 wells x 3 tops");
     assert!(tops.iter().any(|t| t.well.as_deref() == Some("SANDI-03") && t.top_name == "TOP_SAND_A"));
@@ -508,7 +509,7 @@ impl NativeSpacingFixtures {
                 .collect(),
             "parsers::parse_tops_file" => parsers::parse_tops_file(&self.tops)
                 .unwrap()
-                .1
+                .2
                 .into_iter()
                 .map(|record| record.depth)
                 .collect(),

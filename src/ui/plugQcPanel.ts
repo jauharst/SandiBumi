@@ -7,6 +7,7 @@ import {
   type PlugSource,
 } from "../ipc";
 import { recordProcess } from "../processLog";
+import { sameDepthTolerance, storedDepthLabel } from "../depthUnitPref";
 import { buildWellScope } from "./wellScope";
 import { buildFitScatter, type FitScatter, type FitScatterLine } from "./fitScatter";
 import { formRow } from "./modal";
@@ -140,14 +141,17 @@ export async function buildPlugQcContent(
   );
   args.appendChild(satRow);
 
+  // Typed, so it is in the project's STORED unit and reaches the backend unconverted — and the
+  // default is one 6-inch sample expressed in that unit, not a bare 0.15 that means 1.8 inches
+  // on a foot project and reports most plugs as having no partner.
   const tolIn = document.createElement("input");
   tolIn.type = "number";
   tolIn.className = "form-control";
   tolIn.step = "0.01";
-  tolIn.value = "0.15";
+  tolIn.value = String(sameDepthTolerance());
   args.appendChild(
     formRow(
-      "Depth tolerance",
+      `Depth tolerance (${storedDepthLabel()})`,
       tolIn,
       "One standard 6-inch sample. If the two deliveries disagree by more than this, register the core rather than widening it.",
     ),
@@ -307,7 +311,7 @@ export async function buildPlugQcContent(
       well_ids: scope.getWellIds(),
       x: sourceOf(xSel.value, num(satIn, 35) / 100),
       y: sourceOf(ySel.value, num(satIn, 35) / 100),
-      depth_tol: num(tolIn, 0.15),
+      depth_tol: num(tolIn, sameDepthTolerance()),
     };
     runBtn.disabled = true;
     statusLine.textContent = "Pairing…";
