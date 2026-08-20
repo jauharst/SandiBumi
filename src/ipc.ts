@@ -3641,13 +3641,25 @@ export interface TopsImportResult {
   tops_written: number;
   wells_matched: number;
   unmatched_wells: string[];
+  /** The unit the file's depths were READ as — what the caller asked for, else what the file
+   *  declared on its depth column, else the project's own. Reported so a conversion is never
+   *  silent. */
+  depth_unit: string | null;
   error: string | null;
 }
 
 /** Imports formation tops from CSV/TXT. Multi-well files match wells by name;
- *  files without a WELL column land in `defaultWellId` (the selected well). */
-export function importTopsCsv(defaultWellId: string | null, path: string): Promise<TopsImportResult> {
-  return invoke<TopsImportResult>("import_tops_csv", { defaultWellId, path });
+ *  files without a WELL column land in `defaultWellId` (the selected well).
+ *
+ *  `depthUnit` ("m" / "ft") overrides what the file declares on its depth column; null means
+ *  believe the file, and where the file says nothing, the project's own unit — which is what
+ *  every import before this one assumed. Depths are converted onto the project scale either way. */
+export function importTopsCsv(
+  defaultWellId: string | null,
+  path: string,
+  depthUnit: string | null = null,
+): Promise<TopsImportResult> {
+  return invoke<TopsImportResult>("import_tops_csv", { defaultWellId, path, depthUnit });
 }
 
 export interface AuxImportResult {

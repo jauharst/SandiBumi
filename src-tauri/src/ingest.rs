@@ -2383,6 +2383,11 @@ pub struct TopsImportResult {
     pub wells_matched: usize,
     /// Well names in the file that matched nothing in the project (rows skipped).
     pub unmatched_wells: Vec<String>,
+    /// The unit the file's depths were READ as ("m"/"ft") — the explicit argument, else what the
+    /// file declared, else the project's own. Reported so a conversion is never silent: a tops
+    /// import that quietly moved every marker is the one thing worse than one that did not.
+    #[serde(default)]
+    pub depth_unit: Option<String>,
     pub error: Option<String>,
 }
 
@@ -2390,18 +2395,44 @@ pub struct TopsImportResult {
 /// matching well (name match, case-insensitive); files without one need
 /// `default_well_id` (the selected well). Tops upsert by (well, name) — re-import
 /// updates depths, existing colors are kept.
-pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: &str) -> TopsImportResult {
+pub fn import_tops_file(
+    conn: &Connection,
+    default_well_id: Option<&str>,
+    path: &str,
+    depth_unit: Option<&str>,
+) -> TopsImportResult {
     let fail = |e: String| TopsImportResult {
         path: path.to_string(),
         tops_written: 0,
         wells_matched: 0,
         unmatched_wells: vec![],
+        depth_unit: None,
         error: Some(e),
     };
-    let (has_well_column, records) = match parsers::parse_tops_file(path) {
+    let (has_well_column, declared_unit, records) = match parsers::parse_tops_file(path) {
         Ok(r) => r,
         Err(e) => return fail(e.to_string()),
     };
+
+    // Audit finding 8, second site. A tops file in feet read into a metre project put every
+    // marker 3.28084x too deep — and a top is not one number, it is the boundary of a zone, so
+    // the error propagates into every zone parameter, every pay summary and every report drawn
+    // from them. Precedence: an explicit argument, else what the FILE declares on the depth
+    // column it was read from, else the project's own unit (which is what every import before
+    // this one assumed, so nothing already working changes).
+    let project_unit = match crate::units::require_project_depth_unit(conn, "tops import") {
+        Ok(unit) => unit,
+        Err(error) => return fail(error),
+    };
+    let file_unit = depth_unit
+        .and_then(crate::units::DepthUnit::parse)
+        .or_else(|| declared_unit.and_then(crate::units::DepthUnit::parse))
+        .unwrap_or(project_unit);
+    let mut records = records;
+    for rec in &mut records {
+        rec.depth = crate::units::convert_depth(rec.depth as f64, file_unit, project_unit) as f32;
+    }
+    let records = records;
 
     // Project well-name → id map (upper-trimmed).
     let mut name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -2491,6 +2522,7 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
         tops_written: written,
         wells_matched: wells_hit.len(),
         unmatched_wells: unmatched,
+        depth_unit: Some(file_unit.label().to_string()),
         error: None,
     }
 }
@@ -5861,6 +5893,7 @@ GR.API :
     fn tops_import_multiwell_and_default() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let w1 = Uuid::new_v4();
         let w2 = Uuid::new_v4();
         db::insert_well(&conn, w1, "SANDI-1", None, None, None).unwrap();
@@ -5873,7 +5906,7 @@ GR.API :
             "WELL,TOP,MD\nsandi-1,TOP_A,1000.0\nSANDI-1,TOP_B,1100.0\nSANDI-2,TOP_A,1010.0\nGHOST-9,TOP_A,900.0\n",
         )
         .unwrap();
-        let res = import_tops_file(&conn, None, path.to_str().unwrap());
+        let res = import_tops_file(&conn, None, path.to_str().unwrap(), None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.tops_written, 3);
         assert_eq!(res.wells_matched, 2, "case-insensitive well matching");
@@ -5882,7 +5915,7 @@ GR.API :
         // Give TOP_A a color, then re-import a new depth: depth moves, color survives.
         db::upsert_top(&conn, &id1, "TOP_A", 1000.0, Some("#ff0000")).unwrap();
         std::fs::write(&path, "WELL,TOP,MD\nSANDI-1,TOP_A,1005.0\n").unwrap();
-        let res2 = import_tops_file(&conn, None, path.to_str().unwrap());
+        let res2 = import_tops_file(&conn, None, path.to_str().unwrap(), None);
         assert!(res2.error.is_none());
         let tops = db::list_tops(&conn, &id1).unwrap();
         let a = tops.iter().find(|t| t.top_name == "TOP_A").unwrap();
@@ -5891,12 +5924,72 @@ GR.API :
 
         // No WELL column: needs a default well; with one it lands there.
         std::fs::write(&path, "TOP,DEPTH\nTOP_C,1200.0\n").unwrap();
-        let need = import_tops_file(&conn, None, path.to_str().unwrap());
+        let need = import_tops_file(&conn, None, path.to_str().unwrap(), None);
         assert!(need.error.is_some(), "no well column and no selection must error");
-        let ok = import_tops_file(&conn, Some(&id1), path.to_str().unwrap());
+        let ok = import_tops_file(&conn, Some(&id1), path.to_str().unwrap(), None);
         assert!(ok.error.is_none());
         assert!(db::list_tops(&conn, &id1).unwrap().iter().any(|t| t.top_name == "TOP_C"));
         std::fs::remove_file(&path).ok();
+    }
+
+    /// Audit finding 8, second site. A tops file in feet read into a metre project put every
+    /// marker 3.28084x too deep — and a top is not one number, it is the boundary of a zone, so
+    /// every zone parameter, every pay summary and every report drawn from them inherits it.
+    ///
+    /// Precedence is pinned in both directions because either half alone would pass a lazier
+    /// implementation: believe the file and the caller's declaration is decorative; believe only
+    /// the caller and a file that plainly says FEET is ignored.
+    #[test]
+    fn a_tops_file_that_says_feet_lands_on_the_projects_own_depth_scale() {
+        // 5000 ft = 1524.0 m exactly (the foot is defined as 0.3048 m).
+        let run = |body: &str, unit: Option<&str>| -> (TopsImportResult, f32) {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+            let w = Uuid::new_v4();
+            db::insert_well(&conn, w, "SANDI-TOPS-UNIT", None, None, None).unwrap();
+            let ids = w.to_string();
+            let path = std::env::temp_dir().join(format!("sandibumi_topsunit_{ids}.csv"));
+            std::fs::write(&path, body).unwrap();
+            let res = import_tops_file(&conn, Some(&ids), path.to_str().unwrap(), unit);
+            std::fs::remove_file(&path).ok();
+            let depth = db::list_tops(&conn, &ids)
+                .unwrap()
+                .iter()
+                .find(|t| t.top_name == "TOP_A")
+                .map(|t| t.depth)
+                .unwrap_or(f32::NAN);
+            (res, depth)
+        };
+
+        // The delivery convention: a units row under the header, one cell per column. The unit
+        // is read off the DEPTH column's own cell — a "FEET" sitting under some other column
+        // says nothing about this one, and is deliberately not accepted as if it did.
+        let (res, depth) = run("TOP,MD\n,FEET\nTOP_A,5000.0\n", None);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.tops_written, 1, "the units row is not counted as a marker");
+        assert!(
+            (depth - 1524.0).abs() < 1e-2,
+            "a marker at 5000 ft sits at 1524 m, got {depth} — the file was read raw"
+        );
+        assert_eq!(res.depth_unit.as_deref(), Some("ft"), "the import says what it read");
+
+        // The other convention: the unit in the depth header itself.
+        let (_res, depth) = run("TOP,TOP_MD_FT\nTOP_A,5000.0\n", None);
+        assert!((depth - 1524.0).abs() < 1e-2, "a FT depth header is a declaration too, got {depth}");
+
+        // Says nothing: unchanged from every tops import before this one.
+        let (res, depth) = run("TOP,MD\nTOP_A,5000.0\n", None);
+        assert!((depth - 5000.0).abs() < 1e-2, "no declaration means the project's own unit, got {depth}");
+        assert_eq!(res.depth_unit.as_deref(), Some("m"), "and it says so");
+
+        // The caller's declaration OUTRANKS the file's — a mislabelled header is exactly why an
+        // override has to exist, and it is worth nothing if the file can overrule it.
+        let (_res, depth) = run("TOP,TOP_MD_FT\nTOP_A,5000.0\n", Some("m"));
+        assert!(
+            (depth - 5000.0).abs() < 1e-2,
+            "the caller said metres over a FT header and metres must win, got {depth}"
+        );
     }
 
     #[test]
@@ -5906,12 +5999,13 @@ GR.API :
         // must fail this production-import test.
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let well = Uuid::new_v4();
         db::insert_well(&conn, well, "TVD_ONLY", None, None, None).unwrap();
         let path = std::env::temp_dir().join(format!("sandibumi_tvd_only_tops_{well}.csv"));
         std::fs::write(&path, "TOP,TVD\nREFERENCE_MARKER,900.0\n").unwrap();
 
-        let result = import_tops_file(&conn, Some(&well.to_string()), path.to_str().unwrap());
+        let result = import_tops_file(&conn, Some(&well.to_string()), path.to_str().unwrap(), None);
         std::fs::remove_file(&path).ok();
 
         assert!(result.error.is_none(), "TVD remains an accepted tops alias: {:?}", result.error);
@@ -5963,6 +6057,7 @@ GR.API :
         // checking that a survey exists while retaining 900.0 on the MD axis must fail.
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let well = Uuid::new_v4();
         let well_id = well.to_string();
         db::insert_well(&conn, well, "REFERENCE_FRAME", None, None, None).unwrap();
@@ -5980,7 +6075,7 @@ GR.API :
         .unwrap();
         let path = std::env::temp_dir().join(format!("sandibumi_tvd_join_guard_{well}.csv"));
         std::fs::write(&path, "TOP,TVD\nREFERENCE_MARKER,900.0\n").unwrap();
-        let imported = import_tops_file(&conn, Some(&well_id), path.to_str().unwrap());
+        let imported = import_tops_file(&conn, Some(&well_id), path.to_str().unwrap(), None);
         std::fs::remove_file(&path).ok();
         assert!(imported.error.is_none(), "fixture import failed: {:?}", imported.error);
 
@@ -6042,6 +6137,7 @@ GR.API :
     fn a_blank_well_cell_is_skipped_rather_than_charged_to_the_selected_well() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let w1 = Uuid::new_v4();
         db::insert_well(&conn, w1, "SANDI-10", None, None, None).unwrap();
         let id1 = w1.to_string();
@@ -6053,7 +6149,7 @@ GR.API :
         )
         .unwrap();
         // A default well IS supplied — the case where falling through would be silent.
-        let res = import_tops_file(&conn, Some(&id1), path.to_str().unwrap());
+        let res = import_tops_file(&conn, Some(&id1), path.to_str().unwrap(), None);
         std::fs::remove_file(&path).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 

@@ -519,12 +519,15 @@ async fn import_tops_csv(
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     default_well_id: Option<String>,
     path: String,
+    // Overrides what the file declares on its depth column; absent means "believe the file,
+    // else the project's own unit". See `ingest::import_tops_file`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::TopsImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import tops", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_tops_file(&c, default_well_id.as_deref(), &path))
+        Ok(ingest::import_tops_file(&c, default_well_id.as_deref(), &path, depth_unit.as_deref()))
     })
     .await
 }

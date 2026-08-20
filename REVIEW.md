@@ -15246,3 +15246,39 @@ which is the rule the core-table importer has always followed.
 Pc importer (`import_scal_files`) and the point-data/aux importer (`import_aux_file`) all take
 depths from a file with no unit resolution either. They are the next increments; naming them
 here so nothing looks closed that is not.
+
+## A tops file now says what unit its markers are in (audit finding 8, second site)
+
+Same defect as the deviation survey, one file over — and this one is worse, because a top is
+not one number. A top is the boundary of a zone, so every zone parameter, every pay summary
+and every report drawn from them inherits whatever the tops file was misread as. A tops file
+delivered in feet, imported into a metre project, put every marker 3.28 times too deep.
+
+Tops import has no dialog — you pick a file and it loads — so the rule had to work without
+asking you anything:
+
+1. If the file **declares** a unit on its depth column, that is used. That means a units row
+   under the header (`,FEET`, the delivery convention) or a unit in the depth header itself
+   (`TOP_MD_FT`, `DEPTH (m)`).
+2. If it declares nothing, the project's own unit is assumed — exactly what every tops import
+   before this one did, so nothing you have already loaded changes.
+
+The unit is read from the **same column the depths came from**. A `FEET` sitting under a
+different column is not accepted as if it described this one.
+
+The status line now always names the unit — `Tops: 9 marker(s) across 3 well(s) (m)`, or
+`— read as ft, stored as m` when it converted. It says so on ordinary imports too, deliberately:
+if it only spoke up when something moved, you would have no reason to trust its silence.
+
+- [ ] **Import a tops file with a units row saying FEET on a metre project** — the markers
+      should land at 0.3048 × the numbers in the file, and the status line should say
+      *read as ft, stored as m*.
+- [ ] **Import a normal tops file with no unit anywhere** — identical to before, and the status
+      line should just name your project unit in brackets.
+- [ ] **Check a file whose depth header is something like `TOP_MD_FT`** — that counts as a
+      declaration too.
+- [ ] **Open a well that already has tops and re-import** — depths update, colours survive,
+      as before.
+
+**Still open, same defect:** the SCAL Pc importer (`import_scal_files`) and the point-data /
+aux importer (`import_aux_file`). Both take a depth *datum* but no depth *unit*. Next.
