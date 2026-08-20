@@ -480,29 +480,37 @@ every gap - an absent column, a blank cell, an unparseable one - with **0**, i.e
 vertical/north station. So a cell lost in export straightened the well, and because minimum
 curvature integrates station to station, every TVD below it moved with it. The result is finite,
 plausible, persisted through `well_path`, materialized onto the log grid as a normal TVD curve, and
-read by saturation-height as the height above the contact.
+read by saturation-height as the height above the contact. Documenting the coercion in the doc
+comment - which it was - does not make *not measured* equivalent to *measured vertical*, and no
+caller ever asked anyone to confirm the substitution.
 
-The scale, on a three-station metric survey where the middle cell was lost: a well that is 30 deg
-at 1000 m and 60 deg at 2000 m reaches **TVD 1653.99 m**, and read as vertical at the blank station
-it reaches **1826.99 m**. That is 173 m of imaginary column, on a file the user believes imported
-cleanly. Documenting the coercion in the doc comment - which it was - does not make *not measured*
-equivalent to *measured vertical*, and no caller ever asked anyone to confirm the substitution.
+**The remedy is Jauhar's, and it is better than the one first shipped.** The first pass REFUSED the
+whole survey. He asked whether the station could be filled in from its neighbours instead, and the
+answer is that it does not even need filling in: **minimum curvature already draws a circular arc
+between consecutive stations**, so simply LEAVING OUT a station with no geometry draws that arc
+between the neighbours that were actually measured. On a constant build that reproduces the full
+survey exactly - three stations at 0, 30 and 60 deg over 2000 m give TVD 1653.99 m, and so do the
+two survivors alone - while substituting 0 deg gives 1826.99 m, missing by 173.01 m. Dropping
+degrades only in proportion to how non-uniform the real build was and how far apart the survivors
+are; substituting asserted a vertical station, which is wrong essentially always.
 
-The survey is now refused BY NAME, naming the station's MD, which is the same shape
-`require_project_depth_unit` and the core importer's exactly-one-match rule already use: a survey
-is a short table a person can fix in seconds, and a loud refusal at import beats a silent 173 m
-anywhere downstream. An absent INC column is refused too - a file that states no inclination states
-no geometry.
+So a station carrying no usable geometry is **dropped and REPORTED**, never substituted and never
+fatal. `DeviationSurvey.dropped` carries each one's MD and reason out of the parser,
+`import_deviation_csv` turns them into `CoreImportResult.warnings`, and the import pane stays OPEN
+showing the warning instead of closing on success - a survey that quietly got shorter is its own
+silent failure. The warning also lands in the process history, so it is still findable after the
+pane is dismissed. Two refusals survive, both because there is nothing to draw an arc between: an
+absent INC COLUMN, and a file where not one station carries a usable inclination.
 
 **The azimuth half is deliberately narrower, and the narrowness is algebra rather than leniency.**
 `minimum_curvature` reaches azimuth only through `sin(i1)*sin(i2)*cos(a2-a1)` in the dogleg term,
 so a station declared exactly vertical multiplies its own azimuth by zero and the value cannot
 reach the answer. That is what keeps the commonest survey there is - a vertical well delivered as
-`MD,INC` with no azimuth column at all - importable. A blank azimuth at a station that is actually
-deviated is missing data and is refused like any other. **No tolerance is invented**: exactly-zero
-is the declared-vertical case, because a threshold would be a silent decision about how vertical
-counts as vertical, which is the same class of decision this whole fix exists to stop.
+`MD,INC` with no azimuth column at all - importable whole. A blank azimuth at a station that is
+actually deviated is missing geometry and costs that station. **No tolerance is invented**:
+exactly-zero is the declared-vertical case, because a threshold would be a silent decision about
+how vertical counts as vertical, which is the same class of decision this whole fix exists to stop.
 
-Pinned by `a_survey_station_with_no_inclination_is_refused_instead_of_read_as_vertical`, which
-carries all four arms plus the 173 m itself, so the number can never quietly shrink without the
-test saying the survey geometry changed.
+Pinned by `a_survey_station_with_no_inclination_is_dropped_and_reported_never_read_as_vertical`,
+which carries all six arms plus both TVD figures computed rather than quoted, so neither can
+quietly move without the test saying the survey geometry changed.

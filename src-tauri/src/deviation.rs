@@ -74,19 +74,38 @@ pub fn minimum_curvature(md: &[f32], inc_deg: &[f32], azi_deg: &[f32], datum_ele
 
 /// Linearly interpolates `(TVD, TVDSS)` at an arbitrary MD from a computed survey — for
 /// resampling the survey onto a curve's depth grid. Returns `(md, NaN)` when the survey is
-/// empty (vertical-well fallback: TVD == MD, TVDSS undefined), and clamps to the end
-/// stations outside the surveyed range. Surveys are short (dozens of stations), so a linear
-/// scan is fine.
+/// empty (vertical-well fallback: TVD == MD, TVDSS undefined). Surveys are short (dozens of
+/// stations), so a linear scan is fine.
+///
+/// **Outside the surveyed range this used to CLAMP to the end stations, and both ends were
+/// wrong in their own way.** Above the first station the clamp returned that station's TVD at
+/// every shallower MD, so a survey delivered from 300 m down put TVD 300 at MD 0 — a TVD deeper
+/// than its own MD, which no well can be. Below the last station it froze TVD, i.e. claimed a
+/// **zero vertical increment over real hole**, which no trajectory can produce; on a well logged
+/// to 3000 m with stations to 2000 m that was a 1000 m finite plateau that height, correlation
+/// and report calculations consumed as geometry.
 pub fn sample_at(stations: &[Station], md: f32) -> (f32, f32) {
     if stations.is_empty() {
         return (md, f32::NAN);
     }
-    if md <= stations[0].md {
-        return (stations[0].tvd, stations[0].tvdss);
+    let first = stations[0];
+    if md <= first.md {
+        // ABOVE the first station the survey states nothing — but `minimum_curvature`'s anchor
+        // already does, taking the first station's TVD as its own MD because the hole is assumed
+        // vertical from surface down to it. Continuing vertically UP from that station is the
+        // only reading consistent with the path we computed, and it is written as a relative
+        // step rather than `TVD = MD` so it stays continuous with the anchor whatever produced
+        // the stations.
+        let up = first.md - md;
+        return (first.tvd - up, first.tvdss - up);
     }
     let last = stations[stations.len() - 1];
-    if md >= last.md {
-        return (last.tvd, last.tvdss);
+    if md > last.md {
+        // BELOW the last station there is no convention to continue. Freezing is not one, and
+        // continuing the last inclination would be an extrapolation nobody authorized. The
+        // geometry is MISSING — which is what `materialize_tvd_curves`' own comment has always
+        // claimed this function returned outside the survey's MD range.
+        return (f32::NAN, f32::NAN);
     }
     for w in stations.windows(2) {
         let (a, b) = (w[0], w[1]);
@@ -144,8 +163,10 @@ mod tests {
         let azi = [0.0, 0.0, 0.0];
         let s = minimum_curvature(&md, &inc, &azi, 0.0);
         assert!((tvd_at(&s, 1500.0) - 1500.0).abs() < 1e-2);
-        assert!((tvd_at(&s, -50.0) - 0.0).abs() < 1e-2, "clamp below first station");
-        assert!((tvd_at(&s, 9999.0) - 2000.0).abs() < 1e-2, "clamp above last station");
+        // Shallower than the first station: vertical continuation, not the old clamp to that
+        // station's TVD. Deeper than the last: MISSING. See the named pin below for why.
+        assert!((tvd_at(&s, -50.0) - (-50.0)).abs() < 1e-2, "vertical continuation above station 1");
+        assert!(tvd_at(&s, 9999.0).is_nan(), "past the last station the geometry is unknown");
         assert!((tvd_at(&[], 1234.0) - 1234.0).abs() < 1e-6, "empty survey → MD passthrough");
     }
 
@@ -159,11 +180,63 @@ mod tests {
         let (tvd, tvdss) = sample_at(&s, 1500.0);
         assert!((tvd - 1500.0).abs() < 1e-2, "tvd={tvd}");
         assert!((tvdss - (1500.0 - 30.0)).abs() < 1e-2, "tvdss={tvdss}");
-        // Clamps below/above carry the end stations' TVDSS.
-        assert!((sample_at(&s, -50.0).1 - (0.0 - 30.0)).abs() < 1e-2);
-        assert!((sample_at(&s, 9999.0).1 - (2000.0 - 30.0)).abs() < 1e-2);
+        // Above the first station TVDSS follows the vertical continuation, so it keeps stepping
+        // 1:1 with MD against the same datum; below the last station it is unknown, not frozen.
+        assert!((sample_at(&s, -50.0).1 - (-50.0 - 30.0)).abs() < 1e-2);
+        assert!(sample_at(&s, 9999.0).1.is_nan());
         // Empty survey → (MD, NaN).
         let (t0, ss0) = sample_at(&[], 1234.0);
         assert!((t0 - 1234.0).abs() < 1e-6 && ss0.is_nan());
+    }
+
+    /// Codex whole-repository review, P1. `sample_at` CLAMPED to the end stations outside the
+    /// surveyed range, and `materialize_tvd_curves` calls it for every sample on the full log
+    /// grid — so a partial survey produced long finite plateaus that height, correlation and
+    /// report calculations consumed as real geometry. `ingest.rs`' own comment on that call has
+    /// always described NaN outside the survey's MD range; the function never did it.
+    ///
+    /// Both ends were wrong, in different ways, and the fix is different at each because only one
+    /// of them has a convention to fall back on.
+    #[test]
+    fn a_survey_states_no_geometry_past_its_last_station_and_says_so() {
+        // A vertical survey stopping at 2000 m, in a well logged to 3000 m. Vertical on purpose:
+        // the true trajectory here is not in doubt, so anything the function returns below 2000 m
+        // is the function's own invention rather than a hard geometry question.
+        let s = minimum_curvature(&[0.0, 1000.0, 2000.0], &[0.0; 3], &[0.0; 3], 30.0);
+
+        // DEEPER THAN THE LAST STATION: missing, not frozen. The old clamp answered 2000 at both
+        // 2500 and 3000 - a zero vertical increment over 1000 m of hole, which no trajectory can
+        // produce, presented as a normal curve.
+        for md in [2000.1, 2500.0, 3000.0] {
+            let (tvd, tvdss) = sample_at(&s, md);
+            assert!(
+                tvd.is_nan() && tvdss.is_nan(),
+                "past the last station both must be missing, got tvd {tvd} tvdss {tvdss} at MD {md}"
+            );
+        }
+        // The last station itself is still answered - the boundary belongs to the survey.
+        let (tvd_last, _) = sample_at(&s, 2000.0);
+        assert!((tvd_last - 2000.0).abs() < 1e-2, "the last station itself still answers: {tvd_last}");
+
+        // SHALLOWER THAN THE FIRST STATION there IS a convention, and the clamp contradicted it.
+        // `minimum_curvature` anchors by taking the first station's TVD as its own MD - the hole
+        // is assumed vertical from surface down to it - so the continuation is vertical too.
+        let deep_start = minimum_curvature(&[300.0, 1000.0], &[0.0, 0.0], &[0.0, 0.0], 30.0);
+        let (shallow, shallow_ss) = sample_at(&deep_start, 0.0);
+        assert!(
+            (shallow - 0.0).abs() < 1e-2,
+            "vertical continuation puts MD 0 at TVD 0, not at the first station's 300: {shallow}"
+        );
+        assert!(
+            (shallow_ss - (0.0 - 30.0)).abs() < 1e-2,
+            "and TVDSS steps with it against the same datum: {shallow_ss}"
+        );
+        // The reason that half matters at all: the clamp answered 300 here, a TVD DEEPER than its
+        // own MD, which is impossible for any well and was reachable from any survey delivered
+        // from below surface.
+        for md in [0.0, 100.0, 299.0] {
+            let (tvd, _) = sample_at(&deep_start, md);
+            assert!(tvd <= md + 1e-2, "TVD can never exceed MD: got {tvd} at MD {md}");
+        }
     }
 }
