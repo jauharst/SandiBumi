@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 32 (Codex P2): one blank core column no longer blanks the whole core overlay
+
+- [ ] **What was wrong.** The core overlay draws four separate things — porosity, permeability,
+      grain density and saturation — each at its own plug depths, each independent of the others.
+      But if any one cell in a plug's row was a true database blank, the reader failed **that whole
+      row**, and one failed row failed **the whole command**. A plug carrying a perfectly good
+      porosity and grain density plotted *nothing*, for the whole well, because its permeability
+      cell was empty.
+- [ ] **Which projects this hits.** Only older ones. Today's import and the sample editor write a
+      "missing" marker rather than a true blank, so anything you have imported recently is already
+      safe. But the column allows a real blank, the old-project migration copies whatever was
+      there, and nothing cleans it up — so the rows exist in projects that predate delivery sets.
+- [ ] **What it does now.** Each property is read independently. A blank cell contributes no point
+      to *its own* series and nothing else is affected — which is what the overlay always claimed
+      to do.
+- [ ] **A blank is not a zero.** A missing permeability comes back as an empty series, never as a
+      plug sitting at 0 mD. A plug genuinely measured at zero is a measurement; "nobody measured
+      it" is not, and on a log plot the two look nothing alike.
+- [ ] **Depth is deliberately still strict.** A blank depth would be a corrupt row, not a missing
+      measurement, so that one still fails loudly instead of being quietly skipped.
+- [ ] **What to check.** Open an older project (one from before delivery sets) whose core table has
+      gaps, and turn on the core overlay in a log view or crossplot. The properties that were
+      measured should plot; the ones that were not should simply be absent. Before this, the
+      overlay showed nothing at all.
+
 ## 2026-08-20 — Audit increment 31 (Codex P1): a rock-type cutoff ladder that runs backwards is refused
 
 - [ ] **What was wrong.** Rock Type from Cutoffs builds three classes from a Vsh and a PHIE cutoff

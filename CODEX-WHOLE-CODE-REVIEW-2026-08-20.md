@@ -50,10 +50,10 @@ list of what was found.
 | 18 | P1 | `rt_cutoff` accepts an inverted class ladder | `[>]` increment 31 (PR #90) |
 | 19 | P2 | The one-metre plug tolerance became one foot | `[x]` increment 21 |
 | 20 | P2 | Results-QC and core registration send float arrays as JSON | `[ ]` |
-| 21 | P2 | One SQL-NULL core property fails the whole four-property overlay | `[ ]` |
+| 21 | P2 | One SQL-NULL core property fails the whole four-property overlay | `[>]` increment 32 (PR #91) |
 
-**16 on master, 6 waiting on your merge, 2 not started** — numbers 20 and 21, both contract items:
-JSON float arrays where the byte IPC is binding, and a SQL-NULL core property failing an overlay.
+**16 on master, 7 waiting on your merge, 1 not started** — number 20, the last one: per-depth float
+arrays crossing the IPC bridge as JSON where the byte contract is binding.
 
 ## P0 — Composite exports treat foot-project depths as metres, making true-scale client plots 3.28084 times too long.
 
