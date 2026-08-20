@@ -216,7 +216,7 @@
     {
       "id": "composite",
       "title": "Composite log plots",
-      "review_section_patterns": ["true.vector PDF export", "true.vector SVG export", "report PDF", "composite"]
+      "review_section_patterns": ["true.vector PDF export", "true.vector SVG export", "report PDF", "composite", "reach the PDF"]
     },
     {
       "id": "report",
