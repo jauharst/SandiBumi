@@ -4951,12 +4951,16 @@ fn compute_sweep(
 ) -> (Vec<f64>, Vec<f64>, f64) {
     let steps = steps.clamp(2, 500);
     let n = vsh.len();
-    // A PERM cutoff only applies when a PERM curve exists for the well. Scoped over the WHOLE
-    // frame (not just the analysed subset) so the PAY metric agrees with run_pay_summary, which
-    // decides has_perm_cut once per well before any zone/DST filtering. Judging it over the
-    // included subset alone would silently disable the gate on a zone/DST slice that happens to
-    // hold no PERM, so identical cutoffs could report more pay here than in the pay summary.
-    let has_perm_cut = perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
+    // A REQUESTED cutoff is always active — Jauhar's DEC-084 ruling, verbatim: "no well with no
+    // perm can escape cutoff … dont let it off, its independent". Lacking a measured PERM is not
+    // an exemption; it is absence of evidence, and `classify_sample` fails a sample whose PERM is
+    // missing. This site kept the well-level "does this well have any PERM?" test after
+    // `run_pay_summary` (:4552) and the Monte Carlo path had both dropped it, so the same held
+    // cutoffs gave OPPOSITE answers on a well with no PERM: the pay summary booked zero net with
+    // its perm_cutoff_no_data evidence flag, while the sensitivity curve beside it dropped the
+    // cutoff and reported a full, optimistic net. The comment here even claimed agreement with
+    // run_pay_summary, which stopped being true when that function was corrected.
+    let has_perm_cut = perm_min.is_some();
 
     let mut cutoffs = Vec::with_capacity(steps);
     let mut values = Vec::with_capacity(steps);
@@ -11877,6 +11881,64 @@ mod tests {
         }
         assert!((vals[0] - 0.0).abs() < 1e-9); // cutoff 0.0 → no sample has VSH ≤ 0
         assert!((peak - 5.0).abs() < 1e-9); // cutoff 1.0 → all 5 m of pay
+    }
+
+    /// DEC-084, verbatim: *"no well with no perm can escape cutoff … dont let it off, its
+    /// independent."* The ruling was applied to `run_pay_summary` and to the Monte Carlo path,
+    /// and this third site — the cutoff SENSITIVITY sweep — kept the well-level "does this well
+    /// have any PERM?" exemption, with a comment claiming agreement with `run_pay_summary` that
+    /// stopped being true when that function was corrected.
+    ///
+    /// The consequence was two screens disagreeing about the same held cutoffs on the same well:
+    /// the pay summary booked ZERO net and marked `perm_cutoff_no_data`, while the sensitivity
+    /// curve beside it dropped the cutoff entirely and drew a full, optimistic pay curve — the
+    /// optimistic one being the one a user reads when choosing where to set a cutoff.
+    ///
+    /// Pinned from three sides so neither an always-active nor a never-active implementation
+    /// passes: no PERM under an active cutoff books nothing, a measured PERM that clears the
+    /// cutoff still books everything, and a well with no PERM and NO cutoff requested is
+    /// untouched — absence of evidence must only bite when the evidence was actually asked for.
+    #[test]
+    fn a_sensitivity_sweep_cannot_drop_a_perm_cutoff_the_well_has_no_data_for() {
+        let vsh = [0.1f32; 4];
+        let phie = [0.2f32; 4];
+        let swe = [0.3f32; 4];
+        let incl_h = [1.0f64; 4];
+        let sweep = |perm: &[f32; 4], perm_min: Option<CutoffRange>| {
+            compute_sweep(
+                &vsh, &phie, &swe, perm, &incl_h, SweepProp::Vsh,
+                at_most(0.5), at_least(0.1), at_most(0.6), perm_min,
+                0.0, 1.0, 11, Metric::Net, 4.0,
+            )
+        };
+
+        // No permeability anywhere, and a PERM >= 10 mD cutoff explicitly entered. Nothing here
+        // can demonstrate it passes, so nothing books — at EVERY step of the sweep, not just the
+        // strict end, because the swept property is VSH and the PERM gate is independent of it.
+        let (_, vals, peak) = sweep(&[f32::NAN; 4], at_least(10.0));
+        assert!(
+            peak.abs() < 1e-9 && vals.iter().all(|v| v.abs() < 1e-9),
+            "a well with no PERM must book zero against an active PERM cutoff, got peak {peak} \
+             over {vals:?}"
+        );
+
+        // The control: measured permeability that clears the same cutoff still books the full
+        // 4 m at the permissive end. Without this the assertion above would pass just as well
+        // against a sweep that had stopped booking anything at all.
+        let (_, _, measured_peak) = sweep(&[50.0f32; 4], at_least(10.0));
+        assert!(
+            (measured_peak - 4.0).abs() < 1e-9,
+            "a well whose PERM clears the cutoff must still book its pay, got {measured_peak}"
+        );
+
+        // And absence of evidence only bites when the evidence was asked for: no PERM curve and
+        // no PERM cutoff is an ordinary run that must be completely unaffected.
+        let (_, _, no_cutoff_peak) = sweep(&[f32::NAN; 4], None);
+        assert!(
+            (no_cutoff_peak - 4.0).abs() < 1e-9,
+            "with no PERM cutoff requested a missing PERM curve must change nothing, got \
+             {no_cutoff_peak}"
+        );
     }
 
     /// NTG divides by the geometric gross; the DST `included` mask drops samples and scales
