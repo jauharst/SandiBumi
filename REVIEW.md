@@ -15282,3 +15282,35 @@ if it only spoke up when something moved, you would have no reason to trust its 
 
 **Still open, same defect:** the SCAL Pc importer (`import_scal_files`) and the point-data /
 aux importer (`import_aux_file`). Both take a depth *datum* but no depth *unit*. Next.
+
+## A SCAL delivery now says what unit its plug depths are in (audit finding 8, third site)
+
+Third and last of the importers that read depths from a file without asking what unit they
+were in. A Pc delivery quoting feet, imported into a metre project, filed every plug 3.28
+times too deep — and a Pc curve is read *at* a depth: Thomeer and the J-fit QC pair each plug
+with the log's porosity and permeability there, and the saturation-height module carries the
+fitted A and B back onto that same interval. Every one of those pairings would have been with
+the wrong rock.
+
+Import SCAL now has a **Depth unit in file** box, right under Depth datum — the two together
+are what put a plug on your project's scale. It defaults to *Same as project*, so an untouched
+dialog behaves exactly as it always did.
+
+The part worth checking on real data: the conversion happens **before** the core depth record
+is applied, not after. Your core record is already in the project's unit, so a foot depth has
+to become metres first and only then take the core's correction. Doing it the other way round
+gives a number about 1.4 m off on a 2000 m plug — perfectly plausible, and nothing downstream
+could tell.
+
+- [ ] **Import a Pc delivery with Depth unit in file = Feet (ft)**, with *follow the core depth
+      record* OFF — the plugs should land at 0.3048 × the numbers in the file.
+- [ ] **Same file with follow-core ON**, on a well whose core you have registered — the plug
+      should end up at (converted depth + the core's shift). Cross-check one plug against the
+      Shift Core history.
+- [ ] **Import a normal metre delivery with the box left alone** — identical to before.
+- [ ] **Check the Thomeer / Pc QC plot afterwards** — the plugs should sit against the right
+      part of the log.
+
+Housekeeping in the same change: the metres/feet picker is now one shared control
+(`buildDepthUnitSelect`) used by the core wizard, Import Deviation and Import SCAL, instead of
+three copies of the same three options.

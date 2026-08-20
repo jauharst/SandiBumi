@@ -72,3 +72,25 @@ export function buildDatumSelect(): HTMLSelectElement {
   sel.value = "MD";
   return sel;
 }
+
+/** Audit finding 8: a delivery declares the depth UNIT its depths are quoted in, beside the
+ *  datum and for the same reason — the two together are what place a number on the project's
+ *  own scale. "Same as project" is preselected because it is what every import before this
+ *  guard silently assumed, so an untouched wizard behaves exactly as it always did.
+ *
+ *  One helper rather than one copy per wizard: the labels are the only hard-coded depth-unit
+ *  strings the frontend is allowed to carry (the acceptance sweep classifies them as a
+ *  unit-picker), and three copies would be three places for that classification to drift.
+ *  `initial` takes a probe's detected unit where one exists ("m"/"ft"). */
+export function buildDepthUnitSelect(initial?: string | null): HTMLSelectElement {
+  const sel = document.createElement("select");
+  sel.className = "form-control";
+  for (const [value, label] of [["", "Same as project"], ["m", "Metres (m)"], ["ft", "Feet (ft)"]] as const) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    sel.appendChild(option);
+  }
+  sel.value = initial ?? "";
+  return sel;
+}

@@ -1326,6 +1326,9 @@ async fn import_scal_files(
     set_name: Option<String>,
     follow_core: Option<bool>,
     depth_datum: String,
+    // The unit the FILES quote their plug depths in; absent means the project's own. See
+    // `ingest::import_scal_files`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let follow_core = follow_core.unwrap_or(false);
@@ -1336,7 +1339,18 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core, &depth_datum))
+        Ok(ingest::import_scal_files(
+            &c,
+            &well_id,
+            &paths,
+            &format,
+            &system,
+            ift_lab,
+            set_name.as_deref(),
+            follow_core,
+            &depth_datum,
+            depth_unit.as_deref(),
+        ))
     })
     .await
 }
