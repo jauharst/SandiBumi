@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 3 (P1): a bad Monte Carlo input refuses the study instead of killing the app
+
+- [ ] **What this fixes (audit finding #3).** The deterministic batch runner already refuses a
+      parameter outside its declared range ("SWT_IRR = 25 — a v/v fraction entered as a
+      percentage"). A Monte Carlo study never went through that guard: its base values are
+      resolved on a separate path, and its random draws are written straight into the parameter
+      arrays. An out-of-range value then reached arithmetic that trusts the declared range — and
+      in the saturation-height module the failure was not a wrong number but a **process abort**:
+      the release build is configured to kill the app on such an internal error, so the whole
+      program closed with no message. No numbers move for any valid study.
+- [ ] **Three guards, one rule.** (1) A study's step parameters and zone overrides are now
+      validated against the declared ranges when the study is planned — same rule, same message
+      as the deterministic runner, refused per well. (2) Every random draw, and the tornado's
+      low/base/high sweep points, are validated before any realization runs — refused for the
+      whole study (the draws are shared across wells), naming the parameter, the consuming
+      module, its range and an exemplar realization. Refused, never clamped: silently clamping a
+      percent-entered Normal(25, 1) to 0.6 would hand back plausible-but-wrong percentiles.
+      (3) The saturation-height clamp itself now bounds its own floor, so even a future caller
+      that skips both guards cannot abort the app.
+- [ ] **Click-through:** Petrophysics → Batch → Monte Carlo…, chain with sw_indo, add a
+      distribution on SWE_IRR of Normal(25, 1) — the study must refuse naming SWE_IRR, sw_indo
+      and "valid 0 to 0.6", not crash and not return zeros. Then set a zone override SWE_IRR = 25
+      in the zones dialog and run any MC study over that well — the well must fail by name with
+      the same message family while other wells still run. Normal(0.2, 0.03) runs as before.
+- [ ] **Automated correctness:** three pins —
+      `a_percent_entered_zone_override_refuses_the_study_instead_of_aborting_the_process` (both
+      sides: 25 refuses, 0.3 runs), `a_draw_that_leaves_the_declared_range_refuses_the_study_by_name`
+      (both sides: Normal(25,1) refuses naming module+range+realization, Uniform(0.05,0.25) runs),
+      and `a_swt_irr_above_one_pins_sw_to_one_instead_of_aborting_the_process` (the landing site:
+      no abort, Sw pinned to 1, the SB-SAT-025 raw diagnostic untouched). Two mutations red at
+      two distinct assertions.
+
 ## 2026-08-20 — Audit increment 2 (P1): "RHG" now means Raymer-Hunt-Gardner 1980, and nothing else
 
 - [ ] **Your DEC-017 ruling, executed.** The sonic method menu is now WYLLIE | RHG80 |

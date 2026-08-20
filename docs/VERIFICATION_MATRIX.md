@@ -40,7 +40,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 193 | 2026-07-19 | 33 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
-| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
+| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 18 | 2026-07-18 | 8 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 13 | — | 5 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 31 | — | 11 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 159 | 2026-08-13 | 54 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 163 | 2026-08-13 | 55 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 168 | 2026-08-13 | 50 |

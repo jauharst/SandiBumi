@@ -1155,10 +1155,52 @@ fn build_plans(
 
         let mut param_args = Vec::new();
         let mut base_params = HashMap::new();
+        // Audit finding #3 (AUDIT-2026-08-20): the deterministic runner rejects out-of-spec
+        // parameter values at `workflow::resolve_param_arrays`, but a Monte Carlo study resolves
+        // its base values HERE, one call site over, and used to skip that guard entirely — so a
+        // percent-entered zone override (SWT_IRR = 25) reached `f64::clamp`, whose lo <= hi
+        // assert aborts the whole process under the release profile's panic = "abort". Same rule,
+        // same message family, same exemption as the deterministic guard: an arg whose range is
+        // enforced at the algorithm boundary by an unconditional NumericRange condition is
+        // checked there, where it can produce its condition id; spec defaults are trusted and
+        // only values a user supplied (step params, zone overrides) are checked.
+        let mut bad: Vec<String> = Vec::new();
         for a in spec.args.iter().filter(|a| a.kind == ArgKind::Param) {
+            let algorithm_range = a.validity_conditions.iter().any(|condition| {
+                matches!(condition.rule, modules::ValidityRule::NumericRange { when: None, .. })
+            });
+            let range = || match (a.min, a.max) {
+                (Some(lo), Some(hi)) => format!("valid {lo} to {hi}"),
+                (Some(lo), None) => format!("valid >= {lo}"),
+                (None, Some(hi)) => format!("valid <= {hi}"),
+                (None, None) => "no declared range".to_string(),
+            };
+            let in_range =
+                |v: f64| a.min.map_or(true, |lo| v >= lo) && a.max.map_or(true, |hi| v <= hi);
+            if let Some(&v) = step.params.get(&a.name) {
+                if !v.is_finite() || (!algorithm_range && !in_range(v)) {
+                    bad.push(format!("{} = {v} ({})", a.name, range()));
+                }
+            }
+            for zp in zone_params.iter().filter(|z| z.param_name == a.name) {
+                let Some(v) = zp.value_num else { continue };
+                let v = v as f64;
+                if !v.is_finite() || (!algorithm_range && !in_range(v)) {
+                    bad.push(format!("{} = {v} in zone '{}' ({})", a.name, zp.zone_name, range()));
+                }
+            }
             param_args.push(a.name.clone());
             let base = step.params.get(&a.name).copied().or_else(|| a.default.parse().ok()).unwrap_or(f64::NAN);
             base_params.insert(a.name.clone(), resolve_zone_param(&a.name, base, &zones_raw, &zone_params, &depth));
+        }
+        if !bad.is_empty() {
+            return Err(format!(
+                "step \"{}\": parameter value(s) outside the module's declared range: {}. A \
+                 common cause is entering a v/v fraction as a percentage. Fix the value or clear \
+                 the zone override.",
+                step.module,
+                bad.join("; ")
+            ));
         }
 
         plans.push(StepPlan {
@@ -1173,6 +1215,83 @@ fn build_plans(
 
     Ok(WellPlan { plans, raw_pool, ancestry_inputs,
         depth, step_thick, zones: zones_raw, produced })
+}
+
+/// Audit finding #3 (AUDIT-2026-08-20): draws and tornado sweep points bypass the declared-range
+/// guard in `workflow::resolve_param_arrays` — they are written straight into the parameter
+/// arrays after `build_plans`, so nothing between the distribution and the module arithmetic
+/// checked them. An unbounded Normal, a mis-typed Uniform bound or a percent-entered mean then
+/// reaches code that trusts its declared range; `f64::clamp` panics when the range inverts, and
+/// the release profile's panic = "abort" takes the whole process down. Every value the study can
+/// apply — each draw, and the tornado's low/base/high points when requested — is checked here
+/// against every consuming step's declared ArgSpec range before any realization runs. Args whose
+/// range is enforced at the algorithm boundary (unconditional NumericRange) are exempt from the
+/// range test but not the finiteness test, exactly as in the deterministic guard. One exemplar
+/// violation per parameter is reported: the fix is the distribution, not the realization.
+fn sampled_value_violations(
+    mc_params: &[McParam],
+    steps: &[ChainStep],
+    specs: &HashMap<String, modules::ModuleSpec>,
+    draws: &[Vec<f64>],
+    tornado_pctls: Option<(f64, f64)>,
+) -> Vec<String> {
+    let mut bad: Vec<String> = Vec::new();
+    for (j, mp) in mc_params.iter().enumerate() {
+        // Every consuming step's declared range — a parameter name may be shared by several
+        // modules with different ranges (sw_indo's SWE_IRR tops out at 0.6, perm_coates' at 0.8),
+        // and a value the study applies must satisfy all of them, exactly as a typed value must.
+        let mut ranges: Vec<(&str, Option<f64>, Option<f64>, bool)> = Vec::new();
+        for step in steps {
+            let Some(spec) = specs.get(&step.module) else { continue };
+            for a in spec.args.iter().filter(|a| a.kind == ArgKind::Param && a.name == mp.param) {
+                let algorithm_range = a.validity_conditions.iter().any(|condition| {
+                    matches!(condition.rule, modules::ValidityRule::NumericRange { when: None, .. })
+                });
+                ranges.push((step.module.as_str(), a.min, a.max, algorithm_range));
+            }
+        }
+        if ranges.is_empty() {
+            continue; // not consumed by any step — the draw never reaches a module
+        }
+        let mut check = |v: f64, whence: &str| -> bool {
+            for &(module, min, max, algorithm_range) in &ranges {
+                let in_range =
+                    min.map_or(true, |lo| v >= lo) && max.map_or(true, |hi| v <= hi);
+                if !v.is_finite() || (!algorithm_range && !in_range) {
+                    let range = match (min, max) {
+                        (Some(lo), Some(hi)) => format!("valid {lo} to {hi}"),
+                        (Some(lo), None) => format!("valid >= {lo}"),
+                        (None, Some(hi)) => format!("valid <= {hi}"),
+                        (None, None) => "no declared range".to_string(),
+                    };
+                    bad.push(format!("{} = {v} ({module}: {range}) {whence}", mp.param));
+                    return true;
+                }
+            }
+            false
+        };
+        let mut hit = false;
+        for (r, row) in draws.iter().enumerate() {
+            if check(row[j], &format!("at realization {} of {}", r + 1, draws.len())) {
+                hit = true;
+                break;
+            }
+        }
+        if !hit {
+            if let Some((lo_p, hi_p)) = tornado_pctls {
+                for (v, whence) in [
+                    (mp.dist.central(), "at the tornado base point"),
+                    (mp.dist.quantile(lo_p), "at the tornado low sweep point"),
+                    (mp.dist.quantile(hi_p), "at the tornado high sweep point"),
+                ] {
+                    if check(v, whence) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    bad
 }
 
 /// Contiguous index span of a zone-scoped MC parameter on the well's depth grid; None = the
@@ -1474,6 +1593,38 @@ pub fn run_monte_carlo(
     // it once and share across wells. LHS stratification and Iman–Conover both need every
     // realization's draw jointly, which is why sampling is hoisted out of the rayon loop.
     let draws_all = build_draws(&req.mc_params, iterations, req.seed, req.sampling, &req.correlations, &mut notes);
+
+    // Refuse the whole study, not per well: the draw matrix is shared across wells, so every
+    // well would apply the same out-of-range values. Same message family as the deterministic
+    // runner's declared-range guard; refused rather than clamped, because silently clamping a
+    // percent-entered Normal(25, 1) to 0.6 would hand back plausible-but-wrong percentiles.
+    let bad_draws = sampled_value_violations(
+        &req.mc_params,
+        &req.steps,
+        &specs,
+        &draws_all,
+        if req.tornado { Some((lo_p, hi_p)) } else { None },
+    );
+    if !bad_draws.is_empty() {
+        return McResult {
+            low_pctl: lo_p,
+            high_pctl: hi_p,
+            sampling: match req.sampling {
+                Sampling::Lhs => "lhs",
+                Sampling::Random => "random",
+            }
+            .into(),
+            notes,
+            errors: vec![format!(
+                "Monte Carlo draw(s) outside the module's declared range: {}. A common cause is \
+                 entering a v/v fraction as a percentage in the distribution. Fix the \
+                 distribution's parameters so every value it can apply stays inside the declared \
+                 range.",
+                bad_draws.join("; ")
+            )],
+            ..Default::default()
+        };
+    }
 
     // Physical-plausibility candidates: the chain's produced porosity/saturation outputs. The
     // chain is identical across wells, so resolve them once. The UNLIMITED companions (PHIE_DN,
@@ -2186,6 +2337,91 @@ mod tests {
             persist_realizations: false,
             realization_cap: None,
         }
+    }
+
+    /// Audit finding #3 (AUDIT-2026-08-20), the plan-time side. The deterministic runner refuses
+    /// an out-of-spec parameter at `workflow::resolve_param_arrays`; a Monte Carlo study resolves
+    /// its base values in `build_plans` and used to skip that guard entirely, so a
+    /// percent-entered zone override (SWE_IRR = 25 against sw_indo's declared 0..0.6) reached
+    /// `f64::clamp`, whose lo <= hi assert aborts the whole process under the release profile's
+    /// panic = "abort". Both sides: the override refuses by name as a per-well error, and the
+    /// same override at a legal value runs to a full result — so neither an always-refuse nor a
+    /// never-refuse mutation passes.
+    #[test]
+    fn a_percent_entered_zone_override_refuses_the_study_instead_of_aborting_the_process() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        // The classic typo: an irreducible saturation entered as a percentage. The zones dialog
+        // and the DB Inspector both write zone_params without the range check moduleDialog.ts
+        // applies to typed values — the override is designed to beat the dialog — so this is the
+        // supply route that really reaches a study unchecked.
+        db::set_zone_param(&conn, &well, "*", "SWE_IRR", Some(25.0), None).unwrap();
+        let db_mutex = Mutex::new(conn);
+        let mc = vec![McParam {
+            param: "M".into(),
+            dist: Distribution::Uniform { lo: 1.8, hi: 2.2 },
+            zone: None,
+        }];
+        let req = base_request(&well, mc, 20, 42);
+        let res = run_monte_carlo(&db_mutex, &req, None);
+        assert!(res.zones.is_empty(), "an out-of-range override must not produce percentiles");
+        assert_eq!(res.errors.len(), 1, "expected one per-well refusal, got {:?}", res.errors);
+        let msg = &res.errors[0];
+        assert!(
+            msg.contains("SWE_IRR = 25") && msg.contains("declared range"),
+            "the refusal must name the parameter, the value and the rule: {msg}"
+        );
+        assert!(msg.contains("percentage"), "the refusal must state the common cause: {msg}");
+
+        // The same override at a legal value is applied, not refused.
+        {
+            let conn = db_mutex.lock().unwrap();
+            db::set_zone_param(&conn, &well, "*", "SWE_IRR", Some(0.3), None).unwrap();
+        }
+        let ok = run_monte_carlo(&db_mutex, &req, None);
+        assert!(ok.errors.is_empty(), "a legal override must run clean: {:?}", ok.errors);
+        assert!(!ok.zones.is_empty(), "a legal override must produce results");
+    }
+
+    /// Audit finding #3, the draw side. A distribution is user input like any typed value, but
+    /// its draws are written into the parameter arrays after `build_plans`, bypassing every
+    /// declared-range check — a Normal mean entered as a percentage sent SWE_IRR ~ 25 into the
+    /// same aborting clamp, and an honestly-meant wide Normal can stray past a bound on any
+    /// realization. The study refuses up front, study-wide (the draw matrix is shared across
+    /// wells), naming the parameter, the consuming module, its declared range and an exemplar
+    /// realization; the identical study drawn inside the range runs to a full result.
+    #[test]
+    fn a_draw_that_leaves_the_declared_range_refuses_the_study_by_name() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let db_mutex = Mutex::new(conn);
+        let mc = vec![McParam {
+            param: "SWE_IRR".into(),
+            dist: Distribution::Normal { mean: 25.0, sd: 1.0 },
+            zone: None,
+        }];
+        let res = run_monte_carlo(&db_mutex, &base_request(&well, mc, 50, 42), None);
+        assert!(res.zones.is_empty(), "out-of-range draws must not produce percentiles");
+        assert_eq!(res.errors.len(), 1, "expected one study-wide refusal, got {:?}", res.errors);
+        let msg = &res.errors[0];
+        assert!(
+            msg.contains("SWE_IRR") && msg.contains("sw_indo") && msg.contains("0.6"),
+            "the refusal must name the parameter, the consuming module and the declared range: {msg}"
+        );
+        assert!(msg.contains("realization"), "the refusal must locate an exemplar draw: {msg}");
+
+        // The same study drawn inside the declared range runs to a full result. Uniform on
+        // purpose — its support is bounded, so this side can never flake on a tail draw.
+        let mc_ok = vec![McParam {
+            param: "SWE_IRR".into(),
+            dist: Distribution::Uniform { lo: 0.05, hi: 0.25 },
+            zone: None,
+        }];
+        let ok = run_monte_carlo(&db_mutex, &base_request(&well, mc_ok, 50, 42), None);
+        assert!(ok.errors.is_empty(), "an in-range distribution must run clean: {:?}", ok.errors);
+        assert!(!ok.zones.is_empty(), "an in-range distribution must produce results");
     }
 
     /// T-BATCH-16 — adding a permeability MODEL to a Monte Carlo chain silently switches the
