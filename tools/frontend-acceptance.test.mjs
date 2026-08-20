@@ -2101,11 +2101,11 @@ test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => 
  *  converted heading are the same lie.
  */
 const HARD_CODED_DEPTH_UNIT_LABELS = [
-  ["src/ui/coreImportDialog.ts", "Metres (m)", "unit-picker"],
-  ["src/ui/coreImportDialog.ts", "Feet (ft)", "unit-picker"],
-  // Import Deviation's "Depth unit in file" (audit finding 8) — the same control, same reason.
-  ["src/ui/ribbon.ts", "Metres (m)", "unit-picker"],
-  ["src/ui/ribbon.ts", "Feet (ft)", "unit-picker"],
+  // `buildDepthUnitSelect` is the ONE depth-unit picker (core wizard, Import Deviation, Import
+  // SCAL). Three copies of these labels would be three places for this classification to drift,
+  // so the helper is where they live and this list stays one file long.
+  ["src/ui/followCore.ts", "Metres (m)", "unit-picker"],
+  ["src/ui/followCore.ts", "Feet (ft)", "unit-picker"],
   ["src/ui/ribbon.ts", "easting (m)", "map-coordinate"],
   ["src/ui/ribbon.ts", "northing (m)", "map-coordinate"],
 ];

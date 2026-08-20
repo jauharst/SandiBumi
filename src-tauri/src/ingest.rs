@@ -2220,13 +2220,21 @@ pub fn import_scal_csv(
     ift_lab: f64,
     depth_datum: &str,
 ) -> ScalImportResult {
-    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None, false, depth_datum)
+    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None, false, depth_datum, None)
 }
 
 /// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
 /// (flat Pc/Sw CSV), "porous_plate" (Corelab-style wide table: pressure columns × plug
 /// rows), "centrifuge" (per-plug key-value blocks + Pc/Sw tables), or "auto" to sniff
-/// each file — so a set of single-plug centrifuge exports imports in one shot. The files
+/// each file — so a set of single-plug centrifuge exports imports in one shot.
+///
+/// `depth_unit` is the unit the FILES quote their plug depths in ("m"/"ft"); `None` means the
+/// project's own, which is what every import before audit finding 8 assumed. Unlike the tops
+/// importer there is no file declaration to fall back on — a Pc export carries no units row that
+/// is reliably attached to the depth column — but unlike tops this import has a dialog, so the
+/// user is asked outright, which is better evidence than any header sniff.
+///
+/// The files
 /// selected together form ONE delivery: their combined records land in the SCAL set
 /// `set_name` (auto-suffixed if the well already carries that name, so a later report never
 /// overwrites an earlier one), which becomes the well's live SCAL data, and the Leverett-J
@@ -2244,6 +2252,7 @@ pub fn import_scal_files(
     set_name: Option<&str>,
     follow_core: bool,
     depth_datum: &str,
+    depth_unit: Option<&str>,
 ) -> ScalImportResult {
     let joined = paths.join("; ");
     let fail = |error: String| ScalImportResult {
@@ -2294,6 +2303,25 @@ pub fn import_scal_files(
         return fail(
             "no Pc/Sw data rows parsed from the selected file(s) — nothing was imported and the well's existing SCAL points are untouched (check the file format choice)".into(),
         );
+    }
+
+    // Audit finding 8, third site. A Pc delivery quoting its plug depths in feet, imported into
+    // a metre project, filed every plug 3.28084x too deep — and a Pc curve is read AT a depth:
+    // Thomeer and the J-fit QC pair each plug with the log's porosity and permeability there, and
+    // `sw_height` carries the fitted A/B back onto that same interval. The depths convert BEFORE
+    // the core record is applied below, because `core_depth_pairs` are already on the project's
+    // scale — mapping a foot depth through a metre correction would be two errors, not one.
+    let project_unit = match crate::units::require_project_depth_unit(conn, "SCAL import") {
+        Ok(unit) => unit,
+        Err(error) => return fail(error),
+    };
+    let file_unit = depth_unit.and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+    if file_unit != project_unit {
+        for rec in &mut records {
+            if let Some(d) = rec.depth {
+                rec.depth = Some(crate::units::convert_depth(d as f64, file_unit, project_unit) as f32);
+            }
+        }
     }
 
     // SCAL plugs are core plugs, so their depths are the core report's depths and move with the
@@ -5749,6 +5777,7 @@ GR.API :
         db::create_schema(&conn).unwrap();
         let well_id = Uuid::new_v4();
         db::insert_well(&conn, well_id, "SCAL-1", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let ids = well_id.to_string();
 
         // Synthesize points on Sw = 0.4 * J^-0.5 at IFT 72 (like the satheight unit test),
@@ -5791,6 +5820,7 @@ GR.API :
     fn scal_import_files_multi_format_and_replace() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let well_id = Uuid::new_v4();
         db::insert_well(&conn, well_id, "SCAL-2", None, None, None).unwrap();
         let ids = well_id.to_string();
@@ -5807,7 +5837,7 @@ GR.API :
         std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
         let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
 
-        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None, false, "MD");
+        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None, false, "MD", None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 8, "both plugs land in one combined import");
         assert!(res.fit.is_some(), "J-fit solves over the pooled points");
@@ -5825,7 +5855,7 @@ GR.API :
         let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
         std::fs::write(&p3, wide).unwrap();
         let res2 =
-            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None, false, "MD");
+            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None, false, "MD", None);
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows, 4);
         assert_eq!(res2.set_name.as_deref(), Some("SCAL_1"), "auto-suffixed, first report kept");
@@ -5850,6 +5880,7 @@ GR.API :
             None,
             false,
             "MD",
+            None,
         );
         assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "failed import leaves prior rows intact");
@@ -5865,20 +5896,21 @@ GR.API :
     fn scal_import_zero_rows_leaves_existing_data() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let well_id = Uuid::new_v4();
         db::insert_well(&conn, well_id, "SCAL-3", None, None, None).unwrap();
         let ids = well_id.to_string();
 
         let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
         std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
-        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None, false, "MD");
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None, false, "MD", None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
 
         // Header-only export (e.g. a filtered/template sheet) → error, data intact.
         let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
         std::fs::write(&empty, "PC,SW\n").unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None, false, "MD");
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None, false, "MD", None);
         assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
 
@@ -6244,6 +6276,7 @@ GR.API :
     fn scal_points_can_follow_the_core_they_were_cut_from() {
         let mut conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-SCAL-FOLLOW", None, None, None).unwrap();
         let w = wid.to_string();
@@ -6264,7 +6297,7 @@ GR.API :
         .unwrap();
         let p = path.to_str().unwrap().to_string();
 
-        let res = import_scal_files(&conn, &w, &[p.clone()], "long", "air_brine", 72.0, Some("FOLLOWED"), true, "MD");
+        let res = import_scal_files(&conn, &w, &[p.clone()], "long", "air_brine", 72.0, Some("FOLLOWED"), true, "MD", None);
         assert!(res.error.is_none(), "{:?}", res.error);
         let rows = db::get_scal_pc(&conn, &w).unwrap();
         let depths: Vec<f32> = {
@@ -6279,7 +6312,7 @@ GR.API :
         assert_eq!(res.note.as_deref(), Some("placed from the core depth record"));
 
         // Off, the depths stay exactly as the file wrote them.
-        let plain = import_scal_files(&conn, &w, &[p], "long", "air_brine", 72.0, Some("ASWRITTEN"), false, "MD");
+        let plain = import_scal_files(&conn, &w, &[p], "long", "air_brine", 72.0, Some("ASWRITTEN"), false, "MD", None);
         assert!(plain.error.is_none(), "{:?}", plain.error);
         assert!(plain.note.is_none(), "nothing to report when the box was not ticked");
         let rows = db::get_scal_pc(&conn, &w).unwrap();
@@ -6288,6 +6321,85 @@ GR.API :
             "unmapped import keeps the delivered depth"
         );
         std::fs::remove_file(&path).ok();
+    }
+
+    /// Audit finding 8, third site. A Pc delivery is read AT a depth — Thomeer and the J-fit QC
+    /// pair every plug with the log's porosity and permeability there, and `sw_height` carries the
+    /// fitted A/B back onto that same interval — so a delivery quoting feet into a metre project
+    /// files each plug 3.28084x too deep and every pairing is with the wrong rock.
+    ///
+    /// The ORDER is the half that is easy to get wrong and impossible to see afterwards. The core
+    /// depth record is already on the project's scale, so the file's depths must reach the project
+    /// unit BEFORE they are mapped through it. Converting after would apply a metre correction to
+    /// a foot number and then scale the sum — two errors compounding into one plausible depth.
+    #[test]
+    fn a_scal_delivery_in_feet_is_converted_before_it_follows_the_core() {
+        // 6600 ft = 2011.68 m exactly (the foot is defined as 0.3048 m).
+        let run = |unit: Option<&str>, follow: bool| -> Vec<f32> {
+            let mut conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+            let wid = uuid::Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-SCAL-UNIT", None, None, None).unwrap();
+            let w = wid.to_string();
+
+            // A cored interval on the PROJECT's scale, shifted 2 m deeper against the log.
+            let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+            let v = vec![0.2f32; 20];
+            let nan = vec![f32::NAN; 20];
+            db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+            db::apply_core_run_shifts(
+                &mut conn,
+                &w,
+                &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0, ..Default::default() }],
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+            let path = std::env::temp_dir().join(format!("sandibumi_scalunit_{w}.csv"));
+            std::fs::write(&path, "SAMPLE,DEPTH,PERM,PORO,PC,SW\n1,6600,100,0.20,1,1.0\n1,6600,100,0.20,10,0.5\n")
+                .unwrap();
+            let res = import_scal_files(
+                &conn,
+                &w,
+                &[path.to_string_lossy().into_owned()],
+                "long",
+                "air_brine",
+                72.0,
+                Some("DELIVERY"),
+                follow,
+                "MD",
+                unit,
+            );
+            std::fs::remove_file(&path).ok();
+            assert!(res.error.is_none(), "{:?}", res.error);
+            db::get_scal_pc(&conn, &w).unwrap().iter().filter_map(|r| r.depth).collect()
+        };
+
+        // Declared FT, core record not consulted: the plug lands on the project's scale.
+        let depths = run(Some("ft"), false);
+        assert!(
+            depths.iter().all(|d| (d - 2011.68).abs() < 1e-2),
+            "6600 ft is 2011.68 m, got {depths:?} — the delivery was filed raw"
+        );
+
+        // Declared FT, following the core: converted FIRST, then corrected by the core's 2 m.
+        // Converting after the mapping would give (6600 + 2) x 0.3048 = 2012.29 — a metre
+        // correction applied to a foot number, then scaled. That is the number this pins out.
+        let depths = run(Some("ft"), true);
+        assert!(
+            depths.iter().all(|d| (d - 2013.68).abs() < 1e-2),
+            "2011.68 m + the core's 2 m = 2013.68, got {depths:?} — the core record was applied \
+             to a foot depth"
+        );
+
+        // Undeclared: unchanged from every SCAL import before this one.
+        let depths = run(None, false);
+        assert!(
+            depths.iter().all(|d| (d - 6600.0).abs() < 1e-2),
+            "no declaration means the project's own unit, got {depths:?}"
+        );
     }
 
     /// The whole point of keeping the core's as-delivered depths: a laboratory sends XRD months

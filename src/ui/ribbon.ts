@@ -40,7 +40,7 @@ import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
-import { buildDatumSelect, buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildDepthUnitSelect, buildFollowCoreRow } from "./followCore";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
@@ -1935,6 +1935,17 @@ export class Ribbon {
     content.appendChild(
       formRow("Depth datum", scalDatumSel, "The datum the plug depths are quoted in (declared once for the delivery)."),
     );
+    // Audit finding 8: a Pc curve is read AT a depth — Thomeer and the J-fit QC pair each plug
+    // with the log's porosity and permeability there — so a delivery quoting feet into a metre
+    // project files every plug 3.28x too deep and every pairing is with the wrong rock.
+    const scalUnitSel = buildDepthUnitSelect();
+    content.appendChild(
+      formRow(
+        "Depth unit in file",
+        scalUnitSel,
+        `The unit the plug depths are quoted in. Converted to the project's depth unit (${storedDepthLabel()}) before the core depth record is applied.`,
+      ),
+    );
 
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
@@ -1963,6 +1974,7 @@ export class Ribbon {
         setInput.value.trim() || "SCAL",
         scalFollowCore.checked(),
         scalDatumSel.value,
+        scalUnitSel.value || null,
       )
         .then((result) => {
           if (result.error) {
@@ -2080,14 +2092,7 @@ export class Ribbon {
     // log grid, into sw_height and into the saturation-height fits. Same control the core
     // wizard already carries. Unlike core there is no probe step to guess from, so the default
     // is "Same as project", which is exactly what every earlier import silently assumed.
-    const unitSel = document.createElement("select");
-    unitSel.className = "form-control";
-    for (const [value, label] of [["", "Same as project"], ["m", "Metres (m)"], ["ft", "Feet (ft)"]] as const) {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.textContent = label;
-      unitSel.appendChild(opt);
-    }
+    const unitSel = buildDepthUnitSelect();
     content.appendChild(
       formRow(
         "Depth unit in file",

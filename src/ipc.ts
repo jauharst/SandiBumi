@@ -3823,8 +3823,22 @@ export function importScalFiles(
   followCore = false,
   /** SB-DBM-031: the datum the delivery's depths are quoted in, declared by the user. */
   depthDatum = "MD",
+  /** Audit finding 8: the UNIT the delivery's depths are quoted in ("m"/"ft"), declared by the
+   *  user in the same dialog. null means the project's own unit — what every import before this
+   *  one assumed. The depths convert onto the project scale before the core record is applied. */
+  depthUnit: string | null = null,
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore, depthDatum });
+  return invoke<ScalImportResult>("import_scal_files", {
+    wellId,
+    paths,
+    format,
+    system,
+    iftLab,
+    setName,
+    followCore,
+    depthDatum,
+    depthUnit,
+  });
 }
 
 export interface ThomeerSampleFit {
