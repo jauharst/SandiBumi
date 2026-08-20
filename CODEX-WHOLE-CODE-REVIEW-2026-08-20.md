@@ -19,6 +19,42 @@
 | P2 | 3 | Edge-case wrongness or a binding contract violation not yet shown to corrupt a normal deliverable |
 | P3 | 0 | No hazard-only item met the evidence bar |
 
+## Triage status — 2026-08-20
+
+Kept here rather than in a new file: this is the master list, so the status of a finding sits
+directly above the finding's own text and cannot drift away from it. `Where` names the
+`REVIEW.md` entry to click through — that file is the field-verification record, this one is the
+list of what was found.
+
+`[x]` on master · `[>]` fixed, PR open and awaiting your merge · `[ ]` not started.
+
+| # | Sev | Finding, in short | Where |
+|---|---|---|---|
+| 1 | P0 | Composite prints 3.28× too long on a foot project | `[x]` increment 13 |
+| 2 | P0 | Pay/dashboard/PDF/CSV label foot thicknesses as metres | `[x]` increments 8, 14 |
+| 3 | P1 | A percent core column below a median of 1.5 stored as a fraction | `[>]` increment 26 (PR #85) |
+| 4 | P1 | Deviation/tops/SCAL/point imports never asked the file's depth unit | `[x]` increments 17–20 |
+| 5 | P1 | A blank inclination or azimuth read as a measured zero | `[x]` increment 24 |
+| 6 | P1 | TVD froze at the last survey station and kept going | `[x]` increment 25 |
+| 7 | P1 | The free-water level was labelled in metres, used in project units | `[x]` increment 9 |
+| 8 | P1 | Depth-editing dialogs labelled metres, sent project units | `[x]` increments 11, 12 |
+| 9 | P1 | Correlation and contact windows were bare metre constants | `[x]` "a correlation window is an amount of ROCK" |
+| 10 | P1 | Lorenz and Results-QC printed foot totals as metric | `[>]` increment 27 (PR #86) |
+| 11 | P1 | Versus compared two log versions by array position | `[>]` increment 28 (PR #87) |
+| 12 | P1 | Partial TVD coverage counted as zero-thickness rock | `[>]` increment 29 (PR #88) |
+| 13 | P1 | Sensitivity sweep dropped a PERM cutoff you had entered | `[x]` increment 7, under DEC-084 |
+| 14 | P1 | SSPW's gas branch and SSC's disagreed on the weighting | `[x]` DEC-088 — **moves numbers** |
+| 15 | P1 | RtC read a gap in CAPBW as zero bound water | `[x]` increment 10 |
+| 16 | P1 | IMTS read missing clay evidence as clean rock | `[x]` increments 10, 23 |
+| 17 | P1 | Core-to-log readers ignore the declared core datum | `[ ]` |
+| 18 | P1 | `rt_cutoff` accepts an inverted class ladder | `[ ]` |
+| 19 | P2 | The one-metre plug tolerance became one foot | `[x]` increment 21 |
+| 20 | P2 | Results-QC and core registration send float arrays as JSON | `[ ]` |
+| 21 | P2 | One SQL-NULL core property fails the whole four-property overlay | `[ ]` |
+
+**16 on master, 3 waiting on your merge, 1 in flight, 4 not started.** The four not started are
+numbers 17, 18, 20 and 21 — two core-datum/rock-typing correctness items and two contract items.
+
 ## P0 — Composite exports treat foot-project depths as metres, making true-scale client plots 3.28084 times too long.
 
 **Severity:** P0 — this changes the physical scale and pagination of exported SVG/PDF well composites, which are client-deliverable artifacts.

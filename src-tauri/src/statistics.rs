@@ -613,9 +613,10 @@ pub struct ThicknessRow {
     /// Measured thickness — the sum of each counted sample's own depth step.
     pub gross_md: f64,
     pub net_md: f64,
-    /// True vertical thickness, present only where the well has a TVD curve. **Blank rather than
-    /// a copy of the measured value**: a vertical well and an unsurveyed deviated well look
-    /// identical in the data, and only one of them is safe to treat as vertical.
+    /// True vertical thickness, present only where the well is surveyed across the WHOLE
+    /// interval. **Blank rather than a copy of the measured value**: a vertical well and an
+    /// unsurveyed deviated well look identical in the data, and only one of them is safe to
+    /// treat as vertical. Blank on PARTIAL coverage for the same reason — see [`accumulate`].
     pub gross_tvd: Option<f64>,
     pub net_tvd: Option<f64>,
     /// net / gross on whichever depth the row reports (TVD when present).
@@ -634,6 +635,104 @@ fn passes(c: &Condition, v: f32) -> bool {
         "<" => v < c.value,
         "==" => (v - c.value).abs() < 1e-9,
         _ => false,
+    }
+}
+
+/// One interval's thickness — measured, and vertical where the geometry is fully known.
+#[derive(Debug, Clone, PartialEq)]
+struct Slab {
+    n: usize,
+    gross_md: f64,
+    net_md: f64,
+    gross_tvd: Option<f64>,
+    net_tvd: Option<f64>,
+}
+
+/// Sums each counted sample's own depth step over one interval.
+///
+/// **Partial TVD coverage is not a vertical answer.** A sample's vertical step is half the step
+/// to the neighbour above plus half the step below, so it needs THREE finite TVD values, and one
+/// gap leaves three slabs unknowable. Booking an unknown slab as `0.0` does not merely lose it:
+/// it shrinks GROSS while a net interval on the surveyed side keeps its own thickness, so the
+/// ratio rises — a well surveyed over one sand and not the rest reported that sand's N/G as the
+/// whole well's, with a vertical gross a third of the measured one beside it and nothing saying
+/// why. So the whole interval refuses instead, and the row falls back to the measured thickness,
+/// which was never in doubt. Nothing is lost by refusing; the row simply stops claiming a
+/// vertical thickness it cannot support.
+///
+/// The neighbour a step needs may sit OUTSIDE the interval, and that is deliberate — it is what
+/// makes the sum the interval's true span rather than a half-step short at each end. TVD follows
+/// the same rule as MD on purpose: a vertical gross measured over a different interval from the
+/// measured gross printed beside it would be worse than no vertical gross at all.
+fn accumulate(
+    depth: &[f32],
+    tvd: Option<&[f32]>,
+    in_iv: &dyn Fn(usize) -> bool,
+    counted: &dyn Fn(usize) -> bool,
+) -> Slab {
+    // Each sample's own thickness — half to the neighbour above and half below.
+    let step = |i: usize| -> f64 {
+        let up = if i > 0 { (depth[i] - depth[i - 1]) as f64 / 2.0 } else { 0.0 };
+        let dn = if i + 1 < depth.len() { (depth[i + 1] - depth[i]) as f64 / 2.0 } else { 0.0 };
+        (up + dn).max(0.0)
+    };
+    // `None` where the vertical step is not KNOWABLE — this sample's TVD, or that of a
+    // neighbour the frame actually has, is missing. Never `Some(0.0)`: unsurveyed section is
+    // not zero rock.
+    let vstep = |i: usize| -> Option<f64> {
+        let t = tvd?;
+        let n = t.len().min(depth.len());
+        if i >= n || !t[i].is_finite() {
+            return None;
+        }
+        let up = if i > 0 {
+            if !t[i - 1].is_finite() {
+                return None;
+            }
+            (t[i] - t[i - 1]) as f64 / 2.0
+        } else {
+            0.0
+        };
+        let dn = if i + 1 < n {
+            if !t[i + 1].is_finite() {
+                return None;
+            }
+            (t[i + 1] - t[i]) as f64 / 2.0
+        } else {
+            0.0
+        };
+        Some((up + dn).max(0.0))
+    };
+
+    let (mut n, mut gross_md, mut net_md, mut gross_tvd, mut net_tvd) = (0usize, 0.0, 0.0, 0.0, 0.0);
+    // Completeness is judged over GROSS, never over the counted subset: a net interval that
+    // happens to fall inside the surveyed part is exactly the case that used to inflate N/G.
+    let mut complete = tvd.is_some();
+    let mut any_sample = false;
+    for i in 0..depth.len() {
+        if !in_iv(i) {
+            continue;
+        }
+        any_sample = true;
+        gross_md += step(i);
+        let v = vstep(i);
+        match v {
+            Some(v) => gross_tvd += v,
+            None => complete = false,
+        }
+        if counted(i) {
+            n += 1;
+            net_md += step(i);
+            net_tvd += v.unwrap_or(0.0);
+        }
+    }
+    let known = complete && any_sample;
+    Slab {
+        n,
+        gross_md,
+        net_md,
+        gross_tvd: known.then_some(gross_tvd),
+        net_tvd: known.then_some(net_tvd),
     }
 }
 
@@ -668,30 +767,8 @@ pub fn thickness(db: &Mutex<Connection>, req: &ThicknessRequest) -> Result<Vec<T
         if depth.len() < 2 {
             continue;
         }
-        let tvd = cols.get("TVD").filter(|t| t.iter().any(|v| v.is_finite()));
-        // Each sample's own thickness — half to the neighbour above and half below, so the sum
-        // over an interval is its true span rather than one step short at each end.
-        let step = |i: usize| -> f64 {
-            let n = depth.len();
-            let up = if i > 0 { (depth[i] - depth[i - 1]) as f64 / 2.0 } else { 0.0 };
-            let dn = if i + 1 < n { (depth[i + 1] - depth[i]) as f64 / 2.0 } else { 0.0 };
-            (up + dn).max(0.0)
-        };
-        let vstep = |i: usize| -> Option<f64> {
-            let t = tvd?;
-            let n = t.len().min(depth.len());
-            let up = if i > 0 && t[i].is_finite() && t[i - 1].is_finite() {
-                (t[i] - t[i - 1]) as f64 / 2.0
-            } else {
-                0.0
-            };
-            let dn = if i + 1 < n && t[i + 1].is_finite() && t[i].is_finite() {
-                (t[i + 1] - t[i]) as f64 / 2.0
-            } else {
-                0.0
-            };
-            Some((up + dn).max(0.0))
-        };
+        let tvd =
+            cols.get("TVD").filter(|t| t.iter().any(|v| v.is_finite())).map(|t| t.as_slice());
 
         let curve = req.curve.as_ref().map(|c| c.trim().to_uppercase());
         let series = curve.as_ref().and_then(|k| cols.get(k));
@@ -754,41 +831,23 @@ pub fn thickness(db: &Mutex<Connection>, req: &ThicknessRequest) -> Result<Vec<T
                 }
             }
 
-            let mut gross_md = 0.0;
-            let mut gross_tvd = 0.0;
-            let mut any_tvd = false;
-            for i in 0..depth.len() {
-                if in_interval(&iv, depth[i]) {
-                    gross_md += step(i);
-                    if let Some(v) = vstep(i) {
-                        gross_tvd += v;
-                        any_tvd = true;
-                    }
-                }
-            }
+            let in_iv = |i: usize| in_interval(&iv, depth[i]);
             for (item, test) in items {
-                let mut n = 0usize;
-                let mut net_md = 0.0;
-                let mut net_tvd = 0.0;
-                for i in 0..depth.len() {
-                    if in_interval(&iv, depth[i]) && test(i) {
-                        n += 1;
-                        net_md += step(i);
-                        if let Some(v) = vstep(i) {
-                            net_tvd += v;
-                        }
-                    }
-                }
-                let (g, net) = if any_tvd { (gross_tvd, net_tvd) } else { (gross_md, net_md) };
+                let s = accumulate(&depth, tvd, &in_iv, &*test);
+                // The ratio reports on whichever depth the row could answer on.
+                let (g, net) = match (s.gross_tvd, s.net_tvd) {
+                    (Some(g), Some(net)) => (g, net),
+                    _ => (s.gross_md, s.net_md),
+                };
                 rows.push(ThicknessRow {
                     well: names.get(well_id).cloned().unwrap_or_else(|| well_id.clone()),
                     zone: iv.name.clone(),
                     item,
-                    n,
-                    gross_md,
-                    net_md,
-                    gross_tvd: any_tvd.then_some(gross_tvd),
-                    net_tvd: any_tvd.then_some(net_tvd),
+                    n: s.n,
+                    gross_md: s.gross_md,
+                    net_md: s.net_md,
+                    gross_tvd: s.gross_tvd,
+                    net_tvd: s.net_tvd,
                     // A ratio over zero gross is not zero, it is unanswerable.
                     ntg: (g > 0.0).then(|| net / g),
                 });
@@ -1065,6 +1124,47 @@ mod tests {
         with_zero.push(0.0);
         with_zero.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert!(!(with_zero[0] > 0.0), "a zero must withdraw the log-scale means, not be skipped");
+    }
+
+    /// A survey that stops short must not turn the unsurveyed section into zero rock.
+    ///
+    /// The half-step scheme needs three finite TVD values per sample, so ONE gap leaves three
+    /// slabs unknowable — and booking them as `0.0` shrank gross while a net interval on the
+    /// surveyed side kept its own thickness, so the ratio rose. Pinned from both sides: a
+    /// complete survey must still answer, and its answer must not be the measured number in
+    /// disguise, or a version that simply copied MD across would pass the refusal half.
+    #[test]
+    fn a_partly_surveyed_interval_reports_its_measured_thickness_rather_than_a_vertical_one() {
+        let depth = [0.0f32, 1.0, 2.0, 3.0];
+        let flag = [1.0f32, 1.0, 0.0, 0.0];
+        let all = |_i: usize| true;
+        let counted = |i: usize| flag[i] == 1.0;
+
+        // The gap. This used to report gross TVD 1.0, net TVD 1.0 and N/G 1.0 — the ratio of
+        // the surveyed half, quoted for the whole interval, and double the truth.
+        let partial = [0.0f32, 1.0, f32::NAN, 3.0];
+        let s = accumulate(&depth, Some(&partial), &all, &counted);
+        assert_eq!(s.gross_tvd, None, "partial TVD coverage is not a vertical thickness");
+        assert_eq!(s.net_tvd, None, "and neither half of the pair may answer alone");
+        assert!((s.gross_md - 3.0).abs() < 1e-6, "measured gross unaffected: {}", s.gross_md);
+        assert!((s.net_md - 1.5).abs() < 1e-6, "measured net unaffected: {}", s.net_md);
+        let ntg = s.net_md / s.gross_md;
+        assert!((ntg - 0.5).abs() < 1e-6, "and the ratio falls back to the measured depths: {ntg}");
+
+        // The other side: a complete survey still answers, and its answer is NOT the measured
+        // one — a deviated well is drilled through more section than it stands up in.
+        let full = [0.0f32, 0.8, 1.6, 2.4];
+        let s = accumulate(&depth, Some(&full), &all, &counted);
+        let g = s.gross_tvd.expect("a fully surveyed interval still reports vertical thickness");
+        let net = s.net_tvd.expect("net too");
+        assert!((g - 2.4).abs() < 1e-6, "vertical gross: {g}");
+        assert!((net - 1.2).abs() < 1e-6, "vertical net: {net}");
+        assert!((s.gross_md - 3.0).abs() < 1e-6, "measured thickness stands beside it, unchanged");
+
+        // A well with no survey at all was already blank, and stays blank.
+        let s = accumulate(&depth, None, &all, &counted);
+        assert_eq!((s.gross_tvd, s.net_tvd), (None, None), "no survey, no vertical answer");
+        assert!((s.gross_md - 3.0).abs() < 1e-6);
     }
 
     #[test]
