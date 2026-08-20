@@ -1,5 +1,52 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 23 (Codex P1): a survey states no geometry past its last station
+
+> **This one changes what you SEE on wells whose survey stops short of TD.** Read the third item
+> before you click — it is a deliberate behaviour change and you may want it different.
+
+- [ ] **What this fixes.** TVD/TVDSS are resampled from the survey onto the whole log grid, and
+      outside the surveyed range the resampler **clamped to the end stations**. On a well logged to
+      3000 m with stations to 2000 m, TVD read **2000 at every depth below 2000 m** — a zero
+      vertical increment over 1000 m of hole, which no trajectory can produce, delivered as a normal
+      curve. The materializer's own comment in the code has always said those samples were missing;
+      the function never did it.
+- [ ] **It pulled two ways at once, which is why nothing on the log caught it.** A frozen (too
+      shallow) TVD makes height above the free-water level too **large**, so Sw-from-height reads
+      too little water — **optimistic pay**. The same frozen TVDSS makes FTEMP too **low**, so Arps
+      returns Rw too high and the resistivity Sw too high — **pessimistic pay**. One plateau, two
+      biases in opposite directions.
+- [ ] **The deliberate consequence.** A partial survey now leaves the un-surveyed section **without
+      TVD**, so anything needing true vertical depth there returns **nothing** instead of a
+      plausible frozen value — Sw-from-height, FTEMP/FPRESS, `phimax`'s TVDSS trend. Your recoveries
+      are to extend the survey, or to remove it so the documented measured-depth fallback applies
+      well-wide. If you would rather have the un-surveyed section continue on the last station's
+      inclination instead, say so — that is extrapolation, so I did not do it without your word.
+- [ ] **The shallow end is fixed too, and it was quietly impossible.** Above the first station the
+      clamp returned that station's TVD, so a survey delivered from 300 m down put **TVD 300 at MD
+      0** — a TVD deeper than its own MD. It now continues vertically from the first station, which
+      is exactly what the survey's own anchor already assumes.
+- [ ] **Sw-from-height no longer switches depth reference mid-well.** Its measured-depth fallback is
+      for a well carrying **no** TVD curve — a vertical well, where MD is the honest answer. It used
+      to fire on any gap, which only became reachable with this change. On the test fixture the
+      surveyed neighbours sit 100 and 150 m *above* the contact while measured depth puts the gap
+      sample **400 m below** it, fully wet: the fallback would not have shaded that sample's pay, it
+      would have erased it.
+- [ ] **Click-through:** open a well whose deviation survey reaches TD — everything unchanged, TVD
+      identical. Then a well whose survey stops short (or import a truncated copy of one): below the
+      last station TVD/TVDSS should now be **blank**, and Sw-from-height should produce nothing
+      there rather than a flat saturation. Check a vertical well with no survey at all still works
+      exactly as before.
+- [ ] **Automated correctness:** two pins.
+      `a_survey_states_no_geometry_past_its_last_station_and_says_so` covers both ends plus the
+      invariant that TVD can never exceed MD; two mutations red at two distinct assertions
+      (restoring the freeze returns `tvd 2000 tvdss 1970` past the last station; restoring the
+      shallow clamp returns TVD 300 at MD 0).
+      `a_gap_in_a_carried_tvd_curve_withholds_the_sample_instead_of_switching_to_measured_depth`
+      pins the fallback from both sides; two more mutations red at two distinct assertions (the
+      unconditional fallback prints `SWT 1, HAFWL -400` at the gap; dropping the fallback entirely
+      blanks every vertical well).
+
 ## 2026-08-20 — Audit increment 22 (Codex P1): a survey station with no inclination is refused, not read as vertical
 
 > **One judgement call in here, flagged rather than buried** — see the last item. Say the word and

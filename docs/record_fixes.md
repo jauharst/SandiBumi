@@ -325,3 +325,53 @@ Three things this fix had to keep straight, and only the first is obvious:
 Because a refused sample writes nothing, a run supplied with NEITHER clay curve now produces an
 empty result and `workflow::answered` reports it as a failure instead of versioning an
 interpretation - the same rule as every other refusal here, reached without a second mechanism.
+
+
+## A survey states no geometry past its last station (2026-08-20)
+
+Codex whole-repository review, P1. `deviation::sample_at` CLAMPED to the end stations outside the
+surveyed range, and `materialize_tvd_curves` calls it for every sample on the full log grid - so a
+partial survey wrote long finite plateaus that height, correlation and report calculations then
+consumed as real geometry. The contradiction was already in the tree: the comment on that very call
+in `ingest.rs` describes NaN outside the survey's MD range, and the function never did it.
+
+**Both ends were wrong, in different ways, and the fix differs at each because only one of them has
+a convention to fall back on.**
+
+- **Past the LAST station: MISSING.** Holding TVD at the last station's value over real hole is a
+  zero vertical increment, which no trajectory can produce - on a well logged to 3000 m with
+  stations to 2000 m that was a 1000 m plateau presented as a normal curve. Continuing the last
+  inclination instead would be an extrapolation nobody authorized. So the geometry is unknown and
+  now says so.
+- **Above the FIRST station: vertical continuation.** `minimum_curvature`'s anchor already assumes
+  the hole is vertical from surface, taking the first station's TVD as its own MD, and the clamp
+  CONTRADICTED it - a survey delivered from 300 m down put TVD 300 at MD 0, a TVD deeper than its
+  own MD, which no well can be. The continuation is written as a relative step from the first
+  station rather than `TVD = MD` so it stays continuous whatever produced the stations.
+
+**What the plateau was worth, and it is worth stating that it pulled two ways at once.** A frozen
+(too shallow) TVD makes the height above the free-water level too LARGE, so `sw_height` reads too
+little water - optimistic pay. The same frozen TVDSS makes FTEMP too LOW, so Arps returns an Rw
+that is too HIGH and the resistivity saturation too high - pessimistic pay. One plateau, two
+answers biased in opposite directions, neither recoverable from anything on the log.
+
+**The second half of the fix is in `sw_height`, and the first half is what made it necessary.** Its
+measured-depth fallback exists for a well carrying NO vertical-depth curve at all - a vertical well,
+where MD is the honest answer - but it fired on any NaN, and until `sample_at` stopped freezing,
+a TVD curve had no holes to have. A well logged deeper than its survey now has exactly one, and
+falling back there would switch that sample from true vertical to along-hole depth inside a single
+interpretation: on the worked fixture the surveyed neighbours sit 100 and 150 m ABOVE the contact
+while measured depth puts the sample 400 m BELOW it, fully wet. So the fallback is now gated on
+whether the well carries a TVD curve at all - `sw_rtc`'s CBW rule and `sw_imts`' clay-volume rule,
+restated for geometry. `phimax` and `precalc` already withheld on a missing TVDSS and needed no
+change, which is the evidence the pattern was the project's own.
+
+**The visible consequence, and it is deliberate**: a partial survey now leaves the un-surveyed
+section without TVD, so everything that needs true vertical depth there returns nothing rather than
+a plausible frozen value. Extending the survey, or removing it so the documented MD fallback
+applies well-wide, are both recoveries; a silent plateau was not.
+
+Pinned by `a_survey_states_no_geometry_past_its_last_station_and_says_so` (both ends, plus the
+TVD-never-exceeds-MD invariant) and
+`a_gap_in_a_carried_tvd_curve_withholds_the_sample_instead_of_switching_to_measured_depth` (the
+fallback survives for a well with no TVD, and does not fire for a gap in one that exists).

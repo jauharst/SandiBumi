@@ -844,6 +844,14 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
   collapses the excess-conductivity term, so it would otherwise ship an Archie answer under an IMTS
   method flag. Measured zeros still reduce to Archie, and the two cases are pinned against each
   other; the S-factor calibration has always drawn the same line.
+- **A survey states no geometry past its last station.** `deviation::sample_at` returns NaN below
+  the surveyed range rather than freezing TVD, because a zero vertical increment over real hole is
+  not a trajectory; above the FIRST station it continues vertically from that station, which is
+  `minimum_curvature`'s own anchor assumption and the only reading where TVD never exceeds MD.
+- **A curve's absence and a curve's hole are different states, and a fallback written for one is
+  wrong for the other.** `sw_height`'s measured-depth fallback fires only when the well carries no
+  TVD curve at all; a gap in one it does carry withholds the sample, because switching depth
+  reference mid-well is not a fallback. Same rule as `sw_rtc`'s `has_cbw`.
 
 ### `docs/record_parallel_lanes.md` — running a second agent beside Claude Code
 
