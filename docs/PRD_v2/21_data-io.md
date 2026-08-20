@@ -140,7 +140,7 @@ writer at `-999` (dossier §2.1, §3.1; corroborated on disk by `LasNullValue = 
 IP-written `-999` as a measurement. On RHOB that is −999 g/cc, on GR −999 gAPI — non-physical, so
 a range gate catches it. The cases a range gate does **not** catch are the ones that matter, and
 they are ordinary: a GRN normalised to P3/P97 (Jauhar's own house workflow, memory
-`method_workflow_standards`), a residual curve, or a resistivity on a log axis where a negative
+`docs/workflow_standards.md`), a residual curve, or a resistivity on a log axis where a negative
 is simply not plotted. There the −999 is **excluded from the picture and included in every
 average**. On a 40-sample zone where one sample is a surviving −999 and the rest average 60 gAPI,
 the reported mean is `(39×60 + (−999))/40 = 33.5 gAPI` — a 44 % error in a number nobody looks

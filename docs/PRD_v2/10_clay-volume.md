@@ -1762,7 +1762,7 @@ division.
 | `clip_high_pct` | — | 98 | % | `IP clayparameters.htm (60)`, both editions — ledger D-01 | T2 |
 | `percentile_clay` | — | 130 | % | `IP clayparameters.htm (57)` | T2 |
 | `percentile_clean` | — | ABSENT — ships with no default | % | ledger D-14 — absent from CHM *and* `ClayVol.hlp` | T2 |
-| `house_preset.p3_p97` | — | P3 / P97 | percentile | `method_workflow_standards.md`; realisation `P3 = 53.68`, `P97 = 133.93 gAPI`, `project-kb\records\lqr-balam-south-phr.md` Final Report Sec 4.3.6 | T4 |
+| `house_preset.p3_p97` | — | P3 / P97 | percentile | `docs/workflow_standards.md`; realisation `P3 = 53.68`, `P97 = 133.93 gAPI`, `project-kb\records\lqr-balam-south-phr.md` Final Report Sec 4.3.6 | T4 |
 | `gr_clean` (Techlog parity) | GR_ma | 10 | gAPI | `Techlog petrophysics-vsh-from-gamma-ray.html` — **starting range only** | T1′ |
 | `gr_clay` (Techlog parity) | GR_sh | 100 | gAPI | same — **starting range only** | T1′ |
 | `gr_clean` validation | — | 0–200 | gapi | `Geolog vsh_gr.info` VALIDATION | T1 |
@@ -1823,7 +1823,7 @@ vendor witness and may stay once a source string is attached under SB-CLY-051.
 | `GR_MA = 15.0` / `GR_SH = 120.0` (`vsh_dn` cross-check) | `modules.rs:597-598` | **Withdraw** — a third endpoint pair inside one product; the cross-check must use the run's own GR endpoints |
 | `GR_MA = 10.0` / `GR_SH = 150.0` (`ssc`) | `ssc.rs:95-96` | **Withdraw** — a fourth endpoint pair; 22.2 % relative spread against the other two at GR = 70 |
 | `FLAG_TOL = 0.25` v/v | `modules.rs:599` | **Keep** — a SandiBumi diagnostic threshold, not a petrophysical parameter; must be documented as such |
-| `P_LOW = 3.0` / `P_HIGH = 97.0` | `modules.rs:2629-2630` | **Keep, attach source** — `method_workflow_standards.md` (T4); SB-CLY-039 governs how it is presented |
+| `P_LOW = 3.0` / `P_HIGH = 97.0` | `modules.rs:2629-2630` | **Keep, attach source** — `docs/workflow_standards.md` (T4); SB-CLY-039 governs how it is presented |
 
 ---
 
@@ -1876,7 +1876,7 @@ given.
 | SB-CLY-T35 | A run with rejected samples | LAS export | No numeric sentinel appears in any curve except the declared header null; header declares `−999.25`; provenance tokens are exported as a curve | SB-CLY-034, SB-CLY-055; as-built `export.rs:8`, `export.rs:80` |
 | SB-CLY-T36 | `CALI = 6.0`, `BS = 8.5`, `DCAL_MAX = 1.0` (under-gauge) | Bad-hole discriminator | Flag fires. The as-built one-sided test does **not** fire — this test currently fails | SB-CLY-035; as-built `modules.rs:1231` tests `cl − bit > dcal_max` only |
 | SB-CLY-T37 | `RHOB = 1.7`, `NPHI = 0.45`, `DT = 130`, coal branch enabled | Any indicator | `VSH = 0.000` with provenance token `COAL`; with the branch disabled (the default) the indicator returns its ordinary value; where the hole is flagged bad the coal branch does not fire | `Geolog OPT_COAL` default FALSE (T1); as-built detector `modules.rs:1282-1284`, `:1376-1379` |
-| SB-CLY-T38 | A GR curve with a known distribution | P3/P97 endpoint picking over a named pooling group | Endpoints equal the P3 and P97 of the pooled, pre-clipped data (`1e-6`); the run record names the preset, the pooling group and the realised values | SB-CLY-037, SB-CLY-039; house preset `method_workflow_standards.md` (T4), realisation `P3 = 53.68`, `P97 = 133.93 gAPI` (T4) |
+| SB-CLY-T38 | A GR curve with a known distribution | P3/P97 endpoint picking over a named pooling group | Endpoints equal the P3 and P97 of the pooled, pre-clipped data (`1e-6`); the run record names the preset, the pooling group and the realised values | SB-CLY-037, SB-CLY-039; house preset `docs/workflow_standards.md` (T4), realisation `P3 = 53.68`, `P97 = 133.93 gAPI` (T4) |
 | SB-CLY-T39 | An endpoint set by percentile, then edited as a value | Endpoint editor | The displayed percentile updates to match; the record states the value was authoritative. Reversing the order reverses the record | SB-CLY-038 |
 | SB-CLY-T40 | A percentile pick placing 30 % of an interval inside a transform's clamped region | Endpoint picking | Warning fires reporting `30 %` (`0.1 %`) | SB-CLY-040 |
 | SB-CLY-T41 | `Vsh = 0.5`, ratio parameter unset | Vsh→Vcl bridge | Refuses; no default ratio is supplied. With the ratio set to 0.6 under each of the two vendor forms in turn, the results differ by **30 %** (`0.300` vs `0.210`, `1e-4`) and both are labelled with their form | SB-CLY-044; dossier §2.13 worked comparison (`φ_sh = 0.15`) |

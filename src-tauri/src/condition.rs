@@ -1277,14 +1277,14 @@ pub fn normalize_spec() -> ModuleSpec {
             crate::modules::with_sources(
                 param(
                     "P_LOW", "TWO_POINT: low percentile", "%", 3.0, 0.0, 50.0,
-                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                    "docs/workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
                 ),
                 crate::param_sources::PERCENTILE_REFERENCE_LOW,
             ),
             crate::modules::with_sources(
                 param(
                     "P_HIGH", "TWO_POINT: high percentile", "%", 97.0, 50.0, 100.0,
-                    "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+                    "docs/workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
                 ),
                 crate::param_sources::PERCENTILE_REFERENCE_HIGH,
             ),
