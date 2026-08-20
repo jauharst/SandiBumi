@@ -5492,14 +5492,26 @@ export interface WellPathStation {
 /** Imports a deviation survey CSV (MD/INC/AZI) and computes minimum-curvature TVD/TVDSS.
  *  `datumElevation` (KB above MSL) is used for TVDSS; null falls back to the well's KB.
  *  `surveyName` versions the survey — a second import lands BESIDE the first (auto-suffixed
- *  if the name is taken) and becomes the active one, never overwriting it. */
+ *  if the name is taken) and becomes the active one, never overwriting it.
+ *
+ *  `depthUnit` is the unit the FILE's MD column is written in ("M" / "FT"); null means it is
+ *  already the project's unit, which is what every earlier import assumed without asking.
+ *  It governs the file's numbers only — `datumElevation` is typed in the project's own unit,
+ *  which is what the dialog labels it as. */
 export function importDeviationCsv(
   wellId: string,
   path: string,
   datumElevation: number | null,
   surveyName: string | null = null,
+  depthUnit: string | null = null,
 ): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_deviation_csv", { wellId, path, datumElevation, surveyName });
+  return invoke<CoreImportResult>("import_deviation_csv", {
+    wellId,
+    path,
+    datumElevation,
+    surveyName,
+    depthUnit,
+  });
 }
 
 /** One core delivery of a well (T-IMP-08). Exactly one is `active`; every core reader —

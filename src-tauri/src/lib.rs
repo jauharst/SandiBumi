@@ -1587,12 +1587,22 @@ async fn import_deviation_csv(
     path: String,
     datum_elevation: Option<f32>,
     survey_name: Option<String>,
+    // The unit the FILE's MD column is in; absent means "already the project unit", which is
+    // what every pre-existing caller sends. See `ingest::import_deviation_csv`.
+    depth_unit: Option<String>,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import deviation", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation, survey_name.as_deref()))
+        Ok(ingest::import_deviation_csv(
+            &c,
+            &well_id,
+            &path,
+            datum_elevation,
+            survey_name.as_deref(),
+            depth_unit.as_deref(),
+        ))
     })
     .await
 }

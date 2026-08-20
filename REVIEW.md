@@ -15208,3 +15208,41 @@ only #129 (connection pool), which waits on your 100-well benchmark run.
 - [ ] **T-IMP-05 re-run** (your Fail mark from before the needWell dialog existed): click an
       importer with no well selected — the named refusal dialog is the designed behaviour
       now, so the item should flip to Pass.
+
+## A deviation survey now says what unit its depths are in (audit finding 8)
+
+The survey importer was the last depth-bearing importer still reading its file raw. Hand it a
+survey whose MD column is in feet, on a project you declared in metres, and it stored 8000 as
+8000 — every station 3.28 times too deep. Nothing in the app could catch that afterwards,
+because TVD and TVDSS are computed from those stations and then written onto the log grid,
+where `sw_height`, the saturation-height fits and the TVDSS correlation view all read them.
+A well would simply have been in the wrong place, in a way that plots perfectly well.
+
+Import Deviation now carries the same **Depth unit in file** box the core wizard has. It
+defaults to *Same as project*, which is exactly what every earlier import silently assumed, so
+nothing you have already imported changes and nothing you re-import behaves differently unless
+you say feet.
+
+One thing that deliberately does **not** convert: the Datum / KB you type in the dialog. That
+box is labelled in the project's own unit, and the well's KB is already stored in it — the
+file's unit governs the file's numbers and nothing else. A survey in feet with a 25 m datum is
+a perfectly ordinary delivery.
+
+A project that has not declared a depth unit yet is now refused by name rather than guessed at,
+which is the rule the core-table importer has always followed.
+
+- [ ] **Import a deviation survey with Depth unit in file = Feet (ft) on a metre project** —
+      the stored TVD should come out about 3.28 times shallower than the MD numbers in the
+      file. A vertical 8000 ft survey should reach 2438.4 m TVD.
+- [ ] **Import the same file with Same as project** — it should behave exactly as it did
+      before this change (stations at 8000).
+- [ ] **Check the TVDSS on the foot import** — with a datum of 25 it should be TVD − 25, not
+      TVD − 7.62. The datum you typed is metres because the dialog says metres.
+- [ ] **Try a deviation import into a brand-new project with no LAS in it yet** — it should
+      refuse with a message naming the missing depth-unit declaration, instead of storing
+      numbers nobody can interpret.
+
+**Still open, same defect, not fixed here:** the tops importer (`import_tops_file`), the SCAL
+Pc importer (`import_scal_files`) and the point-data/aux importer (`import_aux_file`) all take
+depths from a file with no unit resolution either. They are the next increments; naming them
+here so nothing looks closed that is not.

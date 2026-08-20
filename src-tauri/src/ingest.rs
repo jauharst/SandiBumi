@@ -1497,12 +1497,25 @@ fn write_prepared_generic_curves_in_transaction(
 /// preliminary one becomes a SECOND survey (auto-suffixed if the name is taken), not a
 /// replacement, and the new one becomes active — so the TVD/TVDSS materialized below is
 /// the geometry the user just delivered, while the old survey stays switchable.
+///
+/// `depth_unit` is the unit the FILE's MD column is written in (audit finding 8). This was
+/// the only depth-bearing importer with no unit resolution at all: an 8000 ft survey imported
+/// into a metre-declared project stored 8000, putting every station 3.28084x too deep, and the
+/// error does not stop there — `materialize_tvd_curves` below writes TVD/TVDSS onto the log
+/// grid, which then feeds `sw_height`, the saturation-height fits and the TVDSS correlation
+/// view. `None` means "already the project unit", which is what every existing caller and every
+/// saved workflow sends, so nothing that worked before changes.
+///
+/// Deliberately NOT applied to `datum_elevation`: that is typed by the user in the dialog,
+/// which labels it in the project's own unit, and `wells.kb` is already stored in it. A file's
+/// unit governs the file's numbers and nothing else.
 pub fn import_deviation_csv(
     conn: &Connection,
     well_id: &str,
     path: &str,
     datum_elevation: Option<f32>,
     survey_name: Option<&str>,
+    depth_unit: Option<&str>,
 ) -> CoreImportResult {
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -1511,13 +1524,27 @@ pub fn import_deviation_csv(
         return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None };
     }
 
-    let survey = match parsers::parse_deviation_csv(path) {
+    let mut survey = match parsers::parse_deviation_csv(path) {
         Ok(s) => s,
         Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
     };
     if survey.md.is_empty() {
         return CoreImportResult { path: path.to_string(), rows: 0, error: Some("no survey stations found".into()), index_resolution: None };
     }
+
+    // The file's MD column, brought onto the project's declared depth scale before any geometry
+    // is computed — the same one-line discipline `import_core_table` already follows. Done here
+    // rather than after minimum curvature so TVD, TVDSS and the stored station MDs all come out
+    // in the project unit together, which is the only way they can stay consistent with each
+    // other and with the log grid `materialize_tvd_curves` writes them onto.
+    let project_unit = match crate::units::require_project_depth_unit(conn, "deviation-survey import") {
+        Ok(unit) => unit,
+        Err(error) => {
+            return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error), index_resolution: None }
+        }
+    };
+    let file_unit = depth_unit.and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+    crate::units::convert_depths(&mut survey.md, file_unit, project_unit);
 
     let datum = datum_elevation.unwrap_or_else(|| {
         conn.query_row("SELECT kb FROM wells WHERE well_id = ?1", params![well_id], |r| r.get::<_, Option<f32>>(0))
@@ -4664,10 +4691,13 @@ GR.API :
         let gr_samples = db::get_curve_samples(&conn, &gr.curve_id).unwrap();
         assert!(gr_samples[2].value.is_nan(), "LAS null must become NaN");
 
-        // Deviation survey → TVD/TVDSS.
+        // Deviation survey → TVD/TVDSS. Declared AFTER the LAS import above, which is what
+        // decides the project's unit in the ordinary flow; the survey importer now refuses an
+        // undeclared project exactly as the core-table importer does.
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let dev = std::env::temp_dir().join(format!("arshilla_dev_test_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None, None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 3);
@@ -4684,6 +4714,7 @@ GR.API :
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "DEV-MAT-1", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let ids = wid.to_string();
 
         // A log depth (MD) grid spanning the whole survey, incl. a deviated section.
@@ -4698,7 +4729,7 @@ GR.API :
         // Vertical to 1000, build to 60° by 2000, hold to 3000.
         let dev = std::env::temp_dir().join(format!("arshilla_devmat_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None, None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 
@@ -4726,6 +4757,7 @@ GR.API :
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "DEV-VER-1", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let ids = wid.to_string();
         let depth = vec![0.0f32, 1000.0, 2000.0, 3000.0];
         let f = vec![1.0f32; depth.len()];
@@ -4744,8 +4776,12 @@ GR.API :
         let prelim = write("prelim", "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,0,0\n3000,0,0\n");
         let defin = write("defin", "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n");
 
-        assert!(import_deviation_csv(&conn, &ids, &prelim, Some(25.0), Some("PRELIM")).error.is_none());
-        assert!(import_deviation_csv(&conn, &ids, &defin, Some(25.0), Some("DEFINITIVE")).error.is_none());
+        assert!(import_deviation_csv(&conn, &ids, &prelim, Some(25.0), Some("PRELIM"), None).error.is_none());
+        assert!(
+            import_deviation_csv(&conn, &ids, &defin, Some(25.0), Some("DEFINITIVE"), None)
+                .error
+                .is_none()
+        );
 
         let surveys = db::list_surveys(&conn, &ids).unwrap();
         assert_eq!(surveys.len(), 2, "the preliminary survey survives: {surveys:?}");
@@ -4767,6 +4803,83 @@ GR.API :
 
         std::fs::remove_file(&prelim).ok();
         std::fs::remove_file(&defin).ok();
+    }
+
+    /// Audit finding 8. The survey importer was the last depth-bearing importer reading its
+    /// file raw: a foot survey delivered into a metre project stored every station 3.28084x
+    /// too deep, and TVD/TVDSS carry that onto the log grid, into `sw_height` and into the
+    /// saturation-height fits — all of it plausible-looking.
+    ///
+    /// The two halves are pinned together because either alone would pass a lazier fix: convert
+    /// everything and the datum is silently scaled too; convert nothing and the declaration is
+    /// decorative.
+    #[test]
+    fn a_survey_declared_in_feet_lands_on_the_projects_own_depth_scale() {
+        let mk = |name: &str| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::db::create_schema(&conn).unwrap();
+            let wid = uuid::Uuid::new_v4();
+            crate::db::insert_well(&conn, wid, name, None, None, None).unwrap();
+            crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+            (conn, wid.to_string())
+        };
+        // Vertical, so TVD == MD and the conversion is readable straight off the stations
+        // without re-deriving minimum curvature here.
+        let body = "MD,INC,AZI\n0,0,0\n4000,0,0\n8000,0,0\n";
+        let write = |tag: &str| -> String {
+            let p = std::env::temp_dir().join(format!("sandibumi_devunit_{tag}_{}.csv", uuid::Uuid::new_v4()));
+            std::fs::write(&p, body).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+
+        // --- Declared FT into a metre project: the file's numbers are converted. ---
+        let (conn, ids) = mk("SANDI-DEV-FT");
+        let path = write("ft");
+        let res = import_deviation_csv(&conn, &ids, &path, Some(25.0), Some("DEFINITIVE"), Some("FT"));
+        std::fs::remove_file(&path).ok();
+        assert!(res.error.is_none(), "{:?}", res.error);
+        let stations = db::get_well_path(&conn, &ids).unwrap();
+        let deepest = stations.last().unwrap();
+        // 8000 ft = 2438.4 m exactly (the foot is defined as 0.3048 m).
+        assert!(
+            (deepest.md - 2438.4).abs() < 1e-2,
+            "8000 ft of hole is 2438.4 m of hole, got {} — the file was read raw",
+            deepest.md
+        );
+        assert!((deepest.tvd - 2438.4).abs() < 1e-2, "vertical survey: TVD == MD, got {}", deepest.tvd);
+        // The datum is TYPED in the dialog, which labels it in the project's unit, so it is
+        // already metres and must NOT ride the file's conversion. 25 ft would be 7.62 m.
+        assert!(
+            (deepest.tvdss - (deepest.tvd - 25.0)).abs() < 1e-2,
+            "TVDSS = TVD - 25 m; the typed datum is not the file's unit, got {}",
+            deepest.tvdss
+        );
+
+        // --- Undeclared: unchanged from every import before this one. ---
+        let (conn, ids) = mk("SANDI-DEV-ASIS");
+        let path = write("asis");
+        let res = import_deviation_csv(&conn, &ids, &path, Some(25.0), Some("DEFINITIVE"), None);
+        std::fs::remove_file(&path).ok();
+        assert!(res.error.is_none(), "{:?}", res.error);
+        let stations = db::get_well_path(&conn, &ids).unwrap();
+        let deepest = stations.last().unwrap();
+        assert!(
+            (deepest.md - 8000.0).abs() < 1e-2,
+            "no declaration means the file is already the project unit, got {}",
+            deepest.md
+        );
+
+        // --- Undeclared PROJECT: refused, not guessed — the core importer's own rule. ---
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-DEV-NOUNIT", None, None, None).unwrap();
+        let path = write("nounit");
+        let res = import_deviation_csv(&conn, &wid.to_string(), &path, Some(25.0), None, Some("FT"));
+        std::fs::remove_file(&path).ok();
+        let error = res.error.expect("an undeclared project cannot place a foot survey");
+        assert!(error.contains("depth unit"), "the refusal names what is missing: {error}");
+        assert_eq!(res.rows, 0, "nothing is stored on a refusal");
     }
 
     #[test]
@@ -4800,6 +4913,7 @@ GR.API :
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "DEV-MAT-3", None, None, None).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let ids = wid.to_string();
         let depth = vec![0.0f32, 1000.0, 2000.0, 3000.0];
         let f = vec![1.0f32; depth.len()];
@@ -4820,7 +4934,7 @@ GR.API :
         // Import a deviated survey (would compute a very DIFFERENT TVDSS = TVD - 25).
         let dev = std::env::temp_dir().join(format!("arshilla_devmat3_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None, None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 

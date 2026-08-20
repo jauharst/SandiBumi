@@ -2066,12 +2066,33 @@ export class Ribbon {
         "Names this survey. A name already used on the well is suffixed (SURVEY → SURVEY_1) — an import never overwrites an earlier survey. The new survey becomes active and drives TVD/TVDSS.",
       ),
     );
+    // Audit finding 8: the survey's MD column was read raw, so a foot survey delivered into a
+    // metre project put every station 3.28x too deep — and TVD/TVDSS ride that error onto the
+    // log grid, into sw_height and into the saturation-height fits. Same control the core
+    // wizard already carries. Unlike core there is no probe step to guess from, so the default
+    // is "Same as project", which is exactly what every earlier import silently assumed.
+    const unitSel = document.createElement("select");
+    unitSel.className = "form-control";
+    for (const [value, label] of [["", "Same as project"], ["m", "Metres (m)"], ["ft", "Feet (ft)"]] as const) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      unitSel.appendChild(opt);
+    }
+    content.appendChild(
+      formRow(
+        "Depth unit in file",
+        unitSel,
+        `The unit the survey's MD column is written in. Converted to the project's depth unit (${storedDepthLabel()}) on import.`,
+      ),
+    );
     const datumInput = document.createElement("input");
     datumInput.type = "number";
     datumInput.step = "0.1";
     datumInput.className = "form-control";
     datumInput.placeholder = "e.g. 25 (optional)";
-    // The datum is subtracted from TVD to make TVDSS, and TVD is stored in the project's unit.
+    // The datum is typed here, not read from the file, so it is in the PROJECT's unit whatever
+    // the file says — which is why the unit above governs the MD column and nothing else.
     content.appendChild(
       formRow(`Datum / KB (${storedDepthLabel()})`, datumInput, "TVDSS reference; blank = well KB"),
     );
@@ -2089,7 +2110,7 @@ export class Ribbon {
         return;
       }
       setStatus(`Importing deviation survey for ${well.well_name}…`);
-      void importDeviationCsv(well.well_id, path, datum, nameInput.value.trim() || "SURVEY")
+      void importDeviationCsv(well.well_id, path, datum, nameInput.value.trim() || "SURVEY", unitSel.value || null)
         .then((result) => {
           if (result.error) {
             setStatus(`Deviation import failed: ${result.error}`);
