@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 15 (SB-ENV-057 follow-through): the banned ambiguous depth unit was hiding on two curve inputs
+
+- [ ] **What this fixes.** SB-ENV-057 retired `ft|m` — a unit that cannot say which unit the number
+      beside it is in — and put a build gate on the registry to keep it retired. **The gate only
+      ever looked at parameters.** `unit` is declared on every module argument, not just numeric
+      ones, so two depth INPUTS kept the banned spelling straight through that sweep with the gate
+      green and its inventory test agreeing: `phimax`'s `TVDSS` (the compaction-trend depth) and
+      `precalc`'s `TVDSS` (the depth the temperature and pressure trends are built on). Their own
+      sibling, `satheight`'s `TVD`, had the right token the whole time.
+- [ ] **Where you could actually see it.** The Workflow builder's parameter grid heads each column
+      with the argument's unit, and the frontend resolves the one project-depth token into the
+      project's own `m` or `ft` while passing every other unit string through untouched. So those
+      two TVDSS input columns printed the literal **`ft|m`** as their unit. They now print `m` on a
+      metre project and `ft` on a foot project, like every other native-depth column.
+- [ ] **Nothing computes differently.** This is a declaration fix. No arithmetic reads these unit
+      strings — they are labels and gate input — so every curve either module writes is unchanged,
+      number for number, on both declarations.
+- [ ] **The gate can no longer miss this class.** `validate_project_depth_unit_tokens` now reads
+      EVERY argument rather than filtering to parameters, so an input or an output declaring the
+      ambiguous spelling refuses the whole registry at build. The one-token inventory test's ban
+      loop was widened the same way and now names the argument's kind when it fires.
+- [ ] **Click-through:** Petrophysics → Batch → Workflow…, add a step for **φmax** and one for
+      **Pre-calc**, then open the parameter grid. The `TVDSS` input column must head with the unit
+      your project stores depths in — **`m`** on a metre project, **`ft`** on a foot one — and
+      `ft|m` must appear nowhere on screen. Run either module and confirm the curves it writes are
+      the same ones it wrote before.
+- [ ] **Automated correctness:** one pin,
+      `the_ambiguous_depth_token_gate_reads_curve_declarations_not_only_parameters`. Pinned from
+      both sides, because each half of the fix alone would pass the other's test: the two call
+      sites must name the token, AND the gate must refuse the token on an input and on an output.
+      Two mutations red at two distinct assertions — restoring the parameter-only filter on the
+      gate (red at the gate-coverage arm), and declaring `phimax.TVDSS` in a fixed `"m"` instead of
+      the token (red at the call-site assertion, and caught by NO gate, which is the point: a
+      curve input never converts, it reads the project's own stored depth column).
+
 ## 2026-08-20 — Audit increment 14 (Codex P0): the PDF report states its depths in the project's own unit
 
 - [ ] **What this fixes, and it is the one that leaves the building.** The report PDF printed
