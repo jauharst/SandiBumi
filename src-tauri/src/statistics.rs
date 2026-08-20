@@ -411,6 +411,115 @@ pub struct VersusRow {
     pub max_abs_diff: Option<f64>,
 }
 
+/// The per-curve outcome of one depth-keyed comparison.
+struct VersusCounts {
+    common: usize,
+    only_a: usize,
+    only_b: usize,
+    changed: usize,
+    diffs: Vec<f64>,
+}
+
+/// Pairs two log sets BY DEPTH and counts what differs.
+///
+/// A log set may carry its own sampling — `fetch_curve_frame_from_set` replaces the run frame with
+/// that set's OWN depths, which is the entire point of Reframe — so this used to pair by array
+/// INDEX and compare two different depths. Two sets one sample apart reported every sample
+/// changed, no unique depth on either side, and a mean difference that was really the curve's own
+/// gradient: on `[1000,1001,1002]` vs `[1001,1002,1003]` carrying the same values it reported
+/// `n_common=3, n_changed=3, mean_diff=+10` where the truth is `n_common=2, n_changed=0,
+/// only_a=1, only_b=1`.
+///
+/// Depth equality is EXACT, the same rule every other read in this codebase uses — a
+/// `computed_curves` join is an exact depth match. A tolerance here would quietly pair a re-framed
+/// set with the frame it was re-framed from and report them identical, which is the one answer a
+/// version comparison must never give.
+///
+/// `only_a` means "A has a value here and B does not". That covers two cases which are the same
+/// statement to a reader: a depth B never sampled, and a depth B sampled as MISSING.
+fn versus_counts(depth_a: &[f32], av: &[f32], depth_b: &[f32], bv: &[f32]) -> VersusCounts {
+            let (mut common, mut only_a, mut only_b, mut changed) = (0usize, 0usize, 0usize, 0usize);
+            let mut diffs: Vec<f64> = Vec::new();
+            // Merge join on depth. Both frames are ascending, so one pass pairs them. Equality is
+            // EXACT, which is the same rule every other read in this codebase uses - a
+            // `computed_curves` join is an exact depth match, and a tolerance here would quietly
+            // pair a re-framed set with the frame it was re-framed from and report them identical.
+            //
+            // `only_a` keeps its meaning: A has a value here and B does not. That now covers two
+            // cases which are the same statement - a depth B never sampled, and a depth B sampled
+            // as MISSING - and both are what the user is asking about when they compare versions.
+            let (mut i, mut j) = (0usize, 0usize);
+            let take_a = |i: usize, only_a: &mut usize| {
+                if av.get(i).is_some_and(|v| v.is_finite()) {
+                    *only_a += 1;
+                }
+            };
+            let take_b = |j: usize, only_b: &mut usize| {
+                if bv.get(j).is_some_and(|v| v.is_finite()) {
+                    *only_b += 1;
+                }
+            };
+            while i < depth_a.len() && j < depth_b.len() {
+                let (x, y) = (depth_a[i], depth_b[j]);
+                // A frame with no depth has nothing to pair on; skip it rather than let a NaN
+                // comparison decide the branch (every f32 comparison against NaN is false, so it
+                // would fall through to the `x > y` arm and walk one side off the end).
+                if !x.is_finite() {
+                    i += 1;
+                    continue;
+                }
+                if !y.is_finite() {
+                    j += 1;
+                    continue;
+                }
+                if x == y {
+                    match (
+                        av.get(i).copied().unwrap_or(f32::NAN).is_finite(),
+                        bv.get(j).copied().unwrap_or(f32::NAN).is_finite(),
+                    ) {
+                        (true, true) => {
+                            common += 1;
+                            let d = bv[j] as f64 - av[i] as f64;
+                            // Relative, so a change is judged against the size of the number: 1e-6
+                            // on a resistivity of 200 is a rounding bit, and on a porosity of 0.15
+                            // it is not the same statement at all.
+                            let scale = (av[i].abs() as f64).max(1e-12);
+                            if (d / scale).abs() > 1e-6 {
+                                changed += 1;
+                            }
+                            diffs.push(d);
+                        }
+                        (true, false) => only_a += 1,
+                        (false, true) => only_b += 1,
+                        _ => {}
+                    }
+                    i += 1;
+                    j += 1;
+                } else if x < y {
+                    take_a(i, &mut only_a);
+                    i += 1;
+                } else {
+                    take_b(j, &mut only_b);
+                    j += 1;
+                }
+            }
+            // The tails: depths past the end of the other set are coverage the comparison exists
+            // to report, not samples to drop.
+            while i < depth_a.len() {
+                if depth_a[i].is_finite() {
+                    take_a(i, &mut only_a);
+                }
+                i += 1;
+            }
+            while j < depth_b.len() {
+                if depth_b[j].is_finite() {
+                    take_b(j, &mut only_b);
+                }
+                j += 1;
+            }
+            VersusCounts { common, only_a, only_b, changed, diffs }
+}
+
 pub fn versus_sets(db: &Mutex<Connection>, req: &VersusRequest) -> Result<Vec<VersusRow>, String> {
     if req.set_a.trim().is_empty() {
         return Err("Name the log set to compare against — with no reference version there is \
@@ -421,12 +530,18 @@ pub fn versus_sets(db: &Mutex<Connection>, req: &VersusRequest) -> Result<Vec<Ve
     let names = well_names(&conn, &req.well_ids);
     let mut rows = Vec::new();
     for well_id in &req.well_ids {
-        let Ok((_da, a)) =
+        // The DEPTHS are the join key and were being thrown away. A log set may carry its own
+        // sampling - `fetch_curve_frame_from_set` replaces the run frame with that set's OWN
+        // depths, which is the whole point of Reframe - so pairing by array index compares two
+        // different depths and calls the difference a change. Two sets one sample apart reported
+        // every sample changed, no unique depths on either side, and a mean difference that was
+        // really the curve's own gradient.
+        let Ok((depth_a, a)) =
             fetch_curve_frame_from_set(&conn, well_id, &req.curves, Some(req.set_a.as_str()), None)
         else {
             continue;
         };
-        let Ok((_db_, b)) =
+        let Ok((depth_b, b)) =
             fetch_curve_frame_from_set(&conn, well_id, &req.curves, req.set_b.as_deref(), None)
         else {
             continue;
@@ -434,28 +549,8 @@ pub fn versus_sets(db: &Mutex<Connection>, req: &VersusRequest) -> Result<Vec<Ve
         for curve in &req.curves {
             let key = curve.trim().to_uppercase();
             let (Some(av), Some(bv)) = (a.get(&key), b.get(&key)) else { continue };
-            let n = av.len().min(bv.len());
-            let (mut common, mut only_a, mut only_b, mut changed) = (0usize, 0usize, 0usize, 0usize);
-            let mut diffs: Vec<f64> = Vec::new();
-            for i in 0..n {
-                match (av[i].is_finite(), bv[i].is_finite()) {
-                    (true, true) => {
-                        common += 1;
-                        let d = bv[i] as f64 - av[i] as f64;
-                        // Relative, so a change is judged against the size of the number: 1e-6 on
-                        // a resistivity of 200 is a rounding bit, and on a porosity of 0.15 it is
-                        // not the same statement at all.
-                        let scale = (av[i].abs() as f64).max(1e-12);
-                        if (d / scale).abs() > 1e-6 {
-                            changed += 1;
-                        }
-                        diffs.push(d);
-                    }
-                    (true, false) => only_a += 1,
-                    (false, true) => only_b += 1,
-                    _ => {}
-                }
-            }
+            let VersusCounts { common, only_a, only_b, changed, diffs } =
+                versus_counts(&depth_a, av, &depth_b, bv);
             let mean_diff = if diffs.is_empty() {
                 None
             } else {
@@ -1010,6 +1105,54 @@ mod tests {
 
     /// A constant column correlates with nothing, and that is reported as NOTHING rather than as
     /// zero — a 0.00 reads as "measured, and they do not agree", which is a different claim.
+    /// Codex whole-repo P1. A log set may carry its OWN sampling - that is what Reframe is for -
+    /// so `versus_sets` used to pair the two sets by ARRAY INDEX and compare two different depths.
+    /// The finding's own scenario is the fixture, and it has an exact right answer.
+    ///
+    /// Pinned from BOTH sides, because the index bug and its opposite are both plausible: a join
+    /// that paired nothing would report zero common samples and look "safe" while saying nothing.
+    #[test]
+    fn two_log_sets_are_compared_by_depth_and_never_by_array_position() {
+        // The finding's fixture: same VALUES, frames one sample apart.
+        let depth_a = [1000.0f32, 1001.0, 1002.0];
+        let av = [10.0f32, 20.0, 30.0];
+        let depth_b = [1001.0f32, 1002.0, 1003.0];
+        let bv = [20.0f32, 30.0, 40.0];
+
+        let c = versus_counts(&depth_a, &av, &depth_b, &bv);
+        assert_eq!(
+            (c.common, c.changed, c.only_a, c.only_b),
+            (2, 0, 1, 1),
+            "1001 and 1002 are shared and identical; 1000 is A's alone and 1003 is B's alone.              Pairing by index reports (3, 3, 0, 0) and a mean difference of +10 that is really              the curve's own gradient."
+        );
+        assert!(c.diffs.iter().all(|d| d.abs() < 1e-9), "nothing changed: {:?}", c.diffs);
+
+        // THE OTHER SIDE. Two sets on the SAME frame with one genuinely edited sample must still
+        // report it - a join that had simply stopped pairing would pass the assertion above.
+        let same = [1000.0f32, 1001.0, 1002.0];
+        let edited = [10.0f32, 25.0, 30.0];
+        let c = versus_counts(&same, &av, &same, &edited);
+        assert_eq!(
+            (c.common, c.changed, c.only_a, c.only_b),
+            (3, 1, 0, 0),
+            "one edited sample on a shared frame is one change and no coverage difference"
+        );
+        assert!((c.diffs.iter().sum::<f64>() - 5.0).abs() < 1e-9, "diffs {:?}", c.diffs);
+
+        // A depth present in BOTH but MISSING in B is `only_a` - the same statement to a reader
+        // as a depth B never sampled, and the case an index join happened to get right.
+        let holed = [10.0f32, f32::NAN, 30.0];
+        let c = versus_counts(&same, &av, &same, &holed);
+        assert_eq!((c.common, c.only_a, c.only_b), (2, 1, 0));
+
+        // Coverage past the end of the other set is reported, not dropped: B stops two samples
+        // early and those two are A's alone.
+        let short_b = [1000.0f32];
+        let short_bv = [10.0f32];
+        let c = versus_counts(&depth_a, &av, &short_b, &short_bv);
+        assert_eq!((c.common, c.only_a, c.only_b), (1, 2, 0), "the tail is coverage, not a drop");
+    }
+
     #[test]
     fn a_constant_curve_has_no_correlation_rather_than_a_zero_one() {
         let flat = vec![5.0; 10];
