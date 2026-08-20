@@ -1,5 +1,45 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 12: every depth you READ now says which unit it is in, and the units family closes
+
+- [ ] **What this fixes.** The other half of increments 8 and 11: the places that *show* you a
+      depth or a thickness. **Cutoffs & Pay Summary** carried a unit on one column only — HPV said
+      metres over whatever the project stored, and Top / Bottom / Gross / Net said nothing at all,
+      which on a mixed-unit desk is the same problem quieter. The **cutoff sensitivity sweep**
+      plotted and read out net thickness and HC pore-thickness under a metre axis. The
+      **Results QC** Sw-envelope drew its depth axis as metres. All three now show the unit you
+      are reading in, with the values converted to match.
+- [ ] **Heading and value move together, always.** A converted number under a stale heading and a
+      stale number under a converted heading are the same lie, so each label was fixed in the same
+      change that converted its values, and every pin asserts both. HPV converts with the
+      thicknesses because it **is** one; N/G, Avg VSH, Avg PHIE and Avg SWE are dimensionless and
+      are left exactly alone.
+- [ ] **One trap worth naming.** The Results QC crosshair comes from the log view in **stored**
+      depths. Converting the axis and leaving the crosshair alone would have put it at the wrong
+      sand rather than producing any visible error — so the depth column is converted **once**, at
+      the top, and the crosshair rides the same conversion. That panel now also repaints when you
+      flip the display unit, which it did not before.
+- [ ] **The sweep list is now empty of excuses.** After increment 11 the guard tolerated five
+      "display labels still awaiting conversion". Those five are gone. The **only** hard-coded
+      depth units left anywhere in the frontend are the core importer's own metres/feet **picker**
+      and the two **UTM map coordinates** — and the guard now says so, with no third category.
+- [ ] **Click-through (foot project):** Petrophysics → **Cutoffs & Summary** → Compute — every
+      length column heads **(ft)** with foot values, and Avg PHIE / N/G are unchanged. Switch the
+      sweep Metric between Net thickness and HC pore-thickness — the y-axis and the readout both
+      say ft; Net-to-gross stays a plain ratio. Open **Results QC**, pick a zone — the Sw-envelope
+      depth axis reads ft, and hovering a depth in a log view lands the crosshair on the same bed.
+      Now flip the log view's depth display to metres and confirm all three switch together,
+      values and labels. On a metre project everything reads as it always did.
+- [ ] **Automated correctness:** two pins —
+      `the_pay_summary_table_heads_and_converts_its_thicknesses_together_and_leaves_the_ratios_alone`
+      (both halves, both directions, ratios untouched), and the increment-11 sweep now asserting
+      the shorter list. Two mutations red at two distinct assertions on each: a hard-coded HPV
+      heading, and values passed through unconverted.
+- [ ] **Also in here, and worth knowing.** The test file had picked up four stray NUL bytes, which
+      made **git treat it as binary** — that is why an earlier commit showed a 4,884-line rewrite
+      instead of a small diff. Replaced with proper JSON keys and normalised to LF; PR #66 was
+      corrected at source rather than patched afterwards.
+
 ## 2026-08-20 — Audit increment 11 (Codex P1): every depth you TYPE now says which unit it is in
 
 - [ ] **What this fixes.** Six dialogs asked for a depth in **metres** and then sent the number

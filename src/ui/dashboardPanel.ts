@@ -1,6 +1,6 @@
 import { resolveWellScope, runPaySummary, type BackendWellScope, type PaySummaryRow } from "../ipc";
 import { appState } from "../state";
-import { convertDepth, unitLabel } from "../units";
+import { shownDepthLabel, toShownDepth } from "../depthUnitPref";
 import { loadCutoffDefaults } from "./cutoffs";
 import { escapeHtml } from "./safeDom";
 import { reportDashboardCompletion } from "./reportingHonesty";
@@ -27,15 +27,12 @@ const LENGTH_KEYS = new Set<SortKey>(["top", "bottom", "gross", "net", "not_net"
  *  project delivered a CSV whose HPV column was labelled metres and carried feet — a client
  *  deliverable wrong by exactly 3.28084x, with every number plausible. */
 const toDisplay = (key: SortKey, value: number): number =>
-  LENGTH_KEYS.has(key)
-    ? convertDepth(value, appState.projectDepthUnit.get(), appState.displayDepthUnit.get())
-    : value;
+  LENGTH_KEYS.has(key) ? toShownDepth(value) : value;
 
 /** Same conversion for an already-aggregated length (a sum or a weighted mean of one). */
-const lenToDisplay = (value: number): number =>
-  convertDepth(value, appState.projectDepthUnit.get(), appState.displayDepthUnit.get());
+const lenToDisplay = toShownDepth;
 
-const depthUnit = (): string => unitLabel(appState.displayDepthUnit.get());
+const depthUnit = shownDepthLabel;
 
 /** `len` marks a length-valued column: it carries the depth unit in its heading and its
  *  values go through `toDisplay`. */

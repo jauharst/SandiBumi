@@ -1968,6 +1968,66 @@ test("an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_z
   assert.match(host.children[1].textContent, /1 of 2 row\(s\).*no sample could be classified/);
 });
 
+test("the_pay_summary_table_heads_and_converts_its_thicknesses_together_and_leaves_the_ratios_alone", async () => {
+  // CORRECTNESS — SB-ENV-057. The other place these numbers are read, and the one where the
+  // stale label was quietest: only HPV carried a unit at all, and it said metres over whatever
+  // the project stored, while Top through Net said nothing. Heading and value are asserted
+  // together because either alone still misreports — the same rule the Field Dashboard's CSV
+  // follows. HPV converts with the thicknesses because it is one; N/G and the volume-fraction
+  // averages are dimensionless and must come through untouched.
+  const { appState } = await load("/src/state.ts");
+  const { M_PER_FT } = await load("/src/units.ts");
+  const { renderPaySummaryTable } = await load("/src/ui/summaryDialog.ts");
+  const project = appState.projectDepthUnit.get();
+  const display = appState.displayDepthUnit.get();
+  const row = {
+    well_id: "w1",
+    well_name: "SANDI-1",
+    zone: "A",
+    flag: "PAY",
+    top: 1000,
+    bottom: 1050,
+    gross: 50,
+    net: 25,
+    ntg: 0.5,
+    avg_vsh: 0.3,
+    avg_phie: 0.18,
+    avg_swe: 0.4,
+    hpv: 12.5,
+    n_classified: 100,
+    perm_cutoff_no_data: false,
+  };
+
+  try {
+    appState.projectDepthUnit.set("FT");
+    appState.displayDepthUnit.set("FT");
+    const asStored = document.createElement("div");
+    renderPaySummaryTable(asStored, [row]);
+    const storedHead = asStored.children[0].children[0].innerHTML;
+    assert.match(storedHead, /<th>Net \(ft\)<\/th>/);
+    assert.match(storedHead, /<th>HPV \(ft\)<\/th>/);
+    assert.doesNotMatch(storedHead, /\(m\)/);
+    const storedBody = asStored.children[0].children[0].children[0].children[0].innerHTML;
+    assert.match(storedBody, /<td>25\.0<\/td>/, "a foot project read in feet converts nothing");
+    assert.match(storedBody, /<td>12\.50<\/td>/);
+
+    appState.displayDepthUnit.set("M");
+    const asShown = document.createElement("div");
+    renderPaySummaryTable(asShown, [row]);
+    const shownHead = asShown.children[0].children[0].innerHTML;
+    assert.match(shownHead, /<th>HPV \(m\)<\/th>/, "the heading moves with the values");
+    assert.doesNotMatch(shownHead, /\(ft\)/);
+    const shownBody = asShown.children[0].children[0].children[0].children[0].innerHTML;
+    assert.match(shownBody, new RegExp(`<td>${(25 * M_PER_FT).toFixed(1)}</td>`));
+    assert.match(shownBody, new RegExp(`<td>${(12.5 * M_PER_FT).toFixed(2)}</td>`));
+    assert.match(shownBody, /<td>0\.50<\/td>/, "N/G is a ratio and does not convert");
+    assert.match(shownBody, /<td>0\.180<\/td>/, "a volume fraction does not convert");
+  } finally {
+    appState.projectDepthUnit.set(project);
+    appState.displayDepthUnit.set(display);
+  }
+});
+
 test("a_partial_ml_run_reports_the_written_count_and_an_all_failed_run_writes_no_success_history", async () => {
   // CORRECTNESS — SB-CORE-002 / SB-CORE-T06 cites R18 in 04_CORE_REQUIREMENTS.md:
   // visible status and persistent History count successful well outcomes, never requested scope.
@@ -2034,24 +2094,17 @@ test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => 
  *  - `map-coordinate` — a UTM easting or northing. Metres because the PROJECTION is, which has
  *    nothing to do with which unit this project's depths are logged in. These must never be
  *    swept along with the depth family.
- *  - `display-label-not-yet-resolved` — a label over a COMPUTED thickness or a depth axis that
- *    should follow the display unit and does not yet. Listed rather than silently tolerated:
- *    relabelling one without also converting its values would be the Field Dashboard defect
- *    inverted, so each needs its own conversion and its own pin.
+ *
+ *  There is deliberately no third category. Every label over a depth, a thickness or a
+ *  hydrocarbon pore thickness now resolves from the project, and each was converted in the same
+ *  change that relabelled it — a converted value under a stale heading and a stale value under a
+ *  converted heading are the same lie.
  */
 const HARD_CODED_DEPTH_UNIT_LABELS = [
   ["src/ui/coreImportDialog.ts", "Metres (m)", "unit-picker"],
   ["src/ui/coreImportDialog.ts", "Feet (ft)", "unit-picker"],
-  ["src/ui/cutoffDialog.ts", "HC pore-thickness (m)", "display-label-not-yet-resolved"],
-  ["src/ui/cutoffDialog.ts", "Net thickness (m)", "display-label-not-yet-resolved"],
-  ["src/ui/resultsQcPanel.ts", "Depth (m)", "display-label-not-yet-resolved"],
   ["src/ui/ribbon.ts", "easting (m)", "map-coordinate"],
   ["src/ui/ribbon.ts", "northing (m)", "map-coordinate"],
-  [
-    "src/ui/summaryDialog.ts",
-    "<th>Net</th><th>N/G</th><th>Avg VSH</th><th>Avg PHIE</th><th>Avg SWE</th><th>HPV (m)</th></tr></thead>",
-    "display-label-not-yet-resolved",
-  ],
 ];
 
 test("every_hard_coded_depth_unit_label_left_in_the_frontend_is_one_somebody_classified", async () => {
