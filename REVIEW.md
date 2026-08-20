@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 28 (Codex P1): comparing two log versions now pairs them by DEPTH
+
+- [ ] **What was wrong.** Statistics ▸ Versus compares the same curve in two log sets — what a
+      re-run actually changed. It paired the two sets **by position in the array**, not by depth.
+      That is fine as long as both sets sit on the same frame, and it is wrong the moment one
+      does not — which is exactly what Reframe is for: a set may carry its own sampling.
+- [ ] **What it reported.** Two sets one sample apart, carrying identical values: depths
+      1000/1001/1002 against 1001/1002/1003. It said **3 samples in common, all 3 changed, mean
+      difference +10, nothing unique to either side.** Every one of those is wrong. The truth is
+      2 in common, **nothing changed**, one depth unique to A and one to B — and that +10 was
+      never a change at all, it was the curve's own gradient over one sample.
+- [ ] **What it does now.** A depth join. Both frames are read in order and matched depth to
+      depth; anything only one of them has is counted as that side's own coverage, including
+      samples past where the other set stops. So the answer tells you two separate things again:
+      what changed where both versions have a value, and where the coverage itself moved.
+- [ ] **Depth equality is exact, deliberately.** Every other read in SandiBumi joins on an exact
+      depth match. A tolerance here would quietly pair a re-framed set with the frame it came
+      from and report the two identical — which is the one answer a version comparison must never
+      give, because it is the answer that means "nothing to see".
+- [ ] **"Only in A" now means one thing.** A has a value at that depth and B does not — whether
+      B never sampled there, or sampled and left it missing. To a reader those are the same
+      statement, and both are what you are asking when you compare two versions.
+- [ ] **What to check.** Re-frame a set (Reframe to a different step), then run Versus against
+      the original. It should report the depths they genuinely share, few or no changes if the
+      values were preserved, and honest counts on either side for the depths only one of them
+      carries. Before this, that comparison reported everything changed.
+
 ## 2026-08-20 — Audit increment 27 (Codex P1): Lorenz and Results-QC state their thicknesses in YOUR unit
 
 - [ ] **The last of the unit family.** Lorenz printed its two capacity totals as `mD·m` and `m`

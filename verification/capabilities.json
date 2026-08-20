@@ -26,7 +26,7 @@
     {
       "id": "delivery-sets",
       "title": "Delivery and log sets",
-      "review_section_patterns": ["Import sets", "Core sets", "SCAL deliveries", "log set", "Data Sets"]
+      "review_section_patterns": ["Import sets", "Core sets", "SCAL deliveries", "log set", "log versions", "Data Sets"]
     },
     {
       "id": "generic-curve-store",
