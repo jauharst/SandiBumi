@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 31 (my audit, P2): the plugs behind a box glyph now reach the PDF
+
+- [ ] **What was wrong.** A point-data track can summarise a cored interval as a box plot, and
+      **Show samples** draws the individual plugs behind that box — on a sparse cored interval,
+      seeing the plugs behind the summary is often the whole point. The screen drew them. The
+      **print did not**, so a display choice you deliberately made was dropped from the
+      deliverable, with nothing on the page to say it had been.
+- [ ] **What it does now.** The composite draws one tick per plug, sitting just ABOVE the box so
+      they never obscure the median — the same placement the viewer uses. Off stays off: the
+      option is yours, and the print now honours it either way rather than deciding for you.
+- [ ] **What to check.** Put a core property (CPOR) in a point-data track, set the display to
+      **Box**, and tick **Show samples**. Export the composite (Plot → Composite…). The PDF
+      should show the small plug ticks above each box, matching the screen. Untick it and
+      re-export — the boxes should print clean.
+
 ## 2026-08-20 — Audit increment 30 (my audit, P2): a FACIES track no longer prints a value scale it does not have
 
 - [ ] **What was wrong.** A class-blocks track colours whole intervals by rock class — the numbers
