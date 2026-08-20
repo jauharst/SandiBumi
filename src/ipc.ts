@@ -5310,7 +5310,9 @@ export interface SFactorFitRequest {
   /** Held fixed; S multiplies these, so the fitted S belongs to them only. */
   cec_kaol?: number;
   cec_ill?: number;
-  /** How far a plug may sit from the nearest log sample and still be paired with it. */
+  /** How far a plug may sit from the nearest log sample and still be paired with it, in the
+   *  PROJECT's stored depth unit (it is typed in the pane, which labels it). Omitted means the
+   *  project's own default — one standard 6-inch sample, 0.15 m or 0.5 ft. */
   depth_tol?: number;
 }
 
@@ -6050,6 +6052,8 @@ export interface PlugQcRequest {
   well_ids: string[];
   x: PlugSource;
   y: PlugSource;
+  /** In the PROJECT's stored depth unit (typed in the pane, which labels it). A non-positive
+   *  value means the project's own default — one standard 6-inch sample, 0.15 m or 0.5 ft. */
   depth_tol: number;
 }
 
