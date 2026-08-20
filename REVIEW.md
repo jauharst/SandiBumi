@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 32 (DEC-089, my audit P1 × 2): one delivery, one set of units — **this changes what new imports store**
+
+- [ ] **What was wrong.** A LAS carrying `TNPH .PU 30.0` and `RHOZ .KG/M3 2400` was stored TWICE
+      in two different unit domains. Modules read 0.30 v/v and 2.4 g/cc — correct. The **log
+      view, every crossplot, the Pickett, the curve editor and Reframe** read 30.0 and 2400 off
+      the same curve.
+- [ ] **Why that matters more than it looks.** Endpoints you pick on a crossplot were being
+      picked against numbers **no module ever saw**. An edit made in the Database Inspector
+      landed in the 30.0 domain and modules never read it. And **LAS export wrote 30.0 under a
+      header saying `v/v`** — a mislabelled file leaving for a client.
+- [ ] **Your ruling.** *"B store canonical, a project should be robust and consistent."* The
+      alternative would have left both domains alive and made every future panel remember to
+      apply a fix-up. This removes the split instead of managing it.
+- [ ] **What it does now.** Import writes the six standard curves by **projecting** the generic
+      store's already-converted values — one conversion, in one place, so the two stores cannot
+      drift apart. A delivery already in v/v and g/cc is stored exactly as before.
+- [ ] **NOT yet migrated — read this before testing.** Projects you already have keep the old
+      split until the migration lands, which is the very next increment. So test this on a
+      **fresh import**, not an existing project.
+- [ ] **What to check.** Import a LAS whose neutron is in PU or whose density is in kg/m³ into a
+      new project. Open the log view and a crossplot on NPHI: it should read **0–0.3 v/v, not
+      0–30 PU**. Run a porosity module and confirm the curve on screen and the module's answer
+      now sit in the same domain. Then export LAS — the values should match the `v/v` header.
+- [ ] **Sanity check on a normal delivery.** Import a LAS already in v/v and g/cc. Nothing should
+      change at all — same numbers, same plots as before.
 ## 2026-08-20 — Audit increment 31 (my audit, P2): the plugs behind a box glyph now reach the PDF
 
 - [ ] **What was wrong.** A point-data track can summarise a cored interval as a box plot, and
