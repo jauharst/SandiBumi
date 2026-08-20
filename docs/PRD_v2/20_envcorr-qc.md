@@ -903,8 +903,18 @@ Two shipped modules compute formation temperature and **both emit the mnemonic `
 
 Three separate failures live in that table.
 
+> **Correction (2026-08-20, DEC-085 R-3 executed — AUDIT-2026-08-20 finding 30).** The gradient
+> disagreement below is CLOSED: Jauhar ruled "the right one is 0.026 degF/ft", and
+> `ftemp_grad.TGRAD` now defaults to that same physical gradient in its own unit — 0.0474 °C/m
+> (0.026 × (5/9) ÷ 0.3048 = 0.04739, rounded). The two writers' default GRADIENTS are now one
+> physical value — at 2,000 m the gradient term contributes ~94.8 °C in both instead of 60 vs
+> 94.8 — pinned by `the_two_ftemp_writers_ship_one_physical_gradient_not_two`, which reads both
+> defaults from the shipping manifests and anchors precalc at exactly 0.026. The
+> surface-intercept difference (26.7 °C vs 77 °F = 25 °C) and the depth-reference difference
+> (MD vs TVDSS) are separate findings, unchanged by this ruling, and stand as written below.
+
 **(a) One mnemonic, two answers.** At 2,000 m TVD (6,561.7 ft), on each module's own shipped
-defaults and its own intended unit system:
+defaults and its own intended unit system (as built BEFORE the DEC-085 correction above):
 
 - `ftemp_grad`: 26.7 + 0.03 × 2000 = **86.7 °C**
 - `precalc` at its feet-based fit: 77 + 0.026 × 6561.7 = 247.6 °F = **119.8 °C**

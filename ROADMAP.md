@@ -1379,10 +1379,10 @@ never an agent's.**
       Findings 6/7 and the units family 14–19 are now executable.
 - [x] **R-2 (finding 51):** **RULED 2026-08-20 (DEC-085): the clamp is correct** — "every
       property have their own limits, such vshale 0-1, phie, 0.001-0.45, sw 0-1." sw_indo may
-      delegate to `sandimin::sw_indonesia`. Scope note: ruled on SWE_INDO as asked; whether it
-      extends to the OTHER raw diagnostic companions (SWT_ARCH, SWT_HGT/SB-SAT-025, PHIE_DN/
-      DEC-070, finding 4's SWE_SIM) is an open question flagged on finding 4 — that wider reading
-      would also break the MC plausibility tally, which counts Sw>1 on unlimited companions.
+      delegate to `sandimin::sw_indonesia`. Scope settled same day, verbatim: **"diagnostics
+      stay raw"** — working curves clamp to their declared limits; the unlimited companions
+      (SWT_ARCH, SWT_HGT/SB-SAT-025, PHIE_DN/DEC-070, SWE_SIM) keep the raw equation answer.
+      Finding 4's direction is therefore: make SWE_SIM genuinely raw like its siblings.
 - [x] **R-3 (finding 30):** **RULED 2026-08-20 (DEC-085): 0.026 °F/ft** — "the right one is
       0.026 degF/ft" (= 0.0474 °C/m). The 0.03 °C/m writer's default is brought into agreement.
       Finding 30 is now executable.
