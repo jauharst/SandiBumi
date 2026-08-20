@@ -3545,7 +3545,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
         "phi_den" => Ok(phi_den(ctx)),
         "phi_dn" => Ok(phi_dn(ctx)),
         "phi_dnbk" => Ok(phi_dnbk(ctx)),
-        "phi_son" => Ok(phi_son(ctx)),
+        "phi_son" => phi_son(ctx),
         "phimax" => Ok(phimax(ctx)),
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
         "precalc" => Ok(precalc(ctx)),
@@ -4757,7 +4757,10 @@ fn phi_son_spec() -> ModuleSpec {
               RHG (Raymer-Hunt-Gardner): PHIT = 0.625*(DT - DT_MA)/DT. \
               OPT_CP=ON applies the Wyllie lack-of-compaction correction (Cp = DT_SH/100): \
               undercompacted shaly sands (e.g. shallow Mahakam delta) read porosity high on \
-              the straight time-average, so the WYLLIE porosity is divided by Cp. RHG is \
+              the straight time-average, so the WYLLIE porosity is divided by Cp. The \
+              correction can only REDUCE porosity, so it requires DT_SH >= 100 us/ft \
+              (Cp >= 1) and the run is refused otherwise (DEC-012, SB-POR-017) - below 100 \
+              the division would inflate porosity, the opposite of its purpose. RHG is \
               self-compacting and is never Cp-corrected. DT_MA must be strictly below DT_SH \
               (DEC-063) - an inverted pair turns the shale subtraction into an addition and \
               is refused before the run. PHIT_SON/PHIE_SON are the bare unlimited \
@@ -4811,13 +4814,36 @@ fn phi_son_spec() -> ModuleSpec {
     }
 }
 
-fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
+fn phi_son(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let dt = ctx.log("DT");
     let vsh = ctx.log("VSH");
     let badhole = ctx.log("BADHOLE");
     let coal = ctx.log("COAL_FLAG");
     let rhg = ctx.o("OPT_SON") == "RHG";
     let cp_on = ctx.o("OPT_CP") == "ON";
+    // SB-POR-017 (DEC-012, Jauhar 2026-08-11: refuse the run; Help may explain the condition
+    // but cannot substitute for the refusal): the lack-of-compaction divisor exists to REDUCE
+    // porosity in undercompacted section, so Cp = DT_SH/100 must be >= 1 — below 100 us/ft the
+    // division INFLATES it instead (+2.30 p.u. at DT_SH 90, docs/PRD_v2/11_porosity.md:901).
+    // Both cited vendor rules apply the correction only above 100 us/ft (IP
+    // basicloganalysis.htm rule of thumb; Geolog phi_son.lls gates on 328.084 us/m). DT_SH of
+    // exactly 100 is Cp = 1 — no correction — and passes. Checked per sample so a zone
+    // override cannot slip a sub-100 shale time into one zone of an otherwise valid run; RHG
+    // is self-compacting and never Cp-corrected, so it is deliberately not gated.
+    if cp_on && !rhg {
+        for i in 0..ctx.n {
+            let dt_sh = ctx.p("DT_SH", i);
+            if dt_sh.is_finite() && dt_sh < 100.0 {
+                return Err(format!(
+                    "phi_son refused: OPT_CP is ON but DT_SH = {dt_sh} us/ft (sample {i}) gives \
+                     Cp = {:.3} < 1, which would INFLATE the Wyllie porosity instead of reducing \
+                     it. The correction requires DT_SH >= 100 us/ft. Turn OPT_CP OFF, or correct \
+                     the shale transit time (DEC-012; SB-POR-017)",
+                    dt_sh / 100.0
+                ));
+            }
+        }
+    }
     let mut phit_son = vec![f32::NAN; ctx.n];
     let mut phie_son = vec![f32::NAN; ctx.n];
     let mut phit_lim = vec![f32::NAN; ctx.n];
@@ -4844,7 +4870,8 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Wyllie lack-of-compaction divisor Cp = DT_SH/100 (Hilchie): the whole time-average
         // porosity is scaled by 1/Cp in undercompacted section. RHG is self-compacting, so Cp
-        // never applies to it (and a non-positive DT_SH degenerates to no correction).
+        // never applies to it. The refusal above guarantees every finite DT_SH here is >= 100
+        // (Cp >= 1, the correction can only reduce); the > 0 arm survives only as NaN safety.
         let cp = if cp_on && !rhg && dt_sh > 0.0 { dt_sh / 100.0 } else { 1.0 };
         // SB-POR-003: which sonic transform answered, per sample, for the custody comment.
         record_branch(if rhg {
@@ -4892,12 +4919,12 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
-    HashMap::from([
+    Ok(HashMap::from([
         ("PHIT_SON".to_string(), phit_son),
         ("PHIE_SON".to_string(), phie_son),
         ("PHIE".to_string(), phie_lim),
         ("PHIT".to_string(), phit_lim),
-    ])
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -10389,23 +10416,73 @@ mod tests {
 
     #[test]
     fn phi_son_wyllie_cp_opt_in_only_scales_wyllie() {
-        // DT=75, matrix 55.5, fluid 189, shale 90 → raw Wyllie PHIT = 19.5/133.5 = 0.146067.
+        // DT=75, matrix 55.5, fluid 189, shale 120 → raw Wyllie PHIT = 19.5/133.5 = 0.146067.
+        // DT_SH is 120 — a genuinely undercompacted shale — so the correction is the REDUCTION
+        // it exists to be (SB-POR-017); the sub-100 inflating case is pinned as a refusal in
+        // a_wyllie_compaction_that_would_inflate_porosity_refuses_the_run below.
         let logs = [("DT", vec![75.0f32]), ("VSH", vec![0.0f32])];
-        let params = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 90.0)];
+        let params = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 120.0)];
         let raw = 19.5 / 133.5;
 
         // OPT_CP OFF (default) — plain straight time-average, unchanged.
-        let off = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "OFF")]));
+        let off = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "OFF")]))
+            .expect("OPT_CP OFF computes");
         assert!((off["PHIT_SON"][0] as f64 - raw).abs() < 1e-5, "OFF {}", off["PHIT_SON"][0]);
 
-        // OPT_CP ON — divided by Cp = DT_SH/100 = 0.9 → ~11% higher porosity.
-        let on = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "ON")]));
-        assert!((on["PHIT_SON"][0] as f64 - raw / 0.9).abs() < 1e-5, "ON {}", on["PHIT_SON"][0]);
+        // OPT_CP ON — divided by Cp = DT_SH/100 = 1.2 → porosity REDUCED, never raised.
+        let on = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "ON")]))
+            .expect("Cp >= 1 computes");
+        assert!((on["PHIT_SON"][0] as f64 - raw / 1.2).abs() < 1e-5, "ON {}", on["PHIT_SON"][0]);
 
         // RHG is self-compacting: OPT_CP=ON must NOT touch its porosity.
-        let rhg_cp = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG"), ("OPT_CP", "ON")]));
+        let rhg_cp = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG"), ("OPT_CP", "ON")]))
+            .expect("RHG is never Cp-corrected");
         let rhg_expect = 0.625 * (75.0 - 55.5) / 75.0;
         assert!((rhg_cp["PHIT_SON"][0] as f64 - rhg_expect).abs() < 1e-5, "RHG+CP {}", rhg_cp["PHIT_SON"][0]);
+    }
+
+    /// SB-POR-017 (DEC-012, Jauhar 2026-08-11): the Wyllie lack-of-compaction correction can
+    /// only REDUCE porosity — Cp = DT_SH/100 < 1 would inflate it (+2.30 p.u. at the old
+    /// shipped DT_SH 90), so the run is REFUSED, not corrected and not silently computed.
+    /// Pinned from both sides: the refusal fires by name, and none of the three legitimate
+    /// neighbours (OPT_CP OFF, RHG, DT_SH exactly 100) is over-refused.
+    #[test]
+    fn a_wyllie_compaction_that_would_inflate_porosity_refuses_the_run() {
+        let logs = [("DT", vec![75.0f32, 75.0]), ("VSH", vec![0.0f32, 0.0])];
+        let params = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 90.0)];
+        let raw = 19.5 / 133.5;
+
+        // The ruled case: Cp = 0.9 would ADD 2.30 p.u. → refuse, naming condition and ruling.
+        let err = phi_son(&ctx_with(2, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "ON")]))
+            .expect_err("DT_SH below 100 with OPT_CP=ON must refuse the run (DEC-012)");
+        assert!(
+            err.contains("DEC-012") && err.contains("DT_SH") && err.contains(">= 100"),
+            "the refusal must name the condition, the threshold and the ruling: {err}"
+        );
+
+        // Not over-refusing (a): OPT_CP OFF computes at the same DT_SH — 90 us/ft is a
+        // legitimate value for the shale TERM; only the Cp DIVISOR is gated.
+        let off = phi_son(&ctx_with(2, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "OFF")]))
+            .expect("OPT_CP OFF must still compute at DT_SH 90");
+        assert!(off["PHIT_SON"][0].is_finite());
+
+        // Not over-refusing (b): RHG never applies Cp, so OPT_CP=ON + DT_SH 90 still computes.
+        let rhg = phi_son(&ctx_with(2, &logs, &params, &[("OPT_SON", "RHG"), ("OPT_CP", "ON")]))
+            .expect("RHG is never Cp-corrected and must not be gated");
+        assert!(rhg["PHIT_SON"][0].is_finite());
+
+        // Not over-refusing (c): DT_SH exactly 100 is Cp = 1 — no correction — and passes.
+        let params_100 = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 100.0)];
+        let boundary = phi_son(&ctx_with(2, &logs, &params_100, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "ON")]))
+            .expect("DT_SH = 100 is exactly Cp = 1 and must compute");
+        assert!((boundary["PHIT_SON"][0] as f64 - raw).abs() < 1e-5, "Cp=1 must be a no-op");
+
+        // The other side of the same pin: a per-zone override cannot slip a sub-100 shale
+        // time into one zone of an otherwise valid run — the check is per sample.
+        let mut zoned = ctx_with(2, &logs, &params_100, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "ON")]);
+        zoned.params.get_mut("DT_SH").unwrap()[1] = 90.0;
+        phi_son(&zoned)
+            .expect_err("a zone-overridden DT_SH below 100 must refuse the whole run (DEC-012)");
     }
 
     #[test]

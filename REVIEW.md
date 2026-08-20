@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 1 (P0): the Wyllie compaction correction can no longer INFLATE porosity
+
+- [ ] **What changed and why it was the audit's only P0.** With `OPT_CP=ON`, `phi_son` divided by
+      `Cp = DT_SH/100` with no guard — so a shale transit time below 100 µs/ft made the "compaction
+      correction" ADD porosity (+2.30 p.u. at DT_SH 90), the opposite of its purpose, with every
+      value inside every declared range and nothing downstream to catch it. Your ruling already
+      existed: DEC-012 (2026-08-11), *refuse the run*. This increment executes it: `phi_son` now
+      refuses when OPT_CP is ON, the method is WYLLIE, and any effective DT_SH is below 100 —
+      checked per sample, so a per-zone DT_SH override cannot slip a sub-100 value into one zone.
+      The refusal names the offending value, the sample, the threshold and the ruling, with the fix
+      stated (turn OPT_CP off, or correct DT_SH).
+- [ ] **What still computes, deliberately.** OPT_CP OFF at any DT_SH (90 is a legitimate value for
+      the shale TERM — only the Cp DIVISOR is gated); RHG at any DT_SH (self-compacting, never
+      Cp-corrected); and DT_SH exactly 100 (Cp = 1, the correction is a no-op). None of these is
+      over-refused, and each is pinned.
+- [ ] **Click-through:** Petrophysics → Porosity from Sonic, OPT_CP=ON, WYLLIE, DT_SH 90 → the run
+      must refuse naming DEC-012, not compute. Same setup with DT_SH 120 → computes, and PHIT is
+      LOWER than the OPT_CP=OFF run (the correction reduces now). RHG with OPT_CP=ON and DT_SH 90 →
+      still computes.
+- [ ] **Automated correctness:** the old green pin `phi_son_wyllie_cp_opt_in_only_scales_wyllie`
+      asserted the ruled-against inflation and was REWRITTEN onto DT_SH 120 (Cp 1.2, a real
+      reduction); the new both-sides pin
+      `a_wyllie_compaction_that_would_inflate_porosity_refuses_the_run` covers the refusal by name,
+      the three legitimate neighbours, and the zone-override bypass. Two mutations red at two
+      distinct assertions: refusal deleted → red at the refusal; RHG exemption dropped → red at the
+      RHG case. The stale as-built note in `docs/PRD_v2/11_porosity.md` §5.2 carries a dated
+      correction. Ticking audit backlog item #1 in ROADMAP §B1c rides PR #54.
+
 ## 2026-08-16 — G2 SB-POR-024: D-N accepts a neutron curve without knowing its matrix units
 
 - [ ] **Decision dependency — DEC-025.** The crossplot must refuse an NPHI curve whose matrix units

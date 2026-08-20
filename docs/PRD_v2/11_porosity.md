@@ -1216,6 +1216,10 @@ value and equals the sandstone matrix density. It **MUST** become `ABSENT` per S
 
 **Note on the compaction rule.** The `Δtsh > 100` guard is part of the cited rule in **both** vendor
 sources. SandiBumi implements the ratio without the guard (`modules.rs:904`) — SB-POR-017.
+*(Corrected 2026-08-20: the guard now ships — DEC-012 executed; `phi_son` refuses the run when
+`OPT_CP=ON` and any effective `DT_SH < 100 µs/ft`, checked per sample so a zone override cannot
+bypass it; `DT_SH = 100` is `Cp = 1` exactly and passes. Pinned by
+`a_wyllie_compaction_that_would_inflate_porosity_refuses_the_run`.)*
 
 ### 5.3 Limits, ceilings and branch thresholds
 
