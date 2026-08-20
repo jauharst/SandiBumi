@@ -17,6 +17,7 @@
     "check:unit-registry": "node tools/unit-registry.mjs --check",
     "test:chart-derivation": "node --test tools/chart-derivation.test.mjs",
     "test:release-inventory": "node --test tools/release-inventory.test.mjs",
+    "test:generated-artifact": "node --test tools/generated-artifact.test.mjs",
     "check:chart-derivation": "node tools/gen-derived-overlays.mjs --check",
     "preview": "vite preview",
     "tauri": "tauri",

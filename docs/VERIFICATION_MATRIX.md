@@ -9,6 +9,10 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
+Review sections counted toward no capability: **157** of 602,
+each named in `unmapped_review_sections` in the capability map. They contribute to no count in
+this table, so every figure above reads low by whatever those sections cover.
+
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
 | `las-import` | LAS import | Not exercised | 0 / 138 | — | 45 |
@@ -17,7 +21,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 57 | — | 11 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 202 | 2026-08-13 | 69 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 208 | 2026-08-13 | 70 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 94 | 2026-08-13 | 21 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -64,4 +68,4 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 65 | — | 12 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 163 | 2026-08-13 | 55 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 168 | 2026-08-13 | 50 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 174 | 2026-08-13 | 51 |

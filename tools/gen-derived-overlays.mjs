@@ -65,6 +65,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isGeneratedFileCurrent } from "./generated-artifact.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_PATH = path.join(repo, "src", "ui", "chartOverlaysDerived.gen.ts");
@@ -364,10 +365,7 @@ if (invokedDirectly) {
   const expected = renderModule();
   if (process.argv.includes("--check")) {
     const actual = fs.existsSync(OUT_PATH) ? fs.readFileSync(OUT_PATH, "utf8") : "";
-    // Compare CONTENT, not line endings: a fresh checkout materializes the file with
-    // CRLF under git autocrlf, and that must not read as staleness.
-    const norm = (t) => t.replace(/\r\n/g, "\n");
-    if (norm(actual) !== norm(expected)) {
+    if (!isGeneratedFileCurrent(actual, expected)) {
       console.error("chartOverlaysDerived.gen.ts is stale - run: node tools/gen-derived-overlays.mjs");
       process.exit(1);
     }
