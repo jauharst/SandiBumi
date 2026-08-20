@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 14 (Codex P0): the PDF report states its depths in the project's own unit
+
+- [ ] **What this fixes, and it is the one that leaves the building.** The report PDF printed
+      `Top (m)`, `Bottom (m)` and `HPV (m)` unconditionally, and its cover stated the interval, the
+      print window, TD and KB in metres. Every one of those numbers comes straight off the
+      project's own depth column — the pay engine accumulates raw sample thickness, the zone tops
+      are stored depths. **On a foot project this handed a client a document stating net pay and
+      hydrocarbon pore thickness in metres over numbers that were feet**: both overstated by
+      3.28084×, every figure plausible, nothing on the page to catch it.
+- [ ] **Four columns had no unit at all, which is not better.** In the pay table only HPV was
+      labelled; Top, Bottom, Gross and Net carried nothing. An unlabelled thickness column beside
+      one that says metres invites the reader to assume the rest match it — which they never did.
+      All five now name the unit.
+- [ ] **Nothing converts.** This is a labelling fix: the numbers in the PDF are the same numbers,
+      correctly described. A metre project's report is unchanged word for word.
+- [ ] **Click-through (foot project):** Plot → Deliverables → Report… → Render, then Save PDF.
+      The cover must read **Interval: … ft**, with TD and KB in ft; the Zone Parameters table must
+      head **Top (ft) / Bottom (ft)**; the Pay Summary table must head **Top / Bottom / Gross /
+      Net / HPV all in (ft)**. Cross-check one zone's Net and HPV against the same well in the
+      Field Dashboard — they must agree, both in ft. On a metre project render the report you
+      rendered before and confirm it is unchanged.
+- [ ] **Automated correctness:** one pin,
+      `the_report_pdf_heads_its_thicknesses_in_the_projects_own_depth_unit`, which renders a real
+      report on each declaration and reads the text off the drawn page. Two arms, because writing
+      "ft" everywhere would be as wrong as the original: the metre arm must still say `(m)` with
+      no feet anywhere, and the foot arm must carry all five headings plus the cover interval with
+      no metres anywhere. Two mutations red at two distinct assertions — a hard-coded HPV metre
+      heading, and a cover that ignores the project's unit.
+- [ ] **This closes both P0s from the whole-repository Codex review.** The other one, the composite
+      print scale, is increment 13. `CODEX-WHOLE-CODE-REVIEW-2026-08-20.md` is committed here
+      alongside the fixes, as the first review was.
+
 ## 2026-08-20 — Audit increment 13 (Codex P0): a printed composite measures true on a foot project
 
 > **Put a ruler on it.** This one changes the physical geometry of an exported plot, so the check
