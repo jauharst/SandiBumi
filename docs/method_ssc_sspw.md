@@ -12,9 +12,22 @@ DCLF_SI 0.1 (dry-clay fraction at silt point). GR_MA 10, GR_SH 150 (defaults).
 
 Algorithm (all lines y=RHOB on x=NPHI):
 
-1. **Gas conditioning**: PHIDI=(RHOB_MA−RHOB)/(RHOB_MA−RHOB_FL); if NPHI≤1.05·PHIDI:
-   PHID=sqrt(PHIDI²−1.6·|PHIDI²−NPHI²|/2), RHOB_COR=RHOB_MA−(RHOB_MA−RHOB_FL)·PHID,
-   NPHI_COR=sqrt(NPHI²+1.6·|PHIDI²−NPHI²|/2); else pass-through.
+1. **Gas conditioning** (DEC-086): PHIDI=(RHOB_MA−RHOB)/(RHOB_MA−RHOB_FL); if NPHI≤1.05·PHIDI,
+   with Δ=|PHIDI²−NPHI²| and the **user parameter `GAS_C`** (written *c* below, range 0–2):
+   PHID=sqrt(PHIDI²−c·Δ/2), RHOB_COR=RHOB_MA−(RHOB_MA−RHOB_FL)·PHID,
+   NPHI_COR=sqrt(NPHI²+c·Δ/2); else pass-through.
+
+   *c* is where the answer lands between the two logs: **c=0** leaves the density alone,
+   **c=1** is the even split — the RMS midpoint sqrt((PHIDI²+NPHI²)/2), where both corrected
+   legs meet — and **c=2** hands the answer to the neutron outright. Above c=1 the two legs
+   *cross*: at 1.6 the corrected density is 0.2·PHIDI²+0.8·NPHI² and the corrected neutron its
+   mirror, so the D-N crossover is reversed rather than closed.
+
+   **The two source files disagree and both are shipped as defaults, on Jauhar's ruling** —
+   the 2022 spec-only `porosity_sspw.lls` writes c=1.6, the 2025 exec body `sspw.lls` writes
+   the even split. `ssc` defaults to **1.0** (what it has run since 2026-07-29); `sspw`
+   defaults to **1.6** (what it has always run), because in his rock the even split still
+   reads optimistic. Neither is a constant any more.
 2. **Derived points**: NPHI_DCL from dry-clay density on the clay-water line
    (M1=(1−RHOB_WCL)/(1−NPHI_WCL)); RHOB_WSI on the matrix–wet-clay line at NPHI_WSI;
    dry silt = intersection of the (fluid→wet silt) line with the dry line (matrix→dry clay).
@@ -47,7 +60,9 @@ Key message: **PHIE = PHIT − clay-bound water only; capillary-bound water is i
 PHIFF = PHIT − CBW − CAPBW is what flows.**
 
 Spec params: NPHI must be sandstone units; NPHI_MAT 0, RHOB_MAT 2.65, NPHI_SH 0.55,
-RHOB_SH 2.4, RHOB_DSH 2.71 (dry shale grain density), VOL_CBW_SH 0.1, SWIRR_MIN 0.
+RHOB_SH 2.4, RHOB_DSH 2.71 (dry shale grain density), VOL_CBW_SH 0.1, SWIRR_MIN 0,
+GAS_C 1.6 (see step 1 above — SSPW corrects the density leg only, so the leg-crossing
+c>1 produces in SSC has no counterpart here; the symptom is simply a lower PHIT).
 Outputs PHIT/PHIE/PHIFF_SSPW, VOL_CLYBNDWAT, VOL_CAPBNDWAT, VOL_BOUNDWAT, SWIRR_SSPW.
 
 **SSPW was reconstructed from spec, not source — needs validation against his the reference suite LAS

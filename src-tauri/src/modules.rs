@@ -10367,13 +10367,17 @@ mod tests {
     /// SB-CORE-007 T20 (DRAFT_CORE007 Part D, route ruled by DEC-076: the both-copies
     /// EQUALITY TEST, no protected-file edit). The eight-transform GR ladder ships
     /// verbatim in BOTH homes - `ssc.rs` and `modules.rs` - so this fails if either copy
-    /// changes alone. The sspw gas weight is pinned AS the unruled divergence: the sspw
-    /// twin still runs the 1.6/2 = 0.8-per-side form the SSC site replaced with equal
-    /// halves (fix-vs-deliberate is Jauhar's open method call, kept open by name in
-    /// DEC-076) - a silent "fix" of the twin fails here and forces the ruling to be
-    /// recorded first.
+    /// changes alone.
+    ///
+    /// The gas-weight half of this pin CHANGED SHAPE under DEC-086. It used to hold the
+    /// SSC/SSPW divergence open by name - equal halves on one site, the 1.6 form on the
+    /// other, fix-vs-deliberate being Jauhar's open call under DEC-076. He ruled: the
+    /// disagreement is real petrophysics, the coefficient became the declared parameter
+    /// `GAS_C`, and each module kept its own default. So the tripwire now guards the
+    /// opposite thing - that NEITHER site has a hard-coded weight to diverge WITH. A
+    /// literal creeping back into either gas expression fails here.
     #[test]
-    fn the_gr_ladder_ships_verbatim_in_both_homes_and_the_sspw_gas_weight_is_pinned_as_the_unruled_divergence(
+    fn the_gr_ladder_ships_verbatim_in_both_homes_and_neither_gas_site_carries_a_hard_coded_weight(
     ) {
         let strip = |s: &str| s.split_whitespace().collect::<String>();
         let ssc = strip(include_str!("ssc.rs"));
@@ -10391,16 +10395,27 @@ mod tests {
             assert!(ssc.contains(arm), "ssc.rs lost or changed its copy of {arm}");
             assert!(this.contains(arm), "modules.rs lost or changed its copy of {arm}");
         }
-        // The divergence pair, pinned exactly: the fixed SSC site runs equal halves...
+        // DEC-086. Both gas sites read the declared weight; the SSC one corrects both legs,
+        // the SSPW one only the density leg it actually uses.
         assert!(
-            ssc.contains("letmid=((phidi*phidi+np*np)/2.0).max(0.0).sqrt();"),
-            "the fixed SSC gas midpoint is gone - the T20 witness moved"
+            ssc.contains("letpull=gas_c*(d2-n2).abs()/2.0;"),
+            "the SSC gas site stopped reading GAS_C - DEC-086 made the weight the user's dial"
         );
-        // ...and the sspw twin still runs the 1.6 form, AS SHIPPED, until he rules.
         assert!(
-            ssc.contains("(phidi*phidi-1.6*(phidi*phidi-np*np).abs()/2.0).max(0.0).sqrt()"),
-            "the sspw 1.6 gas weight changed without a recorded ruling - DEC-076 kept fix-vs-deliberate open by name; record the ruling and move this pin"
+            ssc.contains("letphid=(d2-gas_c*(d2-n2).abs()/2.0).max(0.0).sqrt();"),
+            "the SSPW gas site stopped reading GAS_C - DEC-086 made the weight the user's dial"
         );
+        // …and neither site may carry a literal again. The old pair is named explicitly so a
+        // revert is caught by the shape it would revert TO, not merely by the absence of GAS_C.
+        for gone in [
+            "letmid=((phidi*phidi+np*np)/2.0).max(0.0).sqrt();",
+            "(phidi*phidi-1.6*(phidi*phidi-np*np).abs()/2.0).max(0.0).sqrt()",
+        ] {
+            assert!(
+                !ssc.contains(gone),
+                "a hard-coded gas weight is back in ssc.rs ({gone}) - DEC-086 ruled it a declared parameter"
+            );
+        }
     }
 
     /// CORRECTNESS — SB-CORE-004 / SB-CORE-T11 and `record_data_tools.md`'s despike-window
