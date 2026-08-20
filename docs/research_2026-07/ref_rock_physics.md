@@ -93,7 +93,7 @@ GC (per-lithology quadratic on 100% brine Vp, km/s, coefficients a2/a1/a0 from G
 
 Inputs: DT, PHIE, mineral volume fractions + per-mineral Vp/Vs/rho + brine/oil/gas fluid props + Sw/So/Sg + SW_IRR + mix model (GC variants); just DT (Han/mudrock); UMOD+RHOB (modulus); PR or VPVS logs.
 Outputs: DTSM_x + VELS_x per model (DTSM_GC, DTSM_MODIFIED, DTSM_HAN, DTSM_MUDROCK, DTSM_UMOD, DTSM_PR, DTSM_VPVS).
-Calibration: Calibrate in wells that HAVE measured DTS: overlay predicted vs measured DTSM, pick model + delta + coefficients minimizing residual, then apply to DTS-less wells. This is Jauhar's existing synthetic-log philosophy (memory: method_workflow_standards synthetic logs).
+Calibration: Calibrate in wells that HAVE measured DTS: overlay predicted vs measured DTSM, pick model + delta + coefficients minimizing residual, then apply to DTS-less wells. This is Jauhar's existing synthetic-log philosophy (memory: docs/workflow_standards.md synthetic logs).
 
 ### Vp / DT and RHOB estimation models (pseudo-sonic, pseudo-density)
 Gap-filling estimators from dt_from_models.lls + rhob_from_models.lls, all equations source-visible. Useful for log repair before rock physics and for synthetic-log QC.

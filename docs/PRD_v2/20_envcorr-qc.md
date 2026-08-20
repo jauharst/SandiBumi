@@ -2360,7 +2360,7 @@ Three conventions apply throughout:
 | Maximum fillable gap | `MAX_GAP` | `ABSENT — ships with no default` | project depth unit | `condition.rs:695` (`param_open`) | — |
 | MAD Gaussian consistency constant | `C_MAD` | 1.482602 (= 1/Φ⁻¹(3/4)) | — | derived, not measured; one named constant required (`SB-ENV-032`). Shipped as the inline literal `1.4826` at `condition.rs:166` — within 1.5 ppm, so **no result changes**; the requirement is structural | — |
 | Minimum samples for a Hampel window | `MIN_HAMPEL_SAMPLES` | 5 | samples | `condition.rs:176` — `SHIPPED-UNCITED`. A sample count is correct here: it is a property of the estimator, not of the rock | — |
-| Normalisation low percentile | `P_LOW` | 3.0 | % | `condition.rs:915`; house standard, `memory\method_workflow_standards.md` §GR normalization (P3/P97) | T4 |
+| Normalisation low percentile | `P_LOW` | 3.0 | % | `condition.rs:915`; house standard, `docs/workflow_standards.md` §GR normalization (P3/P97) | T4 |
 | Normalisation high percentile | `P_HIGH` | 97.0 | % | `condition.rs:916`; same source. **Recorded with its hazard:** P97 is the exact percentile that makes Geolog's unguarded upper walk reachable (§2.6(c)) — an argument for order statistics, not against P97 | T4/T1 |
 | — vendor guidance, Geolog | — | 90–95 | % | `log_normalization.lls:30` — **`NON-ADOPTABLE — cited for verification`** | T1 |
 | Normalisation reference pair | `REF_LOW`, `REF_HIGH` | `ABSENT — ships with no default` | curve unit | `condition.rs:974-980` — the run refuses without them. `PRESENT-OK` and locked in by `SB-ENV-052` | T4 |
