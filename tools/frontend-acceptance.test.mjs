@@ -2026,6 +2026,49 @@ test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => 
   assert.doesNotMatch(status.textContent, /\. FLAG curves written\./);
 });
 
+test("a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference", async () => {
+  // CORRECTNESS — SB-ENV-057. A module argument declared with the project-native depth token
+  // has no fixed unit: the number the user types goes to the backend unconverted and is
+  // differenced against the stored depth grid. So its label must name the STORED unit — and
+  // deliberately NOT the display unit, which is the opposite choice from a read-only panel
+  // like the Field Dashboard, and for the opposite reason: there the number is leaving, here
+  // it is arriving. Labelling a free-water level with a view preference would invite exactly
+  // the mis-entry the token exists to prevent. Every genuinely fixed unit — including the
+  // metres a module converts for itself — must pass through untouched.
+  const { appState } = await load("/src/state.ts");
+  const { argumentUnitLabel, PROJECT_DEPTH_UNIT_TOKEN } = await load("/src/depthUnitPref.ts");
+  const project = appState.projectDepthUnit.get();
+  const display = appState.displayDepthUnit.get();
+
+  try {
+    appState.projectDepthUnit.set("FT");
+    appState.displayDepthUnit.set("FT");
+    assert.equal(argumentUnitLabel(PROJECT_DEPTH_UNIT_TOKEN), "ft");
+
+    // The user switches the VIEW to metres. The stored grid has not moved, so neither does
+    // the label on an input whose value is compared against that grid.
+    appState.displayDepthUnit.set("M");
+    assert.equal(
+      argumentUnitLabel(PROJECT_DEPTH_UNIT_TOKEN),
+      "ft",
+      "an input label follows the stored unit, never the view preference",
+    );
+
+    appState.projectDepthUnit.set("M");
+    assert.equal(argumentUnitLabel(PROJECT_DEPTH_UNIT_TOKEN), "m");
+
+    // Fixed units are untouched, the converted metres among them.
+    for (const fixed of ["m", "ft", "g/cc", "v/v", "mD", "dyn/cm", "degC"]) {
+      assert.equal(argumentUnitLabel(fixed), fixed);
+    }
+    assert.equal(argumentUnitLabel(""), "");
+    assert.equal(argumentUnitLabel(null), "");
+  } finally {
+    appState.projectDepthUnit.set(project);
+    appState.displayDepthUnit.set(display);
+  }
+});
+
 test("a_dashboard_csv_carries_lengths_and_a_heading_in_one_resolved_unit_and_leaves_the_dimensionless_columns_alone", async () => {
   // CORRECTNESS — the Field Dashboard's CSV is a client deliverable. It printed a
   // hard-coded "(m)" over values the backend returns in the PROJECT's stored unit, so a

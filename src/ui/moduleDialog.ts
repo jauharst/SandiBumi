@@ -12,6 +12,7 @@ import {
   type ValidityCondition,
 } from "../ipc";
 import { appState } from "../state";
+import { argumentUnitLabel } from "../depthUnitPref";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
 import { withParamSources } from "./paramSources";
@@ -435,7 +436,9 @@ export async function buildModuleContent(
         wrap.className = "input-unit";
         const u = document.createElement("span");
         u.className = "unit-suffix";
-        u.textContent = arg.unit;
+        // A project-native length reads as the unit the project STORES, because the number
+        // typed here reaches the backend unconverted (`argumentUnitLabel`).
+        u.textContent = argumentUnitLabel(arg.unit);
         wrap.append(input, u);
         control = wrap;
       }
@@ -576,7 +579,7 @@ export async function buildModuleContent(
     const label = document.createElement("label");
     label.className = "module-output-label";
     label.textContent = arg.desc || arg.name;
-    if (arg.unit) label.textContent += ` (${arg.unit})`;
+    if (arg.unit) label.textContent += ` (${argumentUnitLabel(arg.unit)})`;
     if (arg.flag_kind === "EXCLUSION_MASK") label.textContent += " — exclusion mask";
     if (arg.flag_kind === "DIAGNOSTIC_INDICATOR") label.textContent += " — diagnostic indicator";
     if (arg.porosity_output) {

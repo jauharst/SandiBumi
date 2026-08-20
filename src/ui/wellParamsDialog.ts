@@ -10,6 +10,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { setStatus } from "../state";
+import { argumentUnitLabel } from "../depthUnitPref";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
@@ -180,7 +181,7 @@ export async function openWellParamsDialog(steps: ChainStep[]): Promise<void> {
   headRow.appendChild(wellTh);
   for (const col of columns) {
     const th = document.createElement("th");
-    const unit = col.arg.unit ? ` (${col.arg.unit})` : "";
+    const unit = col.arg.unit ? ` (${argumentUnitLabel(col.arg.unit)})` : "";
     // A conflicted column is marked in the header, not just in a tooltip: the number below
     // it is only one of the steps' values, which changes what an edit there means.
     th.textContent = col.name + unit + (col.conflict ? " ⚠" : "");

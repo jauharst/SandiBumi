@@ -39,6 +39,27 @@ export async function syncDepthUnits(): Promise<void> {
   appState.displayDepthUnit.set(readStoredPreference() ?? project);
 }
 
+/** SB-ENV-057. The one manifest token (`modules::PROJECT_DEPTH_UNIT_TOKEN`) a module argument
+ *  uses to say "this length is in whatever unit the project stores". */
+export const PROJECT_DEPTH_UNIT_TOKEN = "depth";
+
+/** The unit to PRINT beside a module argument.
+ *
+ *  A project-native length has no fixed unit of its own: the number the user types goes to the
+ *  backend unconverted and is compared straight against the stored depth grid. So the label
+ *  must name the unit those depths are in — the **stored** unit, deliberately not the display
+ *  unit. That is the opposite choice from a read-only panel like the Field Dashboard, and for
+ *  the opposite reason: there the number is leaving, here it is arriving. Labelling an input
+ *  with a view preference would invite exactly the mis-entry the token exists to prevent —
+ *  a free-water level typed in metres against a foot-stored depth grid.
+ *
+ *  Everything else is a real fixed unit (g/cc, v/v, mD, ohm·m, and the genuinely metric lengths
+ *  the module converts itself) and passes through untouched. */
+export function argumentUnitLabel(unit: string | null | undefined): string {
+  if (!unit) return "";
+  return unit === PROJECT_DEPTH_UNIT_TOKEN ? unitLabel(appState.projectDepthUnit.get()) : unit;
+}
+
 /** Switches the unit depths are DISPLAYED in. Stored data is untouched — this is why the
  *  two units are separate settings in the first place. */
 export function setDisplayDepthUnit(unit: DepthUnit): void {
