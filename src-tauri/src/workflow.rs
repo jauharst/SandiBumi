@@ -4402,7 +4402,7 @@ pub fn reconcile_partition(
 ///
 /// One function rather than a copy in each pay path — the cutoff SWEEP and the summary must agree
 /// at the same cutoffs, and two copies is two places for the rule to drift.
-fn floored_phie(raw: &[f32]) -> Vec<f32> {
+pub(crate) fn floored_phie(raw: &[f32]) -> Vec<f32> {
     raw.iter().map(|&v| if v.is_nan() { v } else { v.max(modules::PHIE_FLOOR as f32) }).collect()
 }
 

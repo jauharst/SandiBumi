@@ -785,6 +785,22 @@ pub(crate) fn zone_metrics(
     cut: &Cutoffs,
     has_perm_cut: bool,
 ) -> ZoneMetrics {
+    // The PHIE floor is SB-CUT-001's sibling and belongs in the same place for the same reason.
+    // `workflow::floored_phie`'s own doc already says it - one function rather than a copy in
+    // each pay path - and this was the pay path it had never reached: a Monte Carlo study that
+    // varies m/n/Rw over `sw_indo` against a DELIVERED vendor PHIE runs no porosity module, so
+    // nothing floored the curve, and a slightly negative streak over tight carbonate (a routine
+    // artefact of a sandstone-matrix density porosity, not a corrupt curve) SUBTRACTED its
+    // PHIE*(1-SWE)*h from HPV in every realization. The deterministic pay summary floors it and
+    // the MC P50 did not, so the two disagreed on the same wells at the same cutoffs and the
+    // gap read as uncertainty.
+    //
+    // Applied HERE rather than at the callers because `v.max(FLOOR)` is idempotent - a caller
+    // that already floored loses nothing - so this covers every pay path there is and leaves no
+    // second site to forget.
+    let phie = crate::workflow::floored_phie(phie);
+    let phie = &phie[..];
+
     let mut net = 0.0f64;
     let mut sum_phie = 0.0f64;
     let mut sum_phie_swe = 0.0f64;
@@ -3346,5 +3362,68 @@ mod tests {
         assert_eq!(pl.impossible_realizations, 0, "clean sand should have no impossible realizations");
         assert_eq!(pl.fraction, 0.0);
         assert!(pl.detail.contains("in bounds"), "clean detail: {}", pl.detail);
+    }
+    /// AUDIT-2026-08-20 finding 10. CLAUDE.md: PHIE is floored "at the curve and at EVERY pay
+    /// path". The Monte Carlo pay path was the one it had never reached - a study that varies
+    /// m/n/Rw over a DELIVERED vendor PHIE runs no porosity module, so nothing floored the curve.
+    ///
+    /// Pinned from BOTH sides, because a lazier floor passes exactly one of them:
+    ///   A - a negative streak must floor, so HPV cannot be SUBTRACTED from.
+    ///   B - a MISSING sample must stay missing. `f32::max` returns the other side when one is
+    ///       NaN, so the bare `v.max(FLOOR)` a hurried fix reaches for turns a washout into a
+    ///       real 0.001 and books its whole slab into net - a well that was never interpreted
+    ///       over that interval would report pay there.
+    #[test]
+    fn a_monte_carlo_realization_floors_a_negative_porosity_and_still_leaves_a_missing_one_missing() {
+        let n = 5usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let step = vec![1.0f32; n];
+        let zone = ZoneEntry {
+            zone_name: "ALL".into(),
+            top_depth: 1000.0,
+            bottom_depth: 1005.0,
+            depth_datum: crate::schema_vocab::DepthDatum::Md,
+        };
+        // No cut-offs: every sample counts, so the arithmetic isolates the floor itself.
+        let cut = Cutoffs { vsh_max: None, phie_min: None, swe_max: None, perm_min: None };
+        let run = |phie: &[f32]| {
+            zone_metrics(
+                crate::workflow::DiscretisationModel::Forward,
+                &vec![0.10f32; n],
+                phie,
+                &vec![0.20f32; n],
+                &vec![f32::NAN; n],
+                &depth,
+                &step,
+                &zone,
+                &cut,
+                false,
+            )
+        };
+        let floor = crate::modules::PHIE_FLOOR as f32;
+
+        // A - a vendor density porosity that went slightly negative over tight rock.
+        let neg = run(&vec![-0.02f32; n]);
+        assert!(
+            neg.hpv > 0.0 && (neg.hpv - 5.0 * floor * 0.8).abs() < 1e-6,
+            "a negative PHIE must floor, not subtract from HPV; got {}",
+            neg.hpv
+        );
+        assert!(
+            (neg.avg_phie - floor).abs() < 1e-6,
+            "the average must report the floored porosity, got {}",
+            neg.avg_phie
+        );
+
+        // B - one washed-out sample in the middle of a good interval.
+        let mut holed = vec![0.20f32; n];
+        holed[2] = f32::NAN;
+        let miss = run(&holed);
+        assert!(
+            (miss.net - 4.0).abs() < 1e-6,
+            "a MISSING sample must not become a real {} and book its slab into net; got net {}",
+            floor,
+            miss.net
+        );
     }
 }

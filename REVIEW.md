@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 37 (my audit P2): **a Monte Carlo study can no longer subtract negative porosity out of your HPV**
+
+- [ ] **What was wrong.** The deterministic pay summary floors PHIE at 0.001 — so a slightly
+      negative density porosity over tight rock contributes almost nothing, rather than eating
+      hydrocarbon pore volume off the rest of the zone. The **Monte Carlo** pay path never did.
+- [ ] **When it bit you.** An ordinary uncertainty study: vary m, n and Rw over `sw_indo`
+      against a **delivered vendor PHIE**, with no porosity module in the chain. Nothing in that
+      chain ever floors the curve, so a negative streak subtracted its `PHIE × (1−SWE) × h`
+      from HPV in **every realization**. The deterministic summary and the MC P50 then disagreed
+      on the same wells at the same cut-offs — and that gap read as *uncertainty*.
+- [ ] **The fix.** The floor now lives inside the shared per-zone calculation, which is the same
+      place the net-pay discretisation rule already lives, so every Monte Carlo path gets it and
+      there is no second site to forget. Existing agreement between the two paths is unchanged.
+- [ ] **A washout still reads as a washout.** A missing PHIE sample stays missing — it is *not*
+      floored into a real 0.001. That distinction is the whole point: 0.001 means "shale has no
+      effective porosity", missing means "we never interpreted here", and a floored washout
+      would quietly book pay over every bad-hole interval in the field.
+- [ ] **What to check.** Take a well with a vendor PHIE that dips negative anywhere. Run the
+      deterministic Pay Summary, then run a Monte Carlo on the same zones and cut-offs. The
+      **P50 HPV should now sit on the deterministic number**, not below it. Then check a well
+      with a washout: its net pay over the washed interval should still be zero.
+
 ## 2026-08-20 — Audit increment 36 (DEC-089, second half): **your existing projects are migrated onto one set of units**
 
 - [ ] **What this finishes.** The previous increment made new imports store canonical units.
