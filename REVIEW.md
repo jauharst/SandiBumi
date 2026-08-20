@@ -277,6 +277,31 @@
 - [ ] **Where this came from.** The independent Codex adversarial review of `a6565bd9`, its
       single P0. Its other findings are being worked in order; the SSPW gas-conditioning one
       needs your ruling before anything moves, and I have not touched it.
+## 2026-08-20 — Audit increment 7 (P1): the sensitivity sweep can no longer drop a PERM cutoff you entered
+
+- [ ] **Where this came from.** Your independent Codex review found it, and I confirmed it at the
+      decisive lines. It is the THIRD site of the rule you already ruled on in DEC-084 ("no well
+      with no perm can escape cutoff … dont let it off, its independent"): the pay summary was
+      corrected, the Monte Carlo path was corrected in the DEC-084 sweep, and the **cutoff
+      sensitivity sweep** still carried the old "does this well have any PERM?" exemption — with
+      a comment claiming it agreed with the pay summary, which had stopped being true.
+- [ ] **What it did on a real well.** Take a well with no permeability curve and enter a held
+      PERM ≥ 10 mD cutoff. The Pay Summary correctly booked **zero net** and marked "PERM cutoff,
+      no data". The sensitivity curve on the next screen silently dropped the cutoff and drew a
+      **full, optimistic pay curve** — and that is the screen you read when choosing where to put
+      a cutoff. Two screens, same held cutoffs, opposite answers.
+- [ ] **What changed.** One line: the sweep now asks only whether the cutoff was REQUESTED, the
+      same test the pay summary makes. A sample with no PERM fails, as your ruling says. Wells
+      that have permeability are unaffected, and a run with no PERM cutoff requested is
+      completely untouched.
+- [ ] **Click-through:** a well with no PERM curve → Cutoffs pane, hold PERM ≥ 10 mD, sweep VSH.
+      The pay curve must sit flat on zero, agreeing with the Pay Summary for that well. Then a
+      well WITH permeability above the cutoff → the sweep must behave exactly as before.
+- [ ] **Automated correctness:** `a_sensitivity_sweep_cannot_drop_a_perm_cutoff_the_well_has_no_
+      data_for` pins three sides — no PERM under an active cutoff books nothing at every step; a
+      measured PERM clearing the cutoff still books everything; and no cutoff requested leaves a
+      PERM-less well untouched. Two mutations red at two distinct assertions.
+
 ## 2026-08-20 — Audit increment 6 (P1): the Simandoux "unlimited" curve is genuinely unlimited now
 
 - [ ] **What was wrong (audit finding #4), and your "diagnostics stay raw" ruling executed.**
