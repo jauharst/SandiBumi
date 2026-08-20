@@ -1,5 +1,44 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 8 (Codex P0): the Field Dashboard shows and exports depth units, not a hard-coded metre
+
+- [ ] **What this fixes.** The Field Dashboard printed `(m)` on every thickness it showed —
+      the Total Net and Total HPV cards, the by-zone table, the box-plot heading, the grid
+      columns and the CSV header — while the numbers underneath were whatever unit the project
+      is stored in. On a metre project that was right by luck. On a **foot-declared project it
+      was a client deliverable claiming metres over columns of feet: wrong by 3.28084×**, with
+      every number in it perfectly plausible. Nothing in the file said otherwise. The backend
+      was never at fault — it accumulates thickness in the project's own unit and always did.
+- [ ] **What it does now.** The panel reads the project's stored unit and your chosen display
+      unit and resolves both at render time: the headings carry the unit you are reading in, and
+      the lengths are converted to match it. HPV converts with the thicknesses because it **is**
+      a thickness — hydrocarbon pore feet, φe·(1−Sw)·h. N/G, Avg VSH, Avg PHIE, Avg SWE and the
+      sample counts are dimensionless and are left exactly alone; converting those would turn a
+      net-to-gross of 0.50 into 0.15, which is still a legal-looking number nobody would catch.
+- [ ] **Click-through (metre project — nothing should move).** Petrophysics → Batch → Field
+      Dashboard… → Compute. Every heading still says `(m)` and every number is what it was
+      before this change. Export CSV and confirm the header row and values are unchanged.
+- [ ] **Click-through (foot project — the fix).** Open a foot-declared project, Compute, and
+      check the Total Net / Total HPV cards now read **ft**, as do Top / Bottom / Gross / Net /
+      Not net / Unknown / HPV in the grid, the by-zone table and the box-plot heading. Export
+      CSV: the header must say `Net (ft)` and `HPV (ft)` with the foot values under them.
+- [ ] **Click-through (the display toggle).** With the dashboard open, flip the depth unit from
+      a log view's toolbar. The dashboard must relabel and re-convert **live** — headings, cards,
+      by-zone table, box plots, grid and the next CSV export all in the new unit together. A
+      panel showing metres while the rest of the application had moved to feet would be the same
+      mislabelling one step removed.
+- [ ] **Automated correctness:** one pin,
+      `a_dashboard_csv_carries_lengths_and_a_heading_in_one_resolved_unit_and_leaves_the_dimensionless_columns_alone`
+      — a foot project read in feet exports unconverted values under `(ft)`; the same project
+      read in metres converts the lengths, moves the heading with them and leaves N/G and Avg
+      PHIE untouched; a metre project is byte-identical to what it always exported. Both halves
+      are pinned separately because either alone still ships a wrong file. Two mutations red at
+      two distinct assertions (a hard-coded `(m)` heading; converting every column instead of
+      only the lengths — which prints N/G 0.5 as 0.1524).
+- [ ] **Where this came from.** The independent Codex adversarial review of `a6565bd9`, its
+      single P0. Its other findings are being worked in order; the SSPW gas-conditioning one
+      needs your ruling before anything moves, and I have not touched it.
+
 ## 2026-08-20 — Audit increment 3 (P1): a bad Monte Carlo input refuses the study instead of killing the app
 
 - [ ] **What this fixes (audit finding #3).** The deterministic batch runner already refuses a
