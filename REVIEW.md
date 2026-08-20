@@ -1,6 +1,6 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
-## 2026-08-20 — Audit increment 22 (Codex P1): a survey station with no inclination is refused, not read as vertical
+## 2026-08-20 — Audit increment 24 (Codex P1): a survey station with no inclination is refused, not read as vertical
 
 > **One judgement call in here, flagged rather than buried** — see the last item. Say the word and
 > I will change it.
@@ -37,7 +37,7 @@
       the zero coercion accepts the straightened well `inc: [0, 0, 60]`, and the blanket
       "refuse any blank azimuth" fix rejects an ordinary vertical survey.
 
-## 2026-08-20 — Audit increment 21 (Codex P1): IMTS refuses a sample with no clay evidence instead of calling it clean rock
+## 2026-08-20 — Audit increment 23 (Codex P1): IMTS refuses a sample with no clay evidence instead of calling it clean rock
 
 - [ ] **What this fixes.** IMTS builds its clay charge from the kaolinite and illite volume curves,
       and both are optional inputs. Each gap was independently read as zero — so a sample carrying
@@ -68,7 +68,7 @@
       two distinct assertions: removing the guard conjures **SWT 0.7897** out of no clay evidence at
       all, and the lazier "refuse any hole" fix withholds a well that logged only kaolinite.
 
-## 2026-08-20 — Audit increment 20 (DEC-087): HAFWL is delivered on the project's own depth scale
+## 2026-08-20 — Audit increment 22 (DEC-087): HAFWL is delivered on the project's own depth scale
 
 > **Your ruling, executed: *"for HAFWL, follow project units."*** This is the one increment in the
 > depth-unit family that **moves numbers**. Everything before it was labelling.
@@ -108,7 +108,7 @@
       Still open and recorded as such in the PRD chapter: an exported LAS still gets HAFWL's unit
       from a name-based fallback, because module outputs never write a `curve_unit` row.
 
-## 2026-08-20 — Audit increment 19: the plug-pairing tolerance is now one sample in YOUR unit
+## 2026-08-20 — Audit increment 21: the plug-pairing tolerance is now one sample in YOUR unit
 
 "One standard 6-inch sample" is a physical length, but the number was written as a bare `0.15`
 and compared against depths in whatever unit your project stores. So on a metre project it was
@@ -135,7 +135,7 @@ every existing project's pairing for a millimetre of nothing.
 - [ ] **On a metre project** — 0.15, and identical results to before. This is worth one check on a
       well you have already run.
 
-## 2026-08-20 — Audit increment 18 (finding 8, fourth and last site): point data now says what unit its depths are in
+## 2026-08-20 — Audit increment 20 (finding 8, fourth and last site): point data now says what unit its depths are in
 
 This closes the family. The point-data importer — XRD, CEC, oil show, petrography counts,
 perforations — read its depths raw, so a delivery in feet filed every sample 3.28 times too
@@ -168,7 +168,7 @@ With this the whole import family is closed: LAS/DLIS read the index unit, core 
 a probe guess, intake is declared, deviation and SCAL are asked in their dialogs, tops and point
 data read the file's own declaration.
 
-## 2026-08-20 — Audit increment 17 (finding 8, third site): a SCAL delivery now says what unit its plug depths are in
+## 2026-08-20 — Audit increment 19 (finding 8, third site): a SCAL delivery now says what unit its plug depths are in
 
 Third and last of the importers that read depths from a file without asking what unit they
 were in. A Pc delivery quoting feet, imported into a metre project, filed every plug 3.28
@@ -200,7 +200,7 @@ Housekeeping in the same change: the metres/feet picker is now one shared contro
 (`buildDepthUnitSelect`) used by the core wizard, Import Deviation and Import SCAL, instead of
 three copies of the same three options.
 
-## 2026-08-20 — Audit increment 16 (finding 8, second site): a tops file now says what unit its markers are in
+## 2026-08-20 — Audit increment 18 (finding 8, second site): a tops file now says what unit its markers are in
 
 Same defect as the deviation survey, one file over — and this one is worse, because a top is
 not one number. A top is the boundary of a zone, so every zone parameter, every pay summary
@@ -236,7 +236,7 @@ if it only spoke up when something moved, you would have no reason to trust its 
 **Still open, same defect:** the SCAL Pc importer (`import_scal_files`) and the point-data /
 aux importer (`import_aux_file`). Both take a depth *datum* but no depth *unit*. Next.
 
-## 2026-08-20 — Audit increment 15 (finding 8): a deviation survey now says what unit its depths are in
+## 2026-08-20 — Audit increment 17 (finding 8): a deviation survey now says what unit its depths are in
 
 The survey importer was the last depth-bearing importer still reading its file raw. Hand it a
 survey whose MD column is in feet, on a project you declared in metres, and it stored 8000 as
@@ -273,6 +273,89 @@ which is the rule the core-table importer has always followed.
 Pc importer (`import_scal_files`) and the point-data/aux importer (`import_aux_file`) all take
 depths from a file with no unit resolution either. They are the next increments; naming them
 here so nothing looks closed that is not.
+## 2026-08-20 — Audit increment 16: the green gate passes in a fresh clone, and the matrix admits what it does not count
+
+> **Nothing in the application changed.** This increment is entirely about the tooling that tells
+> us the tree is healthy, so there is no click-through — the check is running the gate itself.
+
+- [ ] **The green gate could not pass in a fresh clone or worktree, and blamed the wrong thing.**
+      Git checks a committed text file out with CRLF on Windows while every generator here writes
+      LF, so `THIRD-PARTY-LICENSES.md` compared unequal and the gate stopped with
+      *"THIRD-PARTY-LICENSES.md is stale"* — naming a file the developer had never opened, on a
+      tree they had changed nothing in. Regenerating it "fixed" the message and produced no
+      committable diff, which is its own confusing signal.
+- [ ] **Three of the four generators already knew this and one did not.** `unit-registry.mjs`,
+      `gen-derived-overlays.mjs` and `generate-verification-matrix.mjs` each carried their own
+      private copy of the line-ending normalization — one of them with a comment naming git
+      autocrlf by name — and `gen-third-party-licenses.mjs` had none. Four copies of a rule is four
+      chances to miss it, and it was missed. There is now one helper
+      (`tools/generated-artifact.mjs`) and all four route through it. **A `.gitattributes` pin was
+      the obvious-looking fix and is the wrong one**: it depends on each developer's git config
+      honouring it at checkout, and it would have been a fourth answer competing with the three
+      already here.
+- [ ] **The capability matrix only ever checked one direction.** It refused a capability that
+      matched no review section, and said nothing whatever about a review section that matched no
+      capability. So a newly written section could count toward nothing, and the only symptom was a
+      total that failed to move — indistinguishable from a total that was already correct. This is
+      not hypothetical: it happened to increment 15's own entry, one increment ago, and was caught
+      only by diffing the generated file.
+- [ ] **157 of the 600 review sections count toward nothing, and the matrix now says so on its own
+      face.** They are listed by exact title in `unmapped_review_sections` in the capability map.
+      **This is acknowledged debt, not an exemption** — a section that is not on the list is
+      refused by name, and an entry that goes stale (its section retitled, removed, or since given
+      a capability) is refused too, so the list can shrink but never quietly grow. Roughly 95 are
+      requirement-shaped `SB-xxx-NNN` rows tracked by the takeover ledger instead; the other ~62
+      are older narrative entries that predate the map. **Deciding which capability each of those
+      62 belongs to is your call, not something I should assign** — every one of them moves a
+      published exercise count.
+- [ ] **Check (this replaces a click-through):** run the gate —
+      `powershell -ExecutionPolicy Bypass -File tools\check.ps1` — and confirm it is green. Then
+      open `docs/VERIFICATION_MATRIX.md` and read the new line under the headline counts: it must
+      say **157 of 600**. If you want to see the fresh-clone failure this fixes, `git stash` is not
+      enough — it needs a new `git worktree` or clone, because the CRLF only appears at checkout.
+- [ ] **Automated correctness:** two pins, each with two mutations red at two distinct assertions.
+      `a_committed_generated_file_checked_out_with_crlf_is_current_while_real_staleness_is_still_stale`
+      pins the comparison from both sides — a check that always says "current" would satisfy the
+      CRLF half alone while silently retiring every freshness gate in the repository. A companion
+      test pins that all four generators still route through the one helper, so a fifth cannot miss
+      it. `a_review_section_claimed_by_no_capability_is_refused_unless_acknowledged_and_the_acknowledgement_cannot_go_stale`
+      pins both refusals, because a generator with only the first lets the list rot into a blanket
+      exemption and one with only the second never catches the new unclaimed section.
+
+## 2026-08-20 — Audit increment 15 (SB-ENV-057 follow-through): the banned ambiguous depth unit was hiding on two curve inputs
+
+- [ ] **What this fixes.** SB-ENV-057 retired `ft|m` — a unit that cannot say which unit the number
+      beside it is in — and put a build gate on the registry to keep it retired. **The gate only
+      ever looked at parameters.** `unit` is declared on every module argument, not just numeric
+      ones, so two depth INPUTS kept the banned spelling straight through that sweep with the gate
+      green and its inventory test agreeing: `phimax`'s `TVDSS` (the compaction-trend depth) and
+      `precalc`'s `TVDSS` (the depth the temperature and pressure trends are built on). Their own
+      sibling, `satheight`'s `TVD`, had the right token the whole time.
+- [ ] **Where you could actually see it.** The Workflow builder's parameter grid heads each column
+      with the argument's unit, and the frontend resolves the one project-depth token into the
+      project's own `m` or `ft` while passing every other unit string through untouched. So those
+      two TVDSS input columns printed the literal **`ft|m`** as their unit. They now print `m` on a
+      metre project and `ft` on a foot project, like every other native-depth column.
+- [ ] **Nothing computes differently.** This is a declaration fix. No arithmetic reads these unit
+      strings — they are labels and gate input — so every curve either module writes is unchanged,
+      number for number, on both declarations.
+- [ ] **The gate can no longer miss this class.** `validate_project_depth_unit_tokens` now reads
+      EVERY argument rather than filtering to parameters, so an input or an output declaring the
+      ambiguous spelling refuses the whole registry at build. The one-token inventory test's ban
+      loop was widened the same way and now names the argument's kind when it fires.
+- [ ] **Click-through:** Petrophysics → Batch → Workflow…, add a step for **φmax** and one for
+      **Pre-calc**, then open the parameter grid. The `TVDSS` input column must head with the unit
+      your project stores depths in — **`m`** on a metre project, **`ft`** on a foot one — and
+      `ft|m` must appear nowhere on screen. Run either module and confirm the curves it writes are
+      the same ones it wrote before.
+- [ ] **Automated correctness:** one pin,
+      `the_ambiguous_depth_token_gate_reads_curve_declarations_not_only_parameters`. Pinned from
+      both sides, because each half of the fix alone would pass the other's test: the two call
+      sites must name the token, AND the gate must refuse the token on an input and on an output.
+      Two mutations red at two distinct assertions — restoring the parameter-only filter on the
+      gate (red at the gate-coverage arm), and declaring `phimax.TVDSS` in a fixed `"m"` instead of
+      the token (red at the call-site assertion, and caught by NO gate, which is the point: a
+      curve input never converts, it reads the project's own stored depth column).
 
 ## 2026-08-20 — Audit increment 14 (Codex P0): the PDF report states its depths in the project's own unit
 
