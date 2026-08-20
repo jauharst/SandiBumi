@@ -277,6 +277,35 @@
 - [ ] **Where this came from.** The independent Codex adversarial review of `a6565bd9`, its
       single P0. Its other findings are being worked in order; the SSPW gas-conditioning one
       needs your ruling before anything moves, and I have not touched it.
+## 2026-08-20 — Audit increment 5 (P2): one geothermal gradient, not two — your R-3 executed
+
+- [ ] **What changed (audit finding #30, DEC-085 R-3: "the right one is 0.026 degF/ft").** The two
+      formation-temperature writers shipped defaults 58% apart: Formation Temperature
+      (`ftemp_grad`) defaulted TGRAD to 0.03 °C/m while Precalc defaulted TEMP_GRAD to
+      0.026 °F/ft — the same well, ~33 °C apart at 2000 m, which is ~25% in Rw through Arps and
+      walks straight into every Sw. TGRAD now defaults to **0.0474 °C/m**, which IS 0.026 °F/ft
+      in that parameter's unit (0.026 × 5⁄9 ÷ 0.3048 = 0.04739, rounded). Precalc's 0.026 is
+      untouched — it was already the ruled value; its citation now records your confirmation.
+      Your "diagnostics stay raw" word is also recorded in DEC-085 (finding #4 is unblocked and
+      is the next increment).
+- [ ] **What this changes on a well: the default only.** A well where you entered or fit a
+      gradient is untouched — this is the STARTING value, refit per basin as ever. A well that
+      ran Formation Temperature on its shipped default gets a hotter (and now consistent) trend:
+      at 2000 m, 26.7 + 0.0474×2000 = 121.5 °C where the old default said 86.7 °C. That is the
+      ruling taking effect, not a regression. The FTEMP-is-a-user-computed-log doctrine (DEC-084)
+      and the per-zone-gradient refusal are unchanged.
+- [ ] **Click-through:** Prep → Formation Temperature — the TGRAD field shows 0.0474 °C/m and its
+      source note cites DEC-085 with the conversion arithmetic. Petrophysics → Precalc —
+      TEMP_GRAD still shows 0.026.
+- [ ] **Automated correctness:** `the_two_ftemp_writers_ship_one_physical_gradient_not_two` reads
+      BOTH defaults from the shipping manifests, anchors Precalc at exactly 0.026, and requires
+      TGRAD to be the same physical gradient within the 0.0474 rounding — so neither writer can
+      drift alone and the pair cannot drift together off the ruled value. The DEC-077 exact-
+      inventory pin updated with the ruling cited at the row. Two mutations red at two distinct
+      assertions (TGRAD back to 0.03 → red at the agreement check; Precalc off 0.026 → red at
+      the anchor). The env-corr PRD §5 table carries a dated correction note; the intercept and
+      depth-reference divergences in that table are separate findings and stand.
+
 ## 2026-08-20 — Audit increment 4 (P1): the printed box plot agrees with the screen again, and your three rulings are on the record
 
 - [ ] **Your rulings R-1 / R-2 / R-3 are recorded as DEC-085** (DECISIONS.md, verbatim), and the

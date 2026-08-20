@@ -5261,10 +5261,10 @@ fn ftemp_grad_spec() -> ModuleSpec {
                 "TGRAD",
                 "Temperature gradient (whole well)",
                 "degC/m",
-                0.03,
+                0.0474,
                 0.005,
                 0.1,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.03 degC/m multi-basin starting value per DEC-059 - IP 2018 states no default gradient (A_porosity_sw.md:559) and Halliburton Charts 1-2/1-3 take user values; their plotted metric family is 1-3 degC/100 m and 0.03 sits at its top (factual note carried from the adjudication draft); docs/takeover/DECISIONS.md",
+                "Jauhar ruling DEC-085 R-3 (2026-08-20): the house default gradient is 0.026 degF/ft - this is that value in this parameter's degC/m unit (0.026 x (5/9) / 0.3048 = 0.04739, rounded 0.0474), ending the 58 percent disagreement with precalc.TEMP_GRAD that AUDIT-2026-08-20 finding 30 measured (~33 degC apart at 2000 m, ~25 percent in Rw). Supersedes the 0.03 degC/m DEC-077 carried; starting value, refit per basin as ever; docs/takeover/DECISIONS.md",
             ),
             param_open_well_when(
                 "BHT",
@@ -5358,7 +5358,7 @@ fn precalc_spec() -> ModuleSpec {
             ),
             param_well(
                 "TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.026, 0.0005, 0.2,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md",
+                "Jauhar adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md",
             ),
             param_open("PSURF", "Formation pressure intercept", "psi", -500.0, 5000.0, true),
             param_open("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.05, 5.0, true),
@@ -10959,6 +10959,44 @@ mod tests {
         assert!(grad[4].is_nan() && bht[4].is_nan(), "a missing depth must not produce a temperature");
     }
 
+    /// AUDIT-2026-08-20 finding 30, ruled by DEC-085 R-3 ("the right one is 0.026 degF/ft").
+    /// The two FTEMP writers used to ship defaults 58% apart (ftemp_grad 0.03 degC/m vs
+    /// precalc 0.026 degF/ft) — ~33 degC apart at 2000 m, ~25% in Rw through Arps, walking
+    /// straight into every Sw. Both defaults are read from the SHIPPING manifests here so
+    /// neither can drift alone: the precalc anchor must stay the ruled 0.026 degF/ft exactly,
+    /// and ftemp_grad's degC/m default must be that same physical gradient
+    /// (0.026 x (5/9) / 0.3048 = 0.04739 degC/m; shipped rounded to 0.0474 — the tolerance
+    /// covers exactly that rounding and nothing wider, so the superseded 0.03 fails loudly).
+    #[test]
+    fn the_two_ftemp_writers_ship_one_physical_gradient_not_two() {
+        let tgrad_default: f64 = ftemp_grad_spec()
+            .args
+            .iter()
+            .find(|a| a.name == "TGRAD")
+            .unwrap()
+            .default
+            .parse()
+            .unwrap();
+        let precalc_default: f64 = precalc_spec()
+            .args
+            .iter()
+            .find(|a| a.name == "TEMP_GRAD")
+            .unwrap()
+            .default
+            .parse()
+            .unwrap();
+        assert_eq!(
+            precalc_default, 0.026,
+            "the ruled anchor is 0.026 degF/ft (DEC-085 R-3) and nothing else"
+        );
+        let anchor_degc_per_m = precalc_default * (5.0 / 9.0) / 0.3048;
+        assert!(
+            (tgrad_default - anchor_degc_per_m).abs() < 2.5e-4,
+            "ftemp_grad.TGRAD ({tgrad_default} degC/m) must be the same physical gradient as \
+             precalc.TEMP_GRAD ({precalc_default} degF/ft = {anchor_degc_per_m:.5} degC/m)"
+        );
+    }
+
     /// CORRECTNESS — `crate::units::M_PER_FT` is the exact international foot from
     /// NIST SP 811. The module manifests qualify TGRAD, TD_BHT, SHIFT and SPLICE_DEPTH
     /// in metres, so changing only the project's stored depth unit cannot change the
@@ -14192,7 +14230,8 @@ mod tests {
             ("despike.WINDOW", "", "absent"),
             ("ftemp_grad.BHT", "", "absent"),
             ("ftemp_grad.TD_BHT", "", "absent"),
-            ("ftemp_grad.TGRAD", "0.03", "mine"),
+            // DEC-085 R-3 (2026-08-20): 0.026 degF/ft rendered in degC/m; superseded DEC-077's 0.03.
+            ("ftemp_grad.TGRAD", "0.0474", "mine"),
             ("ftemp_grad.TSURF", "26.7", "mine"),
             ("gr_hole_corr.BS_DEF", "", "absent"),
             ("gr_hole_corr.K_GR", "0.0075", "mine"),
