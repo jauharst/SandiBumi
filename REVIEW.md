@@ -1,5 +1,47 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 9 (Codex P1): the free-water level asks for the unit it actually uses
+
+- [ ] **What this fixes.** The saturation-height module computes height above the contact as
+      `FWL − TVD` on the **raw** depth sample, and only converts afterwards. So the free-water
+      level you type has always been in the project's own unit — but the dialog labelled that
+      field **m**. On a foot-declared project a careful user, reading the label, would enter the
+      metre-equivalent number and have it subtracted from foot depths: **the contact lands about
+      3.28× too shallow**, and the module returns a finite, plausible, fully-water-saturated
+      answer with no error anywhere. Nothing about the arithmetic changed — only the label, which
+      now tells the truth.
+- [ ] **The token now resolves everywhere a unit is printed.** The manifest says "project-native"
+      with one token; the five places that print a module argument's unit — the module dialog's
+      input suffix and output labels, the per-well parameter grid, the workflow per-step editor
+      and its grid header, and the Monte Carlo parameter picker — now resolve it to the project's
+      unit instead of printing the literal word `depth`. It resolves to the **stored** unit, not
+      your display preference, and that is deliberate: this is a number travelling *to* the
+      engine unconverted, so labelling it with a view setting would invite the very mis-entry the
+      token exists to prevent. (Read-only panels are the opposite case — see increment 8.)
+- [ ] **Click-through:** Saturation → Sw from height (SWH) on a **foot** project — the FWL field
+      must read **ft**, and entering your usual foot value gives the answer it always did. Switch
+      the log view's depth display to metres: the FWL label must **stay ft**, because the stored
+      grid has not moved. On a metre project it reads **m**, unchanged. Then check the same
+      resolution in Batch → Workflow (per-step ⚙ editor and the grid header), the per-well
+      parameter grid, and Batch → Monte Carlo's parameter list — none of them should print the
+      word `depth` anywhere.
+- [ ] **HAFWL is deliberately untouched, and needs your word.** The height-above-contact **output
+      curve** is converted to metres before it is written, so its `m` label is true — it is not the
+      same defect. But it means a foot-declared project gets a metre-valued curve beside foot
+      depths. The PRD chapter (SB-SHR-004) says every height-dimensioned curve should follow the
+      project's unit; the code says always metres, matching the Skelt-Harrison constants, which
+      are metres by the published form. **Changing it moves numbers on every foot project**, so I
+      have not. Which do you want HAFWL delivered in?
+- [ ] **Automated correctness:** two pins —
+      `the_free_water_level_is_declared_in_the_unit_the_height_is_actually_measured_in` (the label
+      half: FWL and TVD carry the project-native token while HAFWL in the same manifest keeps its
+      fixed `m`, so a sweep of every `m` in the file would fail; and the arithmetic half: the same
+      FWL number in a metre and a foot project must give *different* answers, read against its
+      neighbour where *converted* numbers give the same one), and
+      `a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference`
+      (the token resolves to the stored unit, ignores the display toggle, and leaves every fixed
+      unit alone). Two mutations red at two distinct assertions on each side.
+
 ## 2026-08-20 — Audit increment 8 (Codex P0): the Field Dashboard shows and exports depth units, not a hard-coded metre
 
 - [ ] **What this fixes.** The Field Dashboard printed `(m)` on every thickness it showed —
