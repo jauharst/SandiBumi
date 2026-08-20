@@ -2016,7 +2016,16 @@ export class Ribbon {
       const unmatched = result.unmatched_wells.length
         ? ` — unmatched well name(s): ${result.unmatched_wells.slice(0, 5).join(", ")}${result.unmatched_wells.length > 5 ? "…" : ""}`
         : "";
-      setStatus(`Tops: ${result.tops_written} marker(s) across ${result.wells_matched} well(s)${unmatched}`);
+      // Audit finding 8: a tops file in feet is converted onto the project's scale, and there is
+      // no dialog here to have said so beforehand — so the status line is where the user learns
+      // a marker moved. Stated on every import, not only on the converting one: silence about
+      // the ordinary case is what makes silence about the other case unreadable.
+      const project = storedDepthLabel();
+      const read = result.depth_unit;
+      const unitNote = !read ? "" : read === project ? ` (${project})` : ` — read as ${read}, stored as ${project}`;
+      setStatus(
+        `Tops: ${result.tops_written} marker(s) across ${result.wells_matched} well(s)${unitNote}${unmatched}`,
+      );
       recordProcess(
         "Import",
         `Imported tops (${result.tops_written} markers, ${result.wells_matched} wells) ← ${path}`,
