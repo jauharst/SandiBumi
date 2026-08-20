@@ -890,6 +890,33 @@ export const REJECT_COLOR = "#9aa0a6";
  *  back onto a real cluster's colour and draw an outlier as a legitimate facies. Any negative, not
  *  just CLUSTER_REJECT: a code this renderer does not recognise must not be painted as rock it
  *  is not. */
+/** Where a value sits across a track, 0 at `min` and 1 at `max` \u2014 or `null` where it has no
+ *  position at all.
+ *
+ *  **The twin of `composite.rs::value_frac`, and it must stay identical to it.** The log-view
+ *  renderer used to substitute `Math.max(v, 1e-6)` instead: a permeability written as exactly 0
+ *  over a tight streak then drew a continuous dip to the track edge, and the crossover shading
+ *  filled the interval, while the print showed an honest gap. Zero is not a small permeability;
+ *  on a log axis it has no position, and drawing one states a measurement that was never made.
+ *
+ *  A track whose own min or max is non-positive is refused for the same reason rather than
+ *  rendered against a substituted decade, which is what made the screen and the print disagree
+ *  about a whole track rather than about one sample.
+ *
+ *  Deliberately NOT clamped to [0, 1]: an off-scale sample is the caller's decision \u2014 a
+ *  continuous curve clamps at the track edge, a point sample is skipped. */
+export function valueFrac(v: number, min: number, max: number, isLog: boolean): number | null {
+  if (!Number.isFinite(v)) return null;
+  if (isLog) {
+    if (v <= 0 || min <= 0 || max <= 0) return null;
+    const span = Math.log(max) - Math.log(min);
+    if (Math.abs(span) < 1e-12) return null;
+    return (Math.log(v) - Math.log(min)) / span;
+  }
+  if (Math.abs(max - min) < 1e-12) return null;
+  return (v - min) / (max - min);
+}
+
 export function faciesColor(index: number): string {
   const i = Math.round(index);
   if (i < 0) return REJECT_COLOR;

@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 34 (my audit P2 × 2): the log view agrees with the print again — **this changes what you see**
+
+- [ ] **Zero is not a small permeability.** On a log track the viewer used to substitute a tiny
+      number for any value at or below zero. So a PERM written as exactly **0.0** over a tight
+      streak drew a **continuous dip to the left edge**, and crossover shading filled the
+      interval — a measurement that was never made. The print showed an honest gap. Both cannot
+      be right about the same rock; the print was.
+- [ ] **A log track starting at zero.** Nothing stops you typing 0 as a log track's minimum. The
+      viewer rendered it against a substituted decade; the print drew **nothing at all** for the
+      whole track. Now both refuse it, so the disagreement cannot happen.
+- [ ] **A stepped curve lost its last sample before every gap.** With `draw_style: step` —
+      blocked or zone-constant curves — the viewer skipped the whole interval when the NEXT
+      sample was missing, so the last good sample before every washout drew as a zero-length
+      tick. A blocked VSH ended one sample short of every gap. It now holds down to the next
+      sample's depth, which is the stated contract and what the print already did; the gap
+      starts where the missing sample actually is.
+- [ ] **One rule, one place.** The viewer and the composite now share the same value→position
+      rule, so they cannot drift apart again.
+- [ ] **What to check.** Put PERM on a log track in a well with a tight streak written as 0 —
+      the screen should show a **gap**, matching the PDF, not a line pinned to the left edge.
+      Then display a blocked curve (`step`) across a washout: the block should now run all the
+      way down to the missing sample instead of stopping short. Ordinary curves on linear tracks
+      should look exactly as before — a negative SP is still a value and still plots.
+
 ## 2026-08-20 — Audit increment 33 (DEC-090, my audit P2): a plate near a page break is called out, not dropped
 
 - [ ] **What was wrong.** A thin section is anchored on its plug depth, and the picture is drawn
