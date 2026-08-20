@@ -9,13 +9,13 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 602,
+Review sections counted toward no capability: **157** of 605,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 138 | — | 45 |
+| `las-import` | LAS import | Not exercised | 0 / 145 | — | 46 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 57 | — | 11 |
@@ -33,7 +33,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 39 | — | 8 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 75 | — | 21 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 160 | 2026-08-13 | 42 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 166 | 2026-08-13 | 43 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 21 | — | 3 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
@@ -58,7 +58,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 15 | — | 5 |
-| `report` | Report deliverables | Partially exercised | 8 / 90 | 2026-08-14 | 23 |
+| `report` | Report deliverables | Partially exercised | 8 / 97 | 2026-08-14 | 24 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
@@ -67,5 +67,5 @@ this table, so every figure above reads low by whatever those sections cover.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 65 | — | 12 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 163 | 2026-08-13 | 55 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 169 | 2026-08-13 | 56 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 174 | 2026-08-13 | 51 |

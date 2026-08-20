@@ -1,5 +1,130 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 25 (Codex P1): a survey states no geometry past its last station
+
+> **This one changes what you SEE on wells whose survey stops short of TD.** Read the third item
+> before you click — it is a deliberate behaviour change and you may want it different.
+
+- [ ] **What this fixes.** TVD/TVDSS are resampled from the survey onto the whole log grid, and
+      outside the surveyed range the resampler **clamped to the end stations**. On a well logged to
+      3000 m with stations to 2000 m, TVD read **2000 at every depth below 2000 m** — a zero
+      vertical increment over 1000 m of hole, which no trajectory can produce, delivered as a normal
+      curve. The materializer's own comment in the code has always said those samples were missing;
+      the function never did it.
+- [ ] **It pulled two ways at once, which is why nothing on the log caught it.** A frozen (too
+      shallow) TVD makes height above the free-water level too **large**, so Sw-from-height reads
+      too little water — **optimistic pay**. The same frozen TVDSS makes FTEMP too **low**, so Arps
+      returns Rw too high and the resistivity Sw too high — **pessimistic pay**. One plateau, two
+      biases in opposite directions.
+- [ ] **The deliberate consequence.** A partial survey now leaves the un-surveyed section **without
+      TVD**, so anything needing true vertical depth there returns **nothing** instead of a
+      plausible frozen value — Sw-from-height, FTEMP/FPRESS, `phimax`'s TVDSS trend. Your recoveries
+      are to extend the survey, or to remove it so the documented measured-depth fallback applies
+      well-wide. If you would rather have the un-surveyed section continue on the last station's
+      inclination instead, say so — that is extrapolation, so I did not do it without your word.
+- [ ] **The shallow end is fixed too, and it was quietly impossible.** Above the first station the
+      clamp returned that station's TVD, so a survey delivered from 300 m down put **TVD 300 at MD
+      0** — a TVD deeper than its own MD. It now continues vertically from the first station, which
+      is exactly what the survey's own anchor already assumes.
+- [ ] **Sw-from-height no longer switches depth reference mid-well.** Its measured-depth fallback is
+      for a well carrying **no** TVD curve — a vertical well, where MD is the honest answer. It used
+      to fire on any gap, which only became reachable with this change. On the test fixture the
+      surveyed neighbours sit 100 and 150 m *above* the contact while measured depth puts the gap
+      sample **400 m below** it, fully wet: the fallback would not have shaded that sample's pay, it
+      would have erased it.
+- [ ] **Click-through:** open a well whose deviation survey reaches TD — everything unchanged, TVD
+      identical. Then a well whose survey stops short (or import a truncated copy of one): below the
+      last station TVD/TVDSS should now be **blank**, and Sw-from-height should produce nothing
+      there rather than a flat saturation. Check a vertical well with no survey at all still works
+      exactly as before.
+- [ ] **Automated correctness:** two pins.
+      `a_survey_states_no_geometry_past_its_last_station_and_says_so` covers both ends plus the
+      invariant that TVD can never exceed MD; two mutations red at two distinct assertions
+      (restoring the freeze returns `tvd 2000 tvdss 1970` past the last station; restoring the
+      shallow clamp returns TVD 300 at MD 0).
+      `a_gap_in_a_carried_tvd_curve_withholds_the_sample_instead_of_switching_to_measured_depth`
+      pins the fallback from both sides; two more mutations red at two distinct assertions (the
+      unconditional fallback prints `SWT 1, HAFWL -400` at the gap; dropping the fallback entirely
+      blanks every vertical well).
+
+## 2026-08-20 — Audit increment 24 (Codex P1): a survey station with no inclination is dropped and reported, never read as vertical
+
+> **Rewritten to your ruling.** The first pass refused the whole survey; you asked whether the
+> station could be filled in from its neighbours instead. It turns out it does not even need
+> filling in — see the second item, which is the interesting part.
+
+- [ ] **What this fixes, in metres.** The deviation parser treated INC and AZI as optional and
+      replaced every gap — an absent column, a blank cell, an unparseable one — with **0**, i.e.
+      with a *measured* vertical/north station. Minimum curvature integrates station to station, so
+      one cell lost in export straightened the well and moved every TVD below it. On a three-station
+      survey that is 30° at 1000 m and 60° at 2000 m: the true TVD at 2000 m is **1653.99 m**, and
+      with that middle cell read as vertical it imported as **1826.99 m**. **173 m of imaginary
+      column**, on a file that reported a clean import — and TVD is what saturation-height measures
+      your height above the contact from.
+- [ ] **Your instinct was better than my refusal, and here is why.** Minimum curvature *already*
+      draws a circular arc between consecutive stations. So a station with no geometry does not need
+      a guessed value — **leaving it out** draws that arc between the neighbours that were actually
+      measured. On the survey above, the two survivors alone give **1653.99 m: the exact same answer
+      as the full three-station survey**, because the arc from 0° to 60° passes through 30° at
+      1000 m by construction. It degrades only in proportion to how non-uniform the real build was
+      and how far apart the survivors are. Substituting 0° asserted a vertical station, which is
+      wrong essentially always. Both numbers are computed in the test, not quoted.
+- [ ] **So the station is dropped and REPORTED — your delivery is never blocked by one bad cell.**
+      The import pane **stays open** carrying a warning that names each dropped station's MD and
+      reason, instead of closing on success, and the same warning goes into the process history so
+      it is still findable later. A survey that quietly got shorter is its own silent failure.
+- [ ] **Two refusals survive, both because there is nothing to draw an arc between**: a file with no
+      INC column at all, and a file where not one station carries a usable inclination. Those say so
+      by name.
+- [ ] **Your vertical wells still import whole.** A vertical well delivered as `MD,INC` with no
+      azimuth column is the commonest survey there is: minimum curvature reaches azimuth only
+      through `sin(inc)`, so at a station declared exactly vertical the azimuth cannot affect the
+      answer. A blank azimuth at a station that **is** deviated costs that station.
+- [ ] **Click-through:** re-import a survey you have already loaded — unchanged, TVD identical, pane
+      closes as before. Then copy it, blank one INC cell in the middle, and import that: it should
+      **succeed**, report one fewer station, and leave the pane open with a warning naming that MD.
+      Check the process history carries the same line. If you have a vertical well with an
+      `MD,INC`-only survey, confirm it still imports.
+- [ ] **Automated correctness:** one pin,
+      `a_survey_station_with_no_inclination_is_dropped_and_reported_never_read_as_vertical`, with six
+      arms (dropped INC station reported by MD, absent INC column, vertical survey with no azimuth,
+      blank azimuth at a deviated station, the all-blank refusal, and both TVD figures) so neither
+      number can quietly move without the test saying the survey geometry changed. Two mutations red
+      at two distinct assertions: restoring the zero coercion keeps the straightened station in the
+      survey, and dropping vertical stations for a blank azimuth too rejects an ordinary vertical
+      well.
+
+## 2026-08-20 — Audit increment 23 (Codex P1): IMTS refuses a sample with no clay evidence instead of calling it clean rock
+
+- [ ] **What this fixes.** IMTS builds its clay charge from the kaolinite and illite volume curves,
+      and both are optional inputs. Each gap was independently read as zero — so a sample carrying
+      **neither** got `QVEFF = 0`, the Waxman-Smits excess term vanished, the solver still
+      converged, and you got **an Archie answer with `SW_METHOD` saying IMTS**. In range, plausible,
+      and most wrong in exactly the shaly rock the method exists for. On one worked sample it is
+      **SWT 0.365 with the clay volumes against 0.500 without them**.
+- [ ] **Your own calibration already knew.** The S-factor fit has always excluded a plug where both
+      minerals are missing, saying it "carries no clay information at all". The module simply never
+      applied the same rule. It does now, sample by sample, and the calibration's comment names the
+      module so the two cannot drift apart again.
+- [ ] **One missing mineral still answers.** A gap in *one* curve still reads as zero of *that*
+      mineral, which is the convention you have always had — refusing every hole would throw away
+      any well that logged kaolinite but not illite. Only **both** missing refuses.
+- [ ] **Measured zeros still reduce to Archie**, because on genuinely clean rock that is correct.
+      The old test proved this using *absent* curves, so it could not tell "the rock has no clay"
+      from "nobody logged the clay" — which is why the defect survived a test that looked like it
+      covered the case. It now uses measured zeros.
+- [ ] **Click-through:** on a well where you have VKAOL and VILL, run Advance → IMTS and note SWT
+      over a shaly interval — unchanged. Then run it again on a well that has **neither** curve: you
+      should now get **no curves and a reported failure**, where before you got a full SWT track.
+      That empty result is the point — nothing is written, so no log-set version is allocated for an
+      interpretation that had no clay evidence behind it. Finally run a well with **only one** of
+      the two and confirm it still produces SWT as it always did.
+- [ ] **Automated correctness:** one pin,
+      `imts_refuses_a_sample_with_no_clay_evidence_instead_of_reading_it_as_clean_rock`, with the
+      same sample described three ways — both minerals, one mineral, neither. Two mutations red at
+      two distinct assertions: removing the guard conjures **SWT 0.7897** out of no clay evidence at
+      all, and the lazier "refuse any hole" fix withholds a well that logged only kaolinite.
+
 ## 2026-08-20 — Audit increment 22 (DEC-087): HAFWL is delivered on the project's own depth scale
 
 > **Your ruling, executed: *"for HAFWL, follow project units."*** This is the one increment in the

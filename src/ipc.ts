@@ -3516,6 +3516,10 @@ export interface CoreImportResult {
   rows: number;
   error: string | null;
   index_resolution: ImportResult["index_resolution"];
+  /** Things the import did that succeeded but must be told — currently the survey stations
+   *  dropped for carrying no usable geometry. A warning is NOT an error: the delivery landed,
+   *  and this says what it cost. Optional so an older backend payload still types. */
+  warnings?: string[];
 }
 
 /** Parses a core CSV (alias-resolved headers: DEPTH, CPOR/POR, CPERM/PERM, CGD, CSW)

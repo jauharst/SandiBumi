@@ -199,6 +199,15 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
     let phie = ctx.log("PHIE");
     let perm = ctx.log("PERM");
     let skelt = ctx.o("OPT_SWH") == "SKELT";
+    // Same rule as `sw_rtc`'s CBW and `sw_imts`' clay volumes. The measured-depth fallback below
+    // is for a well carrying NO vertical-depth curve at all — a vertical well, where MD is the
+    // honest answer. A HOLE in a TVD curve this well DOES carry is missing geometry, and quietly
+    // switching that one sample to along-hole depth would mix two depth references inside one
+    // interpretation: on a 60 deg hold MD runs about twice the true vertical section, so the
+    // height above the contact — and the saturation read off it — would jump at the seam with
+    // nothing on the log to say why. Reachable only since `deviation::sample_at` stopped freezing
+    // TVD past the last survey station; before that a TVD curve had no holes to have.
+    let has_tvd = tvd.iter().any(|v| v.is_finite());
 
     let mut swh_out = vec![f32::NAN; ctx.n];
     let mut swh_raw_out = vec![f32::NAN; ctx.n];
@@ -211,7 +220,14 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         // fall back to measured depth when no TVD is supplied.
         let dv = {
             let t = tvd[i] as f64;
-            if t.is_nan() { depth[i] as f64 } else { t }
+            if t.is_nan() {
+                if has_tvd {
+                    continue; // a gap in a carried TVD curve withholds the sample, never MD
+                }
+                depth[i] as f64
+            } else {
+                t
+            }
         };
         if dv.is_nan() || pe.is_nan() {
             continue;
@@ -710,5 +726,82 @@ mod tests {
         assert!((out["HAFWL"][0] - 50.0).abs() < 1e-3, "HAFWL={}", out["HAFWL"][0]);
         let s = out["SWT"][0];
         assert!(s.is_finite() && s > 0.0 && s < 1.0, "SWH in transition zone: {s}");
+    }
+
+    /// The other half of the survey-coverage fix in `deviation::sample_at`. The measured-depth
+    /// fallback here is for a well carrying NO vertical-depth curve at all — a vertical well,
+    /// where MD is the honest answer. It was never meant for a HOLE in a TVD curve the well does
+    /// carry, and until `sample_at` stopped freezing TVD past the last survey station a TVD curve
+    /// had no holes to have. A well logged deeper than its survey now has exactly one, and reading
+    /// those samples off MD would mix two depth references inside a single interpretation.
+    ///
+    /// Pinned from BOTH sides: the fallback must survive for a well with no TVD at all, and must
+    /// not fire for a gap in one that exists. This is `sw_rtc`'s CBW rule, restated for geometry.
+    #[test]
+    fn a_gap_in_a_carried_tvd_curve_withholds_the_sample_instead_of_switching_to_measured_depth() {
+        let md = vec![1900.0f32, 2000.0, 2100.0];
+        let phie = vec![0.25f32; 3];
+        let perm = vec![100.0f32; 3];
+        let opts = [("OPT_SWH", "LEVERETT")];
+
+        // (a) No TVD curve at all — the documented fallback, unchanged: MD is used and answers.
+        let no_tvd = sw_height(&ctx_from_spec(
+            3,
+            &[("DEPTH", md.clone()), ("PHIE", phie.clone()), ("PERM", perm.clone())],
+            &[("FWL", 2500.0)],
+            &opts,
+        ));
+        assert!(
+            no_tvd["SWT"].iter().all(|v| v.is_finite()),
+            "a well with no TVD curve must still answer off measured depth: {:?}",
+            no_tvd["SWT"]
+        );
+
+        // (b) A deviated well whose survey stops before TD, so its TVD curve has a hole. The
+        // surveyed samples answer; the un-surveyed one withholds, height included.
+        let with_hole = sw_height(&ctx_from_spec(
+            3,
+            &[
+                ("DEPTH", md.clone()),
+                ("TVD", vec![1450.0, f32::NAN, 1550.0]),
+                ("PHIE", phie.clone()),
+                ("PERM", perm.clone()),
+            ],
+            &[("FWL", 1600.0)],
+            &opts,
+        ));
+        assert!(
+            with_hole["SWT"][0].is_finite() && with_hole["SWT"][2].is_finite(),
+            "the surveyed samples must still answer: {:?}",
+            with_hole["SWT"]
+        );
+        assert!(
+            with_hole["SWT"][1].is_nan() && with_hole["HAFWL"][1].is_nan(),
+            "the un-surveyed sample must withhold, got SWT {} HAFWL {}",
+            with_hole["SWT"][1],
+            with_hole["HAFWL"][1]
+        );
+
+        // What the old fallback would have substituted there, computed by handing the module the
+        // same well with no TVD: MD 2000 against an FWL of 1600 is 400 m BELOW the contact, i.e.
+        // fully wet — so the silent switch would not shade that sample's pay, it would erase it,
+        // while its neighbours 100 m of hole away read a normal transition zone.
+        let as_md = sw_height(&ctx_from_spec(
+            3,
+            &[("DEPTH", md.clone()), ("PHIE", phie.clone()), ("PERM", perm.clone())],
+            &[("FWL", 1600.0)],
+            &opts,
+        ));
+        assert_eq!(
+            as_md["SWT"][1], 1.0,
+            "measured depth reads that sample fully wet, against the transition-zone answer its \
+             surveyed neighbour gives — that gap is what the fallback would have hidden"
+        );
+        assert!(
+            with_hole["SWT"][2] < 1.0,
+            "the neighbour must genuinely be in the transition zone for the contrast to mean \
+             anything: {}",
+            with_hole["SWT"][2]
+        );
     }
 }

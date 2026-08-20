@@ -1521,16 +1521,40 @@ pub fn import_deviation_csv(
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
         .unwrap_or(false);
     if !exists {
-        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None };
+        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None, warnings: Vec::new() };
     }
 
     let mut survey = match parsers::parse_deviation_csv(path) {
         Ok(s) => s,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None, warnings: Vec::new() },
     };
     if survey.md.is_empty() {
-        return CoreImportResult { path: path.to_string(), rows: 0, error: Some("no survey stations found".into()), index_resolution: None };
+        return CoreImportResult { path: path.to_string(), rows: 0, error: Some("no survey stations found".into()), index_resolution: None, warnings: Vec::new() };
     }
+    // Stations the parser left out for carrying no usable geometry. Reported, never swallowed:
+    // dropping one is not a guess (minimum curvature simply draws its arc between the neighbours
+    // that WERE measured, which reproduces a constant build exactly), but it does widen the span
+    // that arc has to cover, and a survey that quietly got shorter is its own silent failure.
+    let warnings: Vec<String> = if survey.dropped.is_empty() {
+        Vec::new()
+    } else {
+        let listed = survey
+            .dropped
+            .iter()
+            .take(10)
+            .map(|(md, why)| format!("MD {md} ({why})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let more = survey.dropped.len().saturating_sub(10);
+        let tail = if more > 0 { format!(" and {more} more") } else { String::new() };
+        vec![format!(
+            "{} survey station(s) carried no usable geometry and were left out: {listed}{tail}. \
+             The trajectory across each gap is now the minimum-curvature arc between its \
+             surviving neighbours - exact for a constant build, and less so the further apart \
+             they are. Fill those cells in and re-import for the surveyed path.",
+            survey.dropped.len()
+        )]
+    };
 
     // The file's MD column, brought onto the project's declared depth scale before any geometry
     // is computed — the same one-line discipline `import_core_table` already follows. Done here
@@ -1540,7 +1564,7 @@ pub fn import_deviation_csv(
     let project_unit = match crate::units::require_project_depth_unit(conn, "deviation-survey import") {
         Ok(unit) => unit,
         Err(error) => {
-            return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error), index_resolution: None }
+            return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error), index_resolution: None, warnings: Vec::new() }
         }
     };
     let file_unit = depth_unit.and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
@@ -1560,7 +1584,7 @@ pub fn import_deviation_csv(
         .unwrap_or_else(|| "SURVEY".to_string());
     let name = match db::resolve_survey_name(conn, well_id, &desired) {
         Ok(n) => n,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None, warnings: Vec::new() },
     };
     match db::insert_well_path(conn, well_id, &name, Some(path), Some(datum), &stations) {
         Ok(()) => {
@@ -1569,9 +1593,9 @@ pub fn import_deviation_csv(
             // survey itself is already saved; a well with no logs yet is a no-op (0 samples)
             // and the user can recompute via `materialize_tvd` after importing logs.
             let _ = materialize_tvd_curves(conn, well_id);
-            CoreImportResult { path: path.to_string(), rows, error: None, index_resolution: None }
+            CoreImportResult { path: path.to_string(), rows, error: None, index_resolution: None, warnings }
         }
-        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
+        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None, warnings: Vec::new() },
     }
 }
 
@@ -1739,6 +1763,12 @@ pub struct CoreImportResult {
     pub rows: usize,
     pub error: Option<String>,
     pub index_resolution: Option<parsers::IndexResolution>,
+    /// Things the import did that succeeded but the user must be told about — currently the
+    /// survey stations dropped for carrying no usable geometry. `#[serde(default)]` so an older
+    /// payload still deserializes, and empty for every importer that has nothing to say.
+    /// A warning is NOT an error: the delivery landed, and this says what it cost.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// Parses a routine-core-analysis CSV into a NEW core set on the given well (legacy
@@ -1776,25 +1806,25 @@ pub fn import_core_csv_with_depth_column(
 ) -> CoreImportResult {
     let depth_datum = match validated_datum(depth_datum) {
         Ok(datum) => datum,
-        Err(error) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error), index_resolution: None },
+        Err(error) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error), index_resolution: None, warnings: Vec::new() },
     };
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
         .unwrap_or(false);
     if !exists {
-        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None };
+        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None, warnings: Vec::new() };
     }
 
     let columns = match parsers::parse_core_csv_with_depth_column(path, designated_depth_column) {
         Ok(c) => c,
         Err(e) => {
-            return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None };
+            return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None, warnings: Vec::new() };
     }};
     let rows = columns.depth.len();
     let index_resolution = columns.index_resolution.clone();
     let set = match db::resolve_core_set_name(conn, well_id, "CORE") {
         Ok(s) => s,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution, warnings: Vec::new() },
     };
     match db::insert_core_data(
         conn,
@@ -1809,11 +1839,11 @@ pub fn import_core_csv_with_depth_column(
     ) {
         Ok(()) => {
             if let Err(error) = db::declare_set_datum(conn, "core_sets", well_id, None, &set, depth_datum) {
-                return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error.to_string()), index_resolution };
+                return CoreImportResult { path: path.to_string(), rows: 0, error: Some(error.to_string()), index_resolution, warnings: Vec::new() };
             }
-            CoreImportResult { path: path.to_string(), rows, error: None, index_resolution }
+            CoreImportResult { path: path.to_string(), rows, error: None, index_resolution, warnings: Vec::new() }
         }
-        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution },
+        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution, warnings: Vec::new() },
     }
 }
 
