@@ -813,6 +813,12 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
 - **An import never eats a delivery**: every set name auto-suffixes per well.
 - **Normalize's reference pair has no default and the run refuses without one** — a pair from one
   basin is the wrong pair in another, and the output looks plausible either way.
+- **A missing inclination is not a vertical station.** A blank or absent INC refuses the deviation
+  survey by name, because minimum curvature integrates station to station and one lost cell moves
+  every TVD below it (173 m on a three-station survey). A blank AZIMUTH is refused only where the
+  station is not exactly vertical — the dogleg term reaches azimuth through `sin(inc)`, so a
+  vertical `MD,INC` survey with no azimuth column still imports. No verticality tolerance is
+  invented; a threshold would be the same class of silent decision.
 
 ### `docs/record_fixes.md` — findings that moved numbers
 

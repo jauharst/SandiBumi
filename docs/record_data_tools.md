@@ -471,3 +471,38 @@ candidate, peak-at-the-edge) and end to end by the round trip, which recovers th
 drawn and — the half that matters — proposes exactly 0.0 on the same picture with a horizontal
 contact.
 
+
+
+## A missing inclination is not a vertical station (2026-08-20)
+
+Codex whole-repository review, P1. `parse_deviation_csv` made INC and AZI OPTIONAL and replaced
+every gap - an absent column, a blank cell, an unparseable one - with **0**, i.e. with a measured
+vertical/north station. So a cell lost in export straightened the well, and because minimum
+curvature integrates station to station, every TVD below it moved with it. The result is finite,
+plausible, persisted through `well_path`, materialized onto the log grid as a normal TVD curve, and
+read by saturation-height as the height above the contact.
+
+The scale, on a three-station metric survey where the middle cell was lost: a well that is 30 deg
+at 1000 m and 60 deg at 2000 m reaches **TVD 1653.99 m**, and read as vertical at the blank station
+it reaches **1826.99 m**. That is 173 m of imaginary column, on a file the user believes imported
+cleanly. Documenting the coercion in the doc comment - which it was - does not make *not measured*
+equivalent to *measured vertical*, and no caller ever asked anyone to confirm the substitution.
+
+The survey is now refused BY NAME, naming the station's MD, which is the same shape
+`require_project_depth_unit` and the core importer's exactly-one-match rule already use: a survey
+is a short table a person can fix in seconds, and a loud refusal at import beats a silent 173 m
+anywhere downstream. An absent INC column is refused too - a file that states no inclination states
+no geometry.
+
+**The azimuth half is deliberately narrower, and the narrowness is algebra rather than leniency.**
+`minimum_curvature` reaches azimuth only through `sin(i1)*sin(i2)*cos(a2-a1)` in the dogleg term,
+so a station declared exactly vertical multiplies its own azimuth by zero and the value cannot
+reach the answer. That is what keeps the commonest survey there is - a vertical well delivered as
+`MD,INC` with no azimuth column at all - importable. A blank azimuth at a station that is actually
+deviated is missing data and is refused like any other. **No tolerance is invented**: exactly-zero
+is the declared-vertical case, because a threshold would be a silent decision about how vertical
+counts as vertical, which is the same class of decision this whole fix exists to stop.
+
+Pinned by `a_survey_station_with_no_inclination_is_refused_instead_of_read_as_vertical`, which
+carries all four arms plus the 173 m itself, so the number can never quietly shrink without the
+test saying the survey geometry changed.
