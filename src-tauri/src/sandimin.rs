@@ -543,6 +543,9 @@ pub fn sw_dual_nonlinear(rt: f64, phit: f64, swb: f64, cw: f64, cwb: f64, m: f64
 /// diverge at Swt→0, blowing up g(0) and collapsing the bisection/short-circuit logic (which assumes g
 /// rises from g(0)=−rhs<0) to SWT=0 regardless of Rt — so it's rejected as NaN, and the post-solve
 /// caller's is_finite() check then leaves the linear inversion's split untouched rather than zeroing it.
+/// At exactly `n = 1` the same term stops vanishing (0^0 = 1), and where the excess-conductivity
+/// coefficient alone exceeds the measured `a·Ct/φt^m` there is no root in [0, 1]: that returns NaN
+/// too, rather than the SWT = 0 - all hydrocarbon - the algebra would otherwise hand out.
 fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -> f64 {
     if !(ct > 0.0) || !(phit > 0.0) || !(cw > 0.0) || !(n >= 1.0) {
         return f64::NAN;
@@ -558,11 +561,35 @@ fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -
     // General n: g(Swt) = cw·Swt^n + lin·Swt^(n−1) − rhs. g(0)=−rhs<0; if g(1)≤0 the rock is at/above
     // Swt=1. Between, g is continuous — bisect (cw>0 keeps the high-Swt branch increasing).
     let g = |swt: f64| cw * swt.powf(n) + lin * swt.powf(n - 1.0) - rhs;
+    // g(1) <= 0 is the ordinary WET-ZONE clamp every saturation model applies: the rock measures
+    // at least the conductivity fully-water-saturated rock would have, so Swt = 1. Archie's own
+    // .clamp(0.0, 1.0) does exactly this, and the unlimited diagnostic twins exist for anyone who
+    // needs the raw root. Left alone deliberately - it is a value off the end of the scale, not a
+    // degenerate equation.
     if g(1.0) <= 0.0 {
         return 1.0;
     }
+    // AUDIT-2026-08-20 finding 11. g(0) > 0 is a different animal, and only reachable at EXACTLY
+    // n = 1: above it, Swt^(n-1) -> 0 kills the excess-conductivity offset so g(0) = -rhs < 0
+    // always. At n = 1, Rust's 0^0 = 1 leaves that offset standing, and g(0) = lin - rhs > 0 says
+    // the CLAY TERM ALONE conducts more than the rock actually measures. There is then no root in
+    // [0, 1] at all - and the answer this used to return was SWT = 0.0, a hundred per cent
+    // hydrocarbon, written as an ordinary curve.
+    //
+    // That is the optimistic extreme handed out precisely where the model has broken down, and it
+    // REWARDS an over-estimated Qv/Cwb/Swb with more pay. What the condition actually evidences is
+    // a clay term set too high, or an Rt too high for the bed - not a hydrocarbon leg. SB-SAT-030
+    // rules the shape ("MUST NOT return Sw = 1 unflagged... returning a plausible number from a
+    // singular equation is exactly the fail-silent pattern"); this is its mirror at the dry end,
+    // and SB-SAT-028 rules that a solver with no answer returns null.
+    //
+    // MISSING rather than a flag because this is a pure function with no run context to record
+    // into - and it is the refusal this function's own doc already reasons for at n < 1, where the
+    // same Swt^(n-1) term collapses the solve to SWT = 0 regardless of Rt. Same failure, same
+    // answer. Every caller already tests is_finite(), so the linear inversion's split is left
+    // untouched rather than zeroed, and resultsqc plots the sample as the gap it is.
     if g(0.0) > 0.0 {
-        return 0.0;
+        return f64::NAN;
     }
     let (mut lo, mut hi) = (0.0f64, 1.0f64);
     for _ in 0..60 {
@@ -5175,5 +5202,45 @@ mod tests {
             checked += 1;
         }
         assert!(checked > 0, "no finite RECON samples checked");
+    }
+    /// AUDIT-2026-08-20 finding 11. The shared conductivity root has a `g(0) > 0` arm that is
+    /// reachable at EXACTLY n = 1 (above it `Swt^(n-1) -> 0` kills the offset; Rust's 0^0 = 1
+    /// leaves it standing). It means the clay term alone conducts more than the rock measures -
+    /// no root in [0, 1] - and it used to return SWT = 0.0: a hundred per cent hydrocarbon,
+    /// written as an ordinary curve, from the exact condition that evidences an over-estimated
+    /// Qv rather than a pay leg.
+    ///
+    /// Pinned from BOTH sides, because the obvious over-correction - refusing n = 1 outright -
+    /// passes the first half and blanks whole legal curves. n = 1 sits inside every declared
+    /// N range, so a wet zone and an ordinary shaly-sand answer at n = 1 must both survive.
+    #[test]
+    fn a_conductivity_root_with_no_solution_refuses_instead_of_reporting_all_hydrocarbon() {
+        // Rw = 1 ohm.m (Cw = 1 mho/m), phit = 0.20, m = 2, B.Qv = 2.0 mho/m - a heavily shaly
+        // interval. a.Ct/phit^m is then 25.Ct, so Rt alone decides which arm fires.
+        let ws = |rt: f64| sw_waxman_smits(rt, 0.20, 2.0, 1.0, 1.0, 2.0, 1.0);
+
+        // A - Rt = 20: the rock measures 25 x 0.05 = 1.25 against a clay term of 2.0. The model
+        // has broken down; the honest answer is MISSING, not zero water.
+        assert!(
+            ws(20.0).is_nan(),
+            "an excess-conductivity term above the measured conductivity has no root in [0, 1]              and must refuse, not report all hydrocarbon; got {}",
+            ws(20.0)
+        );
+
+        // B - Rt = 0.5: an ordinary WET zone. Every saturation model clamps here and so must this
+        // one - refusing n = 1 wholesale would blank it.
+        assert!(
+            (ws(0.5) - 1.0).abs() < 1e-9,
+            "a wet zone at n = 1 must still read Swt = 1, got {}",
+            ws(0.5)
+        );
+
+        // C - Rt = 10: rhs = 2.5, so Swt = (2.5 - 2.0)/1.0 = 0.5 exactly. The ordinary interior
+        // answer at n = 1 must be untouched.
+        assert!(
+            (ws(10.0) - 0.5).abs() < 1e-9,
+            "the ordinary root at n = 1 must be unchanged, got {}",
+            ws(10.0)
+        );
     }
 }

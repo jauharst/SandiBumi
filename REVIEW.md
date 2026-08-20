@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 38 (my audit P2): **a broken-down shaly-sand solve no longer reports 100% hydrocarbon**
+
+- [ ] **Where.** The conductivity root shared by **Dual-Water (non-linear)**, **Juhász** and
+      **Waxman-Smits** — SandiMin's post-solves, and the Sw comparison in Results QC.
+- [ ] **What was wrong.** At **n = 1 exactly** (legal — it is inside every declared N range, and
+      SandiMin's dialog does not range it), a shaly interval with a high Qv/Cwb and a moderate Rt
+      could reach a state where **the clay term alone conducts more than the rock measures**. The
+      equation then has no answer between 0 and 1 at all — and what came out was **SWT = 0.0,
+      a hundred per cent hydrocarbon**, written as an ordinary curve with nothing to mark it.
+- [ ] **Why that is the worst possible answer.** That condition is evidence your **clay term is
+      set too high** (or Rt is too high for the bed) — not evidence of a pay leg. Reporting zero
+      water there *rewards* an over-estimated Qv with more hydrocarbon, in the one direction that
+      gets quoted.
+- [ ] **The fix.** The sample now comes back **MISSING**. That is the same refusal this solver
+      already makes for n below 1, where the same term collapses the solve to zero regardless of
+      Rt — same failure, same answer.
+- [ ] **A wet zone still reads wet.** The other end is untouched: where the rock measures at
+      least what fully-water-saturated rock would, you still get **Sw = 1**, exactly as Archie
+      does. Only the no-solution case refuses.
+- [ ] **What to check.** In SandiMin, run Waxman-Smits or Dual-Water on a shaly well with
+      **n = 1** and a generous Qv. Any interval that used to show a suspicious **zero-water
+      spike** should now be a **gap** in the curve. A genuinely wet interval in the same well
+      should still read Sw = 1, and an ordinary shaly-sand interval should be unchanged.
+
 ## 2026-08-20 — Audit increment 37 (my audit P2): **a Monte Carlo study can no longer subtract negative porosity out of your HPV**
 
 - [ ] **What was wrong.** The deterministic pay summary floors PHIE at 0.001 — so a slightly
