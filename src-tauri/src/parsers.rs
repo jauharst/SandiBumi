@@ -552,6 +552,14 @@ pub struct CurveColumns {
     /// Every non-index LAS channel at source mnemonic/unit, sharing `depth`. The six standard
     /// vectors above are selected views of these same parsed columns, not a second file read.
     pub raw_curves: Vec<RawLasCurve>,
+    /// Which incoming mnemonic filled each standard slot, in the order GR, RES, NPHI, RHOB,
+    /// DT, SP. `None` where the file carries no candidate for that slot.
+    ///
+    /// The slot is chosen by coverage among competing aliases, so the answer is not derivable
+    /// from the target name - `RHOB` may have come from `RHOZ`. Ingest needs it to project the
+    /// slot from the SAME channel the generic store converted, rather than converting a second
+    /// time from a second source and trusting the two to agree.
+    pub standard_sources: [Option<String>; 6],
     /// Present where aliases compete or where one incoming mnemonic is renamed.
     pub alias_decisions: Vec<AliasDecision>,
     /// The effective per-channel null decision exposed to the import result. `Unset` means
@@ -1617,7 +1625,7 @@ pub fn parse_las_2_import<P: AsRef<Path>>(
     // broken by alias priority, since we scan in priority order and only replace on strictly
     // greater coverage). This skips all-null placeholder columns in favour of a populated one.
     let n = cols.depth.len();
-    let pick = |target: &str, indices: &[usize]| -> (Vec<f32>, Option<AliasDecision>) {
+    let pick = |target: &str, indices: &[usize]| -> (Vec<f32>, Option<AliasDecision>, Option<String>) {
         let mut best: Option<usize> = None;
         let mut best_finite: i64 = -1;
         let mut coverages = Vec::with_capacity(indices.len());
@@ -1634,6 +1642,7 @@ pub fn parse_las_2_import<P: AsRef<Path>>(
             .map(|slot| all_curve_buf[indices[slot]].clone())
             .unwrap_or_else(|| vec![f32::NAN; n]);
         let chosen_slot = best;
+        let chosen_mnemonic = chosen_slot.map(|slot| curve_names[indices[slot]].clone());
         let renamed = chosen_slot.is_some_and(|slot| !curve_names[indices[slot]].eq_ignore_ascii_case(target));
         let decision = (indices.len() > 1 || renamed).then(|| {
             let chosen_slot = chosen_slot.expect("a reported alias decision always chooses one");
@@ -1660,13 +1669,14 @@ pub fn parse_las_2_import<P: AsRef<Path>>(
                 }),
             }
         });
-        (values, decision)
+        (values, decision, chosen_mnemonic)
     };
     let targets = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
     let mut picked = Vec::with_capacity(6);
     for k in 0..6 {
-        let (values, decision) = pick(targets[k], &cand[k]);
+        let (values, decision, source) = pick(targets[k], &cand[k]);
         picked.push(values);
+        cols.standard_sources[k] = source;
         if let Some(decision) = decision {
             cols.alias_decisions.push(decision);
         }
@@ -4737,6 +4747,7 @@ mod las_depth_tests {
     fn cols_from(depth: Vec<f32>) -> CurveColumns {
         let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
         CurveColumns {
+            standard_sources: Default::default(),
             well_name: None,
             well_headers: Vec::new(),
             las_version: None,

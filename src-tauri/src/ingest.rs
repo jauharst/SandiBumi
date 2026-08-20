@@ -997,6 +997,31 @@ fn insert_parsed_well(
         }
     };
     unit_designations.extend(prepared.unit_designations.iter().cloned());
+
+    // DEC-089 (Jauhar, 2026-08-20: "B store canonical, a project should be robust and
+    // consistent"). The six standard columns are a PROJECTION of the very channels the generic
+    // store holds, so they take that store's already-CONVERTED values rather than the raw parsed
+    // ones. Before this, one delivery lived in two numeric domains at once: a module read NPHI
+    // 0.30 v/v while the log view, every crossplot, the curve editor and Reframe read 30.0 PU
+    // off the same curve - so endpoints picked on a crossplot were picked against numbers no
+    // module ever saw, and LAS export wrote 30.0 under a label saying v/v.
+    //
+    // Projecting rather than converting a second time is the point: there is ONE conversion, at
+    // one place, and the two stores cannot drift. The slot is matched by the mnemonic the parser
+    // actually chose - `RHOB` may have come from `RHOZ` - and a slot whose channel is missing or
+    // whose length disagrees keeps the parsed column, because a length mismatch means these are
+    // not the same channel and silently swapping them would be worse than not converting.
+    let std: [Vec<f32>; 6] = {
+        let raw = [&columns.gr, &columns.res, &columns.nphi, &columns.rhob, &columns.dt, &columns.sp];
+        std::array::from_fn(|k| {
+            columns.standard_sources[k]
+                .as_deref()
+                .and_then(|m| prepared.curves.iter().find(|c| c.mnemonic.eq_ignore_ascii_case(m)))
+                .filter(|c| c.values.len() == raw[k].len())
+                .map_or_else(|| raw[k].clone(), |c| c.values.clone())
+        })
+    };
+
     let mut null_screened: Vec<(String, usize)> = Vec::new();
     let result: db::DbResult<()> = db::with_txn(conn, |conn| {
         db::insert_well(conn, well_id, &well_name, None, None, None)?;
@@ -1010,12 +1035,12 @@ fn insert_parsed_well(
             conn,
             well_id,
             columns.depth,
-            columns.gr,
-            columns.res,
-            columns.nphi,
-            columns.rhob,
-            columns.dt,
-            columns.sp,
+            std[0].clone(),
+            std[1].clone(),
+            std[2].clone(),
+            std[3].clone(),
+            std[4].clone(),
+            std[5].clone(),
         )?;
         let set = resolve_set_name(
             conn,
@@ -3080,6 +3105,91 @@ mod tests {
         result
     }
 
+    /// DEC-089: one delivery, ONE numeric domain.
+    ///
+    /// `standard_curves` used to hold the RAW parsed column while the generic store held the
+    /// CONVERTED one, so a single LAS lived in two domains at once - a module computed with
+    /// NPHI 0.30 v/v while the log view, every crossplot, the curve editor and Reframe read
+    /// 30.0 PU off the same curve, and LAS export wrote 30.0 under a label saying `v/v`.
+    /// Jauhar ruled the projection stores canonical: "a project should be robust and
+    /// consistent".
+    ///
+    /// Pinned from both sides. The absolute values fix the domain, and the equality against the
+    /// module-facing read fixes the CONTRACT - without it, a second conversion applied
+    /// independently would pass the first half and could still drift from what modules see.
+    #[test]
+    fn a_standard_curve_is_stored_in_the_unit_the_modules_read() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join(format!("sandibumi-canon-{}.las", Uuid::new_v4()));
+        // Neutron in porosity units and density in kg/m3 - both routinely delivered, and both
+        // a factor of 100 / 1000 away from the canonical v/v and g/cc.
+        std::fs::write(
+            &path,
+            "~Version
+VERS. 2.0
+~Well
+WELL. SANDI-CANON
+~Curve
+DEPT.M : Depth
+             TNPH.PU : Neutron
+RHOZ.KG/M3 : Density
+~Ascii
+             1000.0 30.0 2400.0
+1000.5 28.0 2450.0
+",
+        )
+        .unwrap();
+        let res = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+        let well_id = res.well_id.expect("the fixture imports");
+
+        let mut stmt = conn
+            .prepare("SELECT nphi, rhob FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+            .unwrap();
+        let stored: Vec<(f32, f32)> = stmt
+            .query_map(params![well_id.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(stored.len(), 2, "fixture rows");
+        assert!(
+            (stored[0].0 - 0.30).abs() < 1e-6,
+            "NPHI must be stored in v/v, not the file's porosity units: {}",
+            stored[0].0
+        );
+        assert!(
+            (stored[0].1 - 2.40).abs() < 1e-6,
+            "RHOB must be stored in g/cc, not the file's kg/m3: {}",
+            stored[0].1
+        );
+
+        // And the domain must be the SAME one a module resolves, sample for sample - that
+        // agreement is the contract, the two numbers above are only its most visible symptom.
+        let (_d, cols) = crate::equations::fetch_curve_frame_from_set(
+            &conn,
+            &well_id.to_string(),
+            &["NPHI".to_string(), "RHOB".to_string()],
+            None,
+            None,
+        )
+        .expect("module-facing read");
+        for (k, (name, got)) in [("NPHI", stored[0].0), ("RHOB", stored[0].1)].iter().enumerate() {
+            let _ = k;
+            let module = cols.get(*name).and_then(|v| v.first().copied()).expect(name);
+            assert!(
+                (module - got).abs() < 1e-6,
+                "{name}: the stored projection reads {got} and a module reads {module} - one                  delivery must not live in two domains"
+            );
+        }
+    }
+
     /// **A channel declared no null preserves a sentinel-shaped amplitude and reports no null.**
     /// `SB-DIO-003` / `SB-DIO-T04` CORRECTNESS. Source: 21_data-io.md D-3, section 5.2 and
     /// T04 identify `-999.25` as a genuine array/waveform amplitude when `NoNull` is declared.
@@ -3153,6 +3263,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let columns = CurveColumns {
+            standard_sources: Default::default(),
             well_name: Some("ROLLBACK-1".into()),
             well_headers: Vec::new(),
             las_version: Some("2.0".into()),
@@ -3310,6 +3421,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let cols = |prov: Vec<f32>| CurveColumns {
+            standard_sources: Default::default(),
             well_name: None,
             well_headers: Vec::new(),
             las_version: None,
@@ -3373,6 +3485,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
 
         let cols = || CurveColumns {
+            standard_sources: Default::default(),
             well_name: None,
             well_headers: Vec::new(),
             las_version: None,
@@ -4224,6 +4337,7 @@ GR.API :
         );
 
         let make_columns = || CurveColumns {
+            standard_sources: Default::default(),
             well_name: None,
             well_headers: Vec::new(),
             las_version: None,
