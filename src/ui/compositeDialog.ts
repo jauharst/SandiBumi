@@ -166,7 +166,11 @@ export async function buildCompositeContent(
       (svgEl as SVGElement).style.height = "auto";
       (svgEl as SVGElement).style.border = "1px solid var(--border, #ccc)";
     }
-    pageLabel.textContent = `Page ${pageIdx + 1} / ${result.pages.length}  ·  ${page.top_depth.toFixed(1)}–${page.bottom_depth.toFixed(1)} m`;
+    // The page span comes back in the project's STORED unit — it is the same depth column the
+    // range boxes above take — so it is labelled in that unit, not the display preference.
+    pageLabel.textContent =
+      `Page ${pageIdx + 1} / ${result.pages.length}  ·  ` +
+      `${page.top_depth.toFixed(1)}–${page.bottom_depth.toFixed(1)} ${storedDepthLabel()}`;
     prevBtn.disabled = pageIdx === 0;
     nextBtn.disabled = pageIdx === result.pages.length - 1;
   };

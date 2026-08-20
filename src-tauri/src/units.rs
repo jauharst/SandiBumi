@@ -136,6 +136,24 @@ pub fn to_feet(value: f64, from: DepthUnit) -> f64 {
     convert_depth(value, from, DepthUnit::Feet)
 }
 
+/// Paper millimetres per ONE stored depth unit at a true 1:1 print scale.
+///
+/// A named print scale is a physical ratio of rock to paper: "1:200" claims 200 units of section
+/// per unit of paper, so the answer depends on how long a stored unit actually IS. One metre of
+/// rock is 1000 mm on paper at 1:1; one foot is 304.8 mm. Divide by the scale denominator to get
+/// millimetres per stored unit at that scale.
+///
+/// The composite exporter used to compute `1000.0 / scale` unconditionally and then add the
+/// resulting metre count straight onto a stored depth. On a foot-declared project that drew a
+/// 100 ft interval as if it were 100 m — the sheet is 3.28084x too long, the printed "1:500" is
+/// physically about 1:152, and the page breaks land in the wrong place. It is the exact defect
+/// `pxPerUnitAt1to1` already fixed on the screen side; the print path did not share it.
+///
+/// Derived from `M_PER_FT` rather than writing 304.8, so there is one foot in this codebase.
+pub fn mm_per_stored_unit(stored: DepthUnit) -> f64 {
+    convert_depth(1.0, stored, DepthUnit::Metres) * 1000.0
+}
+
 /// Converts a whole depth index in place. NaN is preserved (missing stays missing).
 /// Defers to `convert_depth` per sample so the scalar and array paths can never drift.
 pub fn convert_depths(values: &mut [f32], from: DepthUnit, to: DepthUnit) {

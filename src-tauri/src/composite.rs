@@ -333,12 +333,21 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
     }
 
     let (pw, ph) = spec.page_size.dims();
-    let mm_per_m = 1000.0 / spec.scale as f64;
+    // A named print scale is a ratio of ROCK to PAPER, so it depends on how long a stored depth
+    // unit actually is. This used to be `1000.0 / scale` unconditionally and then added the
+    // resulting metre count straight onto a stored depth: on a foot project a 100 ft interval
+    // printed as if it were 100 m, so the sheet was 3.28084x too long, the stated 1:500 was
+    // physically about 1:152, and the page breaks landed in the wrong rock. Metre projects are
+    // unchanged — `mm_per_stored_unit(Metres)` is exactly 1000.
+    let stored_unit = crate::units::project_depth_unit(conn)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let mm_per_unit = crate::units::mm_per_stored_unit(stored_unit) / spec.scale as f64;
 
     let track_h_first = ph - MARGIN_T - MARGIN_B - HEADER_H_FIRST - TRACK_HEADER_H;
     let track_h_run = ph - MARGIN_T - MARGIN_B - HEADER_H_RUN - TRACK_HEADER_H;
-    let m_per_page_first = track_h_first / mm_per_m;
-    let m_per_page_run = track_h_run / mm_per_m;
+    let units_per_page_first = track_h_first / mm_per_unit;
+    let units_per_page_run = track_h_run / mm_per_unit;
 
     let mut pages = Vec::new();
     let mut d0 = top as f64;
@@ -346,11 +355,11 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
     let mut idx = 0;
     while d0 < bottom - 1e-6 {
         let first = idx == 0;
-        let m_this = if first { m_per_page_first } else { m_per_page_run };
-        let d1 = (d0 + m_this).min(bottom);
+        let span_this = if first { units_per_page_first } else { units_per_page_run };
+        let d1 = (d0 + span_this).min(bottom);
         let ops = build_page(
             spec, &header, &curve_frames, &tops, &zones, &completion, &perforations, &core, &aux,
-            &arrays, &images, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
+            &arrays, &images, pw, ph, mm_per_unit, first, d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
         d0 = d1;
@@ -687,7 +696,8 @@ fn build_page(
     images: &HashMap<String, Vec<PrintEntry>>,
     pw: f64,
     ph: f64,
-    mm_per_m: f64,
+    // Paper millimetres per STORED depth unit — never per metre. See `render_pages`.
+    mm_per_unit: f64,
     first: bool,
     page_top: f32,
     page_bot: f32,
@@ -706,7 +716,7 @@ fn build_page(
     let grid_top = track_top + TRACK_HEADER_H;
     let grid_bot = ph - MARGIN_B;
 
-    let y_of = |d: f32| grid_top + (d - page_top) as f64 * mm_per_m;
+    let y_of = |d: f32| grid_top + (d - page_top) as f64 * mm_per_unit;
 
     // Track x spans from width weights.
     let total_w: f32 = spec.layout.tracks.iter().map(|t| t.width_weight.max(0.05)).sum();
@@ -751,7 +761,10 @@ fn build_page(
     });
 
     // Depth grid + labels.
-    let major = nice_step(22.0 / mm_per_m);
+    // 22 mm is the minimum readable spacing between labelled depth ticks, so the step it implies
+    // is in STORED units and comes out coarser on a foot project — which is right: the ticks are
+    // labelled with stored depths.
+    let major = nice_step(22.0 / mm_per_unit);
     let minor = major / 5.0;
     let first_minor = (page_top as f64 / minor).ceil() * minor;
     let mut d = first_minor;
@@ -3373,6 +3386,80 @@ mod tests {
             // Deeper prints lower. A sign slip here mirrors the log vertically, which is
             // obvious on screen and easy to miss in a page of vector ops.
             assert!(labels[0].1 < labels[labels.len() - 1].1, "1:{scale}: depth must increase downwards");
+        }
+    }
+
+    /// The same measurement on a FOOT-declared project, from the Codex whole-repository review
+    /// of a6565bd9 (P0). The exporter computed `1000 / scale` unconditionally and then added the
+    /// resulting metre count straight onto a stored depth, so a foot project drew a 100 ft
+    /// interval as if it were 100 m: the sheet came out 3.28084x too long, the header's "1:500"
+    /// was physically about 1:152, and the page breaks landed in the wrong rock. Nothing on the
+    /// page said so — the curves are there, the grid is even, and the only symptom is a ruler
+    /// disagreeing with the tops.
+    ///
+    /// One physical well, described twice. The claim is not "the numbers match" but "a metre of
+    /// ROCK occupies the same paper either way", which is the only thing a print scale can mean.
+    /// The pagination half is asserted too, and separately: a page that covers the right amount
+    /// of rock at the wrong scale, or the right scale over the wrong span, are different bugs.
+    #[test]
+    fn a_foot_declared_project_prints_the_same_physical_scale_a_metre_one_does() {
+        use crate::units::{DepthUnit, M_PER_FT};
+
+        /// Millimetres of paper per METRE of rock, measured off the artwork's own depth labels,
+        /// plus the physical length of rock the first page covers.
+        let measure = |feet: bool, scale: u32| -> (f64, f64) {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            // Declared BEFORE any well exists, which is the only time this is allowed.
+            if feet {
+                crate::units::set_project_depth_unit(&conn, DepthUnit::Feet).unwrap();
+            }
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-COMPOSITE", Some("Sandi Field"), None, None).unwrap();
+            let w = wid.to_string();
+            let n = 400;
+            // The same rock: 1000 m to 1199.5 m at a half-metre step, or exactly that in feet.
+            let scale_to_stored = |m: f32| if feet { m / M_PER_FT as f32 } else { m };
+            let depths: Vec<f32> = (0..n).map(|i| scale_to_stored(1000.0 + i as f32 * 0.5)).collect();
+            let gr: Vec<f32> = (0..n).map(|i| 40.0 + 60.0 * ((i as f32 / 20.0).sin() * 0.5 + 0.5)).collect();
+            db::insert_standard_curves(
+                &conn, wid, depths, gr, vec![10.0; n], vec![0.25; n], vec![2.4; n],
+                vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+
+            let (pages, _pw, _ph, _name) =
+                render_pages(&conn, &full_spec(w, scale, PageSize::A4)).unwrap();
+            let labels = depth_labels(&pages[0].ops);
+            assert!(labels.len() >= 3, "feet={feet} 1:{scale}: too few depth labels to measure");
+            let (d0, y0) = labels[0];
+            let (d1, y1) = labels[labels.len() - 1];
+            let stored_per_metre = if feet { 1.0 / M_PER_FT } else { 1.0 };
+            let mm_per_metre_of_rock = (y1 - y0) / (d1 - d0) * stored_per_metre;
+            let page_metres = (pages[0].bot - pages[0].top) as f64 / stored_per_metre;
+            (mm_per_metre_of_rock, page_metres)
+        };
+
+        for scale in [200u32, 500] {
+            let (metric_mm, metric_span) = measure(false, scale);
+            let (foot_mm, foot_span) = measure(true, scale);
+            let expected = 1000.0 / scale as f64;
+
+            assert!(
+                (metric_mm - expected).abs() < 1e-9,
+                "1:{scale}: the metre project must be unchanged, got {metric_mm} mm per metre"
+            );
+            assert!(
+                (foot_mm - expected).abs() < 1e-6,
+                "1:{scale}: a metre of rock must occupy {expected} mm however the project is \
+                 declared — the foot project printed it at {foot_mm} mm, a factor of {:.5}",
+                foot_mm / expected
+            );
+            assert!(
+                (metric_span - foot_span).abs() < 1e-3,
+                "1:{scale}: one page must cover the same rock either way — {metric_span} m \
+                 metric vs {foot_span} m foot"
+            );
         }
     }
 
