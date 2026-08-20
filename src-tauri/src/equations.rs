@@ -965,6 +965,103 @@ fn fetch_generic_curve_aligned(
     Ok(depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect())
 }
 
+/// DEC-089's second half: brings an EXISTING project's standard columns onto the canonical
+/// domain the generic store already holds.
+///
+/// Import stores canonical from now on, but a project imported before that keeps one delivery in
+/// two numeric domains - a module reading NPHI 0.30 v/v while the log view reads 30.0 PU off the
+/// same curve. This re-projects the six columns from the generic store, which is the same thing
+/// import now does, so a migrated project and a re-imported one land identically.
+///
+/// **A column is replaced ALL AT ONCE or not at all.** The replacement is used only where the
+/// generic store resolves a finite value at every depth the stored column has one - otherwise a
+/// partially-covered curve would end up half converted and half raw, which is worse than either
+/// and is invisible on a log. A well the generic store cannot cover keeps exactly what it had.
+///
+/// Idempotent by construction: re-projecting an already-canonical column from the same source
+/// yields the same numbers. The `project_meta` stamp exists to keep a 2000-well project from
+/// paying for that proof on every launch, not to make it safe to run twice.
+///
+/// Pre-generic-store projects are untouched in practice, and that is not luck:
+/// `migrate_standard_curves_to_generic_store` backfilled their generic store FROM these very
+/// columns, so both sides already hold the same raw numbers and there is no split to close. The
+/// split only ever existed for a delivery imported after the generic store arrived.
+pub fn migrate_standard_curves_canonical(conn: &Connection) -> crate::db::DbResult<usize> {
+    // A legacy pre-stamp project has no `project_meta` at all, and neither does a bare schema -
+    // the table is created by the format stamp, which is a different concern from this one.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);",
+    )?;
+    let done: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM project_meta WHERE key = 'standard_curves_canonical'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if done > 0 {
+        return Ok(0);
+    }
+
+    let mut stmt = conn.prepare("SELECT well_id FROM wells")?;
+    let wells: Vec<String> =
+        stmt.query_map([], |r| r.get::<_, String>(0))?.filter_map(|r| r.ok()).collect();
+    drop(stmt);
+
+    let mut rewritten = 0usize;
+    for well_id in wells {
+        let mut stmt =
+            conn.prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")?;
+        let depth: Vec<f32> =
+            stmt.query_map(params![well_id], |r| r.get::<_, f32>(0))?.filter_map(|r| r.ok()).collect();
+        drop(stmt);
+        if depth.is_empty() {
+            continue;
+        }
+        for column in crate::schema_vocab::STANDARD_COLUMNS.iter().filter(|c| c.editable) {
+            let col = column.storage_column;
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {col} FROM standard_curves WHERE well_id = ?1 ORDER BY depth"
+            ))?;
+            let stored: Vec<f32> = stmt
+                .query_map(params![well_id], |r| Ok(r.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN)))?
+                .filter_map(|r| r.ok())
+                .collect();
+            drop(stmt);
+            if stored.len() != depth.len() || !stored.iter().any(|v| v.is_finite()) {
+                continue;
+            }
+            let Ok(canon) = fetch_generic_curve_aligned(conn, &well_id, column.mnemonic, &depth)
+            else {
+                continue;
+            };
+            // Every depth the column answers at, the generic store must answer at too. Anything
+            // less and the column would be part converted and part raw.
+            let covers = canon.len() == stored.len()
+                && stored.iter().zip(&canon).all(|(s, c)| !s.is_finite() || c.is_finite());
+            if !covers {
+                continue;
+            }
+            if stored.iter().zip(&canon).all(|(s, c)| s.to_bits() == c.to_bits()) {
+                continue; // already canonical - the ordinary case for a metric delivery
+            }
+            let mut up = conn.prepare(&format!(
+                "UPDATE standard_curves SET {col} = ?3 WHERE well_id = ?1 AND depth = ?2"
+            ))?;
+            for (d, v) in depth.iter().zip(&canon) {
+                up.execute(params![well_id, d, if v.is_finite() { Some(*v) } else { None }])?;
+            }
+            rewritten += 1;
+        }
+    }
+    conn.execute(
+        "INSERT INTO project_meta (key, value) VALUES ('standard_curves_canonical', '1')
+         ON CONFLICT (key) DO UPDATE SET value = '1'",
+        [],
+    )?;
+    Ok(rewritten)
+}
+
 /// Replaces only legacy standard-column projections with their native stored identities for a
 /// calculation input. Ordinary track reads deliberately retain the projection contract; module
 /// and input-set reads need this overlay so the numeric bytes and SB-DBM-006 decision record are
@@ -4641,6 +4738,138 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// DEC-089's second half: an EXISTING project is brought onto one numeric domain.
+    ///
+    /// Import stores canonical from now on, but a project imported before that keeps the split -
+    /// a module reading NPHI 0.30 v/v while the log view reads 30.0 PU off the same curve. The
+    /// fixture builds that state directly, because it is the only state worth migrating.
+    ///
+    /// Pinned from both sides. A column the generic store cannot fully cover must be left ALONE,
+    /// or the migration would half-convert a curve - part canonical, part raw, invisible on a
+    /// log and worse than either. Without that half, "rewrite everything you can reach" would
+    /// pass the first assertion.
+    #[test]
+    fn an_existing_projects_standard_curves_are_brought_onto_one_domain_or_left_whole() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-SPLIT", None, None, None).unwrap();
+        let well = id.to_string();
+        let depth = [1000.0f32, 1000.5, 1001.0];
+
+        // The pre-DEC-089 state: standard holds the file's raw porosity units, the generic store
+        // holds the converted v/v, and nothing reconciles them.
+        crate::db::insert_standard_curves(
+            &conn,
+            id,
+            depth.to_vec(),
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![30.0, 28.0, 26.0],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        let curve = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source)
+             VALUES (?1, ?2, 'RAW', 'NPHI', 'v/v', 'NPHI', 'test')",
+            duckdb::params![curve, well],
+        )
+        .unwrap();
+        for (d, v) in depth.iter().zip([0.30f32, 0.28, 0.26]) {
+            conn.execute(
+                "INSERT INTO curve_samples (curve_id, depth, value) VALUES (?1, ?2, ?3)",
+                duckdb::params![curve, d, v],
+            )
+            .unwrap();
+        }
+
+        let n = migrate_standard_curves_canonical(&conn).unwrap();
+        assert_eq!(n, 1, "exactly the one split column is rewritten");
+        let stored: Vec<f32> = conn
+            .prepare("SELECT nphi FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(duckdb::params![well], |r| Ok(r.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            (stored[0] - 0.30).abs() < 1e-6 && (stored[2] - 0.26).abs() < 1e-6,
+            "the projection now reads what the modules read: {stored:?}"
+        );
+
+        // Idempotent by CONSTRUCTION, not by the stamp - re-projecting an already-canonical
+        // column from the same source yields the same numbers, so a second pass rewrites
+        // nothing even with the stamp ignored. (A mutation that disabled the early return left
+        // this green, which is how the distinction got stated here rather than assumed.) The
+        // stamp is a cost guard, and it is asserted as one.
+        assert_eq!(migrate_standard_curves_canonical(&conn).unwrap(), 0, "a second pass is a no-op");
+        let stamped: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_meta WHERE key = 'standard_curves_canonical'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stamped, 1, "and the stamp is written so a 2000-well project stops re-scanning");
+
+        // The other side: a column the generic store covers only PARTLY is left whole. A
+        // half-converted curve is worse than an unconverted one, because nothing on the log
+        // could show which samples were which.
+        let conn2 = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn2).unwrap();
+        let id2 = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn2, id2, "SANDI-PARTIAL", None, None, None).unwrap();
+        let well2 = id2.to_string();
+        crate::db::insert_standard_curves(
+            &conn2,
+            id2,
+            depth.to_vec(),
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![30.0, 28.0, 26.0],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        let curve2 = uuid::Uuid::new_v4().to_string();
+        conn2
+            .execute(
+                "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source)
+                 VALUES (?1, ?2, 'RAW', 'NPHI', 'v/v', 'NPHI', 'test')",
+                duckdb::params![curve2, well2],
+            )
+            .unwrap();
+        // Only the top two depths - the third is missing from the generic store.
+        for (d, v) in depth.iter().take(2).zip([0.30f32, 0.28]) {
+            conn2
+                .execute(
+                    "INSERT INTO curve_samples (curve_id, depth, value) VALUES (?1, ?2, ?3)",
+                    duckdb::params![curve2, d, v],
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            migrate_standard_curves_canonical(&conn2).unwrap(),
+            0,
+            "partial coverage rewrites nothing"
+        );
+        let kept: Vec<f32> = conn2
+            .prepare("SELECT nphi FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(duckdb::params![well2], |r| Ok(r.get::<_, Option<f32>>(0)?.unwrap_or(f32::NAN)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            (kept[0] - 30.0).abs() < 1e-6 && (kept[2] - 26.0).abs() < 1e-6,
+            "the column is left exactly as it was, not half converted: {kept:?}"
+        );
+    }
+
     /// Codex whole-repository review, P2: one SQL-NULL cell failed the WHOLE core overlay.
     ///
     /// The four measurement columns are nullable in the schema and the pre-set-era migration

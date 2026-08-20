@@ -174,6 +174,23 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
         .map_err(|e| format!("timestamp migration failed: {e}"))?;
     eprintln!("[boot] migrate_array_logs_store: {:?}", t.elapsed());
 
+    // DEC-089's second half. Must run AFTER migrate_standard_curves_to_generic_store, which is
+    // what gives a pre-generic-store project a generic store to project FROM.
+    let t = std::time::Instant::now();
+    match crate::equations::migrate_standard_curves_canonical(&conn) {
+        Ok(0) => {}
+        Ok(n) => db::boot_note(format!(
+            "Brought {n} standard curve(s) onto the project's canonical units, so the log view,              plots and modules now read the same numbers (DEC-089)."
+        )),
+        // A project that cannot be re-projected still OPENS - it simply keeps the split it had,
+        // which is exactly what it has been doing. Failing the launch over a display-domain
+        // tidy-up would be the worse trade.
+        Err(e) => db::boot_note(format!(
+            "Standard-curve unit migration skipped: {e}. The project opens unchanged."
+        )),
+    }
+    eprintln!("[boot] migrate_standard_curves_canonical: {:?}", t.elapsed());
+
     // Must run AFTER migrate_point_data_sets, which rebuilds core_data for its primary key —
     // a column added before that rebuild would be dropped by it.
     let t = std::time::Instant::now();
