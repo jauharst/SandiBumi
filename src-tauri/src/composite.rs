@@ -1447,30 +1447,58 @@ fn draw_image_series(
         if e.info.depth_top > page_bot || e.info.depth_base.unwrap_or(e.info.depth_top) < page_top {
             continue;
         }
-        let b = image_box(style, e, tx0, tx1, y_of);
-        // A plate is either wholly on this page or it is not drawn on it: half a photograph
-        // clipped by a page break reads as a different picture.
-        if b.y < grid_top - 0.01 || b.y + b.h > grid_bot + 0.01 {
+        let mut b = image_box(style, e, tx0, tx1, y_of);
+        let true_y = y_of(sample_depth);
+        let tick = |ops: &mut Vec<DrawOp>| {
             ops.push(DrawOp::Line {
                 x1: tx0,
-                y1: y_of(sample_depth),
+                y1: true_y,
                 x2: tx0 + (tx1 - tx0) * 0.15,
-                y2: y_of(sample_depth),
+                y2: true_y,
                 stroke: "#8a7f70".into(),
                 sw: 0.25,
             });
+        };
+        // DEC-090 (Jauhar, 2026-08-20: "Nudge it, but give caller things, like excel"). A plate
+        // is still never CLIPPED - half a photograph across a page break reads as a different
+        // picture - but one that does not fit is now slid until it does, and a LEADER is drawn
+        // back to a tick at its true depth. That is what earns the nudge: the objection to
+        // moving a plate was that a thin section moved to make room is attributed to the wrong
+        // sand, and a callout pointing at the depth is exactly the answer to it. Before this the
+        // plate was dropped from the page and no later page ever reconsidered it, so roughly a
+        // twentieth of a petrography delivery was silently absent from the PDF while the screen
+        // showed it in full.
+        //
+        // The box height is PAPER, not rock - an anchored plate is cut from one plug and has no
+        // thickness at all - so sliding it costs nothing a reader can misread once the leader
+        // states where the plug is.
+        let want_y = b.y;
+        let lo = grid_top.max(last_bottom + 0.4);
+        let hi = grid_bot - b.h;
+        if b.h > (grid_bot - grid_top) + 0.01 || lo > hi + 0.01 {
+            // Taller than a whole page, or this page is already full: there is nothing to slide
+            // it into, so the depth tick stands alone exactly as it used to.
+            tick(ops);
             continue;
         }
-        if b.y < last_bottom + 0.4 {
+        b.y = b.y.clamp(lo, hi);
+        if (b.y - want_y).abs() > 0.01 {
+            // Moved to fit, so it is a CALLOUT now: the tick stays at the true depth and a leader
+            // runs down the margin to the plate's own centre. The centre, not the nearest edge -
+            // a page-bottom clamp moves a plate by at most half its height, so it usually still
+            // overlaps its own depth and an edge-seeking leader would collapse to nothing in the
+            // very case it exists for. What moved is where the picture is CENTRED, and that is
+            // what the leader has to restate. Drawn in the margin so it never crosses the plate.
+            tick(ops);
+            let lx = tx0 + (tx1 - tx0) * 0.15;
             ops.push(DrawOp::Line {
-                x1: tx0,
-                y1: y_of(sample_depth),
-                x2: tx0 + (tx1 - tx0) * 0.15,
-                y2: y_of(sample_depth),
+                x1: lx,
+                y1: true_y,
+                x2: lx,
+                y2: b.y + b.h / 2.0,
                 stroke: "#8a7f70".into(),
                 sw: 0.25,
             });
-            continue;
         }
         last_bottom = b.y + b.h;
 
@@ -2966,6 +2994,78 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// DEC-090: a plate near a page break is printed as a CALLOUT, never dropped.
+    ///
+    /// An anchored plate is centred on its depth, so one sitting within half its own height of
+    /// the page bottom did not fit the grid - and the print degraded it to a bare tick that no
+    /// later page ever reconsidered. Roughly a twentieth of a petrography delivery was absent
+    /// from the PDF while the screen showed it in full. Jauhar ruled: "Nudge it, but give
+    /// caller things, like excel".
+    ///
+    /// Pinned from both sides. A plate that FITS must be neither moved nor annotated, or
+    /// "always nudge, always draw a leader" would pass the first half and put a callout on
+    /// every plate in the deliverable.
+    #[test]
+    fn a_plate_that_will_not_fit_the_page_is_called_out_rather_than_dropped() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let y = |d: f32| d as f64;
+        // Track 0..40 and size 0.5 gives a 20 x 10 box; the page runs 1000..1020.
+        let render = |depth: f32| -> Vec<DrawOp> {
+            let mut ops = Vec::new();
+            draw_image_series(
+                &mut ops, &st, &[plate(0, "TS-1", depth, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y,
+            );
+            ops
+        };
+        // The leader lives in the margin at 15% of the track, and is the only VERTICAL line
+        // this path draws - the depth tick is horizontal.
+        let leaders = |ops: &[DrawOp]| -> Vec<(f64, f64)> {
+            ops.iter()
+                .filter_map(|o| match o {
+                    DrawOp::Line { x1, y1, x2, y2, .. } if (x1 - x2).abs() < 1e-9 => Some((*y1, *y2)),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        // 1017 wants a box of 1012..1022 - two millimetres past the page bottom.
+        let over = render(1017.0);
+        let im = images(&over);
+        assert_eq!(im.len(), 1, "the plate must PRINT, not degrade to a tick");
+        let (_x, y0, _w, h, _c) = im[0];
+        assert!(
+            y0 >= 1000.0 - 1e-6 && y0 + h <= 1020.0 + 1e-6,
+            "and it must sit wholly inside the page: {y0}..{}",
+            y0 + h
+        );
+        let ld = leaders(&over);
+        assert_eq!(ld.len(), 1, "a moved plate carries exactly one leader: {ld:?}");
+        assert!(
+            (ld[0].0 - 1017.0).abs() < 1e-6,
+            "the leader starts at the TRUE depth, whatever the picture had to do: {:?}",
+            ld[0]
+        );
+        assert!(
+            (ld[0].1 - (y0 + h / 2.0)).abs() < 1e-6,
+            "and ends on the plate's centre, which is what moved: {:?}",
+            ld[0]
+        );
+
+        // The other side: a plate with room is left exactly where it was, and says nothing.
+        let ok = render(1010.0);
+        let im = images(&ok);
+        assert_eq!(im.len(), 1);
+        assert!(
+            (im[0].1 + im[0].3 / 2.0 - 1010.0).abs() < 1e-6,
+            "a plate that fits stays centred on its depth: {}",
+            im[0].1
+        );
+        assert!(
+            leaders(&ok).is_empty(),
+            "and carries no callout - a leader on every plate would say nothing"
+        );
     }
 
     #[test]
