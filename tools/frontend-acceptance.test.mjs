@@ -2026,6 +2026,86 @@ test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => 
   assert.doesNotMatch(status.textContent, /\. FLAG curves written\./);
 });
 
+/** Every hard-coded depth-unit label left in the frontend, each classified. A row is a claim
+ *  that the literal is CORRECT as written; the sweep below refuses any occurrence that is not
+ *  on this list, and any row here that no longer exists.
+ *
+ *  - `unit-picker` — the control whose whole job is choosing between metres and feet.
+ *  - `map-coordinate` — a UTM easting or northing. Metres because the PROJECTION is, which has
+ *    nothing to do with which unit this project's depths are logged in. These must never be
+ *    swept along with the depth family.
+ *  - `display-label-not-yet-resolved` — a label over a COMPUTED thickness or a depth axis that
+ *    should follow the display unit and does not yet. Listed rather than silently tolerated:
+ *    relabelling one without also converting its values would be the Field Dashboard defect
+ *    inverted, so each needs its own conversion and its own pin.
+ */
+const HARD_CODED_DEPTH_UNIT_LABELS = [
+  ["src/ui/coreImportDialog.ts", "Metres (m)", "unit-picker"],
+  ["src/ui/coreImportDialog.ts", "Feet (ft)", "unit-picker"],
+  ["src/ui/cutoffDialog.ts", "HC pore-thickness (m)", "display-label-not-yet-resolved"],
+  ["src/ui/cutoffDialog.ts", "Net thickness (m)", "display-label-not-yet-resolved"],
+  ["src/ui/resultsQcPanel.ts", "Depth (m)", "display-label-not-yet-resolved"],
+  ["src/ui/ribbon.ts", "easting (m)", "map-coordinate"],
+  ["src/ui/ribbon.ts", "northing (m)", "map-coordinate"],
+  [
+    "src/ui/summaryDialog.ts",
+    "<th>Net</th><th>N/G</th><th>Avg VSH</th><th>Avg PHIE</th><th>Avg SWE</th><th>HPV (m)</th></tr></thead>",
+    "display-label-not-yet-resolved",
+  ],
+];
+
+test("every_hard_coded_depth_unit_label_left_in_the_frontend_is_one_somebody_classified", async () => {
+  // CORRECTNESS — SB-ENV-057. A depth a user TYPES is labelled in the project's stored unit
+  // (it reaches the backend unconverted); a depth a user READS is labelled in the display unit.
+  // Neither can be a literal, because the project decides. This sweep is the standing guard: a
+  // new dialog that hard-codes a metre label fails here instead of shipping a foot project a
+  // form that asks for metres. Rows are matched as (file, literal) pairs, so moving a line is
+  // free and changing what it claims is not.
+  const files = [];
+  const walk = async (dir) => {
+    const { readdir } = await import("node:fs/promises");
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith(".ts")) files.push(full);
+    }
+  };
+  await walk("src");
+
+  const found = [];
+  for (const file of files) {
+    const text = await readFile(file, "utf8");
+    for (const raw of text.split(/\r?\n/)) {
+      const trimmed = raw.trim();
+      // Prose about the rule is not the rule being broken.
+      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+      for (const pattern of [
+        /"([^"\n]*(?:^|\s)\((?:m|ft)\)[^"\n]*)"/g,
+        /`([^`\n]*(?:^|\s)\((?:m|ft)\)[^`\n]*)`/g,
+      ]) {
+        let match;
+        while ((match = pattern.exec(raw))) found.push(JSON.stringify([file, match[1]]));
+      }
+    }
+  }
+
+  const classified = new Set(HARD_CODED_DEPTH_UNIT_LABELS.map(([f, l]) => JSON.stringify([f, l])));
+  const unclassified = [...new Set(found)].filter((row) => !classified.has(row));
+  assert.deepEqual(
+    unclassified.map((row) => JSON.parse(row)),
+    [],
+    "a hard-coded depth-unit label must be resolved from the project, or classified as a unit picker, a map coordinate, or a display label still awaiting its conversion",
+  );
+
+  const present = new Set(found);
+  const stale = HARD_CODED_DEPTH_UNIT_LABELS.filter(([f, l]) => !present.has(JSON.stringify([f, l])));
+  assert.deepEqual(
+    stale.map(([f, l]) => [f, l]),
+    [],
+    "a classified row that no longer exists must be deleted, so the list keeps meaning what it says",
+  );
+});
+
 test("a_project_native_parameter_is_labelled_in_the_stored_unit_and_never_follows_the_view_preference", async () => {
   // CORRECTNESS — SB-ENV-057. A module argument declared with the project-native depth token
   // has no fixed unit: the number the user types goes to the backend unconverted and is

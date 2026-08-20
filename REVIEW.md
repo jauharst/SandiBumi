@@ -1,5 +1,43 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-20 — Audit increment 11 (Codex P1): every depth you TYPE now says which unit it is in
+
+- [ ] **What this fixes.** Six dialogs asked for a depth in **metres** and then sent the number
+      straight to the engine, where it is compared against — or added to — the depth grid the
+      project actually stores. On a foot project every one of them was asking for the wrong
+      number: a "+3.0 m" curve shift moves the curve **3 ft**, a "+2.5 m" core shift moves the
+      plugs **2.5 ft**, and a "Top 3000 m / Bottom 3010 m" edit is matched against foot depths, so
+      it edits the wrong interval or nothing at all. All six now read in the project's own unit.
+- [ ] **The six.** Right-click a curve → **Edit…** (Shift / Top / Bottom, and the "needs a
+      number" refusal that names them); **Data ▸ Core ▸ Shift Core…** (the field, the refusal, the
+      status line, the history entry and the undo label, all from one resolved unit so they cannot
+      drift); **Import Deviation** (Datum / KB); **Well Header…** (TD and KB); the tops
+      **autocorrelation** window and search range, whose backend already documented them as
+      "depth units"; and the **Composite** depth top / bottom.
+- [ ] **Deliberately NOT changed: Surface X and Surface Y.** A UTM easting is in metres because
+      the *projection* is, and that has nothing to do with which unit this project's depths are
+      logged in. Sweeping them along would have been a new defect wearing the fix's clothes.
+- [ ] **Click-through (foot project):** open each of the six — every depth field must read
+      **(ft)**, and your usual foot numbers must behave as they always did. On Shift Core, check
+      the status line, the Processing history entry and the Undo label all say ft too. Flip the
+      log view's depth display to metres: these labels must **stay ft**, because the stored grid
+      has not moved. Surface X / Surface Y must still say metres. On a metre project everything
+      reads exactly as before.
+- [ ] **A standing guard, not just six fixes.** A sweep test now refuses **any** hard-coded depth
+      unit anywhere in the frontend unless it is on a classified list, so the next dialog someone
+      writes fails the gate rather than shipping. Three classifications are allowed: the core
+      importer's own metres/feet **picker**, the two **map coordinates**, and five **display
+      labels still awaiting conversion** — the pay-summary table's HPV column, the cutoff dialog's
+      two thickness metrics, and the Results QC depth axis. Those five are listed rather than
+      quietly tolerated: relabelling a computed thickness without also converting its value would
+      be the Field Dashboard defect inverted, so each gets its own conversion and its own pin.
+      That is the next increment.
+- [ ] **Automated correctness:** one pin,
+      `every_hard_coded_depth_unit_label_left_in_the_frontend_is_one_somebody_classified`, with
+      two mutations red at two distinct assertions — a reintroduced `Shift (m)` fails as
+      unclassified, and a classified row whose source line was changed fails as stale, so the
+      list cannot rot into a rubber stamp.
+
 ## 2026-08-20 — Audit increment 10 (Codex P1): RtC and IMTS saturation — a gap in a bound-water curve is missing data, not zero
 
 > **This one moves numbers on real wells** — but only at depths where the answer was wrong.

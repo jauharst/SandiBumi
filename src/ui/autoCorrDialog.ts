@@ -10,6 +10,7 @@ import {
   type MultiWellProposal,
   type WellSummary,
 } from "../ipc";
+import { storedDepthLabel } from "../depthUnitPref";
 import { recordProcess } from "../processLog";
 import { bumpDataVersion, filterByActiveGroup } from "../state";
 import { pushUndo } from "../undo";
@@ -126,9 +127,12 @@ export async function buildAutoCorrContent(
   content.appendChild(formRow("Method", methodSel, "Rigid best-lag, or an elastic depth warp that follows local stretch"));
   const maxStretchRow = formRow("Max stretch ×", maxStretchInput, "Warp elasticity — how much local stretch/compression to allow");
   content.appendChild(maxStretchRow);
-  const windowRow = formRow("Window ± (m)", windowInput, "Half-length of the pattern window (single top; auto for several)");
+  // `AutoCorrRequest::half_window` and `search_range` are documented "depth units" and are used
+  // against the stored grid without conversion, so both read in the project's own unit.
+  const du = storedDepthLabel();
+  const windowRow = formRow(`Window ± (${du})`, windowInput, "Half-length of the pattern window (single top; auto for several)");
   content.appendChild(windowRow);
-  content.appendChild(formRow("Search ± (m)", searchInput, "How far above/below the initial guess to search in each well"));
+  content.appendChild(formRow(`Search ± (${du})`, searchInput, "How far above/below the initial guess to search in each well"));
 
   const runBtn = document.createElement("button");
   runBtn.className = "lp-btn";
