@@ -1,5 +1,5 @@
 import type { CurveStyle, Layout, Track, TrackCurveSeries } from "./ipc";
-import { faciesColor } from "./ui/plotCanvas";
+import { faciesColor, valueFrac } from "./ui/plotCanvas";
 import { appState } from "./state";
 import { pxPerUnitAt1to1 } from "./units";
 import { trackCurveKey } from "./trackCurveRequest";
@@ -326,18 +326,17 @@ export class LogCanvasRenderer {
     const n = Math.min(series.depth.length, series.value.length);
     const positions: number[] = [];
 
-    const valueToNdcX = (v: number): number => {
-      let frac: number;
-      if (scaleType === "log") {
-        const logMin = Math.log10(Math.max(style.min, 1e-6));
-        const logMax = Math.log10(Math.max(style.max, 1e-6));
-        const logV = Math.log10(Math.max(v, 1e-6));
-        frac = (logV - logMin) / (logMax - logMin);
-      } else {
-        frac = (v - style.min) / (style.max - style.min);
-      }
-      frac = Math.max(0, Math.min(1, frac));
-      return trackLeftNdc + frac * (trackRightNdc - trackLeftNdc);
+    // Shared with the print (`composite.rs::value_frac`) so the screen and the deliverable
+    // cannot disagree about where a value sits, or whether it HAS a place at all. `null` is a
+    // real answer: a non-positive sample on a log axis has no position, and the substitution
+    // this used to make (`Math.max(v, 1e-6)`) drew a permeability of zero as a continuous dip
+    // to the track edge - a measurement that was never made - while the print showed a gap.
+    const valueToNdcX = (v: number): number | null => {
+      const f = valueFrac(v, style.min, style.max, scaleType === "log");
+      if (f == null) return null;
+      // A continuous curve CLAMPS at the track edge; only its existence is in question above.
+      const clamped = Math.max(0, Math.min(1, f));
+      return trackLeftNdc + clamped * (trackRightNdc - trackLeftNdc);
     };
 
     // "step": the sample's value holds all the way down to the next sample before it jumps,
@@ -347,16 +346,28 @@ export class LogCanvasRenderer {
     for (let i = 0; i < n - 1; i++) {
       const v0 = series.value[i];
       const v1 = series.value[i + 1];
-      if (Number.isNaN(v0) || Number.isNaN(v1)) continue;
+      // A step curve HOLDS v0 down to the next sample's depth even when that next sample is
+      // missing - which is the stated contract and what the print does. Skipping the whole
+      // interval made the last sample before every gap draw as a zero-length tick: a blocked
+      // VSH ended one sample short of every washout, and a zone-constant curve lost the bottom
+      // of its interval. The gap then starts where the missing sample actually is.
+      if (Number.isNaN(v0)) continue;
+      if (Number.isNaN(v1) && !step) continue;
       // Y is the RAW depth value — the vertex shader converts it to a pixel/NDC position
       // dynamically from the current pan/zoom uniform, so this buffer never needs rebuilding
       // just because the user panned or changed the vertical scale.
       const x0 = valueToNdcX(v0);
-      const x1 = valueToNdcX(v1);
+      if (x0 == null) continue;
+      const x1 = Number.isNaN(v1) ? null : valueToNdcX(v1);
       const d0 = series.depth[i];
       const d1 = series.depth[i + 1];
-      if (step) positions.push(x0, d0, x0, d1, x0, d1, x1, d1);
-      else positions.push(x0, d0, x1, d1);
+      if (step) {
+        positions.push(x0, d0, x0, d1);
+        // The jump to the next sample only exists if there IS a next sample.
+        if (x1 != null) positions.push(x0, d1, x1, d1);
+      } else if (x1 != null) {
+        positions.push(x0, d0, x1, d1);
+      }
     }
 
     if (positions.length === 0) return null;
@@ -398,11 +409,17 @@ export class LogCanvasRenderer {
       for (let i = 0; i < n - 1; i++) {
         const v0 = series.value[i];
         const v1 = series.value[i + 1];
-        if (Number.isNaN(v0) || Number.isNaN(v1)) continue;
+        // Mirrors the line loop exactly: the shading may not cover an interval the line does
+        // not draw, or a value with no position on the axis. A sample the axis cannot place
+        // used to be substituted and then SHADED, which is the same false statement twice.
+        if (Number.isNaN(v0)) continue;
+        if (Number.isNaN(v1) && !step) continue;
         const x0 = valueToNdcX(v0);
+        if (x0 == null) continue;
         // A stepped curve's shading is a rectangle per interval, not a wedge — the held
         // value bounds it on both sides.
         const x1 = step ? x0 : valueToNdcX(v1);
+        if (x1 == null) continue;
         const d0 = series.depth[i];
         const d1 = series.depth[i + 1];
         fillPositions.push(x0, d0, edgeNdc, d0, x1, d1, edgeNdc, d0, edgeNdc, d1, x1, d1);

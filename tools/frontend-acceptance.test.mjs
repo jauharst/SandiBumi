@@ -2626,3 +2626,36 @@ test("the_packed_ipc_envelope_decodes_to_the_columns_the_header_names_and_keeps_
   const byName = (name) => decoded.columns[decoded.header.columns.indexOf(name)];
   assert.equal(byName("ARCHIE")[0], 0.5, "a column is found by its name, never by its position");
 });
+
+test("a value with no place on a log axis is drawn by neither the screen nor the print", async () => {
+  const { valueFrac } = await load("/src/ui/plotCanvas.ts");
+
+  // The rule is `composite.rs::value_frac`, restated once so the two renderers cannot disagree.
+  // ZERO IS NOT A SMALL PERMEABILITY. On a log axis it has no position at all, and the log view
+  // used to substitute Math.max(v, 1e-6): a PERM written as exactly 0.0 over a tight streak drew
+  // a continuous dip to the track edge, and the crossover shading filled the interval, while the
+  // print showed an honest gap. Both statements cannot be right about the same rock.
+  assert.equal(valueFrac(0, 0.1, 1000, true), null, "PERM = 0 has no position on a log axis");
+  assert.equal(valueFrac(-2, 0.1, 1000, true), null, "and neither does a negative sample");
+  assert.equal(valueFrac(NaN, 0.1, 1000, true), null, "missing stays missing");
+
+  // A track whose own min is non-positive is refused rather than rendered against a substituted
+  // decade - that was the version where screen and print disagreed about a WHOLE track, not one
+  // sample: the screen drew something and the print drew nothing.
+  assert.equal(valueFrac(5, 0, 1000, true), null, "a log track cannot start at zero");
+
+  // What it DOES answer, and the decade arithmetic that has to stay right.
+  assert.ok(Math.abs(valueFrac(10, 0.1, 1000, true) - 0.5) < 1e-12, "0.1..1000 puts 10 mid-track");
+  assert.ok(Math.abs(valueFrac(0.1, 0.1, 1000, true) - 0) < 1e-12, "min sits at 0");
+  assert.ok(Math.abs(valueFrac(1000, 0.1, 1000, true) - 1) < 1e-12, "max sits at 1");
+
+  // Linear keeps zero and negatives, because there they are ordinary values - an SP of -80 mV
+  // is a measurement, and refusing it would be the same defect wearing the opposite sign.
+  assert.ok(Math.abs(valueFrac(0, -100, 100, false) - 0.5) < 1e-12, "0 is mid-track on linear");
+  assert.ok(Math.abs(valueFrac(-80, -100, 100, false) - 0.1) < 1e-12, "a negative SP is a value");
+  assert.equal(valueFrac(5, 3, 3, false), null, "a zero-width track has no position for anything");
+
+  // Deliberately NOT clamped: off-scale is the caller's decision - a continuous curve clamps at
+  // the track edge, a point sample is skipped. Folding that in here would take the choice away.
+  assert.ok(valueFrac(2000, 0.1, 1000, true) > 1, "off-scale is reported, not clamped");
+});
