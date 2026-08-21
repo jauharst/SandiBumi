@@ -583,3 +583,83 @@ fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_wri
         .unwrap();
     assert_eq!(archived, 8, "clearing the current store must never reach into the archive");
 }
+
+/// AUDIT-2026-08-20 finding 32's class: a citation that points at nothing.
+///
+/// Provenance discipline (CLAUDE.md) requires a default, a rule or a refusal to trace to a named
+/// source. A citation naming a file that is not in the tree traces to nothing — and it reads
+/// exactly like one that does, which is what lets it survive. Finding 32 caught four sites citing
+/// `memory/method_workflow_standards.md`, a path that has never existed here; they were corrected
+/// to `docs/workflow_standards.md`, and this is the sweep that stops the next one.
+///
+/// Pinned from both sides: every cited document must resolve, AND the acknowledged list may
+/// shrink but never go stale — a file that arrives must lose its exception rather than keep it.
+#[test]
+fn every_document_this_code_cites_is_actually_in_the_tree() {
+    // The one document cited across this codebase that is NOT on master. It is real and it is
+    // 225 lines long, but it lives only on the unmerged branch `docs/prd-and-security-hardening`
+    // (commit 18da8b0a, 2026-07-29): RELEASE.md, TARGET_ARCHITECTURE.md and V1_SCOPE.md were all
+    // added there and none reached master, though the pull request that carried them was merged.
+    //
+    // The SUBSTANCE is on master — `docs/PRD_v2/22_database-model.md` states the backup-then-
+    // migrate contract that "RELEASE §3.2" is cited for, including that a failed copy aborts. So
+    // what dangles is the LABEL, in 34 places, one of which is the rule
+    // `every_migration_that_copies_the_project_first_documents_that_a_failed_copy_aborts` enforces.
+    //
+    // Left as an exception rather than re-pointed: mapping §3.1/§3.2/§3.3/§5 onto PRD_v2 sections
+    // would be authoring a governance mapping, and restoring a release policy to master is
+    // Jauhar's call. Recorded in the audit triage notes for that decision.
+    const CITED_BUT_ABSENT: &[&str] = &["docs/RELEASE.md"];
+
+    let mut sources = Vec::new();
+    rust_sources(Path::new(env!("CARGO_MANIFEST_DIR")).join("src").as_path(), &mut sources);
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+
+    let mut dangling: Vec<String> = Vec::new();
+    let mut acknowledged_seen: Vec<&str> = Vec::new();
+    for path in &sources {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        for (line_no, line) in text.split('\n').enumerate() {
+            for token in line.split(|c: char| !(c.is_alphanumeric() || "/._-".contains(c))) {
+                if !token.starts_with("docs/") || !token.ends_with(".md") {
+                    continue;
+                }
+                if CITED_BUT_ABSENT.contains(&token) {
+                    acknowledged_seen.push(
+                        CITED_BUT_ABSENT.iter().find(|known| *known == &token).unwrap(),
+                    );
+                    continue;
+                }
+                if !repo.join(token).exists() {
+                    dangling.push(format!(
+                        "{}:{} cites {token}, which is not in the tree",
+                        path.file_name().unwrap().to_string_lossy(),
+                        line_no + 1
+                    ));
+                }
+            }
+        }
+    }
+    dangling.sort();
+    dangling.dedup();
+    assert!(
+        dangling.is_empty(),
+        "a cited document must exist, or be acknowledged with the reason it does not:\n  {}",
+        dangling.join("\n  ")
+    );
+
+    // The other side. An exception that has quietly become true is a stale note claiming a gap
+    // that closed, and the next reader trusts it.
+    for known in CITED_BUT_ABSENT {
+        assert!(
+            !repo.join(known).exists(),
+            "{known} is in the tree now - delete its entry in CITED_BUT_ABSENT, the list may \
+             shrink but must never go stale"
+        );
+        assert!(
+            acknowledged_seen.contains(known),
+            "{known} is acknowledged as cited-but-absent, but nothing cites it any more - \
+             delete the entry rather than carrying it"
+        );
+    }
+}
