@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 66 (my audit P3): **the unit-ambiguity gate only knew two spellings — and one decision for you**
+
+- [ ] **What to click.** Nothing changed in the app. This is a build-time gate and an inventory,
+      both of which now catch a class they could only catch two examples of. The one thing worth
+      your eye is the **decision at the bottom of this entry**.
+- [ ] **The rule being enforced.** A parameter's unit must say what unit your typed number is in.
+      `m|ft` cannot — it means "metres or feet, you work it out" — so it was banned, and lengths
+      that follow the project's own depth unit use the single token `depth` instead.
+- [ ] **What was wrong.** The ban was a list of exactly two strings, `m|ft` and `ft|m`. Any other
+      ambiguous spelling walked straight through. The check is now on the **character** — no
+      legitimate unit in the registry contains a `|`, so the pipe itself is the tell, and the gate
+      needs no list to keep up to date.
+- [ ] **The second half: an inventory that could not notice an omission.** A test lists every
+      parameter that should carry the `depth` token and compares it against what the code declares.
+      But it built the "what the code declares" side **only from parameters already on the list** —
+      so it could catch one being taken away and was structurally incapable of noticing one that
+      was never added. Turning it round found exactly one: **`sw_height.FWL`**, the free-water
+      level. It was correctly declared all along and simply missing from the list. Ten now, not
+      nine.
+- [ ] **A decision for you — four `precalc` parameters.** Turning the gate on found four that
+      genuinely spell a union, and **none of them is a mistake**:
+      **`SURF_TEMP`** and **`RMF_TEMP`** are `degF|degC` because you pick the unit in the
+      **`OPT_TU`** dropdown right above them; **`TEMP_GRAD`** (`deg/ft|m`) and **`PGRAD`**
+      (`psi/ft|m`) are per whatever depth unit the TVDSS curve is on.
+      The manifest has no way to write "the unit is chosen over there". The natural spellings would
+      be `deg/depth` and `psi/depth` for the gradients (matching the `depth` token everything else
+      uses), and something new for "follows OPT_TU". **That changes the label printed beside a box
+      you type a gradient into**, which is exactly the mistake DEC-077 and SB-ENV-045 are about —
+      so I did not choose it. The four are listed by name in the gate with the reason, and a test
+      makes the list fail the build if it ever outlives the parameters it excuses. Tell me which
+      spelling you want and I will do it.
+
 ## 2026-08-21 — Audit increment 65 (my audit P3): **one Monte Carlo percentile definition, and one VSH duplicate kept on purpose**
 
 - [ ] **What to click.** Run a **Monte Carlo** study with non-round percentiles — set the low/high
