@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 60 (my audit P3): **a rulebook the code quotes 34 times is not in the repository**
+
+- [ ] **What to click.** Nothing — no behaviour changed. This one needs a decision from you rather
+      than a click, which is why I stopped instead of fixing it.
+- [ ] **Where it came from.** Audit finding 32 said four places cited a file
+      `memory/method_workflow_standards.md` that has never existed here. That was already fixed in
+      PR #95 — I re-checked, and they now correctly cite `docs/workflow_standards.md`. What I added
+      is the sweep that stops the NEXT one: every document the code quotes must actually be in the
+      repository.
+- [ ] **What the sweep found immediately.** **`docs/RELEASE.md` is quoted 34 times and is not
+      here.** It is a real 225-line release policy — what 1.0 means, how versions work, what
+      happens when an older SandiBumi opens a newer project file and vice versa. It was written on
+      2026-07-29 on a branch, alongside `TARGET_ARCHITECTURE.md` and `V1_SCOPE.md`. **The pull
+      request that carried all three was merged, but none of them ever landed on the main line.**
+- [ ] **How much depends on it.** Twelve of those quotes are §3.2 — the promise that a project is
+      **copied before any migration rewrites it, and that a failed copy stops the migration rather
+      than proceeding**. That is the rule protecting your project files during an upgrade, and a
+      test added last week requires every such migration to name it.
+- [ ] **The good news.** The rule itself is not lost — `docs/PRD_v2/22_database-model.md` states the
+      same backup-then-migrate contract, including that a failed copy aborts. So the protection is
+      real and tested. What is missing is the document the code points at.
+- [ ] **Why I did not just fix it.** Two ways to close it, both yours: **restore** the three
+      documents from the branch (`git checkout origin/docs/prd-and-security-hardening -- docs/RELEASE.md`,
+      then read for three weeks of staleness), or **re-point** all 34 quotes at their new homes in
+      PRD_v2 — which means deciding which PRD_v2 section replaces each RELEASE section, and that is
+      writing policy, not correcting a typo.
+- [ ] **Until you decide, it is visible rather than silent.** The sweep carries it as the single
+      acknowledged exception, refuses any NEW quote of a missing document, and refuses the
+      exception itself the moment the file appears.
+
 ## 2026-08-21 — Audit increment 59 (my audit P3): **the Monte Carlo band could stop where its own curves kept going**
 
 - [ ] **What to click.** Run **Monte Carlo** with more realizations than the storage cap — e.g.

@@ -276,6 +276,7 @@
   ],
   "unmapped_review_sections_note": "REVIEW.md sections that map to no capability above. Acknowledged debt, not an exemption: the generator refuses an unmapped section missing from this list, and refuses a listed title that no longer exists or has since been mapped. The list may shrink, never silently grow.",
   "unmapped_review_sections": [
+    "Audit increment 60 (my audit P3): **a rulebook the code quotes 34 times is not in the repository**",
     "Audit increment 55 (my audit P2): **comments that had drifted onto the wrong function**",
     "Audit increment 54 (my audit P2): **the features that are built but have no button**",
     "Audit increment 52 (my audit P2): **one place now records a new version of an interpretation**",
