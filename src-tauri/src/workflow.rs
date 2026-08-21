@@ -482,23 +482,6 @@ pub(crate) const PRECONDITION_POLICY_PROVENANCE_KEY: &str =
 pub(crate) const PRECONDITION_VIOLATIONS_PROVENANCE_KEY: &str =
     "_sandibumi_precondition_violations_v1";
 
-/// The names a run will actually write, one per declared output, in declaration order.
-///
-/// This is the ONE place a module's output name is decided, and it exists because five modules
-/// used to build their own (`log_predict` returned `<target>_SYN`, `phi_cap` returned
-/// `<input>_CAP`, Condition returned whatever its `OUT` text field said). Three costs followed
-/// from that, and all three are what this closes:
-///
-/// * The manifest's declared LogOut described a curve the run did not write, so a dialog reading
-///   "Outputs: SYN" was telling the user something untrue.
-/// * There was no way to offer a rename without re-implementing each module's naming rule in the
-///   caller — a second copy that would drift, the standing `composite.rs`-versus-renderer warning.
-/// * Nothing checked the name before it was written. `condition.rs` and `frame.rs` each carried
-///   their own copy of the shadowing refusal; the other forty modules had none, so a rename could
-///   have put `VSH` on `GR` and produced a curve nothing can read.
-///
-/// Jauhar, 2026-08-05: *"naming each output curve in bulk when modules gonna run"* — the grid in
-/// the module pane is a row per entry returned here.
 /// The names a run actually WRITES for its class outputs (`SB-MLA-055`).
 ///
 /// Walks `modules::class_outputs` through the same two transforms the write path applies — the
@@ -525,6 +508,23 @@ fn class_output_names(
         .collect()
 }
 
+/// The names a run will actually write, one per declared output, in declaration order.
+///
+/// This is the ONE place a module's output name is decided, and it exists because five modules
+/// used to build their own (`log_predict` returned `<target>_SYN`, `phi_cap` returned
+/// `<input>_CAP`, Condition returned whatever its `OUT` text field said). Three costs followed
+/// from that, and all three are what this closes:
+///
+/// * The manifest's declared LogOut described a curve the run did not write, so a dialog reading
+///   "Outputs: SYN" was telling the user something untrue.
+/// * There was no way to offer a rename without re-implementing each module's naming rule in the
+///   caller — a second copy that would drift, the standing `composite.rs`-versus-renderer warning.
+/// * Nothing checked the name before it was written. `condition.rs` and `frame.rs` each carried
+///   their own copy of the shadowing refusal; the other forty modules had none, so a rename could
+///   have put `VSH` on `GR` and produced a curve nothing can read.
+///
+/// Jauhar, 2026-08-05: *"naming each output curve in bulk when modules gonna run"* — the grid in
+/// the module pane is a row per entry returned here.
 pub(crate) fn resolve_output_names(
     spec: &modules::ModuleSpec,
     opts: &HashMap<String, String>,
@@ -1410,13 +1410,6 @@ fn expand_out_pattern(
     Some(out)
 }
 
-/// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
-/// and write output curves to computed_curves. Wells are processed in parallel.
-///
-/// The `run_workflow_module` Tauri command now calls [`run_workflow_module_into`] directly (to
-/// pass a job handle + cancel flag), so this no-progress convenience wrapper is used only by the
-/// test suite — hence `allow(dead_code)` for the lib-proper build.
-#[allow(dead_code)]
 /// SB-DBM-015: the outcome of "re-run this set" - the replay happened only because every
 /// manifest element resolved, and the byte comparison is reported rather than assumed.
 #[derive(Debug, Clone, Serialize)]
@@ -1643,6 +1636,13 @@ pub fn rerun_log_set(
     })
 }
 
+/// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
+/// and write output curves to computed_curves. Wells are processed in parallel.
+///
+/// The `run_workflow_module` Tauri command now calls [`run_workflow_module_into`] directly (to
+/// pass a job handle + cancel flag), so this no-progress convenience wrapper is used only by the
+/// test suite — hence `allow(dead_code)` for the lib-proper build.
+#[allow(dead_code)]
 pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Vec<ModuleRunResult> {
     run_workflow_module_into(db, req, None, None, None)
 }
@@ -3423,11 +3423,6 @@ pub struct PaySummaryRequest {
     /// caller did before this existed (Jauhar, 2026-08-05).
     #[serde(default)]
     pub input_set: Option<String>,
-    /// When true, FLAG_* curves are written in place without creating a versioned log set. Set
-    /// by the report/composite render pass, whose pay flags are a render side-effect that must
-    /// not churn the archive with a version per render. The explicit Cutoffs & Summary run
-    /// leaves this false, so its pay flags are versioned with the cutoffs recorded in provenance
-    /// (log_sets.params_json).
     /// SB-CUT-009. Per-curve averaging weighting, keyed by the SLOT the curve fills — one of
     /// [`AVERAGED_SLOTS`], a role rather than a mnemonic. Absent slots take [`default_weighting`],
     /// so a caller who declares nothing gets exactly the behaviour that shipped before this
@@ -3448,6 +3443,13 @@ pub struct PaySummaryRequest {
     /// a different label.
     #[serde(default)]
     pub frame: SummationFrame,
+    /// RETAINED AS A REFUSAL, not as a switch. It once meant "write FLAG_* in place without
+    /// versioning", set by the report/composite render pass so a render would not churn the
+    /// archive. That behaviour is gone: a pay flag with no ancestry cannot say which cutoffs
+    /// produced it, so a run that asks for one is REFUSED BY NAME rather than served. The field
+    /// stays on the wire so a saved or older caller that still sets it gets that named refusal
+    /// instead of a deserialization error. A render pass that wants no flags written sets
+    /// [`PaySummaryRequest::stats_only`] instead, which is what every in-repo caller does.
     #[serde(default)]
     pub skip_version: bool,
     /// When true, compute and return the per-zone statistics WITHOUT persisting any FLAG_*
@@ -4662,10 +4664,12 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         if !req.stats_only {
             let conn = db.lock().unwrap();
             if req.skip_version {
-                // Render side-effect (report/composite): overwrite FLAG_* in place, no version churn.
+                // Refused, never served: an in-place FLAG_* write leaves a pay flag that cannot
+                // say which cutoffs produced it. `stats_only` is the supported way to want no
+                // flags written, and it is checked above this.
                 return Err("pay-summary write refused: skip_version would create ancestry-free FLAG curves; use a versioned run"
-                        .into());
-                } else {
+                    .into());
+            } else {
                 // Version the pay flags into a log set with provenance — module + the CUTOFFS
                 // that produced them + the inputs — like any other module output, so a re-run
                 // keeps history, any version is restorable/prunable from the catalog, and the

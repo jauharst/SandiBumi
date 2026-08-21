@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 51 (my audit P2 ×2): **the notes that say WHY were attached to the wrong code**
+
+- [ ] **Nothing to click.** This increment changes no behaviour at all — no number moves, no button
+      changes. It is the written record of the engine, and it had come loose.
+- [ ] **What was wrong.** When a new function or a new test is typed in *above* an existing one,
+      it can land between an explanation and the thing it explains. Nothing complains — the
+      compiler never reads those notes — so the explanation quietly ends up describing its new
+      neighbour. **Fifteen** had drifted, and each one took its **source citation** with it.
+- [ ] **The worst one, and why it matters to a project file.** Three separate notes had stacked up
+      on one database upgrade. One of them was the promise that when SandiBumi rewrites your
+      project file, **it copies the file first, and if the copy fails it stops rather than
+      rewriting anyway**. That promise was sitting on a function that copies nothing — while the
+      two upgrades that really do rewrite your file had **no note at all**. Anyone checking
+      "is my project safe during an upgrade?" would have read the answer in the wrong place.
+- [ ] **A second one worth naming.** The note explaining how SandiBumi decides a curve's family
+      from its mnemonic had been cut **in half mid-sentence** by a list inserted into it, so it
+      ended on the word "(the".
+- [ ] **And a promise the code no longer keeps.** Three places still described `skip_version` as
+      "writes the pay flags in place without versioning them". That was removed on purpose — a pay
+      flag that cannot say which cut-offs produced it is not a result — and the code now refuses
+      it by name. The two Rust notes and the one on the API surface now say so.
+- [ ] **Pinned.** `every_migration_that_copies_the_project_first_documents_that_a_failed_copy_aborts`
+      is the standing guard for the safety half: an upgrade that copies your project before
+      rewriting it must say so **on itself**, naming the policy and stating that a failed copy
+      aborts. Both halves are required, because "we take a backup" without "a failed backup stops
+      the upgrade" is the reading under which rewriting anyway looks allowed. Verified by breaking
+      each half on purpose.
+- [ ] **One real repair fell out of writing that guard.** SandiBumi has a check that scans its own
+      source for anything writing a curve without recording where it came from. It finds the end of
+      a test section by counting brackets in the text — and the new guard has to look for a line
+      starting with a closing bracket, so it needed one as a plain character. That single bracket
+      was counted as if it closed the section, and the check began reading test fixtures as if they
+      were production code, reporting problems in the wrong file. Fixed where the counting happens,
+      not by asking everyone who writes a check to remember it.
+
 ## 2026-08-21 — Audit increment 50 (my audit P2): **the three multi-well overlays now share one loader**
 
 - [ ] **What to click.** Open a **Crossplot**, a **Histogram** and a **Pickett** side by side, set

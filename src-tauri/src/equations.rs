@@ -4948,19 +4948,6 @@ mod tests {
         assert_eq!(count("CSW"), 0, "never a point at zero, which would be a measurement");
     }
 
-    /// CORRECTNESS — SB-DBM-035 / SB-DBM-T35. The exact v1/v2 archive plus current v3,
-    /// refused archive UPDATE/DELETE, restore-to-v4, source-version record and unchanged v1-v3
-    /// expectations come from `22_database-model.md` §6 T35, sourced there to SB-CORE-010,
-    /// F-06 and the shipped archive-purpose statement. The numeric rows are non-physical fixture
-    /// labels, not petrophysical values or defaults.
-    /// DEC-045 / DEC-039 — the per-version comment column, the shared seam SB-POR-003, 026, 028,
-    /// 047 and 048 were each blocked on ("there is nowhere to write it today"). Source: DEC-039
-    /// (2026-08-16) records the branch-and-limit state as a COMMENT ON THE CURVE carried per
-    /// curve version; DEC-045 authorizes exactly this column in `db.rs`.
-    /// SB-DBM-030's computed-store half: a module output's missing sample (f32::NAN in the
-    /// vector, per rule 2) binds SQL NULL in BOTH the current store and the archive - so at the
-    /// store "no value" is never representable as a number - and the reader hands back the NaN
-    /// convention with data surviving bit for bit.
     /// SB-DIO-031 (DEC-030): an EXACT request never falls back - a different curve's data
     /// must not be supplied under a requested name - while the SEMANTIC request resolves the
     /// same name by family and returns the CONCRETE identity and rule that chose it.
@@ -5011,6 +4998,10 @@ mod tests {
         }
     }
 
+    /// SB-DBM-030's computed-store half: a module output's missing sample (f32::NAN in the
+    /// vector, per rule 2) binds SQL NULL in BOTH the current store and the archive - so at the
+    /// store "no value" is never representable as a number - and the reader hands back the NaN
+    /// convention with data surviving bit for bit.
     #[test]
     fn a_computed_curves_missing_sample_is_sql_null_at_the_store_and_nan_at_the_reader() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -5045,6 +5036,10 @@ mod tests {
         assert_eq!(vsh[2].to_bits(), 0.25f32.to_bits());
     }
 
+    /// DEC-045 / DEC-039 — the per-version comment column, the shared seam SB-POR-003, 026, 028,
+    /// 047 and 048 were each blocked on ("there is nowhere to write it today"). Source: DEC-039
+    /// (2026-08-16) records the branch-and-limit state as a COMMENT ON THE CURVE carried per
+    /// curve version; DEC-045 authorizes exactly this column in `db.rs`.
     #[test]
     fn a_log_set_version_carries_its_own_comment_and_never_lends_it_to_another_version() {
         let conn = Connection::open_in_memory().unwrap();
@@ -5081,6 +5076,11 @@ mod tests {
         assert!(set_log_set_comment(&conn, "no-such-set", "text").is_err());
     }
 
+    /// CORRECTNESS — SB-DBM-035 / SB-DBM-T35. The exact v1/v2 archive plus current v3,
+    /// refused archive UPDATE/DELETE, restore-to-v4, source-version record and unchanged v1-v3
+    /// expectations come from `22_database-model.md` §6 T35, sourced there to SB-CORE-010,
+    /// F-06 and the shipped archive-purpose statement. The numeric rows are non-physical fixture
+    /// labels, not petrophysical values or defaults.
     #[test]
     fn archive_updates_and_deletes_are_refused_and_restoring_version_one_creates_version_four_without_changing_versions_one_through_three() {
         use crate::db;

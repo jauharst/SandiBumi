@@ -3228,10 +3228,11 @@ export interface PaySummaryRequest {
    *  "I am not filtering on Sw" and "I meant to and have not said what" are different statements,
    *  and only one may produce a number. */
   enabled_unset?: string[];
-  /** Write FLAG_* in place without creating a versioned log set, instead of versioning the pay
-   *  flags (with the cutoffs in provenance) per well. Set by the report/composite render pass,
-   *  whose flags are a render side-effect that should not churn the archive with a version per
-   *  render. The explicit Cutoffs & Summary run leaves this false so its flags are versioned. */
+  /** RETAINED AS A REFUSAL, not a switch. It once meant "write FLAG_* in place without
+   *  versioning". That behaviour is gone — a pay flag with no ancestry cannot say which cutoffs
+   *  produced it — so a request that sets this is REFUSED BY NAME. It stays on the wire so an
+   *  older caller gets that refusal rather than a deserialization error. To want no flags
+   *  written, set `stats_only`. */
   skip_version?: boolean;
   /** Compute + return the per-zone stats WITHOUT persisting any FLAG_* curves. The Field
    *  Dashboard sets this: it only reads the returned rows, so writing flags per well on every

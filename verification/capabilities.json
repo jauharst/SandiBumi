@@ -276,6 +276,7 @@
   ],
   "unmapped_review_sections_note": "REVIEW.md sections that map to no capability above. Acknowledged debt, not an exemption: the generator refuses an unmapped section missing from this list, and refuses a listed title that no longer exists or has since been mapped. The list may shrink, never silently grow.",
   "unmapped_review_sections": [
+    "Audit increment 51 (my audit P2 ×2): **the notes that say WHY were attached to the wrong code**",
     "Audit increment 5 (P2): one geothermal gradient, not two — your R-3 executed",
     "Audit increment 4 (P1): the printed box plot agrees with the screen again, and your three rulings are on the record",
     "Audit increment 2 (P1): \"RHG\" now means Raymer-Hunt-Gardner 1980, and nothing else",
