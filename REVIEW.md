@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 78 (my audit P1): **a fully sourced default that disclosed nothing about its own source**
+
+- [ ] **What to click.** Run **phi_dn** (density-neutron porosity) in shale-reduced mode and open
+      the run's parameter disclosure. The four shale-reduction clamps — `RHOSR_MIN`, `RHOSR_MAX`,
+      `NPHISR_MIN`, `NPHISR_MAX` — should now show the two readings they were chosen between:
+      Geolog's chart mode, which clamps both crossplot axes, and Geolog's Bateman-Konen mode, which
+      clamps the neutron side only and wider. Before this they showed **nothing at all**.
+- [ ] **What was wrong.** SandiBumi keeps a register of every default that two products disagree
+      about, so a run can say which reading it used and what the alternatives were. That register
+      was kept as **three separate hand-written lists** of the same parameters: one saying where a
+      parameter's competing values come from, one saying what the parameter is *called*, and one
+      listing which parameters carry a disagreement at all. The shale-reduction clamp was in the
+      first list and missing from the other two — and a disclosure with no name is dropped
+      entirely, so a parameter with a complete, cited source table produced **no provenance line**.
+      That inverts the module's own rule, which is that an *un*sourced default must be flagged.
+- [ ] **What changed.** One list now. Each parameter gives its sources, its name and its
+      disagreement in the same entry, so a parameter that answers one question answers all three or
+      the code does not build. The "which parameters carry a disagreement" list is now *derived*
+      from the sources rather than typed out beside them — it is exactly the parameters with two or
+      more competing values, which is the rule its own check already asserted.
+- [ ] **Why the old check did not catch it.** It compared the list against a hand-written copy of
+      the same list. Two copies of an incomplete list agree perfectly. The check now verifies the
+      derivation and would fail on a parameter registered without a name, or on an inventory that
+      quietly dropped one.
+- [ ] **One correction to the audit, worth knowing.** The finding also named five more parameters
+      as missing from that inventory. They are correctly absent: each carries a **single** source,
+      so there is no disagreement to disclose. Only the shale-reduction clamp had two competing
+      values and was left out — counted, not eyeballed: 32 parameters registered, 27 with competing
+      values, 5 with one source each.
+- [ ] **Nothing else changes.** No number moves; the only difference you can see is four clamps
+      that now carry the provenance line they always should have.
+
 ## 2026-08-21 — Audit increment 77 (my audit P3): **one legend rule for the crossplot, the histogram and the Pickett plot**
 
 - [ ] **What to click.** Turn on multi-well context on a Crossplot, a Histogram and a Pickett plot
