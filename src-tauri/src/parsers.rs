@@ -2443,9 +2443,21 @@ fn percent_to_fraction_declared(vals: &mut [f32], declared: Option<FractionScale
     ScaleEvidence::GuessedFraction
 }
 
-/// The undeclared-column form, kept so the SCAL paths that have no header context read the same.
-fn percent_to_fraction(vals: &mut [f32]) {
-    percent_to_fraction_declared(vals, None);
+/// What a SCAL delivery's own header says a column is in — units row first, then the column
+/// header, the same two sources in the same order the core path and the depth unit already use.
+///
+/// AUDIT-2026-08-20 finding 47. The three SCAL parsers ran the magnitude heuristic ALONE, on the
+/// stated grounds that they had no header context. They all do: every one of them resolves its
+/// columns by header alias, so a delivery writing `SW (%)` or `PORO, %` was declaring the scale
+/// one field away from the code deciding it by median. The heuristic's converse is false — tight
+/// rock quoted in percent has a small median — so a Pc plug set reading 0.5, 0.8, 1.0 %PV stayed
+/// verbatim and every Sw in the file became a hundred times what the lab measured, which no
+/// downstream guard can reconstruct.
+///
+/// `None` is still a legitimate answer where a format genuinely states nothing, but it is now
+/// something a call site SAYS rather than something it gets by calling the shorter function.
+fn declared_scale(units_cell: Option<&str>, header: Option<&str>) -> Option<FractionScale> {
+    units_cell.and_then(fraction_scale_token).or_else(|| header.and_then(fraction_scale_token))
 }
 
 /// Parses a routine-core-analysis CSV (arbitrary column order, alias-resolved headers —
@@ -2586,6 +2598,9 @@ fn parse_scal_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcReco
     // a SAMPLE column at all. A row naming a DIFFERENT sample starts a new plug and
     // inherits nothing.
     let mut last: Option<(Option<i32>, Option<f32>, f32, f32)> = None;
+    // A units row under the header is a DECLARATION (finding 47). It is skipped as data either
+    // way — its Pc cell will not parse — so it has to be caught on the way past or it is lost.
+    let mut units_row: Option<Vec<String>> = None;
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {
@@ -2594,6 +2609,12 @@ fn parse_scal_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcReco
         let pc = get(Some(idx_pc));
         let sw = get(Some(idx_sw));
         if pc.is_nan() || sw.is_nan() {
+            if units_row.is_none() && out.is_empty() {
+                let row: Vec<String> = record.iter().map(|c| c.to_string()).collect();
+                if is_units_row(&row, idx_pc) {
+                    units_row = Some(row);
+                }
+            }
             continue;
         }
         let mut sample_no = idx_sample.and_then(|i| record.get(i)).and_then(parse_sample_no);
@@ -2625,14 +2646,23 @@ fn parse_scal_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcReco
         out.push(ScalPcRecord { sample_no, depth, perm, poro, pc, sw });
     }
 
-    // Percent detection over the whole file (same heuristic as core CSVs).
+    // What the FILE says, then the definitional bound, then the median — the core path's order
+    // (finding 47). This format resolves both columns by header alias, so both declarations are
+    // right there.
+    let declared = |idx: Option<usize>| -> Option<FractionScale> {
+        let i = idx?;
+        declared_scale(
+            units_row.as_ref().and_then(|r| r.get(i)).map(String::as_str),
+            headers.get(i).map(String::as_str),
+        )
+    };
     let mut sws: Vec<f32> = out.iter().map(|r| r.sw).collect();
-    percent_to_fraction(&mut sws);
+    percent_to_fraction_declared(&mut sws, declared(Some(idx_sw)));
     for (r, s) in out.iter_mut().zip(&sws) {
         r.sw = *s;
     }
     let mut poros: Vec<f32> = out.iter().map(|r| r.poro).collect();
-    percent_to_fraction(&mut poros);
+    percent_to_fraction_declared(&mut poros, declared(idx_poro));
     for (r, p) in out.iter_mut().zip(&poros) {
         r.poro = *p;
     }
@@ -2746,6 +2776,7 @@ fn parse_scal_wide_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalP
     let mut idx_perm = None;
     let mut idx_poro = None;
     let mut pressure_cols: Vec<(usize, f32)> = Vec::new(); // (column index, Pc psi)
+    let mut poro_header: Option<String> = None;
     let mut out = Vec::new();
     let mut header_found = false;
 
@@ -2771,6 +2802,8 @@ fn parse_scal_wide_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalP
                 continue; // not the table header — keep scanning the preamble
             }
             (idx_sample, idx_depth, idx_perm, idx_poro) = (s, d, k, p);
+            // The porosity column's own header, kept because it can say `PORO (%)` (finding 47).
+            poro_header = p.and_then(|i| headers.get(i)).cloned();
             pressure_cols = pcols;
             header_found = true;
             continue;
@@ -2808,14 +2841,20 @@ fn parse_scal_wide_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalP
         ));
     }
 
-    // %PV → v/v over the whole file (same heuristic as every core/SCAL import).
+    // %PV → v/v. The saturations sit UNDER the pressure columns in this wide format, so their
+    // headers state a pressure and never a saturation scale — `None` here is the honest answer
+    // and not the default that finding 47 is about. Porosity has a column of its own and a
+    // header that can say `PORO (%)`, so it is read.
     let mut sws: Vec<f32> = out.iter().map(|r| r.sw).collect();
-    percent_to_fraction(&mut sws);
+    percent_to_fraction_declared(&mut sws, None);
     for (r, s) in out.iter_mut().zip(&sws) {
         r.sw = *s;
     }
     let mut poros: Vec<f32> = out.iter().map(|r| r.poro).collect();
-    percent_to_fraction(&mut poros);
+    percent_to_fraction_declared(
+        &mut poros,
+        declared_scale(None, poro_header.as_deref()),
+    );
     for (r, p) in out.iter_mut().zip(&poros) {
         r.poro = *p;
     }
@@ -2848,6 +2887,9 @@ fn parse_scal_centrifuge_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec
     let mut idx_pc: Option<usize> = None;
     let mut idx_sw: Option<usize> = None;
     let mut out: Vec<ScalPcRecord> = Vec::new();
+    // What the file declares for each, gathered as the blocks go past (finding 47).
+    let mut sw_scale: Option<FractionScale> = None;
+    let mut poro_scale: Option<FractionScale> = None;
 
     for result in rdr.records() {
         let record = result?;
@@ -2882,6 +2924,8 @@ fn parse_scal_centrifuge_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec
             }
             if CORE_CPOR_ALIASES.iter().any(|a| header_matches(key, a)) {
                 poro = val_kv.and_then(parse_f32_cell).unwrap_or(f32::NAN);
+                // "POROSITY (%)" is the key naming the value — the declaration this format has.
+                poro_scale = poro_scale.or_else(|| fraction_scale_token(key));
                 continue;
             }
         }
@@ -2892,6 +2936,10 @@ fn parse_scal_centrifuge_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec
         if let (Some(p), Some(s)) = (pc_col, sw_col) {
             idx_pc = Some(p);
             idx_sw = Some(s);
+            // Finding 47: the header cell that named this column can also say what it is in.
+            // Kept from the FIRST block that declares one — a merged workbook often pastes the
+            // header once, and a later block that omits it has not changed its mind.
+            sw_scale = sw_scale.or_else(|| fraction_scale_token(&cells[s]));
             continue;
         }
 
@@ -2912,12 +2960,12 @@ fn parse_scal_centrifuge_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Vec
     }
 
     let mut sws: Vec<f32> = out.iter().map(|r| r.sw).collect();
-    percent_to_fraction(&mut sws);
+    percent_to_fraction_declared(&mut sws, sw_scale);
     for (r, s) in out.iter_mut().zip(&sws) {
         r.sw = *s;
     }
     let mut poros: Vec<f32> = out.iter().map(|r| r.poro).collect();
-    percent_to_fraction(&mut poros);
+    percent_to_fraction_declared(&mut poros, poro_scale);
     for (r, p) in out.iter_mut().zip(&poros) {
         r.poro = *p;
     }
@@ -3258,6 +3306,64 @@ mod scal_import_format_tests {
         let mut f = File::create(&path).unwrap();
         f.write_all(body.as_bytes()).unwrap();
         path
+    }
+
+    /// AUDIT-2026-08-20 finding 47. A SCAL delivery states its scale in the same two places a
+    /// core table does — a units row under the header, then the column header itself — and all
+    /// three SCAL parsers decided it by median alone while resolving those very headers to find
+    /// the columns.
+    ///
+    /// The median rule is sound in one direction only. Tight rock quoted in percent has a SMALL
+    /// median, so a plug set at 0.5, 0.8 and 1.0 %PV was stored verbatim as fractions: 50%, 80%
+    /// and 100% porosity, and every one of them passes the later `<= 1.0` validity gate. Nothing
+    /// downstream can reconstruct the lost factor of a hundred.
+    #[test]
+    fn a_scal_delivery_that_states_its_scale_is_believed_before_the_median_and_after_the_definition() {
+        // Header declaration. Porosity sub-1% is tight rock, not a typo, and the median cannot
+        // tell it from a fraction; the Sw column declares v/v while carrying 95, which no
+        // saturation can be.
+        let path = write_temp_csv(
+            "sandibumi_scal_scale_header.csv",
+            "Sample,Depth,Perm,Poro (%),Pc,Sw (V/V)\n\
+             4,2001.5,0.01,0.5,1,95\n\
+             4,2001.5,0.01,0.5,10,60\n\
+             7,2010.2,0.02,0.8,1,96\n\
+             7,2010.2,0.02,0.8,10,62\n\
+             9,2020.0,0.03,1.0,1,97\n\
+             9,2020.0,0.03,1.0,10,63\n",
+        );
+        let recs = parse_scal_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert!(
+            (recs[0].poro - 0.005).abs() < 1e-6,
+            "a declared percent is believed where the median cannot see it: {}",
+            recs[0].poro,
+        );
+        assert!(
+            (recs[0].sw - 0.95).abs() < 1e-6,
+            "and the definitional bound still outranks a declaration its own numbers refute: {}",
+            recs[0].sw,
+        );
+
+        // Units row under the header — checked FIRST, as everywhere else, so a delivery whose
+        // header names the column and whose units row states the scale is read whole.
+        let path = write_temp_csv(
+            "sandibumi_scal_scale_units_row.csv",
+            "Sample,Depth,Perm,Poro,Pc,Sw\n\
+             ,m,mD,%,psi,%\n\
+             4,2001.5,0.01,0.5,1,95\n\
+             4,2001.5,0.01,0.5,10,60\n\
+             7,2010.2,0.02,0.8,1,96\n\
+             7,2010.2,0.02,0.8,10,62\n",
+        );
+        let recs = parse_scal_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(recs.len(), 4, "the units row is a declaration, never a Pc point");
+        assert!(
+            (recs[0].poro - 0.005).abs() < 1e-6,
+            "the units row states the scale the header left out: {}",
+            recs[0].poro,
+        );
     }
 
     /// The Corelab-style porous-plate delivery: preamble lines, OB stress note, pressure
