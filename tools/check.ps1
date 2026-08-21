@@ -49,63 +49,41 @@ function Fail([string]$stage, [int]$code) {
 
 $total = [System.Diagnostics.Stopwatch]::StartNew()
 
-# --- Stage 1: takeover ledger ------------------------------------------------
-Write-Host "[1/4] takeover ledger: source and tracker agree..." -ForegroundColor Cyan
+# --- Stage 1: repository gates -----------------------------------------------
+# AUDIT-2026-08-20 finding 59. These were twelve copy-pasted blocks and every one of them failed
+# as "GATE FAILED at takeover ledger" - so a broken unit registry or a stale chart derivation
+# reported the wrong gate, on the project's own green gate. That is the needWell.ts principle
+# (refuse BY NAME, with the fix stated) applied to the tooling: one list, one loop, and the
+# failure names the gate that actually refused. Order, short-circuit and exit code are unchanged.
+$stage1Gates = @(
+    @{ Name = "takeover ledger (tests)";      Run = { & npm run test:takeover-ledger } },
+    @{ Name = "takeover ledger (check)";      Run = { & npm run check:takeover-ledger } },
+    @{ Name = "gate-2 program (tests)";       Run = { & npm run test:gate2-program } },
+    @{ Name = "gate-2 program (check)";       Run = { & npm run check:gate2-program } },
+    @{ Name = "gate-2 hygiene (tests)";       Run = { & npm run test:gate2-hygiene } },
+    @{ Name = "gate-2 hygiene (check)";       Run = { & npm run check:gate2-hygiene } },
+    @{ Name = "unit registry (tests)";        Run = { & npm run test:unit-registry } },
+    @{ Name = "unit registry (check)";        Run = { & npm run check:unit-registry } },
+    @{ Name = "chart derivation (tests)";     Run = { & npm run test:chart-derivation } },
+    @{ Name = "chart derivation (check)";     Run = { & npm run check:chart-derivation } },
+    @{ Name = "release inventory";            Run = { & npm run test:release-inventory } },
+    @{ Name = "generated artifacts";          Run = { & npm run test:generated-artifact } },
+    @{ Name = "third-party licenses";         Run = { & node "tools/gen-third-party-licenses.mjs" --check } }
+)
+
+Write-Host "[1/4] repository gates: source and tracker agree..." -ForegroundColor Cyan
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 Push-Location $repo
-& npm run test:takeover-ledger
-$code = $LASTEXITCODE
-if ($code -eq 0) {
-    & npm run check:takeover-ledger
+$code = 0
+$failed = ""
+foreach ($gate in $stage1Gates) {
+    & $gate.Run
     $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run test:gate2-program
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run check:gate2-program
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run test:gate2-hygiene
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run check:gate2-hygiene
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run test:unit-registry
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run check:unit-registry
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run test:chart-derivation
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run check:chart-derivation
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run test:release-inventory
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & npm run test:generated-artifact
-    $code = $LASTEXITCODE
-}
-if ($code -eq 0) {
-    & node "tools/gen-third-party-licenses.mjs" --check
-    $code = $LASTEXITCODE
+    if ($code -ne 0) { $failed = $gate.Name; break }
 }
 Pop-Location
-if ($code -ne 0) { Fail "takeover ledger" $code }
-Write-Host ("[1/4] takeover ledger green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
+if ($code -ne 0) { Fail $failed $code }
+Write-Host ("[1/4] repository gates green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
 
 # --- Stage 2: capability verification matrix --------------------------------
 Write-Host "[2/4] verification matrix: generated file is current..." -ForegroundColor Cyan
