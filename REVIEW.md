@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 79 (my audit P3): **one porosity ceiling, stated once instead of three times**
+
+- [ ] **What to click.** Run **phi_den**, **phi_dn** and **phi_dnbk** on the same well, each in all
+      three PHIE limiting modes (SHALE_REDUCED, MAXIMUM, SMOOTH_ROLLOFF). Every curve should be
+      identical to what it was before — this increment moves no number, it removes the two extra
+      copies of the code that produces them.
+- [ ] **What was wrong.** The ceiling that limits effective porosity — the smooth roll-off past the
+      clay cutoff, the shale-reduced envelope, the flat maximum, and the floor that binds beneath
+      all three — was written out **three times**, once in each of the three density-porosity
+      modules, identical down to the comments. Three copies of a porosity ceiling is three places
+      for an exponent or a cutoff to be corrected in two of them, and that failure is silent: every
+      mode still computes, still plots, and only the shale end of the curve moves.
+- [ ] **What changed.** One statement of it now, sitting beside the other shared porosity maths
+      this file already keeps in one place (the two-endpoint fraction, shale total porosity, the
+      PHIT_SH derivation). All three modules call it. The full Rust suite passes unchanged, which
+      is the evidence that nothing moved.
+- [ ] **The same thing for the environmental-correction flags.** Each of the three corrections
+      (gamma ray, neutron, density) publishes a four-part status per sample — corrected in FULL, in
+      PART, NOT corrected, or REFUSED — of which exactly one is true at any depth. Those four were
+      declared three times, in three module manifests, with their wording spelled out each time. A
+      status group that ships three of its four members, or whose wording drifts between modules,
+      is one you cannot read; it is declared once now, and the check fails if any of the three
+      modules loses a member.
+- [ ] **What the check pins.** Not the arithmetic — that already has its own tests — but that the
+      three modules still *share* it. A fourth copy pasted back in would give the same answer today
+      and drift tomorrow, so the check counts the statements and the callers, from both sides.
+
 ## 2026-08-21 — Audit increment 78 (my audit P1): **a fully sourced default that disclosed nothing about its own source**
 
 - [ ] **What to click.** Run **phi_dn** (density-neutron porosity) in shale-reduced mode and open
