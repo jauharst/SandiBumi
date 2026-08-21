@@ -1641,6 +1641,28 @@ fn limit(v: f64, lo: f64, hi: f64) -> f64 {
     }
 }
 
+/// What each `vsh_gr` branch's own arithmetic breaks on, for the report when its bound bites.
+///
+/// AUDIT-2026-08-20 finding 31. Prose only — deliberately no bound VALUES here. The bounds live
+/// in the ladder arms and nowhere else, and whether one bit is read back off the clamped index
+/// itself, so this table cannot drift out of agreement with the arithmetic it describes.
+///
+/// The four listed branches divide by, or take the root of, an expression that changes sign:
+/// STIEBER1 by (3 − 2·index), STIEBER2 by (2 − index), STIEBER3 by (4 − 3·index), and CLAVIER
+/// takes √(3.38 − (index + 0.7)²). Past those points an unbounded index returns a NEGATIVE shale
+/// volume or a NaN rather than a large one — the two readings a user is least able to question.
+/// Larionov and the linear form have no singularity and bound nothing; bounding them would
+/// silently change their answer rather than protect it.
+fn gr_index_singularity(method: &str) -> Option<&'static str> {
+    match method {
+        "STIEBER1" => Some("the pole of v/(3-2v) at index 1.5"),
+        "STIEBER2" => Some("the pole of v/(2-v) at index 2.0"),
+        "STIEBER3" => Some("the pole of v/(4-3v) at index 4/3"),
+        "CLAVIER" => Some("the radicand 3.38-(v+0.7)^2 turning negative outside index -2.538..1.138"),
+        _ => None,
+    }
+}
+
 const MISSING: f64 = f64::NAN;
 
 /// Lower bound on the LIMITED effective porosity every porosity module writes as `PHIE`
@@ -3690,7 +3712,12 @@ fn vsh_gr_spec() -> ModuleSpec {
         title: "VSH from Gamma Ray".into(),
         category: "VSH".into(),
         doc: "VSH_GR = (GR - GR_MA) / (GR_SH - GR_MA), with optional non-linear corrections \
-              (Stieber, Larionov, Clavier). VSH is the result limited to 0–1."
+              (Stieber, Larionov, Clavier). VSH is the result limited to 0–1. The three Stieber \
+              forms and Clavier bound the gamma-ray INDEX just short of their own singularity \
+              (a pole, or a negative radicand) before transforming it, because past that point \
+              they return a negative shale volume or nothing at all; the run reports which \
+              branch bounded it. Larionov and the linear form have no singularity and bound \
+              nothing. VSH_GR itself stays unlimited either way."
             .into(),
         args: vec![
             // Labels, not renamed ids: the id is what `params_json` stores on every saved run, and
@@ -3813,6 +3840,7 @@ fn vsh_gr(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
         let mut v = (g - gr_ma) / (gr_sh - gr_ma);
+        let raw_index = v;
         let unlimited = match method.as_str() {
             "STIEBER1" => {
                 v = limit(v, -10.0, 1.49);
@@ -3835,6 +3863,35 @@ fn vsh_gr(ctx: &ModuleContext) -> ModuleOutputs {
             }
             _ => v, // LINEAR
         };
+        // AUDIT-2026-08-20 finding 31: say WHICH branch bounded the gamma-ray index, and what it
+        // stopped short of. The shared clamp reports only "calculated value was clamped to the
+        // existing range [-10, 1.49]" — with eight branches, four that bound and four that do
+        // not, that names neither the curve nor the method, and a bare 1.49 means nothing without
+        // the pole sitting just past it.
+        //
+        // Read back off the clamped index rather than re-testing the bounds, so this cannot
+        // disagree with the arithmetic above; only the four branches with a singularity assign to
+        // `v` at all. Reported from HERE rather than from inside the clamp because the ladder
+        // arms ship verbatim in `ssc.rs` (pinned by
+        // `the_gr_ladder_ships_verbatim_in_both_homes_and_neither_gas_site_carries_a_hard_coded_weight`),
+        // and that copy's own `limit` deliberately records nothing — moving the report into the
+        // shared helper would rewrite an SSC run's record for a VSH_GR concern.
+        //
+        // VSH_GR stays the unlimited diagnostic through this (DEC-085, "diagnostics stay raw"):
+        // the INDEX is bounded, the ANSWER is not — a bounded index of 1.49 leaves STIEBER1
+        // reporting 74.5, not a tidy 1.0. `VSH` beside it is the curve that clips.
+        if raw_index.is_finite() && v != raw_index {
+            if let Some(singularity) = gr_index_singularity(method.as_str()) {
+                record_degradation(
+                    RunDegradationKind::Clamped,
+                    format!(
+                        "vsh_gr {method}: gamma-ray index bounded to {v}, short of {singularity}. \
+                         VSH_GR reports the bounded index's transform; VSH beside it is the \
+                         limited curve"
+                    ),
+                );
+            }
+        }
         vsh_gr_out[i] = unlimited as f32;
         vsh_out[i] = limit(unlimited, 0.0, 1.0) as f32;
         prov[i] = crate::param_sources::CLY_PROV_COMPUTED;
@@ -12506,6 +12563,91 @@ mod tests {
         assert_ne!(
             contract.limiting_policy, comparison.limiting_policy,
             "a method must not borrow the comparison producer's numerical limit policy"
+        );
+    }
+
+    /// AUDIT-2026-08-20 finding 31. Four of the eight branches bound the gamma-ray index before
+    /// transforming it and four do not, and the generic clamp reported only "calculated value was
+    /// clamped to the existing range [-10, 1.49]" - naming neither the curve nor the method, with a
+    /// bound that means nothing without the pole it sits inside.
+    ///
+    /// Pinned from BOTH sides: the branch that bounds must SAY which branch and why, and the
+    /// branches with no singularity must stay silent about the index - otherwise a message emitted
+    /// unconditionally would satisfy the first half and tell the user nothing.
+    #[test]
+    fn a_bounded_gamma_ray_index_names_its_branch_while_the_branches_with_no_pole_stay_silent() {
+        // GR 350 against GR_MA 50 / GR_SH 150 is an index of 3.0 - past every Stieber pole and
+        // outside Clavier's radicand. Rare, but it is exactly the reading a mis-set GR_SH gives.
+        let run = |method: &str| {
+            let guard = DegradationCaptureGuard::start(DefaultUsage::default());
+            let out = vsh_gr(&ctx_with(
+                1,
+                &[("GR", vec![350.0])],
+                &[("GR_MA", 50.0), ("GR_SH", 150.0)],
+                &[("OPT_GR", method)],
+            ));
+            let named: Vec<String> = guard
+                .finish()
+                .into_iter()
+                .filter(|event| event.detail.contains("gamma-ray index"))
+                .map(|event| event.detail)
+                .collect();
+            (out, named)
+        };
+
+        // A. Each bounding branch names itself and the singularity it stopped short of.
+        for (method, singularity) in [
+            ("STIEBER1", "pole of v/(3-2v)"),
+            ("STIEBER2", "pole of v/(2-v)"),
+            ("STIEBER3", "pole of v/(4-3v)"),
+            ("CLAVIER", "radicand 3.38-(v+0.7)^2"),
+        ] {
+            let (_, named) = run(method);
+            assert_eq!(named.len(), 1, "{method}: expected one index-bounding report, got {named:?}");
+            assert!(
+                named[0].contains(&format!("vsh_gr {method}")),
+                "{method}: the report must name the curve and the branch, got {}",
+                named[0]
+            );
+            assert!(
+                named[0].contains(singularity),
+                "{method}: the report must say what it stopped short of, got {}",
+                named[0]
+            );
+        }
+
+        // B. The branches with no singularity bound nothing and say nothing about the index.
+        //    Their VSH twin still clips to 1, which is a DIFFERENT statement and stays separate -
+        //    telling those two apart is the whole point of naming the curve.
+        for method in ["LARINOV1", "LARINOV2", "LARINOV3", "LINEAR"] {
+            let (_, named) = run(method);
+            assert!(named.is_empty(), "{method} has no pole and must not report bounding: {named:?}");
+        }
+        //    Asserted on the VALUE too, because silence alone is guaranteed by construction here
+        //    (only a bounding branch assigns to the index) and so cannot fail. What CAN fail is a
+        //    uniform pre-clamp applied to every branch, which would leave LINEAR reading 1.49
+        //    instead of the raw 3.0 - a quiet 50 % cut to a shale volume with no pole to justify it.
+        let (linear, _) = run("LINEAR");
+        assert!(
+            (linear["VSH_GR"][0] as f64 - 3.0).abs() < 1e-6,
+            "LINEAR must transform the RAW index, got {}",
+            linear["VSH_GR"][0]
+        );
+
+        // And VSH_GR stays the UNLIMITED diagnostic through all of it (DEC-085, diagnostics stay
+        // raw): bounding the index at 1.49 leaves STIEBER1 reporting 74.5, not a tidy 1.0. A
+        // diagnostic that clipped here would be bit-identical to the VSH beside it and could no
+        // longer distinguish shale from an endpoint set wrong.
+        let (stieber1, _) = run("STIEBER1");
+        assert!(
+            (stieber1["VSH_GR"][0] as f64 - 74.5).abs() < 1e-3,
+            "VSH_GR must report the bounded index's transform, got {}",
+            stieber1["VSH_GR"][0]
+        );
+        assert!(
+            (stieber1["VSH"][0] - 1.0).abs() < 1e-6,
+            "the limited VSH beside it is the one that clips, got {}",
+            stieber1["VSH"][0]
         );
     }
 
