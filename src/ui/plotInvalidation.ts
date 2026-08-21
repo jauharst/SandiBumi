@@ -87,17 +87,19 @@ function elementSizeSource(target: HTMLElement): CurrentValueSource<PlotSize> {
     subscribe(listener): () => void {
       let current: PlotSize = { width: target.clientWidth, height: target.clientHeight };
       listener(current);
-      let queued = current;
       let frame = 0;
       const observer = new ResizeObserver(() => {
         const next = { width: target.clientWidth, height: target.clientHeight };
         if (next.width === current.width && next.height === current.height) return;
         current = next;
-        queued = next;
         if (frame) return;
+        // The frame reads `current` when it RUNS, so a drag that fires the observer twenty times
+        // coalesces to the last size rather than the one that opened the frame - which is the
+        // whole point of deferring. A second variable held in lockstep with this one said the
+        // two could differ; they never could, and a reader had to prove that for themselves.
         frame = requestAnimationFrame(() => {
           frame = 0;
-          listener(queued);
+          listener(current);
         });
       });
       observer.observe(target);

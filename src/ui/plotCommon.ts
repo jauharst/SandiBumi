@@ -987,6 +987,42 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
   );
 }
 
+/** One context-well legend, as the three quantitative plots draw it. */
+export interface ContextLegend {
+  /** The active well's label, already inside the declared character budget. */
+  activeName: string;
+  /** The context wells this legend may list, each label inside the same budget. */
+  rows: { color: string; name: string }[];
+  /** The disclosure line when the list was cut, or null when every well is on it. */
+  remainder: string | null;
+}
+
+/**
+ * The context-well legend under `context_well_legend_rows` and `context_well_name_characters`.
+ *
+ * `plotLimits.ts` names crossplot, histogram and Pickett as this budget's consumers, and each of
+ * the three carried its own copy of the limit call, the per-row label reduction and the "N of M
+ * wells" line. Three copies is three answers to "how many wells does a legend show", and the
+ * disclosure is the half that must not vary: a legend that silently stops at ten reads as all of
+ * them. Only the drawing stays per panel, because the three genuinely draw different swatches.
+ */
+export function contextLegend(
+  activeName: string,
+  layers: readonly { color: string; name: string }[],
+): ContextLegend {
+  const visible = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
+  return {
+    activeName: reducePlotLabel("context_well_name_characters", activeName, "active").displayed,
+    rows: visible.displayed.map((layer) => ({
+      color: layer.color,
+      name: reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed,
+    })),
+    remainder: visible.item
+      ? `context legend: ${visible.item.displayed_count} of ${visible.item.original_count} wells`
+      : null,
+  };
+}
+
 /** Builds the portable disclosure required whenever context points, well-name preview,
  * or on-plot legend are reduced. All represented wells stay in the point inventory,
  * including wells whose point count did not need reducing; absent wells retain their reason. */

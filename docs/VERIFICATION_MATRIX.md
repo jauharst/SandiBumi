@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **162** of 663,
+Review sections counted toward no capability: **162** of 664,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -49,9 +49,9 @@ this table, so every figure above reads low by whatever those sections cover.
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 50 | — | 14 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 71 | 2026-07-19 | 15 |
-| `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
-| `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
+| `histogram` | Histogram | Partially exercised | 5 / 48 | 2026-07-20 | 11 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 35 | 2026-07-20 | 11 |
+| `pickett` | Pickett plot | Not exercised | 0 / 30 | — | 8 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 64 | — | 17 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 81 | 2026-07-20 | 21 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |

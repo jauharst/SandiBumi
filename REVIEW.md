@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 77 (my audit P3): **one legend rule for the crossplot, the histogram and the Pickett plot**
+
+- [ ] **What to click.** Turn on multi-well context on a Crossplot, a Histogram and a Pickett plot
+      with **more than ten** context wells in scope. All three should show ten wells in the legend
+      and then the line **"context legend: 10 of 14 wells"** — the same wording, the same count, on
+      all three. With ten or fewer wells there should be no such line at all.
+- [ ] **What was wrong.** Nothing you would have seen today. The rule for that legend — show at
+      most ten wells, shorten a long well name to eighteen characters, and *say* when the list was
+      cut — was written out separately in each of the three panels. The registry that declares the
+      budget even names all three as its consumers. Three copies of one rule is three answers to
+      "how many wells does a legend show", and the half that must never vary is the disclosure: a
+      legend that quietly stops at ten reads as *all of them*, and a well you thought was in the
+      picture is not.
+- [ ] **What changed.** One rule now, in the shared plot code, returning the rows to draw and the
+      line to print. Each panel still draws its own swatches — the crossplot and Pickett draw a
+      filled square, the histogram draws a stepped line, because that is how each renders a context
+      well — but none of them decides the budget any more. The check confirms the cut is disclosed,
+      that a legend showing every well claims no remainder, and that no panel has quietly grown a
+      fourth copy.
+- [ ] **A smaller one on the resize path.** Every plot redraws when its panel is resized, and the
+      redraw is deferred to the next animation frame so dragging a divider does not redraw twenty
+      times. That code kept two variables holding the same value in lockstep, which made it look as
+      though the size the frame would draw might differ from the current size. It never could. One
+      variable now, with a note saying why the deferred frame reads the latest size.
+- [ ] **And a one-line helper declared twice** in the module pane (turning a well id into a well
+      name), now declared once beside the well scope it reads.
+- [ ] **No number moves, and nothing about what a plot draws changes.**
+
 ## 2026-08-21 — Audit increment 76 (my audit P3): **an impossible zonal average was silently reported as a perfect one**
 
 - [ ] **What to click.** Nothing new. Run a pay summary as usual and read the zone averages; they

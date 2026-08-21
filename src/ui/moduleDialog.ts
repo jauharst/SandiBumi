@@ -261,6 +261,8 @@ export async function buildModuleContent(
       void refreshDespikeCeiling();
     },
   });
+  /** A well's display name, falling back to its id where the scope has not named it. */
+  const nameFor = (wellId: string) => scope.namesFor([wellId])[0] ?? wellId;
   const custodyControls = buildRunCustodyControls();
 
   const content = document.createElement("div");
@@ -677,7 +679,6 @@ export async function buildModuleContent(
         const dependencies = conditionDependencies(arg, condition, spec);
         return dependencies.all.length > 0 || dependencies.any.length > 0;
       }));
-    const nameFor = (wellId: string) => scope.namesFor([wellId])[0] ?? wellId;
     const render = (availability: ModuleInputAvailability[] | null) => {
       for (const arg of spec.args) {
         const host = validityHosts.get(arg.name);
@@ -744,7 +745,6 @@ export async function buildModuleContent(
             setPicker.inputSet(),
           );
           if (!disposed && gen === ceilingGen) {
-            const nameFor = (wellId: string) => scope.namesFor([wellId])[0] ?? wellId;
             renderDespikeContaminationPreview(contaminationBody, preview, nameFor);
           }
         } catch (error) {

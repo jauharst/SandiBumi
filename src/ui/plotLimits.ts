@@ -72,7 +72,9 @@ export const PLOT_RECORD_LIMITS: readonly PlotRecordLimit[] = [
     maximum: 10,
     algorithm: "first_context_well_rows_with_reported_remainder",
     source: "retained as-built from plotCommon.ts at 3a4723b6",
-    consumers: ["plotCommon.ts", "crossplotPanel.ts", "histogramPanel.ts", "pickettPanel.ts"],
+    // The three quantitative plots each resolved this for themselves; they share `contextLegend`
+    // now, so the budget has one consumer and cannot be answered differently on one plot.
+    consumers: ["plotCommon.ts"],
   },
   {
     id: "context_well_name_characters",
@@ -81,7 +83,7 @@ export const PLOT_RECORD_LIMITS: readonly PlotRecordLimit[] = [
     maximum: 18,
     algorithm: "leading_characters_with_ellipsis_and_reported_remainder",
     source: "retained as-built from context legends at 3a4723b6",
-    consumers: ["plotCommon.ts", "crossplotPanel.ts", "histogramPanel.ts", "pickettPanel.ts"],
+    consumers: ["plotCommon.ts"],
   },
   {
     id: "fit_scatter_legend_rows",
