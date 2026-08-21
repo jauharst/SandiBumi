@@ -1033,7 +1033,7 @@ pub struct CoreLogSpec {
     #[serde(default)]
     pub unfold_scan: Option<f32>,
     #[serde(default)]
-    pub custody: Option<crate::equations::RunCustody>,
+    pub custody: Option<crate::ancestry::RunCustody>,
 }
 
 impl CoreLogSpec {
@@ -1856,7 +1856,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .map_err(|error| {
                 format!("the active photograph delivery has no set identity: {error}")
             })?;
-        let mut inputs = vec![crate::equations::AncestryInput {
+        let mut inputs = vec![crate::ancestry::AncestryInput {
             well_id: spec.well_id.clone(),
             argument: "photograph delivery".into(),
             curve: spec.dataset.clone(),
@@ -1864,7 +1864,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             set_version: None,
             set_id: format!("image:{}:{}:{}", spec.well_id, spec.dataset, image_set),
             chosen_curve_id: Some(format!("image:{}:{}:{}", spec.well_id, spec.dataset, image_set)),
-            rule: Some(crate::equations::CurveResolutionRule::ExplicitName),
+            rule: Some(crate::ancestry::CurveResolutionRule::ExplicitName),
             rejected_candidates: Vec::new(),
         }];
         if let Some(compare) = spec
@@ -1873,7 +1873,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            inputs.push(crate::equations::resolve_ancestry_input(
+            inputs.push(crate::ancestry::resolve_ancestry_input(
                 conn,
                 &spec.well_id,
                 "comparison curve",
@@ -1913,28 +1913,28 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .as_object()
             .expect("constructed as an object")
             .iter()
-            .map(|(name, value)| crate::equations::AncestryParameter {
+            .map(|(name, value)| crate::ancestry::AncestryParameter {
                 name: name.clone(),
                 value: value.clone(),
                 source: custody.source_note.clone(),
-                resolution: Some(crate::equations::ParameterResolution::Explicit),
+                resolution: Some(crate::ancestry::ParameterResolution::Explicit),
                 manifest_version: None,
                 decision: None,
             })
             .collect();
         let module = format!("cphoto:{}", spec.light);
-        let ancestry = crate::equations::CurveAncestry {
-            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
-            method_derivation: crate::equations::method_derivation_citation(&module),
+        let ancestry = crate::ancestry::CurveAncestry {
+            schema_version: crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: crate::ancestry::method_derivation_citation(&module),
             module: module.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
-            parameter_state: crate::equations::parameter_state_for(&parameters),
+            parameter_state: crate::ancestry::parameter_state_for(&parameters),
             parameters,
-            zone_scope: crate::equations::AncestryZoneScope::WholeWell,
+            zone_scope: crate::ancestry::AncestryZoneScope::WholeWell,
             actor: custody.actor.clone(),
-            timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()?,
-            outputs: res.curves.iter().map(|curve| crate::equations::AncestryOutput {
+            timestamp_utc_ms: crate::ancestry::ancestry_timestamp_utc_ms()?,
+            outputs: res.curves.iter().map(|curve| crate::ancestry::AncestryOutput {
                     curve: curve.name.clone(),
                     derivation: format!("{module}:{}", curve.name),
                 }).collect(),
@@ -1944,7 +1944,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             applied_model: None,
             physics_attributes: Vec::new(),
         };
-        let log_spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
+        let log_spec = crate::ancestry::CompleteLogSetSpec::try_new_with_legacy(
             set_name,
             ancestry,
             legacy_parameters,
@@ -1952,8 +1952,8 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
         )?;
         // A storage problem must cost the VERSION, not the work — the curves are written either
         // way, the same discipline `ml.rs` follows when a model artifact cannot be stored.
-        let (set_id, _)=crate::equations::create_complete_log_set(conn, &spec.well_id, &log_spec)?;
-        crate::equations::write_computed_curves_with_ancestry(
+        let (set_id, _)=crate::ancestry::create_complete_log_set(conn, &spec.well_id, &log_spec)?;
+        crate::ancestry::write_computed_curves_with_ancestry(
                     conn, &spec.well_id, &out_depth, &refs, &set_id,
                 )
                 ?;

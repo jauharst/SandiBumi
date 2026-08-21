@@ -136,8 +136,8 @@ fn complete_chain_sets(
     well_ids: &[String],
     set_name: &str,
     input_set: Option<&str>,
-    custody: &crate::equations::RunCustody,
-) -> Result<HashMap<String, crate::equations::CompleteSetId>, String> {
+    custody: &crate::ancestry::RunCustody,
+) -> Result<HashMap<String, crate::ancestry::CompleteSetId>, String> {
     let manifests: HashMap<String, crate::modules::ModuleSpec> = crate::modules::list_modules()
         .into_iter()
         .map(|spec| (spec.name.clone(), spec))
@@ -183,7 +183,7 @@ fn complete_chain_sets(
                 ));
             }
             let mask_is_applied = mask["state"] == workflow::MASK_PROVENANCE_APPLIED;
-            parameters.push(crate::equations::AncestryParameter {
+            parameters.push(crate::ancestry::AncestryParameter {
                 name: mask_name,
                 value: mask,
                 source: if mask_is_applied {
@@ -192,7 +192,7 @@ fn complete_chain_sets(
                     "SB-ENV-028 explicit no-mask run state".into()
                 },
                 resolution: mask_is_applied.then_some(
-                    crate::equations::ParameterResolution::Explicit,
+                    crate::ancestry::ParameterResolution::Explicit,
                 ),
                 manifest_version: None,
                 decision: None,
@@ -213,12 +213,12 @@ fn complete_chain_sets(
                             .map(str::trim)
                             .filter(|text| !text.is_empty())
                             .unwrap_or(custody.source_note.trim());
-                        parameters.push(crate::equations::AncestryParameter {
+                        parameters.push(crate::ancestry::AncestryParameter {
                             name: format!("step[{}].{}@{}", index + 1, arg.name, zone.zone_name),
                             value: serde_json::json!(value),
                             source: source.to_string(),
                             resolution: Some(
-                                crate::equations::ParameterResolution::Explicit,
+                                crate::ancestry::ParameterResolution::Explicit,
                             ),
                             manifest_version: None,
                             decision: crate::param_sources::decision_for(
@@ -253,7 +253,7 @@ fn complete_chain_sets(
                     .find(|arg| arg.name == arg_name)
                     .filter(|arg| !arg.accepted_shale_clay_quantities.is_empty());
                 if produced.contains(&curve) {
-                    let input = crate::equations::AncestryInput {
+                    let input = crate::ancestry::AncestryInput {
                         well_id: well_id.to_string(),
                         argument,
                         curve: curve.clone(),
@@ -261,7 +261,7 @@ fn complete_chain_sets(
                         set_version: None,
                         set_id: "SELF".into(),
                         chosen_curve_id: Some(format!("SELF:{curve}")),
-                        rule: Some(crate::equations::CurveResolutionRule::WorkingInputSet),
+                        rule: Some(crate::ancestry::CurveResolutionRule::WorkingInputSet),
                         rejected_candidates: Vec::new(),
                     };
                     if let Some(contract) = quantity_contract {
@@ -287,7 +287,7 @@ fn complete_chain_sets(
                     inputs.push(input);
                     present_arguments.insert(arg_name.clone());
                 } else {
-                    match crate::equations::resolve_ancestry_input(
+                    match crate::ancestry::resolve_ancestry_input(
                         conn, well_id, &argument, &curve, input_set, None,
                     ) {
                         Ok(input) => {
@@ -387,7 +387,7 @@ fn complete_chain_sets(
                             ));
                         }
                     } else {
-                        parameters.push(crate::equations::AncestryParameter {
+                        parameters.push(crate::ancestry::AncestryParameter {
                             name,
                             value,
                             source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
@@ -398,7 +398,7 @@ fn complete_chain_sets(
                     }
                 }
                 produced.insert(curve.clone());
-                outputs.push(crate::equations::AncestryOutput {
+                outputs.push(crate::ancestry::AncestryOutput {
                     derivation: format!("step[{}] {}:{}", index + 1, step.module, output.arg),
                     curve,
                 });
@@ -414,7 +414,7 @@ fn complete_chain_sets(
                         step.module, name
                     ));
                 }
-                parameters.push(crate::equations::AncestryParameter {
+                parameters.push(crate::ancestry::AncestryParameter {
                     name,
                     value: serde_json::to_value(kind).map_err(|error| {
                         format!("cannot serialize flag kind for {curve}: {error}")
@@ -431,12 +431,12 @@ fn complete_chain_sets(
         outputs.dedup_by(|left, right| left.curve == right.curve);
         let zones = crate::db::list_zones(conn, well_id).map_err(|error| error.to_string())?;
         let zone_scope = if zones.is_empty() {
-            crate::equations::AncestryZoneScope::WholeWell
+            crate::ancestry::AncestryZoneScope::WholeWell
         } else {
-            crate::equations::AncestryZoneScope::Defined(
+            crate::ancestry::AncestryZoneScope::Defined(
                 zones
                     .into_iter()
-                    .map(|zone| crate::equations::AncestryZone {
+                    .map(|zone| crate::ancestry::AncestryZone {
                         name: zone.zone_name,
                         top: zone.top_depth,
                         base: zone.bottom_depth,
@@ -446,17 +446,17 @@ fn complete_chain_sets(
             )
         };
         let inputs_json = serde_json::to_string(&inputs).map_err(|error| error.to_string())?;
-        let ancestry = crate::equations::CurveAncestry {
-            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
-            method_derivation: crate::equations::method_derivation_citation(&module_identity),
+        let ancestry = crate::ancestry::CurveAncestry {
+            schema_version: crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
+            method_derivation: crate::ancestry::method_derivation_citation(&module_identity),
             module: module_identity.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
-            parameter_state: crate::equations::parameter_state_for(&parameters),
+            parameter_state: crate::ancestry::parameter_state_for(&parameters),
             parameters,
             zone_scope,
             actor: custody.actor.clone(),
-            timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()?,
+            timestamp_utc_ms: crate::ancestry::ancestry_timestamp_utc_ms()?,
             outputs,
             depth_frame: None,
             zone_set: None,
@@ -464,18 +464,18 @@ fn complete_chain_sets(
             applied_model: None,
             physics_attributes: Vec::new(),
         };
-        let spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
+        let spec = crate::ancestry::CompleteLogSetSpec::try_new_with_legacy(
             set_name,
             ancestry,
             serde_json::to_value(steps).map_err(|error| error.to_string())?,
             &inputs_json,
         )?;
-        complete.push(crate::equations::CompleteWellLogSet {
+        complete.push(crate::ancestry::CompleteWellLogSet {
             well_id: well_id.clone(),
             spec,
         });
     }
-    crate::equations::create_complete_log_sets_batch(conn, &complete)
+    crate::ancestry::create_complete_log_sets_batch(conn, &complete)
 }
 
 /// Runs the chain to completion, updating the registry between steps. Intended to be called
@@ -490,7 +490,7 @@ pub(crate) fn run_chain(
     well_ids: &[String],
     output_set: Option<&str>,
     input_set: Option<&str>,
-    custody: &crate::equations::RunCustody,
+    custody: &crate::ancestry::RunCustody,
     // Universal Processing panel handle (same `cancel` flag). Reports per-well progress in
     // addition to the chain-specific `ChainStatus` the Workflow Builder polls.
     job: Option<&crate::jobs::JobHandle>,
@@ -536,7 +536,7 @@ pub(crate) fn run_chain(
     // ONE set event per well for the whole chain run: every step writes into the same
     // version, so re-running the chain bumps the set to N+1 (never overwrites history).
     let set_name = output_set.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("INTERP");
-    let preset_sets: HashMap<String, crate::equations::CompleteSetId> = {
+    let preset_sets: HashMap<String, crate::ancestry::CompleteSetId> = {
         let conn = db.lock().unwrap();
         match complete_chain_sets(&conn, steps, well_ids, set_name, input_set, custody){
             Ok(sets) => sets,
@@ -719,20 +719,20 @@ mod tests {
         }
     }
 
-    fn test_custody() -> crate::equations::RunCustody {
-        crate::equations::RunCustody {
-            actor: crate::equations::AncestryActor {
-                kind: crate::equations::AncestryActorKind::Human,
+    fn test_custody() -> crate::ancestry::RunCustody {
+        crate::ancestry::RunCustody {
+            actor: crate::ancestry::AncestryActor {
+                kind: crate::ancestry::AncestryActorKind::Human,
                 identity: "chain-acceptance-fixture".into(),
             },
             source_note: "characterization fixture values declared in this test".into(),
         }
     }
 
-    fn precondition_custody() -> crate::equations::RunCustody {
-        crate::equations::RunCustody {
-            actor: crate::equations::AncestryActor {
-                kind: crate::equations::AncestryActorKind::Human,
+    fn precondition_custody() -> crate::ancestry::RunCustody {
+        crate::ancestry::RunCustody {
+            actor: crate::ancestry::AncestryActor {
+                kind: crate::ancestry::AncestryActorKind::Human,
                 identity: "precondition-contract-fixture".into(),
             },
             source_note: "SB-ENV-002 correctness fixture; VSH endpoint conditions are sourced by the module manifest"
@@ -1101,10 +1101,10 @@ mod tests {
         let badhole_mask = serde_json::json!({ "state": "APPLIED", "curve": "BADHOLE" });
         let no_mask = serde_json::json!({ "state": "NONE" });
         let none_curve_mask = serde_json::json!({ "state": "APPLIED", "curve": "NONE" });
-        let masked_ancestry = crate::equations::parse_curve_ancestry(&direct_rows[0].1).unwrap();
-        let unmasked_ancestry = crate::equations::parse_curve_ancestry(&direct_rows[1].1).unwrap();
+        let masked_ancestry = crate::ancestry::parse_curve_ancestry(&direct_rows[0].1).unwrap();
+        let unmasked_ancestry = crate::ancestry::parse_curve_ancestry(&direct_rows[1].1).unwrap();
         let named_none_ancestry =
-            crate::equations::parse_curve_ancestry(&direct_rows[2].1).unwrap();
+            crate::ancestry::parse_curve_ancestry(&direct_rows[2].1).unwrap();
         assert_eq!(
             masked_ancestry
                 .parameters
@@ -1138,7 +1138,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let chain_ancestry = crate::equations::parse_curve_ancestry(&chain_json).unwrap();
+        let chain_ancestry = crate::ancestry::parse_curve_ancestry(&chain_json).unwrap();
         for (name, expected) in [
             ("step[1].MASK", badhole_mask),
             ("step[2].MASK", no_mask),
@@ -1353,7 +1353,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let ancestry = crate::equations::parse_curve_ancestry(&params_json).unwrap();
+        let ancestry = crate::ancestry::parse_curve_ancestry(&params_json).unwrap();
         let quantity_parameters = ancestry
             .parameters
             .iter()

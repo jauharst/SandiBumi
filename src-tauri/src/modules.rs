@@ -10554,17 +10554,17 @@ mod tests {
 
         // The citation itself: a Cited row resolves to the signed source verbatim; a
         // non-catalog identity resolves to honest absence, never an invented marker.
-        let archie = crate::equations::method_derivation_citation("sw_arch")
+        let archie = crate::ancestry::method_derivation_citation("sw_arch")
             .expect("sw_arch is a signed Cited row");
         assert!(archie.contains("Archie 1942"), "{archie}");
-        assert!(crate::equations::method_derivation_citation("equation:my_own").is_none());
+        assert!(crate::ancestry::method_derivation_citation("equation:my_own").is_none());
 
         // ...and it travels: the ancestry JSON round-trips the field verbatim, and the
         // LAS provenance sidecar embeds that ancestry object wholesale, so the citation
         // reaches the deliverable exactly as signed.
         let mut params = serde_json::json!({ "OPT": 1 });
         let ancestry = serde_json::json!({
-            "schema_version": crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+            "schema_version": crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
             "module": "sw_arch",
             "module_version": "test",
             "inputs": [],
@@ -10576,8 +10576,8 @@ mod tests {
             "outputs": [{"curve": "SWE_ARCH", "derivation": "test"}],
             "method_derivation": archie,
         });
-        params[crate::equations::CURVE_ANCESTRY_KEY] = ancestry;
-        let parsed = crate::equations::parse_curve_ancestry(&params.to_string())
+        params[crate::ancestry::CURVE_ANCESTRY_KEY] = ancestry;
+        let parsed = crate::ancestry::parse_curve_ancestry(&params.to_string())
             .expect("the ancestry with a derivation citation parses");
         assert_eq!(parsed.method_derivation.as_deref(), Some(archie.as_str()),
             "the citation survives the round trip verbatim");
@@ -14981,7 +14981,7 @@ mod tests {
             assert_eq!(parameter.value, serde_json::json!(ruled));
             assert_eq!(
                 parameter.resolution,
-                Some(crate::equations::ParameterResolution::Defaulted)
+                Some(crate::ancestry::ParameterResolution::Defaulted)
             );
             assert!(
                 parameter.source.contains("DEC-077"),
@@ -15156,7 +15156,7 @@ mod tests {
         assert_eq!(t_ref_record.value, serde_json::json!(21.1));
         assert_eq!(
             t_ref_record.resolution,
-            Some(crate::equations::ParameterResolution::Defaulted)
+            Some(crate::ancestry::ParameterResolution::Defaulted)
         );
         assert!(t_ref_record.source.contains("Halliburton LWD Log Interpretation Charts"));
         let salw_record = recorded.iter().find(|parameter| parameter.name == "SALW").unwrap();
@@ -16543,7 +16543,7 @@ mod tests {
         let recorded_defaults = recorded
             .iter()
             .filter(|parameter| {
-                parameter.resolution == Some(crate::equations::ParameterResolution::Defaulted)
+                parameter.resolution == Some(crate::ancestry::ParameterResolution::Defaulted)
                     && !parameter.name.ends_with("@unit_custody")
             })
             .map(|parameter| (parameter.name.as_str(), parameter.source.as_str()))

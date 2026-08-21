@@ -43,7 +43,7 @@ pub struct NetFlagSpec {
     pub depth_top: Option<f32>,
     #[serde(default)]
     pub depth_bottom: Option<f32>,
-    pub custody: equations::RunCustody,
+    pub custody: crate::ancestry::RunCustody,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,17 +191,17 @@ pub fn run_net_flag(conn: &Connection, spec: &NetFlagSpec) -> Result<NetFlagResu
     let zone_scope = match (spec.depth_top, spec.depth_bottom) {
         (Some(a), Some(b)) if a.is_finite() && b.is_finite() && a != b => {
             let (top, base) = if a < b { (a, b) } else { (b, a) };
-            equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
+            crate::ancestry::AncestryZoneScope::Defined(vec![crate::ancestry::AncestryZone {
                 name: "selected depth window".into(),
                 top,
                 base,
                 source: spec.custody.source_note.clone(),
             }])
         }
-        _ => equations::AncestryZoneScope::WholeWell,
+        _ => crate::ancestry::AncestryZoneScope::WholeWell,
     };
     let outputs = vec![out_name.clone()];
-    let run_spec = equations::complete_curve_run_spec(
+    let run_spec = crate::ancestry::complete_curve_run_spec(
         conn,
         &spec.well_id,
         "NETFLAG",
@@ -213,8 +213,8 @@ pub fn run_net_flag(conn: &Connection, spec: &NetFlagSpec) -> Result<NetFlagResu
         zone_scope,
         &outputs,
     )?;
-    let (set_id, _) = equations::create_complete_log_set(conn, &spec.well_id, &run_spec)?;
-    equations::write_computed_curves_with_ancestry(conn, &spec.well_id, &w_depth, &[(out_name.as_str(), flags.as_slice())],
+    let (set_id, _) = crate::ancestry::create_complete_log_set(conn, &spec.well_id, &run_spec)?;
+    crate::ancestry::write_computed_curves_with_ancestry(conn, &spec.well_id, &w_depth, &[(out_name.as_str(), flags.as_slice())],
         &set_id,
     )?;
     Ok(NetFlagResult { output_curve: out_name, inside, evaluated, written: w_depth.len() })

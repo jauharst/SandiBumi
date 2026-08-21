@@ -221,7 +221,7 @@ impl Sheet {
 /// and presentation exports. Keeping one row builder prevents those deliverables
 /// from silently presenting different custody detail for the same computed curve.
 fn ancestry_sheet(
-    disclosures: &[crate::equations::CurveAncestryDisclosure],
+    disclosures: &[crate::ancestry::CurveAncestryDisclosure],
     wells: &[(String, String)],
 ) -> Sheet {
     let mut sheet = Sheet::new(
@@ -256,7 +256,7 @@ fn ancestry_sheet(
             _ => format!(
                 "{} / {} ({} rows)",
                 disclosure.curve_name,
-                crate::equations::LEGACY_UNRECORDED,
+                crate::ancestry::LEGACY_UNRECORDED,
                 disclosure.provenance_row_count
             ),
         };
@@ -807,7 +807,7 @@ pub fn export_workbook(
                 .unwrap_or_else(|_| id.clone());
             wells.push((id.clone(), name));
         }
-        let ancestry = crate::equations::curve_ancestry_disclosures(
+        let ancestry = crate::ancestry::curve_ancestry_disclosures(
             &conn,
             &spec.well_ids,
             spec.input_set.as_deref(),
@@ -1145,7 +1145,7 @@ pub fn build_report_blocks(
     let unit = units::require_project_depth_unit(&conn, "report export")?.label().to_string();
     let zones = db::list_zones(&conn, &well_id).map_err(|e| e.to_string())?;
 
-    let ancestry = crate::equations::curve_ancestry_disclosures(
+    let ancestry = crate::ancestry::curve_ancestry_disclosures(
         &conn,
         std::slice::from_ref(&well_id),
         spec.input_set.as_deref(),
@@ -1932,7 +1932,7 @@ pub fn export_deck(
                 .unwrap_or_else(|_| id.clone());
             wells.push((id.clone(), name));
         }
-        let ancestry = crate::equations::curve_ancestry_disclosures(
+        let ancestry = crate::ancestry::curve_ancestry_disclosures(
             &conn,
             &spec.well_ids,
             spec.input_set.as_deref(),

@@ -51,7 +51,7 @@
 //! last value across a gap draws rock nobody logged — the rule `extract_core_log`'s resampler
 //! already follows, and this is the same operation, so it is the same code shape.
 
-use crate::equations;
+use crate::ancestry;
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -168,7 +168,7 @@ pub struct ReframeRequest {
     #[serde(default)]
     pub preview: bool,
     #[serde(default)]
-    pub custody: Option<equations::RunCustody>,
+    pub custody: Option<ancestry::RunCustody>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1382,14 +1382,14 @@ fn one_well(
             } else {
                 (b as f32, a as f32)
             };
-            equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
+            ancestry::AncestryZoneScope::Defined(vec![ancestry::AncestryZone {
                 name: "reframe target interval".into(),
                 top,
                 base,
                 source: custody.source_note.clone(),
     }])
         }
-        _ => equations::AncestryZoneScope::WholeWell,
+        _ => ancestry::AncestryZoneScope::WholeWell,
     };
     let outputs = written
         .iter()
@@ -1398,7 +1398,7 @@ fn one_well(
     let input_set = (req.source.kind == "logset")
         .then_some(req.source.name.as_deref())
         .flatten();
-    let spec = equations::complete_curve_run_spec(
+    let spec = ancestry::complete_curve_run_spec(
         conn,
         well_id,
         &req.output_set.trim().to_uppercase(),
@@ -1411,7 +1411,7 @@ fn one_well(
         &outputs,
     );
     match spec.and_then(|spec| {
-        equations::write_complete_own_frame(conn, well_id, &spec, &out_depth, &written) }) {
+        ancestry::write_complete_own_frame(conn, well_id, &spec, &out_depth, &written) }) {
         Ok(version) => res.version = Some(version),
         Err(e) => res.error = Some(e),
     }
@@ -1430,12 +1430,12 @@ fn one_well(
 fn write_own_frame(
     conn: &Connection,
     well_id: &str,
-    spec: &equations::LogSetSpec,
+    spec: &ancestry::LogSetSpec,
     depth: &[f32],
     curves: &[(String, Vec<f32>)],
 ) -> duckdb::Result<i64> {
     crate::db::with_txn(conn, |conn| {
-        let (set_id, version) = equations::create_log_set(conn, well_id, spec)?;
+        let (set_id, version) = ancestry::create_log_set(conn, well_id, spec)?;
         conn.execute(
             "UPDATE log_sets SET frame = ?2 WHERE set_id = ?1",
             params![set_id, crate::schema_vocab::LogSetFrame::Own.as_str()],
@@ -1589,7 +1589,8 @@ mod tests {
     fn a_categorical_curve_resamples_only_to_existing_codes_reports_every_boundary_crossing_and_is_refused_by_every_equation_language(
     ) {
         use crate::db;
-        use crate::equations::{EquationDef, RunCustody};
+        use crate::equations::{EquationDef};
+        use crate::ancestry::{RunCustody};
         use duckdb::Connection;
         use std::sync::Mutex;
         use uuid::Uuid;

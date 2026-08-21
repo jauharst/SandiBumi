@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::equations;
 
 const CURVE_EDIT_DOC_TYPE: &str = "curve_edit_provenance";
 const CURVE_EDIT_RECORD_KEY: &str = "_sandibumi_curve_edit_record_v1";
@@ -78,7 +77,7 @@ pub struct CurveEditRequest {
     /// Explicit actor and source/reference custody. It is required when the target is a
     /// computed curve because that edit creates a new derived-curve version.
     #[serde(default)]
-    pub custody: Option<equations::RunCustody>,
+    pub custody: Option<crate::ancestry::RunCustody>,
 }
 
 fn one() -> f32 {
@@ -378,7 +377,7 @@ fn build_edit_record(
         operation: req.op.clone(),
         interval: normalized_interval(req),
         parameters: record_parameters(req),
-        timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
+        timestamp_utc_ms: crate::ancestry::ancestry_timestamp_utc_ms()?,
         actor,
         source_note,
         before_sha256,
@@ -645,12 +644,12 @@ fn write_computed_revision(
     curve_name: &str,
     depth: &[f32],
     new_values: &[f32],
-    custody: &equations::RunCustody,
+    custody: &crate::ancestry::RunCustody,
     parameters: serde_json::Value,
-    zone_scope: equations::AncestryZoneScope,
+    zone_scope: crate::ancestry::AncestryZoneScope,
 ) -> Result<(), String> {
     let output = curve_name.to_string();
-    let spec = equations::complete_curve_run_spec(
+    let spec = crate::ancestry::complete_curve_run_spec(
         conn,
         well_id,
         "CURVE_EDIT",
@@ -666,8 +665,8 @@ fn write_computed_revision(
         zone_scope,
         std::slice::from_ref(&output),
     )?;
-    let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec)?;
-    equations::write_computed_curves_with_ancestry(
+    let (set_id, _) = crate::ancestry::create_complete_log_set(conn, well_id, &spec)?;
+    crate::ancestry::write_computed_curves_with_ancestry(
         conn,
         well_id,
         depth,
@@ -716,14 +715,14 @@ fn edit_parameters(
 
 fn edit_zone_scope(
     req: &CurveEditRequest,
-    custody: &equations::RunCustody,
-) -> equations::AncestryZoneScope {
+    custody: &crate::ancestry::RunCustody,
+) -> crate::ancestry::AncestryZoneScope {
     if req.op == "shift" {
-        return equations::AncestryZoneScope::WholeWell;
+        return crate::ancestry::AncestryZoneScope::WholeWell;
     }
     let (top, bottom) = ordered_interval(req);
     if top < bottom {
-        equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
+        crate::ancestry::AncestryZoneScope::Defined(vec![crate::ancestry::AncestryZone {
             name: "CURVE_EDIT_INTERVAL".into(),
             top,
             base: bottom,
@@ -732,7 +731,7 @@ fn edit_zone_scope(
     } else {
         // A single-sample edit has no non-zero interval. Its exact depth remains a sourced
         // parameter; labelling it as a geological zone would be false custody.
-        equations::AncestryZoneScope::WholeWell
+        crate::ancestry::AncestryZoneScope::WholeWell
     }
 }
 
@@ -912,7 +911,7 @@ pub fn restore_curve_values(
     values: &[f32],
     restores_edit_id: &str,
     expected_curve_sha256: &str,
-    custody: Option<&equations::RunCustody>,
+    custody: Option<&crate::ancestry::RunCustody>,
 ) -> Result<usize, String> {
     if depths.len() != values.len() {
         return Err("depth/value length mismatch".into());
@@ -991,7 +990,7 @@ pub fn restore_curve_values(
             "restores_edit_id": restores_edit_id,
             "restored_samples": n,
         }),
-        timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
+        timestamp_utc_ms: crate::ancestry::ancestry_timestamp_utc_ms()?,
         actor,
         source_note,
         before_sha256: current_sha256,
@@ -1025,7 +1024,7 @@ pub fn restore_curve_values(
                 &value,
                 custody,
                 undo_parameters,
-                equations::AncestryZoneScope::WholeWell,
+                crate::ancestry::AncestryZoneScope::WholeWell,
             )?;
         }
         _ => write_curve(conn, &store, well_id, &depth, &value, &undo_record)?}
@@ -1040,7 +1039,7 @@ pub fn update_computed_sample(
     requested_depth: f32,
     curve_name: &str,
     new_value: f32,
-    custody: &equations::RunCustody,
+    custody: &crate::ancestry::RunCustody,
 ) -> Result<(), String> {
     if !requested_depth.is_finite() {
         return Err("computed sample edit refused: depth must be finite".into());
@@ -1076,7 +1075,7 @@ pub fn update_computed_sample(
             "depth": requested_depth,
             "value": recorded_value,
         }),
-        equations::AncestryZoneScope::WholeWell,
+        crate::ancestry::AncestryZoneScope::WholeWell,
     )
 }
 
@@ -1120,7 +1119,7 @@ mod tests {
         fixture_step: &str,
     ) {
         let custody = crate::workflow::test_run_custody();
-        let spec = equations::complete_curve_run_spec(
+        let spec = crate::ancestry::complete_curve_run_spec(
             conn,
             well_id,
             "TEST_COMPUTED",
@@ -1129,12 +1128,12 @@ mod tests {
             &[(well_id.to_string(), "fixture_input".into(), "GR".into())],
             None,
             serde_json::json!({ "fixture_step": fixture_step }),
-            equations::AncestryZoneScope::WholeWell,
+            crate::ancestry::AncestryZoneScope::WholeWell,
             &[curve.to_string()],
         )
         .unwrap();
-        let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec).unwrap();
-        equations::write_computed_curves_with_ancestry(
+        let (set_id, _) = crate::ancestry::create_complete_log_set(conn, well_id, &spec).unwrap();
+        crate::ancestry::write_computed_curves_with_ancestry(
             conn,
             well_id,
             depth,
@@ -1173,7 +1172,7 @@ mod tests {
         );
 
         match edit_zone_scope(&req, &crate::workflow::test_run_custody()) {
-            equations::AncestryZoneScope::Defined(zones) => {
+            crate::ancestry::AncestryZoneScope::Defined(zones) => {
                 assert_eq!(zones.len(), 1, "a bounded edit records one zone");
                 assert_eq!(
                     (zones[0].top, zones[0].base),
@@ -1531,7 +1530,7 @@ mod tests {
             "an edit must create a new version rather than falsify the old run"
         );
         assert_eq!(
-            equations::curve_ancestry(&conn, &w, "VSH").unwrap().module, "CURVE_EDIT"
+            crate::ancestry::curve_ancestry(&conn, &w, "VSH").unwrap().module, "CURVE_EDIT"
         );
 
         // Generic-store curve, addressed by FAMILY (PEF ← mnemonic PEFZ).
@@ -1588,7 +1587,7 @@ mod tests {
         let conn = db::init_db(path.to_str().unwrap()).unwrap();
         let well_id = seed_ramp_well(&conn);
         let custody = Some(crate::workflow::test_run_custody());
-        let started = equations::ancestry_timestamp_utc_ms().unwrap();
+        let started = crate::ancestry::ancestry_timestamp_utc_ms().unwrap();
         let base = CurveEditRequest {
             well_id: well_id.clone(),
             curve: "GR".into(),
@@ -1693,7 +1692,7 @@ mod tests {
             },
         )
         .unwrap();
-        let finished = equations::ancestry_timestamp_utc_ms().unwrap();
+        let finished = crate::ancestry::ancestry_timestamp_utc_ms().unwrap();
         for result in [&shift, &set, &blank, &interpolate, &scale, &raw, &computed] {
             assert!(result.affected > 0, "every fixture request must perform a real edit");
             assert_eq!(result.curve_sha256.len(), 64, "the undo identity is a SHA-256");

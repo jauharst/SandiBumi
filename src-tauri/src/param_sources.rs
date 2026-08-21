@@ -1906,7 +1906,7 @@ mod tests {
         };
         let first = crate::workflow::run_workflow_module(&db, &run(10.0));
         assert!(first[0].error.is_none(), "{}", first[0].error.as_deref().unwrap_or(""));
-        let first_ancestry = crate::equations::curve_ancestry(
+        let first_ancestry = crate::ancestry::curve_ancestry(
             &db.lock().unwrap(),
             &well_id.to_string(),
             "VSH",
@@ -1921,7 +1921,7 @@ mod tests {
 
         let second = crate::workflow::run_workflow_module(&db, &run(11.0));
         assert!(second[0].error.is_none(), "{}", second[0].error.as_deref().unwrap_or(""));
-        let second_ancestry = crate::equations::curve_ancestry(
+        let second_ancestry = crate::ancestry::curve_ancestry(
             &db.lock().unwrap(),
             &well_id.to_string(),
             "VSH",
@@ -1932,7 +1932,7 @@ mod tests {
 
         // The non-manifest pay engine uses the same structured record for all three cutoffs.
         let custody = crate::workflow::test_run_custody();
-        let mut pay = crate::equations::complete_curve_run_spec(
+        let mut pay = crate::ancestry::complete_curve_run_spec(
             &db.lock().unwrap(),
             &well_id.to_string(),
             "PAYFLAG",
@@ -1941,7 +1941,7 @@ mod tests {
             &[],
             None,
             serde_json::json!({"vsh_max": 0.5, "phie_min": 0.1, "swe_max": 0.6}),
-            crate::equations::AncestryZoneScope::WholeWell,
+            crate::ancestry::AncestryZoneScope::WholeWell,
             &["FLAG_PAY".into()],
         )
         .unwrap();

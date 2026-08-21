@@ -275,9 +275,9 @@ fn provenance_lines(
     let mut legacy_curves = std::collections::BTreeSet::new();
     let mut groups_by_curve = std::collections::BTreeMap::<
         String,
-        Vec<crate::equations::ComputedProvenanceGroup>,
+        Vec<crate::ancestry::ComputedProvenanceGroup>,
     >::new();
-    for group in crate::equations::computed_provenance_groups(conn, well_id)? {
+    for group in crate::ancestry::computed_provenance_groups(conn, well_id)? {
         groups_by_curve
             .entry(group.curve_name.trim().to_uppercase())
             .or_default()
@@ -304,7 +304,7 @@ fn provenance_lines(
 
         for group in groups {
             if group.provenance_class
-                == crate::equations::ComputedProvenanceClass::LegacyUnrecorded
+                == crate::ancestry::ComputedProvenanceClass::LegacyUnrecorded
             {
                 legacy_curves.insert(upper.clone());
                 lines.push(format!(
@@ -312,7 +312,7 @@ fn provenance_lines(
                     serde_json::json!({
                         "curve": upper,
                         "origin": "computed",
-                        "provenance_class": crate::equations::LEGACY_UNRECORDED,
+                        "provenance_class": crate::ancestry::LEGACY_UNRECORDED,
                         "row_count": group.row_count,
                         "state": "unprovenanced"
                     })
@@ -366,7 +366,7 @@ fn provenance_lines(
                     .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
                 _ => serde_json::Value::Array(Vec::new()),
             };
-            let ancestry = crate::equations::parse_curve_ancestry(params_text).map_err(|error| {
+            let ancestry = crate::ancestry::parse_curve_ancestry(params_text).map_err(|error| {
                 format!(
                     "computed curve '{name}' cannot be exported without its complete ancestry: {error}"
                 )
@@ -1292,7 +1292,7 @@ mod tests {
         // Deliberately mixed case — see the regression note below.
         let vsh = vec![0.1f32, 0.25, 0.5, f32::NAN, 0.75, 0.9];
         let custody = crate::workflow::test_run_custody();
-        let spec = crate::equations::complete_curve_run_spec(
+        let spec = crate::ancestry::complete_curve_run_spec(
             conn,
             &id.to_string(),
             "INTERP",
@@ -1302,13 +1302,13 @@ mod tests {
                 "GR".into())],
             None,
             serde_json::json!({ "gr_clean": 25.0, "gr_shale": 125.0 }),
-                crate::equations::AncestryZoneScope::WholeWell,
+                crate::ancestry::AncestryZoneScope::WholeWell,
             &["Vsh_final".into()]).unwrap();
         let (set_id, _) =
-            crate::equations::create_complete_log_set(conn, &id.to_string()
+            crate::ancestry::create_complete_log_set(conn, &id.to_string()
             , &spec)
         .unwrap();
-        crate::equations::write_computed_curves_with_ancestry(
+        crate::ancestry::write_computed_curves_with_ancestry(
             conn,
             &id.to_string(),
             &depth,
@@ -1765,15 +1765,15 @@ mod tests {
 
         // A computed curve whose ancestry names a catalog module: the run record carries
         // the signed citation and one sourced parameter.
-        let citation = crate::equations::method_derivation_citation("vsh_gr")
+        let citation = crate::ancestry::method_derivation_citation("vsh_gr")
             .expect("vsh_gr is a signed Cited row");
-        let ancestry = crate::equations::CurveAncestry {
-            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+        let ancestry = crate::ancestry::CurveAncestry {
+            schema_version: crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
             method_derivation: Some(citation.clone()),
             module: "vsh_gr".into(),
             module_version: "test".into(),
             inputs: Vec::new(),
-            parameters: vec![crate::equations::AncestryParameter {
+            parameters: vec![crate::ancestry::AncestryParameter {
                 name: "GR_MA".into(),
                 value: serde_json::json!(12.0),
                 source: "Geolog vsh_gr.info L48".into(),
@@ -1782,13 +1782,13 @@ mod tests {
                 decision: None,
             }],
             parameter_state: None,
-            zone_scope: crate::equations::AncestryZoneScope::WholeWell,
-            actor: crate::equations::AncestryActor {
-                kind: crate::equations::AncestryActorKind::Automated,
+            zone_scope: crate::ancestry::AncestryZoneScope::WholeWell,
+            actor: crate::ancestry::AncestryActor {
+                kind: crate::ancestry::AncestryActorKind::Automated,
                 identity: "rust-test".into(),
             },
             timestamp_utc_ms: 1_755_561_600_000,
-            outputs: vec![crate::equations::AncestryOutput {
+            outputs: vec![crate::ancestry::AncestryOutput {
                 curve: "VSH_T10".into(),
                 derivation: "vsh_gr:linear".into(),
             }],
@@ -1798,11 +1798,11 @@ mod tests {
             applied_model: None,
             physics_attributes: Vec::new(),
         };
-        let spec = crate::equations::CompleteLogSetSpec::try_new("T10", ancestry).unwrap();
-        let (set_id, _) = crate::equations::create_complete_log_set(&conn, &well, &spec).unwrap();
+        let spec = crate::ancestry::CompleteLogSetSpec::try_new("T10", ancestry).unwrap();
+        let (set_id, _) = crate::ancestry::create_complete_log_set(&conn, &well, &spec).unwrap();
         let depths = [1000.0f32, 1000.5, 1001.0, 1001.5, 1002.0, 1002.5];
         let values = [0.2f32, 0.3, 0.4, 0.5, 0.6, 0.7];
-        crate::equations::write_computed_curves_with_ancestry(
+        crate::ancestry::write_computed_curves_with_ancestry(
             &conn, &well, &depths, &[("VSH_T10", &values)], &set_id,
         )
         .unwrap();
@@ -2451,7 +2451,7 @@ mod tests {
         assert!(legacy["ancestry"].is_null());
 
         let disclosures = serde_json::to_value(
-            crate::equations::curve_ancestry_disclosures(&conn, &[well_id.clone()], None)
+            crate::ancestry::curve_ancestry_disclosures(&conn, &[well_id.clone()], None)
                 .unwrap(),
         )
         .unwrap();
@@ -2558,7 +2558,7 @@ mod tests {
             "trained_on": ["TRAIN-A", "TRAIN-B"],
         });
         let custody = crate::workflow::test_run_custody();
-        let spec = crate::equations::complete_curve_run_spec(
+        let spec = crate::ancestry::complete_curve_run_spec(
             &conn,
             &well_id,
             "PREDICTED",
@@ -2569,14 +2569,14 @@ mod tests {
             ],
             None,
             run_params,
-            crate::equations::AncestryZoneScope::WholeWell,
+            crate::ancestry::AncestryZoneScope::WholeWell,
             &["VSH_PRED".into()]).unwrap();
         let (set_id, _) =
-            crate::equations::create_complete_log_set(&conn, &well_id, &spec)
+            crate::ancestry::create_complete_log_set(&conn, &well_id, &spec)
         .unwrap();
         let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
         let predicted = vec![0.2_f32; depth.len()];
-        crate::equations::write_computed_curves_with_ancestry(
+        crate::ancestry::write_computed_curves_with_ancestry(
             &conn,
             &well_id,
             &depth,
@@ -2660,7 +2660,7 @@ mod tests {
             .find(|row| row["curve"] == "LEGACY_NO_PROVENANCE")
             .expect("legacy computed curve needs an in-file provenance record");
         assert_eq!(legacy["origin"], "computed");
-        assert_eq!(legacy["provenance_class"], crate::equations::LEGACY_UNRECORDED);
+        assert_eq!(legacy["provenance_class"], crate::ancestry::LEGACY_UNRECORDED);
         assert_eq!(legacy["row_count"], depth.len());
         assert!(legacy.get("method").is_none(), "legacy ancestry must never be invented");
         assert_eq!(result.legacy_unrecorded_curves, 1);
@@ -2678,7 +2678,7 @@ mod tests {
         // be described truthfully as one LAS curve. SB-DIO-051 requires the file to distinguish
         // measured from computed; exporting two GR columns as "measured" would satisfy the happy
         // fixture above while lying about the second column. Refusal is the only truthful result.
-        let shadow_spec = crate::equations::complete_curve_run_spec(
+        let shadow_spec = crate::ancestry::complete_curve_run_spec(
             &conn,
             &well_id,
             "RECONSTRUCTED",
@@ -2687,13 +2687,13 @@ mod tests {
             &[(well_id.clone(), "SOURCE".into(), "GR".into())],
             None,
             serde_json::json!({ "operation": "identity" }),
-            crate::equations::AncestryZoneScope::WholeWell,
+            crate::ancestry::AncestryZoneScope::WholeWell,
             &["GR".into()],
         )
         .unwrap();
         let (shadow_set_id, _) =
-            crate::equations::create_complete_log_set(&conn, &well_id, &shadow_spec).unwrap();
-        crate::equations::write_computed_curves_with_ancestry(
+            crate::ancestry::create_complete_log_set(&conn, &well_id, &shadow_spec).unwrap();
+        crate::ancestry::write_computed_curves_with_ancestry(
             &conn,
             &well_id,
             &depth,

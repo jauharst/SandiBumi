@@ -82,7 +82,7 @@ pub struct CompositeResult {
     /// Complete ancestry for every current computed curve carried by this well's
     /// number-bearing composite deliverable. The same JSON is embedded in SVG/PDF
     /// exports so it survives outside the application.
-    pub ancestry: Vec<equations::CurveAncestryDisclosure>,
+    pub ancestry: Vec<crate::ancestry::CurveAncestryDisclosure>,
 }
 
 pub(crate) struct WellHeader {
@@ -400,7 +400,7 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
 pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<CompositeResult, String> {
     let (pages, pw, ph, well_name) = render_pages(conn, spec)?;
     let ancestry =
-        equations::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
+        crate::ancestry::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
     let ancestry_json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
     let out = pages
         .into_iter()
@@ -426,7 +426,7 @@ pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<Compo
 pub fn render_composite_pdf(conn: &Connection, spec: &CompositeSpec) -> Result<Vec<u8>, String> {
     let (pages, pw, ph, _) = render_pages(conn, spec)?;
     let ancestry =
-        equations::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
+        crate::ancestry::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
     let streams: Vec<String> = pages.iter().map(|p| pdf_content(&p.ops, pw, ph)).collect();
     let op_pages: Vec<&[DrawOp]> = pages.iter().map(|p| p.ops.as_slice()).collect();
     let mut pdf = assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages));

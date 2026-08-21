@@ -5,18 +5,18 @@
 //! every input and log set, every parameter value and source, zone scope, actor, timestamp and
 //! output derivation must be recorded; the same record must survive project Save As/reopen.
 
-use crate::{db, equations};
+use crate::db;
 use duckdb::params;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
-fn complete_record() -> equations::CurveAncestry {
-    equations::CurveAncestry {
-        schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+fn complete_record() -> crate::ancestry::CurveAncestry {
+    crate::ancestry::CurveAncestry {
+        schema_version: crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
         method_derivation: None,
         module: "acceptance_identity".into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
-        inputs: vec![equations::AncestryInput {
+        inputs: vec![crate::ancestry::AncestryInput {
             well_id: "fixture-well".into(),
             argument: "INPUT".into(),
             curve: "INPUT".into(),
@@ -24,25 +24,25 @@ fn complete_record() -> equations::CurveAncestry {
             set_version: Some(1),
             set_id: "fixture-import-run".into(),
             chosen_curve_id: Some("fixture-import-run".into()),
-            rule: Some(equations::CurveResolutionRule::ExplicitName),
+            rule: Some(crate::ancestry::CurveResolutionRule::ExplicitName),
             rejected_candidates: Vec::new(),
         }],
-        parameters: vec![equations::AncestryParameter {
+        parameters: vec![crate::ancestry::AncestryParameter {
             name: "REFERENCE_VALUE".into(),
             value: json!(0.25),
             source: "SB-CORE-T14 structural acceptance fixture; not a scientific default".into(),
-            resolution: Some(equations::ParameterResolution::Explicit),
+            resolution: Some(crate::ancestry::ParameterResolution::Explicit),
             manifest_version: None,
             decision: None,
         }],
         parameter_state: None,
-        zone_scope: equations::AncestryZoneScope::WholeWell,
-        actor: equations::AncestryActor {
-            kind: equations::AncestryActorKind::Human,
+        zone_scope: crate::ancestry::AncestryZoneScope::WholeWell,
+        actor: crate::ancestry::AncestryActor {
+            kind: crate::ancestry::AncestryActorKind::Human,
             identity: "acceptance-fixture-operator".into(),
         },
         timestamp_utc_ms: 1,
-        outputs: vec![equations::AncestryOutput {
+        outputs: vec![crate::ancestry::AncestryOutput {
             curve: "OUTPUT".into(),
             derivation: "acceptance_identity(INPUT, REFERENCE_VALUE)".into(),
         }],
@@ -178,8 +178,10 @@ pub(crate) fn production_ancestry_bypass_violations() -> Vec<String> {
             }
             // Schema/project migrations are the only non-writer files allowed to mention raw
             // computed-table mutations. A new producer or interactive edit must go through the
-            // opaque complete-ancestry API in equations.rs.
-            if !matches!(name, "equations.rs" | "db.rs" | "project.rs") {
+            // opaque complete-ancestry API, which is now in ancestry.rs - AUDIT-2026-08-20
+            // finding 53 moved the versioned write path out of equations.rs, and this list is
+            // WHERE THE WRITERS LIVE, not a list of files that may be careless.
+            if !matches!(name, "ancestry.rs" | "equations.rs" | "db.rs" | "project.rs") {
                 for forbidden in [
                     "appender(\"computed_curves\")",
                     "INSERT INTO computed_curves",
@@ -292,7 +294,7 @@ fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
 
     let mut missing_actor = complete_record();
     missing_actor.actor.identity.clear();
-    let refused = equations::CompleteLogSetSpec::try_new("VALIDATION", missing_actor)
+    let refused = crate::ancestry::CompleteLogSetSpec::try_new("VALIDATION", missing_actor)
         .expect_err("an unnamed actor must refuse before a log-set or curve row is written");
     assert!(
         refused.contains("actor"),
@@ -301,7 +303,7 @@ fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
 
     let mut missing_source = complete_record();
     missing_source.parameters[0].source.clear();
-    let refused = equations::CompleteLogSetSpec::try_new("VALIDATION", missing_source)
+    let refused = crate::ancestry::CompleteLogSetSpec::try_new("VALIDATION", missing_source)
         .expect_err("an unsourced value must refuse before a log-set or curve row is written");
     assert!(
         refused.contains("source"),
@@ -321,9 +323,9 @@ fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
         "refused custody must not allocate a version or write a curve"
     );
 
-    let spec = equations::CompleteLogSetSpec::try_new("VALIDATION", complete_record()).unwrap();
-    let (set_id, _) = equations::create_complete_log_set(&conn, well_id, &spec).unwrap();
-    equations::write_computed_curves_with_ancestry(
+    let spec = crate::ancestry::CompleteLogSetSpec::try_new("VALIDATION", complete_record()).unwrap();
+    let (set_id, _) = crate::ancestry::create_complete_log_set(&conn, well_id, &spec).unwrap();
+    crate::ancestry::write_computed_curves_with_ancestry(
         &conn,
         well_id,
         &[1000.0, 1000.5],
@@ -332,13 +334,13 @@ fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
     )
     .unwrap();
 
-    let ancestry = equations::curve_ancestry(&conn, well_id, "OUTPUT").unwrap();
+    let ancestry = crate::ancestry::curve_ancestry(&conn, well_id, "OUTPUT").unwrap();
     assert_eq!(
         ancestry,
         complete_record(),
         "the stored record must answer every SB-CORE-T14 field"
     );
-    let disclosures = equations::curve_ancestry_disclosures(&conn, &[well_id.to_string()], None)
+    let disclosures = crate::ancestry::curve_ancestry_disclosures(&conn, &[well_id.to_string()], None)
         .expect("the same complete record must be available to UI and deliverable surfaces");
     assert_eq!(
         disclosures.len(),
@@ -465,9 +467,9 @@ fn a_complete_ancestry_record_round_trips_through_project_save_and_load() {
     let conn = db::init_db_resilient(original_text).unwrap();
     insert_fixture_well(&conn, well_id);
     let expected = complete_record();
-    let spec = equations::CompleteLogSetSpec::try_new("VALIDATION", expected.clone()).unwrap();
-    let (set_id, _) = equations::create_complete_log_set(&conn, well_id, &spec).unwrap();
-    equations::write_computed_curves_with_ancestry(
+    let spec = crate::ancestry::CompleteLogSetSpec::try_new("VALIDATION", expected.clone()).unwrap();
+    let (set_id, _) = crate::ancestry::create_complete_log_set(&conn, well_id, &spec).unwrap();
+    crate::ancestry::write_computed_curves_with_ancestry(
         &conn,
         well_id,
         &[1000.0, 1000.5],
@@ -481,7 +483,7 @@ fn a_complete_ancestry_record_round_trips_through_project_save_and_load() {
     let reopened =
         db::init_db_resilient(backup_text).expect("the Save As copy must reopen normally");
     assert_eq!(
-        equations::curve_ancestry(&reopened, well_id, "OUTPUT").unwrap(),
+        crate::ancestry::curve_ancestry(&reopened, well_id, "OUTPUT").unwrap(),
         expected,
         "the complete record must survive engine copy and normal reopen byte-for-byte"
     );
@@ -522,13 +524,13 @@ fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_wri
         let mut record = complete_record();
         record.outputs = outputs
             .iter()
-            .map(|curve| equations::AncestryOutput {
+            .map(|curve| crate::ancestry::AncestryOutput {
                 curve: (*curve).into(),
                 derivation: format!("acceptance_identity({curve})"),
             })
             .collect();
-        let spec = equations::CompleteLogSetSpec::try_new(name, record).unwrap();
-        equations::create_complete_log_set(&conn, well_id, &spec).unwrap().0
+        let spec = crate::ancestry::CompleteLogSetSpec::try_new(name, record).unwrap();
+        crate::ancestry::create_complete_log_set(&conn, well_id, &spec).unwrap().0
     };
     let rows = |curve: &str| -> Vec<f32> {
         conn.prepare(
@@ -542,7 +544,7 @@ fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_wri
     };
 
     // Seed a curve that a later run stops producing - the case the declared family exists for.
-    equations::write_computed_curves_with_ancestry_clearing(
+    crate::ancestry::write_computed_curves_with_ancestry_clearing(
         &conn, well_id, &depth, &[("RETIRED", &[0.1f32, 0.2][..])], &[], &set_for(&["RETIRED"], "SEED"),
     )
     .unwrap();
@@ -551,7 +553,7 @@ fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_wri
     // A. A curve this call WRITES is replaced, not appended beside its old rows - with an EMPTY
     //    family, so nothing but the write itself can be doing the clearing.
     for value in [0.4f32, 0.5] {
-        equations::write_computed_curves_with_ancestry_clearing(
+        crate::ancestry::write_computed_curves_with_ancestry_clearing(
             &conn, well_id, &depth, &[("KEPT", &[value, value][..])], &[],
             &set_for(&["KEPT"], "WRITE"),
         )
@@ -565,7 +567,7 @@ fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_wri
     );
 
     // B. And the declared family is still retired, even though it is not among the curves written.
-    equations::write_computed_curves_with_ancestry_clearing(
+    crate::ancestry::write_computed_curves_with_ancestry_clearing(
         &conn, well_id, &depth, &[("KEPT", &[0.6f32, 0.6][..])], &["RETIRED".to_string()],
         &set_for(&["KEPT"], "CLEAR"),
     )

@@ -1709,8 +1709,8 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
                 "the active deviation survey has no import timestamp".into(),
             )
         })?;
-    let actor = crate::equations::AncestryActor {
-        kind: crate::equations::AncestryActorKind::Automated,
+    let actor = crate::ancestry::AncestryActor {
+        kind: crate::ancestry::AncestryActorKind::Automated,
         identity: "SANDIBUMI_DEVIATION_SURVEY".into(),
     };
     let parameters_json = serde_json::json!({
@@ -1722,22 +1722,22 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
         .as_object()
         .expect("constructed as an object")
         .iter()
-        .map(|(name, value)| crate::equations::AncestryParameter {
+        .map(|(name, value)| crate::ancestry::AncestryParameter {
             name: name.clone(),
             value: value.clone(),
             source: source.to_string(),
-            resolution: Some(crate::equations::ParameterResolution::Explicit),
+            resolution: Some(crate::ancestry::ParameterResolution::Explicit),
             manifest_version: None,
             decision: None,
         })
         .collect();
     let module = "deviation:materialize_tvd";
-    let ancestry = crate::equations::CurveAncestry {
-        schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
-        method_derivation: crate::equations::method_derivation_citation(module),
+    let ancestry = crate::ancestry::CurveAncestry {
+        schema_version: crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: crate::ancestry::method_derivation_citation(module),
         module: module.into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
-        inputs: vec![crate::equations::AncestryInput {
+        inputs: vec![crate::ancestry::AncestryInput {
             well_id: well_id.to_string(),
             argument: "active deviation survey".into(),
             curve: "MD/INC/AZI/TVD/TVDSS".into(),
@@ -1748,18 +1748,18 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
                 "survey:{}:{}:{}",
                 well_id, survey.survey_name, imported_at
             )),
-            rule: Some(crate::equations::CurveResolutionRule::ExplicitName),
+            rule: Some(crate::ancestry::CurveResolutionRule::ExplicitName),
             rejected_candidates: Vec::new(),
         }],
-        parameter_state: crate::equations::parameter_state_for(&parameters),
+        parameter_state: crate::ancestry::parameter_state_for(&parameters),
         parameters,
-        zone_scope: crate::equations::AncestryZoneScope::WholeWell,
+        zone_scope: crate::ancestry::AncestryZoneScope::WholeWell,
         actor,
-        timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()
+        timestamp_utc_ms: crate::ancestry::ancestry_timestamp_utc_ms()
             .map_err(db::DbError::LengthMismatch)?,
         outputs: output_curves
             .iter()
-            .map(|(curve, _)| crate::equations::AncestryOutput {
+            .map(|(curve, _)| crate::ancestry::AncestryOutput {
                 curve: curve.clone(),
                 derivation: format!("{module}:{curve}"),
             })
@@ -1770,20 +1770,20 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
         applied_model: None,
         physics_attributes: Vec::new(),
     };
-    let log_spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
+    let log_spec = crate::ancestry::CompleteLogSetSpec::try_new_with_legacy(
         "DEVIATION",
         ancestry,
         parameters_json,
         "[]",
     )
     .map_err(db::DbError::LengthMismatch)?;
-    let (set_id, _) = crate::equations::create_complete_log_set(conn, well_id, &log_spec)
+    let (set_id, _) = crate::ancestry::create_complete_log_set(conn, well_id, &log_spec)
         .map_err(db::DbError::LengthMismatch)?;
     let refs = output_curves
         .iter()
         .map(|(name, values)| (name.as_str(), values.as_slice()))
         .collect::<Vec<_>>();
-    crate::equations::write_computed_curves_with_ancestry(conn, well_id, &depth, &refs, &set_id)
+    crate::ancestry::write_computed_curves_with_ancestry(conn, well_id, &depth, &refs, &set_id)
         .map_err(db::DbError::LengthMismatch)?;
             Ok(depth.len())
 }

@@ -4,7 +4,7 @@
 //! required by `docs/PRD_v2/04_CORE_REQUIREMENTS.md` SB-CORE-011/T16. The numeric LAS samples,
 //! parameters and cutoffs below are structural fixtures, not adopted scientific defaults.
 
-use crate::{chain, db, equations, ingest, workflow};
+use crate::{chain, db, ingest, workflow};
 use duckdb::Connection;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -39,7 +39,7 @@ impl Drop for TemporaryFiles {
 #[derive(Debug)]
 struct ReRunSnapshot {
     curve_blobs: BTreeMap<(String, String), Vec<u8>>,
-    ancestry: BTreeMap<String, equations::CurveAncestry>,
+    ancestry: BTreeMap<String, crate::ancestry::CurveAncestry>,
     pay_summary: Vec<u8>,
 }
 
@@ -326,7 +326,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
         .map(|well_id| {
             (
                 well_id.clone(),
-                equations::curve_ancestry(&conn, well_id, "SWE")
+                crate::ancestry::curve_ancestry(&conn, well_id, "SWE")
                     .expect("the final curve carries the recorded chain ancestry"),
             )
         })

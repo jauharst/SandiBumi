@@ -58,7 +58,7 @@ pub struct ReportSpec {
     /// the PDF report has historically persisted. Editable Office exports are
     /// read-only and do not consume this field.
     #[serde(default)]
-    pub custody: Option<crate::equations::RunCustody>,
+    pub custody: Option<crate::ancestry::RunCustody>,
     /// Skip the composite pages (tables-only report).
     #[serde(default)]
     pub tables_only: bool,
@@ -434,7 +434,7 @@ fn report_pages_with_degradations(
     );
     let ancestry = {
         let conn = db.lock().map_err(|error| error.to_string())?;
-        crate::equations::curve_ancestry_disclosures(
+        crate::ancestry::curve_ancestry_disclosures(
             &conn,
             std::slice::from_ref(&spec.composite.well_id),
             spec.input_set.as_deref(),
@@ -856,7 +856,6 @@ mod tests {
     use super::*;
 
     use crate::db;
-    use crate::equations;
     use uuid::Uuid;
 
     /// Structural computed-input fixture for report tests. The numeric values belong to
@@ -871,7 +870,7 @@ mod tests {
         let mut inputs = Vec::new();
         for curve in ["GR", "RES_DEEP", "NPHI"] {
             if let Ok(input) =
-                equations::resolve_ancestry_input(conn, well_id, curve, curve, None, None)
+                crate::ancestry::resolve_ancestry_input(conn, well_id, curve, curve, None, None)
             {
                 inputs.push(input);
             }
@@ -880,20 +879,20 @@ mod tests {
             !inputs.is_empty(),
             "the structural fixture must name at least one imported input"
         );
-        let ancestry = equations::CurveAncestry {
-            schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+        let ancestry = crate::ancestry::CurveAncestry {
+            schema_version: crate::ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
             method_derivation: None,
             module: "report_test_fixture".into(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
             parameters: vec![],
-            parameter_state: Some(equations::ProvenanceAbsentState::NotApplicable),
-            zone_scope: equations::AncestryZoneScope::WholeWell,
+            parameter_state: Some(crate::schema_vocab::ProvenanceAbsentState::NotApplicable),
+            zone_scope: crate::ancestry::AncestryZoneScope::WholeWell,
             actor: crate::workflow::test_run_custody().actor,
-            timestamp_utc_ms: equations::ancestry_timestamp_utc_ms().unwrap(),
+            timestamp_utc_ms: crate::ancestry::ancestry_timestamp_utc_ms().unwrap(),
             outputs: curves
                 .iter()
-                .map(|(curve, _)| equations::AncestryOutput {
+                .map(|(curve, _)| crate::ancestry::AncestryOutput {
                     curve: (*curve).to_string(),
                     derivation: format!("structural report fixture:{curve}"),
                 })
@@ -904,9 +903,9 @@ mod tests {
             applied_model: None,
             physics_attributes: Vec::new(),
         };
-        let spec = equations::CompleteLogSetSpec::try_new("REPORT_INPUTS", ancestry).unwrap();
-        let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec).unwrap();
-        equations::write_computed_curves_with_ancestry(conn, well_id, depth, curves, &set_id)
+        let spec = crate::ancestry::CompleteLogSetSpec::try_new("REPORT_INPUTS", ancestry).unwrap();
+        let (set_id, _) = crate::ancestry::create_complete_log_set(conn, well_id, &spec).unwrap();
+        crate::ancestry::write_computed_curves_with_ancestry(conn, well_id, depth, curves, &set_id)
             .unwrap();
     }
 
