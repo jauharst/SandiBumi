@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import {
   HISTOGRAM_BINS_DEFAULT,
   HISTOGRAM_BINS_MAX,
@@ -33,15 +33,11 @@ import {
   buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
-  contextReductionExport,
-  contextZoneWindow,
   curveSelect,
   defaultPickParams,
-  describeContextOutcome,
-  fetchContextLayers,
+  createContextReload,
   loadCurveNames,
   loadPlotProps,
-  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -52,7 +48,7 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { applyPlotRecordLimit, reducePlotLabel } from "./plotLimits";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
@@ -929,69 +925,41 @@ export async function buildHistogramContent(
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxWellIds: string[] = [];
   let ctxInfo = "";
-  let ctxGen = 0;
   const histContext = (): HistogramContext | null =>
     ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null;
 
   /** Fetches the scoped context wells' curve through the shared plotCommon machinery
    *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
    *  active well → clears the overlay: byte-identical single-well behaviour. */
-  const reloadContext = async () => {
-    const token = beginPlotAsyncGeneration("histogram-context-refetch", ++ctxGen);
-    contextDepthHandoff.clear();
-    let resolvedIds: string[];
-    try {
-      resolvedIds = await resolveWellScope(scope.backend());
-    } catch (error) {
-      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Histogram scope refused: ${error}`);
-      return;
-    }
-    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
-    const ids = resolvedIds.filter((id) => id !== well.well_id);
-    if (ids.length === 0) {
-      const had = ctxLayers.length > 0;
-      ctxLayers = [];
-      ctxWellIds = [];
-      ctxReductionManifest = null;
-      ctxInfo = "";
-      contextDepthHandoff.clear();
-      updateScopeUi();
-      if (had) redraw();
-      return;
-    }
-    ctxReductionManifest = contextReductionExport(
-      "histogram",
-      null,
-      resolvedIds.length,
-    );
-    setStatus(`Histogram: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
-    const outcome = await fetchContextLayers({
-      ids,
-      names: scope.namesFor(ids),
-      curves: [curveSel.value],
-      windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: plotRecordLimit("context_point_budget").maximum,
-      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
+  const { reload: reloadContext, cancel: cancelContextReload } =
+    createContextReload<HistogramContextLayer>({
+      kind: "histogram",
+      label: "Histogram",
+      operation: "histogram-context-refetch",
+      well,
+      scope,
+      zoneSel,
+      handoff: contextDepthHandoff,
+      curves: () => [curveSel.value],
+      project: (layer) => ({
+        name: layer.name,
+        color: layer.color,
+        values: layer.series.get(curveSel.value.toUpperCase())!,
+      }),
+      hadLayers: () => ctxLayers.length > 0,
+      apply: (next) => {
+        ctxLayers = next.layers;
+        ctxWellIds = next.wellIds;
+        ctxReductionManifest = next.reductionManifest;
+        ctxInfo = next.info;
+      },
+      setPendingManifest: (manifest) => {
+        ctxReductionManifest = manifest;
+      },
+      setStatus: (text) => setStatus(text),
+      updateScopeUi: () => updateScopeUi(),
+      redraw: () => redraw(),
     });
-    if (!outcome) return; // superseded by a newer call (or dispose)
-    ctxReductionManifest = contextReductionExport(
-      "histogram",
-      outcome,
-      resolvedIds.length,
-      { wellId: well.well_id, name: well.well_name },
-    );
-    ctxLayers = outcome.layers.map((l) => ({
-      name: l.name,
-      color: l.color,
-      values: l.series.get(curveSel.value.toUpperCase())!,
-    }));
-    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
-    ctxInfo = describeContextOutcome(outcome);
-    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
-    updateScopeUi();
-    setStatus(`Histogram ${ctxInfo.toLowerCase()}`);
-    redraw();
-  };
   updateScopeUi();
 
   const redraw = () => {
@@ -1337,7 +1305,7 @@ export async function buildHistogramContent(
     size: () => redraw(),
     cancelPending: () => {
       reloadGen++;
-      ctxGen++;
+      cancelContextReload();
       if (rafId) {
         cancelAnimationFrame(rafId);
         rafId = 0;

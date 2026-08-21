@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 636,
+Review sections counted toward no capability: **157** of 637,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -53,7 +53,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
 | `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 64 | — | 17 |
-| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 75 | 2026-07-20 | 20 |
+| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 81 | 2026-07-20 | 21 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 12 | — | 7 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |

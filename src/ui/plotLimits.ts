@@ -51,7 +51,10 @@ export const PLOT_RECORD_LIMITS: readonly PlotRecordLimit[] = [
     maximum: 60_000,
     algorithm: "fair_per_well_stride_with_forced_final_endpoint_and_manifest",
     source: "docs/PRD_v2/23_plotting-interactivity.md section 5",
-    consumers: ["crossplotPanel.ts", "histogramPanel.ts", "pickettPanel.ts"],
+    // AUDIT-2026-08-20 finding 57: the three panels used to resolve this each for themselves,
+    // in three copies of one reload. They share createContextReload now, so the budget has a
+    // single consumer and cannot be answered differently on one plot than on another.
+    consumers: ["plotCommon.ts"],
   },
   {
     id: "well_scope_name_preview_rows",
