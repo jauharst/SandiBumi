@@ -343,6 +343,60 @@ pub fn bin_by_depth(depth: &[f32], value: &[f32], bin: f32) -> Vec<(f32, f32, Ve
     out
 }
 
+/// How many depth bins a box/histogram point track aims for when its style declares no bin
+/// height. Both renderers already targeted twenty; what differed — and what AUDIT-2026-08-20
+/// finding 40 is — was the span each of them divided by.
+pub const TARGET_DEPTH_BINS: f64 = 20.0;
+
+/// The default bin height for a box or histogram point track: the series' OWN depth extent
+/// divided by [`TARGET_DEPTH_BINS`], snapped to a round 1/2/5 thickness.
+///
+/// AUDIT-2026-08-20 finding 40. The viewer divided the VISIBLE window and the print exporter
+/// divided the PAGE, so the same track summarised different populations of plugs in the two
+/// places. On screen it was worse than a mismatch: [`bin_by_depth`] keys on an absolute grid,
+/// so a bin height that follows the zoom re-cuts the bins continuously as the reader scrolls,
+/// and the median inside a box changes with it. A box plot is a statement about a set of
+/// measurements — the set cannot depend on how far someone has zoomed in, or on what paper the
+/// track is printed on.
+///
+/// Rounding is what makes it STABLE rather than merely shared. Bin edges land on round depths
+/// a reader can quote, and adding one plug to a delivery no longer nudges every edge and every
+/// median with it. Deliberately not `composite::nice_step`, the depth-grid tick ladder: a
+/// cosmetic change to grid spacing must never move a quoted median.
+///
+/// Returns 0.0 for a series with nothing finite in it, which yields no bins. A series whose
+/// samples all sit at ONE depth has no extent to divide: any positive height groups them into
+/// a single bin, and 1.0 states that rather than letting it fall out of a division by zero.
+pub fn default_bin_height(depth: &[f32]) -> f32 {
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for d in depth.iter().copied().filter(|d| d.is_finite()) {
+        lo = lo.min(d);
+        hi = hi.max(d);
+    }
+    if !lo.is_finite() {
+        return 0.0;
+    }
+    // Widened BEFORE subtracting so the TypeScript twin, whose depths are already f64, performs
+    // the identical subtraction — the two must agree on the ladder boundary, not merely nearly.
+    let extent = hi as f64 - lo as f64;
+    if !(extent > 0.0) {
+        return 1.0;
+    }
+    let raw = extent / TARGET_DEPTH_BINS;
+    let base = 10f64.powf(raw.log10().floor());
+    let f = raw / base;
+    let nice = if f < 1.5 {
+        1.0
+    } else if f < 3.5 {
+        2.0
+    } else if f < 7.5 {
+        5.0
+    } else {
+        10.0
+    };
+    (nice * base) as f32
+}
+
 /// Low / median / high percentile of ONE distribution, in a single call.
 ///
 /// This is what an uncertainty band is made of: at each depth an array log holds a whole set
@@ -458,6 +512,30 @@ mod ward_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AUDIT-2026-08-20 finding 40. The bin height a box track falls back on must describe the
+    /// CORE, not the display, or the same plugs are grouped differently on screen than on paper
+    /// — and on screen differently again at every zoom, because the bins sit on an absolute
+    /// grid. Its TypeScript twin
+    /// (`a_box_track_bins_the_same_plugs_on_screen_as_it_does_on_paper`) asserts the identical
+    /// literals on the identical fixture: agreeing on the ladder boundary is the whole point,
+    /// and nearly agreeing is what produced the defect.
+    #[test]
+    fn a_box_track_with_no_declared_bin_height_takes_it_from_the_core_not_from_the_display() {
+        // A four-metre cored interval sampled every 0.25 m: 4 / 20 = 0.2, already on the ladder.
+        let dense: Vec<f32> = (0..17).map(|i| 2000.0 + i as f32 * 0.25).collect();
+        assert_eq!(default_bin_height(&dense), 0.2, "the interval sets the bin");
+        // Three plugs over the SAME interval get the same bin: it is the rock that is being
+        // summarised, not the sampling.
+        assert_eq!(default_bin_height(&[2000.0, 2001.5, 2004.0]), 0.2, "sampling is not extent");
+        // The round ladder is what buys stability. One more plug 30 cm deeper lengthens the
+        // extent by 7%, and without the snap every bin edge and every median would move with it.
+        let extended: Vec<f32> = dense.iter().copied().chain([2004.3]).collect();
+        assert_eq!(default_bin_height(&extended), 0.2, "one more plug must not re-cut the bins");
+        // Nothing to divide: no series at all, and a series with no thickness.
+        assert_eq!(default_bin_height(&[]), 0.0, "an empty series yields no bins");
+        assert_eq!(default_bin_height(&[2000.0, 2000.0]), 1.0, "one depth is one bin");
+    }
 
     #[test]
     fn a_band_is_three_percentiles_of_one_depths_realizations() {

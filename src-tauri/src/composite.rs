@@ -1680,7 +1680,7 @@ fn draw_point_series(
     page_bot: f32,
     y_of: &dyn Fn(f32) -> f64,
 ) {
-    use crate::distribution::{bin_by_depth, box_stats, histogram};
+    use crate::distribution::{bin_by_depth, box_stats, default_bin_height, histogram};
     let (depth, value, text) = point_samples(ps, core, aux);
     if depth.is_empty() {
         return;
@@ -1718,7 +1718,10 @@ fn draw_point_series(
             }
         }
         "box" | "histogram" => {
-            let bin = ps.bin.filter(|b| *b > 0.0).unwrap_or((page_bot - page_top) / 20.0);
+            // The default is a property of the SERIES, never of the page — see
+            // distribution::default_bin_height. `depth` here is the whole series, not the
+            // page's slice of it, which is what lets both renderers reach the same answer.
+            let bin = ps.bin.filter(|b| *b > 0.0).unwrap_or_else(|| default_bin_height(&depth));
             let is_hist = ps.display.as_deref() == Some("histogram");
             for (b_top, b_base, vals) in bin_by_depth(&depth, &value, bin) {
                 if b_base < page_top || b_top > page_bot {

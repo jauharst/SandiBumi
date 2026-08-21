@@ -175,6 +175,13 @@ export interface DepthBin {
  *  in the project's depth unit; a non-positive height yields no bins. */
 export function binByDepth(depth: ArrayLike<number>, value: ArrayLike<number>, bin: number): DepthBin[] {
   if (!(bin > 0)) return [];
+  // A bin height is STORED as a 32-bit float (`PointStyle.bin: Option<f32>`), so the arithmetic
+  // has to use the 32-bit value or the print and the screen key the same plug into different
+  // bins. A saved bin of 0.2 is 0.20000000298… once Rust widens it, and floor(2000 / bin) is
+  // then 9999 there against 10000 here — every plug landing on a round depth changes box. Same
+  // family as AUDIT-2026-08-20 finding 5, which fixed the key derivation but not the value it
+  // divides by.
+  bin = Math.fround(bin);
   const n = Math.min(depth.length, value.length);
   const byKey = new Map<number, number[]>();
   for (let i = 0; i < n; i++) {
@@ -189,6 +196,47 @@ export function binByDepth(depth: ArrayLike<number>, value: ArrayLike<number>, b
   return [...byKey.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([k, values]) => ({ top: k * bin, base: k * bin + bin, values }));
+}
+
+/** How many depth bins a box/histogram point track aims for when its style declares no bin
+ *  height. Both renderers already targeted twenty; what differed — and what AUDIT-2026-08-20
+ *  finding 40 is — was the span each of them divided by. */
+export const TARGET_DEPTH_BINS = 20;
+
+/** The default bin height for a box or histogram point track: the series' OWN depth extent
+ *  divided by TARGET_DEPTH_BINS, snapped to a round 1/2/5 thickness.
+ *
+ *  AUDIT-2026-08-20 finding 40. This viewer divided the VISIBLE window and the print exporter
+ *  divided the PAGE, so the same track summarised different populations of plugs in the two
+ *  places. On screen it was worse than a mismatch: binByDepth keys on an absolute grid, so a
+ *  bin height that follows the zoom re-cuts the bins continuously as the reader scrolls, and
+ *  the median inside a box changes with it. A box plot is a statement about a set of
+ *  measurements — the set cannot depend on how far someone has zoomed in, or on what paper the
+ *  track is printed on.
+ *
+ *  Rounding is what makes it STABLE rather than merely shared: bin edges land on round depths
+ *  a reader can quote, and adding one plug no longer nudges every edge and every median with
+ *  it. Mirrors `distribution::default_bin_height`, down to the f32 narrowing of the result —
+ *  the two must agree on the ladder boundary, not merely nearly. */
+export function defaultBinHeight(depth: ArrayLike<number>): number {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < depth.length; i++) {
+    const d = depth[i];
+    if (!Number.isFinite(d)) continue;
+    if (d < lo) lo = d;
+    if (d > hi) hi = d;
+  }
+  if (!Number.isFinite(lo)) return 0;
+  const extent = hi - lo;
+  // All samples at one depth: any positive height groups them into a single bin, and 1 states
+  // that rather than letting it fall out of a division by zero.
+  if (!(extent > 0)) return 1;
+  const raw = extent / TARGET_DEPTH_BINS;
+  const base = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / base;
+  const nice = f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10;
+  return Math.fround(nice * base);
 }
 
 /** Low / median / high percentile of ONE distribution, in a single call.

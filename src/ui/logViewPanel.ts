@@ -20,7 +20,7 @@ import {
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { band, binByDepth, boxStats, canonicalHistogram, evenIndices, type WhiskerRule } from "../distribution";
+import { band, binByDepth, boxStats, canonicalHistogram, defaultBinHeight, evenIndices, type WhiskerRule } from "../distribution";
 import { appState, setStatus } from "../state";
 import { setDisplayDepthUnit } from "../depthUnitPref";
 import { unitLabel } from "../units";
@@ -1492,9 +1492,9 @@ export class LogViewPanel {
     span: number,
     dimColor: string,
   ): void {
-    // A default bin of 1/20th of the visible window keeps the glyphs legible at any zoom,
-    // but an explicit bin height is a fixed depth interval and must not follow the zoom.
-    const bin = style.bin && style.bin > 0 ? style.bin : (bottom - top) / 20;
+    // The default is a property of the SERIES, never of the zoom — see defaultBinHeight. An
+    // explicit bin height is a fixed depth interval and likewise must not follow the zoom.
+    const bin = style.bin && style.bin > 0 ? style.bin : defaultBinHeight(s.depth);
     const bins = binByDepth(s.depth, s.value, bin);
     const whisker: WhiskerRule =
       style.whisker === "minmax"
