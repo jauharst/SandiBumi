@@ -348,8 +348,8 @@
 - **Existing assertions:** the two `SWE <= SWT` assertions in `lrlc::tests` were repointed at the plain pair, which carries bit-identically the values they always compared; the diagnostics legitimately break that inequality above 1, which is the evidence they exist to carry. Nothing weakened.
 - **Manual evidence:** saturation 0/41 - unexercised. Automated only.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none outstanding.
-- **Next action:** SB-SAT-026 owes `sw_rtc`/`sw_imts` their `SW_METHOD` flags and owns the `_UNCL` nomenclature question.
+- **Blocker or decision:** **two, opened 2026-08-21 by AUDIT-2026-08-20 finding 37.** This row's `PRESENT-OK` was reached over the MODULE REGISTRY, and SandiMin is not in it - it is its own command (`run_sandimin`), so the T38 sweep, which iterates `list_modules()` and guards with a floor count, could never have seen it. SandiMin emits `<prefix>_SWE`/`_SWT`/`_SXOT` clipped-only. (1) The mnemonic for its twin is undecided - the family pattern under SandiMin's run prefix would read `<prefix>_SWE_<METHOD>`, and 7.2 item 11's `_UNCL` respelling would read differently again. (2) Whether the requirement reaches SandiMin's PURE-INVERSION path at all: where a post-solve model runs the unlimited twin is well defined and already implemented (`sw_indonesia_unlimited`, `solve_simandoux_root_unlimited`), but where one does not, `_SWT`/`_SXOT` are ratios of volumes bounded by the solver's own hard box rather than by a clamp on an equation - there is no raw root to report. Both are Jauhar's.
+- **Next action:** SB-SAT-026 owes `sw_rtc`/`sw_imts` their `SW_METHOD` flags and owns the `_UNCL` nomenclature question. SB-SAT-025 itself is blocked on the two decisions above; until they are taken, T38 arm F NAMES the gap and fails if it closes silently, so neither this row nor the chapter's as-built paragraph can go stale unnoticed again.
 
 ## SB-SAT-026 - No bare SW; every saturation curve designated; a method flag on every run
 

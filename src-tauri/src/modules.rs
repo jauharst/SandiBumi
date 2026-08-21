@@ -13205,6 +13205,53 @@ mod tests {
             }
         }
         assert!(swept >= 7, "the sweep must cover the live family, saw {swept} pairs");
+
+        // F. AUDIT-2026-08-20 finding 37. Arm E iterates `list_modules()`, and its guard is a
+        //    FLOOR - so it can only ever notice a registered module that arrives without a twin.
+        //    SandiMin is a saturation producer that is NOT a registered module (it is its own
+        //    command, `run_sandimin`, with its own dialog), so no count over the registry can see
+        //    it, and it emits `_SWE`/`_SWT`/`_SXOT` clipped-only. A floor that reads as "the
+        //    family is covered" while a whole producer sits outside the iteration is the silent
+        //    half of this requirement's PARTIAL status, so the gap is NAMED here instead.
+        //
+        //    The information the diagnostic would carry demonstrably exists. SandiMin's
+        //    post-solve models call the CLAMPED closed-form entry points, and each of those is
+        //    literally its own unlimited twin with `.clamp(0.0, 1.0)` applied - so above the
+        //    bound the raw root is computed and then discarded.
+        let raw_root = crate::sandimin::sw_indonesia_unlimited(0.5, 0.20, 0.1, 0.25, 5.0, 2.0, 2.0, 1.0, 1.0);
+        let working = crate::sandimin::sw_indonesia(0.5, 0.20, 0.1, 0.25, 5.0, 2.0, 2.0, 1.0, 1.0);
+        assert_eq!(working, 1.0, "the working curve sits at its bound");
+        assert!(
+            raw_root > 1.05,
+            "the unlimited twin must carry what the clamp erased, got {raw_root}"
+        );
+
+        //    And it is discarded: SandiMin emits each saturation curve once, with no diagnostic
+        //    sibling beside it. This arm is a CHARACTERIZATION - when SandiMin gains its
+        //    SB-SAT-025 twin it will fail, which is the point: the as-built paragraph in
+        //    `docs/PRD_v2/12_saturation.md` and the evidence record in
+        //    `docs/takeover/evidence/sb-sat.md` must be corrected in the same change, and a gap
+        //    that closes without anybody noticing leaves both of them lying.
+        let solver = include_str!("sandimin.rs");
+        let solver_production =
+            solver.split("\nmod tests").next().expect("a split always yields one piece");
+        let quote = '"';
+        let scoped = ["{", "prefix", "}"].concat();
+        for plain in ["_SWE", "_SWT", "_SXOT"] {
+            assert_eq!(
+                solver_production
+                    .matches(format!("{scoped}{plain}{quote})").as_str())
+                    .count(),
+                1,
+                "SandiMin emits {plain} once",
+            );
+            assert_eq!(
+                solver_production.matches(format!("{scoped}{plain}_").as_str()).count(),
+                0,
+                "SandiMin{plain} still has no SB-SAT-025 diagnostic twin; when it gains one, \
+                 correct 12_saturation.md's as-built paragraph and evidence/sb-sat.md with it",
+            );
+        }
     }
 
     /// SB-SAT-026 / SB-SAT-T39's universal clauses, engineering half. Source:

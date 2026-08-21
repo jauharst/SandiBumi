@@ -1412,6 +1412,38 @@ counterpart, and the LRLC modules emit clamped values only (`lrlc.rs:153`, `:161
 > `the_unlimited_simandoux_diagnostic_reports_the_root_above_one_instead_of_a_second_copy_of_swe`.
 > The other two gaps in this note (`sw_arch` effective, the LRLC modules) are unchanged and stand.
 
+> **Correction (2026-08-21, AUDIT-2026-08-20 finding 37).** The `As-built` paragraph above — and
+> the closing line of the note before this one — are both STALE. All three gaps they name are
+> closed, and were closed *before* that note was written: `sw_arch`'s effective result gained
+> `SWE_ARCH` (`modules.rs:7056`) beside `SWT_ARCH` (`:7053`), and the LRLC pair gained
+> `SWT_RTC`/`SWE_RTC` (`lrlc.rs:153-154`) and `SWT_IMTS`/`SWE_IMTS` (`:357-358`). All four are
+> DECLARED outputs, not test-only, and SB-SAT-T38 sweeps them from both sides.
+>
+> What the record has never named is the gap that is actually open: **SandiMin**. It emits
+> `<prefix>_SWE`, `<prefix>_SWT` and `<prefix>_SXOT` clipped-only, and it is not a registered
+> module — it is its own command (`run_sandimin`) with its own dialog, so the family sweep, which
+> iterates the module registry and guards with a FLOOR count, is structurally incapable of
+> noticing it. A floor can catch a registered module that arrives without a twin; it can never
+> catch a producer that sits outside the iteration. SB-SAT-T38 arm F now names SandiMin, proves
+> the discarded information exists (its post-solve models call the CLAMPED closed-form entry
+> points, and each of those is literally its own `_unlimited` twin with `.clamp(0.0, 1.0)`
+> applied, so above the bound the raw root is computed and thrown away), and FAILS the day the
+> twin lands — so this paragraph cannot go stale the same way twice.
+>
+> Two decisions are OPEN and are deliberately not taken here.
+>
+> 1. **The mnemonic.** SandiMin scopes every output with its own run prefix, so the family's
+>    `SWE_<METHOD>` pattern would read `<prefix>_SWE_<METHOD>`; §7.2 item 11's `_UNCL` respelling
+>    is still undecided and would read differently again.
+> 2. **Whether the requirement reaches SandiMin's pure-inversion path at all.** Where a post-solve
+>    model runs, an unlimited twin is well defined and already implemented. Where one does not,
+>    `_SWT` and `_SXOT` are RATIOS OF SOLVED VOLUMES, and those volumes are bounded by the
+>    solver's own hard box rather than by a clamp on an equation — there is no raw root to report,
+>    and an unconstrained re-solve would be a different mathematical object, not the same answer
+>    unclipped.
+>
+> Status therefore stays `PARTIAL`, now for a reason the record actually states.
+
 **Verified by.** SB-SAT-T38
 
 ---

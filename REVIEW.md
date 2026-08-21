@@ -1,5 +1,39 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 82 (my audit P2): **the saturation sweep can no longer pass over the one producer it cannot reach** — and two questions for you
+
+- [ ] **What to click.** Nothing changes in the app. This increment moves no number and adds no
+      curve; it corrects a written record and closes a blind spot in an automated check. If you
+      want to see what the record now says, it is the SB-SAT-025 section of
+      `docs/PRD_v2/12_saturation.md`.
+- [ ] **The rule.** Every saturation method is supposed to publish two curves: the working one,
+      bounded to sensible limits, and an **unclipped diagnostic** carrying the raw answer the
+      equation gave. The reason is a real one — a clipped curve reading exactly 1.000 cannot tell
+      you whether the rock is wet or whether Rw was entered a decade low and the model went out of
+      range. Geolog and Techlog ship those diagnostics; IP does not.
+- [ ] **What was wrong.** The record of that rule named three modules as still missing their
+      diagnostic — Archie's effective result, and the two LRLC saturations. **All three had
+      already been fixed**, two days before the note that said they hadn't. Meanwhile the one
+      producer that genuinely is missing them — **SandiMin** — appears nowhere in the record at
+      all, and the automatic check *cannot* find it: that check walks the module registry, and
+      SandiMin is not a registered module, it is its own tool with its own dialog. Its guard is a
+      minimum count, and a minimum count can never notice something outside what it is counting.
+- [ ] **What changed.** The check now names SandiMin explicitly. It proves the missing information
+      really is there and being thrown away — SandiMin's saturation models compute the raw answer
+      and then clamp it — and it will **fail the day SandiMin gains its diagnostic**, so the
+      written record cannot silently go stale the same way twice. Both records are corrected.
+- [ ] **Two decisions I did not take — they are yours.** (1) **What the diagnostic would be
+      called.** SandiMin prefixes every curve it writes with the run's own prefix, so the family
+      pattern would read `SM_SWE_INDO`; the specification also has an open question about
+      respelling the whole family as `_UNCL`, which would read differently again. (2) **Whether
+      the rule even reaches SandiMin's inversion.** Where SandiMin runs a named model
+      (Indonesia, Simandoux, Waxman-Smits) the raw answer exists and I could publish it today.
+      But where it runs the pure mineral inversion, `SWT` and `SXOT` are **ratios of solved
+      volumes**, and those volumes are held inside the solver's own hard limits, not clipped after
+      an equation. There is no raw root to report there, and re-solving without the limits would
+      be a different calculation, not the same answer unclipped. Tell me how you want each of the
+      two handled and I will do it.
+
 ## 2026-08-21 — Audit increment 81 (my audit P3): **one clay-quantity contract, checked once instead of four times**
 
 - [ ] **What to click.** Run **brittleness** (which requires clay volume, VCL) with a VSH curve
