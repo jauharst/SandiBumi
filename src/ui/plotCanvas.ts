@@ -924,6 +924,52 @@ export function faciesColor(index: number): string {
   return FACIES_PALETTE[((i % n) + n) % n];
 }
 
+/** One contiguous same-class interval of a discrete class curve. */
+export interface ClassRun {
+  cls: number;
+  top: number;
+  bottom: number;
+}
+
+/** The runs a blocks track is made of, as ONE definition.
+ *
+ *  AUDIT-2026-08-20 finding 43. The WebGPU renderer and `composite::draw_class_blocks` each
+ *  built these, and disagreed twice. Both are degenerate cases, and both would have shown up as
+ *  a print that did not match the screen with nothing on either to explain why — which is the
+ *  hardest kind of disagreement to chase, because each side looks internally consistent.
+ *
+ *  ROUNDING. `Math.round` is half-UP and Rust's `f32::round` is half-away-from-zero, so a value
+ *  of exactly −0.5 was facies 0 on screen and −1 — reject grey — in print. They agree over every
+ *  value a class curve is supposed to hold (`facies.rs` writes 0..K−1), so this is settled on
+ *  the VIEWER's rule: a facies scheme is inspected and tuned on screen, and the print's job is
+ *  to reproduce what was inspected. Rust matches with `(v + 0.5).floor()`.
+ *
+ *  THE LAST RUN. It extends one average sample step past its final sample, and with a single
+ *  sample there is no measured step to extend by. The screen used to invent one unit — which is
+ *  a metre or a foot depending on the project, so it was not even one consistent thickness —
+ *  while the print drew nothing. Settled on the PRINT's rule: a lone sample states a class at a
+ *  depth, not a class over an interval, and a block of invented height is a thickness the data
+ *  never had. */
+export function classRuns(depth: ArrayLike<number>, value: ArrayLike<number>): ClassRun[] {
+  const n = Math.min(depth.length, value.length);
+  const out: ClassRun[] = [];
+  let runClass: number | null = null;
+  let runTop = 0;
+  for (let i = 0; i < n; i++) {
+    const v = value[i];
+    const cls = Number.isFinite(v) ? Math.round(v) : null;
+    if (cls === runClass) continue;
+    if (runClass !== null) out.push({ cls: runClass, top: runTop, bottom: depth[i] });
+    runClass = cls;
+    runTop = depth[i];
+  }
+  if (runClass !== null && n > 1) {
+    const avgStep = (depth[n - 1] - depth[0]) / (n - 1);
+    out.push({ cls: runClass, top: runTop, bottom: depth[n - 1] + avgStep });
+  }
+  return out;
+}
+
 /** Legend label for a facies/cluster class. A negative is the reject code (SB-MLA-021) and is
  *  named rather than numbered: "F-1" reads as a facies with a strange id, which is exactly the
  *  reading this class exists to prevent. Beside `faciesColor` so a legend cannot draw the grey
