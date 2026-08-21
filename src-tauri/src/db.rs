@@ -5462,6 +5462,17 @@ fn integrity_count(conn: &Connection, sql: &str) -> Result<usize, String> {
 fn unresolved_ml_training_model_count(conn: &Connection) -> Result<usize, String> {
     let mut stmt = conn.prepare("SELECT trained_on FROM ml_models ORDER BY model_id").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    // One grouped scan rather than a count per recorded name, which ran inside a loop inside a
+    // loop. Counting per name rather than testing existence keeps the exactly-one rule intact: a
+    // duplicated well name is still unresolved, which is what this function is here to catch.
+    let mut names_stmt = conn
+        .prepare("SELECT COALESCE(well_name, ''), count(*) FROM wells GROUP BY well_name")
+        .map_err(|e| e.to_string())?;
+    let well_name_counts: std::collections::HashMap<String, i64> = names_stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
     let mut unresolved = 0usize;
     for row in rows {
         let encoded = row.map_err(|e| e.to_string())?;
@@ -5473,12 +5484,7 @@ fn unresolved_ml_training_model_count(conn: &Connection) -> Result<usize, String
                 resolves = false;
                 break;
             }
-            let matches: i64 = conn.query_row(
-                "SELECT count(*) FROM wells WHERE well_name = ?1",
-                params![name],
-                |row| row.get(0),
-            ).map_err(|e| e.to_string())?;
-            if matches != 1 { resolves = false; break; }
+            if well_name_counts.get(&name).copied().unwrap_or(0) != 1 { resolves = false; break; }
         }
         if !resolves { unresolved += 1; }
     }
@@ -11070,25 +11076,24 @@ pub fn record_audit_entry(
     }
 
     // The collapse check: the LATEST entry, by sequence - uninterruptedness is order.
-    let latest: Option<(String, String, Option<String>, String, String, String, String)> = conn
+    let latest: Option<(String, String, String, String, String, String)> = conn
         .query_row(
-            "SELECT entry_id, COALESCE(well_id::VARCHAR, ''), NULL, operator, operator_kind, view, source
+            "SELECT entry_id, COALESCE(well_id::VARCHAR, ''), operator, operator_kind, view, source
              FROM audit_entry ORDER BY entry_seq DESC LIMIT 1",
             [],
             |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
-                    row.get::<_, Option<String>>(2)?,
+                    row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
-                    row.get(6)?,
                 ))
             },
         )
         .ok();
-    if let Some((entry_id, latest_well, _, latest_op, latest_kind, latest_view, latest_source)) =
+    if let Some((entry_id, latest_well, latest_op, latest_kind, latest_view, latest_source)) =
         latest
     {
         let same_head = latest_well == well_id.unwrap_or("")
@@ -11131,11 +11136,11 @@ pub fn record_audit_entry(
                             zone_set.map(|(_, digest)| digest)
                         ],
                     )?;
+                    let mut stmt = conn.prepare(
+                        "UPDATE audit_detail SET value = ?3 WHERE entry_id = ?1 AND seq = ?2",
+                    )?;
                     for (seq, detail) in details.iter().enumerate() {
-                        conn.execute(
-                            "UPDATE audit_detail SET value = ?3 WHERE entry_id = ?1 AND seq = ?2",
-                            params![entry_id, seq as i64, detail.value],
-                        )?;
+                        stmt.execute(params![entry_id, seq as i64, detail.value])?;
                     }
                     Ok::<(), DbError>(())
                 })?;
@@ -11350,22 +11355,38 @@ pub fn list_audit_entries(conn: &Connection, limit: usize) -> DbResult<Vec<Audit
             })
         })?
         .collect::<Result<_, _>>()?;
+    // One scan of the detail table rather than a query per entry - the panel opens at the IPC
+    // default of 200 entries, and a per-row query is how a list turns into N round trips on a
+    // field-scale project, which is the convention this file states for the contact link table.
+    // The same LIMIT selects the same entries, so no binding list is needed either.
+    let mut stmt = conn.prepare(
+        "SELECT entry_id, location, mode, unit, name, value FROM audit_detail
+         WHERE entry_id IN (SELECT entry_id FROM audit_entry ORDER BY entry_seq DESC LIMIT ?1)
+         ORDER BY entry_id, seq",
+    )?;
+    let mut by_entry: std::collections::HashMap<String, Vec<AuditDetail>> =
+        std::collections::HashMap::new();
+    let rows = stmt.query_map(params![limit as i64], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            AuditDetail {
+                location: row.get(1)?,
+                mode: row.get(2)?,
+                unit: row.get(3)?,
+                name: row.get(4)?,
+                value: row.get(5)?,
+            },
+        ))
+    })?;
+    for row in rows {
+        let (entry_id, detail) = row?;
+        by_entry.entry(entry_id).or_default().push(detail);
+    }
     for entry in &mut entries {
-        let mut stmt = conn.prepare(
-            "SELECT location, mode, unit, name, value FROM audit_detail
-             WHERE entry_id = ?1 ORDER BY seq",
-        )?;
-        entry.details = stmt
-            .query_map(params![entry.entry_id], |row| {
-                Ok(AuditDetail {
-                    location: row.get(0)?,
-                    mode: row.get(1)?,
-                    unit: row.get(2)?,
-                    name: row.get(3)?,
-                    value: row.get(4)?,
-                })
-            })?
-            .collect::<Result<_, _>>()?;
+        // An entry that recorded no detail rows keeps the empty vector it was built with.
+        if let Some(details) = by_entry.remove(&entry.entry_id) {
+            entry.details = details;
+        }
     }
     Ok(entries)
 }
