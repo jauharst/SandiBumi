@@ -1103,6 +1103,126 @@ fn draw_vgrid(ops: &mut Vec<DrawOp>, track: &crate::layout::Track, tx0: f64, tx1
     }
 }
 
+/// Where the segment between two samples meets a page boundary.
+///
+/// AUDIT-2026-08-20 finding 41. A sample outside the page used to END the run, so an interval
+/// whose two endpoints straddle a page break satisfied NEITHER page's test and was drawn by
+/// neither — a hairline at ordinary sampling, and a white stripe a whole sample interval wide on
+/// a blocked curve. The run now reaches the boundary from both sides, so consecutive pages meet.
+///
+/// Interpolated in DRAWN space (x), never in value space: the renderer joins two mapped points
+/// with a straight line, so on a LOG axis a value-space interpolation would land somewhere the
+/// unclipped line never passed through. Clipping must be invisible — the pixels inside the page
+/// have to be the ones the unclipped line would have put there.
+///
+/// A `step` curve is not interpolated at all; its caller passes the held value, because a step
+/// curve has no slope to cut. That is the same statement `hold_to` already makes on the way out.
+fn segment_boundary(
+    (d_a, x_a): (f32, f64),
+    (d_b, x_b): (f32, f64),
+    boundary: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) -> Option<(f64, f64)> {
+    let span = d_b - d_a;
+    if !span.is_finite() || span == 0.0 {
+        return None;
+    }
+    let t = ((boundary - d_a) / span) as f64;
+    if !(0.0..=1.0).contains(&t) {
+        return None;
+    }
+    Some((x_a + t * (x_b - x_a), y_of(boundary)))
+}
+
+/// The curve's on-page runs, each already carried to the page boundary at both ends.
+///
+/// AUDIT-2026-08-20 finding 41. One producer for both the shaded polygon and the line, which
+/// differ in what they DO with a run and never in where the runs are — two copies of this would
+/// be two chances for the fill and the stroke it outlines to disagree about a page break.
+#[allow(clippy::too_many_arguments)]
+fn page_clipped_runs(
+    vals: &[f32],
+    depth: &[f32],
+    x_at: &dyn Fn(f32) -> Option<f64>,
+    step: bool,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) -> Vec<Vec<(f64, f64)>> {
+    let hold_to = |i: usize| -> Option<f64> {
+        let d = *depth.get(i + 1)?;
+        Some(y_of(d.clamp(page_top, page_bot)))
+    };
+    let mut out: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut run: Vec<(f64, f64)> = Vec::new();
+    // The last sample that HAD a position, on the page or off it — the off-page one is what a
+    // boundary point is interpolated from, so it cannot simply be skipped.
+    let mut prev: Option<(f32, f64)> = None;
+    for (i, &v) in vals.iter().enumerate() {
+        let d = depth[i];
+        let here = x_at(v);
+        let on_page = d >= page_top && d <= page_bot;
+        match (here, on_page) {
+            (Some(x), true) => {
+                // Entering: begin at the boundary the previous sample lies beyond.
+                if run.is_empty() {
+                    if let Some((pd, px)) = prev {
+                        if pd < page_top || pd > page_bot {
+                            let edge = if pd < page_top { page_top } else { page_bot };
+                            // A step curve holds the PREVIOUS value down to here, so its boundary
+                            // point is that value; interpolating would invent a slope the display
+                            // does not have.
+                            let point = if step {
+                                Some((px, y_of(edge)))
+                            } else {
+                                segment_boundary((pd, px), (d, x), edge, y_of)
+                            };
+                            if let Some(point) = point {
+                                run.push(point);
+                            }
+                        }
+                    }
+                }
+                run.push((x, y_of(d)));
+                if step {
+                    if let Some(y) = hold_to(i) {
+                        run.push((x, y));
+                    }
+                }
+            }
+            (Some(x), false) => {
+                // Leaving: finish at the boundary before the run ends. A step curve already
+                // reaches it through `hold_to`, which clamps, so only the sloped case adds one.
+                if !run.is_empty() && !step {
+                    if let Some((pd, px)) = prev {
+                        if pd >= page_top && pd <= page_bot {
+                            let edge = if d < page_top { page_top } else { page_bot };
+                            if let Some(point) = segment_boundary((pd, px), (d, x), edge, y_of) {
+                                run.push(point);
+                            }
+                        }
+                    }
+                }
+                if run.len() >= 2 {
+                    out.push(std::mem::take(&mut run));
+                }
+                run.clear();
+            }
+            (None, _) => {
+                if run.len() >= 2 {
+                    out.push(std::mem::take(&mut run));
+                }
+                run.clear();
+            }
+        }
+        prev = here.map(|x| (d, x));
+    }
+    if run.len() >= 2 {
+        out.push(run);
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_curve(
     ops: &mut Vec<DrawOp>,
@@ -1123,10 +1243,6 @@ fn draw_curve(
     // second point at the same x — the blocky display. Kept in sync with the viewer's
     // LogCanvasRenderer, which builds the identical corner.
     let step = cs.draw_style.as_deref() == Some("step");
-    let hold_to = |i: usize| -> Option<f64> {
-        let d = *depth.get(i + 1)?;
-        Some(y_of(d.clamp(page_top, page_bot)))
-    };
 
     match cs.fill.as_deref() {
         // Discrete class blocks: full-track-width colored rectangles per contiguous
@@ -1150,67 +1266,21 @@ fn draw_curve(
             let edge_x = if side == "right" { tx1 } else { tx0 };
             let fill_color = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
             let opacity = cs.fill_opacity.unwrap_or(0.25) as f64;
-            let mut run: Vec<(f64, f64)> = Vec::new();
-            let flush = |ops: &mut Vec<DrawOp>, run: &mut Vec<(f64, f64)>| {
-                if run.len() >= 2 {
-                    let mut pts = Vec::with_capacity(run.len() + 2);
-                    pts.push((edge_x, run[0].1));
-                    pts.extend_from_slice(run);
-                    pts.push((edge_x, run.last().unwrap().1));
-                    ops.push(DrawOp::Fill { pts, fill: fill_color.clone(), opacity });
-                }
-                run.clear();
-            };
-            for (i, &v) in vals.iter().enumerate() {
-                let d = depth[i];
-                if d < page_top || d > page_bot {
-                    flush(ops, &mut run);
-                    continue;
-                }
-                match x_at(v) {
-                    Some(x) => {
-                        run.push((x, y_of(d)));
-                        if step {
-                            if let Some(y) = hold_to(i) {
-                                run.push((x, y));
-                            }
-                        }
-                    }
-                    None => flush(ops, &mut run),
-                }
+            for run in page_clipped_runs(vals, depth, &x_at, step, page_top, page_bot, y_of) {
+                let mut pts = Vec::with_capacity(run.len() + 2);
+                pts.push((edge_x, run[0].1));
+                pts.extend_from_slice(&run);
+                pts.push((edge_x, run.last().unwrap().1));
+                ops.push(DrawOp::Fill { pts, fill: fill_color.clone(), opacity });
             }
-            flush(ops, &mut run);
         }
         _ => {}
     }
 
-    // Curve line: contiguous runs, breaking at NaN / off-page gaps.
-    let mut run: Vec<(f64, f64)> = Vec::new();
-    let flush_line = |ops: &mut Vec<DrawOp>, run: &mut Vec<(f64, f64)>| {
-        if run.len() >= 2 {
-            ops.push(DrawOp::Poly { pts: run.clone(), stroke: cs.color.clone(), sw: 0.35 });
-        }
-        run.clear();
-    };
-    for (i, &v) in vals.iter().enumerate() {
-        let d = depth[i];
-        if d < page_top || d > page_bot {
-            flush_line(ops, &mut run);
-            continue;
-        }
-        match x_at(v) {
-            Some(x) => {
-                run.push((x, y_of(d)));
-                if step {
-                    if let Some(y) = hold_to(i) {
-                        run.push((x, y));
-                    }
-                }
-            }
-            None => flush_line(ops, &mut run),
-        }
+    // Curve line: contiguous runs, breaking at NaN and carried to the page edge at a page break.
+    for run in page_clipped_runs(vals, depth, &x_at, step, page_top, page_bot, y_of) {
+        ops.push(DrawOp::Poly { pts: run, stroke: cs.color.clone(), sw: 0.35 });
     }
-    flush_line(ops, &mut run);
 }
 
 /// `fill = "curve"`: shading between this curve and a reference curve in the same track —
@@ -1246,21 +1316,35 @@ fn draw_crossover(
     let n = vals.len().min(depth.len()).min(aligned_reference.len());
     for i in 0..n.saturating_sub(1) {
         let (d0, d1) = (depth[i], depth[i + 1]);
-        if d0 < page_top || d0 > page_bot || d1 < page_top || d1 > page_bot {
+        // AUDIT-2026-08-20 finding 41: CLIP the interval to the page rather than drop it. An
+        // interval straddling a page break failed both pages' tests and was shaded by neither,
+        // leaving an unshaded stripe a whole sample interval wide across the separation — the
+        // one place a reader is most likely to read white as "no crossover here".
+        if d1 < page_top || d0 > page_bot || !(d1 > d0) {
             continue;
         }
-        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue ;
+        let (c0, c1) = (d0.max(page_top), d1.min(page_bot));
+        let (Some(a_top), Some(b_top)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue ;
         };
         // A stepped curve holds its value across the interval, so both edges stay vertical
         // and the pair can never cross inside one interval.
-        let (a1, b1) = if step {
-            (a0, b0)
+        let (a_bot, b_bot) = if step {
+            (a_top, b_top)
         } else {
             let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue ;
             };
             (a1, b1)
         };
-        let (y0, y1) = (y_of(d0), y_of(d1));
+        // Interpolated in DRAWN space, like the curve line's own boundary point: a straight edge
+        // between two mapped positions is what the renderer draws, so cutting it anywhere else
+        // would move the shading off the separation it describes. A step curve is unaffected —
+        // both ends carry the same x, so every cut lands on the same vertical.
+        let span = (d1 - d0) as f64;
+        let at = |t: f64, u: f64, v: f64| u + (v - u) * t;
+        let (t0, t1) = (((c0 - d0) as f64) / span, ((c1 - d0) as f64) / span);
+        let (a0, b0) = (at(t0, a_top, a_bot), at(t0, b_top, b_bot));
+        let (a1, b1) = (at(t1, a_top, a_bot), at(t1, b_top, b_bot));
+        let (y0, y1) = (y_of(c0), y_of(c1));
         let (s0, s1) = (a0 - b0, a1 - b1);
         let side = |s: f64| if s < 0.0 { left.clone() } else { right.clone() };
         if (s0 < 0.0) != (s1 < 0.0) && s0 != s1 {
@@ -2954,6 +3038,57 @@ mod tests {
             0.0, 10.0, 0.0, 1000.0, &y,
         );
         assert!(fills(&ops).is_empty(), "None must print unshaded, as the viewer draws it");
+    }
+
+    /// AUDIT-2026-08-20 finding 41. A composite page is a window on the well, not a filter on
+    /// its samples: the interval from the last sample above the break to the first sample below
+    /// it is real rock, and it used to satisfy neither page's test and be drawn by neither. At
+    /// ordinary sampling that is a hairline; on a metre-blocked curve at 1:200 it is a 5 mm
+    /// white stripe across the page join, which reads as missing data rather than as a page edge.
+    ///
+    /// Pinned from BOTH sides, because clipping and not clipping at all both close the gap: the
+    /// run must REACH each boundary, and it must stop there.
+    #[test]
+    fn an_interval_straddling_a_page_break_is_drawn_to_the_boundary_and_never_past_it() {
+        let (page_top, page_bot) = (100.0f32, 200.0f32);
+        let y = |d: f32| d as f64;
+        // One sample above the page, two inside it, one below — so both breaks are straddled.
+        let vals = [0.0f32, 0.25, 0.75, 1.0];
+        let depth = [80.0f32, 120.0, 180.0, 220.0];
+
+        let mut ops = Vec::new();
+        draw_curve(
+            &mut ops, &saved_style("VSH"), ScaleType::Linear, &vals, &depth, None,
+            0.0, 10.0, page_top, page_bot, &y,
+        );
+        let pts = line_pts(&ops);
+        // Halfway between 80 and 120 in depth is halfway between their two x positions, so the
+        // line enters the page carrying the value the log actually has at the page's first metre.
+        assert_eq!(pts.first().copied(), Some((1.25, 100.0)), "the run reaches the page top");
+        assert_eq!(pts.last().copied(), Some((8.75, 200.0)), "and the page bottom");
+        assert!(
+            pts.iter().all(|(_, y)| (100.0..=200.0).contains(y)),
+            "and stops at both, rather than printing a neighbouring page's rock: {pts:?}"
+        );
+
+        // Crossover shading is a second implementation of the same window and used to drop a
+        // straddling interval outright. Here ONE interval spans the whole page, so dropping it
+        // leaves the entire separation unshaded.
+        let mut cs = saved_style("NPHI");
+        cs.fill = Some("curve".into());
+        cs.fill_to = Some("RHOB".into());
+        cs.fill_color = Some("#111111".into());
+        let span = [80.0f32, 220.0];
+        let mut ops = Vec::new();
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &[0.2f32, 0.2], &span,
+            Some((&[0.8f32, 0.8], &span, 0.0, 1.0)), 0.0, 10.0, page_top, page_bot, &y,
+        );
+        assert_eq!(
+            fills(&ops),
+            vec![("#111111".to_string(), vec![(2.0, 100.0), (8.0, 100.0), (8.0, 200.0), (2.0, 200.0)])],
+            "the separation is shaded across the whole page and no further"
+        );
     }
 
     fn point_style(json: serde_json::Value) -> crate::layout::PointStyle {

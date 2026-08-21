@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **162** of 647,
+Review sections counted toward no capability: **162** of 648,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -57,7 +57,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 12 | — | 7 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
-| `composite` | Composite log plots | Not exercised | 0 / 18 | — | 6 |
+| `composite` | Composite log plots | Not exercised | 0 / 24 | — | 7 |
 | `report` | Report deliverables | Partially exercised | 8 / 103 | 2026-08-14 | 25 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
