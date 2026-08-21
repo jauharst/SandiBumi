@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 46 (my audit P2): **one provenance guard against a module reusing a reserved name, instead of nine**
+
+- [ ] **Background.** When a module run is saved, SandiBumi writes a set of **reserved
+      provenance entries** beside the module's own parameters — the mask state, the smoothing
+      policy, the flag kinds, which quantity each output carries, and so on. A module is refused
+      if one of its own arguments would collide with one of those names, because the collision
+      would overwrite the record of how the run was made.
+- [ ] **What was wrong.** That refusal was written out **nine times**, in three different shapes,
+      and only two of the nine looked in both places a module's arguments can land. Whether that
+      was deliberate or an oversight **could not be read off the code** — which is its own
+      problem in a provenance path.
+- [ ] **The answer, now written down.** It was neither. Every declared argument goes into **both**
+      places, so today the two checks are the same check; but one of them stays correct under a
+      change the other does not. All nine now do the same thing, once.
+- [ ] **Every message is unchanged.** The wording a refusal shows you — including which kind of
+      reserved key was hit — is identical at all nine sites.
+- [ ] **No number moves** and no run behaves differently; a module that saved before still saves.
+- [ ] **What to check.** Run any module and save it, then open the run in the Database Inspector's
+      ancestry view — the provenance entries should read exactly as they did before. Nothing
+      about the numbers or the recorded parameters should differ.
+
 ## 2026-08-21 — Audit increment 45 (my audit P2): **the Database Inspector's cleanup rules are written down once instead of four times**
 
 - [ ] **Where.** Database Inspector → integrity check, and its **Quarantine / Undo / Redo**.
