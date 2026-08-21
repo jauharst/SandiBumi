@@ -867,18 +867,12 @@ pub(crate) fn zone_metrics(
 }
 
 /// Percentile (linear interpolation, type-7) over finite values; NaN if none finite.
+/// AUDIT-2026-08-20 finding 44. This was a second copy of `distribution`'s R type 7, differing
+/// only in taking a fraction and in not clamping it. It is now the shared one — kept as a
+/// one-line alias so the call sites below still read as percentiles of a realization set rather
+/// than as conversions.
 fn percentile(sorted: &[f32], p: f64) -> f32 {
-    if sorted.is_empty() {
-        return f32::NAN;
-    }
-    if sorted.len() == 1 {
-        return sorted[0];
-    }
-    let rank = p * (sorted.len() - 1) as f64;
-    let lo = rank.floor() as usize;
-    let hi = rank.ceil() as usize;
-    let frac = (rank - lo as f64) as f32;
-    sorted[lo] + (sorted[hi] - sorted[lo]) * frac
+    crate::distribution::percentile_fraction(sorted, p)
 }
 
 fn summarize(values: &[f32], lo_p: f64, hi_p: f64) -> Pctl {

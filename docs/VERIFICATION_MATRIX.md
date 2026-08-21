@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **162** of 651,
+Review sections counted toward no capability: **162** of 652,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -31,7 +31,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-depth-registration` | Core-depth registration | Not exercised | 0 / 60 | — | 10 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 114 | — | 19 |
-| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 56 | — | 11 |
+| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 61 | — | 12 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 91 | — | 24 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 172 | 2026-08-13 | 44 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 33 | — | 5 |
@@ -44,7 +44,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 200 | 2026-07-19 | 34 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
-| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 35 | 2026-07-18 | 11 |
+| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 40 | 2026-07-18 | 12 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 20 | — | 6 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 50 | — | 14 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
