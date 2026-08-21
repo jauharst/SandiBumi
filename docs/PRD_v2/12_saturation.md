@@ -1382,7 +1382,7 @@ handled. It is untested, and nothing records that the Geolog `sw_ws` form is for
 
 ---
 
-#### SB-SAT-025 — Every method emits a clipped and an unclipped curve [P1] [status: PARTIAL]
+#### SB-SAT-025 — Every method emits a clipped and an unclipped curve [P1] [status: MET]
 
 **Requirement.** Every saturation method MUST emit both a clipped curve (`SWE`/`SWT`, bounded to
 `[SWE_IRR, 1]` / `[SWT_IRR, 1]`) and an unclipped diagnostic (`SWE_<METHOD>` / `SWT_<METHOD>`).
@@ -1443,6 +1443,53 @@ counterpart, and the LRLC modules emit clamped values only (`lrlc.rs:153`, `:161
 >    unclipped.
 >
 > Status therefore stays `PARTIAL`, now for a reason the record actually states.
+
+> **Correction (2026-08-21, AUDIT-2026-08-20 finding 37 — closed; status `PARTIAL` → `MET`).**
+> SandiMin now publishes the twin. Every model whose answer is a **clipped closed form** emits
+> `<prefix>_SWE_<METHOD>`, `<prefix>_SWT_<METHOD>` and, where the flushed zone is solved,
+> `<prefix>_SXOT_<METHOD>` beside its working curves — `ARCH`, `INDO`, `SIM`, `DW`, `JUH`, `WS`,
+> one token per equation, which is why the two Archie branches share `ARCH` and the two Simandoux
+> branches share `SIM` exactly as the shipped modules already do. The producing branch stays
+> recorded exactly, and separately, by `SW_METHOD` (SB-SAT-026).
+>
+> The two decisions the note above left OPEN are now taken, both as that note itself reasoned:
+>
+> 1. **The mnemonic** is `<prefix>_SWE_<METHOD>` — the family's own pattern under SandiMin's run
+>    prefix. §7.2 item 11's `_UNCL` respelling is unaffected: if it is adopted it applies to the
+>    whole family at once, and here it is a change to one function
+>    (`SwModel::diagnostic_token`).
+> 2. **The requirement does not reach the pure-inversion path**, for the reason already stated
+>    above: `linear_dw` puts the conductivity row inside the least-squares system, where the
+>    answer is bounded by the solver's hard `0 ≤ v ≤ max_vol` box and by unity. Nothing is clipped
+>    after the fact, so there is no discarded root to publish, and an unconstrained re-solve would
+>    be a different mathematical object — one whose answer can carry negative volumes — rather
+>    than the same answer unclipped. `diagnostic_token` returns `None` there, and the test asserts
+>    that it does, so the exclusion is pinned rather than assumed.
+>
+> How it is built matters as much as that it exists. Each post-solve model's branch now calls its
+> `_unlimited` entry point and the **single** clamp lives at the one call site where the root is
+> applied to the volumes, so the working curve and its twin are provably the same number with and
+> without one operation — they cannot drift into being two implementations of related names. The
+> three excess-conductivity models state their coefficient (`Swb·(Cwb−Cw)`, `QVN·(Cwsh−Cw)`,
+> `B·Qv`) exactly once and differ only in which root solver receives it, and `sw_arch`'s own
+> back-out pair now routes through the same shared `swe_from_swt` / `swe_from_swt_unlimited`
+> rather than a second copy of the formula.
+>
+> Three readings the twin now separates, all pinned end-to-end against a run of the solver
+> (`sandimin_publishes_the_unclipped_twin_of_every_saturation_curve_it_clips`): out of range the
+> twin **exceeds** the bound where the working curve sits on it; in range the twin **equals** its
+> working curve; and where no closed form was evaluated at all — a post-solve model at a depth
+> with no resistivity reading, so the split comes from the linear inversion — the twin is
+> **MISSING**, because writing the inversion's own answer there would state that a model ran and
+> stayed in range, which is not what happened. A value `f32` cannot hold is recorded MISSING for
+> the same reason `SWE_INDO` does it: an infinity screens past every NaN filter and then poisons
+> the track's statistics and autoscale.
+>
+> Working curves are unchanged for every reading. `MAX(x, 0)` followed by `clamp(0, 1)` is
+> `clamp(0, 1)`, and the conductivity root's refusals are unchanged — a root **above** 1 is the
+> ordinary wet-zone clamp every saturation model applies, while a root **below** 0 still returns
+> MISSING under AUDIT-2026-08-20 finding 11, because the clay term alone out-conducting the rock
+> has no saturation reading. Both survive unclipped in the twin, which is the point of having one.
 
 **Verified by.** SB-SAT-T38
 

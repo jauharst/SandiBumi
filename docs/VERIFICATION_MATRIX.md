@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **162** of 672,
+Review sections counted toward no capability: **162** of 673,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -33,13 +33,13 @@ this table, so every figure above reads low by whatever those sections cover.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 114 | — | 19 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 61 | — | 12 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 107 | — | 27 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 183 | 2026-08-13 | 46 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 189 | 2026-08-13 | 47 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 40 | — | 6 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 7 | — | 2 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 33 | — | 7 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
-| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 34 | — | 20 |
+| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 40 | — | 21 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 40 | 2026-07-18 | 9 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 206 | 2026-07-19 | 35 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
@@ -58,7 +58,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `results-qc` | Results QC | Not exercised | 0 / 12 | — | 7 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 24 | — | 7 |
-| `report` | Report deliverables | Partially exercised | 8 / 110 | 2026-08-14 | 26 |
+| `report` | Report deliverables | Partially exercised | 8 / 116 | 2026-08-14 | 27 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |

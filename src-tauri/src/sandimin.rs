@@ -201,6 +201,34 @@ impl SwModel {
     fn is_post_solve(self) -> bool {
         !matches!(self, SwModel::LinearDw)
     }
+
+    /// SB-SAT-025: the mnemonic token this model's UNCLIPPED diagnostic curves carry in SandiMin —
+    /// `SWE_<token>` beside the working `SWE`, exactly as `sw_arch` ships `SWE_ARCH` and `sw_indo`
+    /// ships `SWE_INDO`. One token per EQUATION, not per selector entry, which is why the two
+    /// Archie branches share `ARCH` and the two Simandoux branches share `SIM` — that is what the
+    /// shipped modules already do, and the producing branch is recorded separately and exactly by
+    /// `SW_METHOD`.
+    ///
+    /// `None` means SandiMin computes no closed form here, so there is no discarded root to
+    /// report and a twin would be an invention:
+    ///
+    /// * `LinearDw` puts the conductivity row INSIDE the least-squares system, where the answer is
+    ///   bounded by the solver's hard `0 ≤ v ≤ max_vol` box and unity. Nothing is clipped after the
+    ///   fact — an unclipped twin would mean re-solving without the box, which is a different
+    ///   problem whose answer can carry negative volumes, not the same one unclipped.
+    /// * `SwRtc`/`SwImts`/`SwHeight` are other modules' identities; the solver refuses them by name
+    ///   ([`SwModel::solver_selectable`]), and each of those modules ships its own twin already.
+    pub fn diagnostic_token(self) -> Option<&'static str> {
+        match self {
+            SwModel::ArchieTotal | SwModel::ArchieEffective => Some("ARCH"),
+            SwModel::Indonesia => Some("INDO"),
+            SwModel::SimandouxBardonPied | SwModel::SimandouxModifiedSlb => Some("SIM"),
+            SwModel::DualWaterNonlinear => Some("DW"),
+            SwModel::Juhasz => Some("JUH"),
+            SwModel::WaxmanSmits => Some("WS"),
+            SwModel::LinearDw | SwModel::SwRtc | SwModel::SwImts | SwModel::SwHeight => None,
+        }
+    }
 }
 
 /// One user-facing saturation-model identity. The id is the value persisted in a new run; the
@@ -518,14 +546,51 @@ pub fn sw_simandoux_modified_slb_unlimited(
 /// is needed. Conductivities are mho/m at formation temperature. Returns SWT∈[0,1] (bisection; the
 /// n==2 case closes to a quadratic). NaN on non-physical inputs.
 pub fn sw_dual_nonlinear(rt: f64, phit: f64, swb: f64, cw: f64, cwb: f64, m: f64, n: f64, a: f64) -> f64 {
+    dual_nonlinear_via(sw_cond_root, rt, phit, swb, cw, cwb, m, n, a)
+}
+
+/// SB-SAT-025: [`sw_dual_nonlinear`]'s unclipped diagnostic twin — same excess-conductivity
+/// coefficient, raw root.
+pub fn sw_dual_nonlinear_unlimited(
+    rt: f64,
+    phit: f64,
+    swb: f64,
+    cw: f64,
+    cwb: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+) -> f64 {
+    dual_nonlinear_via(sw_cond_root_unlimited, rt, phit, swb, cw, cwb, m, n, a)
+}
+
+/// The one statement of dual water's excess-conductivity coefficient, `Swb·(Cwb−Cw)`. The working
+/// curve and its diagnostic differ ONLY in which root solver they hand it to — written twice, the
+/// two could come to disagree about the coefficient, and the diagnostic would then be reporting a
+/// different equation instead of the same one unclipped (AUDIT-2026-08-20 finding 44's family).
+fn dual_nonlinear_via(
+    root: CondRoot,
+    rt: f64,
+    phit: f64,
+    swb: f64,
+    cw: f64,
+    cwb: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+) -> f64 {
     if !(rt > 0.0) {
         return f64::NAN;
     }
     // Dual water's excess-conductivity coefficient is Swb·(Cwb−Cw); the rest of the algebra is shared
     // with Juhász (differing only in that coefficient), so both route through sw_cond_root.
     let swb = swb.clamp(0.0, 1.0);
-    sw_cond_root(phit, 1.0 / rt, cw, swb * (cwb - cw), m, n, a)
+    root(phit, 1.0 / rt, cw, swb * (cwb - cw), m, n, a)
 }
+
+/// Which root of the shared excess-conductivity equation a model is being evaluated through:
+/// [`sw_cond_root`] for the working curve, [`sw_cond_root_unlimited`] for the SB-SAT-025 twin.
+type CondRoot = fn(f64, f64, f64, f64, f64, f64, f64) -> f64;
 
 /// Core conductivity-root solver shared by the excess-conductivity Sw models (dual-water non-linear and
 /// Juhász). Solves  `cw·Swt^n + lin·Swt^(n−1) − a·Ct/φt^m = 0`  for the physical SWT∈[0,1], where `lin`
@@ -538,34 +603,14 @@ pub fn sw_dual_nonlinear(rt: f64, phit: f64, swb: f64, cw: f64, cwb: f64, m: f64
 /// coefficient alone exceeds the measured `a·Ct/φt^m` there is no root in [0, 1]: that returns NaN
 /// too, rather than the SWT = 0 - all hydrocarbon - the algebra would otherwise hand out.
 fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -> f64 {
-    if !(ct > 0.0) || !(phit > 0.0) || !(cw > 0.0) || !(n >= 1.0) {
-        return f64::NAN;
-    }
-    let a = a.max(1e-9);
-    let rhs = a * ct / phit.powf(m); // the constant term a·Ct/φt^m (> 0)
-    if (n - 2.0).abs() < 1e-9 {
-        // cw·Swt² + lin·Swt − rhs = 0. disc = lin² + 4·cw·rhs is always ≥ 0 (cw>0, rhs>0), so the
-        // positive root exists; cw>0 makes it the physical branch.
-        let disc = lin * lin + 4.0 * cw * rhs;
-        return ((-lin + disc.sqrt()) / (2.0 * cw)).clamp(0.0, 1.0);
-    }
-    // General n: g(Swt) = cw·Swt^n + lin·Swt^(n−1) − rhs. g(0)=−rhs<0; if g(1)≤0 the rock is at/above
-    // Swt=1. Between, g is continuous — bisect (cw>0 keeps the high-Swt branch increasing).
-    let g = |swt: f64| cw * swt.powf(n) + lin * swt.powf(n - 1.0) - rhs;
-    // g(1) <= 0 is the ordinary WET-ZONE clamp every saturation model applies: the rock measures
-    // at least the conductivity fully-water-saturated rock would have, so Swt = 1. Archie's own
-    // .clamp(0.0, 1.0) does exactly this, and the unlimited diagnostic twins exist for anyone who
-    // needs the raw root. Left alone deliberately - it is a value off the end of the scale, not a
-    // degenerate equation.
-    if g(1.0) <= 0.0 {
-        return 1.0;
-    }
-    // AUDIT-2026-08-20 finding 11. g(0) > 0 is a different animal, and only reachable at EXACTLY
-    // n = 1: above it, Swt^(n-1) -> 0 kills the excess-conductivity offset so g(0) = -rhs < 0
-    // always. At n = 1, Rust's 0^0 = 1 leaves that offset standing, and g(0) = lin - rhs > 0 says
-    // the CLAY TERM ALONE conducts more than the rock actually measures. There is then no root in
-    // [0, 1] at all - and the answer this used to return was SWT = 0.0, a hundred per cent
-    // hydrocarbon, written as an ordinary curve.
+    let raw = sw_cond_root_unlimited(phit, ct, cw, lin, m, n, a);
+    // AUDIT-2026-08-20 finding 11. A NEGATIVE root is a different animal from one above 1, and it
+    // is only reachable at EXACTLY n = 1: above it, Swt^(n-1) -> 0 kills the excess-conductivity
+    // offset, so the equation's value at Swt = 0 is -rhs < 0 always and the root is positive. At
+    // n = 1, Rust's 0^0 = 1 leaves that offset standing, and a negative root says the CLAY TERM
+    // ALONE conducts more than the rock actually measures. There is then no root in [0, 1] at all
+    // - and the answer this used to return was SWT = 0.0, a hundred per cent hydrocarbon, written
+    // as an ordinary curve.
     //
     // That is the optimistic extreme handed out precisely where the model has broken down, and it
     // REWARDS an over-estimated Qv/Cwb/Swb with more pay. What the condition actually evidences is
@@ -579,10 +624,59 @@ fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -
     // same Swt^(n-1) term collapses the solve to SWT = 0 regardless of Rt. Same failure, same
     // answer. Every caller already tests is_finite(), so the linear inversion's split is left
     // untouched rather than zeroed, and resultsqc plots the sample as the gap it is.
-    if g(0.0) > 0.0 {
+    //
+    // Note the asymmetry, and that it is deliberate: a root ABOVE 1 is the ordinary WET-ZONE clamp
+    // every saturation model applies - the rock measures at least the conductivity fully
+    // water-saturated rock would have - so it clamps to 1.0 the way Archie's own does. A root
+    // BELOW 0 has no such reading. SB-SAT-025's diagnostic twin is where both survive unclipped.
+    if raw < 0.0 {
         return f64::NAN;
     }
+    raw.clamp(0.0, 1.0)
+}
+
+/// SB-SAT-025: [`sw_cond_root`] without the clamp and without the refusal — the raw root of
+/// `cw·Swt^n + lin·Swt^(n−1) − a·Ct/φt^m = 0` wherever it actually lies, including above 1 (an Rw
+/// or Rt that does not match the bed) and below 0 (an excess-conductivity term that alone
+/// out-conducts the measurement). Those two readings are exactly what the working curve's 1.0 and
+/// its MISSING erase, and telling them apart is the whole reason the requirement asks for a twin.
+///
+/// The closed forms are used where they exist, so the diagnostic is exact rather than bisected:
+/// `n = 2` is the quadratic (the same root the working curve takes) and `n = 1` is linear. For any
+/// other `n > 1` the value at Swt = 0 is `−rhs < 0`, so a sign change is bracketed by doubling
+/// upward — `cw > 0` makes the equation rise without bound, and at the f64 limit it rises to
+/// infinity, so the search terminates.
+fn sw_cond_root_unlimited(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -> f64 {
+    if !(ct > 0.0) || !(phit > 0.0) || !(cw > 0.0) || !(n >= 1.0) {
+        return f64::NAN;
+    }
+    let a = a.max(1e-9);
+    let rhs = a * ct / phit.powf(m); // the constant term a·Ct/φt^m (> 0)
+    if (n - 2.0).abs() < 1e-9 {
+        // cw·Swt² + lin·Swt − rhs = 0. disc = lin² + 4·cw·rhs is always ≥ 0 (cw>0, rhs>0), so the
+        // positive root exists; cw>0 makes it the physical branch.
+        let disc = lin * lin + 4.0 * cw * rhs;
+        return (-lin + disc.sqrt()) / (2.0 * cw);
+    }
+    if (n - 1.0).abs() < 1e-9 {
+        // cw·Swt + lin − rhs = 0, exactly — and the one exponent at which the root can be negative.
+        return (rhs - lin) / cw;
+    }
+    // General n > 1: g(Swt) = cw·Swt^n + lin·Swt^(n−1) − rhs, with g(0) = −rhs < 0.
+    let g = |swt: f64| cw * swt.powf(n) + lin * swt.powf(n - 1.0) - rhs;
     let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    if g(1.0) <= 0.0 {
+        // Off the top of the scale. Double until the sign changes; g → +∞ as Swt → ∞ for cw > 0.
+        lo = 1.0;
+        hi = 2.0;
+        while hi.is_finite() && g(hi) <= 0.0 {
+            lo = hi;
+            hi *= 2.0;
+        }
+        if !hi.is_finite() {
+            return f64::INFINITY;
+        }
+    }
     for _ in 0..60 {
         let mid = 0.5 * (lo + hi);
         if g(mid) > 0.0 {
@@ -591,7 +685,7 @@ fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -
             lo = mid;
         }
     }
-    (0.5 * (lo + hi)).clamp(0.0, 1.0)
+    0.5 * (lo + hi)
 }
 
 /// Archie (1942) clean-sand TOTAL water saturation — no shale term:
@@ -599,21 +693,40 @@ fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -
 /// The exactly-invertible base case (so there is no separate "linear/non-linear" Archie). Rw at
 /// formation temperature. Returns SWT∈[0,1]; NaN on non-physical inputs.
 pub fn sw_archie(rt: f64, phit: f64, rw: f64, m: f64, n: f64, a: f64) -> f64 {
+    sw_archie_unlimited(rt, phit, rw, m, n, a).clamp(0.0, 1.0)
+}
+
+/// SB-SAT-025: [`sw_archie`] with the clamp left off — the raw equation value, which is what
+/// `sw_arch`'s own `SWT_ARCH`/`SWE_ARCH` diagnostics already publish. Archie is exactly
+/// invertible, so above 1 this is a real reading of the inputs (an Rw entered a decade high, a φ
+/// too low for the bed), not a numerical artefact; clamping it to 1.0 makes that indistinguishable
+/// from wet rock.
+pub fn sw_archie_unlimited(rt: f64, phit: f64, rw: f64, m: f64, n: f64, a: f64) -> f64 {
     if !(rt > 0.0) || !(phit > 0.0) || !(rw > 0.0) || !(n > 0.0) {
         return f64::NAN;
     }
     let a = a.max(1e-9);
-    ((a * rw) / (phit.powf(m) * rt)).powf(1.0 / n).clamp(0.0, 1.0)
+    ((a * rw) / (phit.powf(m) * rt)).powf(1.0 / n)
 }
 
 /// SB-SAT-023: the effective back-out, `SWE = MAX((SWT − Swb)/(1 − Swb), 0)`. `Swb = 1` is all
 /// bound water and yields SWE = 1, never a division by zero (IP E78; Geolog `sw_ws.lls:296` is the
 /// algebraically identical form).
 pub fn swe_from_swt(swt: f64, swb: f64) -> f64 {
+    swe_from_swt_unlimited(swt, swb).max(0.0)
+}
+
+/// SB-SAT-025: [`swe_from_swt`] with the `MAX(…, 0)` left off — the back-out that KEEPS THE SIGN.
+/// A negative effective saturation is not a saturation; it is the evidence that the total root
+/// came back below the bound-water fraction, i.e. that the model went out of range at the dry end,
+/// and the floor in the working curve erases exactly that. `sw_arch` already reasons this way for
+/// its own `SWE_ARCH` (`modules.rs`, "the diagnostic backs the UNCLIPPED SWT out and keeps the
+/// sign"); this is that rule shared rather than written twice.
+pub fn swe_from_swt_unlimited(swt: f64, swb: f64) -> f64 {
     if swb >= 1.0 {
         return 1.0;
     }
-    ((swt - swb) / (1.0 - swb)).max(0.0)
+    (swt - swb) / (1.0 - swb)
 }
 
 /// SB-SAT-023: the inverse lift, `SwT = Sw(1 − Swb) + Swb` — and `SxoT = Sxo(1 − Swb) + Swb` is
@@ -648,6 +761,14 @@ pub fn effective_backout_rule(model: SwModel) -> &'static str {
 }
 
 /// SB-SAT-023: the per-model effective back-out itself. Returns `(SWE, rule name)`.
+///
+/// Retained as the requirement's own published form and pinned by test, but no longer on the
+/// solver's hot path: SB-SAT-025 moved the single clip to the one call site where the post-solve
+/// root is applied, so production now reaches this rule through [`effective_backout_unlimited`]
+/// and clamps once. The two are provably the same number there — `MAX(x, 0)` followed by
+/// `clamp(0, 1)` is `clamp(0, 1)` — and routing the working curve through its own second
+/// evaluation is exactly the drift SB-SAT-025's twin must not have.
+#[allow(dead_code)]
 pub fn effective_backout(
     model: SwModel,
     swt: f64,
@@ -656,20 +777,49 @@ pub fn effective_backout(
     vsh: f64,
     phit_sh: f64,
 ) -> (f64, &'static str) {
-    let rule = effective_backout_rule(model);
+    match effective_backout_swb(model, phie, phit, vsh, phit_sh) {
+        Some(swb) => (swe_from_swt(swt, swb), effective_backout_rule(model)),
+        None => (f64::NAN, effective_backout_rule(model)),
+    }
+}
+
+/// SB-SAT-025: [`effective_backout`] through the sign-keeping [`swe_from_swt_unlimited`], for the
+/// unclipped diagnostic. Identical in every other respect — the SAME `Swb` rule, so the diagnostic
+/// and its working curve differ ONLY by the clip, which is the entire claim a diagnostic twin makes.
+pub fn effective_backout_unlimited(
+    model: SwModel,
+    swt: f64,
+    phie: f64,
+    phit: f64,
+    vsh: f64,
+    phit_sh: f64,
+) -> (f64, &'static str) {
+    match effective_backout_swb(model, phie, phit, vsh, phit_sh) {
+        Some(swb) => (swe_from_swt_unlimited(swt, swb), effective_backout_rule(model)),
+        None => (f64::NAN, effective_backout_rule(model)),
+    }
+}
+
+/// The bound-water saturation the model's back-out rule uses. One statement, so the clipped and
+/// unclipped back-outs cannot come to disagree about WHICH Swb they divide by — a divergence there
+/// would leave the diagnostic reporting a different equation rather than the same one unclipped.
+fn effective_backout_swb(
+    model: SwModel,
+    phie: f64,
+    phit: f64,
+    vsh: f64,
+    phit_sh: f64,
+) -> Option<f64> {
     let swb = match model {
         SwModel::Juhasz => juhasz_qvn(vsh, phit_sh, phit),
         _ => {
             if !(phit > 0.0) {
-                return (f64::NAN, rule);
+                return None;
             }
             1.0 - (phie / phit).clamp(0.0, 1.0)
         }
     };
-    if !swb.is_finite() {
-        return (f64::NAN, rule);
-    }
-    (swe_from_swt(swt, swb), rule)
+    swb.is_finite().then_some(swb)
 }
 
 /// Juhász (1981) "normalized Waxman-Smits" TOTAL water saturation — the wet-shale excess-conductivity
@@ -689,12 +839,42 @@ pub fn sw_juhasz(
     m: f64,
     n: f64,
 ) -> f64 {
+    juhasz_via(sw_cond_root, rt, phit, vsh, cw, rsh, phit_sh, m, n)
+}
+
+/// SB-SAT-025: [`sw_juhasz`]'s unclipped diagnostic twin — same normalized-Qv coefficient, raw root.
+pub fn sw_juhasz_unlimited(
+    rt: f64,
+    phit: f64,
+    vsh: f64,
+    cw: f64,
+    rsh: f64,
+    phit_sh: f64,
+    m: f64,
+    n: f64,
+) -> f64 {
+    juhasz_via(sw_cond_root_unlimited, rt, phit, vsh, cw, rsh, phit_sh, m, n)
+}
+
+/// The one statement of Juhász's excess-conductivity coefficient, `QVN·(Cwsh−Cw)` — see
+/// [`dual_nonlinear_via`] for why the working curve and its twin share it rather than restate it.
+fn juhasz_via(
+    root: CondRoot,
+    rt: f64,
+    phit: f64,
+    vsh: f64,
+    cw: f64,
+    rsh: f64,
+    phit_sh: f64,
+    m: f64,
+    n: f64,
+) -> f64 {
     if !(rt > 0.0) || !(rsh > 0.0) || !(phit_sh > 0.0) || !(phit > 0.0) {
         return f64::NAN;
     }
     let qvn = (vsh * phit_sh / phit).clamp(0.0, 1.0);
     let cwsh = 1.0 / (rsh * phit_sh.powf(m)); // 100%-shale water conductivity from the shale point
-    sw_cond_root(phit, 1.0 / rt, cw, qvn * (cwsh - cw), m, n, 1.0)
+    root(phit, 1.0 / rt, cw, qvn * (cwsh - cw), m, n, 1.0)
 }
 
 /// Waxman-Smits (1968) water saturation, total-porosity basis. The conductivity model is
@@ -705,11 +885,39 @@ pub fn sw_juhasz(
 /// equivalent counterion conductance (mho·mL/(m·meq)); see `waxman_b`. A clean sand (Qv = 0) collapses to
 /// Archie. Exponents are the Waxman-Smits m*/n* (passed in as `m`,`n`).
 pub fn sw_waxman_smits(rt: f64, phit: f64, qv: f64, cw: f64, b: f64, m: f64, n: f64) -> f64 {
+    waxman_smits_via(sw_cond_root, rt, phit, qv, cw, b, m, n)
+}
+
+/// SB-SAT-025: [`sw_waxman_smits`]'s unclipped diagnostic twin — same `B·Qv` coefficient, raw root.
+pub fn sw_waxman_smits_unlimited(
+    rt: f64,
+    phit: f64,
+    qv: f64,
+    cw: f64,
+    b: f64,
+    m: f64,
+    n: f64,
+) -> f64 {
+    waxman_smits_via(sw_cond_root_unlimited, rt, phit, qv, cw, b, m, n)
+}
+
+/// The one statement of the Waxman-Smits excess term `B·Qv` — see [`dual_nonlinear_via`] for why
+/// the working curve and its twin share it rather than restate it.
+fn waxman_smits_via(
+    root: CondRoot,
+    rt: f64,
+    phit: f64,
+    qv: f64,
+    cw: f64,
+    b: f64,
+    m: f64,
+    n: f64,
+) -> f64 {
     if !(rt > 0.0) || !(phit > 0.0) || !(cw > 0.0) {
         return f64::NAN;
     }
     let lin = (b * qv).max(0.0); // the excess counterion conductance is non-negative
-    sw_cond_root(phit, 1.0 / rt, cw, lin, m, n, 1.0)
+    root(phit, 1.0 / rt, cw, lin, m, n, 1.0)
 }
 
 /// Waxman-Smits counterion conductance B(T, Rw) — Juhász's (1981) closed-form fit of the
@@ -1733,6 +1941,39 @@ pub fn run_sandimin(
         let mut tool_rec: Vec<Vec<f32>> = if recon_qc { vec![vec![f32::NAN; ns]; tools.len()] } else { Vec::new() };
         let mut tool_dif: Vec<Vec<f32>> = if recon_qc { vec![vec![f32::NAN; ns]; tools.len()] } else { Vec::new() };
 
+        // SB-SAT-025: the unclipped twins of the saturation curves, filled at the ONE place the
+        // post-solve root is clamped so they are the working curves minus exactly that clamp. They
+        // stay MISSING at a depth where no closed form was evaluated — a post-solve model with no
+        // deep-resistivity reading there falls back to the linear inversion's own split, and there
+        // is then no discarded root to report. That absence is itself the honest answer.
+        let mut swe_diag = vec![f32::NAN; ns];
+        let mut swt_diag = vec![f32::NAN; ns];
+        let mut sxot_diag = vec![f32::NAN; ns];
+        // A diagnostic is a curve like any other, so a value f32 cannot hold is recorded as MISSING
+        // rather than as +∞: an infinity screens past every `is_nan` filter and then poisons the
+        // track's statistics and autoscale, which is the same call `sw_indo` makes for `SWE_INDO`.
+        // The FINITE out-of-range values are the whole point and pass through untouched.
+        let diag = |v: f64| -> f32 {
+            let f = v as f32;
+            if f.is_finite() {
+                f
+            } else {
+                f32::NAN
+            }
+        };
+        // Bound-water saturation from the solved volumes — v_bw/φt with φt ≡ φe + v_bw, which is
+        // SandiMin's own construction, and therefore the same Swb the working `_SWT`/`_SXOT` curves
+        // are rebuilt through below. Using the model's own back-out Swb here instead would make the
+        // twin differ from its curve by MORE than the clip, which is the one thing it must not do.
+        let swb_of = |phie: f64, v_bw: f64| -> f64 {
+            let phit = phie + v_bw;
+            if phit > 0.0 {
+                (v_bw / phit).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+
         for i in 0..ns {
             let mut a: Vec<Vec<f64>> = Vec::with_capacity(tools.len() + soft.len());
             let mut b: Vec<f64> = Vec::with_capacity(tools.len() + soft.len());
@@ -1881,10 +2122,16 @@ pub fn run_sandimin(
                 // Returns the EFFECTIVE water fraction (free water / φe) so the φe redistribution below is
                 // one code path for every model. Indonesia/Simandoux read Rw = 1/cw; the dual-water form
                 // additionally uses the zone's clay-bound-water conductivity `cwb` and solved v_bw.
+                //
+                // SB-SAT-025: the value returned is the RAW root — every branch calls its unlimited
+                // entry point and the single clamp lives at the call site, so the working curve and
+                // the diagnostic twin are the same number with and without one operation applied.
+                // Written the other way round (clamp here, recompute the raw value beside it) the
+                // two could come to disagree, which is the one thing a diagnostic must not do.
                 let sw_of = |rt: f64, phie: f64, cw: f64, cwb: f64, v_bw: f64| -> f64 {
                     match model {
                         SwModel::Indonesia => {
-                            sw_indonesia(
+                            sw_indonesia_unlimited(
                                 rt,
                                 phie,
                                 vsh,
@@ -1897,7 +2144,7 @@ pub fn run_sandimin(
                             )
                         }
                         SwModel::SimandouxBardonPied => {
-                            sw_simandoux_bardon_pied(
+                            sw_simandoux_bardon_pied_unlimited(
                                 rt,
                                 phie,
                                 vsh,
@@ -1909,7 +2156,7 @@ pub fn run_sandimin(
                             )
                         }
                         SwModel::SimandouxModifiedSlb => {
-                            sw_simandoux_modified_slb(
+                            sw_simandoux_modified_slb_unlimited(
                                 rt,
                                 phie,
                                 vsh,
@@ -1930,13 +2177,14 @@ pub fn run_sandimin(
                                 return f64::NAN;
                             }
                             let swb = (v_bw / phit).clamp(0.0, 1.0);
-                            let swt = sw_dual_nonlinear(rt, phit, swb, cw, cwb, m_exp, n_exp, a_arch);
-                            if !swt.is_finite() {
+                            let swt =
+                                sw_dual_nonlinear_unlimited(rt, phit, swb, cw, cwb, m_exp, n_exp, a_arch);
+                            if swt.is_nan() {
                                 return f64::NAN;
                             }
                             // SB-SAT-023: the shared per-model back-out (first group, where the
                             // construction collapses 1−φe/φt with v_bw/φt).
-                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
+                            effective_backout_unlimited(model, swt, phie, phit, vsh, phit_sh).0
                         }
                         SwModel::ArchieTotal => {
                             // Clean-sand Archie on total porosity, then free-water/φe (same conversion as
@@ -1945,11 +2193,12 @@ pub fn run_sandimin(
                             if !(phit > 1e-9) || !(phie > 1e-9) {
                                 return f64::NAN;
                             }
-                            let swt = sw_archie(rt, phit, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
-                            if !swt.is_finite() {
+                            let swt =
+                                sw_archie_unlimited(rt, phit, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
+                            if swt.is_nan() {
                                 return f64::NAN;
                             }
-                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
+                            effective_backout_unlimited(model, swt, phie, phit, vsh, phit_sh).0
                         }
                         SwModel::ArchieEffective => {
                             // SB-SAT-002: Archie directly on phie. The result IS the free-water/phie
@@ -1959,11 +2208,12 @@ pub fn run_sandimin(
                             if !(phie > 1e-9) {
                                 return f64::NAN;
                             }
-                            let swe = sw_archie(rt, phie, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
-                            if !swe.is_finite() {
+                            let swe =
+                                sw_archie_unlimited(rt, phie, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
+                            if swe.is_nan() {
                                 return f64::NAN;
                             }
-                            swe.clamp(0.0, 1.0)
+                            swe
                         }
                         SwModel::SwRtc | SwModel::SwImts | SwModel::SwHeight => f64::NAN,
                         SwModel::Juhasz => {
@@ -1974,14 +2224,15 @@ pub fn run_sandimin(
                             if !(phit > 1e-9) || !(phie > 1e-9) {
                                 return f64::NAN;
                             }
-                            let swt = sw_juhasz(rt, phit, vsh, cw, rsh, phit_sh, m_exp, n_exp);
-                            if !swt.is_finite() {
+                            let swt =
+                                sw_juhasz_unlimited(rt, phit, vsh, cw, rsh, phit_sh, m_exp, n_exp);
+                            if swt.is_nan() {
                                 return f64::NAN;
                             }
                             // SB-SAT-023: Juhász's back-out is Qvn from the shale point. The
                             // correct Qvn used to be computed and then OVERRIDDEN by the blanket
                             // porosity-volume conversion — the exact defect the row names.
-                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
+                            effective_backout_unlimited(model, swt, phie, phit, vsh, phit_sh).0
                         }
                         SwModel::WaxmanSmits => {
                             // Total-porosity B·Qv form: Qv from the solved clay volumes, B from the
@@ -1994,11 +2245,11 @@ pub fn run_sandimin(
                             }
                             let qv = qv_num / phit;
                             let b = if ws_b > 0.0 { ws_b } else { waxman_b(t_c_i, 1.0 / cw.max(1e-9)) };
-                            let swt = sw_waxman_smits(rt, phit, qv, cw, b, m_exp, n_exp);
-                            if !swt.is_finite() {
+                            let swt = sw_waxman_smits_unlimited(rt, phit, qv, cw, b, m_exp, n_exp);
+                            if swt.is_nan() {
                                 return f64::NAN;
                             }
-                            effective_backout(model, swt, phie, phit, vsh, phit_sh).0.clamp(0.0, 1.0)
+                            effective_backout_unlimited(model, swt, phie, phit, vsh, phit_sh).0
                         }
                         SwModel::LinearDw => f64::NAN,
                     }
@@ -2008,8 +2259,13 @@ pub fn run_sandimin(
                 if phie_u > 1e-6 {
                     if let Some(rt) = read_res(ct_tool_idx) {
                         let v_bw_u = zs.u_bw.iter().map(|&c| x[c]).sum::<f64>();
-                        let sw = sw_of(rt, phie_u, fc.cw, fc.cbw_u, v_bw_u);
-                        if sw.is_finite() {
+                        let raw = sw_of(rt, phie_u, fc.cw, fc.cbw_u, v_bw_u);
+                        if !raw.is_nan() {
+                            // THE clip. SB-SAT-025's twin is `raw` — recorded before this line, so
+                            // the diagnostic and the working split are one evaluation apart.
+                            let sw = raw.clamp(0.0, 1.0);
+                            swe_diag[i] = diag(raw);
+                            swt_diag[i] = diag(swt_from_swe(raw, swb_of(phie_u, v_bw_u)));
                             set_group(&mut x, &zs.u_water, sw * phie_u);
                             set_group(&mut x, &zs.u_hc, (1.0 - sw) * phie_u);
                         }
@@ -2022,8 +2278,13 @@ pub fn run_sandimin(
                     if phie_x > 1e-6 {
                         if let Some(rxo) = read_res(cxo_tool_idx) {
                             let v_bw_x = zs.x_bw.iter().map(|&c| x[c]).sum::<f64>();
-                            let sxo = sw_of(rxo, phie_x, fc.cmf, fc.cbw_x, v_bw_x);
-                            if sxo.is_finite() {
+                            let raw = sw_of(rxo, phie_x, fc.cmf, fc.cbw_x, v_bw_x);
+                            if !raw.is_nan() {
+                                let sxo = raw.clamp(0.0, 1.0);
+                                // The flushed zone publishes only the TOTAL saturation, so its twin
+                                // is the lift of the raw root — the same lift the working `_SXOT`
+                                // curve is rebuilt through from the volumes below.
+                                sxot_diag[i] = diag(swt_from_swe(raw, swb_of(phie_x, v_bw_x)));
                                 set_group(&mut x, &zs.x_water, sxo * phie_x);
                                 set_group(&mut x, &zs.x_hc, (1.0 - sxo) * phie_x);
                             }
@@ -2164,6 +2425,14 @@ pub fn run_sandimin(
             curves.push((format!("{prefix}_PHIT"), phit));
             curves.push((format!("{prefix}_SWE"), swe));
             curves.push((format!("{prefix}_SWT"), swt));
+            // SB-SAT-025: each working curve's unclipped twin, named `SWE_<METHOD>` after the
+            // family's shipped convention (`SWT_ARCH`, `SWE_INDO`, `SWE_SIM`). A clipped-only
+            // curve cannot tell "the rock is wet" from "the model went out of range", and the
+            // reading that separates them is the one the clamp erases.
+            if let Some(token) = model.diagnostic_token() {
+                curves.push((format!("{prefix}_SWE_{token}"), std::mem::take(&mut swe_diag)));
+                curves.push((format!("{prefix}_SWT_{token}"), std::mem::take(&mut swt_diag)));
+            }
             curves.push(method_flag);
         }
         if zs.has_split {
@@ -2172,6 +2441,9 @@ pub fn run_sandimin(
                 if p > 1e-6 { (sum_over(&zs.x_water, i) + sum_over(&zs.x_bw, i)) / p } else { f32::NAN }
             });
             curves.push((format!("{prefix}_SXOT"), sxot));
+            if let Some(token) = model.diagnostic_token() {
+                curves.push((format!("{prefix}_SXOT_{token}"), std::mem::take(&mut sxot_diag)));
+            }
             if !zs.u_hc.is_empty() || !zs.x_hc.is_empty() {
                 let moved = make(&|i| sum_over(&zs.u_hc, i) - sum_over(&zs.x_hc, i));
                 curves.push((format!("{prefix}_MOVEDHC"), moved));
@@ -4384,6 +4656,174 @@ mod tests {
         let phie_out = mean(&cols["MM_PHIE"]);
         assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
         assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
+    }
+
+    /// AUDIT-2026-08-20 finding 37 / SB-SAT-025. Every other saturation module has shipped an
+    /// unclipped diagnostic beside its working curve since the requirement landed; SandiMin had
+    /// not, and the SB-SAT-025 sweep could not see the gap because it iterates the module registry
+    /// and SandiMin is not a registered module. So the sweep's floor read as "the family is
+    /// covered" while a whole producer sat outside the iteration.
+    ///
+    /// What the twin is for: a working saturation of exactly 1.000 says either "this rock is wet"
+    /// or "the model went out of range and the clamp hid it", and nothing in the curve separates
+    /// them. Here the SAME fixture is run twice against the same forward-modelled Rt, once with the
+    /// Rw the logs were built from and once with an Rw a decade high — a real and ordinary mistake,
+    /// which drives the Indonesia root to Sw·sqrt(10) ≈ 1.1.
+    ///
+    /// Pinned from BOTH sides, and each arm defeats a different lazy implementation:
+    ///   * out of range, the twin must EXCEED the bound — otherwise the working value was simply
+    ///     copied across, which is the defect wearing a new mnemonic;
+    ///   * in range, the twin must EQUAL its working curve — otherwise it is a different equation
+    ///     sitting under a name that claims to be the same one unclipped;
+    ///   * where no closed form was evaluated the twin must be MISSING — this fixture supplies no
+    ///     flushed-zone resistivity, so the X-zone split comes from the linear inversion and there
+    ///     is no discarded root to report. Writing the inversion's own split there would state that
+    ///     a model was evaluated and stayed in range, which is not what happened.
+    #[test]
+    fn sandimin_publishes_the_unclipped_twin_of_every_saturation_curve_it_clips() {
+        let q = lib_get("Quartz");
+        let wsxo = lib_get("Water Sxo");
+        let osxo = lib_get("Oil Sxo");
+        let wsw = lib_get("Water Sw");
+        let osw = lib_get("Oil Sw");
+        let ep = |c: &Component, k: &str| c.endpoints[&k.to_string()];
+        let (vq, vwx, vox) = (0.70, 0.15, 0.15);
+        let (phie, sw_true, rw_true): (f64, f64, f64) = (0.30, 0.35, 0.10);
+        let d = (phie.powf(2.0) / (1.0 * rw_true)).sqrt(); // Vsh = 0 ⇒ Indonesia reduces to Archie
+        let rt = 1.0 / (d * d * sw_true.powf(2.0));
+
+        let n = 6usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let mix = |k: &str| (vq * ep(&q, k) + vwx * ep(&wsxo, k) + vox * ep(&osxo, k)) as f32;
+
+        // One run of the fixture at a given Rw, returning every curve it wrote.
+        let run_at = |rw: f64| -> std::collections::HashMap<String, Vec<f32>> {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::db::create_schema(&conn).unwrap();
+            let wid = uuid::Uuid::new_v4();
+            crate::db::insert_well(&conn, wid, "MM-SAT25", None, None, None).unwrap();
+            crate::db::insert_standard_curves(
+                &conn,
+                wid,
+                depth.clone(),
+                vec![mix("GR"); n],
+                vec![rt as f32; n],
+                vec![mix("NPHI"); n],
+                vec![mix("RHOB"); n],
+                vec![mix("DT"); n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+            let db = Mutex::new(conn);
+            let props = FluidProps {
+                rw,
+                rw_temp_f: 100.0,
+                rmf: 0.1,
+                rmf_temp_f: 100.0,
+                ftemp_f: 100.0,
+                m: 2.0,
+                n: 2.0,
+                mud_type: "WATER".into(),
+                rsh: 4.0,
+                archie_a: 1.0,
+                indonesia_k: 1.0,
+                simandoux_c: 1.0,
+                phit_sh: 0.1,
+                ws_b: 0.0,
+            };
+            let req = SandiminRequest {
+                input_set: None,
+                output_set: None,
+                custody: crate::workflow::test_run_custody(),
+                components: vec![q.clone(), wsxo.clone(), osxo.clone(), wsw.clone(), osw.clone()],
+                tools: vec![
+                    ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                    ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                    ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 1.951 },
+                    ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+                    ToolSpec { key: "CT".into(), curve: "RES_DEEP".into(), sigma: 0.0 },
+                ],
+                apply_well_ids: vec![wid.to_string()],
+                output_prefix: "MM".into(),
+                unity: true,
+                fluid: Some(props),
+                ftemp_curve: None,
+                recon_qc: false,
+                sw_model: SwModel::Indonesia,
+                porosity_source: PorositySource::Cec,
+                enforce_porosity: true,
+                enforce_bndwat: true,
+                enforce_water_mud: true,
+                sigma_constraint: 0.01,
+            };
+            let res = run_sandimin(&db, &req, None);
+            assert!(res.error.is_none(), "err={:?}", res.error);
+            assert!(res.wells[0].rows_solved > 0, "no samples solved");
+            let c = db.lock().unwrap();
+            let names = ["MM_SWE", "MM_SWE_INDO", "MM_SWT", "MM_SWT_INDO", "MM_SXOT", "MM_SXOT_INDO"];
+            fetch_curve_frame(&c, &wid.to_string(), &names.map(String::from)).unwrap().1
+        };
+        let finite_mean = |v: &[f32]| -> f32 {
+            let f: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
+            assert!(!f.is_empty(), "no finite samples");
+            f.iter().sum::<f32>() / f.len() as f32
+        };
+
+        // A. Rw a decade high. Archie scales Sw by sqrt(10), so the root lands above 1 and the
+        //    working curve sits on its bound with nothing to say why.
+        let hot = run_at(rw_true * 10.0);
+        let (swe, swe_diag) = (finite_mean(&hot["MM_SWE"]), finite_mean(&hot["MM_SWE_INDO"]));
+        assert!((swe - 1.0).abs() < 1e-6, "the working curve must sit at its bound, got {swe}");
+        assert!(
+            swe_diag > 1.05,
+            "the twin must carry the root the clamp erased, got {swe_diag}"
+        );
+        // The lift is applied to the SAME raw value, so the total twin is out of range too.
+        assert!(
+            finite_mean(&hot["MM_SWT_INDO"]) > 1.05,
+            "the total twin must be the lift of the raw root, got {}",
+            finite_mean(&hot["MM_SWT_INDO"]),
+        );
+
+        // B. The Rw the logs were built from. Nothing is clipped, so the twin must BE the working
+        //    curve — a twin that differs here is a second equation, not a diagnostic.
+        let ok = run_at(rw_true);
+        let (swe_ok, diag_ok) = (finite_mean(&ok["MM_SWE"]), finite_mean(&ok["MM_SWE_INDO"]));
+        assert!((swe_ok - sw_true as f32).abs() < 0.02, "in-range SWE {swe_ok}, want {sw_true}");
+        assert!(
+            (diag_ok - swe_ok).abs() < 1e-6,
+            "in range the twin must equal its curve, got {diag_ok} against {swe_ok}",
+        );
+        assert!(
+            (finite_mean(&ok["MM_SWT_INDO"]) - finite_mean(&ok["MM_SWT"])).abs() < 1e-6,
+            "and so must the total pair",
+        );
+
+        // C. No flushed-zone resistivity was supplied, so no closed form ran for the X zone. The
+        //    working SXOT still comes from the linear inversion; its twin is MISSING, because
+        //    there was no discarded root — not because the model stayed in range.
+        assert!(
+            ok["MM_SXOT"].iter().any(|v| v.is_finite()),
+            "the flushed-zone working curve still comes from the inversion",
+        );
+        assert!(
+            ok["MM_SXOT_INDO"].iter().all(|v| !v.is_finite()),
+            "a twin must not report a root that was never computed",
+        );
+
+        // D. And the model that clips NOTHING after the fact declares no twin at all: the
+        //    linearised dual-water inversion answers inside the solver's own box, so an
+        //    "unclipped" value there would mean re-solving without the box - a different problem.
+        assert_eq!(SwModel::LinearDw.diagnostic_token(), None);
+        for choice in solver_selectable_models() {
+            let post_solve = choice.model.is_post_solve();
+            assert_eq!(
+                choice.model.diagnostic_token().is_some(),
+                post_solve,
+                "{}: a post-solve model clips a closed form and must publish its twin",
+                choice.id,
+            );
+        }
     }
 
     #[test]
