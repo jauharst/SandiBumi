@@ -1,5 +1,51 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit increment 89 (my audit P2): **the module runner stops knowing modules by name**
+
+- [ ] **What to click.** Nothing new appears, and five existing behaviours must be unchanged. Run
+      **Synthetic log (log_predict)** with Combine = **MAX_RAW** over a well with a BADHOLE mask and
+      confirm the synthetic still carries values *at* the flagged depths (that is the whole point of
+      it). Run **nphimat** and confirm it still refuses a MATRIX_IN that disagrees with the input
+      neutron log's recorded matrix. Run **VSH from GR** and confirm the VSH_PROV provenance curve
+      still comes out. Run **Smooth** and confirm its window policy is still written into the run
+      record.
+- [ ] **What was wrong.** The generic module runner is supposed to be generic: a module ships a
+      manifest saying what it takes and what it produces, and the runner reads the manifest. It had
+      instead grown special cases written as *the module's own name* — `if this run is nphimat, then
+      look up the input neutron matrix`. The audit counted four; counting them with a command found
+      **five** on the run path.
+- [ ] **Why that matters beyond tidiness.** Each one is a silent trap for a rename. Rename a module
+      in its manifest and it keeps running fine here — it just quietly stops getting its special
+      case. `nphimat` would stop being told which matrix its neutron log was recorded against and go
+      back to assuming one; `log_predict` would have its washout fill blanked by the mask pass that
+      is meant to spare it. Nothing fails, nothing warns, and the curve still plots.
+- [ ] **What changed.** The five behaviours are now **declared beside the manifests** —
+      `runner_declarations` in `modules.rs` — and the runner reads that declaration. It carries zero
+      module names. I put them in a small registry function rather than adding fields to
+      `ModuleSpec`, because `ModuleSpec` is built in **115 places across twelve files**: a new field
+      would be 115 edits to state a property four modules have. The file already does it this way
+      next door, in `required_neutron_basis`.
+- [ ] **The one I did NOT move — and it matters more than the ones I did.** My first pass also
+      pulled the **saturation method identity** (which equation produced SWE: Archie, Indonesia,
+      which Simandoux) into the same table. That was wrong twice over. It is not on the run path —
+      it lives in `saturation_method_id`, a named registry with its own doc comment, cited to
+      `12_saturation.md`, already outside the runner, which is exactly what this finding asks for.
+      And my copy was **not equal to it**: production canonicalises the OPT_SIM value before
+      recording it, mine recorded the raw option string. Simandoux ships two genuinely different
+      equations, **7.3 saturation units apart**, so a second and slightly different answer to *which
+      one ran* is the kind of thing that reaches a report and cannot be argued back afterwards. I
+      deleted my copy, and pointed its one caller at the real registry instead — that caller is a
+      test-only view of the run record, and it had been carrying a simplified twin of its own.
+- [ ] **What stops it drifting back.** A check pinned from both sides: the run path matches no
+      module name, **and** every arm of the declaration table names a real module whose manifest
+      really produces the output and offers the option that arm cites. The first half alone would be
+      satisfied by deleting all five behaviours; the second alone by a table of misspellings that
+      declares nothing that resolves. The check counts only comparisons of *this run's* module
+      against a name, so a named registry keyed on a plain module argument is not counted as the
+      thing it is the cure for.
+- [ ] **One thing swept up.** Increment 88 left two unused names in an import list in
+      `equations.rs`. Removed.
+
 ## 2026-08-22 — Audit increment 88 (my audit P2): **curve ancestry moves out of the curve-resolution file**
 
 - [ ] **What to click.** Nothing new appears — this is a filing change like the last one. Run a

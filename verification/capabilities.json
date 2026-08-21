@@ -276,6 +276,7 @@
   ],
   "unmapped_review_sections_note": "REVIEW.md sections that map to no capability above. Acknowledged debt, not an exemption: the generator refuses an unmapped section missing from this list, and refuses a listed title that no longer exists or has since been mapped. The list may shrink, never silently grow.",
   "unmapped_review_sections": [
+    "Audit increment 89 (my audit P2): **the module runner stops knowing modules by name**",
     "Audit increment 88 (my audit P2): **curve ancestry moves out of the curve-resolution file**",
     "Audit increment 60 (my audit P3): **a rulebook the code quotes 34 times is not in the repository**",
     "Audit increment 55 (my audit P2): **comments that had drifted onto the wrong function**",
