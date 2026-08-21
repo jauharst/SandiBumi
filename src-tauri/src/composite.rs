@@ -115,6 +115,24 @@ pub(crate) struct PrintImage {
     pub(crate) px_h: u32,
     /// JPEG colour components (1 grey / 3 RGB / 4 CMYK) — decides the PDF colour space.
     pub(crate) components: u8,
+    /// The plate's own name, so a serializer that cannot embed it can say WHICH plate is
+    /// standing behind the frame it drew instead.
+    pub(crate) name: String,
+}
+
+impl PrintImage {
+    /// Whether the PDF exporter can carry this picture's bytes. Only a JPEG can: they go in
+    /// untouched under `/DCTDecode`, and there is no other format this writer encodes.
+    ///
+    /// AUDIT-2026-08-20 finding 42. This is a PDF constraint and it now lives with the PDF
+    /// writer, not in the shared draw-op list. It used to be decided when the ops were BUILT,
+    /// so the SVG export — which inlines any MIME as a data URI and had no such limit —
+    /// printed a red "not embeddable" frame over a plate it could have shown perfectly well.
+    /// Everything the store can hold is JPEG, PNG, GIF or WebP (`images::browser_decodable`
+    /// gates the import), so every plate is embeddable in the SVG and only JPEG in the PDF.
+    pub(crate) fn pdf_embeddable(&self) -> bool {
+        self.mime == "image/jpeg"
+    }
 }
 
 pub(crate) enum DrawOp {
@@ -322,9 +340,6 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
             let entries = rows
                 .into_iter()
                 .map(|(info, data)| {
-                    // The PDF exporter embeds JPEG bytes untouched (DCTDecode); anything else
-                    // is carried for the SVG path and prints as a labelled frame in the PDF.
-                    let printable = info.printable && info.mime == "image/jpeg";
                     let components = crate::images::sniff(&data).map(|m| m.components).unwrap_or(3);
                     let img = std::sync::Arc::new(PrintImage {
                         id: next_image_id,
@@ -332,10 +347,13 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
                         px_w: info.width.max(1) as u32,
                         px_h: info.height.max(1) as u32,
                         components: if components == 0 { 3 } else { components },
+                        name: info.name.clone(),
                         data,
                     });
                     next_image_id += 1;
-                    PrintEntry { info, img, printable }
+                    // Whether a plate can be EMBEDDED is each serializer's own limit, asked at
+                    // write time (`PrintImage::pdf_embeddable`) rather than baked into the ops.
+                    PrintEntry { info, img }
                 })
                 .collect();
             images.insert(key, entries);
@@ -1444,12 +1462,12 @@ fn point_samples(
     (d, v, t)
 }
 
-/// One picture as the print path carries it: its registration, its bytes, and whether the
-/// PDF back-end can embed it.
+/// One picture as the print path carries it: its registration and its bytes. Deliberately no
+/// "can this be printed" flag — that is a question about a FORMAT, and each back-end answers
+/// it for itself when it writes (AUDIT-2026-08-20 finding 42).
 pub(crate) struct PrintEntry {
     pub(crate) info: crate::db::ImageInfo,
     pub(crate) img: std::sync::Arc<PrintImage>,
-    pub(crate) printable: bool,
 }
 
 /// The millimetre box one picture occupies, computed identically here and in the viewer.
@@ -1598,38 +1616,18 @@ fn draw_image_series(
         }
         last_bottom = b.y + b.h;
 
-        if e.printable {
-            ops.push(DrawOp::Image {
-                x: b.x,
-                y: b.y,
-                w: b.w,
-                h: b.h,
-                img: e.img.clone(),
-                cover: b.cover,
-            });
-        } else {
-            // Never a silent gap: the frame states which plate is missing and why, so a
-            // client deliverable can be checked against the delivery list.
-            ops.push(DrawOp::Rect {
-                x: b.x,
-                y: b.y,
-                w: b.w,
-                h: b.h,
-                fill: Some("#f2efe9".into()),
-                stroke: Some("#b0413e".into()),
-                sw: 0.25,
-            });
-            ops.push(DrawOp::Text {
-                x: b.x + b.w / 2.0,
-                y: b.y + b.h / 2.0,
-                size: 2.2,
-                anchor: Anchor::Middle,
-                color: "#b0413e".into(),
-                bold: false,
-                s: format!("{} — not embeddable", e.info.name),
-            });
-        }
-        if border && e.printable {
+        // The plate is DRAWN unconditionally. A back-end that cannot carry this format
+        // substitutes the named frame as it writes — see `unembeddable_frame` — so the SVG,
+        // which inlines any MIME as a data URI, no longer inherits the PDF's JPEG-only limit.
+        ops.push(DrawOp::Image {
+            x: b.x,
+            y: b.y,
+            w: b.w,
+            h: b.h,
+            img: e.img.clone(),
+            cover: b.cover,
+        });
+        if border {
             ops.push(DrawOp::Rect {
                 x: b.x,
                 y: b.y,
@@ -2301,6 +2299,35 @@ fn pdf_escape(s: &str) -> String {
     out
 }
 
+/// What a back-end draws in place of a picture it cannot carry: a framed box naming the plate.
+///
+/// Never a silent gap — a client deliverable has to be checkable against the delivery list, and
+/// an empty space reads as "no plate at this depth" rather than as "your PDF writer cannot take
+/// a PNG". Kept as draw-ops rather than as content-stream text so it goes through the very same
+/// Rect and Text emitters every other frame does.
+fn unembeddable_frame(x: f64, y: f64, w: f64, h: f64, name: &str) -> [DrawOp; 2] {
+    [
+        DrawOp::Rect {
+            x,
+            y,
+            w,
+            h,
+            fill: Some("#f2efe9".into()),
+            stroke: Some("#b0413e".into()),
+            sw: 0.25,
+        },
+        DrawOp::Text {
+            x: x + w / 2.0,
+            y: y + h / 2.0,
+            size: 2.2,
+            anchor: Anchor::Middle,
+            color: "#b0413e".into(),
+            bold: false,
+            s: format!("{name} — not embeddable"),
+        },
+    ]
+}
+
 /// Builds one page's PDF content stream from its draw-ops. mm→pt with a top-left→bottom-left
 /// y-flip so the page reads the same as the SVG.
 pub(crate) fn pdf_content(ops: &[DrawOp], _pw: f64, ph: f64) -> String {
@@ -2339,6 +2366,13 @@ pub(crate) fn pdf_content(ops: &[DrawOp], _pw: f64, ph: f64) -> String {
                     tx(*x2),
                     ty(*y2),
                 );
+            }
+            DrawOp::Image { x, y, w, h, img, .. } if !img.pdf_embeddable() => {
+                // This writer encodes JPEG and nothing else, so the plate becomes a named
+                // frame HERE — the SVG back-end, which has no such limit, still gets the
+                // picture. Recursed through the same emitters so the frame cannot drift from
+                // the ordinary Rect and Text it is made of.
+                s.push_str(&pdf_content(&unembeddable_frame(*x, *y, *w, *h, &img.name), _pw, ph));
             }
             DrawOp::Image { x, y, w, h, img, cover } => {
                 // An image XObject is drawn into the UNIT square, so the `cm` matrix carries
@@ -2415,7 +2449,12 @@ pub(crate) fn collect_images(pages: &[&[DrawOp]]) -> Vec<std::sync::Arc<PrintIma
     for ops in pages {
         for op in ops.iter() {
             if let DrawOp::Image { img, .. } = op {
-                seen.entry(img.id).or_insert_with(|| img.clone());
+                // Only what the content stream actually referenced: `pdf_content` draws a
+                // named frame for anything else, so an XObject for it would be an unreferenced
+                // object carrying the whole picture's bytes.
+                if img.pdf_embeddable() {
+                    seen.entry(img.id).or_insert_with(|| img.clone());
+                }
             }
         }
     }
@@ -3104,8 +3143,11 @@ mod tests {
         serde_json::from_value(json).unwrap()
     }
 
-    /// A picture 200 px wide by 100 px tall (aspect 0.5) at the given registration.
-    fn plate(id: usize, name: &str, top: f32, base: Option<f32>, printable: bool) -> PrintEntry {
+    /// A picture 200 px wide by 100 px tall (aspect 0.5) at the given registration. The MIME is
+    /// the caller's, not a constant: whether a back-end can carry a plate is a question about
+    /// its FORMAT, and a fixture that is always a JPEG can never ask it (finding 42 — the SVG
+    /// test only ever used a JPEG, so nothing noticed the SVG refusing a PNG it could show).
+    fn plate(id: usize, name: &str, top: f32, base: Option<f32>, mime: &str) -> PrintEntry {
         PrintEntry {
             info: crate::db::ImageInfo {
                 image_id: format!("id-{id}"),
@@ -3115,27 +3157,29 @@ mod tests {
                 depth_base: base,
                 name: name.into(),
                 caption: None,
-                mime: "image/jpeg".into(),
+                mime: mime.into(),
                 width: 200,
                 height: 100,
                 src_width: Some(4000),
                 src_height: Some(2000),
                 source_path: None,
-                printable,
+                printable: mime == "image/jpeg",
                 bytes: 6,
                 ..Default::default()
             },
             img: std::sync::Arc::new(PrintImage {
                 id,
-                mime: "image/jpeg".into(),
+                mime: mime.into(),
                 data: vec![0xFF, 0xD8, 1, 2, 3, 0xD9],
                 px_w: 200,
                 px_h: 100,
                 components: 3,
+                name: name.into(),
             }),
-            printable,
         }
     }
+
+    const JPEG: &str = "image/jpeg";
 
     fn images(ops: &[DrawOp]) -> Vec<(f64, f64, f64, f64, bool)> {
         ops.iter()
@@ -3165,7 +3209,7 @@ mod tests {
         let render = |depth: f32| -> Vec<DrawOp> {
             let mut ops = Vec::new();
             draw_image_series(
-                &mut ops, &st, &[plate(0, "TS-1", depth, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y,
+                &mut ops, &st, &[plate(0, "TS-1", depth, None, JPEG)], 0.0, 40.0, 1000.0, 1020.0, &y,
             );
             ops
         };
@@ -3225,7 +3269,7 @@ mod tests {
         let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
         let mut ops = Vec::new();
         let y = |d: f32| d as f64;
-        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, JPEG)], 0.0, 40.0, 1000.0, 1020.0, &y);
         let im = images(&ops);
         assert_eq!(im.len(), 1);
         let (x, y0, w, h, cover) = im[0];
@@ -3245,7 +3289,7 @@ mod tests {
         let y = |d: f32| d as f64;
         // 40 mm wide would want 20 mm of height, but the interval is only 4 m deep.
         draw_image_series(
-            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), true)], 0.0, 40.0, 990.0, 1020.0, &y,
+            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), JPEG)], 0.0, 40.0, 990.0, 1020.0, &y,
         );
         let (x, y0, w, h, cover) = images(&ops)[0];
         assert!((h - 4.0).abs() < 1e-6, "height is capped by the interval");
@@ -3263,7 +3307,7 @@ mod tests {
         let mut ops = Vec::new();
         let y = |d: f32| d as f64;
         draw_image_series(
-            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), true)], 0.0, 40.0, 990.0, 1020.0, &y,
+            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), JPEG)], 0.0, 40.0, 990.0, 1020.0, &y,
         );
         let (_, _, w, h, cover) = images(&ops)[0];
         assert!(cover, "cover clips rather than shrinking");
@@ -3281,7 +3325,7 @@ mod tests {
         draw_image_series(
             &mut ops,
             &st,
-            &[plate(0, "TS-1", 1005.0, None, true), plate(1, "TS-2", 1005.5, None, true)],
+            &[plate(0, "TS-1", 1005.0, None, JPEG), plate(1, "TS-2", 1005.5, None, JPEG)],
             0.0,
             40.0,
             1000.0,
@@ -3293,15 +3337,35 @@ mod tests {
         assert!((im[0].1 + im[0].3 / 2.0 - 1005.0).abs() < 1e-6, "the survivor keeps its true depth");
     }
 
+    /// AUDIT-2026-08-20 finding 42. "Not embeddable" is a statement about ONE back-end. The PDF
+    /// writer encodes JPEG and nothing else, so a PNG plate becomes a named frame there — never
+    /// a silent gap, or a deliverable cannot be checked against the delivery list. The SVG
+    /// writer inlines any MIME as a data URI and has no such limit, and it used to inherit one
+    /// anyway: the same red frame was painted over a plate it could have shown perfectly.
+    ///
+    /// Both halves are pinned here, because either alone passes a lazier implementation —
+    /// refusing everywhere satisfies the frame, and embedding everywhere satisfies the SVG.
     #[test]
-    fn a_plate_that_cannot_be_embedded_prints_a_named_frame_not_a_gap() {
+    fn a_plate_the_pdf_cannot_embed_still_reaches_the_svg_and_is_named_in_the_pdf() {
         let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
         let mut ops = Vec::new();
         let y = |d: f32| d as f64;
-        draw_image_series(&mut ops, &st, &[plate(0, "TS-PNG", 1010.0, None, false)], 0.0, 40.0, 1000.0, 1020.0, &y);
-        assert!(images(&ops).is_empty(), "nothing embeddable to draw");
-        let said = ops.iter().any(|o| matches!(o, DrawOp::Text { s, .. } if s.contains("TS-PNG")));
-        assert!(said, "a missing plate must name itself so a deliverable can be checked");
+        draw_image_series(
+            &mut ops, &st, &[plate(0, "TS-PNG", 1010.0, None, "image/png")],
+            0.0, 40.0, 1000.0, 1020.0, &y,
+        );
+
+        // The SVG carries the picture, under its own MIME, and says nothing about embedding.
+        let svg = svg_page(&ops, 210.0, 297.0);
+        assert!(svg.contains("data:image/png;base64,"), "the SVG can show a PNG, so it shows it");
+        assert!(!svg.contains("not embeddable"), "and must not repeat the PDF's refusal: {svg}");
+
+        // The PDF names it instead, and writes no XObject it never referenced.
+        let stream = pdf_content(&ops, 210.0, 297.0);
+        assert!(!stream.contains("/Im0 Do"), "a PNG is not a DCTDecode stream: {stream}");
+        assert!(collect_images(&[ops.as_slice()]).is_empty(), "so no XObject is written for it");
+        let pdf = String::from_utf8_lossy(&assemble_pdf_with_images(&[stream], 210.0, 297.0, &[])).into_owned();
+        assert!(pdf.contains("TS-PNG"), "the frame names the plate standing behind it");
     }
 
     #[test]
@@ -3309,7 +3373,7 @@ mod tests {
         let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
         let mut ops = Vec::new();
         let y = |d: f32| d as f64;
-        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, JPEG)], 0.0, 40.0, 1000.0, 1020.0, &y);
         let stream = pdf_content(&ops, 210.0, 297.0);
         assert!(stream.contains("/Im0 Do"), "the content stream must reference the XObject");
         let imgs = collect_images(&[ops.as_slice()]);
@@ -3341,7 +3405,7 @@ mod tests {
         let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
         let mut ops = Vec::new();
         let y = |d: f32| d as f64;
-        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, JPEG)], 0.0, 40.0, 1000.0, 1020.0, &y);
         let svg = svg_page(&ops, 210.0, 297.0);
         assert!(svg.contains("data:image/jpeg;base64,"), "no external file references");
         assert!(svg.contains(r#"preserveAspectRatio="none""#), "the box is already the right shape");
