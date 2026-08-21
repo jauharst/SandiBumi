@@ -421,8 +421,8 @@ pub(crate) const METHOD_DERIVATIONS: &[(&str, DerivationClass, &str)] = &[
     ("sw_imts", DerivationClass::Cited, "Same LRLC study; docs/method_lrlc_rtc_imts.md IMTS; Waxman-Smits 1968, Waxman-Thomas 1974, Juhasz 1979/1981 (12_saturation.md:473)"),
     ("multimin", DerivationClass::Retired, "multimin.rs:1-14 - superseded by SandiMin (sandimin: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); kept so saved chains resolve; blocked at run_module"),
     ("sw_height", DerivationClass::Cited, "docs/PRD_v2/15_sat-height-rocktyping.md S5 Leverett + Skelt-Harrison; satheight.rs"),
-    ("perm_wyllie_rose", DerivationClass::CitedPort, "Geolog Loglan perm_wyllie_rose.lls port (modules.rs header); TIMUR/MORRIS_BIGGS/TIXIER constants from that port; original papers await Jauhar (map open question 1)"),
-    ("perm_coates", DerivationClass::CitedPort, "Geolog Loglan perm_coates.lls port (modules.rs header); Coates-Dumanoir original awaits Jauhar (map open question 1)"),
+    ("perm_wyllie_rose", DerivationClass::CitedPort, "Wyllie & Rose 1950 Trans. AIME 189, 105-118 owns the generalized form; ported from Geolog Loglan perm_wyllie_rose.lls. TIMUR is Schlumberger Chart K-3, NOT Timur 1968 (whose published form is 8581*phi^4.4/Swi^2); TIXIER is a post-1950 Wyllie-Rose simplification, NOT Tixier 1949; MORRIS_BIGGS 250/79 attribution is DISPUTED between Morris & Biggs 1967 SPWLA Paper X and Wyllie & Rose 1950. Balan/Mohaghegh/Ameri SPE 30978 (1995) reviews the lineage: http://www.danubianenergy.com/publications/Articole/Balan_SPE_30978.pdf; docs/takeover/DRAFT_DBM005_derivation_map.md"),
+    ("perm_coates", DerivationClass::CitedPort, "Coates & Denoo 1981, The Producibility Answer Product, Schlumberger Technical Review 29(2) - the FFI form this module implements; ported from Geolog Loglan perm_coates.lls. NOT Coates & Dumanoir 1974 (Log Analyst 15(1), 17-31), which is a different and heavier model this module does not implement. The Coates C is scale-dependent and published values are not interchangeable. docs/takeover/DRAFT_DBM005_derivation_map.md"),
     ("perm_transform", DerivationClass::Utility, "definitional core-calibrated regression log10(PERM) = PT_A*PHIE + PT_B; PT_A/PT_B are the user's own RCAL calibration"),
     ("midplot", DerivationClass::Cited, "Schlumberger chartbook Lith-6 MID plot; chartbook U definition (module doc); Por-11 lookup (lithology.rs)"),
     ("rocktyping", DerivationClass::Cited, "ref_rocktyping_shf.md; Permadi-Susilo re-verification in docs/constants_verification_2026-07-22.md"),
@@ -7497,10 +7497,38 @@ fn perm_wyllie_rose_spec() -> ModuleSpec {
         category: "Permeability".into(),
         doc: "PERM = (C * PHIE^D / SWE_IRR^E)^2, mD. Defaults per method: \
               TIMUR C=100 D=2.25 E=1; MORRIS_BIGGS_OIL C=250 D=3 E=1; MORRIS_BIGGS_GAS C=79 D=3 E=1; \
-              TIXIER C=250 D=3 E=1."
+              TIXIER C=250 D=3 E=1. \
+              The generalized form is Wyllie & Rose (1950), Trans. AIME 189, 105-118, who replaced \
+              Carman-Kozeny's specific-surface term with irreducible water saturation; their own \
+              shape factor is 2.0-2.5, suggested as 2.25. They warned the result carries only \
+              order-of-magnitude significance, and that warning is inherited by every constant set \
+              below. TWO OF THE FOUR CARRY A NAME THEIR AUTHOR NEVER ATTACHED TO THEM. TIMUR here \
+              is the Schlumberger Chart K-3 curve, not Timur (1968), whose published relation is \
+              k = 0.136*phi^4.4/Swi^2 in PERCENT = 8581*phi^4.4/Swi^2 in fractions, i.e. C=92.63 \
+              D=2.2 in this squared form - close in good rock, about 14% low in tight rock, where \
+              a cutoff is decided. TIXIER is a post-1950 simplification of Wyllie-Rose, not Tixier \
+              (1949), which is a resistivity-gradient method; that is why TIXIER and \
+              MORRIS_BIGGS_OIL are byte-identical here - same lineage, same oil constant, arrived \
+              at twice. The 250/79 pair is attributed to Morris & Biggs (1967, SPWLA 8th, Paper X) \
+              by IP and Techlog and to Wyllie & Rose (1950) elsewhere; both authors were at \
+              Schlumberger and the 1967 paper is paywalled, so the attribution is UNRESOLVED. \
+              Lineage review: Balan, Mohaghegh & Ameri, SPE 30978 (1995)."
             .into(),
         args: vec![
-            opt("OPT_WR", "Wyllie-Rose variant", "TIMUR", &["TIMUR", "MORRIS_BIGGS_OIL", "MORRIS_BIGGS_GAS", "TIXIER"]),
+            // The ids are stored in params_json on every saved run and must never be renamed, so
+            // the correction rides on the LABEL - the mechanism this file added for exactly this
+            // defect after OPT_GR's bare LARINOV1/LARINOV2 sent a user to the wrong coefficient.
+            opt_labelled(
+                "OPT_WR",
+                "Wyllie-Rose variant",
+                "TIMUR",
+                &[
+                    ("TIMUR", "TIMUR - Schlumberger Chart K-3, C=100 D=2.25 (not Timur 1968)"),
+                    ("MORRIS_BIGGS_OIL", "MORRIS_BIGGS_OIL - Wyllie-Rose oil constant, C=250 D=3"),
+                    ("MORRIS_BIGGS_GAS", "MORRIS_BIGGS_GAS - Wyllie-Rose gas constant, C=79 D=3"),
+                    ("TIXIER", "TIXIER - Wyllie-Rose oil constant again (not Tixier 1949)"),
+                ],
+            ),
             with_sources(param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.01, 0.8, true), crate::param_sources::IRREDUCIBLE_SWE),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_out("PERM_WR", "Permeability from Wyllie-Rose", "mD"),
@@ -7543,7 +7571,18 @@ fn perm_coates_spec() -> ModuleSpec {
         name: "perm_coates".into(),
         title: "Permeability — Coates".into(),
         category: "Permeability".into(),
-        doc: "PERM = (C * PHIE^2 * (1 - SWE_IRR)/SWE_IRR)^2, mD.".into(),
+        doc: "PERM = (C * PHIE^2 * (1 - SWE_IRR)/SWE_IRR)^2, mD. \
+              This free-fluid form is Coates & Denoo (1981), The Producibility Answer Product, \
+              Schlumberger Technical Review 29(2). It is NOT Coates & Dumanoir (1974, The Log \
+              Analyst 15(1), 17-31; SPWLA 14th, Paper R), which replaces both m and n with a \
+              common exponent driven by porosity, resistivity at Swirr, hydrocarbon density and \
+              rock class - a different and much heavier model this module does not implement. \
+              CONST_COATES IS SCALE-DEPENDENT AND PUBLISHED VALUES ARE NOT INTERCHANGEABLE: 100 in \
+              this fractional form is the same rock as 10 in the NMR Timur-Coates (phi/C)^4 form \
+              with porosity in percent, and Schlumberger's K-4 chart states 70. Those are unit \
+              conventions, not disagreements about rock - check which one a quoted C belongs to \
+              before entering it."
+            .into(),
         args: vec![
             param_open("CONST_COATES", "Coates constant", "", 1.0, 1000.0, true),
             with_sources(
@@ -11810,6 +11849,89 @@ mod tests {
     ///   MORRIS_BIGGS_OIL   C=250 D=3    E=1 → (250·0.015625 / 0.15)²  = 678.17 mD
     ///   MORRIS_BIGGS_GAS   C=79  D=3    E=1 → (79·0.015625  / 0.15)²  =  67.72 mD
     ///   TIXIER             C=250 D=3    E=1 → same equation as MORRIS_BIGGS_OIL
+    /// AUDIT-2026-08-20 finding 28, closed on Jauhar's instruction to use the research session he
+    /// commissioned (`D:\XX. Clauding` session 437da72d, 2026-08-21).
+    ///
+    /// The arithmetic was never in question - it was verified correct. What was wrong is that the
+    /// constants had no citation anywhere in the distributed tree, and that TWO OF THE FOUR carry
+    /// a name their author never attached to them: `TIMUR` is the Schlumberger Chart K-3 curve,
+    /// not Timur (1968), and `TIXIER` is a post-1950 Wyllie-Rose simplification, not Tixier
+    /// (1949), which is a resistivity-gradient method entirely.
+    ///
+    /// A wrong attribution is worse than a missing one: it reads as checked. And it is not
+    /// cosmetic - Timur's published relation is about 14% lower in tight rock, which is exactly
+    /// where a permeability cutoff gets decided.
+    ///
+    /// Both sides, because either alone has a lazier way to pass. The correction must be READABLE
+    /// where the choice is made, AND the ids must be UNCHANGED - they are stored in `params_json`
+    /// on every saved run, so renaming `TIMUR` to what it actually is would break every chain
+    /// holding it. That is what `choice_labels` exists for, after `OPT_GR`'s bare LARINOV ids sent
+    /// a user to the wrong coefficient.
+    #[test]
+    fn the_permeability_constants_name_their_source_and_the_two_mislabels_say_so() {
+        let spec = list_modules()
+            .into_iter()
+            .find(|spec| spec.name == "perm_wyllie_rose")
+            .expect("perm_wyllie_rose is registered");
+        let variant = spec
+            .args
+            .iter()
+            .find(|arg| arg.name == "OPT_WR")
+            .expect("the variant selector is declared");
+
+        // The stored ids are frozen. A saved chain holds these strings.
+        assert_eq!(
+            variant.choices,
+            vec!["TIMUR", "MORRIS_BIGGS_OIL", "MORRIS_BIGGS_GAS", "TIXIER"],
+            "a renamed id breaks every saved run that stored the old one",
+        );
+        assert_eq!(
+            variant.choice_labels.len(),
+            variant.choices.len(),
+            "every id carries a label, or the correction is invisible for some of them",
+        );
+
+        // The two that are misnamed deny it where the choice is actually made.
+        for (id, denial) in [("TIMUR", "not Timur 1968"), ("TIXIER", "not Tixier 1949")] {
+            let index = variant
+                .choices
+                .iter()
+                .position(|choice| choice == id)
+                .unwrap_or_else(|| panic!("{id} is still offered"));
+            assert!(
+                variant.choice_labels[index].contains(denial),
+                "{id} must say '{denial}' where it is picked, got {}",
+                variant.choice_labels[index],
+            );
+        }
+
+        // And the derivation registry names publications rather than a promise to find them.
+        for (module, year) in [("perm_wyllie_rose", "1950"), ("perm_coates", "1981")] {
+            let (_, _, derivation) = METHOD_DERIVATIONS
+                .iter()
+                .find(|(name, _, _)| *name == module)
+                .unwrap_or_else(|| panic!("{module} has a derivation entry"));
+            assert!(
+                derivation.contains(year),
+                "{module} must cite the publication that owns its form, got {derivation}",
+            );
+            assert!(
+                !derivation.contains("await"),
+                "{module} no longer awaits a citation, got {derivation}",
+            );
+        }
+        // The Coates entry named the WRONG paper, which is its own hazard - Coates & Dumanoir is a
+        // different model this module does not implement.
+        let (_, _, coates) = METHOD_DERIVATIONS
+            .iter()
+            .find(|(name, _, _)| *name == "perm_coates")
+            .expect("perm_coates has a derivation entry");
+        assert!(
+            coates.contains("Denoo") && coates.contains("NOT Coates & Dumanoir"),
+            "the Coates entry names the form it implements and denies the one it does not: {coates}",
+        );
+    }
+
     #[test]
     fn the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation() {
         let run = |variant: &str| -> f64 {

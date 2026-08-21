@@ -107,8 +107,8 @@ saturation model ships without its paper. Quoted verbatim from that table.
 
 | Module | Title | Derivation source | Status |
 |---|---|---|---|
-| `perm_wyllie_rose` | Wyllie-Rose family | Geolog Loglan `perm_wyllie_rose.lls` port (modules.rs header above the spec); TIMUR / MORRIS_BIGGS_OIL / MORRIS_BIGGS_GAS / TIXIER constants stated in the module doc from that port. Original papers (Timur; Morris & Biggs; Tixier) are NOT separately cited in-repo — open question 1 | CITED (port) |
-| `perm_coates` | Coates | Geolog Loglan `perm_coates.lls` port (modules.rs header above the spec). The Coates-Dumanoir original is NOT separately cited in-repo — open question 1 | CITED (port) |
+| `perm_wyllie_rose` | Wyllie-Rose family | **Wyllie, M.R.J. & Rose, W.D. (1950)**, *Some Theoretical Considerations Related to the Quantitative Evaluation of the Physical Characteristics of Reservoir Rock from Electrical Log Data*, Trans. AIME **189**, 105–118 — owns the generalized `k^½ = C·φ^D/Swi^E` form. Ported from Geolog Loglan `perm_wyllie_rose.lls`. **Two of the four constant sets are mislabelled by the port** (see below) | CITED |
+| `perm_coates` | Coates | **Coates, G.R. & Denoo, S. (1981)**, *The Producibility Answer Product*, Schlumberger Technical Review **29**(2) — the FFI form this module implements. Ported from Geolog Loglan `perm_coates.lls`. NOT Coates & Dumanoir (1974) | CITED |
 | `perm_transform` | Por-perm transform | Definitional core-calibrated regression log10(PERM) = PT_A·PHIE + PT_B; PT_A/PT_B are the user's own per-zone RCAL calibration, so there is no external derivation to cite | UTILITY |
 
 ### Lithology, rock typing, facies
@@ -157,3 +157,35 @@ Per DEC-073 item 4 and the SB-DBM-005 design note: only after sign-off does the 
 half proceed (fail-closed derivation field on `ModuleSpec`, `CurveAncestry` method-derivation
 propagation, the T07/T10 arms). SB-DBM-010 stays blocked behind the same signature. Nothing is
 built on unsigned content.
+
+#### Permeability constants — open question 1, closed 2026-08-21
+
+Researched on Jauhar's instruction (`D:\XX. Clauding` session `437da72d`, 2026-08-21). Every
+constant traces, and **the numbers are not in question** — the arithmetic was independently
+verified correct before this. What was wrong is what two of them are CALLED.
+
+The whole table is a unit-convention artefact: every published form is `k = a·φ^b/Swi^c`, while
+this module squares instead, so `C = √a`, `D = b/2`, `E = c/2`. That is why 250 and 79 look like
+new constants — they are √62500 and √6241.
+
+| Branch | What it actually is | Status |
+|---|---|---|
+| `TIMUR` (C=100, D=2.25) | **Schlumberger Chart K-3** (`a=10000, b=4.5`) | **Mislabelled.** Timur (1968), SPWLA 9th, Paper X / The Log Analyst 9, published `k = 0.136·φ^4.4/Swi²` in PERCENT = `8581·φ^4.4/Swi²` in fractions, i.e. `C=92.63, D=2.2`. Agreement is within 3% in good rock and about 14% low in tight rock — where a cutoff is decided |
+| `MORRIS_BIGGS_OIL` / `_GAS` (250 / 79) | Wyllie-Rose oil and gas constants | **Disputed.** IP 2025 and Techlog attribute them to Morris & Biggs (1967), SPWLA 8th, Paper X; a 2024 *Scientific Reports* paper and several teaching references credit Wyllie & Rose (1950). Balan et al. (SPE 30978, 1995), the most careful comparative review found, omits Morris & Biggs entirely. **The 1967 paper is paywalled and was not read**, so this is vendor convention, not established provenance |
+| `TIXIER` (250, 3, 1) | A post-1950 simplification of Wyllie-Rose, oil constant | **Mislabelled.** Tixier (1949), Oil & Gas Journal 48, is a resistivity-gradient method. This is also why `TIXIER` and `MORRIS_BIGGS_OIL` are byte-identical here — the same lineage arrived at twice, which `the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation` already pins |
+| generalized `(C·φ^D/Swi^E)²` | Wyllie & Rose (1950), Trans. AIME 189, 105–118 | **Solid.** Carman-Kozeny with irreducible water saturation substituted for specific surface area; their shape factor is 2.0–2.5, suggested as 2.25, and they warned the result carries only order-of-magnitude significance |
+| `perm_coates` FFI | Coates & Denoo (1981), Schlumberger Technical Review 29(2) | **Corrected.** The registry named Coates & Dumanoir (1974) — a different, heavier model (a common exponent replacing both `m` and `n`, driven by φ, Rₜ at Swirr, hydrocarbon density and rock class) that this module does not implement |
+
+Lineage review: Balan, Mohaghegh & Ameri, **SPE 30978** (1995),
+<http://www.danubianenergy.com/publications/Articole/Balan_SPE_30978.pdf>.
+
+**Three things not resolved, stated rather than papered over.** OnePetro returned 403 for
+Morris & Biggs (1967) and Coates & Dumanoir (1974); the Coates & Denoo (1981) Technical Review
+is not reachable online in any form; and the two circulating page ranges for Timur's *Log
+Analyst* printing disagree. The ids are unchanged because they are stored in `params_json` on
+every saved run — the corrections ride on `choice_labels`, the mechanism this file added after
+`OPT_GR`'s bare `LARINOV1`/`LARINOV2` sent a user to the wrong coefficient.
+
+**Still open for Jauhar:** whether to add a true `TIMUR_1968` branch at `C=92.63, D=2.2` beside
+the chart curve, or to say in the doc that Timur's published form is not offered. The doc
+currently says the latter.
