@@ -2399,6 +2399,58 @@ pub(crate) struct CompleteWellWrite {
     pub degradations: Vec<crate::modules::RunDegradation>,
 }
 
+/// One version row of `log_sets`, named field by field.
+///
+/// AUDIT-2026-08-20 finding 70. The INSERT was typed out FOUR times, and two of the four had
+/// stopped agreeing on which columns they wrote. One divergence was deliberate and carried its
+/// reason; the other carried nothing, and nobody could tell them apart, because an omitted
+/// column and a deliberately NULL column look identical in SQL. Naming every field makes the
+/// difference visible: a writer that means NULL now says `None` where the reader can see it.
+pub(crate) struct LogSetRow<'a> {
+    pub set_id: &'a str,
+    pub well_id: &'a str,
+    pub set_name: &'a str,
+    pub version: i64,
+    pub module: &'a str,
+    pub params_json: Option<&'a str>,
+    pub inputs_json: Option<&'a str>,
+    /// `LogSetFrame` as stored: STANDARD (the well's own grid) or OWN (the set carries depths).
+    pub frame: &'a str,
+    pub sampling_style: Option<&'a str>,
+    pub duplicate_resolution: Option<&'a str>,
+    pub outcome_state: Option<&'a str>,
+    /// SB-ENV-005. `None` writes SQL NULL, which the reader returns as UNKNOWN - "the step
+    /// history cannot be recovered", never an empty step list. A writer that passes `None` is
+    /// making that statement on purpose and must say why.
+    pub applied_steps_json: Option<&'a str>,
+}
+
+/// The ONE place a `log_sets` version row is written. Every allocator goes through it, so a new
+/// column reaches every writer or none.
+pub(crate) fn insert_log_set(conn: &Connection, row: LogSetRow<'_>) -> duckdb::Result<()> {
+    conn.execute(
+        "INSERT INTO log_sets
+            (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
+             sampling_style, duplicate_resolution, outcome_state, applied_steps_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            row.set_id,
+            row.well_id,
+            row.set_name,
+            row.version,
+            row.module,
+            row.params_json,
+            row.inputs_json,
+            row.frame,
+            row.sampling_style,
+            row.duplicate_resolution,
+            row.outcome_state,
+            row.applied_steps_json,
+        ],
+    )?;
+    Ok(())
+}
+
 pub(crate) const LOG_SET_RESTORE_KEY: &str = "_sandibumi_restore_v1";
 pub(crate) const RUN_OUTCOME_CLEAN: &str = "CLEAN";
 pub(crate) const RUN_OUTCOME_DEGRADED: &str = "DEGRADED";
@@ -2561,25 +2613,24 @@ fn create_log_set_raw(
     let set_id = Uuid::new_v4().to_string();
     // SB-ENV-005: the manifest lands in the SAME INSERT that allocates the version -
     // the two exist atomically or not at all. NULL is the legacy fixture path only.
-    conn.execute(
-        "INSERT INTO log_sets
-            (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-             sampling_style, duplicate_resolution, outcome_state, applied_steps_json)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            set_id,
+    insert_log_set(
+        conn,
+        LogSetRow {
+            set_id: &set_id,
             well_id,
-            spec.set_name,
+            set_name: &spec.set_name,
             version,
-            spec.module,
-            spec.params_json,
-            spec.inputs_json,
-            crate::schema_vocab::LogSetFrame::Standard.as_str(),
-            discipline.sampling_style.as_str(),
-            crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+            module: &spec.module,
+            params_json: Some(&spec.params_json),
+            inputs_json: Some(&spec.inputs_json),
+            frame: crate::schema_vocab::LogSetFrame::Standard.as_str(),
+            sampling_style: Some(discipline.sampling_style.as_str()),
+            duplicate_resolution: Some(
+                crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+            ),
             outcome_state,
             applied_steps_json,
-        ],
+        },
     )?;
     Ok((set_id, version))
 }
@@ -3423,26 +3474,27 @@ pub(crate) fn create_log_sets_batch(
     }
     crate::db::with_txn(conn, |conn| {
         for (well_id, version, set_id) in &planned {
-            // SB-ENV-005: no applied_steps_json on purpose - this legacy batch entry point is
-            // test-exercised only and simulates pre-contract rows (unknown step history).
-            conn.execute(
-                "INSERT INTO log_sets
-                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                     sampling_style, duplicate_resolution, outcome_state)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
+            insert_log_set(
+                conn,
+                LogSetRow {
                     set_id,
                     well_id,
-                    spec.set_name,
-                    version,
-                    spec.module,
-                    spec.params_json,
-                    spec.inputs_json,
-                    crate::schema_vocab::LogSetFrame::Standard.as_str(),
-                    SetWriteDiscipline::default().sampling_style.as_str(),
-                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
-                    None::<&str>,
-                ],
+                    set_name: &spec.set_name,
+                    version: *version,
+                    module: &spec.module,
+                    params_json: Some(&spec.params_json),
+                    inputs_json: Some(&spec.inputs_json),
+                    frame: crate::schema_vocab::LogSetFrame::Standard.as_str(),
+                    sampling_style: Some(SetWriteDiscipline::default().sampling_style.as_str()),
+                    duplicate_resolution: Some(
+                        crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+                    ),
+                    outcome_state: None,
+                    // SB-ENV-005: NULL on purpose. This legacy batch entry point is
+                    // test-exercised only and simulates pre-contract rows, whose step history
+                    // genuinely cannot be recovered - which is exactly what UNKNOWN says.
+                    applied_steps_json: None,
+                },
             )?;
         }
         Ok::<(), duckdb::Error>(())
@@ -3544,25 +3596,24 @@ pub(crate) fn create_complete_log_sets_batch(
     }
     crate::db::with_txn(conn, |conn| {
         for ((well_id, version, set_id, spec), applied_steps) in planned.iter().zip(&manifests) {
-            conn.execute(
-                "INSERT INTO log_sets
-                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                     sampling_style, duplicate_resolution, outcome_state, applied_steps_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![
+            insert_log_set(
+                conn,
+                LogSetRow {
                     set_id,
                     well_id,
-                    spec.storage.set_name,
-                    version,
-                    spec.storage.module,
-                    spec.storage.params_json,
-                    spec.storage.inputs_json,
-                    crate::schema_vocab::LogSetFrame::Standard.as_str(),
-                    spec.discipline.sampling_style.as_str(),
-                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
-                    RUN_OUTCOME_CLEAN,
-                    applied_steps,
-                ],
+                    set_name: &spec.storage.set_name,
+                    version: *version,
+                    module: &spec.storage.module,
+                    params_json: Some(&spec.storage.params_json),
+                    inputs_json: Some(&spec.storage.inputs_json),
+                    frame: crate::schema_vocab::LogSetFrame::Standard.as_str(),
+                    sampling_style: Some(spec.discipline.sampling_style.as_str()),
+                    duplicate_resolution: Some(
+                        crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+                    ),
+                    outcome_state: Some(RUN_OUTCOME_CLEAN),
+                    applied_steps_json: Some(&applied_steps),
+                },
             )?;
             write_run_parameters(conn, set_id, &spec.ancestry.parameters)?;
         }
@@ -4281,23 +4332,32 @@ pub(crate) fn restore_log_set(
             params![well_id, set_name],
             |row| row.get(0),
         )?;
-        conn.execute(
-            "INSERT INTO log_sets
-                (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                 sampling_style, duplicate_resolution, outcome_state)
-             VALUES (?1, ?2, ?3, ?4, 'restore', ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                new_set_id,
-                well_id,
-                set_name,
-                new_version,
-                restored_params_json,
-                inputs_json,
-                frame,
-                sampling_style,
-                duplicate_resolution,
-                outcome_state,
-            ],
+        insert_log_set(
+            conn,
+            LogSetRow {
+                set_id: &new_set_id,
+                well_id: &well_id,
+                set_name: &set_name,
+                version: new_version,
+                module: "restore",
+                params_json: Some(&restored_params_json),
+                inputs_json: inputs_json.as_deref(),
+                frame: &frame,
+                sampling_style: sampling_style.as_deref(),
+                duplicate_resolution: duplicate_resolution.as_deref(),
+                outcome_state: outcome_state.as_deref(),
+                // SB-ENV-005, and OPEN: a restored version is not pre-contract, so UNKNOWN is
+                // not strictly true of it - the steps that produced these values are recorded
+                // on the source row, which `params_json`'s restore record names. It cannot say
+                // so yet: the manifest's `params_digest` is pinned to the digest of the ROW'S
+                // OWN `params_json`, and a restore appends its record to that, so the source
+                // manifest cannot be copied across without breaking that invariant. Stating it
+                // properly needs a step of kind "restore", which would extend SB-ENV-005's
+                // signed vocabulary ("module" | "correction" | "mask" | "edit") - Jauhar's
+                // ruling, not this refactor's. Explicitly `None` until then, rather than an
+                // omitted column nobody can distinguish from an oversight.
+                applied_steps_json: None,
+            },
         )?;
         conn.execute(
             "INSERT INTO run_parameters
@@ -5707,6 +5767,76 @@ mod tests {
         let absent = "99999999-9999-9999-9999-999999999999";
         let missing = get_applied_steps(&conn, absent).expect_err("must refuse").to_string();
         assert!(missing.contains("no log-set version"), "{missing}");
+    }
+
+    /// AUDIT-2026-08-20 finding 70. The `log_sets` INSERT was typed out FOUR times, and two of
+    /// the four had stopped writing the same columns. One omission was deliberate and carried an
+    /// SB-ENV-005 note; the other carried nothing. Nobody could tell them apart, because in SQL
+    /// an OMITTED column and a deliberately NULL one are the same row.
+    ///
+    /// That matters for this column specifically. A NULL `applied_steps_json` is not "no steps" -
+    /// the reader returns it as UNKNOWN, "the step history cannot be recovered". A writer that
+    /// leaves the column out is therefore making a claim about the version it just allocated,
+    /// whether it meant to or not.
+    ///
+    /// Pinned from BOTH sides, because either alone is satisfiable by the wrong implementation:
+    /// there is exactly ONE INSERT, so a new column reaches every writer or none; and every
+    /// writer that passes `None` states WHY within sight of the field, so a silent NULL cannot
+    /// slip back in through the shared writer.
+    #[test]
+    fn one_writer_allocates_every_log_set_version_and_a_deliberate_null_manifest_says_why() {
+        let source = include_str!("equations.rs");
+
+        // A - one INSERT, and it belongs to `insert_log_set`. The needle is assembled at runtime
+        // so this test does not count its own literal as a second writer.
+        let needle = format!("INSERT INTO {}", "log_sets");
+        let inserts: Vec<usize> = source
+            .split('\n')
+            .enumerate()
+            .filter(|(_, line)| line.contains(&needle))
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(
+            inserts.len(),
+            1,
+            "a second hand-typed log_sets INSERT is how the four copies diverged; \
+             allocate through insert_log_set instead (lines {inserts:?})"
+        );
+        let lines: Vec<&str> = source.split('\n').collect();
+        let owner = lines[..inserts[0]]
+            .iter()
+            .rev()
+            .find(|line| line.starts_with("pub(crate) fn ") || line.starts_with("fn "))
+            .expect("the INSERT sits inside some function");
+        assert!(
+            owner.contains("fn insert_log_set("),
+            "the one INSERT must be the shared writer's, found it in: {owner}"
+        );
+
+        // B - and every deliberate NULL manifest states its reason BESIDE the field, not
+        // somewhere up the function where the next editor will not see it. Assembled at
+        // runtime for the same reason as the needle above.
+        let null_field = format!("applied_steps_json: {},", "None");
+        let mut unexplained = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            if line.trim() != null_field {
+                continue;
+            }
+            let window = lines[index.saturating_sub(6)..index].join("\n");
+            if !window.contains("SB-ENV-005") {
+                unexplained.push(index + 1);
+            }
+        }
+        assert!(
+            unexplained.is_empty(),
+            "a NULL manifest claims the step history cannot be recovered, so the writer must say \
+             why it is making that claim (SB-ENV-005), at lines {unexplained:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.trim() == null_field),
+            "both writers that mean NULL now say so by name; if neither does, this side of the \
+             pin has stopped watching anything"
+        );
     }
 
     /// T-PETRO-02, the versioning half. Re-running a module must land as version N+1 and never

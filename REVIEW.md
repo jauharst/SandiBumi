@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 52 (my audit P2): **one place now records a new version of an interpretation**
+
+- [ ] **Nothing to click; one thing to rule on (last bullet).** No number moves.
+- [ ] **What was wrong.** Every time SandiBumi saves a new version of an interpretation it writes
+      a row saying what produced it — the module, the parameters, the inputs, the depth frame, the
+      processing steps. That row was being written out by hand in **four separate places**, and
+      two of the four had stopped listing the same things.
+- [ ] **Why that is worse than it sounds.** In a database, a column somebody *left out* and a
+      column somebody *deliberately left blank* produce exactly the same row. So one of those two
+      omissions was a considered decision with its reason written down, the other was unexplained,
+      and there was no way to tell them apart by reading the stored data.
+- [ ] **The fix.** One place writes that row now, listing every field by name. A writer that means
+      "leave this blank" has to say so out loud, next to the field, with its reason.
+- [ ] **Pinned.** `one_writer_allocates_every_log_set_version_and_a_deliberate_null_manifest_says_why`
+      — there must be exactly one such write in the file, and every deliberate blank must state
+      why beside the field. Both checked by breaking them on purpose.
+- [ ] **One thing for you to rule on.** When you RESTORE an old version, the new version it creates
+      currently records its processing history as *"cannot be recovered"*. That is not true — the
+      history is on the version you restored from, and the new row already names it. SandiBumi
+      cannot say so today: its list of step types is `module`, `correction`, `mask`, `edit`, and a
+      restore is none of those. Adding `restore` to that list is a change to a signed contract, so
+      it is your call, not mine. I have left it explicit and written the reasoning at the code, and
+      recorded the question in the audit. **Do you want a restore to record itself as a step?**
+
 ## 2026-08-21 — Audit increment 51 (my audit P2 ×2): **the notes that say WHY were attached to the wrong code**
 
 - [ ] **Nothing to click.** This increment changes no behaviour at all — no number moves, no button
