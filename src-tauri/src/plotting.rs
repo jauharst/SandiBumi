@@ -569,18 +569,6 @@ pub fn set_curve_header_display_range(
     Ok(previous)
 }
 
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AxisRangeCandidates {
-    pub user: Option<DisplayRange>,
-    pub header_display: Option<DisplayRange>,
-    pub audited_family_display: Option<DisplayRange>,
-    pub finite_data: Option<DisplayRange>,
-    /// Kept in the request so callers cannot accidentally omit the distinction.
-    /// It is deliberately never consulted by `resolve_axis_range`.
-    pub validity: Option<DisplayRange>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AxisRangeTier {
@@ -588,32 +576,6 @@ pub enum AxisRangeTier {
     HeaderDisplay,
     AuditedFamilyDisplay,
     FiniteData,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct AxisRangeResolution {
-    pub range: DisplayRange,
-    pub tier: AxisRangeTier,
-}
-
-#[cfg(test)]
-fn usable_range(range: DisplayRange) -> bool {
-    range.low.is_finite() && range.high.is_finite() && range.low != range.high
-}
-
-#[cfg(test)]
-pub fn resolve_axis_range(candidates: &AxisRangeCandidates) -> Result<AxisRangeResolution, String> {
-    let ordered = [
-        (candidates.user, AxisRangeTier::User),
-        (candidates.header_display, AxisRangeTier::HeaderDisplay),
-        (candidates.audited_family_display, AxisRangeTier::AuditedFamilyDisplay),
-        (candidates.finite_data, AxisRangeTier::FiniteData),
-    ];
-    ordered
-        .into_iter()
-        .find_map(|(range, tier)| range.filter(|value| usable_range(*value)).map(|range| AxisRangeResolution { range, tier }))
-        .ok_or_else(|| "no display range is available; validity limits are not display limits".into())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -696,54 +658,6 @@ pub fn bind_overlay_axis(
             rule.offset, rule.factor, rule.derivation
         ),
     })
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RangePolicyReport {
-    pub input_count: usize,
-    pub non_finite_excluded: usize,
-    pub validity_excluded: usize,
-    pub display_hidden: usize,
-    pub statistics_count: usize,
-    pub kept_values: Vec<f32>,
-}
-
-#[cfg(test)]
-pub fn apply_range_policy(
-    values: &[f32],
-    display: DisplayRange,
-    validity: Option<DisplayRange>,
-    apply_validity: bool,
-) -> RangePolicyReport {
-    let mut report = RangePolicyReport {
-        input_count: values.len(),
-        non_finite_excluded: 0,
-        validity_excluded: 0,
-        display_hidden: 0,
-        statistics_count: 0,
-        kept_values: Vec::new(),
-    };
-    for &value in values {
-        if !value.is_finite() {
-            report.non_finite_excluded += 1;
-            continue;
-        }
-        if apply_validity
-            && validity
-                .map(|range| value < range.low.min(range.high) || value > range.low.max(range.high))
-                .unwrap_or(false)
-        {
-            report.validity_excluded += 1;
-            continue;
-        }
-        report.statistics_count += 1;
-        report.kept_values.push(value);
-        if value < display.low.min(display.high) || value > display.low.max(display.high) {
-            report.display_hidden += 1;
-        }
-    }
-    report
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1006,13 +920,6 @@ pub fn serialize_reduction_export(export: &PlotReductionExport) -> Result<String
     serde_json::to_string_pretty(export).map_err(|error| error.to_string())
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg(test)]
-pub struct SharedChannelReduction {
-    pub channels: Vec<Vec<f32>>,
-    pub manifest: ReductionManifest,
-}
-
 fn stride_source_indices(eligible: &[usize], stride: usize) -> Result<(Vec<usize>, bool), String> {
     if stride == 0 {
         return Err("decimation stride must be at least 1".into());
@@ -1029,75 +936,6 @@ fn stride_source_indices(eligible: &[usize], stride: usize) -> Result<(Vec<usize
         }
     }
     Ok((source_indices, endpoints_forced))
-}
-
-#[cfg(test)]
-pub fn decimate_shared_channels(
-    channels: &[Vec<f32>],
-    eligible: &[usize],
-    stride: usize,
-) -> Result<SharedChannelReduction, String> {
-    let (source_indices, endpoints_forced) = stride_source_indices(eligible, stride)?;
-    if let Some(index) = source_indices.last().copied() {
-        if channels.iter().any(|channel| index >= channel.len()) {
-            return Err("shared decimation index exceeds one or more channel lengths".into());
-        }
-    }
-    let reduced = channels
-        .iter()
-        .map(|channel| source_indices.iter().map(|&index| channel[index]).collect())
-        .collect();
-    Ok(SharedChannelReduction {
-        channels: reduced,
-        manifest: ReductionManifest {
-            original_count: eligible.len(),
-            displayed_count: source_indices.len(),
-            algorithm: "stride_from_first_with_forced_final_endpoint".into(),
-            stride,
-            endpoints_forced,
-            source_indices,
-        },
-    })
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DepthStepReconciliation {
-    pub coarsest_step: f32,
-    pub decimation_factors: Vec<usize>,
-}
-
-/// Chooses only among exact relationships. No tolerance or resampling kernel is
-/// introduced: equality keeps factor 1, exact integer multiples decimate toward
-/// the coarsest step, and every other relationship is routed to Data I/O.
-#[cfg(test)]
-pub fn reconcile_depth_steps(steps: &[f32]) -> Result<DepthStepReconciliation, String> {
-    if steps.is_empty() || steps.iter().any(|step| !step.is_finite() || *step <= 0.0) {
-        return Err("depth steps must be finite and positive".into());
-    }
-    let coarsest_step = steps.iter().copied().reduce(f32::max).unwrap();
-    let mut decimation_factors = Vec::with_capacity(steps.len());
-    for &step in steps {
-        let ratio = coarsest_step / step;
-        if !ratio.is_finite() || ratio < 1.0 || ratio.fract() != 0.0 {
-            return Err(format!(
-                "depth steps are not exact integer multiples; route this plot to the DIO resampling workflow ({step} versus {coarsest_step})"
-            ));
-        }
-        decimation_factors.push(ratio as usize);
-    }
-    Ok(DepthStepReconciliation { coarsest_step, decimation_factors })
-}
-
-#[cfg(test)]
-pub fn half_open_depth_indices(depth: &[f32], low: f32, high: f32) -> Vec<usize> {
-    depth
-        .iter()
-        .enumerate()
-        .filter_map(|(index, value)| {
-            (value.is_finite() && *value >= low && *value < high).then_some(index)
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2170,34 +2008,6 @@ mod tests {
     }
 
     #[test]
-    fn a_user_axis_range_wins_and_without_it_the_header_display_range_wins() {
-        let candidates = AxisRangeCandidates {
-            user: Some(DisplayRange { low: 10.0, high: 20.0 }),
-            header_display: Some(DisplayRange { low: 1.0, high: 2.0 }),
-            audited_family_display: Some(DisplayRange { low: 3.0, high: 4.0 }),
-            finite_data: Some(DisplayRange { low: 5.0, high: 6.0 }),
-            validity: Some(DisplayRange { low: 100.0, high: 200.0 }),
-        };
-        let user = resolve_axis_range(&candidates).unwrap();
-        assert_eq!(user.tier, AxisRangeTier::User);
-        assert_eq!(user.range, DisplayRange { low: 10.0, high: 20.0 });
-
-        let without_user = AxisRangeCandidates { user: None, ..candidates };
-        let header = resolve_axis_range(&without_user).unwrap();
-        assert_eq!(header.tier, AxisRangeTier::HeaderDisplay);
-        assert_eq!(header.range, DisplayRange { low: 1.0, high: 2.0 });
-
-        let validity_only = AxisRangeCandidates {
-            user: None,
-            header_display: None,
-            audited_family_display: None,
-            finite_data: None,
-            validity: Some(DisplayRange { low: 100.0, high: 200.0 }),
-        };
-        assert!(resolve_axis_range(&validity_only).is_err());
-    }
-
-    #[test]
     fn an_overlay_requires_quantity_compatible_units_and_records_any_registered_conversion() {
         let incompatible = bind_overlay_axis(
             &OverlayAxisContract {
@@ -2233,31 +2043,6 @@ mod tests {
         assert_eq!(converted.factor, 0.3048);
         assert_eq!(converted.offset, 0.0);
         assert!(converted.transform.contains("0.3048"));
-    }
-
-    #[test]
-    fn display_clipping_counts_hidden_points_while_validity_filtering_changes_the_population_explicitly() {
-        let values = [0.0, 1.0, 2.0, 3.0, 4.0];
-        let clipped = apply_range_policy(
-            &values,
-            DisplayRange { low: 1.0, high: 3.0 },
-            Some(DisplayRange { low: 1.0, high: 3.0 }),
-            false,
-        );
-        assert_eq!(clipped.statistics_count, 5);
-        assert_eq!(clipped.display_hidden, 2);
-        assert_eq!(clipped.validity_excluded, 0);
-
-        let filtered = apply_range_policy(
-            &values,
-            DisplayRange { low: 0.0, high: 4.0 },
-            Some(DisplayRange { low: 1.0, high: 3.0 }),
-            true,
-        );
-        assert_eq!(filtered.statistics_count, 3);
-        assert_eq!(filtered.validity_excluded, 2);
-        assert_eq!(filtered.display_hidden, 0);
-        assert_eq!(filtered.kept_values, vec![1.0, 2.0, 3.0]);
     }
 
     #[test]
@@ -2428,47 +2213,6 @@ mod tests {
         assert_eq!(allocation.absent[0].well_id, "missing");
         assert!(allocation.absent[0].reason.contains("zero finite aligned pairs"));
         assert_eq!(allocation.absent[0].quota, 0);
-    }
-
-    #[test]
-    fn decimation_uses_one_shared_index_vector_and_reports_the_forced_final_endpoint() {
-        // SB-PLT-015 / SB-PLT-T21/T22: 0..10 and stride 4 are the cited acceptance fixture.
-        let eligible: Vec<usize> = (0..=10).collect();
-        let channels = vec![
-            (0..=10).map(|value| value as f32).collect::<Vec<_>>(),
-            (0..=10).map(|value| 100.0 + value as f32).collect::<Vec<_>>(),
-            (0..=10).map(|value| 200.0 + value as f32).collect::<Vec<_>>(),
-            (0..=10).map(|value| 300.0 + value as f32).collect::<Vec<_>>(),
-        ];
-        let reduced = decimate_shared_channels(&channels, &eligible, 4).unwrap();
-
-        assert_eq!(reduced.manifest.original_count, 11);
-        assert_eq!(reduced.manifest.displayed_count, 4);
-        assert_eq!(reduced.manifest.algorithm, "stride_from_first_with_forced_final_endpoint");
-        assert_eq!(reduced.manifest.stride, 4);
-        assert!(reduced.manifest.endpoints_forced);
-        assert_eq!(reduced.manifest.source_indices, vec![0, 4, 8, 10]);
-        for (channel_index, channel) in reduced.channels.iter().enumerate() {
-            let base = 100.0 * channel_index as f32;
-            assert_eq!(channel, &vec![base, base + 4.0, base + 8.0, base + 10.0]);
-        }
-    }
-
-    #[test]
-    fn equal_and_integer_multiple_depth_steps_proceed_but_non_integer_steps_route_to_dio_and_intervals_stay_half_open() {
-        // SB-PLT-016 / SB-PLT-T23–T26: all values are the chapter's shown fixtures.
-        let equal = reconcile_depth_steps(&[0.5, 0.5]).unwrap();
-        assert_eq!(equal.coarsest_step.to_bits(), 0.5f32.to_bits());
-        assert_eq!(equal.decimation_factors, vec![1, 1]);
-
-        let multiple = reconcile_depth_steps(&[0.5, 1.0]).unwrap();
-        assert_eq!(multiple.coarsest_step.to_bits(), 1.0f32.to_bits());
-        assert_eq!(multiple.decimation_factors, vec![2, 1]);
-
-        let refusal = reconcile_depth_steps(&[0.5, 0.8]).unwrap_err();
-        assert!(refusal.contains("DIO resampling"));
-
-        assert_eq!(half_open_depth_indices(&[100.0, 100.5, 101.0], 100.0, 101.0), vec![0, 1]);
     }
 
     #[test]
@@ -2696,20 +2440,21 @@ mod tests {
     fn an_export_after_budget_reduction_includes_original_and_displayed_counts_and_the_algorithm_while_a_hard_maximum_refuses() {
         // SB-PLT-031 / SB-PLT-T40: 0..10 at stride 4 is the cited SB-PLT-T21
         // reduction fixture. The too-small budget is an arithmetic refusal fixture.
-        let channel = (0..=10).map(|value| value as f32).collect::<Vec<_>>();
-        let eligible = (0..=10).collect::<Vec<_>>();
-        let reduced = decimate_shared_channels(&[channel], &eligible, 4).unwrap();
+        // SB-PLT-T21's cited reduction of 0..10 at stride 4: 11 source points, 4 displayed,
+        // final endpoint forced. Written out rather than recomputed, because this test's
+        // subject is the export serializer - the reduction itself is pinned against the
+        // implementation that actually runs, in tools/frontend-acceptance.test.mjs.
         let export = PlotReductionExport {
             schema_version: 1,
             plot_type: "crossplot".into(),
             items: vec![ReductionExportItem {
                 subject_kind: "points".into(),
                 subject_id: "represented-well".into(),
-                original_count: reduced.manifest.original_count,
-                displayed_count: reduced.manifest.displayed_count,
-                algorithm: reduced.manifest.algorithm,
-                stride: Some(reduced.manifest.stride),
-                endpoints_forced: Some(reduced.manifest.endpoints_forced),
+                original_count: 11,
+                displayed_count: 4,
+                algorithm: "stride_from_first_with_forced_final_endpoint".into(),
+                stride: Some(4),
+                endpoints_forced: Some(true),
             }],
             absent: Vec::new(),
             refusal: None,

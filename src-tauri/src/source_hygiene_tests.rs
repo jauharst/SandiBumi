@@ -209,3 +209,130 @@ fn a_message_an_operator_reads_never_carries_a_dropped_line_continuation() {
     let indent = ["\"", "   ", "note: {n}\""].concat();
     assert!(!has_prose_gap(&indent), "an indent is padding, not a torn sentence");
 }
+
+/// Every `#[cfg(test)]` item that declares a fully PUBLIC surface, and what makes it honest.
+///
+/// Such an item is shaped exactly like production code and can never exist in a real build. The
+/// compiler emits no `dead_code` warning for it, so `tools/gate2-hygiene.mjs` - the mechanism
+/// that OWNS disconnected capability, by inventorying the warnings that capability produces -
+/// cannot see it at all. Thirteen accumulated in `plotting.rs` that way, in a file already
+/// carrying 21 owned warnings: the ownership mechanism was working, and these were simply
+/// invisible to it. Five were second implementations of contracts whose live TypeScript is
+/// pinned on the same PRD fixtures, so the copy that could never run was the one being tested.
+///
+/// Scoped to plain `pub` because that is where the harm was. There are also eleven
+/// `pub(crate)` items under `#[cfg(test)]`, counted; every one of them is a probe or a one-line
+/// delegation to the production entry point, and none was a second implementation. Widening the
+/// rule would add eleven benign entries and dilute the list rather than sharpen it.
+///
+/// Checked in BOTH directions: an item in the tree that is not listed fails, and a listing that
+/// no longer names such an item fails, so an entry cannot outlive its reason.
+const TEST_ONLY_PUBLIC_SURFACES: &[(&str, &str, &str)] = &[
+    ("db.rs", "update_computed_sample",
+     "edits one sample so a test can check what a production read gives back"),
+    ("equations.rs", "try_new",
+     "the short constructor; production builds a spec through try_new_with_legacy"),
+    ("ingest.rs", "import_las_files",
+     "one line delegating to import_las_files_with, for the legacy test call sites"),
+    ("param_sources.rs", "topics",
+     "lists the declared topics so a test can hold them against the source"),
+    ("plotting.rs", "PersistedPlotDocument",
+     "the shape a test reads back after a production write"),
+    ("plotting.rs", "list_persisted_plot_states",
+     "reads back what a production write stored"),
+];
+
+/// The name this line declares, when it declares a fully public item.
+fn public_item_name(line: &str) -> Option<String> {
+    let rest = line.trim_start().strip_prefix("pub ")?;
+    let rest = ["struct ", "enum ", "fn ", "trait ", "type ", "const "]
+        .iter()
+        .find_map(|kind| rest.strip_prefix(kind))?;
+    let name: String = rest
+        .chars()
+        .take_while(|value| value.is_alphanumeric() || *value == '_')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Every public surface in one file that is gated behind `#[cfg(test)]`.
+fn test_only_public_surfaces(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim() != "#[cfg(test)]" {
+            continue;
+        }
+        // Further attributes and a doc block may sit between the gate and the item it gates.
+        let mut probe = index + 1;
+        while probe < lines.len()
+            && (lines[probe].trim_start().starts_with("#[")
+                || lines[probe].trim_start().starts_with("///"))
+        {
+            probe += 1;
+        }
+        if let Some(name) = lines.get(probe).and_then(|line| public_item_name(line)) {
+            found.push(name);
+        }
+    }
+    found
+}
+
+#[test]
+fn a_test_only_item_never_wears_a_production_shape_without_saying_why() {
+    // AUDIT-2026-08-20 finding 67. The five removed from plotting.rs re-implemented SB-PLT-002,
+    // -004, -015 and -016 against code that can never run, while the live TypeScript was already
+    // pinned on the same requirement ids and the same chapter fixtures - a keep-in-agreement
+    // hazard with one side permanently unrunnable, which is the one shape that cannot be caught
+    // by testing either side.
+    let mut observed: Vec<(String, String)> = Vec::new();
+    for path in sorted_sources() {
+        let source = std::fs::read_to_string(&path).expect("read a UTF-8 Rust source file");
+        let file = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        for name in test_only_public_surfaces(&source) {
+            observed.push((file.clone(), name));
+        }
+    }
+    observed.sort();
+
+    let mut declared: Vec<(String, String)> = TEST_ONLY_PUBLIC_SURFACES
+        .iter()
+        .map(|(file, name, reason)| {
+            assert!(!reason.trim().is_empty(), "{file}'s {name} is listed with no reason");
+            ((*file).to_string(), (*name).to_string())
+        })
+        .collect();
+    declared.sort();
+
+    let undeclared: Vec<&(String, String)> =
+        observed.iter().filter(|item| !declared.contains(item)).collect();
+    assert!(
+        undeclared.is_empty(),
+        "a test-only item wears a production shape and is not declared: {undeclared:?}"
+    );
+
+    let stale: Vec<&(String, String)> =
+        declared.iter().filter(|item| !observed.contains(item)).collect();
+    assert!(
+        stale.is_empty(),
+        "a declared test-only surface no longer exists, so its reason has outlived it: {stale:?}"
+    );
+
+    // The sweep cannot pass by not looking. Assembled rather than written literally, so this
+    // file is not an offender against its own scan.
+    let shadow = ["#[cfg(test)]", "pub fn resolve_axis_range() {}"].join("\n");
+    assert_eq!(
+        test_only_public_surfaces(&shadow),
+        vec!["resolve_axis_range".to_string()],
+        "a public surface behind the test gate must be found"
+    );
+    let helper = ["#[cfg(test)]", "fn a_private_helper() {}"].join("\n");
+    assert!(
+        test_only_public_surfaces(&helper).is_empty(),
+        "a private helper declares no surface and is not this class"
+    );
+}

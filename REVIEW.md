@@ -1,5 +1,48 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 71 (my audit P2): **four plot rules were being tested against a copy that can never run**
+
+- [ ] **What to click.** Nothing — no behaviour changes anywhere. This removes 255 lines of Rust
+      that could never execute, and adds a check so the same thing cannot build up again.
+- [ ] **What was wrong.** `plotting.rs` carried thirteen items marked test-only but written in the
+      shape of production code — public types with wire formats, public functions with real logic.
+      Five of them were a **second implementation** of rules the application already follows: how a
+      plot axis chooses its display range (SB-PLT-002), how points outside the display range are
+      counted separately from points excluded on validity grounds (SB-PLT-004), how a crowded plot
+      is thinned while keeping both end points (SB-PLT-015), and how curves at different sample
+      spacings are put on one depth frame (SB-PLT-016).
+- [ ] **Why a second copy is worse than no copy at all.** The real ones are in TypeScript and run
+      every time you open a crossplot. The Rust ones **could never run** — they existed only inside
+      the test build. So those Rust tests were proving that the unused copy was correct. Change the
+      rule in one place and nothing would notice: the Rust test keeps passing, and the plot on
+      screen quietly does something else. This repository normally guards twins like this by
+      pinning them against each other; that is impossible when one side can never execute.
+- [ ] **Nothing was lost.** Every requirement the deleted tests claimed is already pinned against
+      the code that actually runs, citing the same chapter and the same fixtures — SB-PLT-002 and
+      T01/T02, SB-PLT-004, SB-PLT-015 with T21/T22, SB-PLT-016 with T23–T26. In one case the two
+      tests used literally the same numbers (depths 100, 100.5, 101 over the interval 100 to 101).
+      No document anywhere in `docs/` referred to the deleted functions.
+- [ ] **One test stayed and had its fixture rewritten.** The SB-PLT-031 export test's real subject
+      is the export serializer, not the thinning; it only used the thinning to make a fixture. Its
+      manifest is now written out as the literal values the chapter cites (11 points in, 4 shown,
+      final end point forced) rather than computed by a copy that no longer exists.
+- [ ] **Two were kept, because they are honest.** The two that read a plot document back out of the
+      database are genuine test helpers — they check what a **production** write stored. They are
+      now named in a list with the reason, and the list is checked from both ends: a new test-only
+      public item that is not listed fails the build, and a listed one that no longer exists fails
+      too, so an entry cannot outlive its reason.
+- [ ] **Why nobody saw them.** The repository already has a mechanism for owning code that is built
+      but not yet connected: the compiler warns about it and those warnings are inventoried and
+      signed off — `plotting.rs` has 21 of them owned that way. An item marked test-only produces
+      **no warning at all**, so it was invisible to exactly the mechanism meant to catch it. The
+      ownership process was working; these simply never reached it.
+- [ ] **Counted, not eyeballed.** Thirteen test-only public items in `plotting.rs`; five were
+      second implementations, four Rust tests removed, one repointed, two kept and declared. Across
+      the rest of the repository only four such items remain, all declared. Eleven further items
+      are crate-visible rather than fully public and were measured and deliberately left outside
+      the rule — every one is a probe or a one-line delegation to the production entry point, and
+      none was a second implementation.
+
 ## 2026-08-21 — Audit increment 70 (my audit P3 ×2): **the refusals had spaces torn through the middle of them**
 
 - [ ] **What to click.** Nothing new to run, but the next time a refusal appears, read it. Ask a
