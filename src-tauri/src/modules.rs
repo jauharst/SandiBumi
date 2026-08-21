@@ -7521,7 +7521,13 @@ fn perm_coates(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = phie[i] as f64;
         let c = ctx.p("CONST_COATES", i);
         let swirr = ctx.p("SWE_IRR", i);
-        if is_missing(pe) || is_missing(swirr) || swirr <= 0.0 {
+        // Guard negative PHIE explicitly, the same screen `perm_wyllie_rose` carries and for a
+        // worse reason: this form squares the porosity TWICE (`pe * pe`, then `k * k`), so a
+        // non-physical -0.05 returns bit-identically the same permeability as a real +0.05.
+        // There is no fractional exponent here to NaN it, and nothing downstream can recover the
+        // sign, so an over-corrected density porosity would ship as an ordinary answer.
+        // Reachable because PHIE_DEN/PHIE_DN are declared unlimited and are never floored.
+        if is_missing(pe) || pe < 0.0 || is_missing(swirr) || swirr <= 0.0 {
             continue;
         }
         let k = c * pe * pe * (1.0 - swirr) / swirr;
@@ -11622,6 +11628,35 @@ mod tests {
         assert_eq!(z["PERM"][0], 0.0);
         let s = perm_coates(&ctx_with(1, &[("PHIE", vec![0.2])], &[("CONST_COATES", 100.0), ("SWE_IRR", 0.0)], &[]));
         assert!(s["PERM"][0].is_nan());
+    }
+
+    #[test]
+    fn a_negative_porosity_is_missing_in_coates_rather_than_the_permeability_of_its_own_mirror() {
+        // AUDIT-2026-08-20 finding 29. Coates squares PHIE twice - `pe * pe`, then `k * k` - so
+        // the sign cannot survive, and a vendor density porosity that reads -0.05 over a tight
+        // streak returned exactly the permeability of a real 5 % sand. Nothing downstream can
+        // catch that: it is finite, positive and the right order of magnitude.
+        let params = &[("CONST_COATES", 100.0), ("SWE_IRR", 0.2)];
+        let negative = perm_coates(&ctx_with(1, &[("PHIE", vec![-0.05])], params, &[]));
+        assert!(
+            negative["PERM"][0].is_nan(),
+            "negative PHIE must be MISSING, was {}",
+            negative["PERM"][0]
+        );
+
+        // Pinned from BOTH sides, because `continue` on every sample would also satisfy the line
+        // above: the mirrored POSITIVE porosity must still compute, and it is the value the
+        // negative one used to borrow.
+        let positive = perm_coates(&ctx_with(1, &[("PHIE", vec![0.05])], params, &[]));
+        assert!(
+            positive["PERM"][0].is_finite() && positive["PERM"][0] > 0.0,
+            "a real 5 % porosity must still return a permeability, was {}",
+            positive["PERM"][0]
+        );
+
+        // And the diagnostic curve must agree with PERM - both come from one vector, so a future
+        // split that screened only one of them would leave the other quoting the mirror.
+        assert!(negative["PERM_COATES"][0].is_nan(), "PERM_COATES must screen it too");
     }
 
     #[test]
