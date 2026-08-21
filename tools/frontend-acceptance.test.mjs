@@ -2921,3 +2921,64 @@ test("a_delivery_whose_file_states_no_depth_unit_is_asked_rather_than_assumed", 
   assert.match(ribbon, /scalUnitSel\.value === DEPTH_UNIT_UNSTATED/, "the SCAL import refuses");
   assert.match(ribbon, /\n\s+if \(unitSel\.value === DEPTH_UNIT_UNSTATED\)/, "the deviation import refuses");
 });
+
+test("a_porosity_axis_uses_the_shipped_display_row_instead_of_quietly_autoscaling", async () => {
+  // CORRECTNESS — SB-PLT-005, AUDIT-2026-08-20 finding 63. The shipped effective-porosity row
+  // could never activate. The unit registry resolves every porosity mnemonic to family POR, the
+  // row was keyed "PHIE", and the `?? (mnemonic === "PHIE" ...)` arm beside it could never run
+  // because registeredFamily("PHIE") had already returned "POR". So the lookup found no row and
+  // reported a refusal, and every porosity axis on Pickett, crossplot, histogram and correlation
+  // fell through to finite-data autoscale. The row's numbers are untouched here - what changes is
+  // which curves it is matched against.
+  //
+  // The row test above audits every ROW and passes, which is why this went unseen: it never asks
+  // the decision function about a porosity curve, so it pins the row and not the activation.
+  // The decision's own range is read below rather than the curve-level range accessor beside it:
+  // the repository owns that accessor as an export the application does not reference, a
+  // reference from here would count, and it must not be laundered off that list by a test.
+  const { auditedFamilyDisplayDecision, UNIT_LIMIT_ROWS } = await load("/src/ui/axisRange.ts");
+
+  const curve = (mnemonic) => ({
+    well_id: "SANDI-1",
+    curve_id: `${mnemonic}-1`,
+    mnemonic,
+    quantity: "fraction",
+    source_unit: "v/v",
+    display_unit: "v/v",
+    conversion: "none",
+    sample_count: 8,
+    resolution_reason: "",
+    source_revision: "",
+  });
+
+  // Every porosity mnemonic the registry knows, not just the one the dead arm named.
+  for (const mnemonic of ["PHIE", "PHIT", "PHIA", "DPHI", "PHIE_DEN", "PHIT_SSC"]) {
+    const decision = auditedFamilyDisplayDecision(curve(mnemonic));
+    assert.equal(decision.family, "POR", `${mnemonic} resolves to its registered family`);
+    assert.ok(
+      decision.enabled,
+      `${mnemonic} must activate the cited porosity row rather than autoscale: ${decision.reason}`,
+    );
+    assert.deepEqual(
+      decision.range,
+      { min: 0.5, max: 0 },
+      `${mnemonic} takes the cited limits, porosity increasing leftward`,
+    );
+  }
+
+  // The saturation arm beside the dead one is NOT dead and must keep working: no SW family is
+  // registered, so that mnemonic list is the only thing that can supply one.
+  for (const mnemonic of ["SW", "SWE", "SWT"]) {
+    const decision = auditedFamilyDisplayDecision(curve(mnemonic));
+    assert.equal(decision.family, "SW", `${mnemonic} has no registered family, so the list supplies it`);
+    assert.ok(decision.enabled, `${mnemonic} must still activate its row: ${decision.reason}`);
+  }
+
+  // Exactly one row may be the family default for a family, or two would race for the axis.
+  const defaults = UNIT_LIMIT_ROWS.filter((row) => row.familyDefault).map((row) => `${row.family}:${row.unit}`);
+  assert.equal(
+    new Set(defaults).size,
+    defaults.length,
+    `each family+unit may hold one default row: ${defaults.join(", ")}`,
+  );
+});

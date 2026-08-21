@@ -1,5 +1,39 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 72 (my audit P3, live defect): **every porosity plot was quietly autoscaling instead of using its shipped display limits**
+
+- [ ] **What to click.** Open a **crossplot, histogram, Pickett or correlation** panel with **PHIE**
+      or **PHIT** on an axis. That axis should now run **0.5 down to 0** — porosity increasing to
+      the left, the shipped limit — instead of stretching to whatever the data happens to span.
+      Worth a look on a tight well, where autoscale would previously blow a 0–0.06 range across the
+      whole axis and make ordinary tight rock look like a porosity spread.
+- [ ] **What was wrong.** The application ships a table of display limits per curve family, each
+      one cited to a source. The porosity row was there, correct, and **could never be reached**.
+      The curve registry files every porosity mnemonic — PHIE, PHIT, PHIA, DPHI and the twenty-odd
+      method-specific ones — under the family name **POR**, but the row was labelled **PHIE**. The
+      lookup asked for a POR row, found none, and returned "disabled: no audited unit-limit row for
+      POR v/v". The axis then fell through to plain autoscale.
+- [ ] **The spare wheel was flat too.** There was a fallback beside it meant to catch exactly this
+      — *if the registry does not know this mnemonic and it is PHIE, call the family PHIE*. It
+      could never run either, because the registry **does** know PHIE and had already answered POR.
+      So the guard that existed for this case was the same dead code as the case itself.
+- [ ] **Why no test caught it.** There is a test that audits every row in that table, and it
+      passes — the porosity row is well formed and its numbers screen correctly. But it never asks
+      the *activation* question about a porosity curve, so it pinned the row and not whether
+      anything ever uses it. A row can be perfect and unreachable at the same time.
+- [ ] **Verified by running it, not by reading it.** The new test was added **before** the fix and
+      failed with the application's own words — `PHIE must activate the cited porosity row rather
+      than autoscale: disabled: no audited unit-limit row for POR v/v` — then passed after. It
+      covers PHIE, PHIT, PHIA, DPHI, PHIE_DEN and PHIT_SSC.
+- [ ] **The numbers did not change.** 0.5 to 0 is the shipped, cited row and it is untouched. What
+      changed is which curves it is matched against: the family name it is filed under now matches
+      the one the registry uses. The citation now also records that this Effective Porosity row is
+      what the whole POR family defaults to — every member is in v/v, so one row serves them.
+- [ ] **The saturation rule beside it is genuinely needed and still works.** There is no SW family
+      in the registry, so for SW, SWE and SWT the mnemonic list really is the only thing that can
+      supply a family. The new test pins that too, so a future tidy-up cannot remove the live one
+      by mistaking it for the dead one.
+
 ## 2026-08-21 — Audit increment 71 (my audit P2): **four plot rules were being tested against a copy that can never run**
 
 - [ ] **What to click.** Nothing — no behaviour changes anywhere. This removes 255 lines of Rust
