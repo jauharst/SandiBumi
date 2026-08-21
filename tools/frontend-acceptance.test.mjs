@@ -2855,3 +2855,41 @@ test("a_box_track_bins_the_same_plugs_on_screen_as_it_does_on_paper", async () =
   assert.match(logView, /defaultBinHeight\(s\.depth\)/, "the viewer takes the shared default");
   assert.doesNotMatch(logView, /\(bottom - top\) \/ 20/, "and no longer divides the visible window");
 });
+
+test("a_class_block_track_cuts_the_same_runs_on_screen_as_it_does_on_paper", async () => {
+  // AUDIT-2026-08-20 finding 43. Twin of composite.rs's
+  // a_class_block_track_cuts_the_same_runs_the_viewer_does - same fixtures, same expectations.
+  const { classRuns } = await load("/src/ui/plotCanvas.ts");
+
+  // Exactly -0.5. Math.round is half-UP, so this is facies 0; Rust's f32::round is
+  // half-away-from-zero and made it -1, which paints reject grey. The print follows this side.
+  // `===` rather than a deep compare: Math.round(-0.5) is negative zero, which is the same
+  // class as 0 everywhere it is used (faciesColor takes the palette branch, a Map keys them
+  // together) and differs only under deepStrictEqual. What must not happen is -1.
+  const boundary = classRuns([100, 101], [-0.5, -0.5]);
+  assert.equal(boundary.length, 1);
+  assert.ok(
+    boundary[0].cls === 0,
+    `a boundary value rounds half-up, and the print now rounds with it: ${boundary[0].cls}`,
+  );
+
+  // One sample has no measured sampling interval. The screen used to invent one unit - a metre
+  // or a foot depending on the project - while the print drew nothing.
+  assert.deepEqual(classRuns([100], [1]), [], "a lone sample states a class at a depth, not over one");
+
+  // The ordinary case still extends the last run by the average step, and a NaN breaks a run
+  // rather than joining the classes either side of it.
+  assert.deepEqual(
+    classRuns([100, 101, 102], [1, Number.NaN, 1]),
+    [
+      { cls: 1, top: 100, bottom: 101 },
+      { cls: 1, top: 102, bottom: 103 },
+    ],
+    "a gap in a class curve is a gap, not a join",
+  );
+
+  // And the renderer must actually use the shared definition rather than keeping its own.
+  const renderer = await readFile(new URL("../src/LogCanvasRenderer.ts", import.meta.url), "utf8");
+  assert.match(renderer, /classRuns\(series\.depth, series\.value\)/, "the viewer takes the shared runs");
+  assert.doesNotMatch(renderer, /n > 1 \? \(series\.depth/, "and no longer invents a step for one sample");
+});

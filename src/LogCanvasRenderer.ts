@@ -1,5 +1,5 @@
 import type { CurveStyle, Layout, Track, TrackCurveSeries } from "./ipc";
-import { faciesColor, valueFrac } from "./ui/plotCanvas";
+import { classRuns, faciesColor, valueFrac } from "./ui/plotCanvas";
 import { appState } from "./state";
 import { pxPerUnitAt1to1 } from "./units";
 import { trackCurveKey } from "./trackCurveRequest";
@@ -479,20 +479,8 @@ export class LogCanvasRenderer {
       );
     };
 
-    let runClass: number | null = null;
-    let runTop = 0;
-    for (let i = 0; i < n; i++) {
-      const v = series.value[i];
-      const cls = Number.isFinite(v) ? Math.round(v) : null;
-      if (cls === runClass) continue;
-      if (runClass !== null) pushRun(runClass, runTop, series.depth[i]);
-      runClass = cls;
-      runTop = series.depth[i];
-    }
-    if (runClass !== null) {
-      // The last run extends one average sample step past its final sample.
-      const avgStep = n > 1 ? (series.depth[n - 1] - series.depth[0]) / (n - 1) : 1;
-      pushRun(runClass, runTop, series.depth[n - 1] + avgStep);
+    for (const run of classRuns(series.depth, series.value)) {
+      pushRun(run.cls, run.top, run.bottom);
     }
 
     const alpha = Math.max(0, Math.min(1, style.fill_opacity ?? 0.85));

@@ -2086,11 +2086,15 @@ fn draw_class_blocks(
     for i in 0..n {
         let d = depth[i];
         let v = vals[i];
-        let class = if d < page_top || d > page_bot || !v.is_finite() {
-            None
-        } else {
-            Some(v.round() as i64)
-        };
+        // AUDIT-2026-08-20 finding 43. `floor(v + 0.5)`, not `f32::round` — the viewer's rule,
+        // and see `plotCanvas::classRuns` for why the two used to disagree at exactly −0.5.
+        //
+        // The page no longer enters here (finding 41's class, in the blocks path). Nulling the
+        // class for an off-page sample BROKE the run at the boundary, so a block straddling a
+        // page break began at its first on-page sample and left a white stripe above it.
+        // `push_rect` already clamps to the page and drops anything with no height, which is
+        // the whole page's worth of work and none of the run's.
+        let class = if v.is_finite() { Some((v + 0.5).floor() as i64) } else { None };
         if class == run_class {
             continue;
         }
@@ -2101,7 +2105,8 @@ fn draw_class_blocks(
         run_top = d;
     }
     if let (Some(c), true) = (run_class, n > 1) {
-        // The last run extends one average sample step past its final sample.
+        // The last run extends one average sample step past its final sample. With ONE sample
+        // there is no measured step to extend by, and the viewer no longer invents one.
         let avg_step = (depth[n - 1] - depth[0]) / (n as f32 - 1.0);
         push_rect(ops, c, run_top, depth[n - 1] + avg_step);
     }
@@ -3080,6 +3085,43 @@ mod tests {
             0.0, 10.0, 0.0, 1000.0, &y,
         );
         assert!(fills(&ops).is_empty(), "None must print unshaded, as the viewer draws it");
+    }
+
+    /// AUDIT-2026-08-20 finding 43, with its TypeScript twin
+    /// `a_class_block_track_cuts_the_same_runs_on_screen_as_it_does_on_paper`. Three ways the
+    /// print and the screen disagreed about a blocks track, each on data degenerate enough that
+    /// nothing would explain the mismatch to whoever hit it.
+    #[test]
+    fn a_class_block_track_cuts_the_same_runs_the_viewer_does() {
+        let cs: crate::layout::CurveStyle = serde_json::from_value(serde_json::json!({
+            "curve_name": "FACIES", "color": "#000000", "min": 0.0, "max": 1.0, "fill": "blocks"
+        }))
+        .unwrap();
+        let y = |d: f32| d as f64;
+
+        // Exactly -0.5: half-UP is facies 0, half-away-from-zero is -1, which paints reject grey.
+        let mut ops = Vec::new();
+        draw_class_blocks(&mut ops, &cs, &[-0.5, -0.5], &[100.0, 101.0], 0.0, 10.0, 0.0, 200.0, &y);
+        assert_eq!(
+            fills(&ops).first().map(|(c, _)| c.clone()),
+            Some(facies_color_for_test(0).to_string()),
+            "a boundary value rounds the way the viewer rounds it, not into the reject colour",
+        );
+
+        // One sample has no measured sampling interval, so there is no interval to block out.
+        let mut ops = Vec::new();
+        draw_class_blocks(&mut ops, &cs, &[1.0], &[100.0], 0.0, 10.0, 0.0, 200.0, &y);
+        assert!(fills(&ops).is_empty(), "a lone sample states a class at a depth, not over one");
+
+        // Finding 41's class in the blocks path: a run entering the page from above starts at
+        // the page, not at its first on-page sample.
+        let mut ops = Vec::new();
+        draw_class_blocks(&mut ops, &cs, &[2.0, 2.0, 2.0], &[80.0, 120.0, 160.0], 0.0, 10.0, 100.0, 200.0, &y);
+        assert_eq!(
+            fills(&ops).first().map(|(_, pts)| pts[0].1),
+            Some(100.0),
+            "the block reaches the top of the page it straddles",
+        );
     }
 
     /// AUDIT-2026-08-20 finding 41. A composite page is a window on the well, not a filter on

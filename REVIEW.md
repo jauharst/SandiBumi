@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 64 (my audit P3): **a facies track that printed differently from the screen, in three small ways**
+
+- [ ] **What to click.** Put a **FACIES** curve on a log view with the blocks style (the built-in
+      Facies layout has one), then Plot → Composite… and compare the printed track against the
+      screen. Look particularly at a **page join** — the block should run straight through it.
+- [ ] **The one you would actually have seen: a white stripe at every page break.** This is the
+      same defect increment 61 fixed for curves and shading, and the facies blocks had it too.
+      The printer was asking of each sample "is this one on my page?", so a block running down
+      through a page join started at its first sample *below* the join rather than at the top of
+      the page. On a facies track that reads as a barren interval, which is a lithological
+      statement the data never made.
+- [ ] **A class sitting exactly halfway.** A facies curve holds whole numbers, but a block-averaged
+      or interpolated one can land on a half. At exactly −0.5 the screen called it facies 0 and
+      the print called it −1, which paints the **reject grey** the algorithm uses for samples it
+      threw out — so the print showed rejected rock where the screen showed a facies. They now
+      round the same way, following the screen: you tune a facies scheme by looking at it, and
+      the print's job is to reproduce what you looked at.
+- [ ] **A curve with only one sample.** The screen drew a block one unit tall — one metre on a
+      metre project, one foot on a foot project, so not even one consistent thickness — while the
+      print drew nothing. A single sample says what the class *is at a depth*; it says nothing
+      about how thick that interval is, so neither draws a block now.
+- [ ] **Why this kept happening.** The screen and the print each had their own copy of the
+      run-building loop. There is now one, `classRuns`, which the viewer calls and the printer is
+      pinned against — the same arrangement the facies colours already use.
+
 ## 2026-08-21 — Audit increment 63 (my audit P3): **a PNG plate was refused by the SVG export, which could have shown it**
 
 - [ ] **What to click.** You need a delivery whose plates are **not JPEG** — PNG, GIF or WebP —
