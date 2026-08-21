@@ -707,6 +707,33 @@ pub(crate) fn build_opts(
 /// already resolved options with [`build_opts`]; this function records the same values and says
 /// whether each came from the request or the manifest. It never supplies a missing numeric
 /// default: an uncited/ABSENT manifest entry remains REQUIRED_UNSET.
+/// AUDIT-2026-08-20 finding 54. ONE reserved-provenance-key guard.
+///
+/// This was written out nine times in three different shapes, and only two copies also consulted
+/// `legacy` - which read as a decision nobody could check. It is neither a decision nor a hole:
+/// [`effective_module_parameters`] puts every declared argument into BOTH maps, `legacy` under the
+/// bare name and `parameters` under `name_prefix + name`, and `complete_module_log_spec` passes an
+/// EMPTY prefix - so today the two lookups are the same lookup. `legacy` is nonetheless the one
+/// that stays correct if a prefix is ever passed, because a reserved key is always a bare name.
+/// So every site now checks both, and the question stops existing.
+///
+/// `kind` is the adjective the message already carried; the wording is unchanged at every site,
+/// because these strings are what a user reads when a module cannot be saved.
+fn reject_reserved_key(
+    parameters: &[equations::AncestryParameter],
+    legacy: &serde_json::Map<String, serde_json::Value>,
+    module: &str,
+    kind: &str,
+    name: &str,
+) -> Result<(), String> {
+    if parameters.iter().any(|parameter| parameter.name == name) || legacy.contains_key(name) {
+        return Err(format!(
+            "module '{module}' declares an argument that collides with reserved {kind} key '{name}'"
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn effective_module_parameters(
     spec: &modules::ModuleSpec,
     explicit_params: &HashMap<String, f64>,
@@ -869,15 +896,7 @@ fn complete_module_log_spec(
         "",
     )?;
     let mask = mask_provenance(&req.opts);
-    if parameters
-        .iter()
-        .any(|parameter| parameter.name == MASK_PROVENANCE_KEY)
-    {
-        return Err(format!(
-            "module '{}' declares an argument that collides with reserved run-provenance key '{}'",
-            spec.name, MASK_PROVENANCE_KEY
-        ));
-    }
+    reject_reserved_key(&parameters, &legacy, &spec.name, "run-provenance", MASK_PROVENANCE_KEY)?;
     let mask_is_applied = mask["state"] == MASK_PROVENANCE_APPLIED;
     parameters.push(equations::AncestryParameter {
         name: MASK_PROVENANCE_KEY.into(),
@@ -892,16 +911,13 @@ fn complete_module_log_spec(
         decision: None,
     });
     if req.module == "smooth" {
-        if parameters
-            .iter()
-            .any(|parameter| parameter.name == SMOOTHING_POLICY_PROVENANCE_KEY)
-            || legacy.contains_key(SMOOTHING_POLICY_PROVENANCE_KEY)
-        {
-            return Err(format!(
-                "module '{}' declares an argument that collides with reserved smoothing-provenance key '{}'",
-                spec.name, SMOOTHING_POLICY_PROVENANCE_KEY
-            ));
-        }
+        reject_reserved_key(
+            &parameters,
+            &legacy,
+            &spec.name,
+            "smoothing-provenance",
+            SMOOTHING_POLICY_PROVENANCE_KEY,
+        )?;
         let policy = crate::condition::smoothing_policy(
             opts.get("OPT_METHOD").map(String::as_str).unwrap_or("MEAN"),
         );
@@ -922,12 +938,7 @@ fn complete_module_log_spec(
             continue;
         }
         let name = format!("{FLAG_KIND_PROVENANCE_PREFIX}{curve}");
-        if parameters.iter().any(|parameter| parameter.name == name) {
-            return Err(format!(
-                "module '{}' declares an argument that collides with reserved flag-kind provenance key '{}'",
-                spec.name, name
-            ));
-        }
+        reject_reserved_key(&parameters, &legacy, &spec.name, "flag-kind provenance", &name)?;
         parameters.push(equations::AncestryParameter {
             name,
             value: serde_json::to_value(kind)
@@ -943,12 +954,7 @@ fn complete_module_log_spec(
             continue;
         }
         let name = format!("{OUTPUT_QUANTITY_PROVENANCE_PREFIX}{curve}");
-        if parameters.iter().any(|parameter| parameter.name == name) {
-            return Err(format!(
-                "module '{}' declares an argument that collides with reserved output-quantity provenance key '{}'",
-                spec.name, name
-            ));
-        }
+        reject_reserved_key(&parameters, &legacy, &spec.name, "output-quantity provenance", &name)?;
         parameters.push(equations::AncestryParameter {
             name,
             value: serde_json::to_value(quantity)
@@ -964,12 +970,7 @@ fn complete_module_log_spec(
             continue;
         }
         let name = format!("{POROSITY_OUTPUT_PROVENANCE_PREFIX}{curve}");
-        if parameters.iter().any(|parameter| parameter.name == name) {
-            return Err(format!(
-                "module '{}' declares an argument that collides with reserved porosity-output provenance key '{}'",
-                spec.name, name
-            ));
-        }
+        reject_reserved_key(&parameters, &legacy, &spec.name, "porosity-output provenance", &name)?;
         parameters.push(equations::AncestryParameter {
             name,
             value: serde_json::to_value(contract).map_err(|error| {
@@ -1102,15 +1103,7 @@ fn complete_module_log_spec(
             ));
         }
         for (name, value, source) in record {
-            if parameters.iter().any(|parameter| parameter.name == name)
-                || legacy.contains_key(name)
-            {
-                return Err(format!(
-                    "module '{}' declares an argument that collides with reserved \
-                     saturation-provenance key '{name}'",
-                    spec.name
-                ));
-            }
+            reject_reserved_key(&parameters, &legacy, &spec.name, "saturation-provenance", name)?;
             parameters.push(equations::AncestryParameter {
                 name: name.into(),
                 value,
@@ -1130,12 +1123,8 @@ fn complete_module_log_spec(
             (PRECONDITION_POLICY_PROVENANCE_KEY, policy.clone()),
             (PRECONDITION_VIOLATIONS_PROVENANCE_KEY, violations.clone()),
         ] {
-            if legacy.insert(key.into(), value).is_some() {
-                return Err(format!(
-                    "module '{}' declares an argument that collides with reserved saved-run key '{}'",
-                    spec.name, key
-                ));
-            }
+            reject_reserved_key(&parameters, &legacy, &spec.name, "saved-run", key)?;
+            legacy.insert(key.into(), value);
         }
         parameters.push(equations::AncestryParameter {
             name: PRECONDITION_POLICY_PROVENANCE_KEY.into(),
@@ -1204,12 +1193,13 @@ fn complete_module_log_spec(
                         ));
                     }
                     let name = format!("{INPUT_QUANTITY_PROVENANCE_PREFIX}{argument}");
-                    if parameters.iter().any(|parameter| parameter.name == name) {
-                        return Err(format!(
-                            "module '{}' declares an argument that collides with reserved input-quantity provenance key '{}'",
-                            spec.name, name
-                        ));
-                    }
+                    reject_reserved_key(
+                        &parameters,
+                        &legacy,
+                        &spec.name,
+                        "input-quantity provenance",
+                        &name,
+                    )?;
                     parameters.push(equations::AncestryParameter {
                         name,
                         value: serde_json::to_value(quantity).map_err(|error| {
@@ -1303,16 +1293,17 @@ fn complete_module_log_spec(
     };
     let validity_manifest = serde_json::to_value(modules::module_validity_manifest(spec))
         .map_err(|error| format!("cannot serialize module validity manifest: {error}"))?;
-    if legacy
-        .insert(modules::MODULE_VALIDITY_MANIFEST_KEY.into(), validity_manifest)
-        .is_some()
-    {
-        return Err(format!(
-            "module '{}' declares an argument that collides with reserved saved-run key '{}'",
-            spec.name,
-            modules::MODULE_VALIDITY_MANIFEST_KEY
-        ));
-    }
+    // `parameters` has moved into `ancestry` by here, which is why this site could only ever
+    // consult one map - not a divergence, a consequence. The vector is the same one, so the guard
+    // reads it back off the struct and stays identical to the other eight.
+    reject_reserved_key(
+        &ancestry.parameters,
+        &legacy,
+        &spec.name,
+        "saved-run",
+        modules::MODULE_VALIDITY_MANIFEST_KEY,
+    )?;
+    legacy.insert(modules::MODULE_VALIDITY_MANIFEST_KEY.into(), validity_manifest);
     let legacy = parameter_serializer(&legacy)
         .map_err(|error| format!("cannot serialize module parameters: {error}"))?;
     equations::CompleteLogSetSpec::try_new_with_legacy(
@@ -15908,6 +15899,62 @@ mod tests {
             (reservoir, pay),
             (0.0, 0.0),
             "the declared porosity cut-off must filter PHIE at the tiers that use it"
+        );
+    }
+    /// AUDIT-2026-08-20 finding 54. The reserved-provenance-key guard was written out NINE times
+    /// in three different shapes, and only two copies also consulted `legacy` - so whether that
+    /// was a decision or an omission could not be read off the code.
+    ///
+    /// It was neither. `effective_module_parameters` puts every declared argument into BOTH maps -
+    /// `legacy` under the bare name, `parameters` under `name_prefix + name` - and this call site
+    /// passes an empty prefix, so the two lookups are the same lookup today. `legacy` is the one
+    /// that stays correct if a prefix is ever passed, because a reserved key is always a bare
+    /// name. Every site checks both now.
+    ///
+    /// Pinned from BOTH sides: dropping either lookup has to fail, or "checks both" is a comment
+    /// rather than a behaviour.
+    #[test]
+    fn a_reserved_provenance_key_is_refused_from_either_map_by_one_guard() {
+        let param = |name: &str| equations::AncestryParameter {
+            name: name.into(),
+            value: serde_json::json!(1.0),
+            source: "test".into(),
+            resolution: None,
+            manifest_version: None,
+            decision: None,
+        };
+        let empty = serde_json::Map::new();
+
+        // A - declared as a PARAMETER.
+        let declared = vec![param(MASK_PROVENANCE_KEY)];
+        let refusal = reject_reserved_key(
+            &declared, &empty, "sw_arch", "run-provenance", MASK_PROVENANCE_KEY,
+        ).expect_err("a parameter colliding with a reserved key must be refused");
+        assert!(
+            refusal.contains(MASK_PROVENANCE_KEY) && refusal.contains("run-provenance"),
+            "the refusal must name the key and what kind it is, got: {refusal}"
+        );
+
+        // B - declared as an OPTION, which reaches `legacy` under its bare name. This is the half
+        // six of the nine copies did not look at.
+        let mut legacy = serde_json::Map::new();
+        legacy.insert(MASK_PROVENANCE_KEY.into(), serde_json::json!("MEAN"));
+        reject_reserved_key(&[], &legacy, "sw_arch", "run-provenance", MASK_PROVENANCE_KEY)
+            .expect_err("a legacy entry colliding with a reserved key must be refused too");
+
+        // C - and an ordinary module is not refused.
+        reject_reserved_key(&[param("M")], &empty, "sw_arch", "run-provenance", MASK_PROVENANCE_KEY)
+            .expect("an unrelated argument must not trip the guard");
+
+        // D - and it is still ONE guard. Nine hand-written copies is nine places for the next one
+        // to diverge, which is what this finding was.
+        let source = include_str!("workflow.rs");
+        // Split so this line is not itself an occurrence of what it counts.
+        let needle = format!("{} that collides with reserved", "declares an argument");
+        assert_eq!(
+            source.matches(needle.as_str()).count(),
+            1,
+            "the reserved-key refusal must be written in exactly one place"
         );
     }
 }
