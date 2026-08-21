@@ -394,6 +394,27 @@ pub(crate) const ZONE_INDEX_ARG: &str = "__ZONE_INDEX";
 /// computed from nothing. Refusing by name beats a silently empty answer.
 pub(crate) const OUT_PREFIX_OPT: &str = "OUT_PREFIX";
 
+/// The run's output-name prefix, read the one way.
+///
+/// Trimmed, empty means none, and UPPERCASED - a stored curve name is upper case, so a prefix
+/// typed in lower case must not produce a curve the catalog resolves differently from the one the
+/// run declared. Eight sites used to state this rule for themselves, against `class_output_names`'
+/// own claim to read the name "from the same two places rather than restating either".
+pub(crate) fn output_prefix(opts: &HashMap<String, String>) -> String {
+    opts.get(OUT_PREFIX_OPT)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_uppercase)
+        .unwrap_or_default()
+}
+
+/// A resolved output name carrying the run's prefix. Empty prefix means the name is unchanged, so
+/// this is the identity on every run that did not ask for one - which is every existing run and
+/// every saved chain.
+pub(crate) fn prefixed_output(opts: &HashMap<String, String>, name: &str) -> String {
+    format!("{}{name}", output_prefix(opts))
+}
+
 /// Canonical run-provenance key for the universal sample mask. Its value is always either the
 /// upper-cased curve mnemonic actually selected by the run or the explicit `NONE` state; absence
 /// of the key is reserved for legacy records written before SB-ENV-028. State and curve are kept
@@ -494,12 +515,7 @@ fn class_output_names(
     out_names: &[(String, String)],
     opts: &HashMap<String, String>,
 ) -> Vec<String> {
-    let prefix = opts
-        .get(OUT_PREFIX_OPT)
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_uppercase())
-        .unwrap_or_default();
+    let prefix = output_prefix(opts);
     modules::class_outputs(module)
         .iter()
         .filter_map(|key| out_names.iter().find(|(declared, _)| declared == key).map(|(_, n)| n.clone()))
@@ -560,12 +576,7 @@ pub(crate) fn resolved_flag_output_names(
     spec: &modules::ModuleSpec,
     opts: &HashMap<String, String>,
 ) -> Result<Vec<(String, modules::FlagKind)>, String> {
-    let prefix = opts
-        .get(OUT_PREFIX_OPT)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_uppercase)
-        .unwrap_or_default();
+    let prefix = output_prefix(opts);
     Ok(resolve_output_names(spec, opts)?
         .into_iter()
         .filter_map(|(declared, name)| {
@@ -589,12 +600,7 @@ pub(crate) fn resolved_shale_clay_output_names(
     spec: &modules::ModuleSpec,
     opts: &HashMap<String, String>,
 ) -> Result<Vec<(String, modules::ShaleClayQuantity)>, String> {
-    let prefix = opts
-        .get(OUT_PREFIX_OPT)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_uppercase)
-        .unwrap_or_default();
+    let prefix = output_prefix(opts);
     Ok(resolve_output_names(spec, opts)?
         .into_iter()
         .filter_map(|(declared, name)| {
@@ -615,12 +621,7 @@ pub(crate) fn resolved_porosity_output_names(
     spec: &modules::ModuleSpec,
     opts: &HashMap<String, String>,
 ) -> Result<Vec<(String, modules::PorosityOutputContract)>, String> {
-    let prefix = opts
-        .get(OUT_PREFIX_OPT)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_uppercase)
-        .unwrap_or_default();
+    let prefix = output_prefix(opts);
     Ok(resolve_output_names(spec, opts)?
         .into_iter()
         .filter_map(|(declared, name)| {
@@ -870,6 +871,55 @@ pub(crate) fn recorded_module_params(
     serde_json::Value::Object(recorded).to_string()
 }
 
+// The test seam for `serialize_module_parameters`, below. A plain comment rather than a doc
+// comment: rustdoc carries nothing from a macro invocation, so `///` here is an unused doc.
+#[cfg(test)]
+thread_local! {
+    static FORCED_PARAMETER_SERIALIZATION_FAILURE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Fails `serialize_module_parameters` for as long as the returned guard lives, on THIS thread.
+#[cfg(test)]
+pub(crate) struct ForcedParameterSerializationFailure;
+
+#[cfg(test)]
+impl ForcedParameterSerializationFailure {
+    pub(crate) const MESSAGE: &'static str = "injected parameter serialization failure";
+
+    pub(crate) fn arm() -> Self {
+        FORCED_PARAMETER_SERIALIZATION_FAILURE.with(|forced| forced.set(true));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for ForcedParameterSerializationFailure {
+    fn drop(&mut self) {
+        FORCED_PARAMETER_SERIALIZATION_FAILURE.with(|forced| forced.set(false));
+    }
+}
+
+/// The one production serialization of a run's legacy parameter map.
+///
+/// `serde_json::to_value` of a map that already deserialized cannot fail, so the failure this
+/// guards is not otherwise producible - and it has to be proved, because a run that cannot record
+/// its parameters must abort rather than version an interpretation it cannot describe. That proof
+/// used to be a generic closure threaded through THREE production signatures, one of them public,
+/// for the sake of a single test. The seam is a thread-local now: production carries no parameter
+/// at all, and a test can only ever affect its own thread, which matters in a suite this parallel.
+fn serialize_module_parameters(
+    parameters: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(test)]
+    {
+        if FORCED_PARAMETER_SERIALIZATION_FAILURE.with(std::cell::Cell::get) {
+            return Err(ForcedParameterSerializationFailure::MESSAGE.to_string());
+        }
+    }
+    serde_json::to_value(parameters).map_err(|error| error.to_string())
+}
+
 fn complete_module_log_spec(
     conn: &Connection,
     well_id: &str,
@@ -879,9 +929,6 @@ fn complete_module_log_spec(
     log_args: &[(String, String)],
     output_names: &[String],
     precondition_violations: &[modules::PreconditionViolation],
-    parameter_serializer: &impl Fn(
-        &serde_json::Map<String, serde_json::Value>,
-    ) -> Result<serde_json::Value, String>,
 ) -> Result<equations::CompleteLogSetSpec, String> {
     req.custody.validate()?;
 
@@ -1303,7 +1350,7 @@ fn complete_module_log_spec(
         modules::MODULE_VALIDITY_MANIFEST_KEY,
     )?;
     legacy.insert(modules::MODULE_VALIDITY_MANIFEST_KEY.into(), validity_manifest);
-    let legacy = parameter_serializer(&legacy)
+    let legacy = serialize_module_parameters(&legacy)
         .map_err(|error| format!("cannot serialize module parameters: {error}"))?;
     equations::CompleteLogSetSpec::try_new_with_legacy(
         req.output_set
@@ -2453,26 +2500,7 @@ pub fn run_workflow_module_into(
     cancel: Option<&std::sync::atomic::AtomicBool>,
     progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<ModuleRunResult> {
-    run_workflow_module_into_with_parameter_serializer(
-        db,
-        req,
-        preset_sets,
-        cancel,
-        progress,
-        &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
-    )
-}
 
-fn run_workflow_module_into_with_parameter_serializer(
-    db: &Mutex<Connection>,
-    req: &RunModuleRequest,
-    preset_sets: Option<&HashMap<String, equations::CompleteSetId>>,
-    cancel: Option<&std::sync::atomic::AtomicBool>,
-    progress: Option<&crate::jobs::JobHandle>,
-    parameter_serializer: &impl Fn(
-        &serde_json::Map<String, serde_json::Value>,
-    ) -> Result<serde_json::Value, String>,
-) -> Vec<ModuleRunResult> {
     if let Err(error) = req.custody.validate() {
         return req
             .well_ids
@@ -2873,8 +2901,8 @@ fn run_workflow_module_into_with_parameter_serializer(
                 //
                 // Empty means unchanged, which is what every existing run and every saved chain
                 // sends — so this is additive by construction.
-                if let Some(prefix) = opts.get(OUT_PREFIX_OPT).map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                    let prefix = prefix.to_uppercase();
+                let prefix = output_prefix(&opts);
+                if !prefix.is_empty() {
                     outputs = outputs
                         .into_iter()
                         .map(|(name, values)| (format!("{prefix}{name}"), values))
@@ -2888,18 +2916,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                         out_names
                             .iter()
                             .find(|(declared, _)| declared == "SYN")
-                            .map(|(_, resolved)| {
-                                match opts
-                                    .get(OUT_PREFIX_OPT)
-                                    .map(|value| value.trim())
-                                    .filter(|value| !value.is_empty())
-                                {
-                                    Some(prefix) => {
-                                        format!("{}{resolved}", prefix.to_uppercase())
-                                    }
-                                    None => resolved.clone(),
-                                }
-                            })
+                            .map(|(_, resolved)| prefixed_output(&opts, resolved))
                     })
                     .flatten();
 
@@ -2912,18 +2929,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                         out_names
                             .iter()
                             .find(|(declared, _)| declared == "VSH_PROV")
-                            .map(|(_, resolved)| {
-                                match opts
-                                    .get(OUT_PREFIX_OPT)
-                                    .map(|value| value.trim())
-                                    .filter(|value| !value.is_empty())
-                                {
-                                    Some(prefix) => {
-                                        format!("{}{resolved}", prefix.to_uppercase())
-                                    }
-                                    None => resolved.clone(),
-                                }
-                            })
+                            .map(|(_, resolved)| prefixed_output(&opts, resolved))
                     })
                     .flatten();
 
@@ -3039,12 +3045,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                             "precondition flag policy was selected but no companion output name was resolved"
                                 .to_string()
                         })?;
-                    let name = opts
-                        .get(OUT_PREFIX_OPT)
-                        .map(|value| value.trim())
-                        .filter(|value| !value.is_empty())
-                        .map(|prefix| format!("{}{base}", prefix.to_uppercase()))
-                        .unwrap_or(base);
+                    let name = prefixed_output(&opts, &base);
                     outputs.insert(name, flag);
                 }
 
@@ -3182,7 +3183,6 @@ fn run_workflow_module_into_with_parameter_serializer(
                 log_args,
                 &names,
                 precondition_violations,
-                parameter_serializer,
             ) {
                 Ok(mut spec) => {
                     // SB-DBM-015: the arms the spec builder cannot know - the depth frame
@@ -3749,7 +3749,12 @@ impl BoundedQuantity {
     /// absent, which is a different statement and already has its own carrier (SB-CUT-029).
     pub fn is_out_of_range(self, value: f32) -> bool {
         match self.bounds() {
-            Some((lo, hi)) => value.is_finite() && ((value as f64) < lo || (value as f64) > hi),
+            // NaN is not out of range: absent is a different statement and has its own carrier
+            // (SB-CUT-029). An INFINITY is - it lies outside any finite bound - and the blanket
+            // `is_finite` guard this used to open with answered no for it, so an infinite average
+            // was reported unflagged and clamped to a clean-looking 1.0.
+            Some(_) if value.is_nan() => false,
+            Some((lo, hi)) => (value as f64) < lo || (value as f64) > hi,
             None => false,
         }
     }
@@ -3772,22 +3777,6 @@ pub fn stage_value(stage: ClampStage, quantity: BoundedQuantity, value: f32) -> 
                 value.clamp(lo as f32, hi as f32)
             }
         }
-    }
-}
-
-/// SB-CUT-030. The PRESENT stage for an emitted zonal average.
-///
-/// Clamped to the quantity's bounds, **except** where the average falls outside them — which the
-/// requirement says must be emitted AS COMPUTED and flagged, never corrected. A corrected average
-/// is a number nobody derived, and the condition that produced it is exactly what a reviewer needs
-/// to see. So the clamp is inert on every ordinary run by construction: an in-range value has
-/// nothing to clamp, and an out-of-range one is deliberately let through beside its flag.
-fn present_average(value: f32) -> f32 {
-    let quantity = BoundedQuantity::VolumeFraction;
-    if quantity.is_out_of_range(value) {
-        value
-    } else {
-        stage_value(ClampStage::Present, quantity, value)
     }
 }
 
@@ -4893,9 +4882,13 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     out_of_range: [avg[0].value(), avg[1].value(), avg[2].value()]
                         .iter()
                         .any(|v| BoundedQuantity::VolumeFraction.is_out_of_range(*v)),
-                    avg_vsh: present_average(avg[0].value()),
-                    avg_phie: present_average(avg[1].value()),
-                    avg_swe: present_average(avg[2].value()),
+                    // No clamp between the average and the row, deliberately: a wrapper here
+                    // returned every in-range value and every out-of-range value unchanged, and
+                    // the one input it did change was an INFINITY, which it reported as a clean
+                    // 1.0 beside an unset flag. "Emitted as computed" has no exceptions.
+                    avg_vsh: avg[0].value(),
+                    avg_phie: avg[1].value(),
+                    avg_swe: avg[2].value(),
                     // SB-CUT-030: HPV is a volume-thickness, not a fraction - it routinely
                     // exceeds 1 - so it goes through the PRESENT stage as an UNBOUNDED quantity.
                     // That is the clause "an unbounded quantity MUST NOT be clamped to [0,1]"
@@ -5997,20 +5990,15 @@ mod tests {
             input_set: None,
             custody: test_run_custody(),
         };
-        let module_result = run_workflow_module_into_with_parameter_serializer(
-            &dbm,
-            &module_request,
-            None,
-            None,
-            None,
-            &|_| Err("injected parameter serialization failure".into()),
-        );
+        let forced = ForcedParameterSerializationFailure::arm();
+        let module_result = run_workflow_module_into(&dbm, &module_request, None, None, None);
+        drop(forced);
         assert_eq!(module_result.len(), 1);
         let error = module_result[0]
             .error
             .as_deref()
             .expect("a parameter serialization failure must fail the module run");
-        assert!(error.contains("injected parameter serialization failure"), "{error}");
+        assert!(error.contains(ForcedParameterSerializationFailure::MESSAGE), "{error}");
 
         let conn = dbm.lock().unwrap();
         let module_sets: i64 = conn
@@ -6153,7 +6141,6 @@ mod tests {
             &[],
             &["CORRECTED".into()],
             &[],
-            &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
         )
         .unwrap();
         let set_id = equations::create_complete_log_set(&conn, &well_id, &complete)
@@ -6366,7 +6353,6 @@ mod tests {
                 &[],
                 &["FIXTURE_RESULT".into()],
                 &[],
-                &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
             )
             .unwrap();
             equations::create_complete_log_set(conn, well_id, &complete)
@@ -9936,6 +9922,44 @@ mod tests {
     /// not relocate a tail — it moves the MEAN, always toward more hydrocarbon, by an amount
     /// independent of iteration count. Correct for one deterministic evaluation, a bias in
     /// expectation over an ensemble.
+    /// AUDIT-2026-08-20 finding 74. A run may prefix the curve names it writes. The rule is
+    /// trimmed, empty-means-none and UPPERCASED - a stored curve name is upper case, so `rev_` and
+    /// `REV_` have to name the same curve or a run writes one name while the catalog looks for
+    /// another. Eight sites in this file stated that rule for themselves, against
+    /// `class_output_names`' own claim to read a name "from the same two places rather than
+    /// restating either". Both sides: the rule, and a count that stops a ninth being written.
+    #[test]
+    fn one_reading_of_the_output_prefix_and_nothing_else_reads_the_option() {
+        let none: HashMap<String, String> = HashMap::new();
+        assert_eq!(output_prefix(&none), "", "no prefix asked for is no prefix");
+        assert_eq!(prefixed_output(&none, "PHIE"), "PHIE", "and the declared name is untouched");
+
+        for entered in ["", "   "] {
+            let blank = HashMap::from([(OUT_PREFIX_OPT.to_string(), entered.to_string())]);
+            assert_eq!(output_prefix(&blank), "", "a blank entry is not a prefix: {entered:?}");
+            assert_eq!(prefixed_output(&blank, "PHIE"), "PHIE");
+        }
+
+        let lower = HashMap::from([(OUT_PREFIX_OPT.to_string(), "  rev_  ".to_string())]);
+        let upper = HashMap::from([(OUT_PREFIX_OPT.to_string(), "REV_".to_string())]);
+        assert_eq!(output_prefix(&lower), "REV_", "trimmed and upper-cased");
+        assert_eq!(prefixed_output(&lower, "PHIE"), "REV_PHIE");
+        assert_eq!(
+            prefixed_output(&lower, "PHIE"),
+            prefixed_output(&upper, "PHIE"),
+            "the same prefix typed either way must name the same curve",
+        );
+
+        // The other side. The needle is assembled rather than written out, so this test is not an
+        // offender against its own count.
+        let needle = ["get(", "OUT_PREFIX_OPT)"].concat();
+        assert_eq!(
+            include_str!("workflow.rs").matches(needle.as_str()).count(),
+            1,
+            "the run's output prefix is read in exactly one place",
+        );
+    }
+
     #[test]
     fn accumulate_never_clamps_while_flag_test_and_present_clamp_to_the_quantitys_own_bounds() {
         use BoundedQuantity::{Permeability, Unbounded, VolumeFraction};
@@ -9994,6 +10018,17 @@ mod tests {
         assert!(!VolumeFraction.is_out_of_range(0.5));
         assert!(!VolumeFraction.is_out_of_range(f32::NAN), "missing is not out of range");
         assert!(!Unbounded.is_out_of_range(1e9));
+
+        // AUDIT-2026-08-20 finding 61. An INFINITY is outside a finite bound and must say so.
+        // This used to open with a blanket `is_finite` guard and answer NO, so an infinite average
+        // was reported UNFLAGGED - and it then fell through to a PRESENT-stage wrapper that
+        // clamped it to a clean-looking 1.0. Both halves are gone: the flag catches it, and
+        // nothing stands between the average and the row. The third assertion is the one that
+        // says why it mattered - the stage it used to route through still reports a perfect
+        // volume fraction for an arithmetic that broke.
+        assert!(VolumeFraction.is_out_of_range(f32::INFINITY), "an infinite average is not in 0..1");
+        assert!(VolumeFraction.is_out_of_range(f32::NEG_INFINITY));
+        assert_eq!(stage_value(Present, VolumeFraction, f32::INFINITY), 1.0);
 
         // E — PERCENT-TO-FRACTION CONVERSION AND THE BOUND CHECK ARE SEPARATE OPERATIONS, and an
         // over-bound value AFTER conversion raises. `35 pu` converts to 0.35 and passes; `35 v/v`

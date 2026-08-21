@@ -1,5 +1,39 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 76 (my audit P3): **an impossible zonal average was silently reported as a perfect one**
+
+- [ ] **What to click.** Nothing new. Run a pay summary as usual and read the zone averages; they
+      should be exactly the numbers they were before. This is about the one case where they were
+      not.
+- [ ] **What was wrong.** SandiBumi's rule for a zonal average (SB-CUT-030) is that an average
+      landing outside its physical range — a mean SWE of 1.40, say — is **emitted as computed and
+      flagged**, never corrected, because a corrected average is a number nobody derived and the
+      condition that produced it is exactly what you need to see. That held for every ordinary
+      out-of-range value. It did **not** hold for an infinity: the "is it out of range?" test began
+      by asking "is this a finite number?", so an infinite average answered *no*, went unflagged,
+      and was then clamped to a clean-looking **1.00**. A zone whose arithmetic had broken would
+      have been reported as perfectly full.
+- [ ] **What changed.** An infinity is now outside a finite range and says so, so it is flagged;
+      and nothing at all sits between the average and the reported row any more. The wrapper that
+      did the clamping returned every other value unchanged, so removing it changes nothing except
+      the one case it was getting wrong. A NaN — a *missing* average — is still not "out of range",
+      which is a different statement with its own carrier, and that is checked in the same place.
+- [ ] **Would you ever see this?** Only if a curve carried an infinity, which the equation engine
+      and the curve editor both already refuse to write. So this is a guard closing, not a bug you
+      have hit — but it is the kind that shows up as a plausible number rather than as an error,
+      which is why it is worth closing rather than reasoning about.
+- [ ] **Output-name prefixes, read one way.** A run can prefix the curve names it writes
+      (`REV_PHIE`). That rule — trim it, empty means none, upper-case it — was written out in eight
+      separate places, so a prefix typed as `rev_` had eight chances to be upper-cased in seven of
+      them. One reading now, and the check counts the readings so a ninth cannot quietly appear.
+- [ ] **A test hook that had grown into the product.** Proving that a run which cannot record its
+      own parameters aborts rather than versioning an interpretation required one test to inject a
+      failure — and the hook for it had been threaded through three real function signatures, one
+      of them public. The proof is unchanged; the hook is now confined to test builds and to the
+      thread that arms it.
+- [ ] **No other number moves.** Everything else here is the same behaviour written once instead
+      of eight times.
+
 ## 2026-08-21 — Audit increment 75 (my audit P3): **a saturation model the dialog could offer and the solver would refuse**
 
 - [ ] **What to click.** Advance ▸ SandiMin, open the saturation-model dropdown. It should list
