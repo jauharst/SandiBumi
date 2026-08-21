@@ -494,8 +494,6 @@ export interface ImageStyle {
   mode?: "anchor" | "depth";
   /** Width as a fraction of the track (0.05..1, default 0.9). */
   size?: number;
-  /** "contain" (default, whole picture visible) | "cover" (fill the box, crop the overhang).
-   *  There is no stretch option: a distorted thin section misstates grain shape. */
   /** "contain" fits the whole picture in its box, "cover" crops it to fill, "stretch" fills it
    *  exactly. "stretch" is for depth STRIPS only — a picture whose height is the depth scale and
    *  whose width is the track has no shape of its own to preserve. A thin section is never
@@ -807,8 +805,9 @@ export function savePlotReductionManifest(destPath: string, content: string): Pr
 }
 
 /** A free-form net-reservoir polygon drawn on a crossplot: vertices in DATA space (axis order),
- *  the axes' log flags, and the output curve name. Inside → 1, outside → 0, undefined → NaN. */
-/** Field names are snake_case because they cross the wire into `netflag.rs`'s serde structs,
+ *  the axes' log flags, and the output curve name. Inside → 1, outside → 0, undefined → NaN.
+ *
+ *  Field names are snake_case because they cross the wire into `netflag.rs`'s serde structs,
  *  which carry no `rename_all` — same convention as every other DTO here (see LorenzResult,
  *  ZoneParamEntry, HighlightEntry). Tauri camel-cases only the top-level command ARGUMENT key
  *  (`{ spec }`), never the fields inside it; `rename_all` is used only on enums, for their
@@ -925,14 +924,6 @@ export interface TrackCurveSeries {
   value: Float32Array;
 }
 
-/** Decodes the length-prefixed multi-curve binary buffer produced by Rust's
- *  `pack_curve_series` (returned as a raw `tauri::ipc::Response` → `ArrayBuffer`, so the
- *  f32 bytes never travel as a JSON number array). Layout, all little-endian:
- *    [u32 curve_count]
- *    repeat: [u32 name_len][name utf8][u32 point_count][f32 depth×pc][f32 value×pc]
- *  Each data block is `slice()`d into a fresh buffer because the preceding name bytes leave
- *  the read offset at an arbitrary (non-4-aligned) position — a Float32Array view needs a
- *  4-aligned offset, and slice() copies into a 0-aligned buffer. */
 /** Unpacks the `equations::pack_frame` envelope: a JSON header plus anonymous `f32` columns.
  *
  *  The partner of `decodeCurveBuffer` for a command whose result is scalars *and* per-depth
@@ -964,6 +955,14 @@ export function decodeFrame<H>(buf: ArrayBuffer): { header: H; columns: Float32A
   return { header, columns };
 }
 
+/** Decodes the length-prefixed multi-curve binary buffer produced by Rust's
+ *  `pack_curve_series` (returned as a raw `tauri::ipc::Response` → `ArrayBuffer`, so the
+ *  f32 bytes never travel as a JSON number array). Layout, all little-endian:
+ *    [u32 curve_count]
+ *    repeat: [u32 name_len][name utf8][u32 point_count][f32 depth×pc][f32 value×pc]
+ *  Each data block is `slice()`d into a fresh buffer because the preceding name bytes leave
+ *  the read offset at an arbitrary (non-4-aligned) position — a Float32Array view needs a
+ *  4-aligned offset, and slice() copies into a 0-aligned buffer. */
 function decodeCurveBuffer(buf: ArrayBuffer): TrackCurveSeries[] {
   const view = new DataView(buf);
   const dec = new TextDecoder();
@@ -1946,9 +1945,6 @@ export interface SplitReport {
   wells_pooled: number;
 }
 
-/** How alike the fit and blind sides are, per feature and on the target — the evidence for a
- *  stratified draw's "similar statistics" claim. Reported rather than asserted: a pair that does
- *  NOT match is the signal that the strata were too thin to divide representatively. */
 /** One side of a split, as a whole distribution rather than a centre and a width. */
 export interface BalanceShape {
   n: number;
@@ -1964,6 +1960,9 @@ export interface BalanceShape {
   skew: number;
 }
 
+/** How alike the fit and blind sides are, per feature and on the target — the evidence for a
+ *  stratified draw's "similar statistics" claim. Reported rather than asserted: a pair that does
+ *  NOT match is the signal that the strata were too thin to divide representatively. */
 export interface SplitBalance {
   name: string;
   fit_mean: number;

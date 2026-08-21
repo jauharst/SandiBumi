@@ -1304,10 +1304,6 @@ export class Workspace {
     log.api.setActive();
   }
 
-  /** The Tops pane docks directly below the Wells pane (its own resizable panel, split out of the
-   *  old combined Wells & Tops). Added when absent — after both the default build and a layout
-   *  restore, so older saved layouts (which had Tops embedded in the wells pane) pick up the
-   *  standalone pane too. An instance the user already moved elsewhere is left in place. */
   /** The Wells pane anchors the sidebar and can no longer be closed — but an OLD saved layout may
    *  predate that (the user closed it back when close was still allowed). Re-add it on restore so
    *  the sidebar always has its Wells pane; ensureTopsPane/monitors then dock beneath it. */
@@ -1316,6 +1312,10 @@ export class Workspace {
     this.dock.addPanel({ id: "wellsTops", component: "wellsTops", title: "Wells", position: { direction: "left" } });
   }
 
+  /** The Tops pane docks directly below the Wells pane (its own resizable panel, split out of the
+   *  old combined Wells & Tops). Added when absent — after both the default build and a layout
+   *  restore, so older saved layouts (which had Tops embedded in the wells pane) pick up the
+   *  standalone pane too. An instance the user already moved elsewhere is left in place. */
   private ensureTopsPane(): void {
     if (this.dock.panels.some((p) => p.id === "tops")) return;
     const wellsGroup = this.dock.panels.find((p) => p.id === "wellsTops")?.api.group;

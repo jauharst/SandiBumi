@@ -1,5 +1,38 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 55 (my audit P2): **comments that had drifted onto the wrong function**
+
+- [ ] **What to click.** Nothing. Not one line of running code changed — this is entirely
+      explanatory comments moving back onto the thing they describe. It is here so you know it
+      happened, not so you can check it.
+- [ ] **What was wrong.** Fourteen places in the front end had **two comment blocks stacked with
+      nothing between them**. That does not read as two comments: both attach to whatever comes
+      next, so one function got somebody else's description and the function the words were
+      written for was left with none. The compiler has no opinion about this, so it never showed
+      up — the only symptom is a reader getting a confident wrong answer.
+- [ ] **Why it needed care rather than a sweep.** The fourteen needed **three different answers**,
+      which is why I did not fold them into the previous increment. Three were genuinely two halves
+      of one description and were joined up. Nine were orphans — the words belonged to a function
+      sitting bare somewhere else in the file, and were moved back to it. And one was **stale**:
+      it told the reader that a picture's `fit` setting has "no stretch option", when the setting
+      right underneath it has one. That comment described the code as it was before depth strips
+      existed, and anyone trusting it would conclude a feature we shipped is impossible.
+- [ ] **The ones worth naming.** The whole description of the **point-data tracks** (core plugs,
+      oil shows, lithology text — including the rule that an off-scale sample is skipped rather
+      than drawn at the track edge) had drifted onto the array-log loader. The description of how
+      **facies colours** work — including that a REJECTED sample must never be painted as a real
+      cluster — had drifted off `faciesColor`. And the **Ribbon** class itself had lost its own
+      description to a dialog helper.
+- [ ] **One I caused.** Increment 50 inserted a new type immediately above an existing comment,
+      which is exactly how this happens. That is the argument for the check rather than for being
+      more careful: it happened to me while I was fixing the same problem elsewhere.
+- [ ] **Also fixed in passing.** Two comment lines in `plotCanvas.ts` contained the literal text
+      `—` where an em dash belongs — the fingerprint of a text tool that mangles non-English
+      characters. Only those two in the whole repository; both corrected.
+- [ ] **Pinned.** `a_doc_block_stays_on_the_thing_it_describes_instead_of_merging_onto_its_neighbour`
+      holds the count at zero, and is itself checked from both sides — shown a stacked pair it must
+      report it, so a green result cannot just mean the check stopped looking.
+
 ## 2026-08-21 — Audit increment 54 (my audit P2): **the features that are built but have no button**
 
 - [ ] **What to click.** Nothing you can see has changed. The one code change you could reach is

@@ -108,9 +108,6 @@ function buildRibbonDropdown(label: string, iconPath: string, items: RibbonMenuI
   return wrap;
 }
 
-/** The main ribbon (Project | Data | Petrophysics | Plot | View). Talks to the docking
- *  workspace directly: panel-opening actions create dock panels, view actions target the
- *  active log view. */
 /** SB-CLY-034 (DEC-037): the blocking undeclared-sentinel question. Names the value,
  *  every affected curve and the sample count; resolves with the user's decision, or null
  *  when dismissed (the files stay unimported - nothing converts on magnitude alone). */
@@ -166,6 +163,9 @@ function askUndeclaredSentinelDecision(
   });
 }
 
+/** The main ribbon (Project | Data | Petrophysics | Plot | View). Talks to the docking
+ *  workspace directly: panel-opening actions create dock panels, view actions target the
+ *  active log view. */
 export class Ribbon {
   private layouts: Layout[] = [];
   /** Name of the session last saved or opened, so Ctrl+S can re-save it in place without a
@@ -515,8 +515,9 @@ export class Ribbon {
 
   /** Modules promoted out of the auto-generated category dropdowns into the dedicated
    *  "Advance" tab — Jauhar's flagship in-house methods. Skipped by the category render
-   *  so they appear only once, as their own buttons. */
-  /** "multimin" (the legacy fixed 4-component inversion) is filtered out of the Saturation
+   *  so they appear only once, as their own buttons.
+   *
+   *  "multimin" (the legacy fixed 4-component inversion) is filtered out of the Saturation
    *  dropdown and given no Advance button: it is superseded by SandiMin (the generalized
    *  solver) and Jauhar asked for mineral inversion to be independent of Sw. It is now RETIRED —
    *  a saved workflow chain that still references it resolves by name but fails on run with a
