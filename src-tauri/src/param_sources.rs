@@ -928,80 +928,198 @@ const FIELD_OBSERVED_COEFFICIENT_SOURCES: &[ParamSource] = &[
     ),
 ];
 
+/// One parameter topic: its id, the label a disclosure prints, and the sourced alternatives.
+struct TopicEntry {
+    topic: &'static str,
+    label: &'static str,
+    sources: &'static [ParamSource],
+}
+
+/// The whole topic vocabulary, once.
+///
+/// `sources_for`, `parameter_label` and `topics()` were three hand-maintained lists of the same
+/// vocabulary, and they had already drifted. `SHALE_REDUCTION_CLAMP` carried a full two-source
+/// table and no label - and `decision_for` short-circuits on a missing label, so a fully SOURCED
+/// default disclosed NOTHING at its six call sites, inverting this module's own rule that an
+/// unsourced default must be disclosed. `topics()` was hand-listed beside both, and its only test
+/// compared it against a hard-coded copy of the same list, so the omission was pinned rather than
+/// caught. One table now: a topic that answers one question answers all three or it does not
+/// compile.
+const TOPIC_ENTRIES: &[TopicEntry] = &[
+    TopicEntry {
+        topic: CLUSTER_COUNT,
+        label: "cluster count",
+        sources: CLUSTER_COUNT_SOURCES,
+    },
+    TopicEntry {
+        topic: GR_CLEAN_ENDPOINT,
+        label: "clean gamma-ray endpoint",
+        sources: GR_CLEAN_ENDPOINT_SOURCES,
+    },
+    TopicEntry {
+        topic: GR_SHALE_ENDPOINT,
+        label: "shale gamma-ray endpoint",
+        sources: GR_SHALE_ENDPOINT_SOURCES,
+    },
+    TopicEntry {
+        topic: MATRIX_DENSITY,
+        label: "matrix density",
+        sources: MATRIX_DENSITY_SOURCES,
+    },
+    TopicEntry {
+        topic: SHALE_DENSITY,
+        label: "shale density",
+        sources: SHALE_DENSITY_SOURCES,
+    },
+    TopicEntry {
+        topic: DRY_SHALE_DENSITY,
+        label: "dry shale or dry clay density",
+        sources: DRY_SHALE_DENSITY_SOURCES,
+    },
+    TopicEntry {
+        topic: MATRIX_NEUTRON_ENDPOINT,
+        label: "matrix neutron endpoint",
+        sources: MATRIX_NEUTRON_ENDPOINT_SOURCES,
+    },
+    TopicEntry {
+        topic: SHALE_NEUTRON_ENDPOINT,
+        label: "shale neutron endpoint",
+        sources: SHALE_NEUTRON_ENDPOINT_SOURCES,
+    },
+    TopicEntry {
+        topic: FLUID_DENSITY,
+        label: "fluid density",
+        sources: FLUID_DENSITY_SOURCES,
+    },
+    TopicEntry {
+        topic: FORMATION_WATER_DENSITY,
+        label: "formation-water density",
+        sources: FORMATION_WATER_DENSITY_SOURCES,
+    },
+    TopicEntry {
+        topic: MAX_EFFECTIVE_POROSITY,
+        label: "maximum effective porosity",
+        sources: MAX_EFFECTIVE_POROSITY_SOURCES,
+    },
+    TopicEntry {
+        topic: POROSITY_LIMIT_MODE,
+        label: "porosity limiting mode",
+        sources: POROSITY_LIMIT_MODE_SOURCES,
+    },
+    TopicEntry {
+        topic: HIGH_SHALE_BRANCH_THRESHOLD,
+        label: "high-shale branch threshold",
+        sources: HIGH_SHALE_BRANCH_THRESHOLD_SOURCES,
+    },
+    TopicEntry {
+        topic: MATRIX_TRANSIT_TIME,
+        label: "matrix transit time",
+        sources: MATRIX_TRANSIT_TIME_SOURCES,
+    },
+    TopicEntry {
+        topic: FLUID_TRANSIT_TIME,
+        label: "fluid transit time",
+        sources: FLUID_TRANSIT_TIME_SOURCES,
+    },
+    TopicEntry {
+        topic: SHALE_TRANSIT_TIME,
+        label: "shale transit time",
+        sources: SHALE_TRANSIT_TIME_SOURCES,
+    },
+    TopicEntry {
+        topic: SONIC_COMPACTION_CORRECTION,
+        label: "sonic compaction correction",
+        sources: SONIC_COMPACTION_CORRECTION_SOURCES,
+    },
+    TopicEntry {
+        topic: FIELD_OBSERVED_COEFFICIENT,
+        label: "field-observed sonic coefficient",
+        sources: FIELD_OBSERVED_COEFFICIENT_SOURCES,
+    },
+    TopicEntry {
+        topic: ARCHIE_A,
+        label: "Archie a",
+        sources: ARCHIE_A_SOURCES,
+    },
+    TopicEntry {
+        topic: ARCHIE_M,
+        label: "Archie m",
+        sources: ARCHIE_M_SOURCES,
+    },
+    TopicEntry {
+        topic: ARCHIE_N,
+        label: "Archie n",
+        sources: ARCHIE_N_SOURCES,
+    },
+    TopicEntry {
+        topic: FORMATION_WATER_RESISTIVITY,
+        label: "formation-water resistivity",
+        sources: FORMATION_WATER_RESISTIVITY_SOURCES,
+    },
+    TopicEntry {
+        topic: SHALE_RESISTIVITY,
+        label: "shale resistivity",
+        sources: SHALE_RESISTIVITY_SOURCES,
+    },
+    TopicEntry {
+        topic: CUTOFF_VSH_MAX,
+        label: "maximum VSH cutoff",
+        sources: CUTOFF_VSH_MAX_SOURCES,
+    },
+    TopicEntry {
+        topic: CUTOFF_PHIE_MIN,
+        label: "minimum PHIE cutoff",
+        sources: CUTOFF_PHIE_MIN_SOURCES,
+    },
+    TopicEntry {
+        topic: CUTOFF_SWE_MAX,
+        label: "maximum SWE cutoff",
+        sources: CUTOFF_SWE_MAX_SOURCES,
+    },
+    TopicEntry {
+        topic: SHALE_REDUCTION_CLAMP,
+        label: "shale-reduction clamp bound",
+        sources: SHALE_REDUCTION_CLAMP_SOURCES,
+    },
+    TopicEntry {
+        topic: IRREDUCIBLE_SWE,
+        label: "irreducible effective water saturation",
+        sources: IRREDUCIBLE_SWE_SOURCES,
+    },
+    TopicEntry {
+        topic: IRREDUCIBLE_SWT,
+        label: "irreducible total water saturation",
+        sources: IRREDUCIBLE_SWT_SOURCES,
+    },
+    TopicEntry {
+        topic: PERCENTILE_REFERENCE_LOW,
+        label: "low reference percentile",
+        sources: PERCENTILE_REFERENCE_LOW_SOURCES,
+    },
+    TopicEntry {
+        topic: PERCENTILE_REFERENCE_HIGH,
+        label: "high reference percentile",
+        sources: PERCENTILE_REFERENCE_HIGH_SOURCES,
+    },
+    TopicEntry {
+        topic: CONDITIONING_WINDOW,
+        label: "conditioning window thickness",
+        sources: CONDITIONING_WINDOW_SOURCES,
+    },
+];
+
+fn entry_for(topic: &str) -> Option<&'static TopicEntry> {
+    TOPIC_ENTRIES.iter().find(|entry| entry.topic == topic)
+}
+
 pub fn sources_for(topic: &str) -> &'static [ParamSource] {
-    match topic {
-        CLUSTER_COUNT => CLUSTER_COUNT_SOURCES,
-        GR_CLEAN_ENDPOINT => GR_CLEAN_ENDPOINT_SOURCES,
-        GR_SHALE_ENDPOINT => GR_SHALE_ENDPOINT_SOURCES,
-        MATRIX_DENSITY => MATRIX_DENSITY_SOURCES,
-        SHALE_DENSITY => SHALE_DENSITY_SOURCES,
-        DRY_SHALE_DENSITY => DRY_SHALE_DENSITY_SOURCES,
-        MATRIX_NEUTRON_ENDPOINT => MATRIX_NEUTRON_ENDPOINT_SOURCES,
-        SHALE_NEUTRON_ENDPOINT => SHALE_NEUTRON_ENDPOINT_SOURCES,
-        FLUID_DENSITY => FLUID_DENSITY_SOURCES,
-        FORMATION_WATER_DENSITY => FORMATION_WATER_DENSITY_SOURCES,
-        MAX_EFFECTIVE_POROSITY => MAX_EFFECTIVE_POROSITY_SOURCES,
-        POROSITY_LIMIT_MODE => POROSITY_LIMIT_MODE_SOURCES,
-        HIGH_SHALE_BRANCH_THRESHOLD => HIGH_SHALE_BRANCH_THRESHOLD_SOURCES,
-        MATRIX_TRANSIT_TIME => MATRIX_TRANSIT_TIME_SOURCES,
-        FLUID_TRANSIT_TIME => FLUID_TRANSIT_TIME_SOURCES,
-        SHALE_TRANSIT_TIME => SHALE_TRANSIT_TIME_SOURCES,
-        SONIC_COMPACTION_CORRECTION => SONIC_COMPACTION_CORRECTION_SOURCES,
-        FIELD_OBSERVED_COEFFICIENT => FIELD_OBSERVED_COEFFICIENT_SOURCES,
-        ARCHIE_A => ARCHIE_A_SOURCES,
-        ARCHIE_M => ARCHIE_M_SOURCES,
-        ARCHIE_N => ARCHIE_N_SOURCES,
-        FORMATION_WATER_RESISTIVITY => FORMATION_WATER_RESISTIVITY_SOURCES,
-        SHALE_RESISTIVITY => SHALE_RESISTIVITY_SOURCES,
-        CUTOFF_VSH_MAX => CUTOFF_VSH_MAX_SOURCES,
-        CUTOFF_PHIE_MIN => CUTOFF_PHIE_MIN_SOURCES,
-        CUTOFF_SWE_MAX => CUTOFF_SWE_MAX_SOURCES,
-        SHALE_REDUCTION_CLAMP => SHALE_REDUCTION_CLAMP_SOURCES,
-        IRREDUCIBLE_SWE => IRREDUCIBLE_SWE_SOURCES,
-        IRREDUCIBLE_SWT => IRREDUCIBLE_SWT_SOURCES,
-        PERCENTILE_REFERENCE_LOW => PERCENTILE_REFERENCE_LOW_SOURCES,
-        PERCENTILE_REFERENCE_HIGH => PERCENTILE_REFERENCE_HIGH_SOURCES,
-        CONDITIONING_WINDOW => CONDITIONING_WINDOW_SOURCES,
-        _ => &[],
-    }
+    entry_for(topic).map(|entry| entry.sources).unwrap_or(&[])
 }
 
 pub fn parameter_label(topic: &str) -> Option<&'static str> {
-    Some(match topic {
-        CLUSTER_COUNT => "cluster count",
-        GR_CLEAN_ENDPOINT => "clean gamma-ray endpoint",
-        GR_SHALE_ENDPOINT => "shale gamma-ray endpoint",
-        MATRIX_DENSITY => "matrix density",
-        SHALE_DENSITY => "shale density",
-        DRY_SHALE_DENSITY => "dry shale or dry clay density",
-        MATRIX_NEUTRON_ENDPOINT => "matrix neutron endpoint",
-        SHALE_NEUTRON_ENDPOINT => "shale neutron endpoint",
-        FLUID_DENSITY => "fluid density",
-        FORMATION_WATER_DENSITY => "formation-water density",
-        MAX_EFFECTIVE_POROSITY => "maximum effective porosity",
-        POROSITY_LIMIT_MODE => "porosity limiting mode",
-        HIGH_SHALE_BRANCH_THRESHOLD => "high-shale branch threshold",
-        MATRIX_TRANSIT_TIME => "matrix transit time",
-        FLUID_TRANSIT_TIME => "fluid transit time",
-        SHALE_TRANSIT_TIME => "shale transit time",
-        SONIC_COMPACTION_CORRECTION => "sonic compaction correction",
-        FIELD_OBSERVED_COEFFICIENT => "field-observed sonic coefficient",
-        ARCHIE_A => "Archie a",
-        ARCHIE_M => "Archie m",
-        ARCHIE_N => "Archie n",
-        FORMATION_WATER_RESISTIVITY => "formation-water resistivity",
-        SHALE_RESISTIVITY => "shale resistivity",
-        CUTOFF_VSH_MAX => "maximum VSH cutoff",
-        CUTOFF_PHIE_MIN => "minimum PHIE cutoff",
-        CUTOFF_SWE_MAX => "maximum SWE cutoff",
-        IRREDUCIBLE_SWE => "irreducible effective water saturation",
-        IRREDUCIBLE_SWT => "irreducible total water saturation",
-        PERCENTILE_REFERENCE_LOW => "low reference percentile",
-        PERCENTILE_REFERENCE_HIGH => "high reference percentile",
-        CONDITIONING_WINDOW => "conditioning window thickness",
-        _ => return None,
-    })
+    entry_for(topic).map(|entry| entry.label)
 }
+
 
 /// Stable inventory used by the acceptance test and by any future source-browser surface.
 // ---------------------------------------------------------------------------
@@ -1330,34 +1448,18 @@ pub fn saturation_method(module: &str, method_id: &str) -> Option<&'static Satur
 
 #[cfg(test)]
 pub fn topics() -> &'static [&'static str] {
-    &[
-        CLUSTER_COUNT,
-        GR_CLEAN_ENDPOINT,
-        GR_SHALE_ENDPOINT,
-        MATRIX_DENSITY,
-        SHALE_DENSITY,
-        DRY_SHALE_DENSITY,
-        MATRIX_NEUTRON_ENDPOINT,
-        SHALE_NEUTRON_ENDPOINT,
-        FLUID_DENSITY,
-        FORMATION_WATER_DENSITY,
-        MAX_EFFECTIVE_POROSITY,
-        POROSITY_LIMIT_MODE,
-        HIGH_SHALE_BRANCH_THRESHOLD,
-        MATRIX_TRANSIT_TIME,
-        FLUID_TRANSIT_TIME,
-        SHALE_TRANSIT_TIME,
-        SONIC_COMPACTION_CORRECTION,
-        FIELD_OBSERVED_COEFFICIENT,
-        ARCHIE_A,
-        ARCHIE_M,
-        ARCHIE_N,
-        FORMATION_WATER_RESISTIVITY,
-        SHALE_RESISTIVITY,
-        CUTOFF_VSH_MAX,
-        CUTOFF_PHIE_MIN,
-        CUTOFF_SWE_MAX,
-    ]
+    // DERIVED, not restated: the inventory is exactly the topics that carry a real disagreement,
+    // which is the condition its own test asserts of every entry. Hand-listing it beside the
+    // source tables is how `SHALE_REDUCTION_CLAMP` came to have two competing Geolog readings and
+    // sit outside the inventory that exists to disclose exactly that.
+    static TOPICS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    TOPICS.get_or_init(|| {
+        TOPIC_ENTRIES
+            .iter()
+            .filter(|entry| entry.sources.len() >= 2)
+            .map(|entry| entry.topic)
+            .collect()
+    })
 }
 
 pub fn decision_for(topic: &str, value: &serde_json::Value) -> Option<ParameterDecision> {
@@ -1649,8 +1751,52 @@ mod tests {
             CUTOFF_VSH_MAX,
             CUTOFF_PHIE_MIN,
             CUTOFF_SWE_MAX,
+            // AUDIT-2026-08-20 finding 64 added the twenty-seventh. SB-POR-028's shale-reduction
+            // clamp carries TWO Geolog readings - chart mode clamps both crossplot axes,
+            // Bateman-Konen clamps the neutron side only and wider - cited to the same
+            // `11_porosity.md` section 5 the SB-POR-007 additions came from. It had a full source
+            // table, no label, and therefore NO disclosure at all at its six call sites, because
+            // `decision_for` short-circuits on a missing label. Same rule, one more of the
+            // chapter's cited conflicts now disclosed.
+            SHALE_REDUCTION_CLAMP,
         ];
         assert_eq!(topics(), expected, "the DEC-003 pilot disagreement inventory is exact");
+
+        // The list above is still written out, because the inventory is a governance statement and
+        // an addition should have to be made deliberately. What it can no longer do is disagree
+        // with the tables beside it: `topics()` is DERIVED from the one topic table now, and the
+        // three questions a topic answers - what are its sources, what is it called, does it carry
+        // a disagreement - come from one entry. Both sides, so neither a topic registered without
+        // a label nor an inventory that quietly drops one can pass.
+        for entry in TOPIC_ENTRIES {
+            assert!(
+                parameter_label(entry.topic).is_some_and(|label| !label.trim().is_empty()),
+                "{}: a topic with sources and no usable label discloses NOTHING - `decision_for` \
+                 short-circuits on the label, and a blank one names nothing a reader can read",
+                entry.topic
+            );
+            assert!(!sources_for(entry.topic).is_empty(), "{}: registered with no sources", entry.topic);
+            assert_eq!(
+                topics().contains(&entry.topic),
+                sources_for(entry.topic).len() >= 2,
+                "{}: the inventory is exactly the topics whose products disagree",
+                entry.topic
+            );
+        }
+        assert_eq!(
+            TOPIC_ENTRIES.len(),
+            32,
+            "the vocabulary is 27 disclosed disagreements plus 5 single-source topics",
+        );
+
+        // The consequence, as behaviour rather than as structure: the shipped shale-reduction
+        // clamp now discloses the two readings it was chosen between. With no label this returned
+        // None and its six call sites in `modules.rs` printed nothing at all - a sourced default
+        // with no provenance, which is the exact state this module exists to make impossible.
+        let clamp = decision_for(SHALE_REDUCTION_CLAMP, &serde_json::json!(1.95))
+            .expect("a fully sourced default must disclose the alternatives it was chosen between");
+        assert_eq!(clamp.parameter, "shale-reduction clamp bound");
+        assert_eq!(clamp.alternatives.len(), 2, "both Geolog clamp modes are shown");
         for topic in expected {
             let rows = sources_for(topic);
             assert!(rows.len() >= 2, "{topic} must show a real disagreement");
