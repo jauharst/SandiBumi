@@ -2826,3 +2826,32 @@ test("a_doc_block_stays_on_the_thing_it_describes_instead_of_merging_onto_its_ne
     "a lone doc block is not an offence",
   );
 });
+
+test("a_box_track_bins_the_same_plugs_on_screen_as_it_does_on_paper", async () => {
+  // AUDIT-2026-08-20 finding 40. Twin of distribution.rs's
+  // a_box_track_with_no_declared_bin_height_takes_it_from_the_core_not_from_the_display -
+  // same fixture, same literals, because agreeing on the ladder boundary is the whole point.
+  const { binByDepth, defaultBinHeight } = await load("/src/distribution.ts");
+
+  const dense = Array.from({ length: 17 }, (_, i) => 2000 + i * 0.25);
+  assert.equal(defaultBinHeight(dense), Math.fround(0.2), "the cored interval sets the bin");
+  assert.equal(defaultBinHeight([2000, 2001.5, 2004]), Math.fround(0.2), "sampling is not extent");
+  assert.equal(defaultBinHeight([...dense, 2004.3]), Math.fround(0.2), "one more plug must not re-cut the bins");
+  assert.equal(defaultBinHeight([]), 0, "an empty series yields no bins");
+  assert.equal(defaultBinHeight([2000, 2000]), 1, "one depth is one bin");
+
+  // The explicit half of the same defect: a bin height is STORED as a 32-bit float, so by the
+  // time the printer divides by it, 0.2 is 0.20000000298... A plug sitting exactly on 2000 m
+  // therefore belongs to the bin that STARTS below 2000 - and this side used to put it in the
+  // bin starting AT 2000, so the two renderers drew it in different boxes.
+  const [firstBin] = binByDepth([2000], [1], 0.2);
+  assert.ok(
+    firstBin.top < 2000 && firstBin.base > 2000,
+    `a plug on a round depth must land in the same bin the printer puts it in: ${JSON.stringify(firstBin)}`,
+  );
+
+  // And the viewer must actually ask for that default rather than deriving one from the zoom.
+  const logView = await readFile(new URL("../src/ui/logViewPanel.ts", import.meta.url), "utf8");
+  assert.match(logView, /defaultBinHeight\(s\.depth\)/, "the viewer takes the shared default");
+  assert.doesNotMatch(logView, /\(bottom - top\) \/ 20/, "and no longer divides the visible window");
+});

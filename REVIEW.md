@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 62 (my audit P3): **a box-plot point track summarised different plugs depending on how far you had zoomed in**
+
+- [ ] **What to click.** Put a **core** point track on a log view with display **box** (or
+      histogram) and leave its bin height blank. Note the median in one of the boxes. Now zoom in
+      and out a few times — **the box should stay put and the median should not move.** Then print
+      the same track through Plot → Composite… and check the boxes on paper sit at the same depths
+      with the same medians.
+- [ ] **What was wrong — the part you would have noticed.** With no bin height set, the screen was
+      cutting the track into twenty bins **of whatever depth window was currently visible**. Zoom
+      in and the bins got finer; zoom out and they got coarser. Because bins sit on a fixed depth
+      grid, that meant a different set of plugs went into each box at every zoom level — so the
+      quartiles and the median you read off a box changed as you scrolled. Nothing on screen said
+      so. The print exporter did the same thing with the **page** instead of the window, so the
+      paper never matched the screen either.
+- [ ] **What it does now.** The default bin comes from **the cored interval itself** — its length
+      divided by the same twenty both sides already used — snapped to a round thickness (0.2 m,
+      2 m, 5 m…). So it is the same on screen and on paper, it does not move when you zoom, and
+      the bin edges land on round depths you can quote. Adding one more plug to a delivery no
+      longer re-cuts every box either: the rounding absorbs it.
+- [ ] **What to expect on your existing tracks.** Boxes will be at different depths than before if
+      you never set a bin height — that is the fix, not a regression. Any track where you *did*
+      type a bin height is unchanged.
+- [ ] **The second half, which you could not have seen.** A bin height is stored as a 32-bit
+      number. The screen was dividing by the full-precision value and the printer by the stored
+      one, so with a bin of **0.1 or 0.2 m** — ordinary for plugs — every plug sitting on a round
+      depth (2000.0, 2500.0…) went into one box on screen and the box *above* it on paper. Both
+      now use the stored value.
+- [ ] **Nothing else moved.** Only the depth binning of core/aux box and histogram tracks. Curve
+      tracks, crossplots, the Field Dashboard and the Monte Carlo bands are untouched.
+
 ## 2026-08-21 — Audit increment 61 (my audit P3): **a white stripe across every page join in a printed composite**
 
 - [ ] **What to click.** Plot ribbon → **Composite…** on a well deep enough to need several pages,
