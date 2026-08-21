@@ -2769,3 +2769,60 @@ test("a value with no place on a log axis is drawn by neither the screen nor the
   // the track edge, a point sample is skipped. Folding that in here would take the choice away.
   assert.ok(valueFrac(2000, 0.1, 1000, true) > 1, "off-scale is reported, not clamped");
 });
+
+/** Line numbers where one doc block ends and the next begins with nothing between them. Both
+ *  then attach to whatever the SECOND one describes, and the subject the first was written for
+ *  is left bare. */
+function stackedDocBlocks(text) {
+  const lines = text.split(/\r?\n/);
+  const found = [];
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].includes("*/") && /^\s*\/\*\*/.test(lines[i + 1])) found.push(i + 2);
+  }
+  return found;
+}
+
+test("a_doc_block_stays_on_the_thing_it_describes_instead_of_merging_onto_its_neighbour", async () => {
+  // AUDIT-2026-08-20 finding 71 named one site; there were 14. Two `/** ... */` blocks with
+  // nothing between them do not read as two comments - both bind to the declaration that follows,
+  // so the subject the first was written for ends up with no documentation at all while its words
+  // sit above someone else's. Every kind was present: a stale block still claiming ImageStyle has
+  // "no stretch option" when the field has one, a decoder's layout notes stranded above a
+  // different decoder, a whole class's description parked on a helper. The failure is silent -
+  // the compiler has no opinion, and the reader gets a confident wrong answer.
+  const files = [];
+  const walk = async (dir) => {
+    const { readdir } = await import("node:fs/promises");
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith(".ts")) files.push(full);
+    }
+  };
+  await walk("src");
+
+  const offenders = [];
+  for (const file of files) {
+    for (const line of stackedDocBlocks(await readFile(file, "utf8"))) {
+      offenders.push(`${file}:${line}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "a doc block is followed immediately by another, so the first one's subject is left bare",
+  );
+
+  // And the sweep cannot pass by not looking: fed a stacked pair it must say so, or the green
+  // above means only that the scanner stopped working.
+  assert.deepEqual(
+    stackedDocBlocks(["/** first. */", "/** second. */", "export const x = 1;"].join("\n")),
+    [2],
+    "the scan must find a stacked pair when one is put in front of it",
+  );
+  assert.deepEqual(
+    stackedDocBlocks(["/** only. */", "export const x = 1;"].join("\n")),
+    [],
+    "a lone doc block is not an offence",
+  );
+});

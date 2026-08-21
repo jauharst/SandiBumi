@@ -3098,24 +3098,6 @@ function renderMultiResults(
   }
 }
 
-/**
- * The models a coverage-segmented run fitted, one CARD each, never summarised into one.
- *
- * The output is a single curve, and the temptation is to report it with a single score. There isn't
- * one. A four-curve model and a three-curve model fitted on different rows are different models; an
- * R² over both would be a number that describes neither, and it would describe the shallow half of
- * the well and the deep half equally when the whole point of the run is that they are not equally
- * known.
- *
- * Cards rather than a table, and not only because a six-column table does not fit a form column. A
- * table invites reading DOWN a column and comparing rows, which is the one reading these numbers
- * must not get — 0.81 beside 0.64 is not a ranking, it is two models answering over different rock,
- * and the segment with the lower score is not the worse model, it is the one that had less to work
- * with. Cards carry that separation in the layout instead of only in a caption.
- *
- * A segment that was NOT fitted keeps its card and states why in full. A skipped model that simply
- * vanished would leave blank rock with no visible cause.
- */
 /** One input curve's distribution inside one cluster, as the runner reports it. */
 interface ClusterCurveStat {
   n: number;
@@ -3255,6 +3237,24 @@ export function renderClusterTable(
   host.appendChild(box);
 }
 
+/**
+ * The models a coverage-segmented run fitted, one CARD each, never summarised into one.
+ *
+ * The output is a single curve, and the temptation is to report it with a single score. There isn't
+ * one. A four-curve model and a three-curve model fitted on different rows are different models; an
+ * R² over both would be a number that describes neither, and it would describe the shallow half of
+ * the well and the deep half equally when the whole point of the run is that they are not equally
+ * known.
+ *
+ * Cards rather than a table, and not only because a six-column table does not fit a form column. A
+ * table invites reading DOWN a column and comparing rows, which is the one reading these numbers
+ * must not get — 0.81 beside 0.64 is not a ranking, it is two models answering over different rock,
+ * and the segment with the lower score is not the worse model, it is the one that had less to work
+ * with. Cards carry that separation in the layout instead of only in a caption.
+ *
+ * A segment that was NOT fitted keeps its card and states why in full. A skipped model that simply
+ * vanished would leave blank rock with no visible cause.
+ */
 function renderCoverageSegments(host: HTMLElement, segments: CoverageSegment[]): void {
   if (!segments.length) return;
   const fitted = segments.filter((s) => !s.skipped);
@@ -3369,12 +3369,6 @@ function tiedAtTheTop(rows: MlEvalRow[]): number {
   return n;
 }
 
-/** Leaderboard table (best first) + a details panel (permutation importance + confusion matrix)
- *  for the selected row. Backend already sorts rows by blind-well score descending.
- *
- *  Exported so it can be driven with synthetic rows over the vite dev server, which is this repo's
- *  only route to exercising frontend logic — there is no TS test runner, and the tie rule and the
- *  whisker geometry are both wrong in ways a screenshot shows and a type check does not. */
 /**
  * What each input curve is worth — the leaderboard's answer to a different question.
  *
@@ -3442,6 +3436,12 @@ function renderCurveValue(host: HTMLElement, vals: CurveValue[], isClf: boolean)
   host.appendChild(box);
 }
 
+/** Leaderboard table (best first) + a details panel (permutation importance + confusion matrix)
+ *  for the selected row. Backend already sorts rows by blind-well score descending.
+ *
+ *  Exported so it can be driven with synthetic rows over the vite dev server, which is this repo's
+ *  only route to exercising frontend logic — there is no TS test runner, and the tie rule and the
+ *  whisker geometry are both wrong in ways a screenshot shows and a type check does not. */
 export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
   host.innerHTML = "";
   if (res.error || !res.rows.length) return;

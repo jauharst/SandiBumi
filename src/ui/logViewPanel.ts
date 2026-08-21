@@ -940,18 +940,6 @@ export class LogViewPanel {
     return out;
   }
 
-  /** Point-data tracks (Track.kind === "point_data"): measured samples rather than a
-   *  continuous log. Four displays, all drawn on the 2D overlay because none of them is a
-   *  polyline the GPU pipeline can express:
-   *
-   *  - "points"    one glyph per sample at its own depth and value
-   *  - "box"       a box plot per depth bin — box edges, median, whiskers, outliers
-   *  - "histogram" a value-axis histogram per depth bin, bars scaled to the bin's peak count
-   *  - "text"      the sample's text value as a label (lithology descriptions, oil show)
-   *
-   *  The statistics come from the shared `distribution` module, which is source-agnostic on
-   *  purpose so array logs can reuse it unchanged. Values outside the track's scale are
-   *  skipped, never clamped to a false position — the same rule the core overlay follows. */
   /** Loads the array logs this layout actually references, plus the well's array catalog for
    *  the properties dialog. Only referenced curves are fetched: one array log is a whole
    *  realization matrix, so a layout with no array track must not pay for any of them. */
@@ -1363,6 +1351,18 @@ export class LogViewPanel {
     ctx.globalAlpha = 1;
   }
 
+  /** Point-data tracks (Track.kind === "point_data"): measured samples rather than a
+   *  continuous log. Four displays, all drawn on the 2D overlay because none of them is a
+   *  polyline the GPU pipeline can express:
+   *
+   *  - "points"    one glyph per sample at its own depth and value
+   *  - "box"       a box plot per depth bin — box edges, median, whiskers, outliers
+   *  - "histogram" a value-axis histogram per depth bin, bars scaled to the bin's peak count
+   *  - "text"      the sample's text value as a label (lithology descriptions, oil show)
+   *
+   *  The statistics come from the shared `distribution` module, which is source-agnostic on
+   *  purpose so array logs can reuse it unchanged. Values outside the track's scale are
+   *  skipped, never clamped to a false position — the same rule the core overlay follows. */
   private drawPointTracks(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     if (!this.renderer || !this.layout) return;
     const pointTracks = this.layout.tracks.filter((t) => (t.kind ?? "curves") === "point_data");

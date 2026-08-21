@@ -131,8 +131,9 @@ function emptyStep(module: string): ChainStep {
 
 /** Monte Carlo uncertainty (Phase 9): put distributions on model parameters, run N seeded
  *  realizations of a chain in memory, and read the P10/P50/P90 spread of net pay / NTG /
- *  PHIE / SWE / HPV per zone plus an HPV histogram. */
-/** Hosted as a dock pane (workspace component "montecarlo"), not a popup. */
+ *  PHIE / SWE / HPV per zone plus an HPV histogram.
+ *
+ *  Hosted as a dock pane (workspace component "montecarlo"), not a popup. */
 export async function buildMonteCarloContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {

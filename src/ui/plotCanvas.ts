@@ -885,12 +885,7 @@ export const FACIES_PALETTE: string[] = [
  *  Keep in sync with FACIES_REJECT_COLOR in src-tauri/src/composite.rs. */
 export const REJECT_COLOR = "#9aa0a6";
 
-/** Color for a single facies/cluster index (rounded, wraps). A NEGATIVE class is one the algorithm
- *  REJECTED — DBSCAN noise — not one of the clusters, and the wrap below would otherwise fold it
- *  back onto a real cluster's colour and draw an outlier as a legitimate facies. Any negative, not
- *  just CLUSTER_REJECT: a code this renderer does not recognise must not be painted as rock it
- *  is not. */
-/** Where a value sits across a track, 0 at `min` and 1 at `max` \u2014 or `null` where it has no
+/** Where a value sits across a track, 0 at `min` and 1 at `max` — or `null` where it has no
  *  position at all.
  *
  *  **The twin of `composite.rs::value_frac`, and it must stay identical to it.** The log-view
@@ -903,7 +898,7 @@ export const REJECT_COLOR = "#9aa0a6";
  *  rendered against a substituted decade, which is what made the screen and the print disagree
  *  about a whole track rather than about one sample.
  *
- *  Deliberately NOT clamped to [0, 1]: an off-scale sample is the caller's decision \u2014 a
+ *  Deliberately NOT clamped to [0, 1]: an off-scale sample is the caller's decision — a
  *  continuous curve clamps at the track edge, a point sample is skipped. */
 export function valueFrac(v: number, min: number, max: number, isLog: boolean): number | null {
   if (!Number.isFinite(v)) return null;
@@ -917,6 +912,11 @@ export function valueFrac(v: number, min: number, max: number, isLog: boolean): 
   return (v - min) / (max - min);
 }
 
+/** Color for a single facies/cluster index (rounded, wraps). A NEGATIVE class is one the algorithm
+ *  REJECTED — DBSCAN noise — not one of the clusters, and the wrap below would otherwise fold it
+ *  back onto a real cluster's colour and draw an outlier as a legitimate facies. Any negative, not
+ *  just CLUSTER_REJECT: a code this renderer does not recognise must not be painted as rock it
+ *  is not. */
 export function faciesColor(index: number): string {
   const i = Math.round(index);
   if (i < 0) return REJECT_COLOR;

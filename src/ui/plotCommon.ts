@@ -847,7 +847,6 @@ export async function fetchContextLayers(args: {
   };
 }
 
-/** Human line for the scope row: "Context: 41 wells · ~58,200 pts (decimated) · 3 skipped …". */
 /** What one panel holds after a context load finishes. The panel keeps its own `ctx*`
  *  variables — this is only the set of values a completed load replaces. */
 export interface ContextReloadState<L> {
@@ -963,6 +962,7 @@ export function createContextReload<L>(spec: {
   return { reload, cancel: () => void generation++ };
 }
 
+/** Human line for the scope row: "Context: 41 wells · ~58,200 pts (decimated) · 3 skipped …". */
 export function describeContextOutcome(o: ContextFetchOutcome): string {
   if (o.refusal) return `Context refused: ${o.refusal}`;
   const original = o.layers.reduce((sum, layer) => sum + layer.reduction.originalCount, 0);
