@@ -188,7 +188,7 @@ pub struct McRequest {
     pub iterations: usize,
     pub seed: u64,
     #[serde(default)]
-    pub custody: Option<equations::RunCustody>,
+    pub custody: Option<crate::ancestry::RunCustody>,
     // Pay/HPV cutoffs (same semantics as the pay summary).
     /// SB-CUT-016. `None` = UNFILTERED on this property. Absent-capable for the same reason the
     /// deterministic summation is: an MC run silently using a shipped 0.5 while the pay summary
@@ -1092,7 +1092,7 @@ fn build_plans(
 
     let mut ancestry_inputs = Vec::new();
     for (argument, curve) in ancestry_candidates {
-        if equations::try_resolve_ancestry_input(conn, well_id, &argument, &curve, None, None)?
+        if crate::ancestry::try_resolve_ancestry_input(conn, well_id, &argument, &curve, None, None)?
             .is_some()
         {
             ancestry_inputs.push((well_id.to_string(), argument, curve));
@@ -1644,7 +1644,7 @@ pub fn run_monte_carlo(
             .ok_or_else(|| {
                 "run refused: enter custody before persisting Monte Carlo curves".to_string()
             })
-            .and_then(equations::RunCustody::validate);
+            .and_then(crate::ancestry::RunCustody::validate);
         if let Err(error) = validation {
             return McResult {
                 low_pctl: lo_p,
@@ -2200,11 +2200,11 @@ pub fn run_monte_carlo(
                     }
                 }
                 let zone_scope = if had_declared_zones {
-                    equations::AncestryZoneScope::Defined(
+                    crate::ancestry::AncestryZoneScope::Defined(
                         zones
                             .iter()
                             .filter(|zone| zone.top_depth < zone.bottom_depth)
-                            .map(|zone| equations::AncestryZone {
+                            .map(|zone| crate::ancestry::AncestryZone {
                                 name: zone.zone_name.clone(),
                                 top: zone.top_depth,
                                 base: zone.bottom_depth,
@@ -2218,10 +2218,10 @@ pub fn run_monte_carlo(
                             .collect(),
                     )
                 } else {
-                    equations::AncestryZoneScope::WholeWell
+                    crate::ancestry::AncestryZoneScope::WholeWell
                 };
                 let output_names = out.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
-                let spec = equations::complete_curve_run_spec(
+                let spec = crate::ancestry::complete_curve_run_spec(
                     &conn,
                     well_id,
                     "MONTECARLO",
@@ -2246,9 +2246,9 @@ pub fn run_monte_carlo(
                     .collect();
                 let write = spec.and_then(|spec| {
                         let (set_id, version) =
-                        equations::create_complete_log_set(&conn, well_id, &spec)?;
+                        crate::ancestry::create_complete_log_set(&conn, well_id, &spec)?;
                     let refs: Vec<(&str, &[f32])> = out.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
-                        equations::write_computed_curves_with_ancestry_clearing(&conn, well_id, &depth, &refs, &family, &set_id)
+                        crate::ancestry::write_computed_curves_with_ancestry_clearing(&conn, well_id, &depth, &refs, &family, &set_id)
                             ?;
                     Ok(version)
                     });

@@ -1048,7 +1048,7 @@ pub struct SandiminRequest {
     /// hardcoded — so an older payload writes exactly where it always did.
     #[serde(default)]
     pub output_set: Option<String>,
-    pub custody: crate::equations::RunCustody,
+    pub custody: crate::ancestry::RunCustody,
     #[serde(default = "default_true")]
     pub unity: bool,
     /// Required when CT or CXO is among the tools.
@@ -2505,7 +2505,7 @@ pub fn run_sandimin(
             "enforce_water_mud": req.enforce_water_mud,
             "sigma_constraint": req.sigma_constraint,
         });
-        let spec = crate::equations::complete_curve_run_spec(
+        let spec = crate::ancestry::complete_curve_run_spec(
             &conn,
             well_id,
             set_name,
@@ -2514,16 +2514,16 @@ pub fn run_sandimin(
             &inputs,
             req.input_set.as_deref(),
             parameters,
-            crate::equations::AncestryZoneScope::WholeWell,
+            crate::ancestry::AncestryZoneScope::WholeWell,
             &out_names,
         );
         let write_err = spec
             .and_then(|spec| {
-                crate::equations::create_complete_log_set(&conn, well_id, &spec)
+                crate::ancestry::create_complete_log_set(&conn, well_id, &spec)
             .map(|(id, _)| id)
             })
             .and_then(|set_id| {
-                crate::equations::write_computed_curves_with_ancestry(&conn, well_id, &depth, &refs, &set_id)})
+                crate::ancestry::write_computed_curves_with_ancestry(&conn, well_id, &depth, &refs, &set_id)})
             .err();
         if write_err.is_none() && has_u_fluids {
             let method_flag_name = format!("{prefix}_SW_METHOD");

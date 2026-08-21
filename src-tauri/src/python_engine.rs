@@ -29,8 +29,8 @@
 //! state leaks between wells); if the worker process dies (broken pipe) it is respawned and
 //! the request retried once. The worker exits on its own when the app closes its stdin (EOF).
 
-use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, EquationRunResult, RunCustody,
-};
+use crate::equations::{EquationDef, EquationRunResult, fetch_curve_frame, write_equation_output};
+use crate::ancestry::{RunCustody};
 use crate::installation;
 use duckdb::Connection;
 use std::io::{Read, Write};

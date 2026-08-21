@@ -1,3 +1,4 @@
+mod ancestry;
 mod chain;
 mod composite;
 mod condition;
@@ -1052,7 +1053,7 @@ fn scoped_curve_ancestry(
     ancestry_well_ids: Option<Vec<String>>,
     ancestry_curve_names: Option<Vec<String>>,
     ancestry_all_project: bool,
-) -> Result<Option<Vec<equations::CurveAncestryDisclosure>>, String> {
+) -> Result<Option<Vec<crate::ancestry::CurveAncestryDisclosure>>, String> {
     let scoped =
         ancestry_all_project || ancestry_well_ids.is_some() || ancestry_curve_names.is_some();
     if !scoped {
@@ -1072,7 +1073,7 @@ fn scoped_curve_ancestry(
     } else {
         ancestry_well_ids.unwrap_or_default()
     };
-    let mut disclosures = equations::curve_ancestry_disclosures(conn, &well_ids, None)?;
+    let mut disclosures = crate::ancestry::curve_ancestry_disclosures(conn, &well_ids, None)?;
     if let Some(curves) = ancestry_curve_names {
         let curves = curves
             .into_iter()
@@ -1089,7 +1090,7 @@ fn get_curve_ancestry_disclosures(
     ancestry_well_ids: Option<Vec<String>>,
     ancestry_curve_names: Option<Vec<String>>,
     ancestry_all_project: bool,
-) -> Result<Vec<equations::CurveAncestryDisclosure>, String> {
+) -> Result<Vec<crate::ancestry::CurveAncestryDisclosure>, String> {
     let conn = db.0.lock().unwrap();
     Ok(scoped_curve_ancestry(
         &conn,
@@ -1420,7 +1421,7 @@ async fn run_equation(
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     equation_id: String,
     scope: well_scope::WellScopeSelection,
-    custody: equations::RunCustody,
+    custody: crate::ancestry::RunCustody,
 ) -> Result<Vec<equations::EquationRunResult>, String> {
     let (equation, items, well_ids) = {
         let conn = db.0.lock().unwrap();
@@ -1475,9 +1476,9 @@ fn list_curve_catalog(db: tauri::State<DbState>) -> Result<Vec<equations::CurveC
 /// P1-c: every log-set run event for one well (set/version/module/params/when + curves),
 /// newest first — the version history behind "re-run = N+1, never overwrite".
 #[tauri::command]
-fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equations::LogSetEntry>, String> {
+fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<crate::ancestry::LogSetEntry>, String> {
     let conn = db.0.lock().unwrap();
-    equations::list_log_sets(&conn, &well_id).map_err(|e| e.to_string())
+    crate::ancestry::list_log_sets(&conn, &well_id).map_err(|e| e.to_string())
 }
 
 /// DEC-045/DEC-039: set the free-text comment on ONE log-set version — the record of what this
@@ -1486,7 +1487,7 @@ fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equat
 #[tauri::command]
 fn set_log_set_comment(db: tauri::State<DbState>, set_id: String, comment: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    equations::set_log_set_comment(&conn, &set_id, &comment)
+    crate::ancestry::set_log_set_comment(&conn, &set_id, &comment)
 }
 
 /// Distinct constellation (log-set) names across the project — powers the input/output
@@ -1494,7 +1495,7 @@ fn set_log_set_comment(db: tauri::State<DbState>, set_id: String, comment: Strin
 #[tauri::command]
 fn list_log_set_names(db: tauri::State<DbState>) -> Result<Vec<String>, String> {
     let conn = db.0.lock().unwrap();
-    equations::list_log_set_names(&conn).map_err(|e| e.to_string())
+    crate::ancestry::list_log_set_names(&conn).map_err(|e| e.to_string())
 }
 
 /// P1-c: restores one archived set as a new version and returns the complete source/new-version
@@ -1503,9 +1504,9 @@ fn list_log_set_names(db: tauri::State<DbState>) -> Result<Vec<String>, String> 
 fn restore_log_set(
     db: tauri::State<DbState>,
     set_id: String,
-) -> Result<equations::RestoreLogSetResult, String> {
+) -> Result<crate::ancestry::RestoreLogSetResult, String> {
     let conn = db.0.lock().unwrap();
-    equations::restore_log_set(&conn, &set_id)
+    crate::ancestry::restore_log_set(&conn, &set_id)
 }
 
 /// Retained as an explicit refusal for stale frontends: ordinary deletion is not an authorized
@@ -1513,7 +1514,7 @@ fn restore_log_set(
 #[tauri::command]
 fn delete_log_set(db: tauri::State<DbState>, set_id: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    equations::delete_log_set(&conn, &set_id)
+    crate::ancestry::delete_log_set(&conn, &set_id)
 }
 
 /// P1-c: per-well catalog of current computed curves with provenance (set/version/module/
@@ -3119,7 +3120,7 @@ fn rerun_log_set(
     db: tauri::State<DbState>,
     well_id: String,
     set_id: String,
-    custody: equations::RunCustody,
+    custody: crate::ancestry::RunCustody,
 ) -> Result<workflow::RerunReport, String> {
     workflow::rerun_log_set(&db.0, &well_id, &set_id, &custody)
 }
@@ -3195,7 +3196,7 @@ fn get_log_set_manifest(
     set_id: String,
 ) -> Result<serde_json::Value, String> {
     let conn = db.0.lock().unwrap();
-    let record = equations::get_applied_steps(&conn, &set_id)?;
+    let record = crate::ancestry::get_applied_steps(&conn, &set_id)?;
     serde_json::to_value(&record).map_err(|e| e.to_string())
 }
 
@@ -3320,7 +3321,7 @@ fn update_standard_sample(db: tauri::State<DbState>, well_id: String, depth: f32
 /// Edits one computed-curve sample as a new ancestry-bearing curve version.
 #[tauri::command]
 fn update_computed_sample(db: tauri::State<DbState>, well_id: String, depth: f32, curve_name: String, value: f32,
-    custody: equations::RunCustody,
+    custody: crate::ancestry::RunCustody,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
     curve_edit::update_computed_sample(&conn, &well_id, depth, &curve_name, value, &custody)
@@ -3740,7 +3741,7 @@ fn restore_curve_values(
     data: Vec<u8>,
     restores_edit_id: String,
     expected_curve_sha256: String,
-    custody: equations::RunCustody,
+    custody: crate::ancestry::RunCustody,
 ) -> Result<usize, String> {
     let (depth, values) = curve_edit::unpack_pairs(point_count, &data)?;
     let conn = db.0.lock().unwrap();
@@ -4028,7 +4029,7 @@ fn run_workflow_chain(
     scope: well_scope::WellScopeSelection,
     output_set: Option<String>,
     input_set: Option<String>,
-    custody: equations::RunCustody,
+    custody: crate::ancestry::RunCustody,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&job_id).map_err(|e| format!("bad job id: {e}"))?;
     if steps.is_empty() {

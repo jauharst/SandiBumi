@@ -97,7 +97,7 @@ pub struct PaySummaryRequest {
     #[serde(default)]
     pub stats_only: bool,
     #[serde(default)]
-    pub custody: Option<equations::RunCustody>,
+    pub custody: Option<crate::ancestry::RunCustody>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1204,7 +1204,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         // "present and excluded", and conflating it with absence would erase the reason
         // the mark exists.
         let quicklook_phie_excluded = !phie_resolved
-            && equations::try_resolve_ancestry_input(
+            && crate::ancestry::try_resolve_ancestry_input(
                 &conn,
                 well_id,
                 "PHIE",
@@ -1306,7 +1306,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     "perm_min": req.perm_min,
                 })
                 .to_string();
-                let spec = equations::LogSetSpec {
+                let spec = crate::ancestry::LogSetSpec {
                     set_name: "PAYFLAG".into(),
                     module: "pay_summary".into(),
                     params_json,
@@ -1325,11 +1325,11 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     .map(|curve| (well_id.clone(), curve.clone(), curve.clone()))
                     .collect::<Vec<_>>();
                 let zone_scope = if had_declared_zones {
-                    equations::AncestryZoneScope::Defined(
+                    crate::ancestry::AncestryZoneScope::Defined(
                         zones
                             .iter()
                             .filter(|zone| zone.top_depth < zone.bottom_depth)
-                            .map(|zone| equations::AncestryZone {
+                            .map(|zone| crate::ancestry::AncestryZone {
                                 name: zone.zone_name.clone(),
                                 top: zone.top_depth,
                                 base: zone.bottom_depth,
@@ -1338,7 +1338,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                             .collect(),
                     )
                 } else {
-                    equations::AncestryZoneScope::WholeWell
+                    crate::ancestry::AncestryZoneScope::WholeWell
                 };
                 let output_names = vec![
                     "FLAG_SAND".into(),
@@ -1346,7 +1346,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     "FLAG_PAY".into(),
                 ];
                 let mut complete =
-                    equations::complete_curve_run_spec(&conn, well_id, &spec.set_name,
+                    crate::ancestry::complete_curve_run_spec(&conn, well_id, &spec.set_name,
                     &spec.module,
                     custody,
                     &inputs,
@@ -1364,18 +1364,18 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 // value/source, zone/source, operator, output, or implementation creates
                 // a new append-only version as usual.
                 let already_current = output_names.iter().all(|curve| {
-                    equations::curve_ancestry(&conn, well_id, curve)
+                    crate::ancestry::curve_ancestry(&conn, well_id, curve)
                         .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
                 });
                 if !already_current {
                     let (set_id, _) =
-                        equations::create_complete_log_set(&conn, well_id, &complete)?;
+                        crate::ancestry::create_complete_log_set(&conn, well_id, &complete)?;
                 let batch: Vec<(&str, &[f32])> = vec![
                     ("FLAG_SAND", flag_sand.as_slice()),
                     ("FLAG_RESERVOIR", flag_res.as_slice()),
                     ("FLAG_PAY", flag_pay.as_slice()),
                 ];
-                equations::write_computed_curves_with_ancestry(&conn, well_id, &depth, &batch, &set_id)
+                crate::ancestry::write_computed_curves_with_ancestry(&conn, well_id, &depth, &batch, &set_id)
                     ?;
             }
             }

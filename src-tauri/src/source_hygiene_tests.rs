@@ -230,7 +230,7 @@ fn a_message_an_operator_reads_never_carries_a_dropped_line_continuation() {
 const TEST_ONLY_PUBLIC_SURFACES: &[(&str, &str, &str)] = &[
     ("db.rs", "update_computed_sample",
      "edits one sample so a test can check what a production read gives back"),
-    ("equations.rs", "try_new",
+    ("ancestry.rs", "try_new",
      "the short constructor; production builds a spec through try_new_with_legacy"),
     ("ingest.rs", "import_las_files",
      "one line delegating to import_las_files_with, for the legacy test call sites"),

@@ -1920,7 +1920,7 @@ pub struct MlRequest {
     /// before — so an older payload behaves identically.
     #[serde(default)]
     pub output_set: Option<String>,
-    pub custody: crate::equations::RunCustody,
+    pub custody: crate::ancestry::RunCustody,
     /// Fit a separate model per pattern of AVAILABLE inputs, instead of one model over the rows
     /// where every input exists.
     ///
@@ -2239,7 +2239,7 @@ pub struct MlApplyRequest {
     /// Version the applied curves into this log set (default `ML`).
     #[serde(default)]
     pub output_set: Option<String>,
-    pub custody: crate::equations::RunCustody,
+    pub custody: crate::ancestry::RunCustody,
     pub model_id: String,
     pub apply_well_ids: Vec<String>,
     pub output_curve: String,
@@ -2305,8 +2305,8 @@ fn ml_request_parameters<T: Serialize>(request: &T) -> Result<serde_json::Value,
 
 fn ml_zone_scope(
     interval: DepthWindow,
-    custody: &crate::equations::RunCustody,
-) -> crate::equations::AncestryZoneScope {
+    custody: &crate::ancestry::RunCustody,
+) -> crate::ancestry::AncestryZoneScope {
     match (interval.top, interval.base) {
         (Some(a), Some(b)) if a.is_finite() && b.is_finite() && a != b => {
             let (top, base) = if a < b {
@@ -2314,14 +2314,14 @@ fn ml_zone_scope(
             } else {
                 (b as f32, a as f32)
             };
-            crate::equations::AncestryZoneScope::Defined(vec![crate::equations::AncestryZone {
+            crate::ancestry::AncestryZoneScope::Defined(vec![crate::ancestry::AncestryZone {
                 name: "ML run interval".into(),
                 top,
                 base,
                 source: custody.source_note.clone(),
             }])
         }
-        _ => crate::equations::AncestryZoneScope::WholeWell,
+        _ => crate::ancestry::AncestryZoneScope::WholeWell,
     }
 }
 
@@ -3609,7 +3609,7 @@ fn run_ml_coverage(
                     .iter()
             .map(|(name, _)| (*name).to_string())
                     .collect::<Vec<_>>();
-            let spec = crate::equations::complete_curve_run_spec(&conn, &w.well_id, &out_set,
+            let spec = crate::ancestry::complete_curve_run_spec(&conn, &w.well_id, &out_set,
                     &module,
                     &req.custody,
                     &inputs,
@@ -3619,8 +3619,8 @@ fn run_ml_coverage(
                     &outputs,
                 )?;
                 let (set_id, _)=
-                    crate::equations::create_complete_log_set(&conn, &w.well_id, &spec)?;
-                crate::equations::write_computed_curves_with_ancestry(&conn, &w.well_id, &w.depth, &curves, &set_id)
+                    crate::ancestry::create_complete_log_set(&conn, &w.well_id, &spec)?;
+                crate::ancestry::write_computed_curves_with_ancestry(&conn, &w.well_id, &w.depth, &curves, &set_id)
             })();
             match done {
                 Ok(()) => {
@@ -4820,7 +4820,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 // Where no model was kept the reference is absent rather than empty. That IS the
                 // answer for such a curve: it was made by a fit nobody preserved, and a null
                 // model_id says so without inviting a lookup that must fail.
-                let spec = crate::equations::LogSetSpec {
+                let spec = crate::ancestry::LogSetSpec {
                     set_name: out_set.clone(),
                     module: format!("ml:{}:{}", req.task, req.algorithm),
                     // SB-MLA-009 rides in the same object as SB-MLA-006's model reference, and it
@@ -4876,7 +4876,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     let inputs = ml_fit_ancestry_inputs(req, &aw.well_id, &features);
                     let outputs = refs.iter().map(|(name, _)| (*name).to_string())
                         .collect::<Vec<_>>();
-                    let complete = crate::equations::complete_curve_run_spec(
+                    let complete = crate::ancestry::complete_curve_run_spec(
                         &conn,
                         &aw.well_id,
                         &out_set,
@@ -4889,8 +4889,8 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                         &outputs,
                     )?;
                     let (set_id, _) =
-                        crate::equations::create_complete_log_set(&conn, &aw.well_id, &complete)?;
-                    crate::equations::write_computed_curves_with_ancestry(
+                        crate::ancestry::create_complete_log_set(&conn, &aw.well_id, &complete)?;
+                    crate::ancestry::write_computed_curves_with_ancestry(
                         &conn,
                         &aw.well_id,
                         &aw.depth,
@@ -5337,7 +5337,7 @@ pub fn apply_ml_model(
         let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
         // Provenance names the MODEL, not just the algorithm: "which model produced this curve"
         // is the question saving them was meant to answer.
-        let spec = crate::equations::LogSetSpec {
+        let spec = crate::ancestry::LogSetSpec {
             set_name: req.output_set.as_deref().map(str::trim).filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_ML_SET).to_string(),
             module: format!("ml:apply:{}", info.name),
@@ -5394,7 +5394,7 @@ pub fn apply_ml_model(
                 .iter()
                 .map(|(name, _)| (*name).to_string())
                 .collect::<Vec<_>>();
-            let complete = crate::equations::complete_curve_run_spec(&conn, &aw.well_id, &spec.set_name,
+            let complete = crate::ancestry::complete_curve_run_spec(&conn, &aw.well_id, &spec.set_name,
                 &spec.module,
                 &req.custody,
                 &inputs,
@@ -5404,8 +5404,8 @@ pub fn apply_ml_model(
                 &outputs,
             )?;
             let (set_id, _)=
-                crate::equations::create_complete_log_set(&conn, &aw.well_id, &complete)?;
-            crate::equations::write_computed_curves_with_ancestry(&conn, &aw.well_id, &aw.depth, &refs, &set_id)})();
+                crate::ancestry::create_complete_log_set(&conn, &aw.well_id, &complete)?;
+            crate::ancestry::write_computed_curves_with_ancestry(&conn, &aw.well_id, &aw.depth, &refs, &set_id)})();
         match versioned {
             Ok(()) => {
                 if let Some(p) = progress {
@@ -7779,7 +7779,7 @@ mod tests {
     /// be the requirement's own defect committed in the opposite direction.
     #[test]
     fn a_deliverable_names_every_model_derived_curve_it_prints_and_no_superseded_one() {
-        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use crate::ancestry::{LogSetSpec, create_log_set, write_computed_curves_versioned};
         let conn = duckdb::Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
         let well = uuid::Uuid::new_v4();
@@ -8587,7 +8587,7 @@ mod tests {
     /// so is the case that must stay quiet.
     #[test]
     fn a_model_records_the_log_set_its_rows_came_from_and_names_it_when_it_has_moved() {
-        use crate::equations::{create_log_set, LogSetSpec};
+        use crate::ancestry::{LogSetSpec, create_log_set};
         let conn = duckdb::Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
         let well = uuid::Uuid::new_v4();
@@ -8923,7 +8923,7 @@ mod tests {
     #[test]
     fn a_model_a_delivered_curve_cites_is_not_deletable_without_a_word() {
         use crate::db;
-        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use crate::ancestry::{LogSetSpec, create_log_set, write_computed_curves_versioned};
         use uuid::Uuid;
 
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -8993,7 +8993,7 @@ mod tests {
     #[test]
     fn a_curve_whose_model_was_deleted_says_so_and_one_whose_model_remains_does_not() {
         use crate::db;
-        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use crate::ancestry::{LogSetSpec, create_log_set, write_computed_curves_versioned};
         use uuid::Uuid;
 
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -9057,7 +9057,7 @@ mod tests {
     #[test]
     fn a_log_set_written_before_a_cancel_says_so_and_a_completed_one_stays_silent() {
         use crate::db;
-        use crate::equations::{create_log_set, LogSetSpec};
+        use crate::ancestry::{LogSetSpec, create_log_set};
         use uuid::Uuid;
 
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -10143,13 +10143,13 @@ mod tests {
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-1", None, None, Some(0.0)).unwrap();
         let well = wid.to_string();
-        let spec = crate::equations::LogSetSpec {
+        let spec = crate::ancestry::LogSetSpec {
             set_name: "ML".into(),
             module: "ml:regression:rf".into(),
             params_json: serde_json::json!({ "algorithm": "rf" }).to_string(),
             inputs_json: "[]".into(),
         };
-        let mk = || crate::equations::create_log_set(&conn, &well, &spec).unwrap().0;
+        let mk = || crate::ancestry::create_log_set(&conn, &well, &spec).unwrap().0;
         let read = |id: &str| -> serde_json::Value {
             let s: Option<String> = conn
                 .query_row("SELECT params_json FROM log_sets WHERE set_id = ?1", duckdb::params![id], |r| r.get(0))

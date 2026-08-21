@@ -1262,7 +1262,7 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
             continue;
         };
         let Some(parameters) = payload
-            .get(crate::equations::CURVE_ANCESTRY_KEY)
+            .get(crate::ancestry::CURVE_ANCESTRY_KEY)
             .and_then(|ancestry| ancestry.get("parameters"))
             .and_then(serde_json::Value::as_array)
         else {
@@ -1297,7 +1297,7 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
                 && resolution.is_none()
                 && manifest_version.is_none();
             let canonical_required_unset =
-                state == Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE)
+                state == Some(crate::ancestry::REQUIRED_UNSET_PARAMETER_STATE)
                     && value.is_some_and(serde_json::Value::is_null)
                     && source.is_some_and(serde_json::Value::is_null)
                     && resolution.is_none()
@@ -1310,7 +1310,7 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
                     name: name.to_string(),
                     value_json: None,
                     source: None,
-                    state: Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+                    state: Some(crate::ancestry::REQUIRED_UNSET_PARAMETER_STATE.to_string()),
                     resolution: None,
                     manifest_version: None,
                 }
@@ -9053,10 +9053,8 @@ mod inspector_tests {
     /// the catalog reports the new current provenance + stats.
     #[test]
     fn log_set_versioning_never_overwrites() {
-        use crate::equations::{
-            create_log_set, delete_log_set, list_computed_catalog, list_log_sets, restore_log_set,
-            write_computed_curves_versioned, LogSetSpec,
-        };
+        use crate::equations::{list_computed_catalog};
+        use crate::ancestry::{LogSetSpec, create_log_set, delete_log_set, list_log_sets, restore_log_set, write_computed_curves_versioned};
         let conn = mem_db();
         let w = Uuid::new_v4().to_string();
         let depth = [1000.0f32, 1000.5, 1001.0];
@@ -9133,10 +9131,7 @@ mod inspector_tests {
     /// replaces current values while the archive keeps every generation, per well independently.
     #[test]
     fn batched_versioned_write_is_correct_across_wells_and_reruns() {
-        use crate::equations::{
-            create_log_sets_batch, list_log_sets, write_computed_curves_versioned_batch, LogSetSpec,
-            WellWrite,
-        };
+        use crate::ancestry::{LogSetSpec, WellWrite, create_log_sets_batch, list_log_sets, write_computed_curves_versioned_batch};
         let conn = mem_db();
         let w1 = Uuid::new_v4().to_string();
         let w2 = Uuid::new_v4().to_string();
@@ -9210,9 +9205,8 @@ mod inspector_tests {
     /// current VSH — while curves the set never wrote (GR) still resolve normally.
     #[test]
     fn input_set_selection_reads_archived_values() {
-        use crate::equations::{
-            create_log_set, fetch_curve_frame_from_set, write_computed_curves_versioned, LogSetSpec,
-        };
+        use crate::equations::{fetch_curve_frame_from_set};
+        use crate::ancestry::{LogSetSpec, create_log_set, write_computed_curves_versioned};
         let conn = mem_db();
         let w = Uuid::new_v4();
         insert_well(&conn, w, "SET_IN_TEST", None, None, None).unwrap();

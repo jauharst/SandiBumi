@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit increment 88 (my audit P2): **curve ancestry moves out of the curve-resolution file**
+
+- [ ] **What to click.** Nothing new appears — this is a filing change like the last one. Run a
+      module, check the **Curve Catalog** shows provenance, open **Log Sets** on a well and
+      **restore** an older version, and confirm the applied-step history still reads. All of that
+      is the code that moved.
+- [ ] **What was wrong.** `equations.rs` is the file that answers *how does a mnemonic resolve
+      across sets* — the question asked most often in this codebase. It had grown from 2,246 to
+      **6,892 lines**, because it had absorbed the whole custody subsystem: what a computed curve
+      is a record of, who ran it, with which parameters, into which log-set version. Roughly 2,900
+      lines of that sat *in front of* the resolution code.
+- [ ] **What moved.** `equations.rs` is now **3,071 lines**; the new `ancestry.rs` holds 3,885.
+      The tests divided cleanly again: of 26 tests, 7 were ancestry-only, 15 resolution-only, and 3
+      exercise both — those 3 stayed.
+- [ ] **I stopped at one new file, not two.** The audit proposed splitting further into
+      `ancestry.rs` (the model) and `logset.rs` (the database lifecycle). The measurement says that
+      boundary is real — **27 of the 30 database functions name a model type, while only 1 of the
+      68 model items names a database function**, which is a clean one-way layering. But the harm
+      the finding actually named — resolution buried behind the custody model — is fixed by the
+      first split, and a second one fixes no stated problem. Say the word if you want it.
+- [ ] **One thing I removed on the way.** `ProvenanceAbsentState` is declared in `schema_vocab.rs`
+      but was being re-exported through `equations.rs`, so three call sites reached it under a name
+      that was not its home. They now name `schema_vocab` directly. Same reason nothing here is
+      re-exported: one item reachable under two names is how a reader ends up in the wrong file.
+- [ ] **What stops it drifting back.** A check pinned from both sides: the custody file may reach
+      the resolution file through **exactly one** named import (the resolver), and the custody types
+      must be **declared in one file only**. The second half matters — the lazy way to satisfy the
+      first is to declare a second copy of the model on the other side, which is the shape every
+      duplicated-core finding in this audit took.
+
 ## 2026-08-22 — Audit increment 87 (my audit P2): **the pay summary moves out of the module runner's file**
 
 - [ ] **What to click.** Nothing new appears and nothing behaves differently — this is a filing

@@ -3,6 +3,7 @@
 //! engine modeled on pay-summary specs.
 
 use crate::db;
+use crate::ancestry;
 use crate::equations;
 use crate::modules::{self, ArgKind, ModuleContext};
 use duckdb::{Connection, OptionalExt};
@@ -33,7 +34,7 @@ pub struct RunModuleRequest {
     pub input_set: Option<String>,
     /// Explicit operator and source/reference note. The operator is entered once per frontend
     /// session and attached to every run; it is never inferred from the Windows account.
-    pub custody: equations::RunCustody,
+    pub custody: ancestry::RunCustody,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,10 +63,10 @@ pub struct DespikeContaminationPreview {
 }
 
 #[cfg(test)]
-pub(crate) fn test_run_custody() -> equations::RunCustody {
-    equations::RunCustody {
-        actor: equations::AncestryActor {
-            kind: equations::AncestryActorKind::Human,
+pub(crate) fn test_run_custody() -> ancestry::RunCustody {
+    ancestry::RunCustody {
+        actor: ancestry::AncestryActor {
+            kind: ancestry::AncestryActorKind::Human,
             identity: "automated-test-fixture".to_string(),
         },
         source_note: "test fixture values declared in the owning test".to_string(),
@@ -720,7 +721,7 @@ pub(crate) fn build_opts(
 /// `kind` is the adjective the message already carried; the wording is unchanged at every site,
 /// because these strings are what a user reads when a module cannot be saved.
 fn reject_reserved_key(
-    parameters: &[equations::AncestryParameter],
+    parameters: &[ancestry::AncestryParameter],
     legacy: &serde_json::Map<String, serde_json::Value>,
     module: &str,
     kind: &str,
@@ -743,7 +744,7 @@ pub(crate) fn effective_module_parameters(
     name_prefix: &str,
 ) -> Result<
     (
-        Vec<equations::AncestryParameter>,
+        Vec<ancestry::AncestryParameter>,
         serde_json::Map<String, serde_json::Value>,
     ),
     String,
@@ -766,7 +767,7 @@ pub(crate) fn effective_module_parameters(
                 (
                     serde_json::json!(value),
                     source_note.to_string(),
-                    Some(equations::ParameterResolution::Explicit),
+                    Some(ancestry::ParameterResolution::Explicit),
                     None,
                     custody,
                 )
@@ -774,7 +775,7 @@ pub(crate) fn effective_module_parameters(
                 (
                     serde_json::json!(value),
                     arg.default_source.clone(),
-                    Some(equations::ParameterResolution::Defaulted),
+                    Some(ancestry::ParameterResolution::Defaulted),
                     Some(manifest_version.clone()),
                     arg.default_unit_custody.clone(),
                 )
@@ -790,7 +791,7 @@ pub(crate) fn effective_module_parameters(
         legacy.insert(arg.name.clone(), value.clone());
         let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
         let custody_manifest_version = value_manifest_version.clone();
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name: format!("{name_prefix}{}", arg.name),
             value,
             source: source.clone(),
@@ -799,7 +800,7 @@ pub(crate) fn effective_module_parameters(
             decision,
         });
         if let Some(custody) = unit_custody {
-            parameters.push(equations::AncestryParameter {
+            parameters.push(ancestry::AncestryParameter {
                 name: format!("{name_prefix}{}@unit_custody", arg.name),
                 value: serde_json::to_value(custody)
                     .map_err(|error| format!("cannot serialize {} unit custody: {error}", arg.name))?,
@@ -819,7 +820,7 @@ pub(crate) fn effective_module_parameters(
         if let Some(value) = effective_opts.get(&arg.name) {
             let explicit = explicit_opts.contains_key(&arg.name);
             legacy.insert(arg.name.clone(), serde_json::json!(value));
-            parameters.push(equations::AncestryParameter {
+            parameters.push(ancestry::AncestryParameter {
                 name: format!("{name_prefix}{}", arg.name),
                 value: serde_json::json!(value),
                 source: if explicit {
@@ -828,9 +829,9 @@ pub(crate) fn effective_module_parameters(
                     manifest_source.clone()
                 },
                 resolution: Some(if explicit {
-                    equations::ParameterResolution::Explicit
+                    ancestry::ParameterResolution::Explicit
                 } else {
-                    equations::ParameterResolution::Defaulted
+                    ancestry::ParameterResolution::Defaulted
                 }),
                 manifest_version: (!explicit).then(|| manifest_version.clone()),
                 decision: None,
@@ -929,7 +930,7 @@ fn complete_module_log_spec(
     log_args: &[(String, String)],
     output_names: &[String],
     precondition_violations: &[modules::PreconditionViolation],
-) -> Result<equations::CompleteLogSetSpec, String> {
+) -> Result<ancestry::CompleteLogSetSpec, String> {
     req.custody.validate()?;
 
     let zone_params = db::list_zone_params(conn, well_id).map_err(|error| error.to_string())?;
@@ -944,7 +945,7 @@ fn complete_module_log_spec(
     let mask = mask_provenance(&req.opts);
     reject_reserved_key(&parameters, &legacy, &spec.name, "run-provenance", MASK_PROVENANCE_KEY)?;
     let mask_is_applied = mask["state"] == MASK_PROVENANCE_APPLIED;
-    parameters.push(equations::AncestryParameter {
+    parameters.push(ancestry::AncestryParameter {
         name: MASK_PROVENANCE_KEY.into(),
         value: mask,
         source: if mask_is_applied {
@@ -952,7 +953,7 @@ fn complete_module_log_spec(
         } else {
             "SB-ENV-028 explicit no-mask run state".into()
         },
-        resolution: mask_is_applied.then_some(equations::ParameterResolution::Explicit),
+        resolution: mask_is_applied.then_some(ancestry::ParameterResolution::Explicit),
         manifest_version: None,
         decision: None,
     });
@@ -968,7 +969,7 @@ fn complete_module_log_spec(
             opts.get("OPT_METHOD").map(String::as_str).unwrap_or("MEAN"),
         );
         legacy.insert(SMOOTHING_POLICY_PROVENANCE_KEY.into(), policy.clone());
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name: SMOOTHING_POLICY_PROVENANCE_KEY.into(),
             value: policy,
             source: "docs/PRD_v2/20_envcorr-qc.md SB-ENV-041 / SB-ENV-T49".into(),
@@ -985,7 +986,7 @@ fn complete_module_log_spec(
         }
         let name = format!("{FLAG_KIND_PROVENANCE_PREFIX}{curve}");
         reject_reserved_key(&parameters, &legacy, &spec.name, "flag-kind provenance", &name)?;
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name,
             value: serde_json::to_value(kind)
                 .map_err(|error| format!("cannot serialize flag kind for {curve}: {error}"))?,
@@ -1001,7 +1002,7 @@ fn complete_module_log_spec(
         }
         let name = format!("{OUTPUT_QUANTITY_PROVENANCE_PREFIX}{curve}");
         reject_reserved_key(&parameters, &legacy, &spec.name, "output-quantity provenance", &name)?;
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name,
             value: serde_json::to_value(quantity)
                 .map_err(|error| format!("cannot serialize output quantity for {curve}: {error}"))?,
@@ -1017,7 +1018,7 @@ fn complete_module_log_spec(
         }
         let name = format!("{POROSITY_OUTPUT_PROVENANCE_PREFIX}{curve}");
         reject_reserved_key(&parameters, &legacy, &spec.name, "porosity-output provenance", &name)?;
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name,
             value: serde_json::to_value(contract).map_err(|error| {
                 format!("cannot serialize porosity output custody for {curve}: {error}")
@@ -1042,11 +1043,11 @@ fn complete_module_log_spec(
                 .map(str::trim)
                 .filter(|text| !text.is_empty())
                 .unwrap_or(req.custody.source_note.trim());
-            parameters.push(equations::AncestryParameter {
+            parameters.push(ancestry::AncestryParameter {
                 name: format!("{}@{}", arg.name, zone_value.zone_name),
                 value: serde_json::json!(value),
                 source: source.to_string(),
-                resolution: Some(equations::ParameterResolution::Explicit),
+                resolution: Some(ancestry::ParameterResolution::Explicit),
                 manifest_version: None,
                 decision: crate::param_sources::decision_for(
                     &arg.sources_topic,
@@ -1061,7 +1062,7 @@ fn complete_module_log_spec(
     let method_id = saturation_method_id(&req.module, opts);
     if let Some(method_id) = method_id.as_deref() {
         legacy.insert("method_id".into(), serde_json::json!(method_id));
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name: "method_id".into(),
             value: serde_json::json!(method_id),
             source: req.custody.source_note.clone(),
@@ -1123,8 +1124,8 @@ fn complete_module_log_spec(
                         .iter()
                         .find(|parameter| parameter.name == *name)
                         .map(|parameter| match parameter.resolution {
-                            Some(equations::ParameterResolution::Defaulted) => "SHIPPED_DEFAULT",
-                            Some(equations::ParameterResolution::Explicit) => "ENTERED",
+                            Some(ancestry::ParameterResolution::Defaulted) => "SHIPPED_DEFAULT",
+                            Some(ancestry::ParameterResolution::Explicit) => "ENTERED",
                             None => "UNRECORDED",
                         })
                         .unwrap_or("ABSENT");
@@ -1150,7 +1151,7 @@ fn complete_module_log_spec(
         }
         for (name, value, source) in record {
             reject_reserved_key(&parameters, &legacy, &spec.name, "saturation-provenance", name)?;
-            parameters.push(equations::AncestryParameter {
+            parameters.push(ancestry::AncestryParameter {
                 name: name.into(),
                 value,
                 source,
@@ -1172,11 +1173,11 @@ fn complete_module_log_spec(
             reject_reserved_key(&parameters, &legacy, &spec.name, "saved-run", key)?;
             legacy.insert(key.into(), value);
         }
-        parameters.push(equations::AncestryParameter {
+        parameters.push(ancestry::AncestryParameter {
             name: PRECONDITION_POLICY_PROVENANCE_KEY.into(),
             value: policy,
             source: req.custody.source_note.clone(),
-            resolution: Some(equations::ParameterResolution::Explicit),
+            resolution: Some(ancestry::ParameterResolution::Explicit),
             manifest_version: None,
             decision: None,
         });
@@ -1187,7 +1188,7 @@ fn complete_module_log_spec(
                 .collect::<Vec<_>>();
             sources.sort();
             sources.dedup();
-            parameters.push(equations::AncestryParameter {
+            parameters.push(ancestry::AncestryParameter {
                 name: PRECONDITION_VIOLATIONS_PROVENANCE_KEY.into(),
                 value: violations,
                 source: sources.join(" | "),
@@ -1204,7 +1205,7 @@ fn complete_module_log_spec(
         .iter()
         .filter(|(_, curve)| !curve.trim().is_empty())
     {
-        match equations::resolve_ancestry_input(
+        match ancestry::resolve_ancestry_input(
             conn,
             well_id,
             argument,
@@ -1264,12 +1265,12 @@ fn complete_module_log_spec(
 
     let zones = db::list_zones(conn, well_id).map_err(|error| error.to_string())?;
     let zone_scope = if zones.is_empty() {
-        equations::AncestryZoneScope::WholeWell
+        ancestry::AncestryZoneScope::WholeWell
     } else {
-        equations::AncestryZoneScope::Defined(
+        ancestry::AncestryZoneScope::Defined(
             zones
                 .into_iter()
-                .map(|zone| equations::AncestryZone {
+                .map(|zone| ancestry::AncestryZone {
                     name: zone.zone_name,
                     top: zone.top_depth,
                     base: zone.bottom_depth,
@@ -1280,25 +1281,25 @@ fn complete_module_log_spec(
     };
     let outputs = output_names
         .iter()
-        .map(|curve| equations::AncestryOutput {
+        .map(|curve| ancestry::AncestryOutput {
             curve: curve.clone(),
             derivation: format!("{}:{curve}", req.module),
         })
         .collect();
-    let parameter_state = equations::parameter_state_for(&parameters);
+    let parameter_state = ancestry::parameter_state_for(&parameters);
     // SB-DBM-015 (DEC-023): the zone-set identity the run sees, recorded whenever zones
     // exist - a renamed or moved top changes it, and the re-run resolver refuses by name.
     let zone_set = match &zone_scope {
-        equations::AncestryZoneScope::WholeWell => None,
+        ancestry::AncestryZoneScope::WholeWell => None,
         _ => {
             let (version, digest) =
                 db::current_zone_set(conn, well_id).map_err(|error| error.to_string())?;
-            Some(equations::ManifestZoneSet { version, digest })
+            Some(ancestry::ManifestZoneSet { version, digest })
         }
     };
-    let ancestry = equations::CurveAncestry {
-        schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
-        method_derivation: equations::method_derivation_citation(&req.module),
+    let ancestry = ancestry::CurveAncestry {
+        schema_version: ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
+        method_derivation: ancestry::method_derivation_citation(&req.module),
         module: req.module.clone(),
         // SB-DBM-002 (DEC-021): the producing code's own digest, not the hand-maintained
         // package version that does not move when a module's arithmetic does.
@@ -1308,7 +1309,7 @@ fn complete_module_log_spec(
         parameter_state,
         zone_scope,
         actor: req.custody.actor.clone(),
-        timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
+        timestamp_utc_ms: ancestry::ancestry_timestamp_utc_ms()?,
         outputs,
         depth_frame: None,
         zone_set,
@@ -1331,7 +1332,7 @@ fn complete_module_log_spec(
     legacy.insert(modules::MODULE_VALIDITY_MANIFEST_KEY.into(), validity_manifest);
     let legacy = serialize_module_parameters(&legacy)
         .map_err(|error| format!("cannot serialize module parameters: {error}"))?;
-    equations::CompleteLogSetSpec::try_new_with_legacy(
+    ancestry::CompleteLogSetSpec::try_new_with_legacy(
         req.output_set
             .as_deref()
             .map(str::trim)
@@ -1457,11 +1458,11 @@ pub fn rerun_log_set(
     db: &Mutex<Connection>,
     well_id: &str,
     set_id: &str,
-    custody: &equations::RunCustody,
+    custody: &ancestry::RunCustody,
 ) -> Result<RerunReport, String> {
     let (module, ancestry, stored_params) = {
         let conn = db.lock().map_err(|_| "database busy".to_string())?;
-        let entry = equations::list_log_sets(&conn, well_id)
+        let entry = ancestry::list_log_sets(&conn, well_id)
             .map_err(|error| error.to_string())?
             .into_iter()
             .find(|entry| entry.set_id == set_id)
@@ -1493,7 +1494,7 @@ pub fn rerun_log_set(
         // (b) Every input curve identity, re-resolved by the SAME resolver the run used: a
         // different chosen identity or set version means the input has moved.
         for input in &ancestry.inputs {
-            let now = equations::resolve_ancestry_input(
+            let now = ancestry::resolve_ancestry_input(
                 &conn,
                 &input.well_id,
                 &input.argument,
@@ -1562,7 +1563,7 @@ pub fn rerun_log_set(
     let mut opts: HashMap<String, String> = HashMap::new();
     if let serde_json::Value::Object(map) = &stored_params {
         for (name, value) in map {
-            if name == equations::CURVE_ANCESTRY_KEY
+            if name == ancestry::CURVE_ANCESTRY_KEY
                 || name == modules::MODULE_VALIDITY_MANIFEST_KEY
             {
                 continue;
@@ -1639,7 +1640,7 @@ pub fn rerun_log_set(
 
     // Byte comparison against the replay's own new version.
     let conn = db.lock().map_err(|_| "database busy".to_string())?;
-    let rerun_set = equations::list_log_sets(&conn, well_id)
+    let rerun_set = ancestry::list_log_sets(&conn, well_id)
         .map_err(|error| error.to_string())?
         .into_iter()
         .filter(|entry| entry.set_name == "RERUN" && entry.module == module)
@@ -1712,7 +1713,7 @@ pub(crate) fn first_available_input_alias(
         if available_in_run.contains(alias) {
             return Ok(Some(alias.clone()));
         }
-        if equations::try_resolve_ancestry_input(
+        if ancestry::try_resolve_ancestry_input(
             conn,
             well_id,
             argument,
@@ -1989,8 +1990,8 @@ pub(crate) fn shale_clay_quantity_parameter(
     name: String,
     arg_name: &str,
     quantity: modules::ShaleClayQuantity,
-) -> Result<equations::AncestryParameter, String> {
-    Ok(equations::AncestryParameter {
+) -> Result<ancestry::AncestryParameter, String> {
+    Ok(ancestry::AncestryParameter {
         name,
         value: serde_json::to_value(quantity)
             .map_err(|error| format!("cannot serialize input quantity for {arg_name}: {error}"))?,
@@ -2003,7 +2004,7 @@ pub(crate) fn shale_clay_quantity_parameter(
 
 pub(crate) fn shale_clay_quantity_for_ancestry_input(
     conn: &Connection,
-    input: &equations::AncestryInput,
+    input: &ancestry::AncestryInput,
 ) -> Result<Option<modules::ShaleClayQuantity>, String> {
     let Some(chosen_curve_id) = input.chosen_curve_id.as_deref() else {
         return Ok(None);
@@ -2026,7 +2027,7 @@ pub(crate) fn shale_clay_quantity_for_ancestry_input(
         let Some(params_json) = params_json else {
             return Ok(None);
         };
-        let ancestry = equations::parse_curve_ancestry(&params_json).map_err(|error| {
+        let ancestry = ancestry::parse_curve_ancestry(&params_json).map_err(|error| {
             format!(
                 "cannot read quantity metadata for computed input '{}': {error}",
                 input.curve
@@ -2095,7 +2096,7 @@ fn validate_shale_clay_input_quantities(
         if curve.trim().is_empty() {
             continue;
         }
-        let Some(input) = equations::try_resolve_ancestry_input(
+        let Some(input) = ancestry::try_resolve_ancestry_input(
             conn,
             well_id,
             &argument.name,
@@ -2535,7 +2536,7 @@ pub fn despike_contamination_preview(
 pub fn run_workflow_module_into(
     db: &Mutex<Connection>,
     req: &RunModuleRequest,
-    preset_sets: Option<&HashMap<String, equations::CompleteSetId>>,
+    preset_sets: Option<&HashMap<String, ancestry::CompleteSetId>>,
     cancel: Option<&std::sync::atomic::AtomicBool>,
     progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<ModuleRunResult> {
@@ -3198,7 +3199,7 @@ pub fn run_workflow_module_into(
         .collect();
 
     let mut set_err: Option<String> = None;
-    let set_ids: HashMap<String, equations::CompleteSetId> = if succ_ids.is_empty() {
+    let set_ids: HashMap<String, ancestry::CompleteSetId> = if succ_ids.is_empty() {
         HashMap::new()
     } else if let Some(preset) = preset_sets {
         succ_ids.iter().filter_map(|w| preset.get(w).map(|s| (w.clone(), s.clone()))).collect()
@@ -3238,7 +3239,7 @@ pub fn run_workflow_module_into(
                     // is the one the runner injected (same helper, so record and injection
                     // cannot drift).
                     let Outcome::Computed { depth, .. } = outcome else { unreachable!() };
-                    let frame = (!depth.is_empty()).then(|| equations::ManifestDepthFrame {
+                    let frame = (!depth.is_empty()).then(|| ancestry::ManifestDepthFrame {
                         top: depth[0],
                         base: depth[depth.len() - 1],
                         samples: depth.len(),
@@ -3248,7 +3249,7 @@ pub fn run_workflow_module_into(
                     {
                         nphimat_declared_basis(&conn, well_id, log_args)
                             .map(|value| {
-                                vec![equations::PhysicsAttribute {
+                                vec![ancestry::PhysicsAttribute {
                                     name: "neutron_basis".into(),
                                     value,
                                 }]
@@ -3261,7 +3262,7 @@ pub fn run_workflow_module_into(
                         build_error = Some(error);
                         break;
                     }
-                    complete.push(equations::CompleteWellLogSet {
+                    complete.push(ancestry::CompleteWellLogSet {
                         well_id: well_id.clone(),
                         spec,
                     });
@@ -3273,7 +3274,7 @@ pub fn run_workflow_module_into(
             }
         }
         match build_error.map_or_else(
-            || equations::create_complete_log_sets_batch(&conn, &complete),
+            || ancestry::create_complete_log_sets_batch(&conn, &complete),
             |error| Err(error),
         ) {
             Ok(m) => m,
@@ -3284,7 +3285,7 @@ pub fn run_workflow_module_into(
         }
     };
 
-    let mut writes: Vec<equations::CompleteWellWrite> = Vec::with_capacity(succ_ids.len());
+    let mut writes: Vec<ancestry::CompleteWellWrite> = Vec::with_capacity(succ_ids.len());
     for (well_id, o) in req.well_ids.iter().zip(outcomes.iter()) {
         if let Outcome::Computed {
             depth,
@@ -3298,7 +3299,7 @@ pub fn run_workflow_module_into(
                 continue;
             }
             if let Some(set_id) = set_ids.get(well_id) {
-                writes.push(equations::CompleteWellWrite {
+                writes.push(ancestry::CompleteWellWrite {
                     well_id: well_id.clone(),
                     depth: depth.clone(),
                     curves: outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
@@ -3310,7 +3311,7 @@ pub fn run_workflow_module_into(
                 // comment. A failure to record it degrades the run's record, not the run.
                 if let Outcome::Computed { badhole_record: Some(record), .. } = o {
                     let conn = db.lock().unwrap();
-                    let _ = equations::set_log_set_comment(&conn, set_id.as_str(), record);
+                    let _ = ancestry::set_log_set_comment(&conn, set_id.as_str(), record);
                 }
             }
         }
@@ -3329,7 +3330,7 @@ pub fn run_workflow_module_into(
         None
     } else {
         let conn = db.lock().unwrap();
-        let err = equations::write_computed_curves_with_ancestry_batch(&conn, &writes).err();
+        let err = ancestry::write_computed_curves_with_ancestry_batch(&conn, &writes).err();
         // SB-MLA-055. Record which of these curves hold CLASS CODES, so a later re-frame or block
         // cannot average them into a value that is not any class. Declared from the manifest's
         // output keys and resolved through the same rename + prefix the write itself used, so a
@@ -3858,7 +3859,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(paired, (2, 1), "a successful output is inseparable from one run record");
-            equations::curve_ancestry(&conn, &control, "VSH")
+            ancestry::curve_ancestry(&conn, &control, "VSH")
                 .expect("the successful control curve must resolve its complete ancestry");
         }
 
@@ -4056,31 +4057,31 @@ mod tests {
             )
             .unwrap();
         assert!(!equation_params.is_empty(), "no-parameter provenance must not be an empty string");
-        let equation_ancestry = equations::parse_curve_ancestry(&equation_params).unwrap();
+        let equation_ancestry = ancestry::parse_curve_ancestry(&equation_params).unwrap();
         assert!(equation_ancestry.parameters.is_empty(), "equation metadata is not a parameter");
         assert_eq!(
             equation_ancestry.parameter_state,
-            Some(equations::ProvenanceAbsentState::NotApplicable),
+            Some(crate::schema_vocab::ProvenanceAbsentState::NotApplicable),
             "a genuine no-parameter run has the specified named state"
         );
         let equation_json: serde_json::Value = serde_json::from_str(&equation_params).unwrap();
         assert_eq!(
-            equation_json[equations::CURVE_ANCESTRY_KEY]["parameter_state"],
+            equation_json[ancestry::CURVE_ANCESTRY_KEY]["parameter_state"],
             "NOT_APPLICABLE",
             "the persisted reader surface carries the state verbatim"
         );
         let mut legacy_equation_json = equation_json.clone();
-        legacy_equation_json[equations::CURVE_ANCESTRY_KEY]["schema_version"] =
+        legacy_equation_json[ancestry::CURVE_ANCESTRY_KEY]["schema_version"] =
             serde_json::json!(2);
-        legacy_equation_json[equations::CURVE_ANCESTRY_KEY]
+        legacy_equation_json[ancestry::CURVE_ANCESTRY_KEY]
             .as_object_mut()
             .unwrap()
             .remove("parameter_state");
         let legacy_ancestry =
-            equations::parse_curve_ancestry(&legacy_equation_json.to_string()).unwrap();
+            ancestry::parse_curve_ancestry(&legacy_equation_json.to_string()).unwrap();
         assert_eq!(
             legacy_ancestry.parameter_state,
-            Some(equations::ProvenanceAbsentState::LegacyUnrecorded),
+            Some(crate::schema_vocab::ProvenanceAbsentState::LegacyUnrecorded),
             "an old empty collection must not be rewritten as known NOT_APPLICABLE"
         );
 
@@ -4247,7 +4248,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let set_id = equations::create_complete_log_set(&conn, &well_id, &complete)
+        let set_id = ancestry::create_complete_log_set(&conn, &well_id, &complete)
             .unwrap()
             .0;
         let params_json: String = conn
@@ -4437,7 +4438,7 @@ mod tests {
             conn: &duckdb::Connection,
             well_id: &str,
             spec: &modules::ModuleSpec,
-        ) -> equations::CompleteSetId {
+        ) -> ancestry::CompleteSetId {
             let request = RunModuleRequest {
                 module: spec.name.clone(),
                 well_ids: vec![well_id.to_string()],
@@ -4459,7 +4460,7 @@ mod tests {
                 &[],
             )
             .unwrap();
-            equations::create_complete_log_set(conn, well_id, &complete)
+            ancestry::create_complete_log_set(conn, well_id, &complete)
                 .unwrap()
                 .0
         }
@@ -4514,7 +4515,7 @@ mod tests {
             conn: &duckdb::Connection,
             well_id: &str,
             output_set: &str,
-        ) -> equations::AncestryInput {
+        ) -> ancestry::AncestryInput {
             let params_json: String = conn
                 .query_row(
                     "SELECT params_json FROM log_sets
@@ -4524,7 +4525,7 @@ mod tests {
                     |row| row.get(0),
                 )
                 .unwrap();
-            equations::parse_curve_ancestry(&params_json)
+            ancestry::parse_curve_ancestry(&params_json)
                 .unwrap()
                 .inputs
                 .into_iter()
@@ -4533,7 +4534,7 @@ mod tests {
         }
 
         fn rejected_identities(
-            input: &equations::AncestryInput,
+            input: &ancestry::AncestryInput,
         ) -> std::collections::BTreeSet<(String, String, Option<i64>)> {
             input
                 .rejected_candidates
@@ -4639,7 +4640,7 @@ mod tests {
             assert_ne!(input.chosen_curve_id.as_deref(), Some("GR"), "a mnemonic is not an identity");
             assert_eq!(input.log_set, "PASS_B");
             assert_eq!(input.set_version, Some(2));
-            assert_eq!(input.rule, Some(equations::CurveResolutionRule::FinalFlag));
+            assert_eq!(input.rule, Some(ancestry::CurveResolutionRule::FinalFlag));
             assert_eq!(
                 rejected_identities(&input),
                 std::collections::BTreeSet::from([
@@ -4664,7 +4665,7 @@ mod tests {
         assert_eq!(input.chosen_curve_id.as_deref(), Some(first.as_str()));
         assert_eq!(input.log_set, "PASS_A");
         assert_eq!(input.set_version, Some(2));
-        assert_eq!(input.rule, Some(equations::CurveResolutionRule::FinalFlag));
+        assert_eq!(input.rule, Some(ancestry::CurveResolutionRule::FinalFlag));
         assert_eq!(
             rejected_identities(&input),
             std::collections::BTreeSet::from([
@@ -4684,10 +4685,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let mut incomplete = equations::parse_curve_ancestry(&params_json).unwrap();
+        let mut incomplete = ancestry::parse_curve_ancestry(&params_json).unwrap();
         incomplete.inputs[0].chosen_curve_id = None;
         assert!(
-            equations::CompleteLogSetSpec::try_new("INCOMPLETE", incomplete).is_err(),
+            ancestry::CompleteLogSetSpec::try_new("INCOMPLETE", incomplete).is_err(),
             "schema v2 must not accept rejected candidates beside a mnemonic-only input"
         );
     }
@@ -4765,7 +4766,7 @@ mod tests {
                     |row| row.get(0),
                 )
                 .unwrap();
-            equations::parse_curve_ancestry(&params_json)
+            ancestry::parse_curve_ancestry(&params_json)
                 .unwrap()
                 .inputs
                 .into_iter()
@@ -5061,7 +5062,7 @@ mod tests {
                 .unwrap()
         };
         let comment = |name: &str| -> String {
-            equations::list_log_sets(&conn, &wells[name])
+            ancestry::list_log_sets(&conn, &wells[name])
                 .unwrap()
                 .into_iter()
                 .find(|s| s.module == "phi_den")
@@ -5167,7 +5168,7 @@ mod tests {
 
         let conn = dbm.lock().unwrap();
         let comment = |name: &str| -> String {
-            equations::list_log_sets(&conn, &wells[name])
+            ancestry::list_log_sets(&conn, &wells[name])
                 .unwrap()
                 .into_iter()
                 .find(|s| s.module == "phi_den")
@@ -5262,7 +5263,7 @@ mod tests {
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
         let conn = dbm.lock().unwrap();
         let comment = |name: &str| -> String {
-            equations::list_log_sets(&conn, &wells[name])
+            ancestry::list_log_sets(&conn, &wells[name])
                 .unwrap()
                 .into_iter()
                 .find(|set| set.module == "phi_dn")
@@ -5358,7 +5359,7 @@ mod tests {
         }
         let conn = dbm.lock().unwrap();
         let comment = |well: &str, module: &str| -> String {
-            equations::list_log_sets(&conn, &wells[well])
+            ancestry::list_log_sets(&conn, &wells[well])
                 .unwrap()
                 .into_iter()
                 .find(|set| set.module == module)
@@ -5685,7 +5686,7 @@ mod tests {
 
         let (set_id, ancestry) = {
             let conn = dbm.lock().unwrap();
-            let entry = equations::list_log_sets(&conn, &well)
+            let entry = ancestry::list_log_sets(&conn, &well)
                 .unwrap()
                 .into_iter()
                 .find(|entry| entry.module == "phi_den")
@@ -5966,7 +5967,7 @@ mod tests {
         assert!(results[0].error.is_none(), "{:?}", results[0].error);
         let set_id = {
             let conn = dbm.lock().unwrap();
-            equations::list_log_sets(&conn, &well)
+            ancestry::list_log_sets(&conn, &well)
                 .unwrap()
                 .into_iter()
                 .find(|entry| entry.module == "vsh_gr")
@@ -6245,7 +6246,7 @@ mod tests {
         assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
         let conn = dbm.lock().unwrap();
-        let comment = equations::list_log_sets(&conn, &id.to_string())
+        let comment = ancestry::list_log_sets(&conn, &id.to_string())
             .unwrap()
             .into_iter()
             .find(|set| set.module == "gr_hole_corr")
@@ -6500,7 +6501,7 @@ mod tests {
         assert!(quick.error.is_none(), "{:?}", quick.error);
         let recorded_basis = |module: &str| -> Option<String> {
             let conn = dbm.lock().unwrap();
-            equations::list_log_sets(&conn, &well)
+            ancestry::list_log_sets(&conn, &well)
                 .unwrap()
                 .into_iter()
                 .filter(|entry| entry.module == module)
@@ -6619,7 +6620,7 @@ mod tests {
             );
             assert!(results[0].error.is_none(), "{module}: {:?}", results[0].error);
             let conn = dbm.lock().unwrap();
-            equations::curve_ancestry(&conn, &well, curve)
+            ancestry::curve_ancestry(&conn, &well, curve)
                 .unwrap_or_else(|error| panic!("{module} must record its ancestry: {error}"))
         };
 
@@ -6638,7 +6639,7 @@ mod tests {
             ]),
             vec![("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL")],
         );
-        let find = |ancestry: &equations::CurveAncestry, name: &str| {
+        let find = |ancestry: &ancestry::CurveAncestry, name: &str| {
             ancestry
                 .parameters
                 .iter()
@@ -6733,7 +6734,7 @@ mod tests {
         // above and still fail the requirement.
         let disclosures = {
             let conn = dbm.lock().unwrap();
-            equations::curve_ancestry_disclosures(&conn, &[well.clone()], Some("SW_INDO")).unwrap()
+            ancestry::curve_ancestry_disclosures(&conn, &[well.clone()], Some("SW_INDO")).unwrap()
         };
         let rendered = disclosures
             .iter()
@@ -7400,14 +7401,14 @@ mod tests {
         let phie = [0.2; 4];
         let swe = [0.3; 4];
         let perm = [f32::NAN; 4];
-        let input_spec = equations::LogSetSpec {
+        let input_spec = ancestry::LogSetSpec {
             set_name: "TEST_INPUTS".into(),
             module: "test_fixture".into(),
             params_json: "{}".into(),
             inputs_json: "[]".into(),
         };
-        let (input_set_id, _) = equations::create_log_set(&conn, &w, &input_spec).unwrap();
-        equations::write_computed_curves_versioned(
+        let (input_set_id, _) = ancestry::create_log_set(&conn, &w, &input_spec).unwrap();
+        ancestry::write_computed_curves_versioned(
             &conn,
             &w,
             &depths,
@@ -7526,14 +7527,14 @@ mod tests {
         let phie = [0.2; 4];
         let swe = [0.3; 4];
         let perm = [f32::NAN; 4];
-        let input_spec = equations::LogSetSpec {
+        let input_spec = ancestry::LogSetSpec {
             set_name: "TEST_INPUTS".into(),
             module: "test_fixture".into(),
             params_json: "{}".into(),
             inputs_json: "[]".into(),
         };
-        let (input_set_id, _) = equations::create_log_set(&conn, &w, &input_spec).unwrap();
-        equations::write_computed_curves_versioned(
+        let (input_set_id, _) = ancestry::create_log_set(&conn, &w, &input_spec).unwrap();
+        ancestry::write_computed_curves_versioned(
             &conn,
             &w,
             &depths,
@@ -8005,7 +8006,7 @@ mod tests {
             well_id: &str,
             curve: &str,
         ) -> modules::PorosityOutputContract {
-            let ancestry = equations::curve_ancestry(conn, well_id, curve)
+            let ancestry = ancestry::curve_ancestry(conn, well_id, curve)
                 .unwrap_or_else(|error| panic!("{curve} has no complete ancestry: {error}"));
             let parameter = ancestry
                 .parameters
@@ -8254,7 +8255,7 @@ mod tests {
         assert_eq!(imported_identity.0, modules::POROSITY_FAMILY_ID);
         assert_eq!(imported_identity.1, "imported porosity fixture");
         assert!(
-            equations::curve_ancestry(&conn, &well_id, "PHIE").is_ok(),
+            ancestry::curve_ancestry(&conn, &well_id, "PHIE").is_ok(),
             "the computed curve must carry complete run ancestry independently of imported metadata"
         );
         drop(conn);
@@ -8299,7 +8300,7 @@ mod tests {
 
         {
             let conn = dbm.lock().unwrap();
-            let restored = equations::restore_log_set(&conn, &density_set_id).unwrap();
+            let restored = ancestry::restore_log_set(&conn, &density_set_id).unwrap();
             assert_eq!(restored.new_version, 3);
             assert_eq!(current_values(&conn, &well_id, "PHIE"), density_current);
             assert_eq!(porosity_contract(&conn, &well_id, "PHIE").method, "DENSITY");
@@ -8630,7 +8631,7 @@ mod tests {
 
         let reopened = db::init_db_resilient(&path).expect("reopen smoothing-provenance project");
         let policy = |curve: &str| {
-            equations::curve_ancestry(&reopened, &well_id, curve)
+            ancestry::curve_ancestry(&reopened, &well_id, curve)
                 .unwrap()
                 .parameters
                 .into_iter()
@@ -9405,11 +9406,7 @@ mod tests {
     /// without it, a phi_den that ignored VSH entirely would satisfy every other assertion.
     #[test]
     fn a_restored_log_set_version_feeds_the_next_module_run() {
-        use crate::equations::{
-            create_complete_log_set, restore_log_set, write_computed_curves_with_ancestry,
-            AncestryOutput, AncestryParameter, AncestryZoneScope, CompleteLogSetSpec,
-            CurveAncestry,
-        };
+        use crate::ancestry::{AncestryOutput, AncestryParameter, AncestryZoneScope, CompleteLogSetSpec, CurveAncestry, create_complete_log_set, restore_log_set, write_computed_curves_with_ancestry};
 
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
@@ -9434,7 +9431,7 @@ mod tests {
         )
         .unwrap();
 
-        let gr_input = equations::resolve_ancestry_input(&conn, &w, "GR", "GR", None, None)
+        let gr_input = ancestry::resolve_ancestry_input(&conn, &w, "GR", "GR", None, None)
             .expect("the synthetic standard GR must have a resolvable source identity");
         let producer_spec = || {
             let parameters = vec![AncestryParameter {
@@ -9448,16 +9445,16 @@ mod tests {
             CompleteLogSetSpec::try_new(
                 "INTERP",
                 CurveAncestry {
-                    schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
+                    schema_version: ancestry::CURVE_ANCESTRY_SCHEMA_VERSION,
                     method_derivation: None,
                     module: "vsh_gr".into(),
                     module_version: env!("CARGO_PKG_VERSION").into(),
                     inputs: vec![gr_input.clone()],
-                    parameter_state: equations::parameter_state_for(&parameters),
+                    parameter_state: ancestry::parameter_state_for(&parameters),
                     parameters,
                     zone_scope: AncestryZoneScope::WholeWell,
                     actor: test_run_custody().actor,
-                    timestamp_utc_ms: equations::ancestry_timestamp_utc_ms().unwrap(),
+                    timestamp_utc_ms: ancestry::ancestry_timestamp_utc_ms().unwrap(),
                     outputs: vec![AncestryOutput {
                         curve: "VSH".into(),
                         derivation: "SB-CLY-043 typed restore fixture".into(),
@@ -10710,7 +10707,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let ancestry = equations::parse_curve_ancestry(&params_json).unwrap();
+        let ancestry = ancestry::parse_curve_ancestry(&params_json).unwrap();
         let received = ancestry
             .parameters
             .iter()
@@ -10801,7 +10798,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let ancestry = equations::parse_curve_ancestry(&params_json).unwrap();
+        let ancestry = ancestry::parse_curve_ancestry(&params_json).unwrap();
         let received = ancestry
             .parameters
             .iter()
@@ -10831,7 +10828,7 @@ mod tests {
     /// rather than a behaviour.
     #[test]
     fn a_reserved_provenance_key_is_refused_from_either_map_by_one_guard() {
-        let param = |name: &str| equations::AncestryParameter {
+        let param = |name: &str| ancestry::AncestryParameter {
             name: name.into(),
             value: serde_json::json!(1.0),
             source: "test".into(),
