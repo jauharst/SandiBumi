@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 631,
+Review sections counted toward no capability: **157** of 632,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -63,9 +63,9 @@ this table, so every figure above reads low by whatever those sections cover.
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
-| `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
+| `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 9 | — | 3 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 69 | — | 13 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 182 | 2026-08-13 | 58 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 174 | 2026-08-13 | 51 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 181 | 2026-08-13 | 52 |

@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 45 (my audit P2): **the Database Inspector's cleanup rules are written down once instead of four times**
+
+- [ ] **Where.** Database Inspector → integrity check, and its **Quarantine / Undo / Redo**.
+- [ ] **What was wrong.** Four separate functions — check, quarantine, undo, redo — each spelled
+      out the same four cleanup rules in their own SQL, about seven statements per rule. The part
+      that matters is that **what makes a row "the same row" was typed out four times**, and the
+      computed-curve table deliberately has no database key underneath to catch a mistake. A
+      single slip would mean an Undo that quietly **duplicates** rows, or a Redo that **deletes
+      rows it never quarantined**.
+- [ ] **The fix.** Each rule is described once — what makes a row an orphan, and what makes a row
+      the same row — and all four operations are built from that one description. The check now
+      counts with **the same rule the quarantine acts on**, so what the report offers and what the
+      cleanup takes cannot drift apart.
+- [ ] **A real bug fixed on the way.** When an Undo could not go ahead, it said *"identity
+      collision in restore class 2"* — a position in a list, which told you nothing and would
+      have pointed at the **wrong** rule the moment anyone reordered it. It now names the class.
+- [ ] **Archived versions still restore.** Two versions of the same curve at the same depth in
+      **different log sets** are different rows, and an Undo must not refuse because of one. That
+      distinction is now stated explicitly — and pinned, because collapsing the two rules into one
+      would have left every archive quarantine impossible to undo.
+- [ ] **No number moves** and nothing about your data changes; this is the same cleanup expressed
+      so a mistake is much harder to make.
+- [ ] **What to check.** Open the Database Inspector on a real project and run the integrity
+      check — the class list and counts should read exactly as before. If anything is offered for
+      quarantine, run it, then **Undo**, and confirm the rows come back and the counts return to
+      what they were; then **Redo** and confirm they go away again.
+
 ## 2026-08-21 — Audit increment 44 (my audit P2): **a mistyped cut-off slot can no longer be silently treated as the permeability one**
 
 - [ ] **What was wrong.** The four cut-off slots (VSH / PHIE / SWE / PERM) and the three report
