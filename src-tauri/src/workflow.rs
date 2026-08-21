@@ -1216,28 +1216,16 @@ fn complete_module_log_spec(
                 if let Some(arg) = spec.args.iter().find(|arg| {
                     arg.name == *argument && !arg.accepted_shale_clay_quantities.is_empty()
                 }) {
-                    let accepted = arg
-                        .accepted_shale_clay_quantities
-                        .iter()
-                        .map(|quantity| quantity.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" or ");
-                    let quantity = shale_clay_quantity_for_ancestry_input(conn, &input)?
-                        .ok_or_else(|| {
-                            format!(
-                                "module '{}' input '{}' requires typed {accepted} metadata, but resolved curve '{}' has no VSH/VCL quantity metadata",
-                                spec.name, argument, input.curve
-                            )
-                        })?;
-                    if !arg.accepted_shale_clay_quantities.contains(&quantity) {
-                        return Err(format!(
-                            "module '{}' input '{}' requires {accepted}, but resolved curve '{}' carries {} metadata",
-                            spec.name,
-                            argument,
-                            input.curve,
-                            quantity.as_str()
-                        ));
-                    }
+                    let quantity = checked_shale_clay_quantity(
+                        arg,
+                        shale_clay_quantity_for_ancestry_input(conn, &input)?,
+                        &spec.name,
+                        argument,
+                        QuantityOrigin {
+                            curve_phrase: &format!("resolved curve '{}'", input.curve),
+                            missing_advice: "",
+                        },
+                    )?;
                     let name = format!("{INPUT_QUANTITY_PROVENANCE_PREFIX}{argument}");
                     reject_reserved_key(
                         &parameters,
@@ -1246,16 +1234,7 @@ fn complete_module_log_spec(
                         "input-quantity provenance",
                         &name,
                     )?;
-                    parameters.push(equations::AncestryParameter {
-                        name,
-                        value: serde_json::to_value(quantity).map_err(|error| {
-                            format!("cannot serialize input quantity for {argument}: {error}")
-                        })?,
-                        source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
-                        resolution: None,
-                        manifest_version: None,
-                        decision: None,
-                    });
+                    parameters.push(shale_clay_quantity_parameter(name, argument, quantity)?);
                 }
                 inputs.push(input)
             }
@@ -1952,6 +1931,76 @@ pub(crate) fn shale_clay_quantity_from_family(
 /// Read the producer-owned quantity metadata for the exact ancestry input the resolver selected.
 /// Generic/imported curves carry it in `curve_meta.family`; computed curves carry it in their
 /// versioned ancestry record. The mnemonic and unit are deliberately not consulted.
+/// How the caller found the curve whose quantity metadata is being checked, in the words the
+/// refusal will use. "chain-produced curve 'VSH1'" and "resolved curve 'VSH1'" send a user to two
+/// different places to fix the same complaint, and only the second can be fixed by assigning a
+/// family - a curve a chain produced a moment ago takes its quantity from the module that made it,
+/// so telling its user to go and assign one would be advice they cannot act on.
+pub(crate) struct QuantityOrigin<'a> {
+    pub(crate) curve_phrase: &'a str,
+    pub(crate) missing_advice: &'a str,
+}
+
+/// AUDIT-2026-08-20 finding 76: the SB-CLY-043 input-quantity contract, checked in ONE place.
+///
+/// A clay-volume consumer declares which quantity it accepts - VSH (shale) or VCL (clay) - and a
+/// curve carrying the other one is a DIFFERENT physical quantity under a compatible-looking
+/// mnemonic. This was written out FOUR times: twice in `chain.rs` (once for a curve the chain had
+/// just produced, once for one resolved out of the project) and twice here (the run's ancestry
+/// build and the pre-flight validation). They differed only in where `actual` came from and in
+/// what the refusal called the curve. Four copies is four places for an accepted list to be
+/// widened in three, and the widening is silent: the wrong quantity computes, plots and ships.
+pub(crate) fn checked_shale_clay_quantity(
+    contract: &modules::ArgSpec,
+    actual: Option<modules::ShaleClayQuantity>,
+    module: &str,
+    arg_name: &str,
+    origin: QuantityOrigin<'_>,
+) -> Result<modules::ShaleClayQuantity, String> {
+    let QuantityOrigin {
+        curve_phrase,
+        missing_advice,
+    } = origin;
+    let accepted = contract
+        .accepted_shale_clay_quantities
+        .iter()
+        .map(|quantity| quantity.as_str())
+        .collect::<Vec<_>>()
+        .join(" or ");
+    let actual = actual.ok_or_else(|| {
+        format!(
+            "module '{module}' input '{arg_name}' requires typed {accepted} metadata, but {curve_phrase} has no VSH/VCL quantity metadata{missing_advice}"
+        )
+    })?;
+    if !contract.accepted_shale_clay_quantities.contains(&actual) {
+        return Err(format!(
+            "module '{module}' input '{arg_name}' requires {accepted}, but {curve_phrase} carries {} metadata",
+            actual.as_str()
+        ));
+    }
+    Ok(actual)
+}
+
+/// The provenance row recording WHICH quantity a run accepted for one input. Separate from the
+/// check above because the pre-flight validation refuses without recording anything, while the
+/// three producing paths record - and one of them has to clear the reserved-key guard between the
+/// two steps, so they cannot be one call.
+pub(crate) fn shale_clay_quantity_parameter(
+    name: String,
+    arg_name: &str,
+    quantity: modules::ShaleClayQuantity,
+) -> Result<equations::AncestryParameter, String> {
+    Ok(equations::AncestryParameter {
+        name,
+        value: serde_json::to_value(quantity)
+            .map_err(|error| format!("cannot serialize input quantity for {arg_name}: {error}"))?,
+        source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
+        resolution: None,
+        manifest_version: None,
+        decision: None,
+    })
+}
+
 pub(crate) fn shale_clay_quantity_for_ancestry_input(
     conn: &Connection,
     input: &equations::AncestryInput,
@@ -2056,27 +2105,17 @@ fn validate_shale_clay_input_quantities(
         )? else {
             continue;
         };
-        let accepted = argument
-            .accepted_shale_clay_quantities
-            .iter()
-            .map(|quantity| quantity.as_str())
-            .collect::<Vec<_>>()
-            .join(" or ");
-        let Some(actual) = shale_clay_quantity_for_ancestry_input(conn, &input)? else {
-            return Err(format!(
-                "module '{}' input '{}' requires typed {accepted} metadata, but resolved curve '{}' has no VSH/VCL quantity metadata; assign the physical family explicitly instead of relying on its mnemonic",
-                spec.name, argument.name, input.curve
-            ));
-        };
-        if !argument.accepted_shale_clay_quantities.contains(&actual) {
-            return Err(format!(
-                "module '{}' input '{}' requires {accepted}, but resolved curve '{}' carries {} metadata",
-                spec.name,
-                argument.name,
-                input.curve,
-                actual.as_str()
-            ));
-        }
+        // Refuses without recording: this pass runs before the ancestry record exists.
+        checked_shale_clay_quantity(
+            argument,
+            shale_clay_quantity_for_ancestry_input(conn, &input)?,
+            &spec.name,
+            &argument.name,
+            QuantityOrigin {
+                curve_phrase: &format!("resolved curve '{}'", input.curve),
+                missing_advice: "; assign the physical family explicitly instead of relying on its mnemonic",
+            },
+        )?;
     }
     Ok(())
 }
@@ -5470,6 +5509,140 @@ mod tests {
     use crate::ingest;
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+
+    /// AUDIT-2026-08-20 finding 76. The SB-CLY-043 input-quantity contract - a clay-volume
+    /// consumer declares whether it accepts VSH or VCL, and the other one is a DIFFERENT physical
+    /// quantity wearing a compatible-looking mnemonic - was checked in FOUR places: twice in
+    /// `chain.rs` (a curve the chain had just produced, and one resolved out of the project) and
+    /// twice here (the run ancestry build, and the pre-flight validation). Four copies is four
+    /// places for an accepted list to be widened in three, and the widening is silent: the wrong
+    /// quantity computes, plots and ships into a report.
+    ///
+    /// Pinned from both sides, because either half alone has a lazier way to pass. The check is
+    /// written ONCE and all four callers reach it, AND the refusal still describes the curve the
+    /// way the caller found it. Folding the wording into one shared string would satisfy the count
+    /// and send a user chasing the wrong fix: a curve the chain produced a moment ago takes its
+    /// quantity from the module that made it, so "assign the physical family" is advice they
+    /// cannot act on, while for a curve resolved out of the project it is the whole answer.
+    #[test]
+    fn the_shale_clay_quantity_contract_is_checked_once_and_still_names_where_the_curve_came_from()
+    {
+        // Counted over the production half of each file, with every needle assembled, so that
+        // this test is never an occurrence of what it counts.
+        let here = include_str!("workflow.rs");
+        let chain = include_str!("chain.rs");
+        let before_tests = |source: &'static str| {
+            source.split("\nmod tests").next().expect("a split always yields one piece")
+        };
+        let production = [before_tests(here), before_tests(chain)].concat();
+        let refusal = ["has no VSH/VCL", " quantity metadata"].concat();
+        assert_eq!(
+            production.matches(refusal.as_str()).count(),
+            1,
+            "the quantity contract is one check; a second is a second accepted list",
+        );
+        // Scoped to the INPUT path on purpose: the same document also decides which quantity a
+        // module PRODUCES, and that provenance is a separate concern with its own two writers.
+        assert_eq!(
+            production.matches(["cannot serialize input", " quantity for"].concat().as_str())
+                .count(),
+            1,
+            "and one statement of the provenance row that records what was accepted",
+        );
+        assert_eq!(
+            production.matches(["checked_shale_clay_quantity", "("].concat().as_str()).count(),
+            5,
+            "one declaration and the four callers that reach it",
+        );
+        // Two of those four found the curve somewhere a user cannot assign a family, and must
+        // therefore withhold that advice: the chain-produced curve, and the run's ancestry build.
+        let quote = '"';
+        assert_eq!(
+            production.matches(format!("missing_advice: {quote}{quote},").as_str()).count(),
+            2,
+            "the advice follows the origin; a caller that hands out unactionable advice is a bug",
+        );
+
+        // brittleness.VCLAY is a real SB-CLY-043 consumer: it accepts CLAY volume and nothing else.
+        let catalog = modules::list_modules();
+        let contract = catalog
+            .iter()
+            .find(|spec| spec.name == "brittleness")
+            .and_then(|spec| spec.args.iter().find(|arg| arg.name == "VCLAY"))
+            .expect("brittleness.VCLAY carries the clay-quantity contract");
+        assert_eq!(
+            contract.accepted_shale_clay_quantities,
+            vec![modules::ShaleClayQuantity::ClayVolume],
+        );
+
+        let chain_produced = || QuantityOrigin {
+            curve_phrase: "chain-produced curve 'VCL1'",
+            missing_advice: "",
+        };
+        let resolved = || QuantityOrigin {
+            curve_phrase: "resolved curve 'VCL1'",
+            missing_advice: "; assign the physical family explicitly instead of relying on its mnemonic",
+        };
+
+        // The accepted quantity passes and is handed back for the provenance row.
+        assert_eq!(
+            checked_shale_clay_quantity(
+                contract,
+                Some(modules::ShaleClayQuantity::ClayVolume),
+                "brittleness",
+                "VCLAY",
+                resolved(),
+            )
+            .expect("clay volume is what this consumer accepts"),
+            modules::ShaleClayQuantity::ClayVolume,
+        );
+
+        // The other quantity is refused by name, and the refusal says which one arrived.
+        let wrong = checked_shale_clay_quantity(
+            contract,
+            Some(modules::ShaleClayQuantity::ShaleVolume),
+            "brittleness",
+            "VCLAY",
+            resolved(),
+        )
+        .expect_err("shale volume is a different physical quantity");
+        assert_eq!(
+            wrong,
+            "module 'brittleness' input 'VCLAY' requires VCL, but resolved curve 'VCL1' carries VSH metadata",
+        );
+
+        // No metadata at all is refused rather than assumed - and the advice follows the ORIGIN.
+        let unresolved = checked_shale_clay_quantity(
+            contract, None, "brittleness", "VCLAY", resolved(),
+        )
+        .expect_err("an untyped curve is refused, never guessed from its mnemonic");
+        assert!(
+            unresolved.ends_with(
+                "; assign the physical family explicitly instead of relying on its mnemonic"
+            ),
+            "a curve resolved out of the project can be fixed by assigning a family: {unresolved}",
+        );
+        let unresolved = checked_shale_clay_quantity(
+            contract, None, "brittleness", "VCLAY", chain_produced(),
+        )
+        .expect_err("an untyped chain-produced curve is refused too");
+        assert_eq!(
+            unresolved,
+            "module 'brittleness' input 'VCLAY' requires typed VCL metadata, but chain-produced curve 'VCL1' has no VSH/VCL quantity metadata",
+            "a curve the chain just produced takes its quantity from the module that made it, so \
+             that advice would be unactionable and is not given",
+        );
+
+        // The provenance row records WHICH quantity was accepted, and cites what decided it.
+        let parameter = shale_clay_quantity_parameter(
+            "step[2].INPUT_QUANTITY.VCLAY".into(),
+            "VCLAY",
+            modules::ShaleClayQuantity::ClayVolume,
+        )
+        .expect("the accepted quantity is recordable");
+        assert_eq!(parameter.value, serde_json::json!("VCL"));
+        assert_eq!(parameter.source, "docs/PRD_v2/10_clay-volume.md SB-CLY-043");
+    }
 
     #[test]
     fn the_live_despike_preview_reads_the_selected_windows_and_returns_only_branch_counts() {
