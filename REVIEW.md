@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 84 (my audit P3, **DEC-091**): **one porosity floor per well, never two**
+
+- [ ] **What to click.** Open a module dialog for **phi_den**, **phi_dn** or **phi_dnbk** and look
+      at **PHIE_FLOOR**. It still defaults to 0.001 and you can still raise it, but it will no
+      longer accept a value below 0.001. Nothing else changes: no existing project's numbers move,
+      because the default was already 0.001 and is unmoved.
+- [ ] **What was wrong.** The floor was settable down to 0.0001 — IP offers both values for the
+      same quantity, which is why it is a parameter at all. But the **pay summary** floors porosity
+      at a fixed 0.001 before it classifies or sums anything. So a run set to 0.0001 wrote a
+      porosity curve, and the pay page then quietly lifted every value under 0.001 back up. One
+      well carrying two different floors, with nothing saying so — and the disagreement was
+      invisible, because both numbers are perfectly plausible porosities and only the hydrocarbon
+      column moved.
+- [ ] **What changed, and your ruling.** *"hard floor to minimal 0.001, not below"* — recorded as
+      **DEC-091**. The parameter's minimum now **is** the pay summary's floor, so the two cannot
+      disagree by construction. That removes the problem rather than reporting it, which is the
+      better of the two fixes.
+- [ ] **What the check pins.** Both directions, because either alone has a lazy way to pass: the
+      floor can never be set below what the pay summary applies, **and** it is still your decision
+      above it. Collapsing the range to a single value would satisfy the first and throw away
+      DEC-067's user choice, so the check fails on that too. The floor is also now declared in
+      **one** place instead of three identical copies, so a range corrected in two of three is no
+      longer possible.
+
 ## 2026-08-21 — Audit increment 83 (my audit P2): **the module runner names its own result, and three structural proposals measured against the source**
 
 - [ ] **What to click.** Nothing changes in the app — no number moves, no curve appears. Run any

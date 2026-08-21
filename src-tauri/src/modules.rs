@@ -4239,19 +4239,7 @@ fn phi_den_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
-            // SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a
-            // USER DECISION with a cited default - IP's own manual states 0.001 and 0.0001
-            // for the same quantity (F17), which is exactly why this is a parameter rather
-            // than a constant. The unlimited twin is never floored.
-            param(
-                "PHIE_FLOOR",
-                "Floor applied to limited PHIE where the limit binds",
-                "v/v",
-                crate::param_sources::PHIE_FLOOR,
-                0.0001,
-                0.01,
-                "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
-            ),
+            phie_floor_param(),
             // SB-POR-044 (DEC-066): the smooth high-shale roll-off's PhiMax IS PHIE_MAX
             // above (Jauhar: "its 0.3 as default value as PHIE_MAX ... refer to porosity
             // limit in IP2025 help"; note his convention: clay + silt pooled as shale, so
@@ -4323,6 +4311,32 @@ fn phi_den_spec() -> ModuleSpec {
 /// must never share this name (F16).
 pub(crate) fn shale_total_porosity(rho_dsh: f64, rho_sh: f64, rho_w: f64) -> f64 {
     (rho_dsh - rho_sh) / (rho_dsh - rho_w)
+}
+
+/// SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a USER DECISION
+/// with a cited default - IP's own manual states 0.001 and 0.0001 for the same quantity (F17),
+/// which is exactly why this is a parameter rather than a constant. The unlimited twin is never
+/// floored.
+///
+/// DEC-091 (Jauhar, 2026-08-21, AUDIT-2026-08-20 finding 38) closed the range at the bottom: the
+/// MINIMUM is the default, 0.001, and IP's competing 0.0001 is deliberately out of reach. The pay
+/// summary floors PHIE at the compile-time [`PHIE_FLOOR`] before it classifies or sums anything,
+/// so a run permitted to write a curve floored lower would have that curve silently re-floored on
+/// the pay page - one well carrying two different floors, with nothing saying so. Holding the
+/// parameter's minimum AT the pay floor removes the disagreement instead of reporting it.
+///
+/// AUDIT-2026-08-20 finding 75's family: the three density-porosity modules declared this
+/// character-identically. One statement, so a range corrected in two of three is not possible.
+fn phie_floor_param() -> ArgSpec {
+    param(
+        "PHIE_FLOOR",
+        "Floor applied to limited PHIE where the limit binds",
+        "v/v",
+        crate::param_sources::PHIE_FLOOR,
+        crate::param_sources::PHIE_FLOOR,
+        0.01,
+        "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md",
+    )
 }
 
 /// SB-POR-044 (DEC-066) / SB-POR-045: the PHIE ceiling for the selected limiting mode, the floor
@@ -4499,19 +4513,7 @@ fn phi_dn_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
-            // SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a
-            // USER DECISION with a cited default - IP's own manual states 0.001 and 0.0001
-            // for the same quantity (F17), which is exactly why this is a parameter rather
-            // than a constant. The unlimited twin is never floored.
-            param(
-                "PHIE_FLOOR",
-                "Floor applied to limited PHIE where the limit binds",
-                "v/v",
-                crate::param_sources::PHIE_FLOOR,
-                0.0001,
-                0.01,
-                "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
-            ),
+            phie_floor_param(),
             // SB-POR-044 (DEC-066): the smooth high-shale roll-off's PhiMax IS PHIE_MAX
             // above (Jauhar: "its 0.3 as default value as PHIE_MAX ... refer to porosity
             // limit in IP2025 help"; note his convention: clay + silt pooled as shale, so
@@ -4769,19 +4771,7 @@ fn phi_dnbk_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::MAX_EFFECTIVE_POROSITY,
             ),
-            // SB-POR-045 (DEC-067): the value LIMITED PHIE takes when the floor binds is a
-            // USER DECISION with a cited default - IP's own manual states 0.001 and 0.0001
-            // for the same quantity (F17), which is exactly why this is a parameter rather
-            // than a constant. The unlimited twin is never floored.
-            param(
-                "PHIE_FLOOR",
-                "Floor applied to limited PHIE where the limit binds",
-                "v/v",
-                crate::param_sources::PHIE_FLOOR,
-                0.0001,
-                0.01,
-                "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; range spans IP's competing 0.0001 (F17) up to the below-any-real-cutoff guard 0.01; docs/takeover/DECISIONS.md",
-            ),
+            phie_floor_param(),
             // SB-POR-044 (DEC-066): the smooth high-shale roll-off's PhiMax IS PHIE_MAX
             // above (Jauhar: "its 0.3 as default value as PHIE_MAX ... refer to porosity
             // limit in IP2025 help"; note his convention: clay + silt pooled as shale, so
@@ -11334,6 +11324,62 @@ mod tests {
     /// SHARE it. A fourth copy pasted back in computes the same answer today and drifts silently
     /// tomorrow, and only the shale end of a porosity curve moves when it does. Both sides: the
     /// statement exists once, and every module that needs it reaches that one.
+    /// AUDIT-2026-08-20 finding 38, closed by DEC-091 (Jauhar, 2026-08-21, verbatim: "hard floor
+    /// to minimal 0.001, not below").
+    ///
+    /// The porosity modules floor what they WRITE at the per-run `PHIE_FLOOR` (DEC-067); the pay
+    /// summary floors at the compile-time constant through `workflow::floored_phie` before it
+    /// classifies or sums anything. A run permitted to set the parameter LOWER wrote a curve the
+    /// pay page silently lifted - one well carrying two different floors, and the disagreement
+    /// invisible because both numbers are plausible porosities and only the hydrocarbon column
+    /// moved. Holding the parameter's MINIMUM at the pay path's own floor removes the
+    /// disagreement rather than reporting it.
+    ///
+    /// Both sides, because either alone has a lazier way to pass: the floor can never be set
+    /// below what the pay summary applies, AND it is still a user decision above it. Collapsing
+    /// the range to one value would satisfy the first half and throw DEC-067 away.
+    #[test]
+    fn no_run_can_floor_porosity_below_the_floor_the_pay_summary_applies() {
+        // Taken from the pay path ITSELF, not from the constant it happens to share - the point
+        // is that the two agree, and reading one number twice could not tell.
+        let pay_floor = crate::workflow::floored_phie(&[0.0])[0];
+        let mut seen = 0usize;
+        for spec in list_modules() {
+            for arg in spec.args.iter().filter(|arg| arg.name == "PHIE_FLOOR") {
+                let min = arg.min.expect("a numeric parameter declares its range");
+                let max = arg.max.expect("a numeric parameter declares its range");
+                assert_eq!(
+                    min as f32, pay_floor,
+                    "{}: the settable minimum must BE the floor the pay summary applies",
+                    spec.name,
+                );
+                assert_eq!(
+                    arg.default.parse::<f64>().expect("a numeric default") as f32,
+                    pay_floor,
+                    "{}: and the cited default sits on it",
+                    spec.name,
+                );
+                assert!(
+                    max > min,
+                    "{}: the floor stays a user decision ABOVE the pay floor (DEC-067)",
+                    spec.name,
+                );
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, 3, "the three density-porosity modules declare the floor");
+
+        // And they declare it ONCE - a range corrected in two of three is the silent half.
+        let source = include_str!("modules.rs");
+        let production =
+            source.split("\nmod tests").next().expect("a split always yields one piece");
+        assert_eq!(
+            production.matches(["phie_floor_param", "()"].concat().as_str()).count(),
+            4,
+            "one declaration and the three modules that reach it",
+        );
+    }
+
     #[test]
     fn the_porosity_ceiling_and_the_correction_flag_group_are_each_stated_once() {
         let source = include_str!("modules.rs");
