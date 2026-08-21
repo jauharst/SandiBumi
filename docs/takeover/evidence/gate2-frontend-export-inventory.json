@@ -1,0 +1,232 @@
+{
+ "schema_version": 1,
+ "captured_at_commit": "134a6e79187ea407290b6a15168a8361fc663376",
+ "capture_command": "node tools/frontend-exports.mjs --list",
+ "evidence_class": "CHARACTERIZATION",
+ "evidence_note": "Unreferenced means nothing in src/, tools/, e2e/ or index.html names it. No row here is evidence that its subject works; a BACKEND-ROUTE-PENDING row is evidence only that the command behind it is still registered.",
+ "expected_unreferenced_export_count": 38,
+ "expected_category_counts": {
+  "BACKEND-ROUTE-PENDING": 20,
+  "SUPERSEDED-BY-SIBLING": 10,
+  "ROUTE-PENDING": 1,
+  "HELPER-UNADOPTED": 7
+ },
+ "groups": [
+  {
+   "category": "BACKEND-ROUTE-PENDING",
+   "owner_requirement": "AUDIT-2026-08-20 finding 68",
+   "owner_gate": "check:frontend-exports",
+   "rationale": "A wrapper for a backend command that is still registered in lib.rs. The capability is built and reachable from Rust; what is missing is a control in the interface. Deleting the wrapper would move that capability further out of reach, not nearer, so each row is kept and the gate re-checks that the command is still registered. A row whose command has since been unregistered is dead at BOTH ends and fails.",
+   "exports": [
+    {
+     "key": "src/ipc.ts|compareZoneTopToContact",
+     "backend_command": "compare_zone_top_to_contact",
+     "rationale": "Contact QC compares a zone top against a fitted fluid contact; no pane offers the comparison yet."
+    },
+    {
+     "key": "src/ipc.ts|confirmLogScaleZeros",
+     "backend_command": "confirm_log_scale_zeros",
+     "rationale": "The confirmation a user gives when a log-scale axis is asked to plot zeros; no plot dialog raises it yet."
+    },
+    {
+     "key": "src/ipc.ts|coreExtraDatasets",
+     "backend_command": "core_extra_datasets",
+     "rationale": "Lists the aux datasets a core import carried in as extras; the Data Sets pane lists point data by dataset instead."
+    },
+    {
+     "key": "src/ipc.ts|deleteArrayLog",
+     "backend_command": "delete_array_log",
+     "rationale": "Removes a stored realization matrix or T2 distribution; nothing offers deletion of an array log yet, so a persisted Monte Carlo matrix can only be replaced by re-running."
+    },
+    {
+     "key": "src/ipc.ts|deleteWellImage",
+     "backend_command": "delete_well_image",
+     "rationale": "Removes one depth-registered plate; the picture panes condition and re-render plates but never drop one."
+    },
+    {
+     "key": "src/ipc.ts|exportDelimitedSet",
+     "backend_command": "export_delimited_set",
+     "rationale": "Writes one named curve set as delimited text with an explicit null token; the export menu offers LAS and the office formats only."
+    },
+    {
+     "key": "src/ipc.ts|getGenericCurveSamples",
+     "backend_command": "get_generic_curve_samples",
+     "rationale": "Reads a generic-store curve on its own stored depths; every current reader goes through the aligned fetch instead."
+    },
+    {
+     "key": "src/ipc.ts|getLogSetManifest",
+     "backend_command": "get_log_set_manifest",
+     "rationale": "Returns a log set's resolved parameter record and step history. Nothing displays it, which is why the restore path's null manifest (finding 70) has no reader to be wrong for yet."
+    },
+    {
+     "key": "src/ipc.ts|getParameterModuleSchema",
+     "backend_command": "get_parameter_module_schema",
+     "rationale": "Describes one module's parameter fields for a generic editor; the parameter dialogs auto-generate from the module manifest instead."
+    },
+    {
+     "key": "src/ipc.ts|getProjectNullSentinel",
+     "backend_command": "get_project_null_sentinel",
+     "rationale": "Reads the project's declared absent-value token; import refuses an undeclared sentinel by asking, so nothing reads the stored answer back yet."
+    },
+    {
+     "key": "src/ipc.ts|importAuxData",
+     "backend_command": "import_aux_data",
+     "rationale": "The unmapped aux import; the wizard path that confirms a column mapping first is what the Aux button uses."
+    },
+    {
+     "key": "src/ipc.ts|listConvertibleUnitFamilies",
+     "backend_command": "list_convertible_unit_families",
+     "rationale": "Names the unit families the engine can convert between; no dialog offers a unit picker driven by it yet."
+    },
+    {
+     "key": "src/ipc.ts|listDataExportFormats",
+     "backend_command": "list_data_export_formats",
+     "rationale": "Names the delimited export formats the backend can write; the export menu hard-codes its entries."
+    },
+    {
+     "key": "src/ipc.ts|loadParameterPack",
+     "backend_command": "load_parameter_pack",
+     "rationale": "Applies a saved parameter pack across zones; per-well and per-zone parameter editing is the only route offered."
+    },
+    {
+     "key": "src/ipc.ts|mapCoreDepths",
+     "backend_command": "map_core_depths",
+     "rationale": "Maps core depths onto the log frame without moving them. Depth registration applies a shift instead, so the non-destructive preview has no control."
+    },
+    {
+     "key": "src/ipc.ts|mlModelCitations",
+     "backend_command": "ml_model_citations",
+     "rationale": "Returns the provenance a saved model was fitted under; the saved-models list shows name, metrics and wells but not the citation record."
+    },
+    {
+     "key": "src/ipc.ts|setPinnedWells",
+     "backend_command": "set_pinned_wells",
+     "rationale": "Writes the whole pinned-well set at once; the Wells pane toggles pins one at a time."
+    },
+    {
+     "key": "src/ipc.ts|setProjectDepthUnit",
+     "backend_command": "set_project_depth_unit",
+     "rationale": "Changes the project depth unit after creation. Deliberately hard to reach: every stored depth is in that unit, so no menu offers it."
+    },
+    {
+     "key": "src/ipc.ts|setProjectNullSentinel",
+     "backend_command": "set_project_null_sentinel",
+     "rationale": "Declares the project's absent-value token; the import refusal asks per file rather than recording a project-wide answer."
+    },
+    {
+     "key": "src/ipc.ts|startupProblem",
+     "backend_command": "startup_problem",
+     "rationale": "Reports a problem the startup ladder recovered from. The boot overlay polls the boot report instead, so this second channel has no reader."
+    }
+   ]
+  },
+  {
+   "category": "SUPERSEDED-BY-SIBLING",
+   "owner_requirement": "AUDIT-2026-08-20 finding 68",
+   "owner_gate": "check:frontend-exports",
+   "rationale": "The app reaches this capability through a named live sibling. The row exists so the pairing is written down rather than rediscovered, and the gate re-checks that the sibling is real and is itself referenced - a supersession claim pointing at another dead export would otherwise read as reassurance.",
+   "exports": [
+    {
+     "key": "src/ipc.ts|importCoreCsv",
+     "backend_command": "import_core_csv",
+     "superseded_by": "importCoreTable",
+     "rationale": "The pre-wizard core import, which guessed its column roles. The confirm-the-mapping-first import is what the Core button uses; its backend command is now unreached too, and retiring both ends together is a separate change."
+    },
+    {
+     "key": "src/ipc.ts|importScalCsv",
+     "backend_command": "import_scal_csv",
+     "superseded_by": "importScalFiles",
+     "rationale": "The single-file SCAL import. Files selected together are ONE delivery under the universal set rule, so the multi-file wrapper replaced it; its backend command is now unreached too."
+    },
+    {
+     "key": "src/ui/svgExport.ts|renderPlotToSvg",
+     "superseded_by": "renderPlotToPaperSvg",
+     "rationale": "Renders a plot at screen proportions. Every caller wants the paper variant, because a deliverable is drawn at a true print scale."
+    },
+    {
+     "key": "src/ui/pdfExport.ts|renderPlotToPdf",
+     "superseded_by": "renderPlotToPaperPdf",
+     "rationale": "The screen-proportioned PDF twin of renderPlotToSvg, superseded for the same reason."
+    },
+    {
+     "key": "src/ui/plotCanvas.ts|colorRamp",
+     "superseded_by": "colorRampEx",
+     "rationale": "The fixed blue-green-yellow-red ramp. The extended form takes the colormap and log state the plot properties dialog exposes, including the log-safe maps."
+    },
+    {
+     "key": "src/ui/plotCanvas.ts|linearFit",
+     "superseded_by": "fitRegression",
+     "rationale": "Straight-line least squares. Crossplot v2 offers a choice of regression model, so the panel's own fit carries the model with it."
+    },
+    {
+     "key": "src/ui/axisRange.ts|auditedFamilyDisplayRange",
+     "superseded_by": "auditedFamilyDisplayDecision",
+     "rationale": "Returns the range alone and drops the reason a range was refused. Callers take the decision, which is the repo's rule that a refusal is named rather than returned as nothing."
+    },
+    {
+     "key": "src/ui/axisRange.ts|bindingAuditedFamilyDisplayRange",
+     "superseded_by": "bindingAuditedFamilyDisplayDecision",
+     "rationale": "The multi-well binding twin, superseded for the same reason: its refusal says the represented curves do not share one audited range, and the range-only accessor discards that sentence."
+    },
+    {
+     "key": "src/state.ts|activeGroupWellIds",
+     "superseded_by": "filterByActiveGroup",
+     "rationale": "Its own doc says batch dialogs default their selection to it; they filter a well list through the active group instead, which is the same rule applied where the list already exists."
+    },
+    {
+     "key": "src/state.ts|defaultRunWellIds",
+     "superseded_by": "resolveWellScope",
+     "rationale": "Pre-ticked the wells a batch dialog should run on. The shared RUN ON scope selector took that over, so every batch dialog answers the question one way."
+    }
+   ]
+  },
+  {
+   "category": "ROUTE-PENDING",
+   "owner_requirement": "AUDIT-2026-08-20 finding 68",
+   "owner_gate": "check:frontend-exports",
+   "rationale": "A finished frontend capability with no control wired to it. Unlike a superseded export there is no other way to reach what it does.",
+   "exports": [
+    {
+     "key": "src/ui/cutoffs.ts|asCutoffEntry",
+     "rationale": "SB-CUT-019 wraps a cut-off as the number AND the unit it was typed in, because 35 where 0.1 is meant is a 350x error whose symptom is a plausible all-net well. The backend refuses a bare number, but every UI path still passes the plain CutoffDefaults shape, so this adapter - and the CUTOFF_UNITS table it is the only reader of - is the entered-form route nothing takes yet."
+    }
+   ]
+  },
+  {
+   "category": "HELPER-UNADOPTED",
+   "owner_requirement": "AUDIT-2026-08-20 finding 68",
+   "owner_gate": "check:frontend-exports",
+   "rationale": "A helper, constant or type whose job is done inline at the call sites. Nothing is unreachable; the duplication is the cost, and each row names where it is paid.",
+   "exports": [
+    {
+     "key": "src/ipc.ts|CORE_LOG_PREFIX",
+     "rationale": "The CPHOTO prefix every core-photograph trace carries. Three sites in coreTraceDialog.ts spell the literal instead, which is how a trace could one day be named something a module reads as lithology."
+    },
+    {
+     "key": "src/ipc.ts|PlotBindingExport",
+     "rationale": "The wire shape of a plot binding export. The serializer takes the pieces as separate arguments, so the assembled shape is documented here and built in Rust."
+    },
+    {
+     "key": "src/processLog.ts|processLogToText",
+     "rationale": "Plain-text rendering of the whole processing history, including the UTC marker a zone-less timestamp needs. The History pane has an Export button that builds its own text."
+    },
+    {
+     "key": "src/ui/activeViewer.ts|workingPaneId",
+     "rationale": "The accessor beside the predicate. Panes ask isWorkingPane whether they are the one that follows the selection; nothing needs to know which pane that is."
+    },
+    {
+     "key": "src/ui/axisRange.ts|bindingForChannel",
+     "rationale": "Looks one channel's binding out of a list. Callers hold the binding they are working on rather than searching for it."
+    },
+    {
+     "key": "src/ui/plotTypes.ts|parseRangePositionPct",
+     "rationale": "The validating constructor for the range-position member of the plot-value union, deliberately unclamped so extrapolation beyond a range survives a template. Only the percentile member is constructed today."
+    },
+    {
+     "key": "src/ui/plotCommon.ts|checkboxField",
+     "rationale": "A labelled checkbox helper with no sibling field helpers beside it; roughly sixty sites across the panes build a checkbox input directly."
+    }
+   ]
+  }
+ ]
+}

@@ -1,5 +1,42 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 54 (my audit P2): **the features that are built but have no button**
+
+- [ ] **What to click.** Nothing you can see has changed. The one code change you could reach is
+      the **Run custody** dialog (it appears when a run needs you to say who is running it and on
+      whose authority) — open it, press Cancel, and confirm the run does not proceed. That was
+      always the behaviour; this only tidied how it is written.
+- [ ] **What this increment actually found.** SandiBumi's TypeScript side has **38 functions that
+      nothing calls**. Twenty of them are the front end's own doorway into a backend command that
+      **works** — the command is registered, it does its job, there is simply no button anywhere
+      that reaches it. Nothing in the project was watching for this, so the list could only grow.
+- [ ] **Why I did not just delete them.** Deleting the doorway does not remove dead weight, it
+      moves a working capability further out of reach and erases the evidence that it exists. So
+      instead every one of the 38 is now **written down with the reason it is still there**, and a
+      new check re-tests that reason every time the gate runs: a doorway must still name a
+      registered command, and a "we use this other one instead" claim must name something the app
+      genuinely reaches.
+- [ ] **Worth your eye — things that are built and have no way in.** Delete one stored Monte Carlo
+      realization matrix; delete one depth-registered plate; export a named curve set as delimited
+      text; **map core depths onto the log frame without moving them** (a preview of a shift rather
+      than the shift itself); load a saved parameter pack across zones; show which citations a
+      saved ML model was fitted under; set the whole pinned-well list at once. If any of those is
+      something you want to reach, say so and it becomes a button.
+- [ ] **One that matters petrophysically.** SB-CUT-019 says a cut-off must arrive as the number
+      **and the unit it was typed in**, because `35` where `0.1` was meant is a 350x error whose
+      only symptom is a well that looks plausibly all-net. The backend refuses a bare number, and
+      the adapter that supplies the unit exists — but every cut-off screen still passes the plain
+      shape, so that route is not taken yet. Now recorded rather than invisible.
+- [ ] **The small tidy-up (finding 71).** In `runCustody.ts` a comment block describing one
+      function had drifted above a second comment block, so both explained the same function and
+      the one they were written for had nothing. Moved back. Also a placeholder that was replaced
+      one line later, removed. I checked the whole front end for that second pattern: it was the
+      only one.
+- [ ] **Still open, and deliberately not done here.** The same drifted-comment problem exists at
+      **13 more places across 8 files**. That is 13 separate judgements about which comment belongs
+      to which function, and burying them under this list would make both harder to check, so they
+      get their own pass.
+
 ## 2026-08-21 — Audit increment 53 (my audit P2): **a refused import can no longer claim work it did not do**
 
 - [ ] **What to click.** Import a folder of LAS files where some are broken — an unreadable file,

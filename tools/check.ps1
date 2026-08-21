@@ -62,6 +62,8 @@ $stage1Gates = @(
     @{ Name = "gate-2 program (check)";       Run = { & npm run check:gate2-program } },
     @{ Name = "gate-2 hygiene (tests)";       Run = { & npm run test:gate2-hygiene } },
     @{ Name = "gate-2 hygiene (check)";       Run = { & npm run check:gate2-hygiene } },
+    @{ Name = "frontend exports (tests)";     Run = { & npm run test:frontend-exports } },
+    @{ Name = "frontend exports (check)";     Run = { & npm run check:frontend-exports } },
     @{ Name = "unit registry (tests)";        Run = { & npm run test:unit-registry } },
     @{ Name = "unit registry (check)";        Run = { & npm run check:unit-registry } },
     @{ Name = "chart derivation (tests)";     Run = { & npm run test:chart-derivation } },

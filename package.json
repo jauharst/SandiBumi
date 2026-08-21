@@ -13,6 +13,8 @@
     "check:gate2-program": "node tools/gate2-program.mjs --check",
     "test:gate2-hygiene": "node --test tools/gate2-hygiene.test.mjs",
     "check:gate2-hygiene": "node tools/gate2-hygiene.mjs",
+    "test:frontend-exports": "node --test tools/frontend-exports.test.mjs",
+    "check:frontend-exports": "node tools/frontend-exports.mjs",
     "test:unit-registry": "node --test tools/unit-registry.test.mjs",
     "check:unit-registry": "node tools/unit-registry.mjs --check",
     "test:chart-derivation": "node --test tools/chart-derivation.test.mjs",

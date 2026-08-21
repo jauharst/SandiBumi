@@ -75,9 +75,6 @@ export function buildRunCustodyControls(): RunCustodyControls {
   };
 }
 
-/** Requests one run's explicit custody without using browser prompts. The operator identity may be
- * remembered for this app session; the source/reference never is. Closing or cancelling resolves
- * `null`, so a write action cannot continue behind a dismissed dialog. */
 /** SB-DBM-011: the session operator for AUDITED edit surfaces (zone parameters, curve
  *  identity). Reuses the identity/kind already entered for a run this session; prompts a
  *  minimal dialog once when none exists yet. Returns null when dismissed - the edit does
@@ -93,6 +90,9 @@ export function ensureSessionOperator(
   );
 }
 
+/** Requests one run's explicit custody without using browser prompts. The operator identity may be
+ * remembered for this app session; the source/reference never is. Closing or cancelling resolves
+ * `null`, so a write action cannot continue behind a dismissed dialog. */
 export function requestRunCustody(action: string): Promise<RunCustody | null> {
   return new Promise((resolve) => {
     const content = document.createElement("div");
@@ -129,8 +129,7 @@ export function requestRunCustody(action: string): Promise<RunCustody | null> {
       settled = true;
       resolve(value);
     };
-    let close = () => {};
-    close = openModal(`Run custody — ${action}`, content, 560, () => finish(null));
+    const close = openModal(`Run custody — ${action}`, content, 560, () => finish(null));
     cancel.addEventListener("click", close);
     proceed.addEventListener("click", () => {
       try {
