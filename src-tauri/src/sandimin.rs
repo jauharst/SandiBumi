@@ -210,73 +210,37 @@ impl SwModel {
 pub struct SwModelChoice {
     pub id: &'static str,
     pub label: &'static str,
+    /// The registry identity this entry stands for. Skipped on the wire - the dialog reads `id`,
+    /// and this exists so the selectable list is FILTERED by `SwModel::solver_selectable` rather
+    /// than by a second copy of the rule written as string literals.
+    #[serde(skip)]
+    pub model: SwModel,
     /// Exact class code written to the per-sample `SW_METHOD` curve. It is an encoding whose
     /// meaning comes from `id`; it is not a saturation value and is declared as a class curve.
     pub flag_code: f32,
 }
 
+/// One catalog entry. The id and the flag code are the MODEL's own answers, never restated
+/// here: an entry that could disagree with the enum about either is an entry that can ship a
+/// model under another model's identity. Only the label is written out, because it is prose.
+fn choice(model: SwModel, label: &'static str) -> SwModelChoice {
+    SwModelChoice { id: model.id(), label, flag_code: model.flag_code(), model }
+}
+
 pub fn sw_model_catalog() -> Vec<SwModelChoice> {
     vec![
-        SwModelChoice {
-            id: SwModel::LinearDw.id(),
-            label: "linear_dw — linearized dual-water",
-            flag_code: SwModel::LinearDw.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::DualWaterNonlinear.id(),
-            label: "dual_water_nonlinear — Clavier dual-water (m and n separate)",
-            flag_code: SwModel::DualWaterNonlinear.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::ArchieTotal.id(),
-            label: "archie_total — Archie on total porosity",
-            flag_code: SwModel::ArchieTotal.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::ArchieEffective.id(),
-            label: "archie_effective — Archie on effective porosity",
-            flag_code: SwModel::ArchieEffective.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::Indonesia.id(),
-            label: "indonesia — Poupon-Leveaux",
-            flag_code: SwModel::Indonesia.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::SimandouxBardonPied.id(),
-            label: "simandoux_bardon_pied — Simandoux / Bardon-Pied form",
-            flag_code: SwModel::SimandouxBardonPied.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::SimandouxModifiedSlb.id(),
-            label: "simandoux_modified_slb — Modified Simandoux / Schlumberger form",
-            flag_code: SwModel::SimandouxModifiedSlb.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::Juhasz.id(),
-            label: "juhasz — normalized Qv",
-            flag_code: SwModel::Juhasz.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::WaxmanSmits.id(),
-            label: "waxman_smits — B·Qv",
-            flag_code: SwModel::WaxmanSmits.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::SwRtc.id(),
-            label: "sw_rtc — RtC excess-conductivity (LRLC)",
-            flag_code: SwModel::SwRtc.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::SwImts.id(),
-            label: "sw_imts — iterative mineral-textural-scaled Waxman-Smits (LRLC)",
-            flag_code: SwModel::SwImts.flag_code(),
-        },
-        SwModelChoice {
-            id: SwModel::SwHeight.id(),
-            label: "sw_height — saturation-height function",
-            flag_code: SwModel::SwHeight.flag_code(),
-        },
+        choice(SwModel::LinearDw, "linear_dw — linearized dual-water"),
+        choice(SwModel::DualWaterNonlinear, "dual_water_nonlinear — Clavier dual-water (m and n separate)"),
+        choice(SwModel::ArchieTotal, "archie_total — Archie on total porosity"),
+        choice(SwModel::ArchieEffective, "archie_effective — Archie on effective porosity"),
+        choice(SwModel::Indonesia, "indonesia — Poupon-Leveaux"),
+        choice(SwModel::SimandouxBardonPied, "simandoux_bardon_pied — Simandoux / Bardon-Pied form"),
+        choice(SwModel::SimandouxModifiedSlb, "simandoux_modified_slb — Modified Simandoux / Schlumberger form"),
+        choice(SwModel::Juhasz, "juhasz — normalized Qv"),
+        choice(SwModel::WaxmanSmits, "waxman_smits — B·Qv"),
+        choice(SwModel::SwRtc, "sw_rtc — RtC excess-conductivity (LRLC)"),
+        choice(SwModel::SwImts, "sw_imts — iterative mineral-textural-scaled Waxman-Smits (LRLC)"),
+        choice(SwModel::SwHeight, "sw_height — saturation-height function"),
     ]
 }
 
@@ -299,9 +263,7 @@ pub(crate) fn run_sandimin_selectability_probe(model: SwModel) -> String {
 pub fn solver_selectable_models() -> Vec<SwModelChoice> {
     sw_model_catalog()
         .into_iter()
-        .filter(|choice| {
-            !matches!(choice.id, "sw_rtc" | "sw_imts" | "sw_height")
-        })
+        .filter(|choice| choice.model.solver_selectable())
         .collect()
 }
 
@@ -2794,6 +2756,47 @@ pub fn sandimin_library() -> Vec<Component> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AUDIT-2026-08-20 finding 81. The list the dialog OFFERS used to re-encode selectability as
+    /// string literals, while `run_sandimin` enforces `SwModel::solver_selectable`. Two encodings
+    /// of one rule can only ever agree by luck: a twelfth registry identity marked non-selectable
+    /// would still have been offered, and the run would then refuse it - an option the user can
+    /// pick and the solver will not compute. Both sides, so neither an offer-everything nor an
+    /// offer-nothing implementation passes.
+    #[test]
+    fn the_models_the_dialog_offers_are_exactly_the_ones_the_solver_will_run() {
+        let offered: Vec<&str> = solver_selectable_models().iter().map(|choice| choice.id).collect();
+        let catalog = sw_model_catalog();
+        for choice in &catalog {
+            let refusal = run_sandimin_selectability_probe(choice.model);
+            if choice.model.solver_selectable() {
+                assert!(
+                    offered.contains(&choice.id),
+                    "{} is a solver model but the dialog does not offer it",
+                    choice.id
+                );
+                assert!(refusal.is_empty(), "{} is offered and must not be refused", choice.id);
+            } else {
+                assert!(
+                    !offered.contains(&choice.id),
+                    "{} is offered but the solver refuses it by name",
+                    choice.id
+                );
+                assert!(
+                    refusal.contains(choice.id),
+                    "{} is withheld and its refusal must name it",
+                    choice.id
+                );
+            }
+        }
+        // Neither branch above may be the empty one, or the loop passes without proving anything:
+        // the registry deliberately carries MORE identities than the solver computes.
+        assert!(!offered.is_empty(), "the dialog must offer the models the solver does compute");
+        assert!(
+            offered.len() < catalog.len(),
+            "the registry carries identities other modules own; offering all of them is the bug"
+        );
+    }
 
     fn lib_get(name: &str) -> Component {
         sandimin_library().into_iter().find(|c| c.name == name).unwrap()

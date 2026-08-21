@@ -1,5 +1,39 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 75 (my audit P3): **a saturation model the dialog could offer and the solver would refuse**
+
+- [ ] **What to click.** Advance ▸ SandiMin, open the saturation-model dropdown. It should list
+      the nine models the solver actually computes and none of the three registry-only
+      identities — `sw_rtc`, `sw_imts` and `sw_height`, which belong to other modules. Pick any
+      one and run it; every entry in that list must run.
+- [ ] **What was wrong.** SandiBumi keeps ONE vocabulary of saturation-method identities, so that
+      the `SW_METHOD` flag written beside a curve means the same thing whichever module produced
+      it. Twelve identities are registered; the SandiMin solver computes nine of them. Which nine
+      was written down **twice** — once as a rule the solver enforces, and once as three model
+      names typed into the list the dialog offers. Nothing was wrong today, but the two could only
+      ever agree by luck: a tenth solver model, or a thirteenth registry identity, would have to
+      be remembered in both places, and forgetting the second gives you an option you can pick and
+      the run then refuses by name.
+- [ ] **What changed.** The offered list is now filtered by the same rule the run enforces, so
+      there is nothing left to keep in step. While in there, the catalog stopped restating each
+      model's own id and flag code — it asks the model — which is twelve fewer places an identity
+      could be typed wrong. The check runs both ways: every model the solver computes must be
+      offered, and every model it refuses must not be.
+- [ ] **A Monte Carlo record that said "nothing" three different ways.** When you persist a Monte
+      Carlo study, the run writes down the cut-offs it used, and an *absent* cut-off is supposed
+      to be recorded as the word ABSENT — "we deliberately did not filter on this". That was
+      written for the permeability cut-off only; VSH, PHIE and SWE recorded a blank instead. A
+      blank is what you see when a field was never written down at all, so a reader could not tell
+      "we did not filter on porosity" from "we did not record what we filtered on". All four now
+      go through one rule, and the check fails if a fifth cut-off is ever added past it.
+- [ ] **The audit history panel opens faster.** Opening it fetched the newest 200 entries and then
+      asked the database for each entry's details **one entry at a time** — 200 separate round
+      trips, plus 200 identical statements re-prepared. It is now one query. Same entries, same
+      details, same order. The integrity check that resolves saved ML models to wells did the same
+      thing per well name and is now one grouped count.
+- [ ] **No number moves.** Nothing here changes an answer; the SandiMin dropdown, the Monte Carlo
+      record and the history panel should look and behave exactly as before.
+
 ## 2026-08-21 — Audit increment 74 (my audit P3): **an edit that could silently record a different interval than it made**
 
 - [ ] **What to click.** Right-click a track in a log view → **Edit <curve>…**, and fill the

@@ -1430,6 +1430,38 @@ fn summarize_persisted_curve(
     PersistedCurveSummary { curves, array, note }
 }
 
+/// The scheme name echoed back for the UI badge. One spelling: three results used to write the
+/// same two-arm match, so a renamed scheme could reach the badge from one of them and not another.
+fn sampling_label(sampling: Sampling) -> &'static str {
+    match sampling {
+        Sampling::Lhs => "lhs",
+        Sampling::Random => "random",
+    }
+}
+
+/// SB-CUT-019: a cut-off goes into provenance as ENTERED - value AND unit - because "stored with
+/// it" is half the requirement. An ABSENT cut-off is recorded as the token, never as JSON `null`:
+/// `null` is what a reader sees when a field was not recorded at all, and "we did not filter on
+/// this" and "we did not write this down" are different statements about a study.
+fn recorded_cutoff(entered: &Option<crate::workflow::CutoffSpec>) -> serde_json::Value {
+    entered
+        .as_ref()
+        .map(|spec| serde_json::json!(spec))
+        .unwrap_or_else(|| serde_json::json!("ABSENT"))
+}
+
+/// The four pay cut-offs as they go into a run's provenance record, in one place so a fifth
+/// cannot be added past the rule. Pinned against `McRequest`'s own declaration by
+/// `every_pay_cutoff_records_its_absence_as_the_token_rather_than_a_bare_null`.
+fn recorded_cutoffs(req: &McRequest) -> [(&'static str, serde_json::Value); 4] {
+    [
+        ("vsh_max", recorded_cutoff(&req.vsh_max)),
+        ("phie_min", recorded_cutoff(&req.phie_min)),
+        ("swe_max", recorded_cutoff(&req.swe_max)),
+        ("perm_min", recorded_cutoff(&req.perm_min)),
+    ]
+}
+
 /// Runs the chain in memory for one realization and returns the resulting curve pool.
 /// `values[j]` is the draw for `mc_params[j]`, applied over `spans[j]` on top of that
 /// parameter's zone-resolved base array (list order — a later entry wins where spans overlap).
@@ -1615,20 +1647,11 @@ pub fn run_monte_carlo(
             .and_then(equations::RunCustody::validate);
         if let Err(error) = validation {
             return McResult {
-                zones: Vec::new(),
-                sensitivity: Vec::new(),
                 low_pctl: lo_p,
                 high_pctl: hi_p,
-                sampling: match req.sampling {
-                    Sampling::Lhs => "lhs",
-                    Sampling::Random => "random",
-                }
-                .into(),
-                convergence: Vec::new(),
-                persisted: Vec::new(),
-                plausibility: Vec::new(),
-                notes: Vec::new(),
+                sampling: sampling_label(req.sampling).into(),
                 errors: vec![error],
+                ..Default::default()
             };
         }
     }
@@ -1678,11 +1701,7 @@ pub fn run_monte_carlo(
         return McResult {
             low_pctl: lo_p,
             high_pctl: hi_p,
-            sampling: match req.sampling {
-                Sampling::Lhs => "lhs",
-                Sampling::Random => "random",
-            }
-            .into(),
+            sampling: sampling_label(req.sampling).into(),
             notes,
             errors: vec![format!(
                 "Monte Carlo draw(s) outside the module's declared range: {}. A common cause is \
@@ -2154,7 +2173,7 @@ pub fn run_monte_carlo(
                 notes.push(format!("{well_name}: nothing to persist — no tracked output curve had finite values"));
             } else {
                 let conn = db.lock().unwrap();
-                let parameters = serde_json::json!({
+                let mut parameters = serde_json::json!({
                         "iterations": used_iterations,
                         "requested_iterations": req.iterations,
                     "seed": req.seed,
@@ -2164,14 +2183,6 @@ pub fn run_monte_carlo(
                         "kept_realizations": kept,
                         "mc_params": req.mc_params,
                     "correlations": req.correlations, "steps":req.steps,
-                    "vsh_max": req.vsh_max,
-                    "phie_min": req.phie_min,
-                    "swe_max": req.swe_max,
-                    // SB-CUT-019: the ENTERED form goes into provenance - value AND unit -
-                    // because "stored with it" is half the requirement. An absent cut-off is
-                    // still the token ABSENT, which is what a reader needs to see.
-                    "perm_min": req.perm_min.as_ref().map(|e| serde_json::json!(e))
-                        .unwrap_or_else(|| serde_json::json!("ABSENT")),
                     "bins": req.bins,
                     "sensitivity": req.sensitivity,
                     "tornado": req.tornado,
@@ -2180,6 +2191,14 @@ pub fn run_monte_carlo(
                     "persist_realizations": req.persist_realizations,
                     "realization_cap": req.realization_cap.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
                 });
+                // Every pay cut-off records its absence the same way. Written through the shared
+                // rule rather than four times into the literal above, which is how three of them
+                // came to serialize as a bare `null` while the fourth carried the token.
+                if let Some(record) = parameters.as_object_mut() {
+                    for (key, value) in recorded_cutoffs(req) {
+                        record.insert(key.to_string(), value);
+                    }
+                }
                 let zone_scope = if had_declared_zones {
                     equations::AncestryZoneScope::Defined(
                         zones
@@ -2315,10 +2334,7 @@ pub fn run_monte_carlo(
         sensitivity: sens_out,
         low_pctl: lo_p,
         high_pctl: hi_p,
-        sampling: match req.sampling {
-            Sampling::Lhs => "lhs".into(),
-            Sampling::Random => "random".into(),
-        },
+        sampling: sampling_label(req.sampling).into(),
         convergence: conv_out,
         persisted,
         plausibility: plaus_out,
@@ -2388,6 +2404,45 @@ mod tests {
         let sp: Vec<f32> = vec![f32::NAN; n];
         db::insert_standard_curves(conn, id, depth, gr, res, nphi, rhob, dt, sp).unwrap();
         id.to_string()
+    }
+
+    /// AUDIT-2026-08-20 finding 82. SB-CUT-019 says an absent cut-off is recorded as the token
+    /// ABSENT - and the rule was stated on `perm_min` alone, so the other three serialized as a
+    /// bare `null`. `null` is what a reader sees when a field was never recorded at all, and "we
+    /// did not filter on this property" and "we did not write this down" are different statements
+    /// about a study. Both sides: an entered cut-off must still record its value and unit.
+    #[test]
+    fn every_pay_cutoff_records_its_absence_as_the_token_rather_than_a_bare_null() {
+        // Three entered, one absent - the shape a real run routinely has.
+        let req = base_request("SANDI-1", Vec::new(), 8, 1);
+        let recorded = recorded_cutoffs(&req);
+        assert_eq!(
+            recorded.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            ["vsh_max", "phie_min", "swe_max", "perm_min"],
+            "the record names every pay cut-off the request carries",
+        );
+        for (key, value) in &recorded {
+            assert!(!value.is_null(), "{key} serialized as a bare null instead of stating its absence");
+        }
+        assert_eq!(recorded[3].1, serde_json::json!("ABSENT"), "an absent cut-off records the token");
+        assert_eq!(recorded[1].1["value"], serde_json::json!(0.08), "an entered cut-off keeps its value");
+        assert_eq!(recorded[1].1["unit"], serde_json::json!("v/v"), "and the unit it was entered in");
+
+        // A fifth cut-off added to the request would otherwise skip the rule entirely, which is
+        // exactly how three of these four came to write a bare null in the first place.
+        let source = include_str!("montecarlo.rs");
+        let start = source.find("pub struct McRequest {").expect("the request is declared here");
+        // The needle is a newline and a closing brace, with no trailing newline: this source is
+        // read exactly as it sits on disk, and a working tree checked out with CRLF would
+        // otherwise never find the end of the declaration at all. Spelling the pair out in prose
+        // rather than in backticks is deliberate - `production_rust` decides where this file's
+        // test module ends by counting braces, and a brace in a comment counts.
+        let body = &source[start..][..source[start..].find("\n}").expect("the declaration closes")];
+        assert_eq!(
+            body.matches("Option<crate::workflow::CutoffSpec>").count(),
+            recorded.len(),
+            "a pay cut-off was added to the request without a place in the provenance record",
+        );
     }
 
     fn base_request(well: &str, mc: Vec<McParam>, iterations: usize, seed: u64) -> McRequest {
