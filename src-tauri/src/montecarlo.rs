@@ -1381,7 +1381,21 @@ fn summarize_persisted_curve(
                 .take(cap)
                 .map(|snapshot| snapshot.get(i).copied().unwrap_or(f32::NAN))
                 .collect();
-            if col.iter().filter(|v| v.is_finite()).count() >= 8 {
+            // AUDIT-2026-08-20 finding 39: gated on the SAME population as the percentile curves
+            // below, not on the stored column's own finite count. The stored column is a PREFIX
+            // of the realizations, so its finite count can only be lower — above the cap a depth
+            // can hold plenty of finite realizations overall and fewer than eight inside the
+            // prefix, and the store then carried percentile curves at a depth with NO matrix row.
+            // The band display reads a missing row as "nothing converged here" and breaks, while
+            // the curves in the same track carry values, which is the one thing the two are
+            // supposed to agree about.
+            //
+            // The prefix itself stays: the realizations are Fisher-Yates shuffled per column, so
+            // the first `cap` of them are an unbiased subsample rather than a corner of the
+            // sampled space. What the cap costs is POPULATION, not representativeness — above it
+            // the band summarises fewer realizations than the curves beside it, and the run says
+            // so rather than leaving the reader to infer it.
+            if buf.len() >= 8 {
                 arr_depths.push(depth[i]);
                 arr_vals.push(col);
             }
@@ -2096,6 +2110,19 @@ pub fn run_monte_carlo(
             let base_pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, &centrals, n, &step_err);
             let kept = per_real.iter().filter(|m| m.2.is_some()).count();
             let real_cap = req.realization_cap.unwrap_or(256).clamp(8, 1024) as usize;
+            // AUDIT-2026-08-20 finding 39. Above the cap the stored matrix and the percentile
+            // curves describe DIFFERENT POPULATIONS — same depths, same realizations by identity,
+            // but the band is drawn over `real_cap` of them and MC_*_LOW/_HIGH over all `kept`.
+            // At matching percentiles the two will then be close but not equal, and a reader
+            // comparing a band against the curve beside it deserves to know why rather than
+            // hunting for a bug. Said once per run, not once per curve.
+            if req.persist_realizations && real_cap < kept {
+                notes.push(format!(
+                    "{well_name}: realization matrices store {real_cap} of {kept} realizations \
+                     (realization_cap); a band drawn from them summarises that subsample, while \
+                     MC_*_LOW/_P50/_HIGH summarise all {kept}"
+                ));
+            }
             let mut out: Vec<(String, Vec<f32>)> = Vec::new();
             // (curve name, depths, per-depth realization vectors) for the array store.
             let mut arrays: Vec<(String, Vec<f32>, Vec<Vec<f32>>)> = Vec::new();
@@ -3197,6 +3224,76 @@ mod tests {
             assert!((got - want).abs() < 1e-5, "{name}: curve {got} vs matrix {want}");
         }
     }
+
+    /// AUDIT-2026-08-20 finding 39. `CLAUDE.md` states the stored matrix and the percentile
+    /// curves "never disagree about where an answer exists". That held only BELOW the storage
+    /// cap - the only regime the pin above exercises, which is how it stayed unnoticed. The
+    /// matrix was gated on the finite count inside the stored PREFIX and the curves on the count
+    /// across every realization, and a prefix can only hold fewer. Above the cap the store
+    /// therefore carried percentile curves at depths with NO matrix row, and the band display
+    /// reads a missing row as "nothing converged here" while the curve beside it plots a value.
+    ///
+    /// Driven directly rather than through a run: the disagreement needs realizations that fail
+    /// at SOME depths and not others, which a well-behaved fixture never produces - and a test
+    /// that cannot reach the condition it names is the reason this survived a pin already.
+    ///
+    /// Pinned from both sides: the depth sets must match, AND the matrix must still be capped -
+    /// otherwise simply storing every realization would satisfy the first half.
+    #[test]
+    fn the_stored_matrix_covers_every_depth_the_curves_answer_even_above_the_storage_cap() {
+        let depth = [1000.0f32, 1000.5];
+        // Twenty realizations, eight of them stored. At the SHALLOW depth only three of the first
+        // eight converged, while fifteen of the twenty did - so the curves answer there and the
+        // stored prefix, on its own, does not. The deep sample converged everywhere.
+        let snaps: Vec<Vec<f32>> = (0..20)
+            .map(|r| {
+                let shallow = if r < 8 && r % 3 != 0 { f32::NAN } else { 0.30 + r as f32 * 0.001 };
+                vec![shallow, 0.40 + r as f32 * 0.001]
+            })
+            .collect();
+        let refs: Vec<&[f32]> = snaps.iter().map(|s| s.as_slice()).collect();
+        assert_eq!(
+            refs.iter().filter(|s| s[0].is_finite()).count(),
+            15,
+            "fixture: the shallow depth must be answerable across all realizations"
+        );
+        assert_eq!(
+            refs.iter().take(8).filter(|s| s[0].is_finite()).count(),
+            3,
+            "fixture: and NOT answerable from the stored prefix alone - that is the whole case"
+        );
+
+        let summary =
+            summarize_persisted_curve("SWE", "SANDI-39", &depth, &refs, None, 0.10, 0.90, true, 8);
+        let (_, arr_depths, arr_vals) = summary.array.expect("the matrix must be produced");
+        let p50 = summary
+            .curves
+            .iter()
+            .find(|(name, _)| name == "MC_SWE_P50")
+            .map(|(_, values)| values.clone())
+            .expect("the percentile curves must be produced");
+
+        // B first, because it is what makes A meaningful: this really is the capped regime.
+        assert!(
+            arr_vals.iter().all(|col| col.len() == 8),
+            "every stored depth must keep exactly the capped eight realization slots"
+        );
+
+        // A. Every depth the curves answer has a matrix row, and no row exists anywhere else.
+        let answered: Vec<f32> = depth
+            .iter()
+            .zip(p50.iter())
+            .filter(|(_, value)| value.is_finite())
+            .map(|(d, _)| *d)
+            .collect();
+        assert_eq!(answered.len(), 2, "both depths must carry a percentile answer");
+        assert_eq!(
+            arr_depths, answered,
+            "a depth with a percentile answer and no matrix row is the disagreement this pins"
+        );
+    }
+
+
 
     #[test]
     fn persist_reclaims_stale_family_and_degenerate_base_drops_only_base() {

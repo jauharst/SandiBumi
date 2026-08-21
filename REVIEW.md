@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 59 (my audit P3): **the Monte Carlo band could stop where its own curves kept going**
+
+- [ ] **What to click.** Run **Monte Carlo** with more realizations than the storage cap — e.g.
+      1000 realizations with the cap left at its 256 default — and "persist realizations" on. Put
+      the stored matrix on a log track as a **band**, with `MC_SWE_LOW/_P50/_HIGH` beside it. The
+      band should now cover every depth those curves cover. You should also see a new note on the
+      run saying the matrix stores 256 of 1000.
+- [ ] **What was wrong.** Two different populations were being asked two different questions. The
+      **percentile curves** are computed from **every** realization; the **stored matrix** keeps
+      only the first N (the cap you set, to keep the project a sensible size). Each was then
+      allowed to decide separately whether a depth had enough answers to be worth keeping — at
+      least eight. Since the stored set is a subset, it can fall below eight where the full set
+      does not. At those depths the curves plotted a value and the matrix had **no row at all**,
+      and the band reads a missing row as *"nothing converged here"* and breaks.
+- [ ] **The fix.** The matrix now keeps a row wherever the curves have an answer. Where the two
+      are asked the same question, they now give the same answer.
+- [ ] **What is NOT a bug, and now says so out loud.** Above the cap the band still summarises
+      **fewer** realizations than the curves beside it, so at matching percentiles the two will be
+      close but not identical. That is the cost of the cap, not an error — and the run now states
+      it ("stores 256 of 1000") instead of leaving you to work out why two numbers that should
+      match don't quite. Below the cap they are the same realizations and match exactly, as before.
+- [ ] **The subsample is still the first N, deliberately.** The realizations are shuffled per
+      parameter, so the first N are a fair sample rather than one corner of the range. Changing it
+      would have been churn.
+- [ ] **Worth knowing about the test.** My first version of the pin passed **before and after** the
+      fix — a well-behaved test well never produces realizations that fail at some depths and not
+      others, so it could never reach the condition it was named for. That is exactly why the
+      original pin missed this: it only ever ran below the cap. The replacement builds the awkward
+      case directly (twenty realizations, eight stored, only three of those eight converging at the
+      shallow sample) and both halves were checked by breaking them.
+
 ## 2026-08-21 — Audit increment 58 (my audit P3): **VSH from GR now says which method bent your gamma-ray index**
 
 - [ ] **What to click.** Run **VSH from Gamma Ray** with **Stieber 1/2/3** or **Clavier** on a well
