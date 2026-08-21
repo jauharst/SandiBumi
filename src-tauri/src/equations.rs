@@ -2929,9 +2929,14 @@ pub(crate) fn write_computed_curves_with_ancestry(
     write_versioned_rows_raw(conn, well_id, depth, curves, &set_id.value)
 }
 
-/// Complete write that also retires a declared family of stale current curves in the same
-/// transaction. Monte Carlo uses this when a later run stops producing one previously persisted
-/// key; the archive remains append-only and no duplicate-tolerant/upsert path is introduced.
+/// Complete write that ALSO retires a declared family of stale current curves, in the same
+/// transaction as the ordinary write discipline — it clears the curves it is about to write AND
+/// the declared family, which is what "also" means here.
+///
+/// `computed_curves` carries no primary key by design, so uniqueness rests entirely on
+/// DELETE-then-append. Monte Carlo passes the extra family when a later run stops producing a
+/// previously persisted key; the archive remains append-only and no duplicate-tolerant/upsert
+/// path is introduced.
 pub(crate) fn write_computed_curves_with_ancestry_clearing(
     conn: &Connection,
     well_id: &str,
@@ -2965,14 +2970,35 @@ pub(crate) fn write_computed_curves_with_ancestry_clearing(
     load_set_write_discipline(conn, &set_id.value)?;
     validate_continuous_depth_uniqueness(depth, curves)?;
     crate::db::with_txn(conn, |conn| {
-        if !clear_names.is_empty() {
-            let placeholders = std::iter::repeat("?").take(clear_names.len()).collect::<Vec<_>>().join(", ");
+        // The DELETE covers the union of the declared stale family AND the curves this call is
+        // about to write. Clearing only `clear_names` would let every written curve accumulate a
+        // SECOND set of rows on a re-run, and `computed_curves` has no primary key to object -
+        // the duplicate would just sit there, doubling whatever a reader averages. Today's sole
+        // caller passes a family that happens to cover its own outputs, so the union changes
+        // nothing for it; what it removes is the latent case, and it is the same discipline
+        // `write_versioned_rows_raw` follows.
+        //
+        // Uppercased for that function's reason too: every reader resolves curve_name through
+        // upper(), so an exact-case DELETE would leave a stale shadow row (old 'phie' after a
+        // rewrite to 'PHIE') that can silently win.
+        let mut targets: Vec<String> = Vec::with_capacity(clear_names.len() + curves.len());
+        for name in clear_names
+            .iter()
+            .map(|name| name.to_uppercase())
+            .chain(curves.iter().map(|(name, _)| name.to_uppercase()))
+        {
+            if !targets.contains(&name) {
+                targets.push(name);
+            }
+        }
+        if !targets.is_empty() {
+            let placeholders = std::iter::repeat("?").take(targets.len()).collect::<Vec<_>>().join(", ");
             let sql = format!(
                 "DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({placeholders})"
             );
-            let mut values = Vec::with_capacity(clear_names.len() + 1);
+            let mut values = Vec::with_capacity(targets.len() + 1);
             values.push(well_id.to_string());
-            values.extend(clear_names.iter().map(|name| name.to_uppercase()));
+            values.extend(targets);
             conn.execute(&sql, params_from_iter(values))?;
         }
         let mut current = conn.appender("computed_curves")?;
