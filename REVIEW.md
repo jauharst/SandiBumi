@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 67 (my audit P3): **three imports assumed a depth unit the file never stated**
+
+- [ ] **What to click.** Import a **core table** whose file has no units row and no unit in the
+      depth header. The wizard's "Depth unit in file" now opens on **"— the file does not say —
+      choose"**, and Import refuses until you pick one. Then import a file that *does* state its
+      unit — that one is pre-filled as before and nothing extra is asked. Same check on **Import
+      SCAL…** and **Import deviation…**, both of which have no probe step at all so both always
+      ask.
+- [ ] **What was wrong.** The control was pre-selected to "Same as project". That is a perfectly
+      good answer — but because it was also the default, a wizard nobody read was
+      indistinguishable from one that was answered. The import had no way to tell "I checked, the
+      lab delivers in metres" from "I clicked Import". What rides on it is a silent factor of
+      **3.28** applied to every depth in the delivery, which puts core plugs, Pc curves and survey
+      stations against the wrong rock.
+- [ ] **Why not simply refuse, like LAS does.** A LAS import runs unattended over many files, so
+      refusing is the only option there. These three are attended — there is a confirmation screen
+      already — so the right answer is to *ask* rather than to *refuse*. "Same as project" is still
+      on the list; it has only stopped being something you can choose by not looking.
+- [ ] **Three, not one.** The audit named the core wizard. SCAL and deviation carry the identical
+      control for the identical reason, and fixing one would have left the other two assuming — so
+      the fix is in the shared control and all three refuse on it.
+- [ ] **Nothing changes for a file that states its unit.** The probe still reads it off the units
+      row or the depth header, pre-selects it, and asks nothing.
+
 ## 2026-08-21 — Audit increment 66 (my audit P3): **the unit-ambiguity gate only knew two spellings — and one decision for you**
 
 - [ ] **What to click.** Nothing changed in the app. This is a build-time gate and an inventory,

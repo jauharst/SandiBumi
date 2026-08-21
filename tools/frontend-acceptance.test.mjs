@@ -2893,3 +2893,31 @@ test("a_class_block_track_cuts_the_same_runs_on_screen_as_it_does_on_paper", asy
   assert.match(renderer, /classRuns\(series\.depth, series\.value\)/, "the viewer takes the shared runs");
   assert.doesNotMatch(renderer, /n > 1 \? \(series\.depth/, "and no longer invents a step for one sample");
 });
+
+test("a_delivery_whose_file_states_no_depth_unit_is_asked_rather_than_assumed", async () => {
+  // AUDIT-2026-08-20 finding 46. The LAS path refuses a depth it cannot unit; these three
+  // dialogs pre-selected "Same as project", so a modal nobody read was indistinguishable from
+  // one that was answered - and what rides on it is a silent factor of 3.28 on every depth.
+  const { DEPTH_UNIT_UNSTATED, buildDepthUnitSelect } = await load("/src/ui/followCore.ts");
+  const values = (sel) => sel.children.map((o) => o.value);
+
+  // The file said nothing: the control opens unchosen, and "Same as project" is still offered -
+  // it has only stopped being selectable by not looking.
+  const unstated = buildDepthUnitSelect();
+  assert.equal(unstated.value, DEPTH_UNIT_UNSTATED, "an undetected unit opens unchosen");
+  assert.deepEqual(values(unstated), [DEPTH_UNIT_UNSTATED, "", "m", "ft"], "every answer stays available");
+
+  // The file DID say: there is nothing to ask, so it is pre-selected and the sentinel is absent.
+  const stated = buildDepthUnitSelect("ft");
+  assert.equal(stated.value, "ft", "a declared unit is taken as declared");
+  assert.deepEqual(values(stated), ["", "m", "ft"], "and no unchosen state is offered");
+
+  // All three deliveries that carry this control must refuse on the sentinel. Checked at the
+  // call sites because the guard lives inside a dialog's commit handler: fixing only the core
+  // wizard the audit named would leave SCAL and deviation assuming exactly as before.
+  const core = await readFile(new URL("../src/ui/coreImportDialog.ts", import.meta.url), "utf8");
+  const ribbon = await readFile(new URL("../src/ui/ribbon.ts", import.meta.url), "utf8");
+  assert.match(core, /unitSel\.value === DEPTH_UNIT_UNSTATED/, "the core wizard refuses");
+  assert.match(ribbon, /scalUnitSel\.value === DEPTH_UNIT_UNSTATED/, "the SCAL import refuses");
+  assert.match(ribbon, /\n\s+if \(unitSel\.value === DEPTH_UNIT_UNSTATED\)/, "the deviation import refuses");
+});

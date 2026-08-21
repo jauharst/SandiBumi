@@ -8,7 +8,7 @@ import {
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
-import { buildDatumSelect, buildDepthUnitSelect } from "./followCore";
+import { buildDatumSelect, buildDepthUnitSelect, DEPTH_UNIT_UNSTATED } from "./followCore";
 import { suggestSetName } from "./importSetDialog";
 
 /** Core import v2 wizard (T-IMP-07): probe → CONFIRM → commit.
@@ -467,6 +467,10 @@ export async function openCoreImportWizard(
     }
     if (!choice.headers.depth) {
       setStatus("Pick a depth column first");
+      return;
+    }
+    if (unitSel.value === DEPTH_UNIT_UNSTATED) {
+      setStatus("Say which depth unit the plug depths are in — the file does not state one");
       return;
     }
     if (!choice.headers.well && !fallbackWell) {

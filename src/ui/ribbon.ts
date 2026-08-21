@@ -40,7 +40,7 @@ import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
-import { buildDatumSelect, buildDepthUnitSelect, buildFollowCoreRow } from "./followCore";
+import { buildDatumSelect, buildDepthUnitSelect, buildFollowCoreRow, DEPTH_UNIT_UNSTATED } from "./followCore";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
@@ -1963,6 +1963,10 @@ export class Ribbon {
         resultBox.textContent = "Lab sigma·cosθ must be a positive number.";
         return;
       }
+      if (scalUnitSel.value === DEPTH_UNIT_UNSTATED) {
+        resultBox.textContent = "Say which depth unit the plug depths are in before importing.";
+        return;
+      }
       apply.disabled = true;
       resultBox.textContent = `Importing SCAL data for ${well.well_name}…`;
       const fmt = fmtSel.value as "auto" | "long" | "porous_plate" | "centrifuge";
@@ -2122,6 +2126,10 @@ export class Ribbon {
       const datum = raw === "" ? null : Number(raw);
       if (datum !== null && !Number.isFinite(datum)) {
         setStatus("Datum must be a number, or blank");
+        return;
+      }
+      if (unitSel.value === DEPTH_UNIT_UNSTATED) {
+        setStatus("Say which depth unit the survey's MD column is in before importing");
         return;
       }
       setStatus(`Importing deviation survey for ${well.well_name}…`);
