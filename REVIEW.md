@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 68 (my audit P3): **percent versus fraction in SCAL deliveries — the file's own declaration is now read**
+
+- [ ] **What to click.** Import a **SCAL Pc** delivery whose columns state their scale — a header
+      like `Poro (%)` or `Sw (%)`, or a units row under the header. Check the porosity and Sw that
+      land: they should be fractions (0.22, 0.95), and a **tight** plug set reported as 0.5, 0.8,
+      1.0 % should now land as 0.005, 0.008, 0.010 rather than as 0.5, 0.8, 1.0.
+- [ ] **What was wrong.** Core tables have read the file's own declaration since the percent fix —
+      units row first, then the column header — but the three SCAL parsers decided percent-versus-
+      fraction by **median alone**, on the stated grounds that they had no header to read. They all
+      do: every one of them finds its columns by matching header names, so a delivery writing
+      `SW (%)` was declaring the scale one field away from the code guessing it.
+- [ ] **Why the guess is not enough.** "A median above 1.5 means percent" is true. Its converse is
+      not. **Tight rock quoted in percent has a small median** — a plug set at 0.5, 0.8 and 1.0 %PV
+      looks exactly like fractions — so it was stored verbatim as 50%, 80% and 100% porosity. All
+      three even pass the later "must be ≤ 1.0" validity check, and nothing downstream can
+      reconstruct the lost factor of a hundred.
+- [ ] **A declaration still does not outrank arithmetic.** A column that says `V/V` while carrying
+      95 is a mistake in the file, not evidence — no saturation can be 9500% — so the definitional
+      bound overrules it exactly as it does for core tables. The order is: what the file says, then
+      what is definitionally possible, then the median.
+- [ ] **Three formats, three different amounts of evidence.** The long Pc/Sw CSV gets the full
+      treatment (units row, then header, for both saturation and porosity). The **centrifuge**
+      workbook reads the Sw table header and the `POROSITY (%)` key line. The wide **porous-plate**
+      table reads its porosity header — but its saturations sit *under the pressure columns*, whose
+      headers state a pressure, so there is genuinely nothing there to read and that one still
+      guesses. It says so in the code rather than looking like the others.
+- [ ] **The shortcut is gone.** The one-argument "just guess" helper has been deleted, so a new
+      import path cannot fall back to the median by accident — it has to state what evidence it has,
+      even when the honest answer is none.
+
 ## 2026-08-21 — Audit increment 67 (my audit P3): **three imports assumed a depth unit the file never stated**
 
 - [ ] **What to click.** Import a **core table** whose file has no units row and no unit in the
