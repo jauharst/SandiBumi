@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **162** of 662,
+Review sections counted toward no capability: **162** of 663,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -58,7 +58,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `results-qc` | Results QC | Not exercised | 0 / 12 | — | 7 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 24 | — | 7 |
-| `report` | Report deliverables | Partially exercised | 8 / 103 | 2026-08-14 | 25 |
+| `report` | Report deliverables | Partially exercised | 8 / 110 | 2026-08-14 | 26 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
@@ -66,6 +66,6 @@ this table, so every figure above reads low by whatever those sections cover.
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 9 | — | 3 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
-| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 69 | — | 13 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 232 | 2026-08-13 | 66 |
+| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 239 | 2026-08-13 | 67 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 200 | 2026-08-13 | 55 |
