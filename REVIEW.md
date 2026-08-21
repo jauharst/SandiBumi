@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 49 (my audit P2): **an import that refuses now tells you WHICH file refused**
+
+- [ ] **What was wrong.** Twelve of the file readers refused **without naming the file**. Import a
+      folder of 40 LAS files and you got forty identical messages like
+      *"io error: The system cannot find the path specified"* — you could see what was wrong and
+      had **no way to tell which file said it**.
+- [ ] **Which ones.** The whole **LAS** family (single-file and whole-frame), the **LAS folder**
+      import, **well locations**, and the **interval / point-data** import (petrography, XRD,
+      perforations).
+- [ ] **The fix.** Each of those now prefixes its refusal with the file's name, exactly the way
+      the core, SCAL, deviation and tops readers already did.
+- [ ] **And it cannot be forgotten again.** Naming used to be something the next person had to
+      remember — and twelve times somebody did not. A check now walks this file and **fails the
+      build** if any public reader that takes a path can refuse anonymously.
+- [ ] **Nothing about parsing changed.** Same files parse, same numbers, same warnings. Only the
+      wording of a failure moved.
+- [ ] **What to check.** Point the LAS folder import at a folder containing one deliberately
+      broken file — the message should start with that file's name. Same for **Import Well
+      Locations** and an aux/point-data import with a bad file.
+
 ## 2026-08-21 — Audit increment 48 (my audit P2): **a module can no longer be quietly left out of the shale-versus-clay check**
 
 - [ ] **Background.** SandiBumi refuses to feed a **clay volume** into an input that expects a

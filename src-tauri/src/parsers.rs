@@ -1302,7 +1302,30 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
 /// The primary import parse. `convert_undeclared_sentinels` carries the USER'S confirmed
 /// decision from the SB-CLY-034 (DEC-037) blocking question - the parser itself only
 /// detects; with the flag false every sentinel-shaped value is preserved and reported.
+///
+/// AUDIT-2026-08-20 finding 56: every public path parser names its refusal. A 40-file directory
+/// import used to yield 40 identical anonymous messages, so a user could see WHAT was wrong and
+/// had no way to know WHICH file said it. `ParseError::named` is idempotent, so the delegation
+/// chain above can name freely - an already-named error keeps its first attribution.
 pub fn parse_las_2_import<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    convert_undeclared_sentinels: bool,
+) -> ParseResult<CurveColumns> {
+    let path = path.as_ref();
+    parse_las_2_import_unnamed(
+        path,
+        channel_nulls,
+        null_rules,
+        ms_per_ft_meaning,
+        convert_undeclared_sentinels,
+    )
+    .map_err(|error| error.named(path))
+}
+
+fn parse_las_2_import_unnamed<P: AsRef<Path>>(
     path: P,
     channel_nulls: &ChannelNullValues,
     null_rules: &[NullExceptionRule],
@@ -1989,7 +2012,21 @@ pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
     parse_las_2_all_with_null_rules(path, channel_nulls, &[])
 }
 
+/// AUDIT-2026-08-20 finding 56: every public path parser names its refusal. A 40-file directory
+/// import used to yield 40 identical anonymous messages, so a user could see WHAT was wrong and
+/// had no way to know WHICH file said it. `ParseError::named` is idempotent, so the delegation
+/// chain above can name freely - an already-named error keeps its first attribution.
 pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+) -> ParseResult<LasFrame> {
+    let path = path.as_ref();
+    parse_las_2_all_with_null_rules_unnamed(path, channel_nulls, null_rules)
+        .map_err(|error| error.named(path))
+}
+
+fn parse_las_2_all_with_null_rules_unnamed<P: AsRef<Path>>(
     path: P,
     channel_nulls: &ChannelNullValues,
     null_rules: &[NullExceptionRule],
@@ -3594,7 +3631,19 @@ fn parse_deviation_csv_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<Deviation
 /// Parses every LAS file in `dir` concurrently across all CPU threads via `rayon`.
 /// Returns a `(path, result)` pair per file so individual parse failures don't abort the batch.
 #[allow(dead_code)] // batch/folder LAS import, wired into the ribbon in a later increment
+/// AUDIT-2026-08-20 finding 56: every public path parser names its refusal. A 40-file directory
+/// import used to yield 40 identical anonymous messages, so a user could see WHAT was wrong and
+/// had no way to know WHICH file said it. `ParseError::named` is idempotent, so the delegation
+/// chain above can name freely - an already-named error keeps its first attribution.
+///
+/// The per-FILE results already carry their own path in the tuple; what this names is the
+/// directory-level refusal - the folder that could not be read at all.
 pub fn parse_las_directory<P: AsRef<Path>>(dir: P) -> ParseResult<Vec<(String, ParseResult<CurveColumns>)>> {
+    let dir = dir.as_ref();
+    parse_las_directory_unnamed(dir).map_err(|error| error.named(dir))
+}
+
+fn parse_las_directory_unnamed<P: AsRef<Path>>(dir: P) -> ParseResult<Vec<(String, ParseResult<CurveColumns>)>> {
     let paths: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
@@ -3823,7 +3872,16 @@ const LOC_ZONE_ALIASES: [&str; 4] = ["UTM_ZONE", "UTMZONE", "GRID_ZONE", "ZONE"]
 /// Y is missing or non-numeric are skipped. Returns `(has_well_column, records)` — the flag
 /// lets the importer distinguish a headerless single-well file from a multi-well file with a
 /// blank WELL cell (both yield `record.well == None`).
+/// AUDIT-2026-08-20 finding 56: every public path parser names its refusal. A 40-file directory
+/// import used to yield 40 identical anonymous messages, so a user could see WHAT was wrong and
+/// had no way to know WHICH file said it. `ParseError::named` is idempotent, so the delegation
+/// chain above can name freely - an already-named error keeps its first attribution.
 pub fn parse_locations_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<LocationRecord>)> {
+    let path = path.as_ref();
+    parse_locations_file_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_locations_file_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<LocationRecord>)> {
     let (headers, rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("locations file is empty".into()));
@@ -3893,7 +3951,16 @@ const AUX_BASE_ALIASES: [&str; 6] = ["BASE", "BOTTOM", "TO", "BASE_MD", "BOT", "
 /// TOP/DEPTH column; BASE/BOTTOM makes rows intervals; a WELL column is captured per
 /// row so the importer can route multi-well files by name (T-IMP-11) — it never becomes
 /// an item. All remaining columns become items.
+/// AUDIT-2026-08-20 finding 56: every public path parser names its refusal. A 40-file directory
+/// import used to yield 40 identical anonymous messages, so a user could see WHAT was wrong and
+/// had no way to know WHICH file said it. `ParseError::named` is idempotent, so the delegation
+/// chain above can name freely - an already-named error keeps its first attribution.
 pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData> {
+    let path = path.as_ref();
+    parse_interval_file_unnamed(path).map_err(|error| error.named(path))
+}
+
+fn parse_interval_file_unnamed<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData> {
     let (headers, rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("data file is empty".into()));
@@ -5506,6 +5573,111 @@ mod streaming_reader_tests {
         assert!(
             error.contains("stream"),
             "and points at the route that has no ceiling: {error}"
+        );
+    }
+    /// AUDIT-2026-08-20 finding 56. Twelve of the public parsers lost the filename: a 40-file
+    /// directory import produced 40 identical anonymous refusals, so a user could see WHAT was
+    /// wrong and had no way to tell WHICH file said it.
+    ///
+    /// Naming is a wrapper somebody has to remember to write, and twelve times somebody did not.
+    /// This is what makes it structural instead: a public parser that takes a path either names
+    /// its errors or fails this test. The alternative - one `in_file(path, |path| ...)`
+    /// combinator at every boundary - would mean re-indenting a 450-line LAS body for no change
+    /// in behaviour, and would still be a thing to remember.
+    ///
+    /// Pinned from BOTH sides: a parser the behaviour half exercises, and a parser only the
+    /// structural half can see - otherwise "structural" is a comment.
+    ///
+    /// Deliberately NOT asserted: that the filename appears exactly once. `ParseError::named` is
+    /// idempotent, but nothing currently exercises it - each delegation chain names only at its
+    /// terminus, so no error passes through two `named` calls. Making that a test would be an
+    /// assertion that cannot fail.
+    #[test]
+    fn every_public_parser_that_takes_a_path_says_which_file_refused() {
+        // A - the behaviour, on the parser the finding named: a LAS the reader cannot open.
+        let missing = std::path::Path::new("no_such_directory_audit_56").join("BLSO_ABSENT.las");
+        let error = parse_las_2(&missing).expect_err("a missing LAS must refuse");
+        let message = error.to_string();
+        assert!(
+            message.contains("BLSO_ABSENT.las"),
+            "the refusal must name the file, got: {message}"
+        );
+
+        // A2 - a parser the first half does not reach, so the structural check below is not the
+        // only thing standing between a well-locations import and an anonymous refusal.
+        let missing_csv = std::path::Path::new("no_such_directory_audit_56").join("SURVEY.csv");
+        let locations = parse_locations_file(&missing_csv)
+            .expect_err("a missing locations file must refuse")
+            .to_string();
+        assert!(
+            locations.contains("SURVEY.csv"),
+            "the locations refusal must name the file, got: {locations}"
+        );
+
+        // B - and structurally, so the next parser cannot quietly go back to anonymous. Every
+        // `pub fn` in this file that takes a path must REACH `named` - itself, or through the
+        // function it delegates to. The LAS family is a four-hop chain on purpose (each hop adds
+        // one defaulted argument), so "reaches" is transitive and computed, not eyeballed.
+        let source = include_str!("parsers.rs");
+        let lines: Vec<&str> = source.split('\n').collect();
+
+        // Top-level function bodies: from the `fn` line to the next `}` in column 0.
+        let mut bodies: Vec<(String, bool, String)> = Vec::new(); // (name, public + takes a path, body)
+        for (index, line) in lines.iter().enumerate() {
+            let rest = match line.strip_prefix("pub fn ") {
+                Some(rest) => rest,
+                None => match line.strip_prefix("fn ") {
+                    Some(rest) => rest,
+                    None => continue,
+                },
+            };
+            let public = line.starts_with("pub fn ");
+            let Some(name) = rest.split(['<', '(']).next() else { continue };
+            let end = lines[index + 1..]
+                .iter()
+                .position(|l| l.starts_with('}'))
+                .map(|offset| index + 1 + offset)
+                .unwrap_or(lines.len() - 1);
+            let body = lines[index..=end].join("\n");
+            // The byte-level readers return std::io::Result, so they have no ParseError to name -
+            // their caller is what attributes the failure.
+            let byte_reader = matches!(
+                name,
+                "read_text_file" | "read_text_file_with_encoding" | "stream_text_lines"
+            );
+            let takes_path = body.contains("path: P") || body.contains("dir: P");
+            bodies.push((name.to_string(), public && takes_path && !byte_reader, body));
+        }
+
+        // Seed with the functions that name, then close over delegation to a fixed point.
+        let mut reaches: std::collections::HashSet<String> = bodies
+            .iter()
+            .filter(|(_, _, body)| body.contains(".named("))
+            .map(|(name, _, _)| name.clone())
+            .collect();
+        loop {
+            let before = reaches.len();
+            for (name, _, body) in &bodies {
+                if reaches.contains(name) {
+                    continue;
+                }
+                if reaches.iter().any(|callee| body.contains(&format!("{callee}("))) {
+                    reaches.insert(name.clone());
+                }
+            }
+            if reaches.len() == before {
+                break;
+            }
+        }
+
+        let anonymous: Vec<&str> = bodies
+            .iter()
+            .filter(|(name, checked, _)| *checked && !reaches.contains(name))
+            .map(|(name, _, _)| name.as_str())
+            .collect();
+        assert!(
+            anonymous.is_empty(),
+            "these public parsers refuse without naming the file they were given: {anonymous:?}"
         );
     }
 }
