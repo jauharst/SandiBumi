@@ -171,9 +171,10 @@ export const UNIT_LIMIT_ROWS: readonly UnitLimitRow[] = [
     range: { min: 0, max: 10 }, source: `${UNIT_LIMIT_SOURCE}; Photoelectric Factor row`, familyDefault: true,
   },
   {
-    id: "PHIE:v/v", family: "PHIE", quantityKind: "fraction", unit: "v/v",
+    id: "PHIE:v/v", family: "POR", quantityKind: "fraction", unit: "v/v",
     range: { min: 0.5, max: 0 },
-    source: `${UNIT_LIMIT_SOURCE}; Effective Porosity ft3/ft3 is volume/volume = v/v exactly`,
+    source: `${UNIT_LIMIT_SOURCE}; Effective Porosity ft3/ft3 is volume/volume = v/v exactly`
+      + "; family default for POR, every member of which is v/v",
     familyDefault: true,
   },
   {
@@ -321,8 +322,10 @@ function registeredFamily(mnemonic: string): string | null {
 export function auditedFamilyDisplayDecision(curve: ResolvedPlotCurve | null): FamilyLimitAudit | null {
   if (!curve) return null;
   const mnemonic = curve.mnemonic.trim().toUpperCase();
+  // No `PHIE` arm: the registry resolves every porosity mnemonic to POR, so such an arm could
+  // never run, and keying the row to it disabled the row for every porosity curve instead.
+  // The saturation arm IS reachable - no SW family is registered.
   const family = registeredFamily(mnemonic)
-    ?? (mnemonic === "PHIE" ? "PHIE" : null)
     ?? (["SW", "SWE", "SWT"].includes(mnemonic) ? "SW" : null);
   if (!family) return null;
   const registered = registeredUnit(curve.display_unit);
