@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 61 (my audit P3): **a white stripe across every page join in a printed composite**
+
+- [ ] **What to click.** Plot ribbon → **Composite…** on a well deep enough to need several pages,
+      with a layout carrying the **NPHI/RHOB crossover** (the built-in Standard layout has it).
+      Export the PDF and look at where one page ends and the next begins. Then do it again on a
+      **blocked** curve — anything you have run through Frame → Block at a metre, drawn with the
+      step style — at 1:200. The join should now be invisible.
+- [ ] **What was wrong.** A page is a window on the well, but the printer was treating it as a
+      filter on the samples. The stretch of rock between the last sample *above* the page break and
+      the first sample *below* it belongs to both pages — and it was being drawn by **neither**,
+      because each page asked "is this sample mine?" and both said no.
+- [ ] **What it looked like.** At normal half-foot sampling it is a hairline you would probably
+      never notice. On a curve blocked to one metre and printed at 1:200, one sample interval is
+      **5 mm** — a white band right across the log at every page join. The crossover shading was
+      worse: it works interval by interval, so the shading between neutron and density simply
+      stopped for that whole interval, and **white in a separation display reads as "no crossover
+      here"** rather than as a page edge. That is the one place a reader is most likely to be
+      misled by a printing artefact.
+- [ ] **What it does now.** The curve, its edge shading and the crossover are all carried to the
+      page boundary and cut there, so each page draws exactly its own metres and no more. The
+      cut lands on the line the printer actually draws — which matters on a **logarithmic**
+      resistivity track, where the middle of an interval in depth is not the middle in value.
+- [ ] **Blocked curves hold rather than slope.** A step-drawn curve says "this value applies right
+      across this interval", so at a page edge it keeps the value it was holding instead of sloping
+      into the boundary. Sloping there would draw a gradient the data never measured — the very
+      thing the step style exists to avoid.
+- [ ] **Nothing spills the other way.** The screen view was never affected — this was only the
+      printed and SVG output.
+
 ## 2026-08-21 — Audit increment 60 (my audit P3): **a rulebook the code quotes 34 times is not in the repository**
 
 - [ ] **What to click.** Nothing — no behaviour changed. This one needs a decision from you rather
