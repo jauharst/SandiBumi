@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 73 (my audit P3): **a startup check that refuses now says which rule refused**
+
+- [ ] **What to click.** Nothing, on a healthy build — this only shows itself if the application
+      refuses to start, which is exactly when you want the message to be useful.
+- [ ] **What was wrong.** Before any module can run, SandiBumi checks the whole module catalog
+      against a set of contracts: every parameter traces to a source, every validity condition is
+      complete and cited, every saturation model names the paper its answer comes from, every
+      module carries a derivation citation, and so on. Ten of those checks were written as ten
+      identical lines, each of which simply printed whatever the check said and stopped the
+      application. If one refused, the message told you *what* was wrong and never *which of the
+      ten* had asked.
+- [ ] **Why that is worse here than almost anywhere.** This runs before anything else in the
+      application. If it fires, nothing starts — no window, no project, no log. So the message is
+      the only thing you have, and it was the one message with no return address.
+- [ ] **What changed.** One named table of the ten, in the order they run, each labelled with the
+      contract it holds — `SB-SAT-043 saturation methods`, `SB-DBM-005 method derivations`,
+      `SB-CORE-003 validity manifests`, and so on. A refusal now reads `SB-DBM-005 method
+      derivations: <what was wrong>`. Nothing about *what* is checked changed; the checks are the
+      same checks in the same order.
+- [ ] **Two had to stay outside the table, and that is deliberate.** Two of the twelve steps do not
+      check the catalog, they **edit** it — they fill in shale/clay and porosity contracts on the
+      manifests that the ten checks then inspect. Their position before the checks is load-bearing,
+      not incidental, so they stay written out above the loop with that stated.
+- [ ] **The same fix as the green gate's own.** SandiBumi's build gate had this identical problem
+      earlier in the audit — twelve copy-pasted blocks that all reported the wrong stage's name —
+      and this is the same remedy, and the same principle as every refusal in the application:
+      refuse by name, with the contract stated.
+- [ ] **Counted, not eyeballed.** Twelve call sites: two editors plus ten checks. The audit wrote
+      thirteen; the count came out at twelve, and the table holds the ten, pinned by a test that
+      fails if the table stops being the whole list.
+
 ## 2026-08-21 — Audit increment 72 (my audit P3, live defect): **every porosity plot was quietly autoscaling instead of using its shipped display limits**
 
 - [ ] **What to click.** Open a **crossplot, histogram, Pickett or correlation** panel with **PHIE**

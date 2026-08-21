@@ -2407,6 +2407,62 @@ fn validate_porosity_contracts(modules: &[ModuleSpec]) -> Result<(), String> {
     }
 }
 
+/// One catalog registration gate: a contract the whole catalog must satisfy before any module
+/// can run.
+type CatalogGate = fn(&[ModuleSpec]) -> Result<(), String>;
+
+/// SB-CUT-017 ships its defaults outside the module manifests, so this gate ignores them.
+fn validate_cut_domain_defaults(_modules: &[ModuleSpec]) -> Result<(), String> {
+    crate::param_sources::validate_domain_defaults(crate::param_sources::CUT_DOMAIN_DEFAULTS)
+}
+
+/// SB-SAT-043 checks the modules against the signed method table, so it needs both.
+fn validate_saturation_method_citations(modules: &[ModuleSpec]) -> Result<(), String> {
+    crate::param_sources::validate_saturation_methods(
+        modules,
+        crate::param_sources::SATURATION_METHODS,
+    )
+}
+
+/// Every catalog registration gate, in the order it runs, each named by the contract it holds.
+///
+/// These were ten consecutive `validate_x(&modules).unwrap_or_else(|error| panic!("{error}"))`
+/// lines. Some of those messages named their own contract and some did not, and nothing said
+/// which of the ten had been reached - so a refusal at startup left the reader counting call
+/// sites to work out which contract had refused, on the one path that runs before anything else
+/// in the application. Same shape as the green gate's own stage 1, and the same principle as
+/// `needWell.ts`: refuse BY NAME, with the contract stated.
+const CATALOG_GATES: &[(&str, CatalogGate)] = &[
+    ("parameter sources", validate_parameter_sources),
+    // SB-CORE-003 (whole-registry re-audit, closed behind SB-ENV-004/DEC-077): every
+    // registered validity condition is complete, cited and cross-referenced at catalog
+    // build - a malformed or silently-inactive condition fails registration, not the
+    // first run of the module that happens to carry it.
+    ("SB-CORE-003 validity manifests", validate_validity_manifests),
+    // SB-CUT-017: the same gate for defaults that are NOT module parameters.
+    ("SB-CUT-017 cut-off domain defaults", validate_cut_domain_defaults),
+    // SB-SAT-043: a saturation model cannot ship without the paper its answer traces to.
+    ("SB-SAT-043 saturation methods", validate_saturation_method_citations),
+    ("clay unit contract", validate_clay_unit_contract),
+    // SB-CORE-007 (DEC-051 form + DRAFT_CORE007 classes): declaration inspection,
+    // never execution - class-scoped output uniqueness and per-topic default identity.
+    ("SB-CORE-007 output identity classes", validate_output_identity_classes),
+    // SB-DBM-005 (signed derivation map): a module with no derivation citation fails
+    // registration - it does not run and record nothing.
+    ("SB-DBM-005 method derivations", validate_method_derivations),
+    ("topic default identity", validate_topic_default_identity),
+    ("flag declarations", validate_flag_declarations),
+    ("project depth-unit tokens", validate_project_depth_unit_tokens),
+];
+
+/// Runs every registration gate in order and names the one that refused.
+fn run_catalog_gates(modules: &[ModuleSpec]) -> Result<(), String> {
+    for (name, gate) in CATALOG_GATES {
+        gate(modules).map_err(|error| format!("{name}: {error}"))?;
+    }
+    Ok(())
+}
+
 /// Immutable registry of every deterministic module manifest, in workflow order. Monte Carlo and
 /// batch chains call `run_module` thousands of times, so rebuilding every manifest at each public
 /// dispatch would turn central validation into an avoidable per-realization cost.
@@ -2467,35 +2523,12 @@ fn module_catalog() -> &'static [ModuleSpec] {
             crate::unconventional::gip_spec(),
             crate::unconventional::brittleness_spec(),
         ];
+        // The two mutators stay OUT of the gate table and run first: they EDIT the specs the
+        // gates then inspect, so their position relative to the gates is load-bearing rather
+        // than incidental.
         apply_shale_clay_quantity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
         apply_porosity_contracts(&mut modules).unwrap_or_else(|error| panic!("{error}"));
-        validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
-        // SB-CORE-003 (whole-registry re-audit, closed behind SB-ENV-004/DEC-077): every
-        // registered validity condition is complete, cited and cross-referenced at catalog
-        // build — a malformed or silently-inactive condition fails registration, not the
-        // first run of the module that happens to carry it.
-        validate_validity_manifests(&modules).unwrap_or_else(|error| panic!("{error}"));
-        // SB-CUT-017: the same gate for defaults that are NOT module parameters.
-        crate::param_sources::validate_domain_defaults(
-            crate::param_sources::CUT_DOMAIN_DEFAULTS,
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
-        // SB-SAT-043: a saturation model cannot ship without the paper its answer traces to.
-        crate::param_sources::validate_saturation_methods(
-            &modules,
-            crate::param_sources::SATURATION_METHODS,
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
-        validate_clay_unit_contract(&modules).unwrap_or_else(|error| panic!("{error}"));
-        // SB-CORE-007 (DEC-051 form + DRAFT_CORE007 classes): declaration inspection,
-        // never execution - class-scoped output uniqueness and per-topic default identity.
-        validate_output_identity_classes(&modules).unwrap_or_else(|error| panic!("{error}"));
-        // SB-DBM-005 (signed derivation map): a module with no derivation citation fails
-        // registration - it does not run and record nothing.
-        validate_method_derivations(&modules).unwrap_or_else(|error| panic!("{error}"));
-        validate_topic_default_identity(&modules).unwrap_or_else(|error| panic!("{error}"));
-        validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
-        validate_project_depth_unit_tokens(&modules).unwrap_or_else(|error| panic!("{error}"));
+        run_catalog_gates(&modules).unwrap_or_else(|error| panic!("{error}"));
         modules
     })
 }
@@ -11350,6 +11383,38 @@ mod tests {
         foot_splice_ctx.depth_unit = DepthUnit::Feet;
         let foot_splice = splice(&foot_splice_ctx);
         assert_eq!(metre_splice["SPLICED"], foot_splice["SPLICED"]);
+    }
+
+    /// AUDIT-2026-08-20 finding 62. Ten consecutive `unwrap_or_else(|error| panic!("{error}"))`
+    /// lines with nothing between them to say which had been reached: a refusal on the one path
+    /// that runs before anything else in the application said WHAT was wrong and never WHICH
+    /// contract had asked. The table is the list, and the list is checked here.
+    #[test]
+    fn a_catalog_registration_gate_that_refuses_says_which_contract_it_was() {
+        let names: Vec<&str> = CATALOG_GATES.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names.len(), 10, "the table is the whole list of gates: {names:?}");
+        assert!(names.iter().all(|name| !name.trim().is_empty()), "every gate carries a name");
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "two gates under one name would be as ambiguous as none: {names:?}"
+        );
+
+        // The shipping catalog passes every one of them, so a failure below is the mutation and
+        // not a pre-existing refusal.
+        run_catalog_gates(module_catalog()).expect("the shipping catalog passes its own gates");
+
+        // And a refusal LEADS with the gate. Renaming a registered module breaks the signed
+        // derivation map among others; whichever gate reaches it first has to say which it was.
+        let mut broken = module_catalog().to_vec();
+        broken[0].name = "not_a_registered_module".into();
+        let error = run_catalog_gates(&broken).expect_err("a renamed module must be refused");
+        let (named, rest) = error.split_once(": ").expect("a refusal leads with its gate name");
+        assert!(names.contains(&named), "the refusal must name a declared gate, got: {error}");
+        assert!(!rest.trim().is_empty(), "the gate's own message must survive naming: {error}");
     }
 
     /// AUDIT-2026-08-20 finding 45. An excusal that outlives the declaration it was written for is
