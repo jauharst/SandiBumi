@@ -1616,7 +1616,7 @@ mod tests {
             .expect("the partition tolerance is registered");
         assert_eq!(
             tol.value.parse::<f64>().expect("a numeric value"),
-            crate::workflow::PARTITION_TOLERANCE,
+            crate::paysummary::PARTITION_TOLERANCE,
             "the registered value and the shipped constant must be the same number"
         );
 

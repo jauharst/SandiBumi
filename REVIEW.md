@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit increment 87 (my audit P2): **the pay summary moves out of the module runner's file**
+
+- [ ] **What to click.** Nothing new appears and nothing behaves differently — this is a filing
+      change. Run a module, run a **Pay Summary**, run a **cutoff sweep**, open the **Field
+      Dashboard**, export a **Workbook** and a **Report**. All of them go through the code that
+      moved. If any of them still work exactly as before, the move is right.
+- [ ] **What was wrong.** `workflow.rs` had grown to **16,154 lines** holding two subsystems that
+      share a file and almost nothing else: the engine that runs a petrophysics module across
+      wells, and the engine that applies cutoffs and adds up net, N/G, HPV and averages per zone.
+      Opening the file to change one meant scrolling past the other.
+- [ ] **How narrow the join actually is.** The audit said the two halves never reference each other
+      at all. That was not quite right, and the true answer is better: the pay summary calls
+      **exactly one** function of the runner — the one that finds a usable porosity curve. Nothing
+      in the runner names anything in the pay summary. One function wide, one direction.
+- [ ] **A correction to something I told you earlier.** In increment 83 I reported the seam as two
+      functions, from a text search. The compiler says one: the second hit was inside a *comment*.
+      A grep counts occurrences; a compiler counts calls, and only the second answers "what does
+      this actually depend on". The narrower true seam is why the move was cheap.
+- [ ] **What moved.** `workflow.rs` 16,154 → **10,876** lines; the new `paysummary.rs` holds 5,357.
+      The tests divided almost perfectly on their own: of 97 tests, **32 were pay-summary only, 55
+      runner only, and just 4 genuinely exercise both** — those 4 stay with the runner, because
+      testing the join is what they are for.
+- [ ] **The record was corrected in the same change.** 21 rows of the machine-checked test-evidence
+      map and 9 as-built lines in the cutoffs evidence file pointed at the old file. Stale line
+      numbers were dropped rather than guessed at.
+- [ ] **What stops it drifting back.** A check pinned from both sides: the runner must name the pay
+      summary **zero** times, and the pay summary must reach the runner through **exactly one**
+      named import. The second half matters — the lazy way to satisfy the first is to re-export the
+      whole runner and call it "one import".
+
 ## 2026-08-21 — Audit increment 86 (my audit P3, **DEC-092**): **SandiMin says when its saturation went out of range instead of quietly reporting 1.000**
 
 - [ ] **What to click.** Run **SandiMin** with any model other than the default linearised

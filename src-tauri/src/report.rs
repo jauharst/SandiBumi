@@ -10,7 +10,7 @@ use crate::composite::{
     self, Anchor, CompositePage, CompositeResult, CompositeSpec, DrawOp,
 };
 use crate::db;
-use crate::workflow::{run_pay_summary, PaySummaryRequest};
+use crate::paysummary::{run_pay_summary, PaySummaryRequest};
 use duckdb::Connection;
 use serde::Deserialize;
 use std::sync::Mutex;
@@ -44,11 +44,11 @@ pub struct ReportSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<crate::workflow::CutoffSpec>,
-    pub phie_min: Option<crate::workflow::CutoffSpec>,
-    pub swe_max: Option<crate::workflow::CutoffSpec>,
+    pub vsh_max: Option<crate::paysummary::CutoffSpec>,
+    pub phie_min: Option<crate::paysummary::CutoffSpec>,
+    pub swe_max: Option<crate::paysummary::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffSpec>,
+    pub perm_min: Option<crate::paysummary::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -84,12 +84,12 @@ pub(crate) fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
             "VSH / PHIE / SWE flags → SAND, RESERVOIR, PAY",
             &format!(
                 "VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}{}",
-                crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
-                crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
-                crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-                match crate::workflow::cutoff_phrase(
+                crate::paysummary::cutoff_label(spec.vsh_max.as_ref(), 2),
+                crate::paysummary::cutoff_label(spec.phie_min.as_ref(), 2),
+                crate::paysummary::cutoff_label(spec.swe_max.as_ref(), 2),
+                match crate::paysummary::cutoff_phrase(
                     spec.perm_min.as_ref(),
-                    crate::workflow::CutoffSense::Minimum,
+                    crate::paysummary::CutoffSense::Minimum,
                     1,
                 )
                 .as_str()
@@ -599,15 +599,15 @@ fn report_pages_with_degradations(
         // rather than quoting one well's step as everyone's.
         let pay_section = format!(
             "Pay Summary  (VSH ≤ {}, PHIE ≥ {}, SWE ≤ {}, {} model{})",
-            crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
-            crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
-            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
+            crate::paysummary::cutoff_label(spec.vsh_max.as_ref(), 2),
+            crate::paysummary::cutoff_label(spec.phie_min.as_ref(), 2),
+            crate::paysummary::cutoff_label(spec.swe_max.as_ref(), 2),
             pay_result
                 .as_ref()
                 .ok()
                 .and_then(|rows| rows.first())
                 .map(|row| row.discretisation_model.clone())
-                .unwrap_or_else(|| crate::workflow::DiscretisationModel::default().token().to_string()),
+                .unwrap_or_else(|| crate::paysummary::DiscretisationModel::default().token().to_string()),
             match pay_result.as_ref().ok().and_then(|rows| {
                 let mut steps: Vec<f32> =
                     rows.iter().map(|r| r.sample_interval).filter(|s| s.is_finite()).collect();
@@ -641,9 +641,9 @@ fn report_pages_with_degradations(
                             // SB-CUT-020: the comparison comes from the cut-off itself. The note
                             // used to hard-code `≥`, which an exclusive bound or a two-sided
                             // window makes untrue — and this note exists to be read literally.
-                            crate::workflow::cutoff_phrase(
+                            crate::paysummary::cutoff_phrase(
                                 spec.perm_min.as_ref(),
-                                crate::workflow::CutoffSense::Minimum,
+                                crate::paysummary::CutoffSense::Minimum,
                                 1,
                             )
                         )
@@ -960,9 +960,9 @@ mod tests {
             title: "Petrophysical Evaluation".into(),
             author: "Tester".into(),
             methodology: vec![],
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+            vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::paysummary::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             tables_only: true,
         }
@@ -1191,7 +1191,7 @@ mod tests {
         let quiet = pay_text(&spec);
         assert!(!quiet.contains("no permeability curve"), "no cutoff requested, no note: {quiet}");
 
-        spec.perm_min = Some(crate::workflow::CutoffEntry { value: 1000.0, unit: "mD".into() }.into());
+        spec.perm_min = Some(crate::paysummary::CutoffEntry { value: 1000.0, unit: "mD".into() }.into());
         let noted = pay_text(&spec);
         assert!(noted.contains("no permeability curve"), "the reason must be stated: {noted}");
         assert!(noted.contains("1000.0 mD"), "and name the cutoff it could not answer: {noted}");
@@ -1639,7 +1639,7 @@ mod tests {
     /// two rows anyone checks first agreed with each other while the third quietly did not.
     ///
     /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 16): *"always limit phie to
-    /// 0.001"*. `workflow::floored_phie` applies it to every pay calculation, so a curve from ANY
+    /// 0.001"*. `paysummary::floored_phie` applies it to every pay calculation, so a curve from ANY
     /// source is covered — the porosity modules floor what they write, but a vendor PHIE never
     /// passes through one, and the vendor curve is the whole scenario.
     ///
@@ -1649,7 +1649,7 @@ mod tests {
     /// a better-looking number.
     #[test]
     fn a_dense_stringer_no_longer_subtracts_from_the_sand_rows_hpv() {
-        let build = |phie_streak: f32| -> Vec<crate::workflow::PaySummaryRow> {
+        let build = |phie_streak: f32| -> Vec<crate::paysummary::PaySummaryRow> {
             let conn = Connection::open_in_memory().unwrap();
             db::create_schema(&conn).unwrap();
             let wid = Uuid::new_v4();
@@ -1684,9 +1684,9 @@ mod tests {
             discretisation: Default::default(),
                     input_set: None,
                     well_ids: vec![w],
-                    vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-                    phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
-                    swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+                    vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                    phie_min: Some(crate::paysummary::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+                    swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                     enabled_unset: Vec::new(),
                     cutoff_use: Default::default(),
                     perm_min: None,
@@ -1699,7 +1699,7 @@ mod tests {
             )
             .expect("pay summary")
         };
-        let hpv = |rows: &[crate::workflow::PaySummaryRow], flag: &str| -> f32 {
+        let hpv = |rows: &[crate::paysummary::PaySummaryRow], flag: &str| -> f32 {
             rows.iter().find(|r| r.flag == flag).unwrap().hpv
         };
 
@@ -1734,7 +1734,7 @@ mod tests {
         // the floor must NOT smuggle the streak into reservoir.
         assert_eq!(hpv(&negative, "RESERVOIR"), hpv(&floored, "RESERVOIR"));
         assert_eq!(hpv(&negative, "PAY"), hpv(&floored, "PAY"));
-        let net = |rows: &[crate::workflow::PaySummaryRow], flag: &str| -> f32 {
+        let net = |rows: &[crate::paysummary::PaySummaryRow], flag: &str| -> f32 {
             rows.iter().find(|r| r.flag == flag).unwrap().net
         };
         assert!(
@@ -1802,9 +1802,9 @@ mod tests {
             title: "Petrophysical Evaluation — Sandi Field".into(),
             author: "Jauhar".into(),
             methodology: vec![],
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+            vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::paysummary::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             tables_only: true,
         };
