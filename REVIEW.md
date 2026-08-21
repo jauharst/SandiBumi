@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 44 (my audit P2): **a mistyped cut-off slot can no longer be silently treated as the permeability one**
+
+- [ ] **What was wrong.** The four cut-off slots (VSH / PHIE / SWE / PERM) and the three report
+      tiers (sand / reservoir / pay) were plain text inside the engine, and every place that
+      matched on them ended with a catch-all "anything else". For the slots that catch-all was
+      **PERM** — the one cut-off with teeth, because a requested permeability cut-off is always
+      active and a sample with no PERM **fails** rather than passes. For the tiers it was **PAY**,
+      the strictest.
+- [ ] **Nothing was misrouted today** — every call passes one of the four correct names. The
+      problem is that a typo or a fifth cut-off added later would land on the strictest branch
+      **silently**, and the result would be a well quietly losing pay with nothing to show why.
+- [ ] **The fix.** Both are now proper types instead of text, so every match has to name all four
+      slots and all three tiers. **The fallback can no longer be written** — adding a fifth
+      cut-off stops the build at each place that has to decide what it means, which is exactly
+      where somebody should be made to think.
+- [ ] **No number moves.** This is the same logic expressed so the compiler checks it. Every
+      existing cut-off test passes unchanged.
+- [ ] **One honest note.** The permeability term never went through the shared bounds clamp —
+      before this change either — because it has its own rule about missing values. It costs
+      nothing: permeability's bounds are zero to infinity, so the only sample a clamp would move
+      is a negative permeability, which fails a positive cut-off either way. It is written down
+      now rather than left to be rediscovered.
+- [ ] **What to check.** Run a Pay Summary with cut-offs on a well you know: **net sand, net
+      reservoir and net pay should all be identical to before.** Then try a porosity-only cut-off
+      — net sand should be unaffected (sand is clay-driven) while reservoir and pay both drop.
+
 ## 2026-08-21 — Audit increment 43 (my audit P2): **Indonesia was written twice, and the two copies disagreed at the edges**
 
 - [ ] **What was wrong.** The Poupon-Leveaux (Indonesia) equation existed in two places: the

@@ -4180,6 +4180,63 @@ pub enum AverageWeighting {
 /// which input of the summation a curve fills — not the mnemonic it happens to be stored under.
 pub const AVERAGED_SLOTS: [&str; 3] = ["VSH", "PHIE", "SWE"];
 
+/// SB-CUT-022 / AUDIT-2026-08-20 finding 55. The four cut-off SLOTS, as a type.
+///
+/// These were `&str` and every match over them carried a catch-all arm - and the arm a typo or a
+/// future fifth slot landed on was PERM, the one branch with teeth ("a requested permeability
+/// cut-off is always active", so its absent-PERM samples FAIL rather than pass). A slot that
+/// silently inherits the permeability cut-off is a well quietly losing pay. The requirement text
+/// itself says a bound attaches "to the QUANTITY, never to a curve-type string".
+///
+/// As an enum every match is exhaustive and the fallback CANNOT BE WRITTEN - a fifth slot stops
+/// the build at each place that has to decide what it means, which is the whole point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Slot {
+    Vsh,
+    Phie,
+    Swe,
+    Perm,
+}
+
+impl Slot {
+    /// The wire spelling, which is what the request map is keyed by and what a result reports.
+    pub(crate) fn as_wire(self) -> &'static str {
+        match self {
+            Slot::Vsh => "VSH",
+            Slot::Phie => "PHIE",
+            Slot::Swe => "SWE",
+            Slot::Perm => "PERM",
+        }
+    }
+
+    /// SB-CUT-030: which quantity's bounds a sample in this slot is clamped to before the
+    /// FLAG_TEST comparison. Exhaustive on purpose - this is the decision a new slot must make.
+    ///
+    /// `Slot::Perm` does not currently REACH this: the permeability term in `classify_sample` is
+    /// its own expression (missing PERM must fail rather than pass, which the other three slots
+    /// have no equivalent of) and compares the raw value. That was equally true of the
+    /// `if slot == "PERM"` conditional this replaces, so nothing changed - and it costs nothing,
+    /// because permeability's bounds are (0, inf) and the only sample a clamp would move is a
+    /// NEGATIVE permeability, which fails a positive cut-off either way. Stated rather than
+    /// quietly dropped, so a fifth slot still has to answer the question.
+    fn bounded_quantity(self) -> BoundedQuantity {
+        match self {
+            Slot::Perm => BoundedQuantity::Permeability,
+            Slot::Vsh | Slot::Phie | Slot::Swe => BoundedQuantity::VolumeFraction,
+        }
+    }
+}
+
+/// SB-CUT-022 / AUDIT-2026-08-20 finding 55. The three report tiers, as a type - same reasoning as
+/// [`Slot`]. The catch-all here resolved to PAY, so a mistyped tier silently judged the strictest
+/// one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tier {
+    Sand,
+    Reservoir,
+    Pay,
+}
+
 /// SB-CUT-022. Which report tiers a cut-off is USED at.
 ///
 /// An explicit flag per tier, never an inference. F-17 is the reason: Geolog changed the activation
@@ -4195,11 +4252,11 @@ pub struct CutoffUse {
 
 impl CutoffUse {
     /// Whether this cut-off's value is applied at one tier.
-    fn at(&self, tier: &str) -> bool {
+    fn at(&self, tier: Tier) -> bool {
         match tier {
-            "SAND" => self.sand,
-            "RESERVOIR" => self.reservoir,
-            _ => self.pay,
+            Tier::Sand => self.sand,
+            Tier::Reservoir => self.reservoir,
+            Tier::Pay => self.pay,
         }
     }
 }
@@ -4211,12 +4268,11 @@ impl CutoffUse {
 /// net pay adds saturation — T4 Bentley & Ringrose, `docs/PRD_v2/14_cutoffs-summation-mc.md:1296-1297`.
 /// **`SWE` is off at the reservoir tier**, which is F-25 `:494-495`: IP's `Sw Net Use` and
 /// `Sw Pay Use` are separate ordinals and Net Reservoir is described as porosity- and clay-driven.
-pub fn default_cutoff_use(slot: &str) -> CutoffUse {
+pub(crate) fn default_cutoff_use(slot: Slot) -> CutoffUse {
     match slot {
-        "VSH" => CutoffUse { sand: true, reservoir: true, pay: true },
-        "PHIE" => CutoffUse { sand: false, reservoir: true, pay: true },
-        // SWE and PERM: pay only.
-        _ => CutoffUse { sand: false, reservoir: false, pay: true },
+        Slot::Vsh => CutoffUse { sand: true, reservoir: true, pay: true },
+        Slot::Phie => CutoffUse { sand: false, reservoir: true, pay: true },
+        Slot::Swe | Slot::Perm => CutoffUse { sand: false, reservoir: false, pay: true },
     }
 }
 
@@ -4225,8 +4281,8 @@ pub fn default_cutoff_use(slot: &str) -> CutoffUse {
 /// Takes a SLOT and the run's declaration — nothing else. It cannot see whether a curve exists or
 /// whether a value was supplied, which is what makes *never inferred from the presence of a curve
 /// or of a value* a property of the signature rather than of today's body.
-pub fn cutoff_use_for(declared: &BTreeMap<String, CutoffUse>, slot: &str) -> CutoffUse {
-    declared.get(slot).copied().unwrap_or_else(|| default_cutoff_use(slot))
+pub(crate) fn cutoff_use_for(declared: &BTreeMap<String, CutoffUse>, slot: Slot) -> CutoffUse {
+    declared.get(slot.as_wire()).copied().unwrap_or_else(|| default_cutoff_use(slot))
 }
 
 /// SB-CUT-022. The four cut-offs and the tiers each is used at, resolved once per run.
@@ -4254,12 +4310,12 @@ pub(crate) struct TierCutoffs {
 impl TierCutoffs {
     /// The cut-off applied to one property at one tier: its value where the tier uses it, and
     /// `None` — which filters nothing — where the tier does not.
-    fn applied(&self, tier: &str, slot: &str) -> Option<CutoffRange> {
+    fn applied(&self, tier: Tier, slot: Slot) -> Option<CutoffRange> {
         let (value, used) = match slot {
-            "VSH" => (self.vsh, self.vsh_use),
-            "PHIE" => (self.phie, self.phie_use),
-            "SWE" => (self.swe, self.swe_use),
-            _ => (self.perm, self.perm_use),
+            Slot::Vsh => (self.vsh, self.vsh_use),
+            Slot::Phie => (self.phie, self.phie_use),
+            Slot::Swe => (self.swe, self.swe_use),
+            Slot::Perm => (self.perm, self.perm_use),
         };
         used.at(tier).then_some(value).flatten()
     }
@@ -4472,10 +4528,10 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         phie: phie_min,
         swe: swe_max,
         perm: perm_min,
-        vsh_use: cutoff_use_for(&req.cutoff_use, "VSH"),
-        phie_use: cutoff_use_for(&req.cutoff_use, "PHIE"),
-        swe_use: cutoff_use_for(&req.cutoff_use, "SWE"),
-        perm_use: cutoff_use_for(&req.cutoff_use, "PERM"),
+        vsh_use: cutoff_use_for(&req.cutoff_use, Slot::Vsh),
+        phie_use: cutoff_use_for(&req.cutoff_use, Slot::Phie),
+        swe_use: cutoff_use_for(&req.cutoff_use, Slot::Swe),
+        perm_use: cutoff_use_for(&req.cutoff_use, Slot::Perm),
     };
     let unfiltered: Vec<String> = [
         ("VSH", vsh_max.is_none()),
@@ -4906,40 +4962,35 @@ fn classify_sample(
     // SB-CUT-022: each tier applies exactly the cut-offs DECLARED for it. The ladder that used to
     // be expressed by nesting — reservoir built on sand, pay built on reservoir — is now expressed
     // by the default flags, which say the same thing wherever nobody declares otherwise.
-    let judge = |tier: &str| {
-        let passes = |slot: &str, sample: f32| {
+    let judge = |tier: Tier| {
+        let passes = |slot: Slot, sample: f32| {
             // SB-CUT-030: the FLAG_TEST stage compares the value clamped to its QUANTITY's bounds
             // - the bound comes from the quantity, never from the curve's name or declared type,
             // which is the failure that makes IP's clipping invisible in the data. Inert for an
             // in-range sample, which is every ordinary one, so no number moves; what it does is put
             // the stage boundary somewhere a reader can find it.
-            let quantity = if slot == "PERM" {
-                BoundedQuantity::Permeability
-            } else {
-                BoundedQuantity::VolumeFraction
-            };
-            let tested = stage_value(ClampStage::FlagTest, quantity, sample);
+            let tested = stage_value(ClampStage::FlagTest, slot.bounded_quantity(), sample);
             cuts.applied(tier, slot).map_or(true, |range| range.contains(tested))
         };
-        passes("VSH", vsh)
-            && passes("PHIE", phie)
-            && passes("SWE", swe)
+        passes(Slot::Vsh, vsh)
+            && passes(Slot::Phie, phie)
+            && passes(Slot::Swe, swe)
             // A sample with no PERM value cannot demonstrate it passes the cutoff — missing PERM
             // must FAIL rather than silently pass, at whichever tier the cut-off is applied.
             && (!has_perm_cut
                 || cuts
-                    .applied(tier, "PERM")
+                    .applied(tier, Slot::Perm)
                     .map_or(true, |range| !perm.is_nan() && range.contains(perm)))
     };
-    let fs = judge("SAND") as u8 as f32;
+    let fs = judge(Tier::Sand) as u8 as f32;
     if phie.is_nan() {
         return (fs, f32::NAN, f32::NAN);
     }
-    let fr = judge("RESERVOIR") as u8 as f32;
+    let fr = judge(Tier::Reservoir) as u8 as f32;
     if swe.is_nan() {
         return (fs, fr, f32::NAN);
     }
-    (fs, fr, judge("PAY") as u8 as f32)
+    (fs, fr, judge(Tier::Pay) as u8 as f32)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -5026,10 +5077,10 @@ fn compute_sweep(
             phie: phie_min,
             swe: swe_max,
             perm: perm_min,
-            vsh_use: default_cutoff_use("VSH"),
-            phie_use: default_cutoff_use("PHIE"),
-            swe_use: default_cutoff_use("SWE"),
-            perm_use: default_cutoff_use("PERM"),
+            vsh_use: default_cutoff_use(Slot::Vsh),
+            phie_use: default_cutoff_use(Slot::Phie),
+            swe_use: default_cutoff_use(Slot::Swe),
+            perm_use: default_cutoff_use(Slot::Perm),
         };
 
         let mut net = 0.0f64;
@@ -6880,10 +6931,10 @@ mod tests {
             phie,
             swe,
             perm,
-            vsh_use: default_cutoff_use("VSH"),
-            phie_use: default_cutoff_use("PHIE"),
-            swe_use: default_cutoff_use("SWE"),
-            perm_use: default_cutoff_use("PERM"),
+            vsh_use: default_cutoff_use(Slot::Vsh),
+            phie_use: default_cutoff_use(Slot::Phie),
+            swe_use: default_cutoff_use(Slot::Swe),
+            perm_use: default_cutoff_use(Slot::Perm),
         }
     }
 
@@ -10609,7 +10660,7 @@ mod tests {
         // E — and the default itself is DECLARED rather than emergent, so it can be read off the
         // configuration instead of inferred from a result.
         assert!(
-            !default_cutoff_use("SWE").reservoir && default_cutoff_use("SWE").pay,
+            !default_cutoff_use(Slot::Swe).reservoir && default_cutoff_use(Slot::Swe).pay,
             "SWE ships off at the reservoir tier and on at pay"
         );
     }
@@ -10633,20 +10684,20 @@ mod tests {
         // `:1296-1297`), and Sw is OFF at the reservoir tier — F-25 `:494-495`, which is also
         // SB-CUT-026's whole subject.
         assert_eq!(
-            default_cutoff_use("VSH"),
+            default_cutoff_use(Slot::Vsh),
             CutoffUse { sand: true, reservoir: true, pay: true }
         );
         assert_eq!(
-            default_cutoff_use("PHIE"),
+            default_cutoff_use(Slot::Phie),
             CutoffUse { sand: false, reservoir: true, pay: true }
         );
         assert_eq!(
-            default_cutoff_use("SWE"),
+            default_cutoff_use(Slot::Swe),
             CutoffUse { sand: false, reservoir: false, pay: true },
             "IP describes Net Reservoir as porosity- and clay-driven; Sw is off there by default"
         );
         assert_eq!(
-            default_cutoff_use("PERM"),
+            default_cutoff_use(Slot::Perm),
             CutoffUse { sand: false, reservoir: false, pay: true }
         );
 
@@ -10731,13 +10782,13 @@ mod tests {
             CutoffUse { sand: true, reservoir: false, pay: false },
         )]);
         assert_eq!(
-            cutoff_use_for(&declared, "PHIE"),
+            cutoff_use_for(&declared, Slot::Phie),
             CutoffUse { sand: true, reservoir: false, pay: false },
             "a declaration is honoured verbatim"
         );
         assert_eq!(
-            cutoff_use_for(&declared, "SWE"),
-            default_cutoff_use("SWE"),
+            cutoff_use_for(&declared, Slot::Swe),
+            default_cutoff_use(Slot::Swe),
             "and an undeclared slot takes its documented default, not its neighbour's declaration"
         );
 
@@ -15822,5 +15873,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(wrong_type_sets, 0, "a VSH-to-VCL type refusal must not version an interpretation");
+    }
+    /// AUDIT-2026-08-20 finding 55. The cut-off slots and report tiers were `&str`, and every
+    /// match over them carried a catch-all. The slot fallback landed on PERM - the branch with
+    /// teeth, because a requested permeability cut-off is always active and its missing samples
+    /// FAIL rather than pass - and the tier fallback landed on PAY, the strictest. Both are enums
+    /// now, so neither fallback can be written: a fifth slot stops the BUILD at each place that
+    /// has to decide what it means.
+    ///
+    /// A compile error cannot be pinned at runtime, so this pins the two routings the catch-alls
+    /// governed, from BOTH sides - one cut-off declared, and the two questions it answers
+    /// separated:
+    ///   A - WHICH TIERS it is applied at (`CutoffUse::at`, whose fallback was PAY).
+    ///   B - WHICH SLOT's value it filters (`TierCutoffs::applied`, whose fallback was PERM).
+    #[test]
+    fn one_cut_off_reaches_its_own_slot_and_only_the_tiers_that_use_it() {
+        // Only a POROSITY cut-off is declared, and the sample is below it. SB-CUT-022's shipped
+        // ladder makes porosity a reservoir-and-pay cut-off, never a sand one - net sand is
+        // clay-driven.
+        let (sand, reservoir, pay) =
+            classify_sample(0.2, 0.05, 0.3, f32::NAN, &ladder(None, at_least(0.1), None, None), false);
+
+        // A - SAND is untouched. A tier match that collapsed to PAY would apply the porosity
+        // cut-off here too, and the well would lose net sand it never lost.
+        assert_eq!(
+            sand, 1.0,
+            "porosity is not a net-sand cut-off; a tier fallback would have applied it anyway"
+        );
+
+        // B - and RESERVOIR and PAY do fail, which is the proof the value reached PHIE's own slot.
+        // A slot match that fell through to PERM would have read the (absent) permeability
+        // cut-off instead, filtered nothing, and booked all three tiers as pay.
+        assert_eq!(
+            (reservoir, pay),
+            (0.0, 0.0),
+            "the declared porosity cut-off must filter PHIE at the tiers that use it"
+        );
     }
 }
