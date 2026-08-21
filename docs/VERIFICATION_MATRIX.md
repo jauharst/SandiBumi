@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **161** of 645,
+Review sections counted toward no capability: **161** of 646,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -44,7 +44,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 200 | 2026-07-19 | 34 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
-| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 29 | 2026-07-18 | 10 |
+| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 35 | 2026-07-18 | 11 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 20 | — | 6 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 50 | — | 14 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
