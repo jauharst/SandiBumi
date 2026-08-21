@@ -3019,8 +3019,19 @@ fn validate_project_depth_unit_tokens(modules: &[ModuleSpec]) -> Result<(), Stri
         .iter()
         .flat_map(|module| {
             module.args.iter().filter_map(move |argument| {
-                matches!(argument.unit.as_str(), "m|ft" | "ft|m")
-                    .then(|| format!("{}.{}={}", module.name, argument.name, argument.unit))
+                // AUDIT-2026-08-20 finding 45. A PIPE, not a list of two spellings. The rule is
+                // that a union cannot say which unit a supplied number is in, and that is true of
+                // every union — "psi/ft|m", "deg/ft|m" and "degF|degC" all shipped straight past
+                // a denylist that named only the two lengths somebody happened to have written.
+                // No registered token contains a pipe (`curves::UNIT_TOKENS`), so the character
+                // itself is the tell and the gate needs no vocabulary of its own to keep current.
+                let ambiguous = argument.unit.contains('|')
+                    && !UNION_UNITS_AWAITING_A_VOCABULARY.contains(&(
+                        module.name.as_str(),
+                        argument.name.as_str(),
+                        argument.unit.as_str(),
+                    ));
+                ambiguous.then(|| format!("{}.{}={}", module.name, argument.name, argument.unit))
             })
         })
         .collect::<Vec<_>>();
@@ -3033,6 +3044,29 @@ fn validate_project_depth_unit_tokens(modules: &[ModuleSpec]) -> Result<(), Stri
         ))
     }
 }
+
+/// The declarations that spell a unit as a union because the unit is genuinely chosen SOMEWHERE
+/// ELSE, and the manifest vocabulary has no way to say so.
+///
+/// All four are `precalc`'s, and none is a typo. The two temperatures are entered in whatever
+/// `OPT_TU` is set to; the two gradients are per the depth unit of the TVDSS curve they multiply.
+/// The right spellings are a decision about the manifest's vocabulary — "deferred to option
+/// OPT_TU", and the compound `psi/depth` / `deg/depth` that `PROJECT_DEPTH_UNIT_TOKEN` implies —
+/// and they change the label a user reads beside a box they type a gradient into, which is the
+/// SB-ENV-045 mistake the DEC-077 citation on these very parameters is about. So they are NAMED
+/// here rather than quietly excused by a gate too narrow to see them, and the spelling waits on
+/// Jauhar (AUDIT-2026-08-20 finding 45).
+///
+/// Keyed by (module, argument, token), never by token alone: this excuses `precalc.SURF_TEMP`
+/// spelling degF|degC, and excuses nothing else that spells it. Pinned live by
+/// `every_union_unit_this_gate_excuses_is_still_declared_that_way`, so an entry cannot outlive
+/// the declaration it was written for.
+const UNION_UNITS_AWAITING_A_VOCABULARY: &[(&str, &str, &str)] = &[
+    ("precalc", "SURF_TEMP", "degF|degC"),
+    ("precalc", "RMF_TEMP", "degF|degC"),
+    ("precalc", "TEMP_GRAD", "deg/ft|m"),
+    ("precalc", "PGRAD", "psi/ft|m"),
+];
 
 /// Registry build gate for SB-ENV-030. A semantic flag role belongs only to an output channel;
 /// attaching it to a parameter, option, text field, or input would make the IPC metadata lie.
@@ -11318,9 +11352,30 @@ mod tests {
         assert_eq!(metre_splice["SPLICED"], foot_splice["SPLICED"]);
     }
 
+    /// AUDIT-2026-08-20 finding 45. An excusal that outlives the declaration it was written for is
+    /// a hole in the gate wearing the shape of a decision, so the list is checked against the live
+    /// registry: rename the parameter, or settle its spelling, and this fails until the entry goes.
+    #[test]
+    fn every_union_unit_this_gate_excuses_is_still_declared_that_way() {
+        let catalog = module_catalog();
+        let stale: Vec<String> = UNION_UNITS_AWAITING_A_VOCABULARY
+            .iter()
+            .filter(|(module_name, argument_name, unit)| {
+                !catalog.iter().any(|module| {
+                    module.name == *module_name
+                        && module.args.iter().any(|argument| {
+                            argument.name == *argument_name && argument.unit == *unit
+                        })
+                })
+            })
+            .map(|(module_name, argument_name, unit)| format!("{module_name}.{argument_name}={unit}"))
+            .collect();
+        assert!(stale.is_empty(), "excused declarations that no longer exist: {stale:?}");
+    }
+
     /// CORRECTNESS — `20_envcorr-qc.md` SB-ENV-057 / exact SB-ENV-T67 defines `depth` as the
     /// single manifest token for a length expressed in the project's declared depth unit. The
-    /// complete inventory applies that contract to the nine current native-depth parameters.
+    /// complete inventory applies that contract to the ten current native-depth parameters.
     /// `SHIFT` and `SPLICE_DEPTH` pin the other side: they are explicitly metre-qualified and the
     /// NIST-backed equivalence test above proves that their implementations convert rather than
     /// consume a native project-unit value.
@@ -11339,6 +11394,9 @@ mod tests {
             ("condflag", "MIN_THICK"),
             ("condflag", "SHOULDER"),
             ("phimax", "TVDSS_REF"),
+            // AUDIT-2026-08-20 finding 45: correctly declared since it shipped, and never listed
+            // here, because the old comparison could not see a parameter that had not joined.
+            ("sw_height", "FWL"),
         ]
         .into_iter()
         .collect();
@@ -11350,19 +11408,23 @@ mod tests {
             // every argument kind — the `Param` filter that used to wrap this whole loop is what
             // let `phimax`/`precalc`'s `TVDSS` inputs keep the legacy spelling.
             for argument in &module.args {
-                if argument.kind == ArgKind::Param
-                    && expected.contains(&(module.name.as_str(), argument.name.as_str()))
-                {
-                    assert_eq!(
-                        argument.unit, PROJECT_DEPTH_UNIT_TOKEN,
-                        "{}.{} must use the one project-depth-length token",
-                        module.name, argument.name
-                    );
+                // AUDIT-2026-08-20 finding 45. `declared` is built from what each argument SAYS,
+                // never from membership in `expected` — the old spelling only looked at arguments
+                // already in the list, so the inventory could catch a parameter that LEFT it and
+                // was structurally incapable of noticing one that never joined. `sw_height.FWL`
+                // was exactly that: correctly declared, never listed, and the set comparison had
+                // nothing to compare it against.
+                if argument.kind == ArgKind::Param && argument.unit == PROJECT_DEPTH_UNIT_TOKEN {
                     declared.insert((module.name.as_str(), argument.name.as_str()));
                 }
                 assert!(
-                    !matches!(argument.unit.as_str(), "m|ft" | "ft|m"),
-                    "{}.{} ({:?}) retains the ambiguous legacy project-depth token {:?}",
+                    !argument.unit.contains('|')
+                        || UNION_UNITS_AWAITING_A_VOCABULARY.contains(&(
+                            module.name.as_str(),
+                            argument.name.as_str(),
+                            argument.unit.as_str(),
+                        )),
+                    "{}.{} ({:?}) declares the ambiguous union unit {:?}",
                     module.name,
                     argument.name,
                     argument.kind,
@@ -11379,7 +11441,11 @@ mod tests {
             .find(|module| module.name == "condflag")
             .expect("condflag is registered")
             .clone();
-        for ambiguous_unit in ["m|ft", "ft|m"] {
+        // AUDIT-2026-08-20 finding 45. The last two are spellings NOBODY put on a denylist, and
+        // both ship in the live registry on other parameters — so they also prove the excusal is
+        // keyed to (module, argument, token) and not to the token alone: `precalc.SURF_TEMP` may
+        // spell degF|degC, `condflag.MIN_THICK` may not.
+        for ambiguous_unit in ["m|ft", "ft|m", "psi/ft|m", "degF|degC"] {
             let mut mutated = invalid.clone();
             mutated
                 .args
