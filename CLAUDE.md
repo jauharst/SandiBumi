@@ -1173,6 +1173,15 @@ Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional t
 before a commit that claims "verified", `tools\check.ps1` is the one-command version of the
 full bar (`-SkipRust`/`-SkipFrontend` for the inner loop only; green means the FULL gate).
 
+**Never run `cargo fmt` on this tree, and never leave format-on-save enabled for Rust here.**
+Measured 2026-08-21: it would rewrite **77,865 diff lines across 70 of the 73 source files** —
+this repository has never conformed to rustfmt's default style, so one reformat buries `git blame`
+for the whole codebase. There is deliberately no `rustfmt.toml`; its absence is the state, not an
+oversight. The audit proposed `cargo fmt` as a one-command fix for 92 mangled sites and it was
+rejected on that measurement. `source_hygiene_tests.rs` replaced it: it gates the one class that
+mattered — punctuation stranded by a dropped line-continuation, in code and inside the messages an
+operator reads — and holds no opinion about any other formatting question.
+
 Two hard runtime rules (both learned the painful way):
 - **Never force-kill `npm run tauri dev`** (task-kill, shell timeout) — an unclean kill
   mid-write corrupts the project DuckDB WAL (see "DuckDB WAL resilience" below).

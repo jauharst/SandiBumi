@@ -1102,13 +1102,13 @@ pub fn validate_domain_defaults(defaults: &[DomainDefault]) -> Result<(), String
         if entry.source == ABSENT_DOMAIN_SOURCE {
             if entry.divergence.trim().is_empty() {
                 failures.push(format!(
-                    "{} declares its source ABSENT but says nothing about what is known - an                      unsourced default must be disclosed, not merely tolerated",
+                    "{} declares its source ABSENT but says nothing about what is known - an unsourced default must be disclosed, not merely tolerated",
                     entry.id
                 ));
             }
         } else if !crate::modules::source_identifies_checkable_artefact(entry.source) {
             failures.push(format!(
-                "{} source '{}' does not identify a checkable artefact locator, named publication                  or project record; a product name alone is not a source",
+                "{} source '{}' does not identify a checkable artefact locator, named publication or project record; a product name alone is not a source",
                 entry.id, entry.source
             ));
         }
@@ -1449,7 +1449,7 @@ mod tests {
             panes.push(name.clone());
             assert!(
                 src.contains("from \"./cutoffs\""),
-                "{name} accepts or displays a cut-off but does not resolve it from the shared                  authority - this is the bypass that let two disagreeing sets ship at once"
+                "{name} accepts or displays a cut-off but does not resolve it from the shared authority - this is the bypass that let two disagreeing sets ship at once"
             );
             // No pane may hard-code a cut-off literal. These are the exact numbers the two
             // copy-pasted sets used, plus the other vendors' published values. Scoped to lines
@@ -1467,14 +1467,14 @@ mod tests {
                 for banned in ["\"0.5\"", "\"0.08\"", "\"0.1\"", "\"0.6\"", "\"0.15\"", "\"0.85\"", "\"0.3\""] {
                     assert!(
                         !line.contains(banned),
-                        "{name} seeds a cut-off field with {banned}; a pane may READ the                          authority, never carry its own copy: {line}"
+                        "{name} seeds a cut-off field with {banned}; a pane may READ the authority, never carry its own copy: {line}"
                     );
                 }
             }
         }
         assert!(
             checked >= 8,
-            "expected the cut-off surfaces to be discovered, found {checked} - a pass over one or              two files would prove nothing"
+            "expected the cut-off surfaces to be discovered, found {checked} - a pass over one or two files would prove nothing"
         );
         assert!(
             panes.iter().any(|p| p == "dashboardPanel.ts"),

@@ -2492,8 +2492,7 @@ pub struct LogSetEntry {
     pub inputs_json: Option<String>,
     pub created_at: String,
     pub curve_names: Vec<String>,
-    pub is_current: bool
-    ,
+    pub is_current: bool,
     pub ancestry: Option<CurveAncestry>,
     pub restored_from: Option<LogSetRestoreRecord>,
     /// `None` is a pre-contract run whose result cannot honestly be classified after the fact.
@@ -4452,8 +4451,7 @@ pub struct ComputedCatalogEntry {
     pub n_samples: i64,
     pub min: Option<f64>,
     pub max: Option<f64>,
-    pub mean: Option<f64>
-,
+    pub mean: Option<f64>,
     pub ancestry: Option<CurveAncestry>,
 }
 
@@ -4815,8 +4813,7 @@ pub(crate) fn write_equation_output(
     well_id: &str,
     depth: &[f32],
     equation: &EquationDef,
-    values: &[f32]
-,
+    values: &[f32],
     custody: &RunCustody,
 ) -> Result<(), String> {
     let module= format!("equation:{}", equation.name);
@@ -5658,12 +5655,12 @@ mod tests {
             if wants_output {
                 assert!(
                     body.contains("pub output_set:"),
-                    "{file}: {name} writes curves but no longer lets the caller name the log set                      they are versioned into — a hardcoded destination is what this replaced"
+                    "{file}: {name} writes curves but no longer lets the caller name the log set they are versioned into — a hardcoded destination is what this replaced"
                 );
             } else {
                 assert!(
                     body.contains("pub input_set:"),
-                    "{file}: {name} reads curves but no longer takes an input_set, so it silently                      reads whatever the current values are"
+                    "{file}: {name} reads curves but no longer takes an input_set, so it silently reads whatever the current values are"
                 );
             }
         }

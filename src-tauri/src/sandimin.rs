@@ -1462,7 +1462,7 @@ fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)]) -> Option<CoreFi
     let mut sse = 0.0f64;
     let mut sum = 0.0f64;
     for &(d, cv) in plugs {
-        let Some(i) = nearest_solved(depth, model, d) else { continue ;
+        let Some(i) = nearest_solved(depth, model, d) else { continue;
         };
         let e = model[i] as f64 - cv as f64;
         sse += e * e;
@@ -2239,8 +2239,7 @@ pub fn run_sandimin(
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .unwrap_or(DEFAULT_SANDIMIN_SET)
-                ;
+                .unwrap_or(DEFAULT_SANDIMIN_SET);
         let mut inputs = req
             .tools
             .iter()
@@ -5252,7 +5251,7 @@ mod tests {
         // has broken down; the honest answer is MISSING, not zero water.
         assert!(
             ws(20.0).is_nan(),
-            "an excess-conductivity term above the measured conductivity has no root in [0, 1]              and must refuse, not report all hydrocarbon; got {}",
+            "an excess-conductivity term above the measured conductivity has no root in [0, 1] and must refuse, not report all hydrocarbon; got {}",
             ws(20.0)
         );
 

@@ -75,8 +75,7 @@ pub struct CurveEditRequest {
     #[serde(default = "one")]
     pub mul: f32,
     #[serde(default)]
-    pub add: f32
-,
+    pub add: f32,
     /// Explicit actor and source/reference custody. It is required when the target is a
     /// computed curve because that edit creates a new derived-curve version.
     #[serde(default)]
@@ -1166,8 +1165,7 @@ mod tests {
             bottom: 0.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0
-        ,
+            add: 0.0,
             custody: None,
         };
         let res = edit_curve(&conn, &req).unwrap();
@@ -1225,8 +1223,7 @@ mod tests {
             bottom: 1020.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0
-        ,
+            add: 0.0,
             custody: None,
         };
         for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -1422,8 +1419,7 @@ mod tests {
             bottom: 1020.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0
-        ,
+            add: 0.0,
             custody: None,
         };
         let res = edit_curve(&conn, &base).unwrap();
@@ -1471,8 +1467,7 @@ mod tests {
             bottom: 1002.0,
             value: 0.99,
             mul: 1.0,
-            add: 0.0
-        ,
+            add: 0.0,
             custody: Some(crate::workflow::test_run_custody()),
         };
         let res = edit_curve(&conn, &req).unwrap();
@@ -1519,8 +1514,7 @@ mod tests {
             bottom: 0.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0
-        ,
+            add: 0.0,
             custody: None,
         };
         assert!(edit_curve(&conn, &req).is_err());

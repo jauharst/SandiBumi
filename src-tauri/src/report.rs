@@ -746,8 +746,7 @@ pub fn render_report(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Compos
         page_width_mm: pw,
         page_height_mm: ph,
         scale: spec.composite.scale,
-        well_name
-    ,
+        well_name,
         // Report ancestry is already visible as complete table pages. This IPC
         // field belongs to standalone composite metadata and is not duplicated.
         ancestry: Vec::new(),
@@ -1535,8 +1534,7 @@ mod tests {
                 perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
-                stats_only: true
-            ,
+                stats_only: true,
                 custody: None,
                 frame: Default::default(),
                 weighting: Default::default(),
@@ -1693,8 +1691,7 @@ mod tests {
                     cutoff_use: Default::default(),
                     perm_min: None,
                     skip_version: true,
-                    stats_only: true
-                ,
+                    stats_only: true,
                     custody: None,
                     frame: Default::default(),
                     weighting: Default::default(),

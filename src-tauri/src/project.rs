@@ -180,7 +180,7 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     match crate::equations::migrate_standard_curves_canonical(&conn) {
         Ok(0) => {}
         Ok(n) => db::boot_note(format!(
-            "Brought {n} standard curve(s) onto the project's canonical units, so the log view,              plots and modules now read the same numbers (DEC-089)."
+            "Brought {n} standard curve(s) onto the project's canonical units, so the log view, plots and modules now read the same numbers (DEC-089)."
         )),
         // A project that cannot be re-projected still OPENS - it simply keeps the split it had,
         // which is exactly what it has been doing. Failing the launch over a display-domain

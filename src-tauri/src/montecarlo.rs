@@ -1532,7 +1532,7 @@ fn fraction_output_curves(
 ) -> (Vec<String>, Vec<String>) {
     let (mut poro, mut sat) = (Vec::new(), Vec::new());
     for step in steps {
-        let Some(spec) = specs.get(&step.module) else { continue ;
+        let Some(spec) = specs.get(&step.module) else { continue;
         };
         for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogOut) {
             if !a.unit.eq_ignore_ascii_case("v/v") {
@@ -2158,7 +2158,7 @@ pub fn run_monte_carlo(
                         "iterations": used_iterations,
                         "requested_iterations": req.iterations,
                     "seed": req.seed,
-                        "sampling": req.sampling ,
+                        "sampling": req.sampling,
                         "low_pctl": lo_p,
                         "high_pctl": hi_p,
                         "kept_realizations": kept,
@@ -2203,7 +2203,7 @@ pub fn run_monte_carlo(
                 };
                 let output_names = out.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
                 let spec = equations::complete_curve_run_spec(
-                    &conn ,
+                    &conn,
                     well_id,
                     "MONTECARLO",
                     "montecarlo",
@@ -2697,8 +2697,7 @@ mod tests {
                     params,
                     opts: masked(),
                     output_set: None,
-                    input_set: None
-                ,
+                    input_set: None,
                     custody: crate::workflow::test_run_custody(),
                 },
             );
@@ -2718,8 +2717,7 @@ mod tests {
                 enabled_unset: Vec::new(),
                 cutoff_use: Default::default(),
                 skip_version: false,
-                stats_only: true
-            ,
+                stats_only: true,
                 custody: None,
                 frame: Default::default(),
                 weighting: Default::default(),
@@ -2772,7 +2770,7 @@ mod tests {
         let mc_unmasked = run_monte_carlo(&dbm, &unmasked, None).zones[0].net.mid;
         assert!(
             mc_unmasked > mc_net + 1e-3,
-            "ignoring the mask must interpret the cased-off interval as rock and report MORE              pay: unmasked {mc_unmasked} vs masked {mc_net}"
+            "ignoring the mask must interpret the cased-off interval as rock and report MORE pay: unmasked {mc_unmasked} vs masked {mc_net}"
         );
 
         // Cause two was "the flag curve never enters the pool" - `external` is assembled from
@@ -2785,7 +2783,7 @@ mod tests {
             let wp = build_plans(&conn, &well, &req.steps, &specs).expect("plans build");
             assert!(
                 !wp.raw_pool.contains_key("CASING"),
-                "CASING is not a declared input of any step, so it must NOT arrive through the                  LogIn pool - if it did, this test would no longer be about the MASK mechanism"
+                "CASING is not a declared input of any step, so it must NOT arrive through the LogIn pool - if it did, this test would no longer be about the MASK mechanism"
             );
             let mask = wp.plans[0].mask.as_ref().expect("the step's MASK must be RESOLVED, not merely carried");
             assert_eq!(mask.len(), n, "the flag curve arrives on the well's own depth frame");

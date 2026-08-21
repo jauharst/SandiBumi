@@ -2785,7 +2785,7 @@ pub fn ml_runtime() -> serde_json::Value {
     static RUNTIME: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
     RUNTIME
         .get_or_init(|| {
-            let Some(python) = find_python() else { return serde_json::Value::Null ;
+            let Some(python) = find_python() else { return serde_json::Value::Null;
             };
             // The SAME `_runtime()` the runners use — a second probe naming its components
             // differently would report a mismatch between `scikit-learn` and `sklearn` on one
@@ -3602,8 +3602,7 @@ fn run_ml_coverage(
                 ).map_err(|error| {
                             format!("cannot record ML coverage segments: {error}")
                         })?,
-                    )
-                ;
+                    );
                 let inputs = ml_fit_ancestry_inputs(req, &w.well_id,
                 &features);
                 let outputs = curves
@@ -5075,7 +5074,7 @@ fn mark_incomplete_sets(
             // curve, not only by code deciding whether to show a badge.
             "note": note,
         });
-        let Ok(text) = serde_json::to_string(&rec) else { continue ;
+        let Ok(text) = serde_json::to_string(&rec) else { continue;
         };
         if conn
             .execute("UPDATE log_sets SET params_json = ?1 WHERE set_id = ?2", duckdb::params![text, set_id])
@@ -5248,7 +5247,7 @@ pub fn apply_ml_model(
         Err(e) => return fail(&format!("failed to start python: {e}")),
     };
     {
-        let Some(stdin) = child.stdin.as_mut() else { return fail("failed to open python stdin") ;
+        let Some(stdin) = child.stdin.as_mut() else { return fail("failed to open python stdin");
         };
         let mut write = || -> std::io::Result<()> {
             stdin.write_all(header.to_string().as_bytes())?;
@@ -5399,8 +5398,7 @@ pub fn apply_ml_model(
                 &spec.module,
                 &req.custody,
                 &inputs,
-                req.input_set.as_deref()
-            ,
+                req.input_set.as_deref(),
                 parameters,
                 ml_zone_scope(req.interval, &req.custody),
                 &outputs,
@@ -6427,11 +6425,11 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
             fetch_names.push(mk.clone());
         }
         for (g, well_id) in req.train_well_ids.iter().enumerate() {
-            let Ok((depth, cols)) = fetch_curve_frame_from_set(&conn, well_id, &fetch_names, req.input_set.as_deref(), None) else { continue ;
+            let Ok((depth, cols)) = fetch_curve_frame_from_set(&conn, well_id, &fetch_names, req.input_set.as_deref(), None) else { continue;
             };
-            let Some(tv) = cols.get(&target) else { continue ;
+            let Some(tv) = cols.get(&target) else { continue;
             };
-            let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue ;
+            let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue;
             };
             let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
             for i in 0..depth.len() {
@@ -7922,7 +7920,7 @@ mod tests {
         //    first one would arrive: the reader gets written because the picker already offers it.
         let mut offenders: Vec<String> = Vec::new();
         let scan = |dir: std::path::PathBuf, ext: &str, out: &mut Vec<String>| -> usize {
-            let Ok(entries) = std::fs::read_dir(&dir) else { return 0 ;
+            let Ok(entries) = std::fs::read_dir(&dir) else { return 0;
             };
             let mut seen = 0usize;
             for e in entries.flatten() {
@@ -7930,7 +7928,7 @@ mod tests {
                 if !p.extension().map(|x| x == ext).unwrap_or(false) {
                     continue;
                 }
-                let Ok(text) = std::fs::read_to_string(&p) else { continue ;
+                let Ok(text) = std::fs::read_to_string(&p) else { continue;
                 };
                 seen += 1;
                 for bad in [".onnx", ".hdf5", ".caffemodel", ".tflite", ".safetensors", ".ckpt", ".pth"] {
@@ -9337,8 +9335,7 @@ mod tests {
             "model_id": "m-1",
             "apply_well_ids": ["w-1"],
             "output_curve": "PERM_ML",
-            "feature_curves": ["RHOB", "GR"]
-        ,
+            "feature_curves": ["RHOB", "GR"],
             "custody": crate::workflow::test_run_custody(),
         });
         let req: MlApplyRequest =

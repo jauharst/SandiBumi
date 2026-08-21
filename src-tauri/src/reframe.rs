@@ -166,8 +166,7 @@ pub struct ReframeRequest {
     pub output_set: String,
     /// Probe only: compute and report, write nothing.
     #[serde(default)]
-    pub preview: bool
-,
+    pub preview: bool,
     #[serde(default)]
     pub custody: Option<equations::RunCustody>,
 }
@@ -750,7 +749,7 @@ pub(crate) fn set_frame(conn: &Connection, well_id: &str, set_name: &str) -> duc
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
-    let Some((set_id, frame)) = row else { return Ok(None) ;
+    let Some((set_id, frame)) = row else { return Ok(None);
     };
     let frame = crate::schema_vocab::LogSetFrame::parse(&frame).ok_or_else(|| {
         duckdb::Error::InvalidParameterName(format!("unknown stored log-set frame '{frame}'"))
@@ -1838,8 +1837,7 @@ mod tests {
             methods: HashMap::new(),
             default_method: Method::Auto,
             output_set: "FIELD_05".into(),
-            preview: false
-        ,
+            preview: false,
             custody: Some(crate::workflow::test_run_custody()),
         };
         let res = run_reframe(&conn, &req);
@@ -1923,8 +1921,7 @@ mod tests {
             methods: Default::default(),
             default_method: Method::Mean,
             output_set: "SUBSTITUTED".into(),
-            preview: false
-        ,
+            preview: false,
             custody: Some(crate::workflow::test_run_custody()),
         };
 
@@ -2110,8 +2107,7 @@ mod tests {
             methods: Default::default(),
             default_method: Method::default(),
             output_set: "R".into(),
-            preview: true
-        ,
+            preview: true,
             custody: Some(crate::workflow::test_run_custody()),
         };
         let out = run_reframe(&conn, &req);
