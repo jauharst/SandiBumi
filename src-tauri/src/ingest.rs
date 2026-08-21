@@ -326,15 +326,18 @@ pub fn import_las_files(
     import_las_files_with(conn, paths, progress, &LasImportOptions::default())
 }
 
-fn cancelled_las_import(path: &str) -> ImportResult {
+/// Everything an `ImportResult` says when a file produced NOTHING: no well record, no rows, no
+/// attachment, no unit conversions (nothing was converted because nothing was imported) and no
+/// pending sentinel question. The ONE exhaustive literal - a new field is added here, once.
+fn empty_las_import(path: impl Into<String>) -> ImportResult {
     ImportResult {
-        path: path.to_string(),
+        path: path.into(),
         well_id: None,
         well_name: None,
         well_headers: Vec::new(),
         rows: 0,
         text_encoding: None,
-        warning: Some("cancelled before import".into()),
+        warning: None,
         error: None,
         attached_set: None,
         alias_decisions: Vec::new(),
@@ -346,7 +349,33 @@ fn cancelled_las_import(path: &str) -> ImportResult {
         unconverted_units: Vec::new(),
         unit_designations: Vec::new(),
         unit_tokens: Vec::new(),
-        unit_token_warnings: Vec::new(), sentinel_question: None
+        unit_token_warnings: Vec::new(),
+        sentinel_question: None,
+    }
+}
+
+fn cancelled_las_import(path: &str) -> ImportResult {
+    ImportResult {
+        warning: Some("cancelled before import".into()),
+        ..empty_las_import(path)
+    }
+}
+
+/// A file that produced nothing, NAMED with the reason it produced nothing.
+///
+/// AUDIT-2026-08-20 finding 69: this ~20-field literal was written out at fourteen sites, six
+/// inside `import_las` alone, differing only in the error string. Rust caps the damage - a
+/// FORGOTTEN field will not compile - but a field whose value should DIFFER per site is not
+/// caught, and fourteen copies is fourteen places for one to be filled in wrong.
+///
+/// A caller adds only the evidence it had gathered before it refused. That the ten evidence
+/// fields still repeat at those sites is finding 50's territory, not this one: `import_las`
+/// accumulates them as ten separate locals, and carrying them as one value is a change to that
+/// function's shape rather than to how a refusal is built.
+fn refused_las_import(path: impl Into<String>, error: impl Into<String>) -> ImportResult {
+    ImportResult {
+        error: Some(error.into()),
+        ..empty_las_import(path)
     }
 }
 
@@ -439,7 +468,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, well_headers: Vec::new(), rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(), section_handling: Vec::new(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() , sentinel_question: None},
+                Err(e) => refused_las_import(path.clone(), e.to_string()),
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -513,28 +542,14 @@ fn insert_parsed_well(
         match opts.undeclared_sentinel_decision {
             None => {
                 return ImportResult {
-                    path,
-                    well_id: None,
                     well_name: Some(well_name),
                     well_headers,
-                    rows: 0,
                     text_encoding: Some(columns.text_encoding),
-                    warning: None,
-                    error: Some(format!(
-                        "import blocked: value {} matches the known vendor bad-hole sentinel \
-                         but this file does not declare it as null - affected: {listing}. \
-                         Decide whether these cells are absent values or measurements; \
-                         nothing was imported.",
-                        parsers::VENDOR_BADHOLE_SENTINEL
-                    )),
-                    attached_set: None,
                     alias_decisions,
                     null_resolutions,
                     index_resolution,
                     section_policy,
                     section_handling,
-                    unit_conversions: Vec::new(),
-                    unconverted_units: Vec::new(),
                     unit_designations,
                     unit_tokens,
                     unit_token_warnings,
@@ -548,6 +563,13 @@ fn insert_parsed_well(
                             })
                             .collect(),
                     }),
+                    ..refused_las_import(path, format!(
+                        "import blocked: value {} matches the known vendor bad-hole sentinel \
+                         but this file does not declare it as null - affected: {listing}. \
+                         Decide whether these cells are absent values or measurements; \
+                         nothing was imported.",
+                        parsers::VENDOR_BADHOLE_SENTINEL
+                    ))
                 };
             }
             Some(SentinelDecision::Convert) => {
@@ -579,25 +601,17 @@ fn insert_parsed_well(
             Some(unit) => Some(unit),
             None => {
                 return ImportResult {
-                    path,
-                    well_id: None,
-                    well_name: None,
                     well_headers: well_headers.clone(),
-                    rows: 0,
                     text_encoding: Some(text_encoding.clone()),
-                    warning: None,
-                    error: Some(format!("unrecognized confirmed file depth unit '{raw}'")),
-                    attached_set: None,
                     alias_decisions: alias_decisions.clone(),
                     null_resolutions: null_resolutions.clone(),
                     index_resolution: index_resolution.clone(),
                     section_policy: section_policy.clone(),
                     section_handling: section_handling.clone(),
-                    unit_conversions: Vec::new(),
-                    unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
+                    unit_token_warnings: unit_token_warnings.clone(),
+                    ..refused_las_import(path, format!("unrecognized confirmed file depth unit '{raw}'"))
                 }
             }
         },
@@ -608,25 +622,17 @@ fn insert_parsed_well(
         Ok(action) => action,
         Err(error) => {
             return ImportResult {
-                path,
-                well_id: None,
-                well_name: None,
                 well_headers: well_headers.clone(),
-                rows: 0,
                 text_encoding: Some(text_encoding.clone()),
-                warning: None,
-                error: Some(error),
-                attached_set: None,
                 alias_decisions: alias_decisions.clone(),
                 null_resolutions: null_resolutions.clone(),
                 index_resolution: index_resolution.clone(),
                 section_policy: section_policy.clone(),
                 section_handling: section_handling.clone(),
-                unit_conversions: Vec::new(),
-                unconverted_units: Vec::new(),
                 unit_designations: unit_designations.clone(),
                 unit_tokens: unit_tokens.clone(),
-                unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
+                unit_token_warnings: unit_token_warnings.clone(),
+                ..refused_las_import(path, error)
             }
         }
     };
@@ -651,27 +657,19 @@ fn insert_parsed_well(
             )),
             None => {
                 return ImportResult {
-                    path,
-                    well_id: None,
-                    well_name: None,
                     well_headers: well_headers.clone(),
-                    rows: 0,
                     text_encoding: Some(text_encoding.clone()),
-                    warning: None,
-                    error: Some(format!(
-                        "non-increasing index at data row {row}; a user decision is required before commit"
-                    )),
-                    attached_set: None,
                     alias_decisions,
                     null_resolutions: null_resolutions.clone(),
                     index_resolution,
                     section_policy,
                     section_handling,
-                    unit_conversions: Vec::new(),
-                    unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
+                    unit_token_warnings: unit_token_warnings.clone(),
+                    ..refused_las_import(path, format!(
+                        "non-increasing index at data row {row}; a user decision is required before commit"
+                    ))
                 }
             }
         }
@@ -684,52 +682,36 @@ fn insert_parsed_well(
         match opts.duplicate_depth_policy {
             None => {
                 return ImportResult {
-                    path,
-                    well_id: None,
-                    well_name: None,
                     well_headers: well_headers.clone(),
-                    rows: 0,
                     text_encoding: Some(text_encoding.clone()),
-                    warning: None,
-                    error: Some(format!(
-                        "{duplicate_count} repeated depth row(s) require a declared duplicate policy before commit"
-                    )),
-                    attached_set: None,
                     alias_decisions,
                     null_resolutions: null_resolutions.clone(),
                     index_resolution,
                     section_policy,
                     section_handling,
-                    unit_conversions: Vec::new(),
-                    unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
+                    unit_token_warnings: unit_token_warnings.clone(),
+                    ..refused_las_import(path, format!(
+                        "{duplicate_count} repeated depth row(s) require a declared duplicate policy before commit"
+                    ))
                 }
             }
             Some(parsers::DuplicateDepthPolicy::Refuse) => {
                 return ImportResult {
-                    path,
-                    well_id: None,
-                    well_name: None,
                     well_headers: well_headers.clone(),
-                    rows: 0,
                     text_encoding: Some(text_encoding.clone()),
-                    warning: None,
-                    error: Some(format!(
-                        "duplicate-depth policy refuse blocked {duplicate_count} repeated row(s)"
-                    )),
-                    attached_set: None,
                     alias_decisions,
                     null_resolutions: null_resolutions.clone(),
                     index_resolution,
                     section_policy,
                     section_handling,
-                    unit_conversions: Vec::new(),
-                    unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
                     unit_tokens: unit_tokens.clone(),
-                    unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
+                    unit_token_warnings: unit_token_warnings.clone(),
+                    ..refused_las_import(path, format!(
+                        "duplicate-depth policy refuse blocked {duplicate_count} repeated row(s)"
+                    ))
                 }
             }
             Some(policy) => {
@@ -754,28 +736,20 @@ fn insert_parsed_well(
     // column 0 is entirely the null sentinel): don't commit a curve-less orphan well, error.
     if rows == 0 {
         return ImportResult {
-            path,
-            well_id: None,
-            well_name: None,
             well_headers: well_headers.clone(),
-            rows: 0,
             text_encoding: Some(text_encoding.clone()),
-            warning: None,
-            error: Some(format!(
-                "no importable rows: {} had missing depth, {} duplicated an earlier depth",
-                report.nonfinite, report.duplicate
-            )),
-            attached_set: None,
             alias_decisions: alias_decisions.clone(),
             null_resolutions: null_resolutions.clone(),
             index_resolution: index_resolution.clone(),
             section_policy: section_policy.clone(),
             section_handling: section_handling.clone(),
-            unit_conversions: Vec::new(),
-            unconverted_units: Vec::new(),
             unit_designations: unit_designations.clone(),
             unit_tokens: unit_tokens.clone(),
-            unit_token_warnings: unit_token_warnings.clone(), sentinel_question: None
+            unit_token_warnings: unit_token_warnings.clone(),
+            ..refused_las_import(path, format!(
+                "no importable rows: {} had missing depth, {} duplicated an earlier depth",
+                report.nonfinite, report.duplicate
+            ))
         };
     }
 
@@ -856,25 +830,17 @@ fn insert_parsed_well(
         Ok(verdict) => verdict,
         Err(error) => {
             return ImportResult {
-                path,
-                well_id: None,
-                well_name: None,
                 well_headers: well_headers.clone(),
-                rows: 0,
                 text_encoding: Some(text_encoding),
-                warning: None,
-                error: Some(error),
-                attached_set: None,
                 alias_decisions,
                 null_resolutions,
                 index_resolution,
                 section_policy,
                 section_handling,
-                unit_conversions: Vec::new(),
-                unconverted_units: Vec::new(),
                 unit_designations,
                 unit_tokens,
-                unit_token_warnings, sentinel_question: None
+                unit_token_warnings,
+                ..refused_las_import(path, error)
             };
         }
     };
@@ -895,7 +861,19 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() , sentinel_question: None}
+                return ImportResult {
+                    well_headers: well_headers.clone(),
+                    text_encoding: Some(text_encoding.clone()),
+                    alias_decisions: alias_decisions.clone(),
+                    null_resolutions: null_resolutions.clone(),
+                    index_resolution: index_resolution.clone(),
+                    section_policy: section_policy.clone(),
+                    section_handling: section_handling.clone(),
+                    unit_designations: unit_designations.clone(),
+                    unit_tokens: unit_tokens.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(),
+                    ..refused_las_import(path, e.to_string())
+                }
             }
         };
         match stmt
@@ -904,7 +882,19 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() , sentinel_question: None}
+                return ImportResult {
+                    well_headers: well_headers.clone(),
+                    text_encoding: Some(text_encoding.clone()),
+                    alias_decisions: alias_decisions.clone(),
+                    null_resolutions: null_resolutions.clone(),
+                    index_resolution: index_resolution.clone(),
+                    section_policy: section_policy.clone(),
+                    section_handling: section_handling.clone(),
+                    unit_designations: unit_designations.clone(),
+                    unit_tokens: unit_tokens.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(),
+                    ..refused_las_import(path, e.to_string())
+                }
             }
         }
     };
@@ -974,25 +964,17 @@ fn insert_parsed_well(
         }
         Err(error) => {
             return ImportResult {
-                path,
-                well_id: None,
-                well_name: None,
                 well_headers: well_headers.clone(),
-                rows: 0,
                 text_encoding: Some(text_encoding),
-                warning: None,
-                error: Some(error.to_string()),
-                attached_set: None,
                 alias_decisions,
                 null_resolutions,
                 index_resolution,
                 section_policy,
                 section_handling,
-                unit_conversions: Vec::new(),
-                unconverted_units: Vec::new(),
                 unit_designations,
                 unit_tokens,
-                unit_token_warnings, sentinel_question: None
+                unit_token_warnings,
+                ..refused_las_import(path, error.to_string())
             };
         }
     };
@@ -1085,7 +1067,19 @@ fn insert_parsed_well(
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
             ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), well_headers, rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings, sentinel_question: None }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings, sentinel_question: None },
+        Err(e) => ImportResult {
+            well_headers,
+            text_encoding: Some(text_encoding),
+            alias_decisions,
+            null_resolutions,
+            index_resolution,
+            section_policy,
+            section_handling,
+            unit_designations,
+            unit_tokens,
+            unit_token_warnings,
+            ..refused_las_import(path, e.to_string())
+        },
     }
 }
 
@@ -1167,7 +1161,19 @@ fn attach_curves_to_existing_well(
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings, sentinel_question: None },
+        Err(e) => ImportResult {
+            well_headers,
+            text_encoding: Some(text_encoding),
+            alias_decisions,
+            null_resolutions,
+            index_resolution,
+            section_policy,
+            section_handling,
+            unit_designations,
+            unit_tokens,
+            unit_token_warnings,
+            ..refused_las_import(path, e.to_string())
+        },
     }
 }
 
@@ -3730,6 +3736,75 @@ RHOZ.KG/M3 : Density
             )
             .unwrap();
         assert_eq!(generic_nulls, 2);
+    }
+
+    /// AUDIT-2026-08-20 finding 69. The ~20-field `ImportResult` refusal literal was written
+    /// out at FOURTEEN sites, six inside `import_las` alone, differing only in the error
+    /// string. Rust caps that: a forgotten field will not compile. What it does not catch is a
+    /// field whose value should DIFFER per site being filled in wrong at one of fourteen
+    /// copies - and every one of those fields is a CLAIM about the file. `rows` is how many
+    /// samples landed. `well_id` is a record that now exists. `attached_set` is a delivery
+    /// that joined an existing well. `unit_conversions` is values that were changed. A refusal
+    /// that claimed any of them would be reporting work it did not do.
+    ///
+    /// Pinned from BOTH sides. A live refusal claims nothing; and structurally, every refusal
+    /// in this file is built from the one shell that decides what "claims nothing" means, so a
+    /// fifteenth site cannot re-type it and get one field wrong.
+    #[test]
+    fn a_refused_import_claims_nothing_and_every_refusal_is_built_from_one_shell() {
+        // A - live. An unreadable file is the simplest refusal there is.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let missing = std::env::temp_dir()
+            .join("sandibumi_no_such_directory_audit_69")
+            .join("SANDI-ABSENT.las");
+        let refusal = import_las_files(&conn, &[missing.to_str().unwrap().to_string()], None).remove(0);
+
+        assert!(refusal.error.is_some(), "a file that produced nothing must say why");
+        assert!(
+            refusal.error.as_deref().unwrap_or_default().contains("SANDI-ABSENT.las"),
+            "and which file it was: {:?}",
+            refusal.error
+        );
+        assert_eq!(refusal.rows, 0, "a refusal must not claim samples landed");
+        assert!(refusal.well_id.is_none(), "a refusal must not claim a well record exists");
+        assert!(refusal.attached_set.is_none(), "a refusal must not claim a delivery attached");
+        assert!(
+            refusal.unit_conversions.is_empty() && refusal.unconverted_units.is_empty(),
+            "nothing was imported, so nothing can have been converted or preserved"
+        );
+        assert!(refusal.warning.is_none(), "a refusal is an error, not a note beside a success");
+        let wells: i64 = conn.query_row("SELECT count(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(wells, 0, "and the claim matches the database");
+
+        // B - structural, and exact: `well_id: None` is the first thing an empty result says,
+        // and it is now said in exactly ONE place. A site that re-types the shell to refuse
+        // must write that line, so counting it counts the copies. The needle is assembled at
+        // runtime so this test does not match its own literal.
+        let source = include_str!("ingest.rs");
+        let empty_shell = format!("{}: None,", "well_id");
+        let shells: Vec<usize> = source
+            .split('\n')
+            .enumerate()
+            .filter(|(_, line)| line.trim() == empty_shell)
+            .map(|(index, _)| index + 1)
+            .collect();
+        assert_eq!(
+            shells.len(),
+            1,
+            "a refusal typed out by hand is a fifteenth chance to claim work that did not \
+             happen; build it from refused_las_import instead (shells at lines {shells:?})"
+        );
+        let lines: Vec<&str> = source.split('\n').collect();
+        let owner = lines[..shells[0]]
+            .iter()
+            .rev()
+            .find(|line| line.starts_with("fn ") || line.starts_with("pub fn "))
+            .expect("the shell sits inside some function");
+        assert!(
+            owner.contains("fn empty_las_import("),
+            "the one shell must be the shared constructor's, found it in: {owner}"
+        );
     }
 
     /// SB-CLY-034 (DEC-037): quarantine and ASK. An undeclared value equal to the known
