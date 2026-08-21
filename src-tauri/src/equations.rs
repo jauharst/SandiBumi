@@ -2128,7 +2128,38 @@ pub struct CompleteLogSetSpec {
     discipline: SetWriteDiscipline,
 }
 
+/// The three refusals a [`CompleteLogSetSpec::restamp_ancestry`] caller carries in with it.
+/// Passed rather than shared: each names the work that was in progress, and one common wording
+/// would tell a user the equation engine failed when the pay-summary engine did.
+#[derive(Clone, Copy)]
+struct RestampMessages {
+    parse: &'static str,
+    non_object: &'static str,
+    serialize: &'static str,
+}
+
 impl CompleteLogSetSpec {
+    /// AUDIT-2026-08-20 finding 77: validate the ancestry, parse the stored parameter record,
+    /// insert the manifest under `CURVE_ANCESTRY_KEY`, re-stringify. Three producers each carried
+    /// their own copy of this, and it is the ORDER that is load-bearing rather than the lines: a
+    /// copy that validated AFTER inserting, or re-stringified before it, would store a manifest
+    /// that never passed validation - and every reader downstream would take it as one that had.
+    fn restamp_ancestry(&mut self, messages: RestampMessages) -> Result<(), String> {
+        self.ancestry.validate()?;
+        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
+            .map_err(|error| format!("{}: {error}", messages.parse))?;
+        let object = stored
+            .as_object_mut()
+            .ok_or_else(|| messages.non_object.to_string())?;
+        object.insert(
+            CURVE_ANCESTRY_KEY.into(),
+            serde_json::to_value(&self.ancestry)
+                .map_err(|error| format!("{}: {error}", messages.serialize))?,
+        );
+        self.storage.params_json = stored.to_string();
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn try_new(set_name: &str, ancestry: CurveAncestry) -> Result<Self, String> {
         Self::try_new_with_legacy(
@@ -2217,19 +2248,11 @@ impl CompleteLogSetSpec {
         if !physics_attributes.is_empty() {
             self.ancestry.physics_attributes = physics_attributes;
         }
-        self.ancestry.validate()?;
-        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
-            .map_err(|error| format!("cannot refresh curve ancestry manifest JSON: {error}"))?;
-        let object = stored
-            .as_object_mut()
-            .ok_or_else(|| "cannot refresh curve ancestry in a non-object parameter record".to_string())?;
-        object.insert(
-            CURVE_ANCESTRY_KEY.into(),
-            serde_json::to_value(&self.ancestry)
-                .map_err(|error| format!("cannot serialize curve ancestry manifest: {error}"))?,
-        );
-        self.storage.params_json = stored.to_string();
-        Ok(())
+        self.restamp_ancestry(RestampMessages {
+            parse: "cannot refresh curve ancestry manifest JSON",
+            non_object: "cannot refresh curve ancestry in a non-object parameter record",
+            serialize: "cannot serialize curve ancestry manifest",
+        })
     }
 
     pub(crate) fn record_parameter_decisions(
@@ -2244,19 +2267,11 @@ impl CompleteLogSetSpec {
                 parameter.decision = crate::param_sources::decision_for(topic, &parameter.value);
             }
         }
-        self.ancestry.validate()?;
-        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
-            .map_err(|error| format!("cannot refresh curve ancestry parameter JSON: {error}"))?;
-        let object = stored
-            .as_object_mut()
-            .ok_or_else(|| "cannot refresh curve ancestry in a non-object parameter record".to_string())?;
-        object.insert(
-            CURVE_ANCESTRY_KEY.into(),
-            serde_json::to_value(&self.ancestry)
-                .map_err(|error| format!("cannot serialize curve ancestry decision: {error}"))?,
-        );
-        self.storage.params_json = stored.to_string();
-        Ok(())
+        self.restamp_ancestry(RestampMessages {
+            parse: "cannot refresh curve ancestry parameter JSON",
+            non_object: "cannot refresh curve ancestry in a non-object parameter record",
+            serialize: "cannot serialize curve ancestry decision",
+        })
     }
 
     /// Retain non-parameter run metadata in the legacy payload while naming the canonical
@@ -2265,19 +2280,11 @@ impl CompleteLogSetSpec {
     fn record_parameters_not_applicable(&mut self) -> Result<(), String> {
         self.ancestry.parameters.clear();
         self.ancestry.parameter_state = Some(ProvenanceAbsentState::NotApplicable);
-        self.ancestry.validate()?;
-        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
-            .map_err(|error| format!("cannot name the equation parameter state: {error}"))?;
-        let object = stored
-            .as_object_mut()
-            .ok_or_else(|| "cannot name parameters in a non-object provenance record".to_string())?;
-        object.insert(
-            CURVE_ANCESTRY_KEY.into(),
-            serde_json::to_value(&self.ancestry)
-                .map_err(|error| format!("cannot serialize the equation parameter state: {error}"))?,
-        );
-        self.storage.params_json = stored.to_string();
-        Ok(())
+        self.restamp_ancestry(RestampMessages {
+            parse: "cannot name the equation parameter state",
+            non_object: "cannot name parameters in a non-object provenance record",
+            serialize: "cannot serialize the equation parameter state",
+        })
     }
 }
 
@@ -2896,17 +2903,26 @@ pub(crate) fn write_computed_curves_versioned(
     write_versioned_rows_raw(conn, well_id, depth, curves, set_id)
 }
 
-pub(crate) fn write_computed_curves_with_ancestry(
+/// AUDIT-2026-08-20 finding 77: the gate every complete-ancestry write passes before it touches a
+/// row. It was written out three times - character-identical, refusal text included - in the
+/// single-well writer, the clearing writer and the batch writer.
+///
+/// All four checks earn their place and none covers another. The set must belong to THIS well,
+/// because a set id is not well-scoped by construction. Every curve about to be written must
+/// already be a declared output of the record, because a curve stored under a set that never
+/// claimed it can never say where it came from. The set must still be live, and the manifest it
+/// stores must parse. A fourth writer that inherited three of the four would compile and would
+/// write; what it would lose is the one guarantee the complete-ancestry set exists for.
+fn verify_complete_set_covers<'a>(
     conn: &Connection,
     well_id: &str,
-    depth: &[f32],
-    curves: &[(&str, &[f32])],
+    curve_names: impl Iterator<Item = &'a str>,
     set_id: &CompleteSetId,
 ) -> Result<(), String> {
     if set_id.well_id != well_id {
         return Err("complete ancestry set belongs to a different well".into());
     }
-    for (name, _) in curves {
+    for name in curve_names {
         if !set_id
             .outputs
             .iter()
@@ -2925,6 +2941,17 @@ pub(crate) fn write_computed_curves_with_ancestry(
         )
         .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
     parse_curve_ancestry(stored.as_deref().unwrap_or_default())?;
+    Ok(())
+}
+
+pub(crate) fn write_computed_curves_with_ancestry(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    curves: &[(&str, &[f32])],
+    set_id: &CompleteSetId,
+) -> Result<(), String> {
+    verify_complete_set_covers(conn, well_id, curves.iter().map(|(name, _)| *name), set_id)?;
     write_versioned_rows_raw(conn, well_id, depth, curves, &set_id.value)
 }
 
@@ -2944,28 +2971,7 @@ pub(crate) fn write_computed_curves_with_ancestry_clearing(
     clear_names: &[String],
     set_id: &CompleteSetId,
 ) -> Result<(), String> {
-    if set_id.well_id != well_id {
-        return Err("complete ancestry set belongs to a different well".into());
-    }
-    for (name, _) in curves {
-        if !set_id
-            .outputs
-            .iter()
-            .any(|output| output.eq_ignore_ascii_case(name))
-        {
-            return Err(format!(
-                "computed curve '{name}' has no output derivation in its ancestry record"
-            ));
-        }
-    }
-    let stored: Option<String> = conn
-        .query_row(
-            "SELECT params_json FROM log_sets WHERE set_id = ?1 AND well_id = ?2",
-            params![set_id.value, well_id],
-            |row| row.get(0),
-        )
-        .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
-    parse_curve_ancestry(stored.as_deref().unwrap_or_default())?;
+    verify_complete_set_covers(conn, well_id, curves.iter().map(|(name, _)| *name), set_id)?;
     load_set_write_discipline(conn, &set_id.value)?;
     validate_continuous_depth_uniqueness(depth, curves)?;
     crate::db::with_txn(conn, |conn| {
@@ -3876,29 +3882,12 @@ pub(crate) fn write_computed_curves_with_ancestry_batch(
 ) -> Result<(), String> {
     let mut raw = Vec::with_capacity(wells.len());
     for well in wells {
-        if well.set_id.well_id != well.well_id {
-            return Err("complete ancestry set belongs to a different well".into());
-        }
-        for (curve, _) in &well.curves {
-            if !well
-                .set_id
-                .outputs
-                .iter()
-                .any(|output| output.eq_ignore_ascii_case(curve))
-            {
-                return Err(format!(
-                    "computed curve '{curve}' has no output derivation in its ancestry record"
-                ));
-            }
-        }
-        let params_json: Option<String> = conn
-            .query_row(
-                "SELECT params_json FROM log_sets WHERE set_id = ?1 AND well_id = ?2",
-                params![well.set_id.value, well.well_id],
-                |row| row.get(0),
-            )
-            .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
-        parse_curve_ancestry(params_json.as_deref().unwrap_or_default())?;
+        verify_complete_set_covers(
+            conn,
+            &well.well_id,
+            well.curves.iter().map(|(curve, _)| curve.as_str()),
+            &well.set_id,
+        )?;
         raw.push(WellWrite {
             well_id: well.well_id.clone(),
             depth: well.depth.clone(),
@@ -3938,16 +3927,14 @@ fn fetch_verified_import_set_frame(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .ok();
-    let Some((verified, effective)) = verdict else {
+    // No stored verdict and a stored verdict of "not verified" are the same answer to the only
+    // question asked here - has anybody checked this set's sampling? - so they were already
+    // refusing in identical words. One pattern states it once.
+    let Some((true, effective)) = verdict else {
         return Err(duckdb::Error::InvalidParameterName(format!(
             "frame-indexed read refused for import set '{set_name}': sampling style has not been verified"
         )));
     };
-    if !verified {
-        return Err(duckdb::Error::InvalidParameterName(format!(
-            "frame-indexed read refused for import set '{set_name}': sampling style has not been verified"
-        )));
-    }
     let style = crate::schema_vocab::SamplingStyle::parse(&effective).ok_or_else(|| {
         duckdb::Error::InvalidParameterName(format!(
             "frame-indexed read refused for import set '{set_name}': stored sampling verdict '{effective}' is invalid"
@@ -6612,6 +6599,149 @@ mod tests {
     ///
     /// Removing the relational row write, its state index, the NULL value/source pair, the
     /// positive sourced row, or the write refusal must fail this one contract from opposite sides.
+    /// AUDIT-2026-08-20 finding 77. Two sequences were each written out three times in this file:
+    /// the ancestry re-stamp (validate, parse the parameter record, insert `CURVE_ANCESTRY_KEY`,
+    /// re-stringify) and the complete-write gate (right well, every curve declared, set still
+    /// live, manifest parses). In both, the ORDER and the COMPLETENESS carry the guarantee rather
+    /// than the lines - a copy that validated after inserting would store a manifest that never
+    /// passed validation, and a copy missing one of the four checks would still compile and still
+    /// write.
+    ///
+    /// Pinned from both sides, because either half alone has a lazier way to pass. The sequence is
+    /// written once AND every producer reaches it; the gate keeps all four checks AND still names
+    /// which one refused. Sharing one wording across the three producers would satisfy the count
+    /// and lose the thing this repository refuses by: a user told only that curve ancestry could
+    /// not be refreshed cannot tell whether the pay summary or their own equation was being
+    /// recorded.
+    #[test]
+    fn the_ancestry_restamp_and_the_complete_write_gate_are_each_stated_once() {
+        // Counted over the production half of the file only, and with every needle assembled, so
+        // that this test is never an occurrence of what it counts.
+        let source = include_str!("equations.rs");
+        let production = source.split("\nmod tests").next().expect("the test module opens");
+        let restamp = ["self.storage.params_json = ", "stored.to_string();"].concat();
+        assert_eq!(
+            production.matches(restamp.as_str()).count(),
+            1,
+            "the re-stamp is one sequence; a second is an order that can differ silently",
+        );
+        assert_eq!(
+            production
+                .matches(["self.restamp_ancestry(", "RestampMessages"].concat().as_str())
+                .count(),
+            3,
+            "and all three producers reach it",
+        );
+        let gate = ["complete ancestry set is not", " live"].concat();
+        assert_eq!(
+            production.matches(gate.as_str()).count(),
+            1,
+            "the complete-write gate is one statement; a second can lose a check",
+        );
+        assert_eq!(
+            production.matches(["verify_complete_set_covers", "("].concat().as_str()).count(),
+            3,
+            "and all three complete writers pass through it",
+        );
+
+        let fixture = || {
+            CompleteLogSetSpec::try_new(
+                "RESTAMP",
+                CurveAncestry {
+                    schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+                    method_derivation: None,
+                    module: "TEST_FIXTURE".into(),
+                    module_version: env!("CARGO_PKG_VERSION").into(),
+                    inputs: Vec::new(),
+                    parameters: Vec::new(),
+                    parameter_state: Some(ProvenanceAbsentState::NotApplicable),
+                    zone_scope: AncestryZoneScope::WholeWell,
+                    actor: AncestryActor {
+                        kind: AncestryActorKind::Automated,
+                        identity: "rust-test-fixture".into(),
+                    },
+                    timestamp_utc_ms: ancestry_timestamp_utc_ms().expect("fixture timestamp"),
+                    outputs: vec![AncestryOutput {
+                        curve: "PHIE".into(),
+                        derivation: "test_fixture:PHIE".into(),
+                    }],
+                    depth_frame: None,
+                    zone_set: None,
+                    stochastic: None,
+                    applied_model: None,
+                    physics_attributes: Vec::new(),
+                },
+            )
+            .expect("complete fixture ancestry")
+        };
+
+        // Each producer still refuses in its OWN words. The stored parameter record is
+        // unparseable here, so all three reach the same failure by three different routes - and
+        // each has to say which route it was.
+        let unparseable = || {
+            let mut spec = fixture();
+            spec.storage.params_json = "not json at all".into();
+            spec
+        };
+        let refusals = [
+            unparseable().record_run_manifest(None, Vec::new()).unwrap_err(),
+            unparseable().record_parameter_decisions(&[]).unwrap_err(),
+            unparseable().record_parameters_not_applicable().unwrap_err(),
+        ];
+        for (refusal, expected) in refusals.iter().zip([
+            "cannot refresh curve ancestry manifest JSON",
+            "cannot refresh curve ancestry parameter JSON",
+            "cannot name the equation parameter state",
+        ]) {
+            assert!(
+                refusal.starts_with(expected),
+                "each producer refuses in its own words: expected {expected}, got {refusal}",
+            );
+        }
+
+        // The gate keeps all four checks, and each one names itself.
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = "77777777-7777-7777-7777-777777777777";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'SANDI-77');"
+        ))
+        .unwrap();
+        let spec = fixture();
+        let (set_id, _) =
+            create_complete_log_set(&conn, well, &spec).expect("create the fixture set");
+        verify_complete_set_covers(&conn, well, ["PHIE"].into_iter(), &set_id)
+            .expect("a declared output of a live set on its own well passes");
+        for (well, curve, expected) in [
+            ("66666666-6666-6666-6666-666666666666", "PHIE", "belongs to a different well"),
+            (well, "SWE", "has no output derivation in its ancestry record"),
+        ] {
+            let refusal = verify_complete_set_covers(&conn, well, [curve].into_iter(), &set_id)
+                .expect_err("the gate refuses");
+            assert!(refusal.contains(expected), "expected {expected}, got {refusal}");
+        }
+
+        // A live set whose stored manifest carries no ancestry is refused rather than written
+        // under - the fourth check, and the only one a reader could not detect afterwards.
+        conn.execute(
+            "UPDATE log_sets SET params_json = '{}' WHERE set_id = ?1",
+            params![set_id.as_str()],
+        )
+        .unwrap();
+        let refusal = verify_complete_set_covers(&conn, well, ["PHIE"].into_iter(), &set_id)
+            .expect_err("a manifest with no ancestry is refused");
+        assert!(
+            refusal.contains("no complete ancestry record"),
+            "expected the missing-record refusal, got {refusal}",
+        );
+
+        // And a set that is no longer there is not live.
+        conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![set_id.as_str()]).unwrap();
+        let refusal = verify_complete_set_covers(&conn, well, ["PHIE"].into_iter(), &set_id)
+            .expect_err("a set that is gone is refused");
+        assert!(refusal.contains("not live"), "expected not live, got {refusal}");
+    }
+
     #[test]
     fn a_parameter_without_a_source_is_queryable_required_unset_and_never_a_number() {
         use crate::db;

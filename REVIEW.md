@@ -1,5 +1,38 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 80 (my audit P3): **one gate every complete write passes, stated once instead of three times**
+
+- [ ] **What to click.** Nothing should look different — this increment moves no number and changes
+      no curve. Run any module, run a **batch/workflow chain** over several wells, and run a **Monte
+      Carlo** study (which is the one that clears stale curves as it writes). All three take a
+      different route into the database, and all three should behave exactly as before.
+- [ ] **What was wrong.** Every time SandiBumi writes a computed curve, it first checks four things
+      about the record that curve is being filed under: that the record belongs to **this** well,
+      that **every** curve about to be written is one the record already declared it would produce,
+      that the record is still live in the project, and that what it has stored can still be read
+      back. Those four checks were written out **three times** — once for the ordinary write, once
+      for the write that also retires stale curves, once for the batch write — identical down to
+      the wording of the refusals. A fourth writer that copied three of the four would still
+      compile and would still write; what it would lose is the guarantee that a stored curve can
+      say where it came from, which is the whole reason the record exists.
+- [ ] **The same thing for stamping the record.** Three places re-stamp a run's provenance onto the
+      stored record: the run manifest (the depth frame and the physics values the run actually
+      used), the parameter decisions (where each parameter's value came from), and the equation
+      engine's honest "no petrophysical parameters apply here". Each carried its own copy of the
+      same four-step sequence — check the record is valid, read what is stored, put the manifest in,
+      write it back. The **order** is the point, not the lines: a copy that checked validity *after*
+      putting the manifest in would store a record that was never checked, and everything reading it
+      afterwards would take it as one that had.
+- [ ] **Each of the three still refuses in its own words.** That is the half a tidy-up would quietly
+      lose. If the stored record cannot be read, the run manifest, the parameter decisions and the
+      equation engine each say which of the three was being written — a single shared message would
+      leave you unable to tell whether the pay summary or your own equation was the one that failed.
+      The check fails if any two of them start saying the same thing.
+- [ ] **One refusal that was written twice for the same answer.** Reading an imported set on its own
+      depth frame refuses when nobody has verified how that set is sampled. "No verdict recorded"
+      and "a verdict recorded as not verified" are the same answer to that question, and were
+      already refusing in identical words; it is one statement now.
+
 ## 2026-08-21 — Audit increment 79 (my audit P3): **one porosity ceiling, stated once instead of three times**
 
 - [ ] **What to click.** Run **phi_den**, **phi_dn** and **phi_dnbk** on the same well, each in all
