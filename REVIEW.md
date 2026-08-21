@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 58 (my audit P3): **VSH from GR now says which method bent your gamma-ray index**
+
+- [ ] **What to click.** Run **VSH from Gamma Ray** with **Stieber 1/2/3** or **Clavier** on a well
+      where GR runs well above your GR_SH — the easiest way to see it is to set GR_SH deliberately
+      low. Open the run's degradation notes. You should now read something like
+      *"vsh_gr STIEBER1: gamma-ray index bounded to [-10, 1.49], short of the pole of v/(3-2v) at
+      index 1.5"*. Run the same well on **Larionov** or **Linear** and that line should NOT appear.
+- [ ] **What was wrong.** Four of the eight GR methods quietly bound the gamma-ray index before
+      applying their curve. The run did report a clamp — but the message read *"calculated value
+      was clamped to the existing range [-10, 1.49]"*, which names neither the curve nor the
+      method. With eight branches, four that bound and four that don't, that line told you nothing
+      you could act on. A bare "1.49" is meaningless unless you know what sits just past it.
+- [ ] **The bounds themselves are right and stay.** They are the equations' own arithmetic, not a
+      petrophysical choice. Stieber 1 divides by (3 − 2·index) and **flips sign** past index 1.5;
+      Stieber 2 by (2 − index) past 2.0; Stieber 3 by (4 − 3·index) past 4/3; Clavier takes a square
+      root that goes negative outside index −2.538..1.138. Without the bound, a GR far above GR_SH
+      would hand you a **negative shale volume** or a blank — the two answers hardest to question.
+- [ ] **VSH_GR is still the unlimited curve.** It reports the bounded index's transform, which for
+      Stieber 1 is **74.5**, not a tidy 1.0. That matters: the unlimited curve exists to tell wet
+      rock apart from an endpoint set wrong, and a diagnostic that quietly read 1.0 would be
+      identical to the VSH beside it and could no longer make that distinction.
+- [ ] **Larionov and Linear bound nothing**, because they have no singularity to run into — and
+      clamping their index would silently change their answer rather than protect it.
+- [ ] **Pinned.** `a_bounded_gamma_ray_index_names_its_branch_while_the_branches_with_no_pole_stay_silent`
+      — both sides: each bounding branch must name itself and what it stopped short of, **and** the
+      four without a pole must stay silent, so a message printed unconditionally would fail too.
+
 ## 2026-08-21 — Audit increment 57 (my audit P3): **a write that could have doubled its own samples**
 
 - [ ] **What to click.** Nothing visible, and nothing you can trigger today — this closes a trap
