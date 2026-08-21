@@ -841,10 +841,11 @@ pub(crate) fn param_open_when(
 }
 
 /// A free-text run option (see [`ArgKind::Text`]). Reaches the module through `opts`.
-/// A free-text run option. Currently unused: its only caller was the Condition/Frame families'
-/// "Output curve name" field, which the output-name grid replaced (`log_out_as`). Kept because
-/// `ArgKind::Text` is a real kind the whole stack already renders, and a manifest wanting a
-/// free-string parameter should not have to re-add the plumbing.
+///
+/// Currently unused: its only caller was the Condition/Frame families' "Output curve name"
+/// field, which the output-name grid replaced (`log_out_as`). Kept because `ArgKind::Text` is a
+/// real kind the whole stack already renders, and a manifest wanting a free-string parameter
+/// should not have to re-add the plumbing.
 #[allow(dead_code)]
 pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
     ArgSpec {
@@ -2313,11 +2314,11 @@ fn validate_porosity_contracts(modules: &[ModuleSpec]) -> Result<(), String> {
 
     let mut actual_method_policies = HashSet::new();
     for module in modules {
-        let registration = POROSITY_MODULE_REGISTRATIONS
+        let Some(registration) = POROSITY_MODULE_REGISTRATIONS
             .iter()
             .copied()
-            .find(|registration| registration.module == module.name);
-        if registration.is_none() {
+            .find(|registration| registration.module == module.name)
+        else {
             for argument in module
                 .args
                 .iter()
@@ -2329,8 +2330,7 @@ fn validate_porosity_contracts(modules: &[ModuleSpec]) -> Result<(), String> {
                 ));
             }
             continue;
-        }
-        let registration = registration.unwrap();
+        };
         if module.category != "Porosity" {
             failures.push(format!(
                 "registered POR module '{}' has category '{}'",
@@ -2741,7 +2741,6 @@ pub(crate) fn validate_validity_manifests(modules: &[ModuleSpec]) -> Result<(), 
 /// adjudication 1 is Jauhar's open call under DEC-076 - so it is pinned exactly: any
 /// third producer, or any second FTEMP-like case, fails the build.
 pub(crate) fn validate_output_identity_classes(modules: &[ModuleSpec]) -> Result<(), String> {
-    use std::collections::BTreeMap;
     let class_of = |name: &str| {
         OUTPUT_IDENTITY_REGISTRY
             .iter()
@@ -2832,7 +2831,6 @@ pub(crate) fn validate_output_identity_classes(modules: &[ModuleSpec]) -> Result
 /// remain Jauhar's are pinned EXACTLY rather than exempted loosely: a new divergence, or
 /// any drift in a pinned one, fails the build by name.
 pub(crate) fn validate_topic_default_identity(modules: &[ModuleSpec]) -> Result<(), String> {
-    use std::collections::BTreeMap;
     let mut by_topic: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for module in modules {
         for arg in &module.args {

@@ -234,23 +234,18 @@ fn detect_stream_encoding(path: &Path) -> std::io::Result<StreamEncoding> {
         // sequence at the chunk edge (carried), anything else is a real invalid byte.
         if utf8_valid {
             utf8_carry.extend_from_slice(bytes);
-            loop {
-                match std::str::from_utf8(&utf8_carry) {
-                    Ok(_) => {
+            // One pass, not a loop: every arm below ended in `break`, so the shape said
+            // "keep going" while the code never did.
+            match std::str::from_utf8(&utf8_carry) {
+                Ok(_) => utf8_carry.clear(),
+                Err(error) => {
+                    if error.error_len().is_some() {
+                        utf8_valid = false;
                         utf8_carry.clear();
-                        break;
-                    }
-                    Err(error) => {
-                        if error.error_len().is_some() {
-                            utf8_valid = false;
-                            utf8_carry.clear();
-                            break;
-                        }
+                    } else {
                         let keep = utf8_carry.len() - error.valid_up_to();
-                        let tail: Vec<u8> = utf8_carry[error.valid_up_to()..].to_vec();
-                        utf8_carry = tail;
+                        utf8_carry = utf8_carry[error.valid_up_to()..].to_vec();
                         debug_assert!(keep <= 3);
-                        break;
                     }
                 }
             }
@@ -269,9 +264,6 @@ fn detect_stream_encoding(path: &Path) -> std::io::Result<StreamEncoding> {
         utf8_valid = false; // file ends mid-sequence: the whole-file decoder calls that invalid
     }
     let utf16_heuristic = total_len >= 4 && total_len % 2 == 0 && utf16_pair_hit;
-    if utf16_heuristic && !utf8_valid {
-        return Ok(StreamEncoding::Utf16WholeFile);
-    }
     if utf16_heuristic {
         // decode_text checks the UTF-16 heuristic BEFORE trying UTF-8 — preserve that order.
         return Ok(StreamEncoding::Utf16WholeFile);
@@ -4509,6 +4501,30 @@ mod encoding_tests {
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(body).unwrap();
         path
+    }
+
+    /// AUDIT-2026-08-20 finding 80. Two consecutive `if utf16_heuristic` branches returned the
+    /// same answer, the first guarded by `&& !utf8_valid` and so wholly subsumed by the second.
+    /// The case that told them apart is not exotic: NUL-interleaved text IS valid UTF-8, because
+    /// NUL is an ordinary UTF-8 character. So a UTF-16 file of plain ASCII satisfies BOTH
+    /// conditions, and the answer must be the same either way - which is what made the first
+    /// branch removable, and what this pins so a later reader cannot re-derive the wrong order.
+    #[test]
+    fn a_utf16_file_whose_bytes_are_also_valid_utf8_is_still_read_as_utf16() {
+        // "a" then a newline, in UTF-16LE with no BOM: four bytes, even length, and the newline
+        // pair sits at an even offset, which is the whole heuristic. Every byte of it is also a
+        // legal UTF-8 sequence on its own, so the file satisfies both readings at once.
+        let body: &[u8] = &[b'a', 0, 0x0A, 0];
+        assert!(
+            std::str::from_utf8(body).is_ok(),
+            "the fixture only tells the two branches apart if it is genuinely valid UTF-8 too",
+        );
+        let path = write_bytes("sandibumi_utf16_also_valid_utf8.txt", body);
+        assert!(
+            matches!(detect_stream_encoding(&path).unwrap(), StreamEncoding::Utf16WholeFile),
+            "the UTF-16 heuristic decides before UTF-8 validity, whatever UTF-8 validity says",
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     /// The encoding regression, byte-for-byte. A 330 KB core table that was pure ASCII except for

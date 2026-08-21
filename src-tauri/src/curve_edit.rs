@@ -16,7 +16,6 @@ use base64::Engine as _;
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::equations;
@@ -283,23 +282,25 @@ fn curve_sha256(depth: &[f32], values: &[f32]) -> String {
     format!("{:x}", digest.finalize())
 }
 
-fn timestamp_utc_ms() -> Result<u64, String> {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("system clock is before the Unix epoch: {error}"))?;
-    u64::try_from(elapsed.as_millis())
-        .map_err(|_| "system timestamp does not fit the provenance record".to_string())
+/// The interval a request names, in the order the rest of the file assumes.
+///
+/// A request may carry its bounds either way round - the caller drags upward as readily as
+/// downward - and four places used to restate the same swap. One of them is the ancestry zone and
+/// one is the arithmetic, so a swap corrected in one and not the other would edit one interval and
+/// record another.
+fn ordered_interval(req: &CurveEditRequest) -> (f32, f32) {
+    if req.top <= req.bottom {
+        (req.top, req.bottom)
+    } else {
+        (req.bottom, req.top)
+    }
 }
 
 fn normalized_interval(req: &CurveEditRequest) -> CurveEditInterval {
     if req.op == "shift" {
         CurveEditInterval::WholeCurve
     } else {
-        let (top, bottom) = if req.top <= req.bottom {
-            (req.top, req.bottom)
-        } else {
-            (req.bottom, req.top)
-        };
+        let (top, bottom) = ordered_interval(req);
         CurveEditInterval::InclusiveDepth { top, bottom }
     }
 }
@@ -377,7 +378,7 @@ fn build_edit_record(
         operation: req.op.clone(),
         interval: normalized_interval(req),
         parameters: record_parameters(req),
-        timestamp_utc_ms: timestamp_utc_ms()?,
+        timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
         actor,
         source_note,
         before_sha256,
@@ -679,11 +680,7 @@ fn edit_parameters(
     req: &CurveEditRequest,
     record: &CurveEditRecord,
 ) -> Result<serde_json::Value, String> {
-    let (top, bottom) = if req.top <= req.bottom {
-        (req.top, req.bottom)
-    } else {
-        (req.bottom, req.top)
-    };
+    let (top, bottom) = ordered_interval(req);
     let mut parameters = match req.op.as_str() {
         "shift" => serde_json::json!({ "operation": "shift", "delta": req.delta }),
         "set" => serde_json::json!({
@@ -724,11 +721,7 @@ fn edit_zone_scope(
     if req.op == "shift" {
         return equations::AncestryZoneScope::WholeWell;
     }
-    let (top, bottom) = if req.top <= req.bottom {
-        (req.top, req.bottom)
-    } else {
-        (req.bottom, req.top)
-    };
+    let (top, bottom) = ordered_interval(req);
     if top < bottom {
         equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
             name: "CURVE_EDIT_INTERVAL".into(),
@@ -814,7 +807,7 @@ pub fn apply_interpolate(depth: &[f32], value: &[f32], top: f32, bottom: f32) ->
 }
 
 fn apply_op(req: &CurveEditRequest, depth: &[f32], value: &[f32]) -> Result<Vec<f32>, String> {
-    let (top, bottom) = if req.top <= req.bottom { (req.top, req.bottom) } else { (req.bottom, req.top) };
+    let (top, bottom) = ordered_interval(req);
     match req.op.as_str() {
         "shift" => {
             if req.delta == 0.0 || !req.delta.is_finite() {
@@ -998,7 +991,7 @@ pub fn restore_curve_values(
             "restores_edit_id": restores_edit_id,
             "restored_samples": n,
         }),
-        timestamp_utc_ms: timestamp_utc_ms()?,
+        timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
         actor,
         source_note,
         before_sha256: current_sha256,
@@ -1149,6 +1142,58 @@ mod tests {
             &set_id,
         )
         .unwrap();
+    }
+
+    /// AUDIT-2026-08-20 finding 78. The same top/bottom swap was restated four times, and two of
+    /// those restatements answer different questions: one is the ancestry ZONE that gets recorded,
+    /// one is the arithmetic that gets applied. Corrected in one and not the other, an edit would
+    /// act on one interval and record another - and the record is what a reviewer reads afterwards,
+    /// with nothing left to compare it against. One helper, checked here through all three doors.
+    #[test]
+    fn a_request_whose_bounds_arrive_reversed_records_the_interval_it_edits() {
+        let req = CurveEditRequest {
+            well_id: "SANDI-1".into(),
+            curve: "GR".into(),
+            op: "set".into(),
+            delta: 0.0,
+            // The wrong way round, as dragging upward in the log view delivers it.
+            top: 2100.0,
+            bottom: 2000.0,
+            value: 42.0,
+            mul: 1.0,
+            add: 0.0,
+            custody: None,
+        };
+
+        assert_eq!(ordered_interval(&req), (2000.0, 2100.0), "the shared helper orders the bounds");
+        assert_eq!(
+            normalized_interval(&req),
+            CurveEditInterval::InclusiveDepth { top: 2000.0, bottom: 2100.0 },
+            "the recorded interval is the ordered one",
+        );
+
+        match edit_zone_scope(&req, &crate::workflow::test_run_custody()) {
+            equations::AncestryZoneScope::Defined(zones) => {
+                assert_eq!(zones.len(), 1, "a bounded edit records one zone");
+                assert_eq!(
+                    (zones[0].top, zones[0].base),
+                    (2000.0, 2100.0),
+                    "the recorded zone is the interval that was edited",
+                );
+            }
+            other => panic!("a bounded edit records a defined zone, got {other:?}"),
+        }
+
+        // And the arithmetic acts on that same interval. Read the other way round it would match
+        // nothing at all, so the edit would silently do nothing while recording that it had.
+        let depth = [1990.0f32, 2000.0, 2050.0, 2100.0, 2110.0];
+        let value = [1.0f32; 5];
+        let edited = apply_op(&req, &depth, &value).expect("a set over reversed bounds still edits");
+        assert_eq!(
+            edited,
+            vec![1.0, 42.0, 42.0, 42.0, 1.0],
+            "exactly the samples inside the ordered interval are the ones edited",
+        );
     }
 
     #[test]
@@ -1543,7 +1588,7 @@ mod tests {
         let conn = db::init_db(path.to_str().unwrap()).unwrap();
         let well_id = seed_ramp_well(&conn);
         let custody = Some(crate::workflow::test_run_custody());
-        let started = timestamp_utc_ms().unwrap();
+        let started = equations::ancestry_timestamp_utc_ms().unwrap();
         let base = CurveEditRequest {
             well_id: well_id.clone(),
             curve: "GR".into(),
@@ -1648,7 +1693,7 @@ mod tests {
             },
         )
         .unwrap();
-        let finished = timestamp_utc_ms().unwrap();
+        let finished = equations::ancestry_timestamp_utc_ms().unwrap();
         for result in [&shift, &set, &blank, &interpolate, &scale, &raw, &computed] {
             assert!(result.affected > 0, "every fixture request must perform a real edit");
             assert_eq!(result.curve_sha256.len(), 64, "the undo identity is a SHA-256");

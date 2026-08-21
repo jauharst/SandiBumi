@@ -1,5 +1,42 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 74 (my audit P3): **an edit that could silently record a different interval than it made**
+
+- [ ] **What to click.** Right-click a track in a log view → **Edit <curve>…**, and fill the
+      Top and Bottom boxes **the wrong way round** — put the deeper number in Top. Apply a
+      Set. The samples between the two depths should change exactly as they would have if
+      you had typed them in the usual order, and the edit's own record of itself should
+      name that same interval.
+- [ ] **What was wrong.** A curve edit carries a top and a bottom, and nothing stops those two
+      arriving reversed. Four separate places in the code each corrected the order for
+      themselves — the same three lines, written out four times. Two of those four answer
+      *different* questions: one is the arithmetic that decides which samples get edited, and one
+      is the provenance note that records which interval **was** edited. Corrected in one and not
+      the other, an edit would act on one interval and write down another — and that note is the
+      only thing a reviewer has afterwards, with nothing left to compare it against. Nothing was
+      wrong today; four copies of one rule is how it goes wrong tomorrow.
+- [ ] **What changed.** One shared helper puts the bounds in order, and all four places call it.
+      The check follows a reversed request through all three doors it has to survive: the interval
+      that gets recorded, the ancestry zone that gets recorded, and the samples that actually
+      change. Break the recording half alone and the check goes red, which is the point — that is
+      exactly the half a click-through cannot see.
+- [ ] **A private clock, next to the shared one.** Curve editing had its own copy of the function
+      that timestamps a provenance record, sitting a few lines below the shared one the rest of
+      the application already imports and uses. Two clocks that agree today are two clocks to fix
+      the day one of them needs a correction. It now uses the shared one.
+- [ ] **Two dead shapes in the delivery reader.** The reader that decides whether a text delivery
+      is UTF-8, UTF-16 or Windows text had two branches asking different questions and returning
+      the same answer — the first could never be the one that ran. It also had a loop whose every
+      path stopped on the first pass, so the shape said "keep going" while the code never did.
+      Both are now written as what they were. The check pins the case that told the two branches
+      apart: a UTF-16 file of plain ASCII is *also* valid UTF-8, and must still be read as UTF-16.
+- [ ] **Two smaller ones in the module catalog.** The porosity registration check looked a
+      registration up in a shape the same function had already abandoned twice below it, and a
+      documentation block opened twice with the same sentence.
+- [ ] **No number moves.** Every one of these is the same behaviour written once instead of twice.
+      The gate is green and the two mutations that prove the checks bite are recorded in the
+      commit.
+
 ## 2026-08-21 — Audit increment 73 (my audit P3): **a startup check that refuses now says which rule refused**
 
 - [ ] **What to click.** Nothing, on a healthy build — this only shows itself if the application
