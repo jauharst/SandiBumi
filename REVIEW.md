@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 85 (my audit P2): **the permeability constants get their papers, and two of them stop wearing the wrong name**
+
+- [ ] **What to click.** Open **perm_wyllie_rose** and look at the **variant** dropdown. The four
+      entries now say what they actually are. Read the module's Help text too — it carries the
+      publications and the two corrections. Then run it: **every number is unchanged.** The
+      arithmetic was verified correct before this; only the attribution was wrong.
+- [ ] **What was wrong.** Every C, D and E in the permeability family was a bare number with no
+      source anywhere in the shipped code — the only attribution lived in research notes that never
+      ship. Worse, the research you asked for turned up that **two of the four carry a name their
+      author never attached to them.**
+- [ ] **`TIMUR` is not Timur.** It is the Schlumberger Chart K-3 curve. Timur (1968) published
+      `k = 0.136·φ^4.4/Swi²` with porosity and saturation in *percent*, which in fractions is
+      `8581·φ^4.4/Swi²` — `C = 92.63, D = 2.2` in our squared form. The two agree within 3% in good
+      rock and the chart curve reads about **14% low in tight rock**, which is exactly where a
+      permeability cutoff gets decided.
+- [ ] **`TIXIER` is not Tixier.** Tixier (1949) is a resistivity-gradient method entirely. This
+      branch is a post-1950 simplification of Wyllie-Rose carrying the oil constant — which is also
+      why `TIXIER` and `MORRIS_BIGGS_OIL` compute identically here. Same lineage, arrived at twice.
+- [ ] **What is now cited.** The generalized form belongs to **Wyllie & Rose (1950)**, Trans. AIME
+      189, 105–118 — Carman-Kozeny with irreducible water substituted for specific surface area.
+      Their own shape factor is 2.0–2.5, suggested as 2.25, and they warned the answer carries only
+      order-of-magnitude significance. `perm_coates` is **Coates & Denoo (1981)**, not Coates &
+      Dumanoir (1974) as our registry said — that is a different, much heavier model we do not
+      implement, so the registry was pointing at the wrong paper.
+- [ ] **The dropdown ids did not change, deliberately.** Those strings are stored in every saved
+      run and chain, so renaming `TIMUR` would break each one that holds it. The correction rides
+      on the label instead — the mechanism this codebase added after the bare `LARINOV1`/`LARINOV2`
+      ids once sent someone to the wrong coefficient. The check fails if either the ids move or the
+      corrections are tidied out of the labels.
+- [ ] **What is still open.** Three things I could not resolve and did not paper over: the Morris &
+      Biggs 1967 paper and Coates & Dumanoir 1974 are both paywalled, so **whether 250/79 belongs to
+      Morris & Biggs or to Wyllie & Rose is unresolved** — treat it as vendor convention. And a
+      question for you: do you want a **true Timur 1968 branch** (C = 92.63, D = 2.2) added beside
+      the chart curve, or is saying "we don't offer it" enough?
+
 ## 2026-08-21 — Audit increment 84 (my audit P3, **DEC-091**): **one porosity floor per well, never two**
 
 - [ ] **What to click.** Open a module dialog for **phi_den**, **phi_dn** or **phi_dnbk** and look
