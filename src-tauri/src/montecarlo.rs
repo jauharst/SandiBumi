@@ -721,6 +721,10 @@ struct StepPlan {
     param_args: Vec<String>,
     /// Zone-resolved base value arrays for parameters NOT under Monte Carlo.
     base_params: HashMap<String, Vec<f64>>,
+    /// AUDIT-2026-08-20 finding 12. The step's resolved MASK flag curve, on the well's own
+    /// depth frame. Fetched ONCE per well here rather than per realization: a flag curve is a
+    /// property of the hole, not of the draw, so it is identical in all N realizations.
+    mask: Option<Vec<f32>>,
 }
 
 /// Cutoffs bundled for the per-zone pay/HPV accumulation.
@@ -1219,6 +1223,15 @@ fn build_plans(
             ));
         }
 
+        // The same resolution the deterministic runner uses, including its VSH_PROV refusal -
+        // a Monte Carlo chain must not accept a mask the real chain would reject by name.
+        let mask = crate::workflow::fetch_mask_aligned(
+            conn,
+            well_id,
+            opts.get("MASK").map(|s| s.trim()).unwrap_or(""),
+            None,
+            None,
+        )?;
         plans.push(StepPlan {
             module: step.module.clone(),
             opts,
@@ -1226,6 +1239,7 @@ fn build_plans(
             log_args,
             param_args,
             base_params,
+            mask,
         });
     }
 
@@ -1425,11 +1439,27 @@ fn run_realization(
 ) -> HashMap<String, Vec<f32>> {
     let mut pool = raw_pool.clone();
     for plan in plans {
+        // SB-ENV-027 (DEC-033): the ONE approved repair exemption, stated here in the same terms
+        // the deterministic runner states it - log_predict's SYN under OPT_COMBINE = MAX_RAW,
+        // the mode that genuinely IS a washout repair. Both mask passes are bypassed for it,
+        // because a repair blanked at the second pass is a repair that did not happen.
+        let repair_run = plan.module == "log_predict"
+            && plan.opts.get("OPT_COMBINE").map(|mode| mode.trim() == "MAX_RAW").unwrap_or(false);
         let mut logs: HashMap<String, Vec<f32>> = HashMap::with_capacity(plan.log_args.len() + 1);
         logs.insert("DEPTH".to_string(), depth.to_vec());
         for (arg, mnem) in &plan.log_args {
             let v = pool.get(mnem).cloned().unwrap_or_else(|| vec![f32::NAN; n]);
             logs.insert(arg.clone(), v);
+        }
+        // AUDIT-2026-08-20 finding 12. Blank flagged samples in the INPUTS before the run, for
+        // the reason the deterministic runner states: a module computing a run-level statistic
+        // (gr_normalize's P3/P97, log_predict's KNN training set) would otherwise be ANCHORED by
+        // casing and washout samples, and that mis-anchoring contaminates every output sample,
+        // flagged or not - once per realization. DEPTH is never masked.
+        if let Some(mask) = &plan.mask {
+            if !repair_run {
+                crate::workflow::apply_mask_to_logs(&mut logs, &plan.log_args, Some(mask));
+            }
         }
         let mut params: HashMap<String, Vec<f64>> = HashMap::with_capacity(plan.param_args.len());
         for pname in &plan.param_args {
@@ -1450,8 +1480,23 @@ fn run_realization(
         let ctx = ModuleContext { n, logs, params, opts: plan.opts.clone(), depth_unit: plan.depth_unit };
         match modules::run_module(&plan.module, &ctx) {
             Ok(outputs) => {
+                let mut outputs: HashMap<String, Vec<f32>> =
+                    outputs.into_iter().map(|(k, v)| (k.to_uppercase(), v)).collect();
+                // ...and in the OUTPUTS, so a flagged depth's result is never trusted
+                // downstream. `run_module` returns DECLARED keys here (unlike the deterministic
+                // runner's resolved, prefixed names), so the two exemptions are named in that
+                // vocabulary. The DEC-033 `_RECON_FLAG` companion is deliberately NOT emitted:
+                // it discloses reconstruction in a WRITTEN curve, and a realization writes none.
+                if let Some(mask) = &plan.mask {
+                    crate::workflow::apply_mask_to_outputs(
+                        &mut outputs,
+                        mask,
+                        repair_run.then_some("SYN"),
+                        (plan.module == "vsh_gr").then_some("VSH_PROV"),
+                    );
+                }
                 for (k, v) in outputs {
-                    pool.insert(k.to_uppercase(), v);
+                    pool.insert(k, v);
                 }
             }
             Err(e) => {
@@ -2579,31 +2624,44 @@ mod tests {
         );
     }
 
-    /// T-BATCH-17 — a step's MASK is carried into the Monte Carlo plan and then never read.
+    /// T-BATCH-17 / AUDIT-2026-08-20 finding 12 — CLOSED. A step's MASK is now READ by the
+    /// Monte Carlo engine, not merely carried.
     ///
-    /// The real chain runner blanks every masked input before a module runs and blanks the
-    /// outputs after (`workflow.rs`). `run_realization` does neither, so the Monte Carlo engine
-    /// interprets washout as rock and reports MORE pay than the very same chain does — the
-    /// dangerous direction, since a batch study is what gets quoted.
+    /// It used to be carried and ignored, so the engine interpreted washout as rock and
+    /// reported MORE pay than the very same chain did — the dangerous direction, since a batch
+    /// study is what gets quoted. There were TWO causes and the fix had to close both, exactly
+    /// as this test's earlier doc block warned: `build_plans` never fetched the flag curve
+    /// (`external` is assembled from LogIn mnemonics and MASK is an Option), and
+    /// `run_realization` never blanked. `StepPlan.mask` closes the first, once per well rather
+    /// than once per realization; the two shared `workflow::apply_mask_to_*` functions close the
+    /// second. Shared, not copied, because two copies of a mask rule is two places for it to
+    /// drift — which is how this gap opened.
     ///
-    /// There are TWO causes, not the one the audit names, and this test pins both: even if
-    /// `run_realization` learned to blank, `build_plans` never fetches the flag curve, because
-    /// `external` is assembled from LogIn mnemonics and MASK is an Option. Whoever fixes this
-    /// must extend both or the mask will silently blank nothing.
+    /// The test now pins AGREEMENT: the masked chain and the masked Monte Carlo must land on the
+    /// same net, and — the half that makes that meaningful — dropping the mask must CHANGE the
+    /// Monte Carlo answer. An engine that blanked everything, or nothing, would satisfy one of
+    /// those and not the other.
     #[test]
-    fn the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours() {
+    fn a_monte_carlo_chain_honours_a_step_mask_exactly_as_the_real_chain_does() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
 
-        // Bad hole over the shallow third — the same grid `seed_well` laid down.
+        // Cased-off over the shallow third — the same grid `seed_well` laid down.
+        //
+        // Deliberately NOT BADHOLE. SB-POR-047 made hole quality a DECLARED input on the
+        // porosity methods, so `build_plans` fetches BADHOLE from the LogIn list and `phi_den`
+        // excludes the washout natively, mask or no mask - which is why this test could once
+        // report agreement while the MASK mechanism was completely inert. CASING is a flag no
+        // module declares, so the MASK option is the ONLY route it can take, and the test is
+        // about the mechanism again rather than about one module's argument list.
         let n = 300usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
-        let badhole: Vec<f32> = (0..n).map(|i| if i < 100 { 1.0 } else { 0.0 }).collect();
-        crate::equations::write_computed_curve(&conn, &well, &depth, "BADHOLE", &badhole).unwrap();
+        let cased: Vec<f32> = (0..n).map(|i| if i < 100 { 1.0 } else { 0.0 }).collect();
+        crate::equations::write_computed_curve(&conn, &well, &depth, "CASING", &cased).unwrap();
         let dbm = Mutex::new(conn);
 
-        let masked = || HashMap::from([("MASK".to_string(), "BADHOLE".to_string())]);
+        let masked = || HashMap::from([("MASK".to_string(), "CASING".to_string())]);
         let modules_in_chain = ["vsh_gr", "phi_den", "sw_indo"];
 
         // The real chain, one masked step at a time, then the pay summary over what it wrote.
@@ -2664,6 +2722,13 @@ mod tests {
         let mc = run_monte_carlo(&dbm, &req, None);
         assert!(mc.errors.is_empty(), "unexpected errors: {:?}", mc.errors);
         let mc_net = mc.zones[0].net.mid;
+        // The mask EXCLUDES the cased-off interval; it does not blank the well. An engine that
+        // over-applies - masking every sample, or masking DEPTH along with the logs - would
+        // satisfy "less pay than unmasked" perfectly while destroying the study.
+        assert!(
+            mc_net > 0.0,
+            "the masked Monte Carlo must still find pay below the casing, got net {mc_net}"
+        );
 
         // SB-POR-047 CLOSED this observable for chains carrying a porosity module: hole quality
         // is a DECLARED input now, and `build_plans` assembles its fetch list from LogIn
@@ -2673,37 +2738,40 @@ mod tests {
         // longer has anything left to inflate here, and the equality is the proof.
         assert!(
             (mc_net - chain_net).abs() < 1e-3,
-            "the declared BADHOLE input must exclude the washout in BOTH engines: MC net {mc_net} vs chain {chain_net}"
+            "the masked chain and the masked Monte Carlo must land on the same net: MC {mc_net} vs chain {chain_net}"
         );
 
-        // The mask is inert, not partially applied: dropping it changes nothing.
+        // ...and the half that makes that agreement worth anything: dropping the mask must
+        // CHANGE the Monte Carlo answer, upwards. An engine that blanked EVERYTHING would pass
+        // the agreement above (both zero) and fail here; an engine that blanked NOTHING - the
+        // defect - passes here only if the numbers happen to coincide, which they do not,
+        // because the cased-off third carries pay when nothing excludes it.
         let mut unmasked = req.clone();
         unmasked.steps = modules_in_chain.iter().map(|m| step(m)).collect();
-        let mc_unmasked = run_monte_carlo(&dbm, &unmasked, None);
-        assert_eq!(
-            mc_net, mc_unmasked.zones[0].net.mid,
-            "setting a MASK on the step made no difference to the Monte Carlo answer"
+        let mc_unmasked = run_monte_carlo(&dbm, &unmasked, None).zones[0].net.mid;
+        assert!(
+            mc_unmasked > mc_net + 1e-3,
+            "ignoring the mask must interpret the cased-off interval as rock and report MORE              pay: unmasked {mc_unmasked} vs masked {mc_net}"
         );
 
-        // Cause two WAS "the flag curve never enters the pool". SB-POR-047 closed it from the
-        // module side: BADHOLE is a declared LogIn on the porosity methods, and build_plans
-        // assembles its fetch from LogIn mnemonics, so the flag now rides into every
-        // realization. The MASK option itself is still carried and still never read - the
-        // remaining half of the original finding, kept pinned below.
+        // Cause two was "the flag curve never enters the pool" - `external` is assembled from
+        // LogIn mnemonics and MASK is an Option, so no module declaring CASING means nothing
+        // fetched it. StepPlan.mask resolves it directly, once per well.
         {
             let conn = dbm.lock().unwrap();
             let specs: HashMap<String, modules::ModuleSpec> =
                 modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
             let wp = build_plans(&conn, &well, &req.steps, &specs).expect("plans build");
             assert!(
-                wp.raw_pool.contains_key("BADHOLE"),
-                "the declared flag input must enter the realization pool: {:?}",
-                wp.raw_pool.keys().collect::<Vec<_>>()
+                !wp.raw_pool.contains_key("CASING"),
+                "CASING is not a declared input of any step, so it must NOT arrive through the                  LogIn pool - if it did, this test would no longer be about the MASK mechanism"
             );
-            assert_eq!(
-                wp.plans[0].opts.get("MASK").map(String::as_str),
-                Some("BADHOLE"),
-                "the MASK option IS carried into the plan — it is simply never read"
+            let mask = wp.plans[0].mask.as_ref().expect("the step's MASK must be RESOLVED, not merely carried");
+            assert_eq!(mask.len(), n, "the flag curve arrives on the well's own depth frame");
+            assert!(
+                mask.iter().take(100).all(|f| modules::sample_is_flagged(*f))
+                    && mask.iter().skip(100).all(|f| !modules::sample_is_flagged(*f)),
+                "and it is the curve that was written, not a placeholder"
             );
         }
     }

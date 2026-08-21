@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 42 (my audit P2): **Monte Carlo now honours a step's mask — it was booking cased-off hole as pay**
+
+- [ ] **What was wrong.** When you set a **Mask** on a workflow step, the real chain blanks the
+      flagged samples before the module runs and again in its outputs. **Monte Carlo carried the
+      setting and never read it** — so a washed-out or cased-off interval was interpreted as rock
+      in **every realization**.
+- [ ] **How much it moved.** On the test well, the identical chain gave **99.5 m** of net pay and
+      the Monte Carlo gave **149.5 m** — the whole cased interval booked as pay, **50% high**. It
+      errs in the direction that adds reserves, and a batch study is what gets quoted.
+- [ ] **Why it went unnoticed.** An earlier change made BADHOLE a *declared input* on the
+      porosity methods, so a chain masked on BADHOLE already excluded the washout by another
+      route and the two engines agreed. Masking on anything else — a casing flag, a hand-picked
+      quality curve — had no effect at all.
+- [ ] **The fix, and why it cannot drift again.** Both engines now call **the same two functions**
+      to blank inputs and outputs, rather than each having its own copy. The flag curve is read
+      **once per well**, not once per realization, so a 1000-realization study costs nothing
+      extra. The mask refusals the real chain makes (VSH_PROV by name) and the one approved
+      washout-repair exemption both apply in Monte Carlo now too.
+- [ ] **It excludes, it does not blank.** The masked run still finds pay below the flagged
+      interval — pinned, so an over-eager mask can never quietly empty a study.
+- [ ] **What to check.** Take a well with a casing or bad-hole flag curve. Run a chain with that
+      curve set as **Mask** and note the Pay Summary net. Then run **Monte Carlo** over the same
+      chain and cutoffs with no uncertainty: the **P50 net should now match the chain's**. Remove
+      the mask and re-run — the number should go **up**, by roughly the flagged thickness.
+
 ## 2026-08-21 — Audit increment 41 (my audit P2): **the facies column you check on screen is now the one that prints**
 
 - [ ] **What was wrong.** Zoomed out to the whole well, the screen thinned every curve down to

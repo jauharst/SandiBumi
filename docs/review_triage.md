@@ -143,7 +143,7 @@ your wells.
   **Pins the audited defect as-is**, with the working chain beside it as the control. Sharpens the
   audit's trigger — see finding 8.
 - [x] **T-BATCH-17** — Monte Carlo vs chain with a bad-hole MASK ·
-  `the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours` (`montecarlo.rs`). **Pins the
+  `a_monte_carlo_chain_honours_a_step_mask_exactly_as_the_real_chain_does` (`montecarlo.rs`). **Pins the
   audited defect as-is.** Like T-PREP-16's masked washout it turns out to have **two causes**:
   `run_realization` never blanks, and `build_plans` never even fetches the flag curve, because the
   external-input set is built from LogIn args and MASK is an Option. Both are asserted, so a

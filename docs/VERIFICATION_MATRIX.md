@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **157** of 628,
+Review sections counted toward no capability: **157** of 629,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -23,7 +23,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 231 | 2026-08-13 | 74 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 98 | 2026-08-13 | 22 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 104 | 2026-08-13 | 23 |
 | `formation-temperature` | Formation-temperature curves | Not exercised | 0 / 5 | — | 2 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -44,7 +44,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 200 | 2026-07-19 | 34 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 18 | 2026-08-13 | 6 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
-| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 23 | 2026-07-18 | 9 |
+| `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 29 | 2026-07-18 | 10 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 20 | — | 6 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 50 | — | 14 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |

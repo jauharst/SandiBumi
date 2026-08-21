@@ -2186,7 +2186,7 @@ fn nphimat_declared_basis(
     .flatten()
 }
 
-fn fetch_mask_aligned(
+pub(crate) fn fetch_mask_aligned(
     conn: &Connection,
     well_id: &str,
     mask_name: &str,
@@ -2219,7 +2219,7 @@ fn fetch_mask_aligned(
     Ok(columns.get(&mask_name.to_uppercase()).cloned())
 }
 
-fn apply_mask_to_logs(
+pub(crate) fn apply_mask_to_logs(
     logs: &mut HashMap<String, Vec<f32>>,
     log_args: &[(String, String)],
     mask: Option<&[f32]>,
@@ -2231,6 +2231,51 @@ fn apply_mask_to_logs(
                 if modules::sample_is_flagged(*flag) {
                     *value = f32::NAN;
                 }
+            }
+        }
+    }
+}
+
+/// Blanks flagged samples in a step's OUTPUTS, so a flagged depth's result is never trusted
+/// downstream. The sibling of [`apply_mask_to_logs`], and like it shared by the deterministic
+/// runner and the Monte Carlo engine.
+///
+/// AUDIT-2026-08-20 finding 12. This lived inline in `run_workflow_module`, and the Monte Carlo
+/// engine carried each step's MASK and never read it - so a washout was interpreted as rock in
+/// EVERY realization, which is the direction that adds pay, and a batch study is what gets
+/// quoted. Extracted rather than copied because the pin test that disclosed the gap says exactly
+/// why: whoever fixes it must extend BOTH, or the mask silently blanks nothing.
+///
+/// The two exemptions are passed in BY NAME rather than derived here, because the two engines
+/// name their outputs differently - the deterministic runner has resolved names and prefixes by
+/// this point, the Monte Carlo engine's `run_module` returns DECLARED keys. The rule is shared;
+/// resolving the names stays with whoever knows them.
+pub(crate) fn apply_mask_to_outputs(
+    outputs: &mut HashMap<String, Vec<f32>>,
+    mask: &[f32],
+    repair_exempt_output: Option<&str>,
+    cly_prov_output: Option<&str>,
+) {
+    for (name, values) in outputs.iter_mut() {
+        // DEC-033: the one declared repair output, whose finite values at masked depths are the
+        // module's whole purpose. A repair blanked at this pass is a repair that did not happen.
+        if repair_exempt_output == Some(name.as_str()) {
+            continue;
+        }
+        if cly_prov_output == Some(name.as_str()) {
+            // SB-CLY-001: a masked sample's token is the mask's own statement, written HERE
+            // where the mask is known - blanking it would erase the one record of WHY the
+            // sample has no computed value.
+            for (value, flag) in values.iter_mut().zip(mask.iter()) {
+                if modules::sample_is_flagged(*flag) {
+                    *value = crate::param_sources::CLY_PROV_MASKED_INPUT;
+                }
+            }
+            continue;
+        }
+        for (v, m) in values.iter_mut().zip(mask.iter()) {
+            if modules::sample_is_flagged(*m) {
+                *v = f32::NAN;
             }
         }
     }
@@ -2896,27 +2941,12 @@ fn run_workflow_module_into_with_parameter_serializer(
                 // never trusted downstream - EXCEPT the one declared repair output, whose
                 // finite values at masked depths are the module's whole purpose.
                 if let Some(mask) = &mask {
-                    for (name, values) in outputs.iter_mut() {
-                        if repair_exempt_output.as_deref() == Some(name.as_str()) {
-                            continue;
-                        }
-                        if cly_prov_output.as_deref() == Some(name.as_str()) {
-                            // SB-CLY-001: a masked sample's token is the mask's own statement,
-                            // written HERE where the mask is known - blanking it would erase
-                            // the one record of WHY the sample has no computed value.
-                            for (value, flag) in values.iter_mut().zip(mask.iter()) {
-                                if modules::sample_is_flagged(*flag) {
-                                    *value = crate::param_sources::CLY_PROV_MASKED_INPUT;
-                                }
-                            }
-                            continue;
-                        }
-                        for (v, m) in values.iter_mut().zip(mask.iter()) {
-                            if modules::sample_is_flagged(*m) {
-                                *v = f32::NAN;
-                            }
-                        }
-                    }
+                    apply_mask_to_outputs(
+                        &mut outputs,
+                        mask,
+                        repair_exempt_output.as_deref(),
+                        cly_prov_output.as_deref(),
+                    );
                     // DEC-033 constraint 3: the typed binary companion that makes the
                     // exemption honest - 1 marks a finite value PRODUCED AT A MASKED DEPTH
                     // ("this number was reconstructed, not measured"), 0 an ordinary finite

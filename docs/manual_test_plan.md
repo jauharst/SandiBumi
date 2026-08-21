@@ -3533,7 +3533,7 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
    all the way into the plan and then read by nobody. Still expect MC Net/HPV above the pay-summary
    value.
 
-   **Automated coverage - pinned (pile B, 2026-07-31):** `the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours` (montecarlo.rs) - it runs the real chain and the Monte Carlo chain over the same masked well and compares them, and asserts BOTH causes. Pins the defect AS-IS.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_monte_carlo_chain_honours_a_step_mask_exactly_as_the_real_chain_does` (montecarlo.rs) - it runs the real chain and the Monte Carlo chain over the same masked well and compares them, and asserts BOTH causes. Pins the defect AS-IS.
 
    **Result — T-BATCH-17:**
 
