@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 50 (my audit P2): **the three multi-well overlays now share one loader**
+
+- [ ] **What to click.** Open a **Crossplot**, a **Histogram** and a **Pickett** side by side, set
+      each one's **RUN ON** scope to a group or to All wells, and watch the context wells fade in.
+      Then change the scope again while a load is still running, and switch wells with a load in
+      flight. Nothing about what you see should have changed — that is the whole test.
+- [ ] **What was wrong.** The code that fetches the other wells' curves for the overlay was written
+      out **three separate times**, about sixty near-identical lines each. It was one routine
+      copied twice, and later work kept adding to all three copies instead of to one.
+- [ ] **Why that matters on a real field.** Part of what those sixty lines do is check, after every
+      wait, whether you have since moved on — changed the scope, changed the zone, selected
+      another well. If one of the three copies ever missed a check, it would **not** produce an
+      error. It would quietly paint the overlay from wells you had already moved off, **under the
+      current well's name**, and nothing downstream could tell it was stale. That is the kind of
+      picture that ends up in a report.
+- [ ] **The fix.** One `createContextReload` in `plotCommon.ts` does the whole job; each plot now
+      says only what it needs — which curves to fetch, and how a fetched well becomes one of its
+      own overlay points. About 190 lines came out of the three panels.
+- [ ] **What each plot still owns.** The name it reports under ("Crossplot scope refused: …" and
+      so on), its own point budget accounting, its own legend, and the crossplot's extra statistics
+      refresh. None of that was flattened into a shared default.
+- [ ] **Pinned.** `one_shared_context_reload_serves_all_three_overlays_reports_under_each_panels_own_name_and_goes_silent_once_superseded`
+      drives the real loader three times over: each panel must report a refusal **under its own
+      name**, and the same refusal must be **silent once superseded**. Both were checked by
+      breaking them on purpose.
+
 ## 2026-08-21 — Audit increment 49 (my audit P2): **an import that refuses now tells you WHICH file refused**
 
 - [ ] **What was wrong.** Twelve of the file readers refused **without naming the file**. Import a

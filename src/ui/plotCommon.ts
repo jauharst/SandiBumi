@@ -8,6 +8,7 @@ import {
   listTops,
   listZoneParams,
   listZones,
+  resolveWellScope,
   savePlotState,
   setZoneParam,
   type PlotWriteProvenanceInput,
@@ -40,6 +41,12 @@ import {
   plotRecordLimit,
   reducePlotLabel,
 } from "./plotLimits";
+import {
+  beginPlotAsyncGeneration,
+  isPlotAsyncGenerationCurrent,
+  type PlotAsyncOperationId,
+} from "./plotAsync";
+import type { WellScope } from "./wellScope";
 
 import { ensureSessionOperator } from "./runCustody";
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
@@ -841,6 +848,121 @@ export async function fetchContextLayers(args: {
 }
 
 /** Human line for the scope row: "Context: 41 wells · ~58,200 pts (decimated) · 3 skipped …". */
+/** What one panel holds after a context load finishes. The panel keeps its own `ctx*`
+ *  variables — this is only the set of values a completed load replaces. */
+export interface ContextReloadState<L> {
+  layers: L[];
+  wellIds: string[];
+  reductionManifest: PlotReductionExport | null;
+  info: string;
+}
+
+export interface ContextReload {
+  /** Re-resolve the scope and refetch. Safe to call while an earlier call is in flight. */
+  reload: () => Promise<void>;
+  /** Abandon whatever is in flight (panel dispose, or a newer load taking over). */
+  cancel: () => void;
+}
+
+/**
+ * AUDIT-2026-08-20 finding 57. The multi-well context reload existed THREE times — histogram,
+ * Pickett and crossplot — about sixty near-verbatim lines each, the doc comment included. Four
+ * separate concerns had been added to all three copies rather than to one: scope resolution, a
+ * generation token with three staleness checks, depth-handoff merging, and `ctxWellIds`.
+ *
+ * Only two things genuinely differ between the panels: which CURVES to fetch, and how a fetched
+ * layer PROJECTS onto that panel's own layer type. Everything else is identical — and in
+ * particular every staleness check is, which is exactly the code three copies must not diverge
+ * in. A dropped check does not throw: it draws an overlay from the well the user already moved
+ * off, with the current well's name on it.
+ *
+ * The panel keeps its own `ctx*` variables and receives new values through `apply`, so the logic
+ * is shared without moving sixty read sites across three files. Note `apply` is deliberately not
+ * called before the fetch: a reload REPLACES the overlay on success and leaves the previous one
+ * on screen while it loads, so only the reduction manifest is reset up front.
+ */
+export function createContextReload<L>(spec: {
+  /** Reduction-manifest key: "histogram" | "pickett" | "crossplot". */
+  kind: string;
+  /** Status-line prefix: "Histogram" | "Pickett" | "Crossplot". */
+  label: string;
+  /** This panel's registered token operation — see PLOT_ASYNC_LOAD_REGISTRY. */
+  operation: PlotAsyncOperationId;
+  well: WellSummary;
+  scope: WellScope;
+  zoneSel: ZoneSelect;
+  handoff: DepthReframeHandoffControl;
+  /** Read fresh on every call — the panel's curve selects may have changed since the last. */
+  curves: () => string[];
+  project: (layer: ContextLayerData) => L;
+  /** Whether the panel currently holds layers, so a clear knows whether it must redraw. */
+  hadLayers: () => boolean;
+  apply: (next: ContextReloadState<L>) => void;
+  setPendingManifest: (manifest: PlotReductionExport | null) => void;
+  setStatus: (text: string) => void;
+  updateScopeUi: () => void;
+  redraw: () => void;
+  /** Crossplot alone refreshes its statistics records as soon as the scope is known. */
+  afterScope?: () => void;
+}): ContextReload {
+  let generation = 0;
+  const reload = async (): Promise<void> => {
+    const token = beginPlotAsyncGeneration(spec.operation, ++generation);
+    spec.handoff.clear();
+    let resolvedIds: string[];
+    try {
+      resolvedIds = await resolveWellScope(spec.scope.backend());
+    } catch (error) {
+      if (isPlotAsyncGenerationCurrent(token, generation)) {
+        spec.setStatus(`${spec.label} scope refused: ${error}`);
+      }
+      return;
+    }
+    spec.afterScope?.();
+    if (!isPlotAsyncGenerationCurrent(token, generation)) return;
+    const ids = resolvedIds.filter((id) => id !== spec.well.well_id);
+    if (ids.length === 0) {
+      // Scope narrowed back to the active well: clear the overlay so the panel behaves
+      // byte-identically to one that never had context wells.
+      const had = spec.hadLayers();
+      spec.apply({ layers: [], wellIds: [], reductionManifest: null, info: "" });
+      spec.handoff.clear();
+      spec.updateScopeUi();
+      if (had) spec.redraw();
+      return;
+    }
+    const curves = spec.curves();
+    spec.setPendingManifest(contextReductionExport(spec.kind, null, resolvedIds.length));
+    spec.setStatus(
+      `${spec.label}: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`,
+    );
+    const outcome = await fetchContextLayers({
+      ids,
+      names: spec.scope.namesFor(ids),
+      curves,
+      windowFor: (id) => contextZoneWindow(spec.zoneSel, id),
+      budget: plotRecordLimit("context_point_budget").maximum,
+      isStale: () => !isPlotAsyncGenerationCurrent(token, generation),
+    });
+    if (!outcome) return; // superseded by a newer call (or dispose)
+    const info = describeContextOutcome(outcome);
+    spec.apply({
+      layers: outcome.layers.map(spec.project),
+      wellIds: outcome.layers.map((layer) => layer.wellId),
+      reductionManifest: contextReductionExport(spec.kind, outcome, resolvedIds.length, {
+        wellId: spec.well.well_id,
+        name: spec.well.well_name,
+      }),
+      info,
+    });
+    spec.handoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
+    spec.updateScopeUi();
+    spec.setStatus(`${spec.label} ${info.toLowerCase()}`);
+    spec.redraw();
+  };
+  return { reload, cancel: () => void generation++ };
+}
+
 export function describeContextOutcome(o: ContextFetchOutcome): string {
   if (o.refusal) return `Context refused: ${o.refusal}`;
   const original = o.layers.reduce((sum, layer) => sum + layer.reduction.originalCount, 0);

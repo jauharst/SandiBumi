@@ -517,8 +517,12 @@ test("context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_e
     "histogramPanel.ts",
     "pickettPanel.ts",
   ].map(async (file) => [file, await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8")])));
+  // AUDIT-2026-08-20 finding 57: the manifest is BUILT in one place (the shared context
+  // reload) and EXPOSED by each panel, so all three export the same record by construction.
+  const sharedReload = await readFile(new URL("../src/ui/plotCommon.ts", import.meta.url), "utf8");
+  assert.match(sharedReload, /contextReductionExport\(/u);
   for (const source of Object.values(sources)) {
-    assert.match(source, /contextReductionExport\(/u);
+    assert.match(source, /createContextReload</u);
     assert.match(source, /\(\) => ctxReductionManifest/u);
   }
   const exportSource = await readFile(new URL("../src/ui/plotExport.ts", import.meta.url), "utf8");
@@ -805,9 +809,21 @@ test("equal_and_exact_multiple_regular_depth_grids_proceed_with_reported_factors
     "pickettPanel.ts",
     "plotCommon.ts",
   ].map(async (file) => [file, await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8")])));
+  assert.match(
+    sources["plotCommon.ts"],
+    /spec\.handoff\.show\(/u,
+    "the shared context reload must disclose the handoff it was handed",
+  );
   for (const panel of ["crossplotPanel.ts", "histogramPanel.ts", "pickettPanel.ts"]) {
     assert.match(sources[panel], /buildDepthReframeHandoff\(/u, `${panel} must render the refusal action`);
-    assert.match(sources[panel], /\.show\(/u, `${panel} must disclose the typed handoff`);
+    // Histogram's only handoff is the context one, which it now hands to the shared reload;
+    // the other two also show an ACTIVE-well handoff of their own. Either way the control a
+    // panel builds must reach something that shows it.
+    assert.match(
+      sources[panel],
+      /\.show\(|handoff: contextDepthHandoff/u,
+      `${panel} must disclose the typed handoff, itself or through the shared context reload`,
+    );
     assert.doesNotMatch(
       sources[panel],
       /runReframe|run_reframe/u,
@@ -1431,12 +1447,23 @@ test("every_async_plot_build_and_refetch_is_registered_and_reverse_order_or_data
     PLOT_ASYNC_LOAD_REGISTRY.map(({ id, owner }) => [id, owner]),
     expectedInventory,
   );
+  // AUDIT-2026-08-20 finding 57: an owner may create the token itself, or hand its registered
+  // id to shared machinery that creates it. The three context refetches do the latter, through
+  // plotCommon's createContextReload, so this follows the delegation rather than forbidding it.
+  // What it still refuses is a registered id nobody ever makes a token from.
+  const sharedContextReload = await readFile(new URL("../src/ui/plotCommon.ts", import.meta.url), "utf8");
+  assert.match(
+    sharedContextReload,
+    /beginPlotAsyncGeneration\(spec\.operation,/u,
+    "the shared context reload must create the token from the id it was handed",
+  );
   for (const [id, owner] of expectedInventory) {
     const source = await readFile(new URL(`../${owner}`, import.meta.url), "utf8");
-    assert.match(
-      source,
-      new RegExp(`beginPlotAsyncGeneration\\(\\s*[\"']${id}[\"']`),
-      `${id} must create its registered token in ${owner}`,
+    const creates = new RegExp(`beginPlotAsyncGeneration\\(\\s*[\"']${id}[\"']`).test(source);
+    const delegates = new RegExp(`operation: [\"']${id}[\"']`).test(source);
+    assert.ok(
+      creates || delegates,
+      `${id} must create its registered token in ${owner}, or hand that id to the shared reload that does`,
     );
   }
   const workspaceSource = await readFile(new URL("../src/ui/workspace.ts", import.meta.url), "utf8");
@@ -1499,6 +1526,89 @@ test("every_async_plot_build_and_refetch_is_registered_and_reverse_order_or_data
   assert.equal(await priorSettlement, "stale");
   assert.equal(activePanel, "newest", "T33's stale data revision never replaces current content");
   assert.deepEqual(disposed, ["old", "prior-revision"]);
+});
+
+test("one_shared_context_reload_serves_all_three_overlays_reports_under_each_panels_own_name_and_goes_silent_once_superseded", async () => {
+  // AUDIT-2026-08-20 finding 57. The multi-well context reload existed three times over -
+  // histogram, Pickett and crossplot - about sixty near-verbatim lines each. Four concerns had
+  // been added to all three copies rather than to one, the staleness token among them. A missed
+  // staleness check does not throw: it paints the overlay of a well the user has already moved
+  // off, under the current well's name, and nothing downstream can tell.
+  const { createContextReload } = await load("/src/ui/plotCommon.ts");
+  const spec = (label) => {
+    const status = [];
+    const applied = [];
+    const reload = createContextReload({
+      kind: label.toLowerCase(),
+      label,
+      operation: `${label.toLowerCase()}-context-refetch`,
+      well: { well_id: "W-ACTIVE", well_name: "SANDI-1" },
+      scope: { backend: () => ({ kind: "all" }), namesFor: (ids) => ids },
+      zoneSel: { select: { value: "*" }, current: () => ({ zoneName: "" }) },
+      handoff: { show() {}, clear() {} },
+      curves: () => ["GR"],
+      project: (layer) => layer,
+      hadLayers: () => false,
+      apply: (next) => applied.push(next),
+      setPendingManifest: () => {},
+      setStatus: (text) => status.push(text),
+      updateScopeUi: () => {},
+      redraw: () => {},
+    });
+    return { reload, status, applied };
+  };
+
+  // A - the scope cannot resolve here (no Tauri bridge under vite), which is the refusal path
+  // every panel shares. Each must say WHICH plot refused, or a docked workspace reports a
+  // failure with no way to tell which of three panels produced it.
+  for (const label of ["Histogram", "Pickett", "Crossplot"]) {
+    const panel = spec(label);
+    await panel.reload.reload();
+    assert.equal(panel.status.length, 1, `${label} must report its refusal exactly once`);
+    assert.ok(
+      panel.status[0].startsWith(`${label} scope refused: `),
+      `the refusal must name the panel that refused, got: ${panel.status[0]}`,
+    );
+    assert.deepEqual(panel.applied, [], "a refused scope must not replace the overlay");
+  }
+
+  // B - and the same refusal is SILENT once superseded. Without this the panel the user just
+  // navigated away from writes its stale message over the live one.
+  const superseded = spec("Histogram");
+  const inFlight = superseded.reload.reload();
+  superseded.reload.cancel();
+  await inFlight;
+  assert.deepEqual(
+    superseded.status,
+    [],
+    "a superseded reload must not report anything - it no longer owns the status line",
+  );
+
+  // C - and structurally, so the three copies cannot grow back. The plumbing lives in exactly
+  // one module; a panel names the loader and none of the primitives it wraps.
+  const shared = [
+    "fetchContextLayers",
+    "describeContextOutcome",
+    "mergeDepthReframeHandoffs",
+    "contextReductionExport",
+    "contextZoneWindow",
+  ];
+  for (const file of [
+    "src/ui/histogramPanel.ts",
+    "src/ui/pickettPanel.ts",
+    "src/ui/crossplotPanel.ts",
+  ]) {
+    const text = await readFile(file, "utf8");
+    assert.ok(
+      text.includes("createContextReload"),
+      `${file} must load its context wells through the shared reload`,
+    );
+    assert.deepEqual(
+      shared.filter((name) => text.includes(name)),
+      [],
+      `${file} must not hand-roll the context reload again`,
+    );
+  }
 });
 
 test("a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active_panel", async () => {
@@ -1731,13 +1841,13 @@ test("every_plot_uses_one_change_only_invalidation_contract_and_a_theme_change_r
     liveRegistrations.set(panel, registration);
   }
 
-  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /recomputeBrush\(selection\)/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /coreGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /recomputeBrush\(selection\)/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /coreGen\+\+/, /cancelContextReload\(\)/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("crossplotPanel.ts"), pattern, `crossplot's handler is not a no-op: ${pattern}`);
   }
-  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /recomputeBrushValues\(selection\)/, /refreshStatistics\(\)/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /recomputeBrushValues\(selection\)/, /refreshStatistics\(\)/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /cancelContextReload\(\)/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("histogramPanel.ts"), pattern, `histogram's handler is not a no-op: ${pattern}`);
   }
-  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /brushSet\s*=\s*next/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
+  for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /brushSet\s*=\s*next/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /cancelContextReload\(\)/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("pickettPanel.ts"), pattern, `Pickett's handler is not a no-op: ${pattern}`);
   }
   for (const pattern of [/applyBrush\(selection\)/, /repaint\(\)/, /loadCurveNames\(\)/, /render\(\)/, /applySelectedInterval/, /const resized = current/, /beginPlotAsyncGeneration\("vega-resize"/, /resized\.view\.resize\(\)/, /current === resized/, /gen\+\+/, /cancelAnimationFrame/]) {

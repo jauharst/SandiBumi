@@ -1,4 +1,4 @@
-import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, runNetFlag, type NetFlagSpec, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, runNetFlag, type NetFlagSpec, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
 import {
   HISTOGRAM_BINS_DEFAULT,
   HISTOGRAM_BINS_MAX,
@@ -53,16 +53,12 @@ import {
   buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
-  contextZoneWindow,
   CORE_OVERLAY_MAP,
-  contextReductionExport,
   curveSelect,
   depthReframeHandoff,
-  describeContextOutcome,
-  fetchContextLayers,
+  createContextReload,
   loadCurveNames,
   loadPlotProps,
-  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -74,7 +70,7 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { applyPlotRecordLimit, reducePlotLabel } from "./plotLimits";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
@@ -2408,70 +2404,42 @@ export async function buildCrossplotContent(
   let ctxWellIds: string[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxInfo = "";
-  let ctxGen = 0;
 
   /** Fetches the scoped context wells' X/Y data through the shared plotCommon machinery
    *  (per-well zone/top-by-name windows, point budget, concurrency, cancellation via the
    *  generation token). Scope = just the active well → clears the overlay: byte-identical
    *  single-well behaviour. */
-  const reloadContext = async () => {
-    const token = beginPlotAsyncGeneration("crossplot-context-refetch", ++ctxGen);
-    contextDepthHandoff.clear();
-    let resolvedIds: string[];
-    try {
-      resolvedIds = await resolveWellScope(scope.backend());
-    } catch (error) {
-      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Crossplot scope refused: ${error}`);
-      return;
-    }
-    refreshStatisticsRecords();
-    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
-    const ids = resolvedIds.filter((id) => id !== well.well_id);
-    if (ids.length === 0) {
-      const had = ctxLayers.length > 0;
-      ctxLayers = [];
-      ctxWellIds = [];
-      ctxReductionManifest = null;
-      ctxInfo = "";
-      contextDepthHandoff.clear();
-      updateScopeUi();
-      if (had) redraw();
-      return;
-    }
-    ctxReductionManifest = contextReductionExport(
-      "crossplot",
-      null,
-      resolvedIds.length,
-    );
-    setStatus(`Crossplot: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
-    const outcome = await fetchContextLayers({
-      ids,
-      names: scope.namesFor(ids),
-      curves: [xSel.value, ySel.value],
-      windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: plotRecordLimit("context_point_budget").maximum,
-      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
+  const { reload: reloadContext, cancel: cancelContextReload } =
+    createContextReload<ContextWellLayer>({
+      kind: "crossplot",
+      label: "Crossplot",
+      operation: "crossplot-context-refetch",
+      well,
+      scope,
+      zoneSel,
+      handoff: contextDepthHandoff,
+      curves: () => [xSel.value, ySel.value],
+      project: (layer) => ({
+        name: layer.name,
+        color: layer.color,
+        xs: layer.series.get(xSel.value.toUpperCase())!,
+        ys: layer.series.get(ySel.value.toUpperCase())!,
+      }),
+      hadLayers: () => ctxLayers.length > 0,
+      apply: (next) => {
+        ctxLayers = next.layers;
+        ctxWellIds = next.wellIds;
+        ctxReductionManifest = next.reductionManifest;
+        ctxInfo = next.info;
+      },
+      setPendingManifest: (manifest) => {
+        ctxReductionManifest = manifest;
+      },
+      setStatus: (text) => setStatus(text),
+      updateScopeUi: () => updateScopeUi(),
+      redraw: () => redraw(),
+      afterScope: () => refreshStatisticsRecords(),
     });
-    if (!outcome) return; // superseded by a newer call (or dispose)
-    ctxReductionManifest = contextReductionExport(
-      "crossplot",
-      outcome,
-      resolvedIds.length,
-      { wellId: well.well_id, name: well.well_name },
-    );
-    ctxLayers = outcome.layers.map((l) => ({
-      name: l.name,
-      color: l.color,
-      xs: l.series.get(xSel.value.toUpperCase())!,
-      ys: l.series.get(ySel.value.toUpperCase())!,
-    }));
-    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
-    ctxInfo = describeContextOutcome(outcome);
-    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
-    updateScopeUi();
-    setStatus(`Crossplot ${ctxInfo.toLowerCase()}`);
-    redraw();
-  };
   updateScopeUi();
 
   /** T-S triangle lives on VSH (0–1) vs PHIT axes; on any other pair (e.g. the default
@@ -3014,7 +2982,7 @@ export async function buildCrossplotContent(
     cancelPending: () => {
       reloadGen++;
       coreGen++;
-      ctxGen++;
+      cancelContextReload();
       if (rafId) {
         cancelAnimationFrame(rafId);
         rafId = 0;

@@ -3,7 +3,10 @@
  *
  * Keep this list aligned with the five plot surfaces named by SB-PLT-029's owning chapter and
  * T27's log-view viewport refetch. A new asynchronous plot load is incomplete until it appears
- * here and creates its token at the actual await boundary.
+ * here and creates its token at the actual await boundary. An owner may hand its registered id
+ * to shared machinery that creates the token instead - the three context refetches do, through
+ * plotCommon's createContextReload (AUDIT-2026-08-20 finding 57) - but the id is still declared
+ * by the surface it belongs to, and still guards exactly one await boundary.
  */
 export const PLOT_ASYNC_LOAD_REGISTRY = [
   { id: "workspace-plot-build", owner: "src/ui/workspace.ts" },

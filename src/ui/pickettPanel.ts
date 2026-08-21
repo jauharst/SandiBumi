@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -26,15 +26,11 @@ import {
   buildPersistedPlotState,
   buildDepthReframeHandoff,
   buildZoneSelect,
-  contextReductionExport,
-  contextZoneWindow,
   curveSelect,
   depthReframeHandoff,
-  describeContextOutcome,
-  fetchContextLayers,
+  createContextReload,
   loadCurveNames,
   loadPlotProps,
-  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -45,7 +41,7 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { applyPlotRecordLimit, plotRecordLimit, reducePlotLabel } from "./plotLimits";
+import { applyPlotRecordLimit, reducePlotLabel } from "./plotLimits";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
@@ -877,70 +873,42 @@ export async function buildPickettContent(
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxWellIds: string[] = [];
   let ctxInfo = "";
-  let ctxGen = 0;
   const pickettContext = (): PickettContext | null =>
     ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null;
 
   /** Fetches the scoped context wells' RT/porosity through the shared plotCommon machinery
    *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
    *  active well → clears the overlay: byte-identical single-well behaviour. */
-  const reloadContext = async () => {
-    const token = beginPlotAsyncGeneration("pickett-context-refetch", ++ctxGen);
-    contextDepthHandoff.clear();
-    let resolvedIds: string[];
-    try {
-      resolvedIds = await resolveWellScope(scope.backend());
-    } catch (error) {
-      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Pickett scope refused: ${error}`);
-      return;
-    }
-    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
-    const ids = resolvedIds.filter((id) => id !== well.well_id);
-    if (ids.length === 0) {
-      const had = ctxLayers.length > 0;
-      ctxLayers = [];
-      ctxWellIds = [];
-      ctxReductionManifest = null;
-      ctxInfo = "";
-      contextDepthHandoff.clear();
-      updateScopeUi();
-      if (had) redraw();
-      return;
-    }
-    ctxReductionManifest = contextReductionExport(
-      "pickett",
-      null,
-      resolvedIds.length,
-    );
-    setStatus(`Pickett: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
-    const outcome = await fetchContextLayers({
-      ids,
-      names: scope.namesFor(ids),
-      curves: [rtSel.value, phiSel.value],
-      windowFor: (id) => contextZoneWindow(zoneSel, id),
-      budget: plotRecordLimit("context_point_budget").maximum,
-      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
+  const { reload: reloadContext, cancel: cancelContextReload } =
+    createContextReload<PickettContextLayer>({
+      kind: "pickett",
+      label: "Pickett",
+      operation: "pickett-context-refetch",
+      well,
+      scope,
+      zoneSel,
+      handoff: contextDepthHandoff,
+      curves: () => [rtSel.value, phiSel.value],
+      project: (layer) => ({
+        name: layer.name,
+        color: layer.color,
+        rt: layer.series.get(rtSel.value.toUpperCase())!,
+        phi: layer.series.get(phiSel.value.toUpperCase())!,
+      }),
+      hadLayers: () => ctxLayers.length > 0,
+      apply: (next) => {
+        ctxLayers = next.layers;
+        ctxWellIds = next.wellIds;
+        ctxReductionManifest = next.reductionManifest;
+        ctxInfo = next.info;
+      },
+      setPendingManifest: (manifest) => {
+        ctxReductionManifest = manifest;
+      },
+      setStatus: (text) => setStatus(text),
+      updateScopeUi: () => updateScopeUi(),
+      redraw: () => redraw(),
     });
-    if (!outcome) return; // superseded by a newer call (or dispose)
-    ctxReductionManifest = contextReductionExport(
-      "pickett",
-      outcome,
-      resolvedIds.length,
-      { wellId: well.well_id, name: well.well_name },
-    );
-    ctxLayers = outcome.layers.map((l) => ({
-      name: l.name,
-      color: l.color,
-      rt: l.series.get(rtSel.value.toUpperCase())!,
-      phi: l.series.get(phiSel.value.toUpperCase())!,
-    }));
-    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
-    ctxInfo = describeContextOutcome(outcome);
-    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
-    updateScopeUi();
-    setStatus(`Pickett ${ctxInfo.toLowerCase()}`);
-    redraw();
-  };
   updateScopeUi();
 
   const redraw = () => {
@@ -1390,7 +1358,7 @@ export async function buildPickettContent(
     size: () => redraw(),
     cancelPending: () => {
       reloadGen++;
-      ctxGen++;
+      cancelContextReload();
       if (rafId) {
         cancelAnimationFrame(rafId);
         rafId = 0;
