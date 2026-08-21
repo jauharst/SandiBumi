@@ -7209,16 +7209,30 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
         let rt_sh = ctx.p("RT_SH", i);
         let swe_irr = ctx.p("SWE_IRR", i);
 
-        let v = match variant.as_str() {
-            "SIMPLE" => vs.powi(2),
-            "TAR_SAND" => vs.powf(2.0 - 2.0 * vs),
-            _ => vs.powf(2.0 - vs), // FULL
+        // AUDIT-2026-08-20 finding 51. This used to be an EXPANDED transcription of the very
+        // equation `sandimin::sw_indonesia` already held - the same shape `sw_sim` below had
+        // already delegated, skipped for this one family member. The two were algebraically
+        // identical (the module's `v` IS Vsh^(2-k*Vsh), and f1 + f2 + f3 expands the square of
+        // the solver's denominator term for term) and their GUARDS diverged, which is exactly
+        // where a copy hurts: the same well read through the module and through Results QC or
+        // SandiMin answered differently in the low-porosity and out-of-range populations, the
+        // ones a marginal-pay result turns on.
+        //
+        // The variant maps onto the solver's `k` exactly and totally, which is what makes this a
+        // delegation and not a re-derivation.
+        let k = match variant.as_str() {
+            "SIMPLE" => 0.0,
+            "TAR_SAND" => 2.0,
+            _ => 1.0, // FULL
         };
-        let ff = a / pe.powf(m);
-        let f1 = 1.0 / (ff * rw);
-        let f2 = 2.0 * (v / (rw * ff * rt_sh)).sqrt();
-        let f3 = v / rt_sh;
-        let swe = (1.0 / (r * (f1 + f2 + f3))).powf(1.0 / n_exp);
+        // DEC-085 ("diagnostics stay raw"): the UNLIMITED entry point, so SWE_INDO keeps
+        // reporting a root above 1 instead of flattening to a 1.000 that is bit-identical to the
+        // SWE beside it. Delegating to the clamped `sw_indonesia` would have moved this curve;
+        // delegating to the twin it is a clamp OF does not.
+        let swe = crate::sandimin::sw_indonesia_unlimited(r, pe, vs, rw, rt_sh, m, n_exp, a, k);
+        if is_missing(swe) {
+            continue;
+        }
         swe_indo[i] = swe as f32;
         let swe_l = limit(swe, swe_irr, 1.0);
         swe_out[i] = swe_l as f32;
@@ -16499,6 +16513,57 @@ mod tests {
             !ui.contains("runModule(\"thin_bed_ts\"")
                 && !ui.contains("invoke(\"thin_bed_ts\""),
             "the PARTIAL UI does not yet call the governed batch equation"
+        );
+    }
+    /// AUDIT-2026-08-20 finding 51. `sw_indo` used to carry its own expanded transcription of
+    /// `sandimin::sw_indonesia`. The equations were identical; the GUARDS were not, so the same
+    /// well answered differently through the module than through Results QC or SandiMin.
+    ///
+    /// The existing agreement pin holds the equation at one HEALTHY fixture per variant, which
+    /// is precisely where two copies agree. This one stands where they diverged.
+    ///
+    /// Pinned from BOTH sides, because the obvious delegation - call the clamped `sw_indonesia`
+    /// - passes the first half and destroys the diagnostic the second half exists for.
+    #[test]
+    fn the_indonesia_module_and_the_solver_are_one_equation_in_the_guard_populations_too() {
+        let (rt, phie, rw, rsh, a, m, n) =
+            (8.0_f64, 0.20_f64, 0.25_f64, 3.0_f64, 1.0_f64, 2.0_f64, 2.0_f64);
+        let run = |rt: f64, vsh: f64| -> (f64, f64) {
+            let c = ctx_with(
+                1,
+                &[("RT", vec![rt as f32]), ("PHIE", vec![phie as f32]), ("VSH", vec![vsh as f32])],
+                &[("A", a), ("M", m), ("N", n), ("RW", rw), ("RT_SH", rsh), ("SWE_IRR", 0.0)],
+                &[("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL")],
+            );
+            let out = sw_indo(&c);
+            (out["SWE_INDO"][0] as f64, out["SWE"][0] as f64)
+        };
+
+        // A - a shale volume above 1. The solver has always clamped it (a shale volume over
+        // 1 is not a shale volume, and `sw_sim` next door already answered that way); the
+        // module used the raw value and produced a different saturation for the same sample.
+        // One equation now, so the two cannot disagree here or anywhere else.
+        let vsh_over = 1.4_f64;
+        let (module_over, _) = run(rt, vsh_over);
+        let solver_over = crate::sandimin::sw_indonesia(rt, phie, vsh_over, rw, rsh, m, n, a, 1.0);
+        assert!(
+            (module_over - solver_over).abs() <= 1e-6,
+            "VSH above 1: module={module_over}, solver={solver_over} - two implementations again"
+        );
+
+        // B - DEC-085, "diagnostics stay raw". A low Rt drives the true root above 1. SWE_INDO
+        // is declared "(unlimited)" and must REPORT that; the working SWE beside it clamps. A
+        // diagnostic that reads exactly 1.000 there is bit-identical to the curve next to it,
+        // and the one ambiguity the twin exists to break - wet rock versus a parameter out of
+        // range - is gone. Delegating to the CLAMPED entry point is what would do that.
+        let (diag, working) = run(0.5, 0.30);
+        assert!(
+            diag > 1.05,
+            "SWE_INDO is the unlimited twin and must report a root above 1, got {diag}"
+        );
+        assert!(
+            (working - 1.0).abs() <= 1e-6,
+            "the working SWE must still clamp at 1, got {working}"
         );
     }
 }

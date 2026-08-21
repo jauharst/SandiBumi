@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 43 (my audit P2): **Indonesia was written twice, and the two copies disagreed at the edges**
+
+- [ ] **What was wrong.** The Poupon-Leveaux (Indonesia) equation existed in two places: the
+      `sw_indo` module had its own expanded transcription, and SandiMin/Results QC used the
+      solver's. The **arithmetic was identical** — I checked it term by term — but the **guards
+      were not**, so the same well answered differently depending on which door you came in.
+- [ ] **Where it showed.** A sample with **VSH above 1** (an unclipped shale volume from a
+      returned set, or one of the unlimited VSH diagnostics). The solver clamps it to 1, because
+      a shale volume over 1 is not a shale volume; the module used the raw number. On the pinned
+      fixture that is SWE **0.340 through the module against 0.362 through the solver** — about
+      **two saturation units** on the same sample.
+- [ ] **The fix.** `sw_indo` now calls the solver, exactly the way `sw_sim` beside it already
+      did. That was the pattern; Indonesia was the family member it skipped.
+- [ ] **What MOVED, so you can look for it.** Only samples with **VSH > 1**: they now read the
+      solver's clamped answer. Everything with VSH in the normal 0–1 range is **bit-identical** —
+      the two forms are the same algebra. Nothing else in the module changed: the
+      `PHIE < 0.005` rule, the `VSH >= 1` flag and the SWE limit all stay where they were.
+- [ ] **The unlimited diagnostic still reads above 1.** `SWE_INDO` is declared *(unlimited)* and
+      keeps reporting a root above 1 — that is the whole reason it sits beside `SWE`. Handing it
+      the solver's *clamped* answer would have flattened it to a 1.000 identical to the curve
+      next to it, and you would lose the one signal that tells "the rock is wet" apart from
+      "a parameter is out of range". Pinned so it cannot happen later.
+- [ ] **What to check.** Run `sw_indo` on a well you have run before and compare SWE with the
+      old curve — it should be **unchanged** unless the well carries VSH above 1. Then open
+      **Results QC** on the same well: its Indonesia column and the module's `SWE_INDO` should
+      now agree everywhere, including in any washed-out or over-shaly streak.
+
 ## 2026-08-21 — Audit increment 42 (my audit P2): **Monte Carlo now honours a step's mask — it was booking cased-off hole as pay**
 
 - [ ] **What was wrong.** When you set a **Mask** on a workflow step, the real chain blanks the

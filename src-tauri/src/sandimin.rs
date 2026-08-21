@@ -342,7 +342,36 @@ pub enum PorositySource {
 /// Poupon-Leveaux (`indonesia`) water saturation, effective-porosity form, solved for Sw∈[0,1]:
 ///   1/√Rt = [ Vsh^(1 − k·Vsh/2)/√Rsh + √(φe^m / (a·Rw)) ] · Sw^(n/2)
 /// Rw and Rsh are at formation temperature. Returns NaN on non-physical inputs.
+///
+/// This is [`sw_indonesia_unlimited`] clamped into [0, 1] - the same relationship the Simandoux
+/// pair has, so the working curve and its unlimited diagnostic can never come from two different
+/// equations.
 pub fn sw_indonesia(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+    k: f64,
+) -> f64 {
+    sw_indonesia_unlimited(rt, phie, vsh, rw, rsh, m, n, a, k).clamp(0.0, 1.0)
+}
+
+/// `indonesia` WITHOUT the physical clamp - the raw answer the equation gives for the parameters
+/// it was handed, which is what an unlimited diagnostic curve is for (DEC-085's "diagnostics stay
+/// raw"; SB-SAT-025). An Rw entered a decade low drives the true root above 1, and a diagnostic
+/// that reports 1.000 there is bit-identical to the working curve beside it.
+///
+/// AUDIT-2026-08-20 finding 51: `modules::sw_indo` used to carry its own EXPANDED transcription
+/// of this equation. The two are algebraically identical - the module's `v` is Vsh^(2-k·Vsh), and
+/// (f1 + f2 + f3) expands the square of this function's denominator term for term - but the
+/// GUARDS diverged, and a pin that keeps two implementations agreeing is the tell that there
+/// should be one. `sw_sim` next door had already delegated; this is the family member it skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn sw_indonesia_unlimited(
     rt: f64,
     phie: f64,
     vsh: f64,
@@ -365,7 +394,7 @@ pub fn sw_indonesia(
         return f64::NAN;
     }
     let sw_half = (1.0 / rt).sqrt() / denom; // = Sw^(n/2)
-    sw_half.powf(2.0 / n).clamp(0.0, 1.0)
+    sw_half.powf(2.0 / n)
 }
 
 /// How far above Sw = 1 the unlimited root is chased before the diagnostic saturates. Each step
