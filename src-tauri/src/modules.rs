@@ -3373,7 +3373,7 @@ fn validate_declared_preconditions_ignoring(
                         if ignored_samples.contains(&index) {
                             continue;
                         }
-                        let Some(value) = numeric_value_at(spec, ctx, &arg.name, index) else { continue ;
+                        let Some(value) = numeric_value_at(spec, ctx, &arg.name, index) else { continue;
                         };
                         if !value.is_finite() {
                             continue;
@@ -8453,7 +8453,7 @@ mod tests {
                 checked += 1;
                 assert!(
                     a.computed_only,
-                    "{}'s {} must be computed_only - a raw {} in the wrong unit would masquerade                      as the {} this module assumes",
+                    "{}'s {} must be computed_only - a raw {} in the wrong unit would masquerade as the {} this module assumes",
                     m.name, a.name, a.name, a.unit
                 );
             }
@@ -14280,8 +14280,7 @@ mod tests {
             params: HashMap::new(),
             opts: HashMap::from([("OPT_SIM".into(), "SCHLUM".into())]),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: crate::workflow::test_run_custody(),
         };
         let built = crate::workflow::build_opts(&spec, &request.opts, &request.log_inputs);

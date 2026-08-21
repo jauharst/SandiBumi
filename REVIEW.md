@@ -1,5 +1,44 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 70 (my audit P3 ×2): **the refusals had spaces torn through the middle of them**
+
+- [ ] **What to click.** Nothing new to run, but the next time a refusal appears, read it. Ask a
+      summation to run with a cut-off enabled and no value in it, or run a neutron module against a
+      curve with no declared matrix basis. The message should now read as one continuous sentence.
+- [ ] **What was wrong.** Somewhere in this repository's history a tool re-wrapped the Rust source
+      and broke lines at the wrong place. In code it left punctuation stranded — a lone `;` or `,`
+      sitting on a line by itself, or a stray space in front of one. Ugly, and the compiler has no
+      opinion on it, so nothing ever caught it. **92 sites**, counted: 3 stranded semicolons, 61
+      stranded commas, 28 stray spaces.
+- [ ] **The half that you can actually see.** The same tear landed inside the **messages**, where
+      it is not cosmetic. A refusal that should read *"module refuses: its crossplot is entered in
+      limestone units, but neutron curve NPHI declares basis sandstone — convert with nphimat
+      first. DEC-025 / SB-POR-024"* was printing with **fourteen to eighteen blank spaces torn
+      through the middle of the sentence**. **29 messages** were affected.
+- [ ] **Why that is worse than it looks.** These are not status lines. They are the refusals that
+      cite a decision record — the no-default cut-off refusal, the neutron-basis refusal, the
+      percent-versus-fraction import notes, the "this must not arrive through the mask" checks.
+      They are read at exactly the moment somebody is deciding whether to trust an answer. A
+      message that looks like the application mis-rendered it invites the reader's next question:
+      *is the number beside it damaged too?*
+- [ ] **What was deliberately left alone.** Nine literals whose spacing **is** the format, not a
+      tear: four SQL fragments, the two LAS header lines the export writer pads to fixed columns,
+      two LAS test fixtures, and a column-aligned table definition. Collapsing those would change
+      what the code *does*. Beyond them, 23 more paddings — bullet indents in the report and deck
+      writers, the `Field: … TD: … KB: …` column separators on a composite page — are outside the
+      rule by construction, because the rule only fires on a run of spaces sitting **between two
+      letters**, which is what a torn sentence looks like and what an indent never does.
+- [ ] **The audit proposed a fix that was measured and rejected.** The finding said one
+      `cargo fmt` clears it. Measured on this tree, `cargo fmt` would rewrite **77,865 diff lines
+      across 70 of the 73 source files** — this repository has never conformed to that tool's
+      default style. Adopting it would bury `git blame` for the entire codebase in order to fix 92
+      sites. So the gate names this one class instead and holds no opinion about anything else.
+- [ ] **Counted, not eyeballed.** `cargo fmt --check` output: 77,865 lines, 70 distinct files of
+      73. Repaired sites: 64 stranded punctuation marks folded back, 28 stray spaces removed, 29
+      torn messages closed, plus one gap following an em dash that the rule leaves to a person on
+      purpose (widening it to catch that one would have flagged every bullet list in the report
+      writer).
+
 ## 2026-08-21 — Audit increment 69 (my audit P3): **a unit-conversion rule could name a curve family that does not exist**
 
 - [ ] **What to click.** Nothing — this is a build-time check on the unit registry, and the

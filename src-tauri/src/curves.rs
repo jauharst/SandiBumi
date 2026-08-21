@@ -1183,7 +1183,7 @@ mod tests {
                 // CONVERTIBLE_FAMILIES decides, which is why this change touches both halves.
                 assert!(
                     report.reason.contains("has no reviewed conversion rule"),
-                    "{curve} .{unit} must be reported as an unreviewed UNIT, not as an uncovered                      family; got: {}",
+                    "{curve} .{unit} must be reported as an unreviewed UNIT, not as an uncovered family; got: {}",
                     report.reason
                 );
             }

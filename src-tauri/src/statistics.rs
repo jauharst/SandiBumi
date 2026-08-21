@@ -1223,7 +1223,7 @@ mod tests {
         assert_eq!(
             (c.common, c.changed, c.only_a, c.only_b),
             (2, 0, 1, 1),
-            "1001 and 1002 are shared and identical; 1000 is A's alone and 1003 is B's alone.              Pairing by index reports (3, 3, 0, 0) and a mean difference of +10 that is really              the curve's own gradient."
+            "1001 and 1002 are shared and identical; 1000 is A's alone and 1003 is B's alone. Pairing by index reports (3, 3, 0, 0) and a mean difference of +10 that is really the curve's own gradient."
         );
         assert!(c.diffs.iter().all(|d| d.abs() < 1e-9), "nothing changed: {:?}", c.diffs);
 

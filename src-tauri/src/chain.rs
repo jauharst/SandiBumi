@@ -629,8 +629,7 @@ pub(crate) fn run_chain(
             output_set: None, // preset_sets carries the chain-level set event
             // Curves a later step consumes from an earlier one are never in the input
             // set's archive, so they still resolve from the current store — chaining works.
-            input_set: input_set.map(str::to_string)
-        ,
+            input_set: input_set.map(str::to_string),
             custody: custody.clone(),
         };
         let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets), Some(cancel), job);

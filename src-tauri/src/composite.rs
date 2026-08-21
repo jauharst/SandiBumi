@@ -78,8 +78,7 @@ pub struct CompositeResult {
     pub page_width_mm: f64,
     pub page_height_mm: f64,
     pub scale: u32,
-    pub well_name: String
-,
+    pub well_name: String,
     /// Complete ancestry for every current computed curve carried by this well's
     /// number-bearing composite deliverable. The same JSON is embedded in SVG/PDF
     /// exports so it survives outside the application.
@@ -418,7 +417,7 @@ pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<Compo
         })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(CompositeResult { pages: out, page_width_mm: pw, page_height_mm: ph, scale: spec.scale, well_name ,
+    Ok(CompositeResult { pages: out, page_width_mm: pw, page_height_mm: ph, scale: spec.scale, well_name,
         ancestry,
     })
 }
@@ -864,7 +863,7 @@ fn build_page(
                     set_name: cs.set_name.clone(),
                     class_curve: cs.fill.as_deref() == Some("blocks"),
                 };
-                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue ;
+                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue;
                 };
                 // Crossover shading needs the reference curve's samples AND its own min/max,
                 // taken from the same track — compatible scaling is the whole point.
@@ -1342,14 +1341,14 @@ fn draw_crossover(
             continue;
         }
         let (c0, c1) = (d0.max(page_top), d1.min(page_bot));
-        let (Some(a_top), Some(b_top)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue ;
+        let (Some(a_top), Some(b_top)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue;
         };
         // A stepped curve holds its value across the interval, so both edges stay vertical
         // and the pair can never cross inside one interval.
         let (a_bot, b_bot) = if step {
             (a_top, b_top)
         } else {
-            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue ;
+            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue;
             };
             (a1, b1)
         };
@@ -1756,7 +1755,7 @@ fn draw_point_series(
                     continue;
                 }
                 let (blo, bhi) = ps.box_edges();
-                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue ;
+                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue;
                 };
                 let box_h = (h * 0.6).clamp(1.0, 4.0);
                 if let (Some(wl), Some(wh)) = (x_at(st.whisker_lo), x_at(st.whisker_hi)) {

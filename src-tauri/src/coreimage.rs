@@ -383,7 +383,7 @@ pub fn bake_core_images(conn: &Connection, items: &[BakeItem]) -> Result<BakeRes
         });
         let out = run_runner(&python, &header, &blobs)?;
         for row in out.results {
-            let Some(it) = batch.iter().find(|i| i.image_id == row.image_id) else { continue ;
+            let Some(it) = batch.iter().find(|i| i.image_id == row.image_id) else { continue;
             };
             if let Some(e) = row.error {
                 res.skipped.push(format!("{}: {}", it.image_id, e));
@@ -1031,8 +1031,7 @@ pub struct CoreLogSpec {
     /// carries no bedding contrast to find one from, and the two are the same number with
     /// completely different meanings.
     #[serde(default)]
-    pub unfold_scan: Option<f32>
-,
+    pub unfold_scan: Option<f32>,
     #[serde(default)]
     pub custody: Option<crate::equations::RunCustody>,
 }
@@ -1429,7 +1428,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             serde_json::from_slice(&output.stdout).map_err(|e| format!("bad scan result: {e}"))?
         };
         for row in out.results {
-            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue ;
+            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue;
             };
             if let Some(e) = row.error {
                 res.skipped.push(format!("{}: {}", info.name, e));
@@ -1508,7 +1507,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
 
     if let Some(drop) = spec.unfold.filter(|d| *d != 0.0) {
         res.notes.push(format!(
-            "Unfolded for a bed dropping {drop} across the core. Each column is sheared back              before the slab average, so the average follows the BED rather than a horizontal              line — a diagonal contact comes back sharp instead of as a ramp. The corner              triangles at each barrel's ends have no rock in them and are MISSING, never filled              from the edge."
+            "Unfolded for a bed dropping {drop} across the core. Each column is sheared back before the slab average, so the average follows the BED rather than a horizontal line — a diagonal contact comes back sharp instead of as a ramp. The corner triangles at each barrel's ends have no rock in them and are MISSING, never filled from the edge."
         ));
     }
 
@@ -1519,7 +1518,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     if spec.lith {
         if spec.is_uv() {
             res.notes.push(
-                "CPHOTO_LITH was not written: under ultraviolet the brightness is fluorescence,                  not lithology, so a two-class cut through it would name an oil show a rock type."
+                "CPHOTO_LITH was not written: under ultraviolet the brightness is fluorescence, not lithology, so a two-class cut through it would name an oil show a rock type."
                     .into(),
             );
         } else if let Some(k) = names.iter().position(|n| n == &format!("{LOG_PREFIX}_DARK")) {
@@ -1574,7 +1573,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                     }
                 }
                 None => res.notes.push(
-                    "CPHOTO_LITH was not written: the darkness trace has no spread to cut, so                      there are not two classes here to tell apart."
+                    "CPHOTO_LITH was not written: the darkness trace has no spread to cut, so there are not two classes here to tell apart."
                         .into(),
                 ),
             }
@@ -1892,8 +1891,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             "axis": spec.axis, "reverse": spec.reverse,
                 "lanes": spec.lanes, "layouts": spec.layouts,
             "step": spec.step,
-            "light": spec.light
-            ,
+            "light": spec.light,
             "fluor": spec.fluor,
             "lith": spec.lith,
             "lith_cut": spec.lith_cut,
@@ -2754,7 +2752,7 @@ pub fn build_core_strips(conn: &Connection, spec: &StripSpec) -> Result<StripRes
             serde_json::from_slice(&output.stdout).map_err(|e| format!("bad strip result: {e}"))?
         };
         for row in out.results {
-            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue ;
+            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue;
             };
             if let Some(e) = row.error {
                 res.skipped.push(format!("{}: {}", info.name, e));

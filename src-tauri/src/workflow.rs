@@ -30,8 +30,7 @@ pub struct RunModuleRequest {
     /// come from its archived values; anything else falls back to normal resolution.
     /// None/empty = current values (the default, same as before P1-c).
     #[serde(default)]
-    pub input_set: Option<String>
-,
+    pub input_set: Option<String>,
     /// Explicit operator and source/reference note. The operator is entered once per frontend
     /// session and attached to every run; it is never inferred from the Windows account.
     pub custody: equations::RunCustody,
@@ -2070,14 +2069,14 @@ fn validate_neutron_basis_input(
     }
     let Some(declared) = nphimat_declared_basis(conn, well_id, log_args) else {
         return Err(format!(
-            "module '{}' refuses: neutron curve '{curve}' has no DECLARED matrix basis. A              limestone-unit neutron read against a sandstone matrix is ~0.04 v/v low in clean              water sand, and an undeclared basis cannot be checked - declare it              (set_curve_neutron_basis) or convert with nphimat first. DEC-025 / SB-POR-024",
+            "module '{}' refuses: neutron curve '{curve}' has no DECLARED matrix basis. A limestone-unit neutron read against a sandstone matrix is ~0.04 v/v low in clean water sand, and an undeclared basis cannot be checked - declare it (set_curve_neutron_basis) or convert with nphimat first. DEC-025 / SB-POR-024",
             spec.name
         ));
     };
     if let Some(entry) = required_entry {
         if !declared.eq_ignore_ascii_case(entry) {
             return Err(format!(
-                "module '{}' refuses: its crossplot is entered in {entry} units, but neutron                  curve '{curve}' declares basis {declared} - convert with nphimat first.                  DEC-025 / SB-POR-024",
+                "module '{}' refuses: its crossplot is entered in {entry} units, but neutron curve '{curve}' declares basis {declared} - convert with nphimat first. DEC-025 / SB-POR-024",
                 spec.name
             ));
         }
@@ -3458,8 +3457,7 @@ pub struct PaySummaryRequest {
     /// (~1,600 delete+append+flush transactions on 540 wells) was pure waste that dominated
     /// its runtime. Persisting flags stays the job of the explicit Cutoffs & Summary run.
     #[serde(default)]
-    pub stats_only: bool
-,
+    pub stats_only: bool,
     #[serde(default)]
     pub custody: Option<equations::RunCustody>,
 }
@@ -4496,7 +4494,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     // whatever else is set. Naming them all at once beats refusing one at a time.
     if !req.enabled_unset.is_empty() {
         return Err(format!(
-            "cannot summate: {} enabled with no value. A cut-off has no default - four shipped              vendor sets disagree and delivered work spans a wide range even within one field -              so set a value, or turn the cut-off off and the summation will report it unfiltered.",
+            "cannot summate: {} enabled with no value. A cut-off has no default - four shipped vendor sets disagree and delivered work spans a wide range even within one field -              so set a value, or turn the cut-off off and the summation will report it unfiltered.",
             req.enabled_unset.join(", ")
         ));
     }
@@ -4538,7 +4536,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     .collect();
     if req.frame != SummationFrame::Md {
         return Err(format!(
-            "cannot summate in {}: the per-sample weights would be dz*cos(theta) from the well's              deviation survey, and SandiBumi computes only MD (dz) weights today. Run in MD, or              ask for a {} summation to be built as its own record.",
+            "cannot summate in {}: the per-sample weights would be dz*cos(theta) from the well's deviation survey, and SandiBumi computes only MD (dz) weights today. Run in MD, or ask for a {} summation to be built as its own record.",
             req.frame.as_str(),
             req.frame.as_str()
         ));
@@ -4698,7 +4696,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 let inputs = ancestry_curves
                     .iter()
                     .map(|curve| (well_id.clone(), curve.clone(), curve.clone()))
-                    .collect::<Vec<_>>() ;
+                    .collect::<Vec<_>>();
                 let zone_scope = if had_declared_zones {
                     equations::AncestryZoneScope::Defined(
                         zones
@@ -7014,8 +7012,7 @@ mod tests {
             skip_version: false,
             // Stats only: the point of the test is the returned rows, and this keeps it from
             // writing FLAG_* curves as a side effect.
-            stats_only: true
-        ,
+            stats_only: true,
             custody: None,
             frame: Default::default(),
             weighting: Default::default(),
@@ -9764,7 +9761,7 @@ mod tests {
         assert_eq!(
             pay(&filtered).unfiltered,
             vec!["PERM".to_string()],
-            "only PERM is unfiltered here - not asking for a permeability cut-off is itself an              unfiltered summation on that property, and the result says so rather than staying              silent about it"
+            "only PERM is unfiltered here - not asking for a permeability cut-off is itself an unfiltered summation on that property, and the result says so rather than staying silent about it"
         );
 
         // C — omitting it makes the summation UNFILTERED on SWE: all ten units count, AND the row
@@ -11499,8 +11496,7 @@ mod tests {
                     cutoff_use: Default::default(),
                     perm_min: perm_min.map(|p| CutoffEntry { value: p, unit: "mD".into() }.into()),
                     skip_version: false,
-                    stats_only: true
-                ,
+                    stats_only: true,
                     custody: None,
                     frame: Default::default(),
                     weighting: Default::default(),
@@ -11591,8 +11587,7 @@ mod tests {
                     params: HashMap::new(),
                     opts: HashMap::new(),
                     output_set: None,
-                    input_set: None
-                ,
+                    input_set: None,
                     custody: test_run_custody(),
                 },
             )
@@ -11713,8 +11708,7 @@ mod tests {
                     params,
                     opts: HashMap::new(),
                     output_set: None,
-                    input_set: None
-                ,
+                    input_set: None,
                     custody: test_run_custody(),
                 },
             )
@@ -11768,8 +11762,7 @@ mod tests {
                 enabled_unset: Vec::new(),
                 cutoff_use: Default::default(),
                 skip_version: false,
-                stats_only: true
-            ,
+                stats_only: true,
                 custody: None,
                 frame: Default::default(),
                 weighting: Default::default(),
@@ -12171,8 +12164,7 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                     custody: test_run_custody(),
                 };
             run_workflow_module(&dbm, &req)
@@ -12261,8 +12253,7 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             };
             run_workflow_module(&dbm, &req)
@@ -12333,8 +12324,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
         let r = run_workflow_module(&dbm, &req);
@@ -12396,8 +12386,7 @@ mod tests {
             perm_min: None,
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),
-            skip_version: false
-        ,
+            skip_version: false,
             stats_only: true,
             custody: None,
             frame: Default::default(),
@@ -12470,8 +12459,7 @@ mod tests {
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),
             skip_version: false,
-            stats_only: false
-        ,
+            stats_only: false,
             custody: Some(test_run_custody()),
             frame: Default::default(),
             weighting: Default::default(),
@@ -12516,8 +12504,7 @@ mod tests {
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),
             skip_version: true,
-            stats_only: false
-        ,
+            stats_only: false,
             custody: Some(test_run_custody()),
             frame: Default::default(),
             weighting: Default::default(),
@@ -12597,8 +12584,7 @@ mod tests {
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),
             skip_version: false,
-            stats_only: true
-        ,
+            stats_only: true,
             custody: None,
             frame: Default::default(),
             weighting: Default::default(),
@@ -12731,8 +12717,7 @@ mod tests {
             ]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
         let results = run_workflow_module_into(&dbm, &req, None, None, None);
@@ -12844,8 +12829,7 @@ mod tests {
                 params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
                 opts,
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             };
             let r = run_workflow_module(&dbm, &req);
@@ -12924,7 +12908,7 @@ mod tests {
             let ctx = ModuleContext { n, logs, params, opts, depth_unit: Default::default() };
             // A module is free to REFUSE this synthetic frame — a despike window of zero, a bed
             // definition with no beds. What it may not do is answer under a name of its own.
-            let Ok(out) = modules::run_module(&spec.name, &ctx) else { continue ;
+            let Ok(out) = modules::run_module(&spec.name, &ctx) else { continue;
             };
             checked += 1;
             for key in out.keys() {
@@ -13982,8 +13966,7 @@ mod tests {
             ]),
             opts: [("OPT_TU".to_string(), "degC".to_string())].into_iter().collect(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
         let r = run_workflow_module(&dbm, &req);
@@ -14108,8 +14091,7 @@ mod tests {
                     params: [("K".to_string(), 5.0)].into_iter().collect(),
                     opts,
                     output_set: None,
-                    input_set: None
-                ,
+                    input_set: None,
                     custody: test_run_custody(),
                 },
             )
@@ -14271,8 +14253,7 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             };
             run_workflow_module(&dbm, &req)
@@ -14554,8 +14535,7 @@ mod tests {
             ]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
         let phie_at = |d: f32| -> f32 {
@@ -14664,8 +14644,7 @@ mod tests {
                 params: HashMap::new(),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             },
             None,
@@ -14687,8 +14666,7 @@ mod tests {
                 params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             },
             None,
@@ -14737,8 +14715,7 @@ mod tests {
             params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
 
@@ -14839,8 +14816,7 @@ mod tests {
             ]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
         let results = run_workflow_module(&dbm, &req);
@@ -14942,8 +14918,7 @@ mod tests {
                 ]),
                 opts: HashMap::from([("OPT_RW".to_string(), "CONSTANT".to_string())]),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             };
             let r = run_workflow_module(&dbm, &req);
@@ -15024,8 +14999,7 @@ mod tests {
             params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: test_run_custody(),
         };
         let results = run_workflow_module(&dbm, &req);
@@ -15099,8 +15073,7 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
-                input_set: None
-            ,
+                input_set: None,
                 custody: test_run_custody(),
             };
             let results = run_workflow_module(&db, &req);
@@ -15176,7 +15149,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
                 discretisation: DiscretisationModel::Forward,
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),

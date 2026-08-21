@@ -66,6 +66,8 @@ mod robust;
 mod satheight;
 mod schema_vocab;
 mod shf_fit;
+#[cfg(test)]
+mod source_hygiene_tests;
 mod ssc;
 mod statistics;
 mod thomeer;
@@ -4024,8 +4026,7 @@ fn run_workflow_chain(
     steps: Vec<chain::ChainStep>,
     scope: well_scope::WellScopeSelection,
     output_set: Option<String>,
-    input_set: Option<String>
-,
+    input_set: Option<String>,
     custody: equations::RunCustody,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&job_id).map_err(|e| format!("bad job id: {e}"))?;

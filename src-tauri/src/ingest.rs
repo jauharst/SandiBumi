@@ -1929,16 +1929,16 @@ fn scale_note(role: &str, evidence: parsers::ScaleEvidence) -> Option<String> {
     match evidence {
         Empty | Declared(_) => None,
         DeclarationContradicted => Some(format!(
-            "{role} is declared v/v in the file but carries a value above 1.0, which no porosity              or saturation can be. The declaration was overruled and the column read as PERCENT -              check that the right column was mapped."
+            "{role} is declared v/v in the file but carries a value above 1.0, which no porosity or saturation can be. The declaration was overruled and the column read as PERCENT -              check that the right column was mapped."
         )),
         GuessedPercent => Some(format!(
-            "{role} declared no unit; read as PERCENT and divided by 100 (its values are above the              fraction range). State % or v/v in a units row or the column header to be certain."
+            "{role} declared no unit; read as PERCENT and divided by 100 (its values are above the fraction range). State % or v/v in a units row or the column header to be certain."
         )),
         ImpossibleAsFraction => Some(format!(
-            "{role} declared no unit and was read as PERCENT: a value above 1.0 cannot be a              fraction. State % or v/v in a units row or the column header to be certain."
+            "{role} declared no unit and was read as PERCENT: a value above 1.0 cannot be a fraction. State % or v/v in a units row or the column header to be certain."
         )),
         GuessedFraction => Some(format!(
-            "{role} declared no unit and was read as a FRACTION (v/v), unchanged. If the file is              in percent - tight rock quoted as 0.8 or 1.2 reads this way - every value is now 100x              too high. State % in a units row or the column header and import again."
+            "{role} declared no unit and was read as a FRACTION (v/v), unchanged. If the file is in percent - tight rock quoted as 0.8 or 1.2 reads this way - every value is now 100x too high. State % in a units row or the column header and import again."
         )),
     }
 }
@@ -3191,7 +3191,7 @@ RHOZ.KG/M3 : Density
             let module = cols.get(*name).and_then(|v| v.first().copied()).expect(name);
             assert!(
                 (module - got).abs() < 1e-6,
-                "{name}: the stored projection reads {got} and a module reads {module} - one                  delivery must not live in two domains"
+                "{name}: the stored projection reads {got} and a module reads {module} - one delivery must not live in two domains"
             );
         }
     }

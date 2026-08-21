@@ -157,7 +157,7 @@ pub fn project_null_sentinel(conn: &Connection) -> Result<f32, String> {
             |row| row.get(0),
         )
         .ok();
-    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) ;
+    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL);
     };
     let settings: DataIoSettings = serde_json::from_str(&json)
         .map_err(|e| format!("invalid project data-I/O settings: {e}"))?;
@@ -2557,7 +2557,7 @@ mod tests {
             "train_hash": "training-row-hash",
             "trained_on": ["TRAIN-A", "TRAIN-B"],
         });
-        let custody = crate::workflow::test_run_custody() ;
+        let custody = crate::workflow::test_run_custody();
         let spec = crate::equations::complete_curve_run_spec(
             &conn,
             &well_id,
@@ -2570,8 +2570,7 @@ mod tests {
             None,
             run_params,
             crate::equations::AncestryZoneScope::WholeWell,
-            &["VSH_PRED".into()]).unwrap()
-            ;
+            &["VSH_PRED".into()]).unwrap();
         let (set_id, _) =
             crate::equations::create_complete_log_set(&conn, &well_id, &spec)
         .unwrap();

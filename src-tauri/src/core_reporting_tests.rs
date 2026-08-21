@@ -71,8 +71,7 @@ fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
         converge_tol: 0.005,
         persist: false,
         persist_realizations: false,
-        realization_cap: None
-    ,
+        realization_cap: None,
         custody: Some(crate::workflow::test_run_custody()),
     }
 }

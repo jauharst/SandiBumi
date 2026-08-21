@@ -784,8 +784,7 @@ pub fn export_workbook(
                 perm_min: spec.perm_min.clone(),
                 input_set: spec.input_set.clone(),
                 skip_version: true,
-                stats_only: true
-            ,
+                stats_only: true,
                 custody: None,
                 frame: Default::default(),
                 weighting: Default::default(),
@@ -1133,8 +1132,7 @@ pub fn build_report_blocks(
             perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: true,
-            stats_only: true
-        ,
+            stats_only: true,
             custody: None,
             frame: Default::default(),
             weighting: Default::default(),
@@ -1914,8 +1912,7 @@ pub fn export_deck(
             perm_min: spec.perm_min.clone(),
             input_set: spec.input_set.clone(),
             skip_version: true,
-            stats_only: true
-        ,
+            stats_only: true,
             custody: None,
             frame: Default::default(),
             weighting: Default::default(),

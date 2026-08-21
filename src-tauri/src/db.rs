@@ -6629,7 +6629,7 @@ mod inspector_tests {
             .unwrap();
         assert!(
             drift_seconds < 60.0,
-            "a fresh row must be a UTC instant; it is {drift_seconds}s from UTC now - a local              default on a UTC+7 machine would read ~25200s"
+            "a fresh row must be a UTC instant; it is {drift_seconds}s from UTC now - a local default on a UTC+7 machine would read ~25200s"
         );
         // E. The DEFAULT itself declares UTC. This bundled build's now() happens to sit on
         //    UTC whatever the session zone is set to, so arm D alone cannot catch a default

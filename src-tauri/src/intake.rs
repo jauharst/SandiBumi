@@ -586,7 +586,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     }
     if !preview_bad.is_empty() {
         notes.push(format!(
-            "{} cell(s) in the shown rows sit in a numeric column and did not read as a number —              they are marked in the grid. A stray unit, a spreadsheet's #N/A, or the wrong decimal              convention.",
+            "{} cell(s) in the shown rows sit in a numeric column and did not read as a number — they are marked in the grid. A stray unit, a spreadsheet's #N/A, or the wrong decimal convention.",
             preview_bad.len()
         ));
     }

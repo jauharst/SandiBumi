@@ -252,8 +252,7 @@ fn pipeline_field_full_run() {
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: crate::workflow::test_run_custody(),
         };
         let t = Instant::now();
@@ -333,8 +332,7 @@ fn pipeline_field_full_run() {
             params: generic_chain_params(m),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: crate::workflow::test_run_custody(),
         };
         let runs = run_workflow_module(&db, &req);
@@ -373,8 +371,7 @@ fn pipeline_field_full_run() {
         enabled_unset: Vec::new(),
         cutoff_use: Default::default(),
         skip_version: false,
-        stats_only: false
-    ,
+        stats_only: false,
         custody: Some(crate::workflow::test_run_custody()),
         frame: Default::default(),
         weighting: Default::default(),
@@ -535,8 +532,7 @@ fn pipeline_field_100well_stress() {
             params: generic_chain_params(m),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None
-        ,
+            input_set: None,
             custody: crate::workflow::test_run_custody(),
         };
         let t = Instant::now();
@@ -563,7 +559,7 @@ fn pipeline_field_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
         enabled_unset: Vec::new(),
             discretisation: crate::workflow::DiscretisationModel::Forward,
         cutoff_use: Default::default(),
