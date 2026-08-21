@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 53 (my audit P2): **a refused import can no longer claim work it did not do**
+
+- [ ] **What to click.** Import a folder of LAS files where some are broken — an unreadable file,
+      one with a depth that goes backwards, one with repeated depths, one with an unrecognised
+      depth unit. Every one of those should still refuse the way it always did, name the file, and
+      report **nothing imported**. Nothing here changes what a good file does.
+- [ ] **What was wrong.** When a LAS file is refused, SandiBumi builds a result describing what
+      happened. That result has about twenty fields, and it was being typed out **fourteen separate
+      times** — six of them inside the LAS importer alone — differing only in the wording of the
+      error.
+- [ ] **Why that is a risk and not just untidiness.** Several of those fields are **claims about
+      your data**: how many samples landed, whether a well record now exists, whether the delivery
+      attached to an existing well, which unit conversions were applied. A refusal that got one of
+      those wrong would be reporting work that never happened — and Rust only protects you from
+      *forgetting* a field, never from filling one in wrong at one of fourteen copies.
+- [ ] **The fix.** One place now says what an empty result is. Each refusal adds only its own
+      reason and whatever it had already learned about the file before it gave up.
+- [ ] **The one refusal that is different, and stays different.** When a file contains the vendor
+      bad-hole value but never declares it as absent, SandiBumi refuses **and asks you** which it
+      is. That refusal carries its question, and it still does — it was the one case where a field
+      genuinely differs, which is exactly the case that fourteen copies puts at risk.
+- [ ] **Pinned.** `a_refused_import_claims_nothing_and_every_refusal_is_built_from_one_shell` — a
+      real refused import must report no samples, no well, no attachment and no conversions; and
+      only one place in the file may describe an empty result. Both checked by breaking them.
+
 ## 2026-08-21 — Audit increment 52 (my audit P2): **one place now records a new version of an interpretation**
 
 - [ ] **Nothing to click; one thing to rule on (last bullet).** No number moves.
