@@ -500,3 +500,86 @@ fn a_complete_ancestry_record_round_trips_through_project_save_and_load() {
     drop(reopened);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// AUDIT-2026-08-20 finding 36. `computed_curves` carries no primary key by design, so nothing
+/// at the store objects to a duplicate row — uniqueness rests entirely on the writers deleting
+/// their target names before appending. `write_computed_curves_with_ancestry_clearing` deleted
+/// only the declared stale family and not the curves it was itself writing, which was safe by
+/// accident: its one caller passes a family that happens to cover its own outputs.
+///
+/// Pinned from BOTH sides, because either half alone has a lazy implementation that passes.
+/// Deleting only the written curves would satisfy A and lose the retirement; deleting only the
+/// declared family would satisfy B and is the defect.
+#[test]
+fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_writes() {
+    let conn = db::init_db(":memory:").unwrap();
+    crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+    let well_id = "00000000-0000-0000-0000-000000000036";
+    insert_fixture_well(&conn, well_id);
+    let depth = [1000.0f32, 1000.5];
+
+    let set_for = |outputs: &[&str], name: &str| {
+        let mut record = complete_record();
+        record.outputs = outputs
+            .iter()
+            .map(|curve| equations::AncestryOutput {
+                curve: (*curve).into(),
+                derivation: format!("acceptance_identity({curve})"),
+            })
+            .collect();
+        let spec = equations::CompleteLogSetSpec::try_new(name, record).unwrap();
+        equations::create_complete_log_set(&conn, well_id, &spec).unwrap().0
+    };
+    let rows = |curve: &str| -> Vec<f32> {
+        conn.prepare(
+            "SELECT value FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = ?2 ORDER BY depth",
+        )
+        .unwrap()
+        .query_map(params![well_id, curve], |row| row.get(0))
+        .unwrap()
+        .collect::<duckdb::Result<_>>()
+        .unwrap()
+    };
+
+    // Seed a curve that a later run stops producing - the case the declared family exists for.
+    equations::write_computed_curves_with_ancestry_clearing(
+        &conn, well_id, &depth, &[("RETIRED", &[0.1f32, 0.2][..])], &[], &set_for(&["RETIRED"], "SEED"),
+    )
+    .unwrap();
+    assert_eq!(rows("RETIRED").len(), 2, "the fixture must actually be stored before it is retired");
+
+    // A. A curve this call WRITES is replaced, not appended beside its old rows - with an EMPTY
+    //    family, so nothing but the write itself can be doing the clearing.
+    for value in [0.4f32, 0.5] {
+        equations::write_computed_curves_with_ancestry_clearing(
+            &conn, well_id, &depth, &[("KEPT", &[value, value][..])], &[],
+            &set_for(&["KEPT"], "WRITE"),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        rows("KEPT"),
+        vec![0.5, 0.5],
+        "a re-run must REPLACE its own curve; two sets of rows in a PK-less table would double \
+         whatever a reader averages"
+    );
+
+    // B. And the declared family is still retired, even though it is not among the curves written.
+    equations::write_computed_curves_with_ancestry_clearing(
+        &conn, well_id, &depth, &[("KEPT", &[0.6f32, 0.6][..])], &["RETIRED".to_string()],
+        &set_for(&["KEPT"], "CLEAR"),
+    )
+    .unwrap();
+    assert!(rows("RETIRED").is_empty(), "the declared stale family must still be retired");
+    assert_eq!(rows("KEPT"), vec![0.6, 0.6], "and the written curve is still replaced");
+
+    // The archive is append-only throughout: four writes of two depths, none of them deleted.
+    let archived: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM computed_curves_archive WHERE well_id = ?1",
+            params![well_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(archived, 8, "clearing the current store must never reach into the archive");
+}

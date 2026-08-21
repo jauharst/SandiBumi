@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 57 (my audit P3): **a write that could have doubled its own samples**
+
+- [ ] **What to click.** Nothing visible, and nothing you can trigger today — this closes a trap
+      before somebody falls into it. If you want to confirm nothing broke: run **Monte Carlo** with
+      "persist realizations" on, run it a second time on the same well, and check the P10/P50/P90
+      curves still read the same as a single run. They always did; this makes sure they still will.
+- [ ] **The background.** The table that holds computed curves has **no uniqueness check** — that
+      was a deliberate speed decision (the check cost about 3.4x on every insert, and it is why a
+      100-well chain went from 50s to 21s). The price is that nothing stops a duplicate row. What
+      keeps the table honest is a rule every writer must follow: **delete the curve's old rows
+      first, then write the new ones.**
+- [ ] **What was wrong.** One writer — the one Monte Carlo uses when a re-run stops producing a
+      curve it produced last time — deleted only the curves it was told to *retire*, and never
+      deleted the curves it was actually *writing*. Its own description said it "also retires"
+      stale curves, implying it did the normal delete plus extra. It did the extra instead of the
+      normal one.
+- [ ] **Why nothing has gone wrong yet.** Monte Carlo happens to hand it a retire-list that covers
+      its own outputs, so the missing delete was covered by accident. Any second caller with a
+      narrower list would have silently written **two sets of rows at every depth** — and a
+      duplicated sample does not look broken, it just quietly doubles whatever gets averaged.
+- [ ] **The fix.** It now deletes both: the curves it writes **and** the retire-list. That is the
+      same discipline the ordinary writer beside it already follows, it changes nothing for Monte
+      Carlo today, and it makes the description true.
+- [ ] **Pinned.** `the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_writes`
+      — checked from both sides, because each half on its own has a wrong version that would pass:
+      writing the same curve twice must leave one set of rows, **and** a curve on the retire-list
+      must still disappear. The archive is asserted untouched throughout — clearing the live store
+      must never reach back into the history.
+
 ## 2026-08-21 — Audit increment 56 (my audit P3): **Coates permeability read a negative porosity as a real one**
 
 - [ ] **What to click.** Run **PERM — Coates** on a well whose porosity comes from a delivered
