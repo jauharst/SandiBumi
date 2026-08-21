@@ -362,14 +362,6 @@ pub enum OutputIdentityClass {
     Placeholder,
 }
 
-/// SB-CORE-007 Part A, transcribed from the SIGNED registry (DRAFT_CORE007, signed under
-/// DEC-076). Keyed by MNEMONIC - the shape Part A itself uses - because a third of the
-/// shared declarations live in PROTECTED manifests (`lrlc.rs` sw_imts/sw_rtc,
-/// `satheight.rs` sw_height) that DEC-076 did not authorize editing, so a per-manifest
-/// class field could not reach them. Any name not listed here is CANONICAL. `FTEMP` is
-/// deliberately NOT here: its two producers share the working name with no custody
-/// siblings, and which of Part A's adjudication-1 options resolves it is Jauhar's open
-/// call - the validator pins it as the ONE named unresolved case.
 /// SB-DBM-005 (signed DRAFT_DBM005_derivation_map.md under DEC-076): where a method's
 /// EQUATION comes from - the layer above the per-parameter source gate. CITED traces to
 /// a repo-recorded source; CITED-PORT's source of record is a named Geolog Loglan port
@@ -487,6 +479,14 @@ pub(crate) fn validate_method_derivations(modules: &[ModuleSpec]) -> Result<(), 
     }
 }
 
+/// SB-CORE-007 Part A, transcribed from the SIGNED registry (DRAFT_CORE007, signed under
+/// DEC-076). Keyed by MNEMONIC - the shape Part A itself uses - because a third of the
+/// shared declarations live in PROTECTED manifests (`lrlc.rs` sw_imts/sw_rtc,
+/// `satheight.rs` sw_height) that DEC-076 did not authorize editing, so a per-manifest
+/// class field could not reach them. Any name not listed here is CANONICAL. `FTEMP` is
+/// deliberately NOT here: its two producers share the working name with no custody
+/// siblings, and which of Part A's adjudication-1 options resolves it is Jauhar's open
+/// call - the validator pins it as the ONE named unresolved case.
 pub(crate) const OUTPUT_IDENTITY_REGISTRY: &[(&str, OutputIdentityClass)] = &[
     ("VSH", OutputIdentityClass::Working),
     ("PHIE", OutputIdentityClass::Working),

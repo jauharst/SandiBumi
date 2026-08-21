@@ -1520,8 +1520,13 @@ const TVDSS_CONVENTION_KEY: &str = "tvdss_sign_convention";
 const TVDSS_POSITIVE_DOWN: &str = "F17_POSITIVE_DOWN_V1";
 
 /// Converts the pre-SB-DBM-031 TVDSS stores from elevation-minus-TVD to F-17 positive-down
-/// TVD-minus-elevation. The project-meta marker makes the rewrite idempotent; a real project is
-/// copied by DuckDB before the first affected row is changed.
+/// TVD-minus-elevation. The project-meta marker makes the rewrite idempotent.
+///
+/// This is a DESTRUCTIVE migration (RELEASE §3.2): a real project is copied before the first
+/// affected row is changed, and a failed backup ABORTS rather than proceeding — an un-migrated
+/// project still opens (TVDSS simply keeps its old sign), so refusing costs nothing, while
+/// rewriting every depth after the promised copy failed breaks the exact guarantee the backup
+/// exists to make. `path: None` is for in-memory test databases only.
 ///
 /// Only stores whose existing schema already declares TVDSS are rewritten: `well_path.tvdss`,
 /// explicitly TVDSS contacts, and the system's materialized current/archive TVDSS curves. Generic
@@ -1626,29 +1631,6 @@ pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
     Ok(())
 }
 
-/// One-time migration that drops the legacy 3-column PRIMARY KEY from `computed_curves`.
-///
-/// Older databases created the table with `PRIMARY KEY (well_id, depth, curve_name)`, whose
-/// ART uniqueness index made every inserted row ~3.7× more expensive — the dominant cost of
-/// field-scale (2000-well) runs. DuckDB can't drop an unnamed PK constraint in place, so the
-/// table is rebuilt without it. Idempotent: `duckdb_constraints()` is consulted first, so on
-/// databases already PK-less (including every freshly created one) this is a no-op. Uniqueness
-/// is preserved by the write discipline documented on the table (see `create_schema`).
-///
-/// This rebuild is the shipped example of a DESTRUCTIVE migration (RELEASE §3.2), so when it
-/// is actually going to run, `path` is backed up first. A failed backup ABORTS the migration:
-/// the un-migrated file still opens fine (the PK only makes writes slower), so refusing costs
-/// nothing, while rewriting a field-scale project after the promised copy failed breaks the
-/// exact guarantee R-B exists to make. `path: None` is for in-memory test databases only —
-/// every real caller must pass the project-file path.
-/// SB-DBM-009 / DEC-022: converts every pre-migration `log_sets.created_at` from WIB
-/// (UTC+7) local wall time to a UTC instant, and re-points the column DEFAULT at UTC so new
-/// rows can never reintroduce the local meaning. The zone is DECLARED, not measured: Jauhar
-/// ruled (DEC-022, 2026-08-17) that every legacy record was written on a machine set to
-/// Western Indonesia time, and the ruling itself is recorded as the converted values' SOURCE
-/// in the marker document below, so a later reader sees the offset was declared by the
-/// product owner rather than inferred from the data. Idempotent: the marker gates the
-/// subtraction, because running it twice would move history by another seven hours.
 /// SB-CLY-001 (DEC-036): `run_degradations.kind` gained the documented fifth member
 /// `ENDPOINT_INVALID` - the zone-bearing run message rides the degradation channel. A
 /// pre-existing project carries the four-member CHECK, which would refuse the row at
@@ -1689,6 +1671,14 @@ pub fn migrate_run_degradations_endpoint_invalid(conn: &Connection) -> DbResult<
     Ok(())
 }
 
+/// SB-DBM-009 / DEC-022: converts every pre-migration `log_sets.created_at` from WIB
+/// (UTC+7) local wall time to a UTC instant, and re-points the column DEFAULT at UTC so new
+/// rows can never reintroduce the local meaning. The zone is DECLARED, not measured: Jauhar
+/// ruled (DEC-022, 2026-08-17) that every legacy record was written on a machine set to
+/// Western Indonesia time, and the ruling itself is recorded as the converted values' SOURCE
+/// in the marker document below, so a later reader sees the offset was declared by the
+/// product owner rather than inferred from the data. Idempotent: the marker gates the
+/// subtraction, because running it twice would move history by another seven hours.
 pub fn migrate_log_set_timestamps_to_utc(conn: &Connection) -> DbResult<()> {
     let already: i64 = conn.query_row(
         "SELECT count(*) FROM documents WHERE doc_type = 'migration' AND name = 'DEC-022-created-at-utc'",
@@ -1714,6 +1704,21 @@ pub fn migrate_log_set_timestamps_to_utc(conn: &Connection) -> DbResult<()> {
     Ok(())
 }
 
+/// One-time migration that drops the legacy 3-column PRIMARY KEY from `computed_curves`.
+///
+/// Older databases created the table with `PRIMARY KEY (well_id, depth, curve_name)`, whose
+/// ART uniqueness index made every inserted row ~3.7× more expensive — the dominant cost of
+/// field-scale (2000-well) runs. DuckDB can't drop an unnamed PK constraint in place, so the
+/// table is rebuilt without it. Idempotent: `duckdb_constraints()` is consulted first, so on
+/// databases already PK-less (including every freshly created one) this is a no-op. Uniqueness
+/// is preserved by the write discipline documented on the table (see `create_schema`).
+///
+/// This rebuild is the shipped example of a DESTRUCTIVE migration (RELEASE §3.2), so when it
+/// is actually going to run, `path` is backed up first. A failed backup ABORTS the migration:
+/// the un-migrated file still opens fine (the PK only makes writes slower), so refusing costs
+/// nothing, while rewriting a field-scale project after the promised copy failed breaks the
+/// exact guarantee R-B exists to make. `path: None` is for in-memory test databases only —
+/// every real caller must pass the project-file path.
 pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     migrate_drop_computed_curves_pk_with_backup(conn, path, backup_before_destructive_migration)
 }
@@ -2230,6 +2235,17 @@ pub fn migrate_fluid_contact_zone(conn: &Connection) -> DbResult<()> {
     Ok(())
 }
 
+/// Brings a pre-set-era project onto the universal delivery-set model: core plugs, SCAL Pc,
+/// deviation surveys and every point dataset gain a `set_name`, existing rows become RAW and
+/// active, and the readings stay byte-identical. `core_data` and `well_path` are REBUILT because
+/// the set name joins their primary key; `aux_data` and `scal_pc` are only ALTERed, back-filled
+/// and registered.
+///
+/// A rebuild is a DESTRUCTIVE migration (RELEASE §3.2), so when one is actually going to run,
+/// `path` is backed up first and a failed backup ABORTS: an un-migrated project still opens, so
+/// refusing costs nothing, while rewriting after the promised copy failed breaks the exact
+/// guarantee the backup exists to make. `path: None` is for in-memory test databases only.
+/// Idempotent: a project whose `core_data` already carries `set_name` is left alone.
 pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     let has_set: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_columns()
@@ -6261,20 +6277,6 @@ mod inspector_tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Phase 6 foundation: standard_curves rows must land in the generic curve store as
-    /// set RAW with the right family/unit, and the migration must be a no-op the second
-    /// time (idempotent — it's called on every launch via lib.rs::run()).
-    /// SB-DBM-030. Source: Geolog `cgg.h` `MISS_FLOAT = -1.0e30` (and the manuals' `-1.0D38`),
-    /// DEC-027/DEC-061/DEC-062. The store's null discipline: an undeclared large-negative
-    /// sentinel is screened to SQL NULL by a strict inequality against a bound COMPUTED one
-    /// decade inside the cited constant, the screen is COUNTED (the flag channel - never
-    /// silent), NaN binds SQL NULL so absence is not representable as a number at the store,
-    /// and a value exactly ON the bound is DATA that survives bit for bit.
-    /// SB-DBM-009 / DEC-022: legacy `log_sets.created_at` values are WIB (UTC+7) wall time
-    /// and are converted to UTC instants EXACTLY ONCE, with the declared zone and the ruling
-    /// recorded as the converted values' SOURCE - so a later reader sees the offset was
-    /// declared by the product owner, never measured from the data - and new rows default to
-    /// UTC so the local meaning cannot creep back in.
     /// SB-DBM-017 / DEC-025: the neutron matrix basis is DECLARED curve metadata. Absence
     /// stays absent - never inferred from the unit, the family, the contractor, the tool or a
     /// matrix default - a declaration is scoped to the one curve it names, it carries its
@@ -6561,6 +6563,11 @@ mod inspector_tests {
         assert_eq!(kept, ("CLAMPED".to_string(), 3), "existing rows are copied verbatim");
     }
 
+    /// SB-DBM-009 / DEC-022: legacy `log_sets.created_at` values are WIB (UTC+7) wall time
+    /// and are converted to UTC instants EXACTLY ONCE, with the declared zone and the ruling
+    /// recorded as the converted values' SOURCE - so a later reader sees the offset was
+    /// declared by the product owner, never measured from the data - and new rows default to
+    /// UTC so the local meaning cannot creep back in.
     #[test]
     fn legacy_wib_timestamps_convert_to_utc_exactly_once_and_the_declared_zone_is_the_recorded_source(
     ) {
@@ -6642,6 +6649,12 @@ mod inspector_tests {
         );
     }
 
+    /// SB-DBM-030. Source: Geolog `cgg.h` `MISS_FLOAT = -1.0e30` (and the manuals' `-1.0D38`),
+    /// DEC-027/DEC-061/DEC-062. The store's null discipline: an undeclared large-negative
+    /// sentinel is screened to SQL NULL by a strict inequality against a bound COMPUTED one
+    /// decade inside the cited constant, the screen is COUNTED (the flag channel - never
+    /// silent), NaN binds SQL NULL so absence is not representable as a number at the store,
+    /// and a value exactly ON the bound is DATA that survives bit for bit.
     #[test]
     fn an_undeclared_large_negative_null_is_screened_to_sql_null_and_counted_and_a_value_on_the_bound_stays_data(
     ) {
@@ -6688,6 +6701,73 @@ mod inspector_tests {
         assert_eq!(samples[4].value.to_bits(), 3.5f32.to_bits());
     }
 
+    /// AUDIT-2026-08-20 finding 65. `migrate_drop_computed_curves_pk` is the shipped example of
+    /// a destructive migration, and its doc block — including the R-B guarantee that a failed
+    /// backup ABORTS — had drifted onto `migrate_run_degradations_endpoint_invalid`, a function
+    /// that takes no path and copies nothing. Two of the three destructive migrations were then
+    /// bare, and the one guarantee a reader most needs to find sat on the wrong function.
+    ///
+    /// A doc comment is not compiled, so nothing caught it. This is what catches it: a migration
+    /// that copies the project before rewriting it must SAY SO on itself — which policy this is
+    /// (RELEASE §3.2), and that a failed copy aborts instead of proceeding. Both halves matter
+    /// and neither implies the other: "we take a backup" without "a failed backup aborts" is the
+    /// reading under which rewriting a field-scale project after the copy failed looks allowed.
+    #[test]
+    fn every_migration_that_copies_the_project_first_documents_that_a_failed_copy_aborts() {
+        let source = include_str!("db.rs");
+        let lines: Vec<&str> = source.split('\n').collect();
+        let mut checked: Vec<&str> = Vec::new();
+        let mut silent: Vec<(&str, &str)> = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let Some(rest) = line.strip_prefix("pub fn ").or_else(|| line.strip_prefix("fn ")) else {
+                continue;
+            };
+            let Some(name) = rest.split(['<', '(']).next() else { continue };
+            let end = lines[index + 1..]
+                .iter()
+                .position(|l| l.starts_with('}'))
+                .map(|offset| index + 1 + offset)
+                .unwrap_or(lines.len() - 1);
+            let body = lines[index + 1..=end].join("\n");
+            // The helper itself, and the `_with_backup` seam that takes the copier as a
+            // parameter, are the mechanism rather than a migration that uses it.
+            if name == "backup_before_destructive_migration" || name.ends_with("_with_backup") {
+                continue;
+            }
+            if !body.contains("backup_before_destructive_migration") {
+                continue;
+            }
+            checked.push(name);
+            let mut doc_start = index;
+            while doc_start > 0 && lines[doc_start - 1].starts_with("///") {
+                doc_start -= 1;
+            }
+            let doc = lines[doc_start..index].join("\n");
+            for token in ["RELEASE", "ABORTS"] {
+                if !doc.contains(token) {
+                    silent.push((name, token));
+                }
+            }
+        }
+        assert_eq!(
+            checked,
+            [
+                "migrate_tvdss_positive_down",
+                "migrate_drop_computed_curves_pk",
+                "migrate_point_data_sets",
+            ],
+            "these three migrations copy the project before rewriting it; one that stops going \
+             through the shared copier, or a new one that starts, must be seen here knowingly"
+        );
+        assert!(
+            silent.is_empty(),
+            "a migration that copies the project first must document it on ITSELF: {silent:?}"
+        );
+    }
+
+    /// Phase 6 foundation: standard_curves rows must land in the generic curve store as
+    /// set RAW with the right family/unit, and the migration must be a no-op the second
+    /// time (idempotent — it's called on every launch via lib.rs::run()).
     #[test]
     fn generic_store_migration_and_manual_curve() {
         let conn = mem_db();

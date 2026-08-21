@@ -1620,19 +1620,6 @@ mod tests {
         }
     }
 
-    /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.
-    ///
-    /// **Missing writes as the null value, never as a blank or a zero.** A 0.0 where a sample was
-    /// absent is a reading nobody took, and it re-imports as real data.
-    ///
-    /// **Computed curves are exported, not just the six standard ones** — otherwise a delivered
-    /// LAS silently omits the entire interpretation.
-    ///
-    /// **A mixed-case computed name still carries its values.** `fetch_curve_frame` keys its
-    /// column map by `trim().to_uppercase()`, so looking it up under the stored spelling misses
-    /// and the column exports as ALL NULL — a full-length curve of nothing, in a file that looks
-    /// perfectly well formed. The exporter uppercases the key for exactly this reason; this test
-    /// is what stops that line being "tidied" away.
     /// SB-SAT-026 / exact SB-SAT-T40 persistence half (DEC-064 closed the naming ruling):
     /// the per-sample SW_METHOD flag survives write, reload and LAS export AS THE
     /// CATEGORICAL IT IS - codes bit-exact, an absence MISSING and never a code, and every
@@ -1867,6 +1854,19 @@ mod tests {
         }
     }
 
+    /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.
+    ///
+    /// **Missing writes as the null value, never as a blank or a zero.** A 0.0 where a sample was
+    /// absent is a reading nobody took, and it re-imports as real data.
+    ///
+    /// **Computed curves are exported, not just the six standard ones** — otherwise a delivered
+    /// LAS silently omits the entire interpretation.
+    ///
+    /// **A mixed-case computed name still carries its values.** `fetch_curve_frame` keys its
+    /// column map by `trim().to_uppercase()`, so looking it up under the stored spelling misses
+    /// and the column exports as ALL NULL — a full-length curve of nothing, in a file that looks
+    /// perfectly well formed. The exporter uppercases the key for exactly this reason; this test
+    /// is what stops that line being "tidied" away.
     #[test]
     fn export_writes_missing_as_null_and_carries_mixed_case_computed_curves() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2009,9 +2009,6 @@ mod tests {
         }
     }
 
-    /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
-    /// non-optional `WriterSettings` argument from a writer makes this assignment and the
-    /// registry constant fail to compile.
     /// SB-DIO-056 / SB-DIO-T82, SB-DIO-T83. Source: `docs/PRD_v2/21_data-io.md:1861-1878` — the
     /// writer MUST compute the step over every adjacent pair, MUST write `STEP` as `0` when the
     /// interval is not constant, and MUST NOT declare the first interval as the step. The `STEP = 0`
@@ -2114,6 +2111,9 @@ mod tests {
         assert_eq!(only, 0.0, "one sample cannot declare a step: {single}");
         assert!(single_note.is_none(), "one sample is not a drift finding: {single_note:?}");
     }
+    /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
+    /// non-optional `WriterSettings` argument from a writer makes this assignment and the
+    /// registry constant fail to compile.
     #[test]
     fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
         let _: WriterFn = write_las;

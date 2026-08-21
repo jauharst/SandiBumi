@@ -77,6 +77,23 @@ fn rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
 /// because their cfg guard lives at the declaration site in `lib.rs`. Function-level fixture
 /// writers must also be removed: they do not exist in a production build and therefore are not a
 /// production ancestry bypass.
+/// How far one line opens or closes a block, counting only braces that ARE block delimiters.
+///
+/// A brace inside a CHARACTER LITERAL is not one. Found the hard way (AUDIT-2026-08-20 finding
+/// 65's increment): a source-scanning test in `db.rs` that looks for a line beginning with a
+/// closing brace has to write that brace as `'}'`, and counting it closed this stripper's
+/// `#[cfg(test)]` skip one level early — which leaked the whole rest of that test module into the
+/// production inventory and reported its fixtures as ancestry bypasses. The failure is loud, but
+/// it accuses the wrong file, so it is fixed HERE rather than left as something every future
+/// author of a scanning test has to know.
+///
+/// Deliberately not a Rust lexer: the escape `'\\{'` and braces inside string literals are still
+/// counted. This handles the case that actually occurs and stays a line of code, not a parser.
+fn block_delimiter_balance(line: &str) -> i64 {
+    let code = line.replace("'{'", "").replace("'}'", "");
+    code.matches('{').count() as i64 - code.matches('}').count() as i64
+}
+
 fn production_rust(source: &str) -> String {
     let mut kept = String::new();
     let mut pending_test_cfg = false;
@@ -88,9 +105,9 @@ fn production_rust(source: &str) -> String {
             continue;
         }
         if pending_test_cfg {
-            if line.contains('{') {
+            if line.replace("'{'", "").replace("'}'", "").contains('{') {
                 skipping = true;
-                depth = line.matches('{').count() as i64 - line.matches('}').count() as i64;
+                depth = block_delimiter_balance(line);
                 pending_test_cfg = false;
                 if depth <= 0 {
                     skipping = false;
@@ -106,7 +123,7 @@ fn production_rust(source: &str) -> String {
             continue;
         }
         if skipping {
-            depth += line.matches('{').count() as i64 - line.matches('}').count() as i64;
+            depth += block_delimiter_balance(line);
             if depth <= 0 {
                 skipping = false;
             }

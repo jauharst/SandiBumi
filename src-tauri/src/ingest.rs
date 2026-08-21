@@ -3682,8 +3682,6 @@ RHOZ.KG/M3 : Density
             .all(|entry| !["", "-", "?"].contains(&entry.token)));
     }
 
-    /// SB-DIO-009 / SB-DIO-T14. The ordered NPHI aliases and finite-coverage
-    /// tie-break are specified in `docs/PRD_v2/21_data-io.md` §5.3.
     /// SB-DBM-030's flag-channel half, through the production LAS import: a screened value is
     /// named in the import's own warning by the DELIVERED mnemonic with its count, lands as
     /// SQL NULL in BOTH projections of the delivery (standard and generic - one screened and
@@ -3876,6 +3874,8 @@ GR.API :
         std::fs::remove_file(&path).ok();
     }
 
+    /// SB-DIO-009 / SB-DIO-T14. The ordered NPHI aliases and finite-coverage
+    /// tie-break are specified in `docs/PRD_v2/21_data-io.md` §5.3.
     #[test]
     fn the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts() {
         let conn = Connection::open_in_memory().unwrap();
