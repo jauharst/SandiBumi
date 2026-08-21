@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **162** of 653,
+Review sections counted toward no capability: **162** of 654,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -21,7 +21,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 65 | — | 12 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 39 | — | 6 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 236 | 2026-08-13 | 75 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 241 | 2026-08-13 | 76 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 104 | 2026-08-13 | 23 |
 | `formation-temperature` | Formation-temperature curves | Not exercised | 0 / 5 | — | 2 |

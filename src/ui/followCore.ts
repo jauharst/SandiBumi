@@ -73,24 +73,48 @@ export function buildDatumSelect(): HTMLSelectElement {
   return sel;
 }
 
-/** Audit finding 8: a delivery declares the depth UNIT its depths are quoted in, beside the
- *  datum and for the same reason — the two together are what place a number on the project's
- *  own scale. "Same as project" is preselected because it is what every import before this
- *  guard silently assumed, so an untouched wizard behaves exactly as it always did.
+/** The value a depth-unit select carries while nobody has said what unit the file is in.
+ *  A caller must refuse to import on it — see [`buildDepthUnitSelect`]. */
+export const DEPTH_UNIT_UNSTATED = "?";
+
+/** The one depth-unit control for a delivery whose depths have to land on the project's scale.
  *
+ *  Audit finding 8: a delivery declares the depth UNIT its depths are quoted in, beside the datum
+ *  and for the same reason — the two together are what place a number on the project's own scale.
  *  One helper rather than one copy per wizard: the labels are the only hard-coded depth-unit
  *  strings the frontend is allowed to carry (the acceptance sweep classifies them as a
  *  unit-picker), and three copies would be three places for that classification to drift.
- *  `initial` takes a probe's detected unit where one exists ("m"/"ft"). */
+ *
+ *  `initial` is what the FILE said, when a probe could read it off a units row or a depth header.
+ *  Pass nothing when the file said nothing, or when there is no probe step to ask.
+ *
+ *  AUDIT-2026-08-20 finding 46. This used to open on "Same as project" in every case, and a
+ *  default that is also a valid answer makes a dialog nobody read indistinguishable from one that
+ *  was answered — the import could not tell "I checked, it is metres" from "I clicked Import".
+ *  The LAS path refuses outright rather than assume, and the doctrine here is the same one this
+ *  repo applies to a survey's inclination, a plate's stain and Normalize's reference pair: a
+ *  missing declaration is asked for, never substituted. So when the file states no unit the
+ *  select opens UNCHOSEN and the caller refuses until somebody chooses — "Same as project" is
+ *  still there, it has just stopped being a thing you can select by not looking. Where the file
+ *  DID state a unit there is nothing to ask, and it is pre-selected exactly as before.
+ *
+ *  What is at stake is a factor of 3.28 applied silently to every depth in the delivery. */
 export function buildDepthUnitSelect(initial?: string | null): HTMLSelectElement {
   const sel = document.createElement("select");
   sel.className = "form-control";
-  for (const [value, label] of [["", "Same as project"], ["m", "Metres (m)"], ["ft", "Feet (ft)"]] as const) {
+  const stated = initial ?? "";
+  const choices: [string, string][] = [
+    ["", "Same as project"],
+    ["m", "Metres (m)"],
+    ["ft", "Feet (ft)"],
+  ];
+  if (!stated) choices.unshift([DEPTH_UNIT_UNSTATED, "— the file does not say — choose"]);
+  for (const [value, label] of choices) {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;
     sel.appendChild(option);
   }
-  sel.value = initial ?? "";
+  sel.value = stated || DEPTH_UNIT_UNSTATED;
   return sel;
 }
