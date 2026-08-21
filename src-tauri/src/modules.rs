@@ -2013,6 +2013,68 @@ pub(crate) fn required_neutron_basis(module: &str) -> Option<Option<&'static str
     }
 }
 
+/// AUDIT-2026-08-20 finding 50(b): everything the GENERIC runner needs to know about ONE module,
+/// declared here beside the manifests instead of matched on a module NAME inside the run path.
+///
+/// The rules themselves are unchanged and each still cites the decision that set it. What moves is
+/// their LOCATION. A module name inside `run_workflow_module` is a special case in the path EVERY
+/// module travels, and the pattern is self-reinforcing: the fifth was easier to add than the first,
+/// because four were already there. Here they are a table anyone can read at once, next to the
+/// manifests they describe, and the runner is generic again.
+///
+/// Only the run path. A NAMED registry function outside it - [`required_neutron_basis`],
+/// `workflow::saturation_method_id`, `workflow::lrlc_calibration_coefficients` - is already the
+/// thing this table is, and duplicating one here would put a second answer beside a cited one.
+///
+/// Deliberately a registry FUNCTION rather than `ModuleSpec` fields. Every manifest in this
+/// repository is a struct literal - 115 of them across twelve files - so one added field would be
+/// 115 edits for the same property, and this file already established the idiom next door in
+/// [`required_neutron_basis`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RunnerDeclarations {
+    /// SB-ENV-027 (DEC-033): the ONE approved repair exemption. Declared per OUTPUT and per MODE,
+    /// because an output produced under a different mode is masked normally.
+    pub(crate) mask_repair: Option<MaskRepair>,
+    /// SB-CLY-001 (DEC-036): the provenance output whose masked/disabled token is WRITTEN rather
+    /// than blanked - a provenance curve blanked by the mask records nothing about why.
+    pub(crate) provenance_output: Option<&'static str>,
+    /// SB-ENV-029 (DEC-025): this module validates against the input curve's DECLARED neutron
+    /// matrix basis, so the runner resolves the same curve the fetch used and injects its
+    /// declaration - never inferring one.
+    pub(crate) reads_input_neutron_basis: bool,
+    /// SB-ENV-041: the smoothing policy is recorded as run provenance under its own reserved key.
+    pub(crate) records_smoothing_policy: bool,
+}
+
+/// Which output is exempt from the mask, and the exact option value that makes it a repair.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MaskRepair {
+    pub(crate) output: &'static str,
+    pub(crate) option: &'static str,
+    pub(crate) value: &'static str,
+}
+
+pub(crate) fn runner_declarations(module: &str) -> RunnerDeclarations {
+    let mut d = RunnerDeclarations::default();
+    match module {
+        "log_predict" => {
+            // MAX_RAW is the mode that is genuinely a washout repair; SYN produced under
+            // SYNTHETIC or FILL_MISSING is masked normally. Adding an entry here is a DECISION
+            // that returns to DEC-033, never an implementation convenience.
+            d.mask_repair = Some(MaskRepair {
+                output: "SYN",
+                option: "OPT_COMBINE",
+                value: "MAX_RAW",
+            });
+        }
+        "vsh_gr" => d.provenance_output = Some("VSH_PROV"),
+        "nphimat" => d.reads_input_neutron_basis = true,
+        "smooth" => d.records_smoothing_policy = true,
+        _ => {}
+    }
+    d
+}
+
 /// SB-POR-002 sonic half (DEC-063, RULED 2026-08-18): with `DT_MA < DT_SH` enforced as a
 /// declared validity condition, the bare sonic pair satisfies `PHIT >= PHIE` by
 /// construction, so the method now declares its full unlimited/limited pair like the

@@ -855,13 +855,11 @@ pub(crate) fn recorded_module_params(
     for (name, value) in &req.params {
         recorded.insert(name.clone(), serde_json::json!(value));
     }
-    let method_id = match req.module.as_str() {
-        "sw_arch" => Some("archie_total"),
-        "sw_indo" => Some("indonesia"),
-        "sw_sim" => opts.get("OPT_SIM").map(String::as_str),
-        _ => None,
-    };
-    if let Some(id) = method_id {
+    // AUDIT-2026-08-20 finding 50(b): the identity comes from the ONE production registry, so
+    // this test view cannot answer differently from the run it is a view of. It used to hold a
+    // private copy that skipped `canonical_option_value`, which is a second answer for `sw_sim`.
+    let method_id = saturation_method_id(&req.module, opts);
+    if let Some(id) = method_id.as_deref() {
         for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Option) {
             if let Some(value) = opts.get(&arg.name) {
                 recorded.insert(arg.name.clone(), serde_json::json!(value));
@@ -957,7 +955,7 @@ fn complete_module_log_spec(
         manifest_version: None,
         decision: None,
     });
-    if req.module == "smooth" {
+    if modules::runner_declarations(&req.module).records_smoothing_policy {
         reject_reserved_key(
             &parameters,
             &legacy,
@@ -2779,11 +2777,13 @@ pub fn run_workflow_module_into(
                 // declared repair - a repair blanked at the second pass is a repair that did
                 // not happen. Adding an entry here is a DECISION that returns to DEC-033,
                 // never an implementation convenience.
-                let repair_run = req.module == "log_predict"
-                    && req.opts
-                        .get("OPT_COMBINE")
-                        .map(|mode| mode.trim() == "MAX_RAW")
-                        .unwrap_or(false);
+                let declared = modules::runner_declarations(&req.module);
+                let repair_run = declared.mask_repair.is_some_and(|repair| {
+                    req.opts
+                        .get(repair.option)
+                        .map(|mode| mode.trim() == repair.value)
+                        .unwrap_or(false)
+                });
 
                 // Blank flagged samples in the module INPUTS (never DEPTH) before the run, so
                 // per-run statistics only see unmasked data.
@@ -2807,7 +2807,7 @@ pub fn run_workflow_module_into(
                 // SB-ENV-029 (DEC-025): nphimat validates MATRIX_IN against the input curve's
                 // DECLARED neutron matrix basis, so the runner resolves the same curve the
                 // fetch used and injects its declaration - never inferring one.
-                if req.module == "nphimat" {
+                if declared.reads_input_neutron_basis {
                     let conn = db.lock().unwrap();
                     if let Some(basis) = nphimat_declared_basis(&conn, well_id, &log_args) {
                         well_opts.insert(modules::NEUTRON_BASIS_OPT.to_string(), basis);
@@ -2960,27 +2960,28 @@ pub fn run_workflow_module_into(
 
                 // SB-ENV-027 (DEC-033): resolve the declared repair output's STORED name
                 // (rename + prefix applied, exactly as the map above composed it).
-                let repair_exempt_output: Option<String> = repair_run
-                    .then(|| {
+                let repair_exempt_output: Option<String> = declared
+                    .mask_repair
+                    .filter(|_| repair_run)
+                    .and_then(|repair| {
                         out_names
                             .iter()
-                            .find(|(declared, _)| declared == "SYN")
+                            .find(|(name, _)| name == repair.output)
                             .map(|(_, resolved)| prefixed_output(&opts, resolved))
-                    })
-                    .flatten();
+                    });
 
                 // SB-CLY-001 (DEC-036): resolve the CLY provenance output's STORED name
                 // (rename + prefix, exactly as the outputs map composed it) so the mask pass
                 // below can WRITE the masked/disabled token instead of blanking it, and the
                 // zone-bearing message can read the final tokens.
-                let cly_prov_output: Option<String> = (req.module == "vsh_gr")
-                    .then(|| {
+                let cly_prov_output: Option<String> = declared
+                    .provenance_output
+                    .and_then(|provenance| {
                         out_names
                             .iter()
-                            .find(|(declared, _)| declared == "VSH_PROV")
+                            .find(|(name, _)| name == provenance)
                             .map(|(_, resolved)| prefixed_output(&opts, resolved))
-                    })
-                    .flatten();
+                    });
 
                 // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
                 // never trusted downstream - EXCEPT the one declared repair output, whose
@@ -3244,7 +3245,8 @@ pub fn run_workflow_module_into(
                         base: depth[depth.len() - 1],
                         samples: depth.len(),
                     });
-                    let physics = if req.module == "nphimat"
+                    let physics = if modules::runner_declarations(&req.module)
+                        .reads_input_neutron_basis
                         || modules::required_neutron_basis(&req.module).is_some()
                     {
                         nphimat_declared_basis(&conn, well_id, log_args)
@@ -3441,6 +3443,121 @@ mod tests {
     use crate::ingest;
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+
+    /// AUDIT-2026-08-20 finding 50(b). The generic runner had grown four - measured five -
+    /// special cases reached by matching a module NAME on the run path, which is the one dispatch
+    /// the module framework exists to make unnecessary: a module ships a manifest, the runner
+    /// reads it, and nothing in the run path should know that `nphimat` is the module needing its
+    /// input's neutron basis. Each literal is also a silent trap for a rename, because a module
+    /// renamed in its manifest keeps running here under the old name and quietly loses its
+    /// special case.
+    ///
+    /// The needle is a comparison of THIS RUN's module against a literal. A named registry keyed
+    /// on a `module: &str` parameter - `saturation_method_id`, `lrlc_calibration_coefficients`,
+    /// `modules::required_neutron_basis` - is the declaration this finding asks for, already
+    /// outside the run path, and is deliberately not counted.
+    ///
+    /// Pinned from both sides, because either half alone passes for the wrong reason. Deleting all
+    /// five behaviours would empty the run path of module names and break DEC-025, DEC-033,
+    /// DEC-036 and SB-ENV-041 while doing it; a declaration table full of misspelled curve names
+    /// would keep the runner clean and declare nothing that resolves. So: the run path matches no
+    /// module name, AND every arm of the table names a real module whose manifest really declares
+    /// the output and option that arm cites.
+    #[test]
+    fn the_runner_matches_no_module_name_and_every_declaration_resolves_against_a_real_manifest() {
+        // Production half only, needles assembled, comment lines dropped - so this test is never
+        // an occurrence of what it counts, and the prose explaining a decision is not the decision.
+        // Line endings normalised: these files are CRLF on disk, so a boundary spelled with
+        // a bare newline silently matches nothing and the slice runs to the end of the file.
+        let runner = include_str!("workflow.rs").replace("\r\n", "\n");
+        let production = runner
+            .split("
+mod tests")
+            .next()
+            .expect("a split always yields one piece");
+        // Against a LITERAL. Holding one entry's module against another's is an ordinary
+        // comparison; naming a module in the runner's own source is the dispatch being removed.
+        let by_name = [".module", " == \""].concat();
+        let by_match = [".module", ".as_str()"].concat();
+        let matched: Vec<&str> = production
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with("//"))
+            .filter(|line| line.contains(by_name.as_str()) || line.contains(by_match.as_str()))
+            .collect();
+        assert!(
+            matched.is_empty(),
+            "the runner must reach a module's special case through modules::runner_declarations, never by matching its name: {matched:?}",
+        );
+
+        // Every arm of the declaration table, read off the table's own source rather than a second
+        // list that could drift from it.
+        let manifests = include_str!("modules.rs").replace("\r\n", "\n");
+        let table = manifests
+            .split(["fn runner_dec", "larations("].concat().as_str())
+            .nth(1)
+            .expect("the declaration table exists")
+            // Bounded by the blank line AFTER the function - the table itself has none. A
+            // brace-free boundary on purpose: an unbalanced brace in a test's own source ends
+            // core_ancestry_tests' cfg(test) skip early and leaks this whole module into its
+            // production scan, which is what a needle spelling the closing brace did here.
+            .split("
+
+")
+            .next()
+            .expect("a split always yields one piece");
+        let declared_modules: Vec<&str> = table
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with("//"))
+            .filter_map(|line| line.strip_prefix('"'))
+            .filter_map(|rest| rest.split_once('"'))
+            .filter(|(_, after)| after.trim_start().starts_with("=>"))
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            declared_modules.len(),
+            4,
+            "the five run-path behaviours are declared by four modules; a change here is a DECISION about DEC-025, DEC-033, DEC-036 or SB-ENV-041, not a refactor: {declared_modules:?}",
+        );
+
+        let specs = modules::list_modules();
+        for module in declared_modules {
+            let spec = specs
+                .iter()
+                .find(|spec| spec.name == module)
+                .unwrap_or_else(|| panic!("{module} is declared for but is not a module; a renamed module silently loses its special case"));
+            let names = |kind: modules::ArgKind| -> Vec<&str> {
+                spec.args
+                    .iter()
+                    .filter(|arg| arg.kind == kind)
+                    .map(|arg| arg.name.as_str())
+                    .collect()
+            };
+            let declared = modules::runner_declarations(module);
+            if let Some(repair) = declared.mask_repair {
+                let outputs = names(modules::ArgKind::LogOut);
+                assert!(
+                    outputs.contains(&repair.output),
+                    "{module} declares the mask repair on output {}, which its manifest does not produce: {outputs:?}",
+                    repair.output,
+                );
+                let options = names(modules::ArgKind::Option);
+                assert!(
+                    options.contains(&repair.option),
+                    "{module} declares the mask repair behind option {}, which its manifest does not offer: {options:?}",
+                    repair.option,
+                );
+            }
+            if let Some(provenance) = declared.provenance_output {
+                let outputs = names(modules::ArgKind::LogOut);
+                assert!(
+                    outputs.contains(&provenance),
+                    "{module} declares provenance on output {provenance}, which its manifest does not produce: {outputs:?}",
+                );
+            }
+        }
+    }
 
     /// AUDIT-2026-08-20 finding 76. The SB-CLY-043 input-quantity contract - a clay-volume
     /// consumer declares whether it accepts VSH or VCL, and the other one is a DIFFERENT physical

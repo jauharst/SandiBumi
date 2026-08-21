@@ -1874,8 +1874,8 @@ pub(crate) fn write_equation_output(
 mod tests {
     // Reachable only under cfg(test), where they are declared.
     use crate::ancestry::{
-        create_log_set, write_computed_curves_versioned,
-        AncestryActor, AncestryInput, AncestryOutput, AncestryParameter,
+        create_log_set,
+        AncestryActor, AncestryInput, AncestryOutput,
         LogSetSpec,
         APPLIED_STEPS_SCHEMA_VERSION,
         AncestryActorKind,
