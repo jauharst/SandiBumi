@@ -687,6 +687,52 @@ test("every_registered_plot_record_limit_reports_original_and_displayed_counts_o
   assert.match(exportSource, /savePlotReductionManifest\(dest, JSON\.stringify\(manifest\)\)/u);
 });
 
+test("one_context_legend_rule_serves_the_three_quantitative_plots_and_none_of_them_keeps_a_copy", async () => {
+  // AUDIT-2026-08-20 finding 85. `plotLimits.ts` names crossplot, histogram and Pickett as this
+  // budget's consumers, and each carried its own copy of the limit call, the per-row label
+  // reduction and the "N of M wells" disclosure. Three copies is three answers to "how many wells
+  // does a legend show" - and the disclosure is the half that must not vary, because a legend that
+  // silently stops at ten reads as all of them.
+  const { contextLegend } = await load("/src/ui/plotCommon.ts");
+  const { plotRecordLimit } = await load("/src/ui/plotLimits.ts");
+  const rowLimit = plotRecordLimit("context_well_legend_rows").maximum;
+  const nameLimit = plotRecordLimit("context_well_name_characters").maximum;
+
+  const layers = Array.from({ length: rowLimit + 4 }, (_, index) => ({
+    color: `#0000${(index % 10).toString().repeat(2)}`,
+    name: `SANDI-CONTEXT-WELL-NUMBER-${index}`,
+  }));
+  const cut = contextLegend("SANDI-ACTIVE-WELL-WITH-A-LONG-NAME", layers);
+  assert.equal(cut.rows.length, rowLimit, "the legend lists no more wells than the budget allows");
+  assert.equal(
+    cut.remainder,
+    `context legend: ${rowLimit} of ${layers.length} wells`,
+    "and a legend that stopped short says so - silence would read as all of them",
+  );
+  for (const row of [...cut.rows, { name: cut.activeName }]) {
+    assert.ok(
+      Array.from(row.name).length <= nameLimit,
+      `every label stays inside the character budget: ${row.name}`,
+    );
+  }
+
+  // The other side: under the budget nothing is cut and nothing is claimed about a remainder.
+  const whole = contextLegend("SANDI-1", layers.slice(0, 3));
+  assert.equal(whole.rows.length, 3);
+  assert.equal(whole.activeName, "SANDI-1", "a short name is not truncated");
+  assert.equal(whole.remainder, null, "a legend showing every well makes no remainder claim");
+
+  // And no panel keeps a fourth copy of the rule.
+  for (const file of ["crossplotPanel.ts", "histogramPanel.ts", "pickettPanel.ts"]) {
+    const source = await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(
+      source,
+      /applyPlotRecordLimit/u,
+      `${file} draws the legend contextLegend built, it does not resolve the budget again`,
+    );
+  }
+});
+
 test("equal_and_exact_multiple_regular_depth_grids_proceed_with_reported_factors_while_non_integer_or_irregular_grids_refuse_with_an_explicit_reframe_action_and_intervals_stay_half_open", async () => {
   // CORRECTNESS — SB-PLT-016 / SB-PLT-T23–T26. docs/PRD_v2/23_plotting-interactivity.md
   // §§4.3, 6 and 7.3 R-8 cite the plotting dossier §§2.12, 5.1 and 5.3: equal steps keep factor 1,

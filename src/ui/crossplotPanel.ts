@@ -56,6 +56,7 @@ import {
   CORE_OVERLAY_MAP,
   curveSelect,
   depthReframeHandoff,
+  contextLegend,
   createContextReload,
   loadCurveNames,
   loadPlotProps,
@@ -70,7 +71,6 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { applyPlotRecordLimit, reducePlotLabel } from "./plotLimits";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
@@ -1336,20 +1336,15 @@ export function drawCrossplot(
     };
     // The active row's swatch only means something when the cloud is one color; a
     // Z-colored cloud gets a label instead of a misleading single swatch.
-    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
-    row(hasZ ? null : opts.color || plot.theme.accent, `${activeName} (active${hasZ ? `, by ${zName}` : ""})`);
-    const layers = context!.layers;
-    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
-    for (const layer of visibleLegend.displayed) {
-      row(layer.color, reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed);
-    }
-    if (visibleLegend.item) {
+    const legend = contextLegend(context!.activeName, context!.layers);
+    row(
+      hasZ ? null : opts.color || plot.theme.accent,
+      `${legend.activeName} (active${hasZ ? `, by ${zName}` : ""})`,
+    );
+    for (const entry of legend.rows) row(entry.color, entry.name);
+    if (legend.remainder) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(
-        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
-        boxX + 16,
-        boxY + 10,
-      );
+      ctx.fillText(legend.remainder, boxX + 16, boxY + 10);
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);

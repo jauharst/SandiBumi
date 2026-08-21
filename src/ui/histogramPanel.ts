@@ -35,6 +35,7 @@ import {
   concatValues,
   curveSelect,
   defaultPickParams,
+  contextLegend,
   createContextReload,
   loadCurveNames,
   loadPlotProps,
@@ -48,7 +49,6 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { applyPlotRecordLimit, reducePlotLabel } from "./plotLimits";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToPaperSvg } from "./svgExport";
 import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
@@ -584,24 +584,13 @@ export function drawHistogram(
       ctx.fillText(label, boxX + 16, boxY + 10);
       boxY += rowH;
     };
-    const activeName = reducePlotLabel("context_well_name_characters", context!.activeName, "active").displayed;
-    row(barColor, true, `${activeName} (active)`);
-    const layers = context!.layers;
-    const visibleLegend = applyPlotRecordLimit("context_well_legend_rows", layers, "well_legend");
-    for (const layer of visibleLegend.displayed) {
-      row(
-        layer.color,
-        false,
-        reducePlotLabel("context_well_name_characters", layer.name, layer.name).displayed,
-      );
-    }
-    if (visibleLegend.item) {
+    const legend = contextLegend(context!.activeName, context!.layers);
+    row(barColor, true, `${legend.activeName} (active)`);
+    // Outline swatches: the context wells render as stepped lines here, not as bars.
+    for (const entry of legend.rows) row(entry.color, false, entry.name);
+    if (legend.remainder) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(
-        `context legend: ${visibleLegend.item.displayed_count} of ${visibleLegend.item.original_count} wells`,
-        boxX + 16,
-        boxY + 10,
-      );
+      ctx.fillText(legend.remainder, boxX + 16, boxY + 10);
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
