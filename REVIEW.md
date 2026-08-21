@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 56 (my audit P3): **Coates permeability read a negative porosity as a real one**
+
+- [ ] **What to click.** Run **PERM — Coates** on a well whose porosity comes from a delivered
+      density-porosity curve (`PHIE_DEN` / `PHIE_DN`, not one SandiBumi computed). Over any tight
+      streak where the vendor porosity goes slightly negative, PERM should now be **blank**. It
+      used to print a number there.
+- [ ] **What was wrong, in one line.** The Coates form squares porosity **twice**. A porosity of
+      −0.05 therefore came out with exactly the same permeability as a real +0.05 — measured at
+      the mutation test: **1.0 mD**, which is a perfectly ordinary tight-sand answer. Nothing
+      downstream could catch it, because it is finite, positive and the right size.
+- [ ] **Why a negative porosity is not a corrupt curve.** It is the routine artefact of running a
+      sandstone matrix density on tight carbonate — the same case SandiBumi already handles in the
+      pay summary. So this is not a rare broken file; it is an ordinary delivery.
+- [ ] **Why it only bit Coates.** Its sibling, Wyllie-Rose, has screened negative porosity for a
+      while and carries a comment saying why. Coates never got the same screen. It now has it, and
+      the two read identically.
+- [ ] **Where it could reach you.** Only through porosity curves SandiBumi declares **unlimited**
+      — `PHIE_DEN` and `PHIE_DN` are deliberately not floored, so a negative survives to the module.
+      A SandiBumi-computed PHIE is floored and was never affected.
+- [ ] **Pinned.** `a_negative_porosity_is_missing_in_coates_rather_than_the_permeability_of_its_own_mirror`,
+      checked from both sides: the negative must go blank, and its mirrored real +5 % porosity must
+      still compute — so a version that simply blanked everything would fail too.
+
 ## 2026-08-21 — Audit increment 55 (my audit P2): **comments that had drifted onto the wrong function**
 
 - [ ] **What to click.** Nothing. Not one line of running code changed — this is entirely
