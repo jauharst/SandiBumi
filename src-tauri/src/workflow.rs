@@ -2635,6 +2635,26 @@ pub fn run_workflow_module_into(
         },
     }
 
+    /// AUDIT-2026-08-20 finding 50(a): what one module run produced, before it becomes an
+    /// [`Outcome`].
+    ///
+    /// This was an anonymous SEVEN-element tuple, restated three times: a type list on the
+    /// closure's signature, a positional construction at its end, and a positional destructuring
+    /// at the call. The seven types happen to be distinct today, so the compiler does catch a
+    /// swapped pair - but that is an accident of the current field list, not a property of the
+    /// shape, and it stops holding the moment a second `Option<String>` or a second `bool` joins
+    /// it. Named, both ends of the hand-off are checked by FIELD in either direction, and adding
+    /// a field to one list without the other is a compile error rather than a reading exercise.
+    struct ComputedRun {
+        depth: Vec<f32>,
+        outputs: HashMap<String, Vec<f32>>,
+        log_args: Vec<(String, String)>,
+        degradations: Vec<modules::RunDegradation>,
+        precondition_violations: Vec<modules::PreconditionViolation>,
+        scientific_answered: bool,
+        badhole_record: Option<String>,
+    }
+
     /// Did the run answer ANYWHERE? An output map that is present but entirely MISSING is a run
     /// that could not answer, not an interpretation.
     ///
@@ -2685,18 +2705,7 @@ pub fn run_workflow_module_into(
             if let Some(p) = progress {
                 p.start_item(well_id);
             }
-            let compute = || -> Result<
-                (
-                    Vec<f32>,
-                    HashMap<String, Vec<f32>>,
-                    Vec<(String, String)>,
-                    Vec<modules::RunDegradation>,
-                    Vec<modules::PreconditionViolation>,
-                    bool,
-                    Option<String>,
-                ),
-                String,
-            > {
+            let compute = || -> Result<ComputedRun, String> {
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
                 let (depth, mut logs, input_units, params, defaulted_parameters, log_args) = {
@@ -3098,7 +3107,7 @@ pub fn run_workflow_module_into(
                         .cmp(&right.condition_id)
                         .then_with(|| left.argument.cmp(&right.argument))
                 });
-                Ok((
+                Ok(ComputedRun {
                     depth,
                     outputs,
                     log_args,
@@ -3106,11 +3115,11 @@ pub fn run_workflow_module_into(
                     precondition_violations,
                     scientific_answered,
                     badhole_record,
-                ))
+                })
             };
 
             let outcome = match compute() {
-                Ok((
+                Ok(ComputedRun {
                     depth,
                     outputs,
                     log_args,
@@ -3118,7 +3127,7 @@ pub fn run_workflow_module_into(
                     precondition_violations,
                     scientific_answered,
                     badhole_record,
-                )) => Outcome::Computed {
+                }) => Outcome::Computed {
                     depth,
                     outputs,
                     log_args,

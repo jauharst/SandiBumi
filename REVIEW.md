@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 83 (my audit P2): **the module runner names its own result, and three structural proposals measured against the source**
+
+- [ ] **What to click.** Nothing changes in the app — no number moves, no curve appears. Run any
+      module on any well if you want the reassurance; every result is identical.
+- [ ] **What changed.** The code path that every module in SandiBumi runs through handed its
+      result back as an **unnamed list of seven things** — a list of types in one place, a list of
+      values in another, and a list of names in a third, matched up by their *order* alone. It is
+      now one named thing with seven named parts. The compiler checks both ends by name, so
+      adding a part to one list and forgetting the other is now a build error instead of something
+      you would have to notice by reading. No test was added on purpose: a test here could only
+      restate what the compiler already refuses to build, and this repository's rule is that a
+      check which proves nothing still has to be maintained. I proved the point instead by
+      renaming one part and confirming the build fails in three places.
+- [ ] **Three bigger proposals I checked rather than carried out.** The audit proposed splitting
+      the two largest files. I measured the seam it identified before touching anything, and its
+      central claim does not hold: it says the two halves of `workflow.rs` are unrelated with
+      **zero** references between them in both directions, and that is true one way but not the
+      other — the lower half calls the module runner in the upper half. So they are not two
+      unrelated subsystems; the pay-summary half is a **consumer** of the runner half. The split
+      is still possible and the reasons for it still stand, but it is a bigger and different move
+      than the one proposed, and the tests of both halves sit interleaved in one 10,600-line
+      block that would have to be sorted by hand.
+- [ ] **What I need from you.** Four things are now waiting on your word rather than on my time.
+      Splitting `workflow.rs` and `equations.rs` (worth doing, but it is your call whether now is
+      the moment to move thousands of lines in the two files where a mistake is hardest to see);
+      pushing four module-specific special cases out of the shared runner and into the module
+      manifests (a real change to the path all 47 modules run through); the permeability
+      coefficients, which need an attribution I must not invent; and the two saturation questions
+      from the increment before this one.
+
 ## 2026-08-21 — Audit increment 82 (my audit P2): **the saturation sweep can no longer pass over the one producer it cannot reach** — and two questions for you
 
 - [ ] **What to click.** Nothing changes in the app. This increment moves no number and adds no
