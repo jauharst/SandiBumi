@@ -7156,17 +7156,12 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
             let swtsh = 1.0 - pe / pt;
             // SB-SAT-025: the diagnostic backs the UNCLIPPED SWT out and keeps the sign — a
             // negative value here is exactly the "model went out of range" evidence the clipped
-            // curve erases. Swb = 1 still yields 1 (SB-SAT-023).
-            swe_arch[i] = if swtsh >= 1.0 {
-                1.0
-            } else {
-                ((swt - swtsh) / (1.0 - swtsh)) as f32
-            };
-            let swe = if swtsh >= 1.0 {
-                1.0
-            } else {
-                ((swt - swtsh) / (1.0 - swtsh)).max(0.0)
-            };
+            // curve erases. Swb = 1 still yields 1 (SB-SAT-023). Both halves are the SHIPPED pair
+            // rather than a second copy of the formula: SandiMin's post-solve twins go through the
+            // same two functions, so the two producers of a `SWE_<METHOD>` curve cannot come to
+            // disagree about what "unclipped" means.
+            swe_arch[i] = crate::sandimin::swe_from_swt_unlimited(swt, swtsh) as f32;
+            let swe = crate::sandimin::swe_from_swt(swt, swtsh);
             let swe_irr = if swtsh >= 1.0 { 0.0 } else { ((swt_irr - swtsh) / (1.0 - swtsh)).max(0.0) };
             let mut swe_l = limit(swe, swe_irr, 1.0);
             // Low effective porosity clean-up (convention: PHIE < 0.005 → all water).
@@ -13374,18 +13369,16 @@ mod tests {
         }
         assert!(swept >= 7, "the sweep must cover the live family, saw {swept} pairs");
 
-        // F. AUDIT-2026-08-20 finding 37. Arm E iterates `list_modules()`, and its guard is a
-        //    FLOOR - so it can only ever notice a registered module that arrives without a twin.
-        //    SandiMin is a saturation producer that is NOT a registered module (it is its own
-        //    command, `run_sandimin`, with its own dialog), so no count over the registry can see
-        //    it, and it emits `_SWE`/`_SWT`/`_SXOT` clipped-only. A floor that reads as "the
-        //    family is covered" while a whole producer sits outside the iteration is the silent
-        //    half of this requirement's PARTIAL status, so the gap is NAMED here instead.
+        // F. AUDIT-2026-08-20 finding 37, closed. Arm E iterates `list_modules()` and its guard is
+        //    a FLOOR, so it can only ever notice a REGISTERED module that arrives without a twin.
+        //    SandiMin is a saturation producer that is not a registered module - it is its own
+        //    command, `run_sandimin`, with its own dialog - so no count over the registry can see
+        //    it, and it used to emit `_SWE`/`_SWT`/`_SXOT` clipped-only. A floor reading as "the
+        //    family is covered" while a whole producer sat outside the iteration was the silent
+        //    half of this requirement's PARTIAL status, so the producer is named HERE, by hand,
+        //    where the sweep cannot reach it.
         //
-        //    The information the diagnostic would carry demonstrably exists. SandiMin's
-        //    post-solve models call the CLAMPED closed-form entry points, and each of those is
-        //    literally its own unlimited twin with `.clamp(0.0, 1.0)` applied - so above the
-        //    bound the raw root is computed and then discarded.
+        //    The raw root the clamp used to discard:
         let raw_root = crate::sandimin::sw_indonesia_unlimited(0.5, 0.20, 0.1, 0.25, 5.0, 2.0, 2.0, 1.0, 1.0);
         let working = crate::sandimin::sw_indonesia(0.5, 0.20, 0.1, 0.25, 5.0, 2.0, 2.0, 1.0, 1.0);
         assert_eq!(working, 1.0, "the working curve sits at its bound");
@@ -13394,32 +13387,41 @@ mod tests {
             "the unlimited twin must carry what the clamp erased, got {raw_root}"
         );
 
-        //    And it is discarded: SandiMin emits each saturation curve once, with no diagnostic
-        //    sibling beside it. This arm is a CHARACTERIZATION - when SandiMin gains its
-        //    SB-SAT-025 twin it will fail, which is the point: the as-built paragraph in
-        //    `docs/PRD_v2/12_saturation.md` and the evidence record in
-        //    `docs/takeover/evidence/sb-sat.md` must be corrected in the same change, and a gap
-        //    that closes without anybody noticing leaves both of them lying.
-        let solver = include_str!("sandimin.rs");
-        let solver_production =
-            solver.split("\nmod tests").next().expect("a split always yields one piece");
-        let quote = '"';
-        let scoped = ["{", "prefix", "}"].concat();
-        for plain in ["_SWE", "_SWT", "_SXOT"] {
-            assert_eq!(
-                solver_production
-                    .matches(format!("{scoped}{plain}{quote})").as_str())
-                    .count(),
-                1,
-                "SandiMin emits {plain} once",
+        //    And it is now published rather than discarded: every model whose answer is a CLIPPED
+        //    closed form declares the token its twin is named with, and the one model that clips
+        //    nothing after the fact declares none. Nothing here is a floor, so a model added to
+        //    the solver without a twin fails this arm.
+        //
+        //    That the curves actually reach the project - out of range, in range, and MISSING
+        //    where no closed form ran - is pinned end-to-end by
+        //    `sandimin::tests::sandimin_publishes_the_unclipped_twin_of_every_saturation_curve_it_clips`.
+        //    It needs the solver and a database, which is why it lives beside them.
+        let mut twinned = 0usize;
+        for choice in crate::sandimin::solver_selectable_models() {
+            let token = choice.model.diagnostic_token();
+            if choice.model == crate::sandimin::SwModel::LinearDw {
+                assert_eq!(
+                    token, None,
+                    "the linearised inversion answers inside the solver's box and clips nothing \
+                     afterwards; an 'unclipped' value there would be a different problem's answer",
+                );
+                continue;
+            }
+            let token = token.unwrap_or_else(|| {
+                panic!("{}: a post-solve model clips a closed form and must publish its twin", choice.id)
+            });
+            assert!(
+                token.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()),
+                "{}: the twin token names a curve and must read like one, got {token}",
+                choice.id,
             );
-            assert_eq!(
-                solver_production.matches(format!("{scoped}{plain}_").as_str()).count(),
-                0,
-                "SandiMin{plain} still has no SB-SAT-025 diagnostic twin; when it gains one, \
-                 correct 12_saturation.md's as-built paragraph and evidence/sb-sat.md with it",
-            );
+            twinned += 1;
         }
+        assert_eq!(
+            twinned,
+            crate::sandimin::solver_selectable_models().len() - 1,
+            "every solver model except the linearised inversion carries a twin token",
+        );
     }
 
     /// SB-SAT-026 / SB-SAT-T39's universal clauses, engineering half. Source:

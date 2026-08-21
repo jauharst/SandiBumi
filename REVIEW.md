@@ -1,5 +1,38 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 86 (my audit P3, **DEC-092**): **SandiMin says when its saturation went out of range instead of quietly reporting 1.000**
+
+- [ ] **What to click.** Run **SandiMin** with any model other than the default linearised
+      dual-water. Beside `SM_SWE` and `SM_SWT` you now get `SM_SWE_INDO` / `SM_SWT_INDO` (or
+      `_ARCH`, `_SIM`, `_DW`, `_JUH`, `_WS` — one token per equation, so the two Archie branches
+      share `ARCH` and the two Simandoux branches share `SIM`, exactly as `sw_arch` and `sw_sim`
+      already do). Where the flushed zone is solved you also get `SM_SXOT_<METHOD>`.
+- [ ] **The test that shows why.** Deliberately enter an **Rw a decade too high** on a well you
+      know. `SM_SWE` will read a flat, confident **1.000** — the same thing it reads in genuinely
+      wet rock. The new `SM_SWE_INDO` beside it will read about **1.1**, and that is the tell: the
+      model went out of range, it is not that the sand is wet. Put the right Rw back and the twin
+      lies exactly on top of the working curve.
+- [ ] **What was wrong.** Every other saturation module in the app has shipped this diagnostic
+      since the requirement landed — `SWT_ARCH`, `SWE_INDO`, `SWE_SIM`, `SWT_RTC`, `SWE_IMTS`,
+      `SWT_HGT`. SandiMin never did, and the automatic sweep that is supposed to catch exactly this
+      **could not see it**: the sweep walks the module registry, and SandiMin is not a registered
+      module — it is its own command with its own dialog. So the check read as "the whole family is
+      covered" while an entire producer sat outside the loop.
+- [ ] **Where the twin is deliberately BLANK.** At a depth with no deep-resistivity reading the
+      saturation split comes from the inversion itself, not from a closed-form equation, so there is
+      no discarded value to report and the diagnostic is left MISSING. Writing the inversion's own
+      answer there would claim a model ran and stayed in range, which is not what happened. Same
+      reason the **linearised dual-water** model gets no twin at all: its answer is bounded inside
+      the solver's own box rather than clipped afterwards.
+- [ ] **Numbers you already have do not move.** The working `SWE`/`SWT`/`SXOT` curves are unchanged
+      for every reading — the clip is the same clip, just written in one place instead of eight.
+      A saturation that used to be refused as MISSING (the clay term alone out-conducting the rock)
+      is still refused; it now also shows up in the twin as the negative root it actually is.
+- [ ] **Two things I decided for you, both reversible in one line (DEC-092).** The mnemonic is the
+      family's own `<prefix>_SWE_<METHOD>` pattern, and the linearised dual-water path is out of
+      scope. Both are the reading the takeover record already argued for, but the record said they
+      were yours — so say the word if you want `_UNCL` instead, or want a twin on the linear path.
+
 ## 2026-08-21 — Audit increment 85 (my audit P2): **the permeability constants get their papers, and two of them stop wearing the wrong name**
 
 - [ ] **What to click.** Open **perm_wyllie_rose** and look at the **variant** dropdown. The four
