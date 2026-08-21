@@ -265,45 +265,24 @@ fn complete_chain_sets(
                         rejected_candidates: Vec::new(),
                     };
                     if let Some(contract) = quantity_contract {
-                        let accepted = contract
-                            .accepted_shale_clay_quantities
-                            .iter()
-                            .map(|quantity| quantity.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" or ");
-                        let actual = produced_shale_clay_quantities
-                            .get(&curve)
-                            .copied()
-                            .ok_or_else(|| {
-                                format!(
-                                    "module '{}' input '{}' requires typed {accepted} metadata, but chain-produced curve '{curve}' has no VSH/VCL quantity metadata",
-                                    step.module, arg_name
-                                )
-                            })?;
-                        if !contract.accepted_shale_clay_quantities.contains(&actual) {
-                            return Err(format!(
-                                "module '{}' input '{}' requires {accepted}, but chain-produced curve '{curve}' carries {} metadata",
-                                step.module,
-                                arg_name,
-                                actual.as_str()
-                            ));
-                        }
-                        parameters.push(crate::equations::AncestryParameter {
-                            name: format!(
-                                "{parameter_prefix}{}{}",
-                                workflow::INPUT_QUANTITY_PROVENANCE_PREFIX,
-                                arg_name
+                        let actual = workflow::checked_shale_clay_quantity(
+                            contract,
+                            produced_shale_clay_quantities.get(&curve).copied(),
+                            &step.module,
+                            &arg_name,
+                            workflow::QuantityOrigin {
+                                curve_phrase: &format!("chain-produced curve '{curve}'"),
+                                missing_advice: "",
+                            },
+                        )?;
+                        parameters.push(workflow::shale_clay_quantity_parameter(
+                            format!(
+                                "{parameter_prefix}{}{arg_name}",
+                                workflow::INPUT_QUANTITY_PROVENANCE_PREFIX
                             ),
-                            value: serde_json::to_value(actual).map_err(|error| {
-                                format!(
-                                    "cannot serialize input quantity for {arg_name}: {error}"
-                                )
-                            })?,
-                            source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
-                            resolution: None,
-                            manifest_version: None,
-                            decision: None,
-                        });
+                            &arg_name,
+                            actual,
+                        )?);
                     }
                     inputs.push(input);
                     present_arguments.insert(arg_name.clone());
@@ -313,46 +292,29 @@ fn complete_chain_sets(
                     ) {
                         Ok(input) => {
                             if let Some(contract) = quantity_contract {
-                                let accepted = contract
-                                    .accepted_shale_clay_quantities
-                                    .iter()
-                                    .map(|quantity| quantity.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(" or ");
-                                let actual = workflow::shale_clay_quantity_for_ancestry_input(
-                                    conn, &input,
-                                )?
-                                .ok_or_else(|| {
+                                let actual = workflow::checked_shale_clay_quantity(
+                                    contract,
+                                    workflow::shale_clay_quantity_for_ancestry_input(
+                                        conn, &input,
+                                    )?,
+                                    &step.module,
+                                    &arg_name,
+                                    workflow::QuantityOrigin {
+                                        curve_phrase: &format!(
+                                            "resolved curve '{}'",
+                                            input.curve
+                                        ),
+                                        missing_advice: "; assign the physical family explicitly instead of relying on its mnemonic",
+                                    },
+                                )?;
+                                parameters.push(workflow::shale_clay_quantity_parameter(
                                     format!(
-                                        "module '{}' input '{}' requires typed {accepted} metadata, but resolved curve '{}' has no VSH/VCL quantity metadata; assign the physical family explicitly instead of relying on its mnemonic",
-                                        step.module, arg_name, input.curve
-                                    )
-                                })?;
-                                if !contract.accepted_shale_clay_quantities.contains(&actual) {
-                                    return Err(format!(
-                                        "module '{}' input '{}' requires {accepted}, but resolved curve '{}' carries {} metadata",
-                                        step.module,
-                                        arg_name,
-                                        input.curve,
-                                        actual.as_str()
-                                    ));
-                                }
-                                parameters.push(crate::equations::AncestryParameter {
-                                    name: format!(
-                                        "{parameter_prefix}{}{}",
-                                        workflow::INPUT_QUANTITY_PROVENANCE_PREFIX,
-                                        arg_name
+                                        "{parameter_prefix}{}{arg_name}",
+                                        workflow::INPUT_QUANTITY_PROVENANCE_PREFIX
                                     ),
-                                    value: serde_json::to_value(actual).map_err(|error| {
-                                        format!(
-                                            "cannot serialize input quantity for {arg_name}: {error}"
-                                        )
-                                    })?,
-                                    source: "docs/PRD_v2/10_clay-volume.md SB-CLY-043".into(),
-                                    resolution: None,
-                                    manifest_version: None,
-                                    decision: None,
-                                });
+                                    &arg_name,
+                                    actual,
+                                )?);
                             }
                             inputs.push(input);
                             present_arguments.insert(arg_name.clone());

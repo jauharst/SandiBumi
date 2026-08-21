@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 81 (my audit P3): **one clay-quantity contract, checked once instead of four times**
+
+- [ ] **What to click.** Run **brittleness** (which requires clay volume, VCL) with a VSH curve
+      wired into its VCLAY input — from the module dialog, and again as a **workflow chain** step,
+      both when the VSH curve comes from the project and when an earlier step in the same chain
+      produced it. Every one of those should refuse, with the same wording it refused with before.
+      Then wire a real VCL curve in and confirm all four routes run.
+- [ ] **What was wrong.** Shale volume and clay volume are different physical quantities that share
+      a unit and often share a mnemonic style, so a module that needs one and is handed the other
+      computes a plausible wrong answer. SandiBumi guards that by having each consumer declare which
+      quantity it accepts, and checking the declared quantity of whatever curve is wired in. That
+      check was written out **four times** — twice for a chain (once for a curve an earlier step had
+      just produced, once for a curve resolved out of the project) and twice for an ordinary module
+      run (the provenance record, and the pre-flight validation). The audit found two of the four;
+      the other two turned up when I checked every caller. Four copies is four places for an
+      accepted list to be widened in three, and the widening is silent — the wrong quantity
+      computes, plots, and ships.
+- [ ] **What changed.** One check now, in one place, and all four routes reach it. Every refusal
+      keeps the exact words it had, so nothing you have seen before will read differently.
+- [ ] **The refusal still names where the curve came from.** That is the half a tidy-up would
+      quietly lose. A curve resolved out of the project is refused with the fix attached — assign
+      the physical family explicitly rather than relying on the mnemonic. A curve an earlier chain
+      step produced is refused **without** that advice, because its quantity comes from the module
+      that made it and there is nothing for you to assign. Folding the two into one message would
+      send you looking for a setting that isn't there.
+- [ ] **What I did not touch.** The same document also decides which quantity a module *produces*,
+      and that provenance is written in two places with genuinely different guards around it (a
+      chain refuses a conflict between steps; a single run refuses a reserved key). Different
+      concern, different check — left alone deliberately, noted here so it is not mistaken for an
+      oversight.
+
 ## 2026-08-21 — Audit increment 80 (my audit P3): **one gate every complete write passes, stated once instead of three times**
 
 - [ ] **What to click.** Nothing should look different — this increment moves no number and changes
