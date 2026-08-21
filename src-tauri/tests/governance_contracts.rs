@@ -50,6 +50,8 @@ fn every_stage_one_gate_fails_under_its_own_name_and_none_of_them_went_missing()
         "check:gate2-program",
         "test:gate2-hygiene",
         "check:gate2-hygiene",
+        "test:frontend-exports",
+        "check:frontend-exports",
         "test:unit-registry",
         "check:unit-registry",
         "test:chart-derivation",
