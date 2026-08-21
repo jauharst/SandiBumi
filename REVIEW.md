@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 69 (my audit P3): **a unit-conversion rule could name a curve family that does not exist**
+
+- [ ] **What to click.** Nothing — this is a build-time check on the unit registry, and the
+      registry generates byte-identically to before.
+- [ ] **What was wrong.** Each conversion rule in the registry says which curve **families** it
+      applies to (metres-to-feet for CALI and BS, µs/m-to-µs/ft for DT, and so on). That field is
+      what the converter actually matches on when it decides whether to convert a curve. It was
+      the one field on a rule that **nothing checked** — the unit names were validated, the
+      convertible-families list was validated, this was not.
+- [ ] **Why that matters even though nothing is broken today.** Misspell a family there — `RHOOB`
+      for `RHOB` — and nothing fails. The registry generates, the app boots, and the conversion
+      that rule exists to perform simply never fires. A density delivered in kg/m³ then lands in
+      the project as 2400 under the name RHOB. It is the exact silent-wrongness shape this whole
+      registry was built to prevent, in the registry's own machinery.
+- [ ] **The one rule that names a family on purpose.** `QV` (cation exchange capacity per unit
+      pore volume) is named by the meq/L → meq/mL rule, and there is deliberately **no QV family**
+      — that rule ships as *not automatic* because §7.1 requires you to confirm per file before
+      anything converts a Qv curve. So it is listed as a deliberate exception, and the check
+      refuses it if it ever became automatic, refuses it if a QV family gets declared, and refuses
+      it if no rule names QV any more. The exception cannot quietly outlive its reason.
+- [ ] **Counted, not eyeballed.** Thirteen families are named across the ten rules; twenty are
+      declared; `QV` is the only one named without being declared.
+
 ## 2026-08-21 — Audit increment 68 (my audit P3): **percent versus fraction in SCAL deliveries — the file's own declaration is now read**
 
 - [ ] **What to click.** Import a **SCAL Pc** delivery whose columns state their scale — a header
