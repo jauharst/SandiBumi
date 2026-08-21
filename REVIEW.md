@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 47 (my audit P2): **the green gate now names the check that actually failed**
+
+- [ ] **What was wrong.** `tools\check.ps1` stage 1 runs thirteen separate repository checks, and
+      they were thirteen copy-pasted blocks that **all reported the same name on failure**. A
+      broken unit registry or a stale chart derivation printed `GATE FAILED at takeover ledger`
+      — the wrong check, on the tool whose whole job is to tell you what is wrong.
+- [ ] **Why that matters here.** It is the same rule the app already follows for a click that
+      cannot run: **refuse by name, and say what to fix**. The gate was the one place still
+      breaking it, and it is the place you look when something is broken.
+- [ ] **The fix.** One list of the thirteen checks, one loop, and the failure carries **that
+      check's own name**. Same order, same stop-on-first-failure, same exit code.
+- [ ] **Nothing was dropped.** A twelve-blocks-into-one-loop rewrite is exactly where a check goes
+      missing and the gate starts reporting green over something it never ran — so all thirteen
+      are pinned by name.
+- [ ] **What to check.** Nothing in the app changes. Next time the gate fails, the red line should
+      name the specific check (for example `GATE FAILED at chart derivation (check)`) instead of
+      always saying `takeover ledger`.
+
 ## 2026-08-21 — Audit increment 46 (my audit P2): **one provenance guard against a module reusing a reserved name, instead of nine**
 
 - [ ] **Background.** When a module run is saved, SandiBumi writes a set of **reserved
