@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 65 (my audit P3): **one Monte Carlo percentile definition, and one VSH duplicate kept on purpose**
+
+- [ ] **What to click.** Run a **Monte Carlo** study with non-round percentiles — set the low/high
+      to something like 13.7 and 86.3 rather than the usual 10/90 — and check the P-curves and the
+      HPV summary read as before. Nothing should have changed; this is a de-duplication, and the
+      point of the check is that it changed nothing.
+- [ ] **What the audit found.** Two places in the code were doing the same arithmetic twice. The
+      audit called them "consolidation candidates, not defects", and they turned out to deserve
+      opposite answers.
+- [ ] **The one that was worth merging.** Monte Carlo had its own copy of the percentile
+      calculation, differing from the shared one in two ways: it takes the percentile as a
+      fraction rather than a percent, and it did **not** guard against a percentile outside 0–100.
+      That guard was missing safely only because every caller happened to clamp first — one
+      caller that did not would have crashed the study.
+- [ ] **Why it could not simply call the shared one.** The shared entry point takes a percent as a
+      32-bit number, and your percentiles are stored as fractions. Multiplying 0.137 out to 13.7,
+      narrowing it, and dividing back does not return 0.137 — and with 1001 realizations that
+      moves the answer from realization **137** to realization **136**. On a smooth distribution
+      you would never see it; across a sharp one it is a different number, silently. So the shared
+      module now has both doors into the *same* calculation, and neither caller converts.
+- [ ] **The one that stays duplicated, on purpose.** The gamma-ray shale ladder (Stieber, Larionov,
+      Clavier) appears in both the VSH module and the SSC module. That is deliberate: the VSH copy
+      records a note in the run history when it has to bound the gamma-ray index, and the SSC copy
+      deliberately records nothing — merging them would put VSH's notes into an SSC run's record.
+      A test already pins the two copies **character for character**, so they cannot drift apart
+      without the build failing. Left as it is, with the reason written down.
+
 ## 2026-08-21 — Audit increment 64 (my audit P3): **a facies track that printed differently from the screen, in three small ways**
 
 - [ ] **What to click.** Put a **FACIES** curve on a log view with the blocks style (the built-in

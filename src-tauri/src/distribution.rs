@@ -185,14 +185,30 @@ impl WardDp {
 /// Chosen because it is what every reference a petrophysicist would check against uses — a
 /// nearest-rank definition would disagree with the same numbers computed in a spreadsheet.
 pub fn percentile(sorted: &[f32], p: f32) -> f32 {
+    percentile_fraction(sorted, p.clamp(0.0, 100.0) as f64 / 100.0)
+}
+
+/// The same percentile, addressed by a FRACTION of the distribution rather than by a percent.
+///
+/// Not a second definition — [`percentile`] is this function with its argument divided by a
+/// hundred, and both compute R type 7 exactly as `distribution.ts` does. The two entry points
+/// exist because Monte Carlo's percentiles are user-set fractions (`MonteCarloRequest`'s
+/// `low_pctl` / `high_pctl`, e.g. 0.137) and multiplying one out to a percent only to divide it
+/// back is not the identity in binary: it would move the answer by an ulp and, at a position
+/// that lands exactly on a sample, by a whole sample. `montecarlo.rs` used to carry its own copy
+/// of the arithmetic for that reason (AUDIT-2026-08-20 finding 44) — this keeps the one
+/// definition without asking either caller to convert.
+///
+/// `f` is clamped to [0, 1]. The old Monte Carlo copy did not clamp, which was safe only because
+/// every one of its callers happened to.
+pub fn percentile_fraction(sorted: &[f32], f: f64) -> f32 {
     if sorted.is_empty() {
         return f32::NAN;
     }
     if sorted.len() == 1 {
         return sorted[0];
     }
-    let p = p.clamp(0.0, 100.0) as f64;
-    let pos = (p / 100.0) * (sorted.len() - 1) as f64;
+    let pos = f.clamp(0.0, 1.0) * (sorted.len() - 1) as f64;
     let lo = pos.floor() as usize;
     let hi = pos.ceil() as usize;
     if lo == hi {
@@ -520,6 +536,32 @@ mod tests {
     /// (`a_box_track_bins_the_same_plugs_on_screen_as_it_does_on_paper`) asserts the identical
     /// literals on the identical fixture: agreeing on the ladder boundary is the whole point,
     /// and nearly agreeing is what produced the defect.
+    /// AUDIT-2026-08-20 finding 44. Monte Carlo carried its own copy of R type 7 because its
+    /// percentiles are user-set FRACTIONS and this module's entry point takes an f32 percent.
+    /// The copy is gone, but the reason it existed has to survive: the obvious tidy-up —
+    /// `percentile(sorted, (p * 100.0) as f32)` — narrows the study's own fraction through f32
+    /// on the way in, and a position that landed exactly on a realization then lands just short
+    /// of it and interpolates from the one below instead.
+    ///
+    /// With 1001 realizations and a study asking for P13.7 that is realization 137 against 136:
+    /// invisible on a smooth distribution, a whole different answer across a sharp one, and
+    /// silent either way.
+    #[test]
+    fn a_user_set_percentile_reads_the_realization_it_names_and_not_the_one_beside_it() {
+        let sorted: Vec<f32> = (0..1001).map(|i| if i < 137 { 0.0 } else { 1.0 }).collect();
+        assert_eq!(
+            percentile_fraction(&sorted, 0.137),
+            1.0,
+            "P13.7 of 1001 is realization 137, reached without a detour through a percent",
+        );
+        // One definition: the percent entry point is this one, divided.
+        assert_eq!(percentile(&sorted, 50.0), percentile_fraction(&sorted, 0.5), "same definition");
+        // And it clamps, which the retired Monte Carlo copy did not — safe there only because
+        // every one of its callers happened to clamp first.
+        assert_eq!(percentile_fraction(&sorted, 1.7), 1.0, "a fraction past the end is the end");
+        assert_eq!(percentile_fraction(&sorted, -0.4), 0.0, "and one before the start is the start");
+    }
+
     #[test]
     fn a_box_track_with_no_declared_bin_height_takes_it_from_the_core_not_from_the_display() {
         // A four-metre cored interval sampled every 0.25 m: 4 / 20 = 0.2, already on the ladder.
