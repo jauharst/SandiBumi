@@ -48,6 +48,7 @@ mod netflag;
 mod neutron_charts;
 mod office;
 mod param_sources;
+mod paysummary;
 pub mod parameter_pack;
 mod parsers;
 mod petrography;
@@ -2376,9 +2377,9 @@ async fn stats_fit(
 async fn run_pay_summary(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    mut req: workflow::PaySummaryRequest,
+    mut req: paysummary::PaySummaryRequest,
     scope: well_scope::WellScopeSelection,
-) -> Result<Vec<workflow::PaySummaryRow>, String> {
+) -> Result<Vec<paysummary::PaySummaryRow>, String> {
     {
         let conn = db.0.lock().unwrap();
         req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "pay summary")?;
@@ -2394,12 +2395,12 @@ async fn run_pay_summary(
     // labelled "cutoffs & pay", misleading (nothing is written). A persisting pay summary — an
     // explicit Cutoffs & Summary run, or a report render — still shows a job.
     if req.stats_only {
-        return tauri::async_runtime::spawn_blocking(move || workflow::run_pay_summary(&conn, &req))
+        return tauri::async_runtime::spawn_blocking(move || paysummary::run_pay_summary(&conn, &req))
             .await
             .map_err(|e| e.to_string())?;
     }
     jobs::run_simple_job(jobs_reg.inner().clone(), "Pay summary", "cutoffs & pay", move || {
-        workflow::run_pay_summary(&conn, &req)
+        paysummary::run_pay_summary(&conn, &req)
     })
     .await
 }
@@ -2410,9 +2411,9 @@ async fn run_pay_summary(
 async fn run_cutoff_sweep(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    mut req: workflow::CutoffSweepRequest,
+    mut req: paysummary::CutoffSweepRequest,
     scope: well_scope::WellScopeSelection,
-) -> Result<workflow::CutoffSweepResult, String> {
+) -> Result<paysummary::CutoffSweepResult, String> {
     {
         let conn = db.0.lock().unwrap();
         req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "cutoff sweep")?;
@@ -2423,7 +2424,7 @@ async fn run_cutoff_sweep(
     let conn = db.0.clone();
     let label = format!("cutoff sweep: {}", req.property);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Cutoff sweep", label, move || {
-        workflow::run_cutoff_sweep(&conn, &req)
+        paysummary::run_cutoff_sweep(&conn, &req)
     })
     .await
 }

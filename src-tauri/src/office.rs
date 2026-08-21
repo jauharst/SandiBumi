@@ -38,7 +38,7 @@ use crate::db;
 use crate::installation;
 use crate::python_engine::{find_python, hide_console};
 use crate::units;
-use crate::workflow::{run_pay_summary, PaySummaryRequest, PaySummaryRow};
+use crate::paysummary::{run_pay_summary, PaySummaryRequest, PaySummaryRow};
 
 /// Flag order as the pay summary itself reports it: progressively stricter cutoffs.
 const FLAG_ORDER: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
@@ -429,11 +429,11 @@ pub struct WorkbookSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<crate::workflow::CutoffSpec>,
-    pub phie_min: Option<crate::workflow::CutoffSpec>,
-    pub swe_max: Option<crate::workflow::CutoffSpec>,
+    pub vsh_max: Option<crate::paysummary::CutoffSpec>,
+    pub phie_min: Option<crate::paysummary::CutoffSpec>,
+    pub swe_max: Option<crate::paysummary::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffSpec>,
+    pub perm_min: Option<crate::paysummary::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -708,14 +708,14 @@ fn summary_sheet(
     // both numbers. The blank-is-not-zero rule and the numbers-stay-numbers rule are the same rule
     // here: a spreadsheet exists to be pivoted and re-averaged, and a range collapsed into prose
     // cannot be. Each bound's row names its own operator, so the boundary convention survives too.
-    let cut_rows = |label: &str, v: &Option<crate::workflow::CutoffSpec>| {
+    let cut_rows = |label: &str, v: &Option<crate::paysummary::CutoffSpec>| {
         let Some(spec) = v else {
             return vec![(label.to_string(), text("unfiltered"))];
         };
-        let bound_row = |side: &str, b: &crate::workflow::CutoffSpecBound| {
+        let bound_row = |side: &str, b: &crate::paysummary::CutoffSpecBound| {
             let inclusivity = match b.operator {
-                crate::workflow::BoundOperator::Inclusive => "inclusive",
-                crate::workflow::BoundOperator::Exclusive => "exclusive",
+                crate::paysummary::BoundOperator::Inclusive => "inclusive",
+                crate::paysummary::BoundOperator::Exclusive => "exclusive",
             };
             (
                 format!("{label}{side} ({}, {inclusivity})", b.entry.unit),
@@ -1246,10 +1246,10 @@ pub fn build_report_blocks(
     let mut p = pay_sheet(&pay_rows, &unit);
     p.title = format!(
         "Pay Summary  (VSH <= {}, PHIE >= {}, SWE <= {}{})",
-        crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
-        crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
-        crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-        match crate::workflow::cutoff_phrase(spec.perm_min.as_ref(), crate::workflow::CutoffSense::Minimum, 1).as_str() {
+        crate::paysummary::cutoff_label(spec.vsh_max.as_ref(), 2),
+        crate::paysummary::cutoff_label(spec.phie_min.as_ref(), 2),
+        crate::paysummary::cutoff_label(spec.swe_max.as_ref(), 2),
+        match crate::paysummary::cutoff_phrase(spec.perm_min.as_ref(), crate::paysummary::CutoffSense::Minimum, 1).as_str() {
             "" => String::new(),
             phrase => format!(", PERM {phrase}"),
         }
@@ -1635,11 +1635,11 @@ pub struct DeckSpec {
     /// SB-CUT-016. `None` = UNFILTERED on this property, and the deliverable says so
     /// rather than printing a number that was never applied. No default: four shipped
     /// vendor sets disagree, two of them from one vendor.
-    pub vsh_max: Option<crate::workflow::CutoffSpec>,
-    pub phie_min: Option<crate::workflow::CutoffSpec>,
-    pub swe_max: Option<crate::workflow::CutoffSpec>,
+    pub vsh_max: Option<crate::paysummary::CutoffSpec>,
+    pub phie_min: Option<crate::paysummary::CutoffSpec>,
+    pub swe_max: Option<crate::paysummary::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffSpec>,
+    pub perm_min: Option<crate::paysummary::CutoffSpec>,
     /// Report the interpretation stored in THIS log set rather than whatever the current curve
     /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
     /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
@@ -1775,10 +1775,10 @@ pub fn build_deck_slides(
     // 1 — what the numbers mean, before any number is shown.
     let mut items = vec![
         format!("Cutoffs: VSH <= {}, PHIE >= {}, SWE <= {}{}",
-            crate::workflow::cutoff_label(spec.vsh_max.as_ref(), 2),
-            crate::workflow::cutoff_label(spec.phie_min.as_ref(), 2),
-            crate::workflow::cutoff_label(spec.swe_max.as_ref(), 2),
-            match crate::workflow::cutoff_phrase(spec.perm_min.as_ref(), crate::workflow::CutoffSense::Minimum, 1).as_str() {
+            crate::paysummary::cutoff_label(spec.vsh_max.as_ref(), 2),
+            crate::paysummary::cutoff_label(spec.phie_min.as_ref(), 2),
+            crate::paysummary::cutoff_label(spec.swe_max.as_ref(), 2),
+            match crate::paysummary::cutoff_phrase(spec.perm_min.as_ref(), crate::paysummary::CutoffSense::Minimum, 1).as_str() {
                 "" => String::new(),
                 phrase => format!(", PERM {phrase}"),
             }),
@@ -1974,7 +1974,7 @@ mod tests {
     fn row(well: &str, zone: &str, flag: &str, net: f32, phie: f32, n: usize) -> PaySummaryRow {
         PaySummaryRow {
             well_id: format!("id-{well}"),
-            discretisation_model: crate::workflow::DiscretisationModel::default().token().to_string(),
+            discretisation_model: crate::paysummary::DiscretisationModel::default().token().to_string(),
             sample_interval: 0.5,
             well_name: well.into(),
             zone: zone.into(),
@@ -1992,8 +1992,8 @@ mod tests {
             ntg_known: net / 100.0,
             residual_absorbed: 0.0,
             out_of_range: false,
-            frame: crate::workflow::SummationFrame::Md,
-            weights_source: crate::workflow::MD_WEIGHTS_SOURCE.to_string(),
+            frame: crate::paysummary::SummationFrame::Md,
+            weights_source: crate::paysummary::MD_WEIGHTS_SOURCE.to_string(),
             unfiltered: Vec::new(),
             ntg: net / 100.0,
             avg_vsh: 0.3,
@@ -2329,9 +2329,9 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
         DeckSpec {
             input_set: None,
             well_ids: vec!["id-A".into()],
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+            vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::paysummary::CutoffEntry { value: 0.1, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             title: "Sandi Field".into(),
             author: String::new(),

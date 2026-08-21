@@ -17,7 +17,8 @@
 use crate::composite::{CompositeSpec, PageSize};
 use crate::field_fixtures;
 use crate::modules::{self, ArgKind};
-use crate::workflow::{run_pay_summary, run_workflow_module, PaySummaryRequest, RunModuleRequest};
+use crate::paysummary::{run_pay_summary, PaySummaryRequest};
+use crate::workflow::{run_workflow_module, RunModuleRequest};
 use duckdb::{params, Connection};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -361,12 +362,12 @@ fn pipeline_field_full_run() {
     // ---- 4. Pay summary --------------------------------------------------
     println!("\n=== PAY SUMMARY (VSH<=0.5 PHIE>=0.10 SWE<=0.60) ===");
     let pay_req = PaySummaryRequest {
-        discretisation: crate::workflow::DiscretisationModel::Forward,
+        discretisation: crate::paysummary::DiscretisationModel::Forward,
         input_set: None,
         well_ids: well_ids.clone(),
-        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
-        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
+        vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::paysummary::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
         perm_min: None,
         enabled_unset: Vec::new(),
         cutoff_use: Default::default(),
@@ -405,9 +406,9 @@ fn pipeline_field_full_run() {
         title: "Petrophysical Evaluation — field pipeline test".into(),
         author: "SandiBumi pipeline test".into(),
         methodology: vec![],
-        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-        phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
-        swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
+        vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::paysummary::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()),
         perm_min: None,
         tables_only: false,
     };
@@ -559,9 +560,9 @@ fn pipeline_field_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::workflow::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::paysummary::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
         enabled_unset: Vec::new(),
-            discretisation: crate::workflow::DiscretisationModel::Forward,
+            discretisation: crate::paysummary::DiscretisationModel::Forward,
         cutoff_use: Default::default(),
             custody: Some(crate::workflow::test_run_custody()),
             frame: Default::default(),

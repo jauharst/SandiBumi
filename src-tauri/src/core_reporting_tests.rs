@@ -33,7 +33,7 @@ fn seed_gas_correction_inputs(conn: &Connection) -> String {
 
 fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
     McRequest {
-        discretisation: crate::workflow::DiscretisationModel::Forward,
+        discretisation: crate::paysummary::DiscretisationModel::Forward,
         well_ids: vec![well_id.to_string()],
         steps: vec![ChainStep {
             module: "gascorr".to_string(),
@@ -56,9 +56,9 @@ fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
         mc_params: Vec::new(),
         iterations: 2,
         seed: 7,
-        vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-        phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
-        swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+        vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+        phie_min: Some(crate::paysummary::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+        swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
         perm_min: None,
         bins: 4,
         low_pctl: 0.10,

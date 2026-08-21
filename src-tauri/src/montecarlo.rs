@@ -181,7 +181,7 @@ pub struct McRequest {
     /// SB-CUT-001 (DEC-071): the thickness discretisation model, shared with the
     /// deterministic pay summary so an MC net can never disagree with it for this reason.
     #[serde(default)]
-    pub discretisation: crate::workflow::DiscretisationModel,
+    pub discretisation: crate::paysummary::DiscretisationModel,
     /// The deterministic chain to run each realization (same shape as a workflow chain).
     pub steps: Vec<ChainStep>,
     pub mc_params: Vec<McParam>,
@@ -194,11 +194,11 @@ pub struct McRequest {
     /// deterministic summation is: an MC run silently using a shipped 0.5 while the pay summary
     /// reports the property unfiltered is a disagreement nobody could reconcile.
     /// SB-CUT-019: carried as entered, with its unit, and canonicalised before any realization.
-    pub vsh_max: Option<crate::workflow::CutoffSpec>,
-    pub phie_min: Option<crate::workflow::CutoffSpec>,
-    pub swe_max: Option<crate::workflow::CutoffSpec>,
+    pub vsh_max: Option<crate::paysummary::CutoffSpec>,
+    pub phie_min: Option<crate::paysummary::CutoffSpec>,
+    pub swe_max: Option<crate::paysummary::CutoffSpec>,
     #[serde(default)]
-    pub perm_min: Option<crate::workflow::CutoffSpec>,
+    pub perm_min: Option<crate::paysummary::CutoffSpec>,
     /// HPV histogram bin count.
     pub bins: usize,
     /// Low / high output percentiles as fractions in (0, 1) — default 0.10 / 0.90. One control
@@ -730,10 +730,10 @@ struct StepPlan {
 /// Cutoffs bundled for the per-zone pay/HPV accumulation.
 #[derive(Clone, Copy)]
 pub(crate) struct Cutoffs {
-    pub(crate) vsh_max: Option<crate::workflow::CutoffRange>,
-    pub(crate) phie_min: Option<crate::workflow::CutoffRange>,
-    pub(crate) swe_max: Option<crate::workflow::CutoffRange>,
-    pub(crate) perm_min: Option<crate::workflow::CutoffRange>,
+    pub(crate) vsh_max: Option<crate::paysummary::CutoffRange>,
+    pub(crate) phie_min: Option<crate::paysummary::CutoffRange>,
+    pub(crate) swe_max: Option<crate::paysummary::CutoffRange>,
+    pub(crate) perm_min: Option<crate::paysummary::CutoffRange>,
 }
 
 #[derive(Clone, Copy)]
@@ -778,7 +778,7 @@ fn resolve_zone_param(
 /// asserted against THIS function, because it is a statement about one realization and
 /// percentiles do not commute with a product - the P10/P50/P90 bundle cannot carry it.
 pub(crate) fn zone_metrics(
-    model: crate::workflow::DiscretisationModel,
+    model: crate::paysummary::DiscretisationModel,
     vsh: &[f32],
     phie: &[f32],
     swe: &[f32],
@@ -790,7 +790,7 @@ pub(crate) fn zone_metrics(
     has_perm_cut: bool,
 ) -> ZoneMetrics {
     // The PHIE floor is SB-CUT-001's sibling and belongs in the same place for the same reason.
-    // `workflow::floored_phie`'s own doc already says it - one function rather than a copy in
+    // `paysummary::floored_phie`'s own doc already says it - one function rather than a copy in
     // each pay path - and this was the pay path it had never reached: a Monte Carlo study that
     // varies m/n/Rw over `sw_indo` against a DELIVERED vendor PHIE runs no porosity module, so
     // nothing floored the curve, and a slightly negative streak over tight carbonate (a routine
@@ -802,7 +802,7 @@ pub(crate) fn zone_metrics(
     // Applied HERE rather than at the callers because `v.max(FLOOR)` is idempotent - a caller
     // that already floored loses nothing - so this covers every pay path there is and leaves no
     // second site to forget.
-    let phie = crate::workflow::floored_phie(phie);
+    let phie = crate::paysummary::floored_phie(phie);
     let phie = &phie[..];
 
     let mut net = 0.0f64;
@@ -820,8 +820,8 @@ pub(crate) fn zone_metrics(
         // and a Monte Carlo P50 disagreeing with the deterministic pay summary for that
         // reason would look like uncertainty rather than a bug. Narrow edit under DEC-048.
         let (s_top, s_bot) =
-            crate::workflow::sample_slab(depth[i] as f64, step[i] as f64, model);
-        let h = crate::workflow::sample_incl_thickness(
+            crate::paysummary::sample_slab(depth[i] as f64, step[i] as f64, model);
+        let h = crate::paysummary::sample_incl_thickness(
             s_top,
             s_bot,
             zone.top_depth as f64,
@@ -998,7 +998,7 @@ fn spearman(x: &[f64], y: &[f32]) -> f32 {
 /// like `mc_params` (zone scopes respected via `spans`).
 #[allow(clippy::too_many_arguments)]
 fn metrics_for_values(
-    model: crate::workflow::DiscretisationModel,
+    model: crate::paysummary::DiscretisationModel,
     plans: &[StepPlan],
     raw_pool: &HashMap<String, Vec<f32>>,
     depth: &[f32],
@@ -1443,7 +1443,7 @@ fn sampling_label(sampling: Sampling) -> &'static str {
 /// it" is half the requirement. An ABSENT cut-off is recorded as the token, never as JSON `null`:
 /// `null` is what a reader sees when a field was not recorded at all, and "we did not filter on
 /// this" and "we did not write this down" are different statements about a study.
-fn recorded_cutoff(entered: &Option<crate::workflow::CutoffSpec>) -> serde_json::Value {
+fn recorded_cutoff(entered: &Option<crate::paysummary::CutoffSpec>) -> serde_json::Value {
     entered
         .as_ref()
         .map(|spec| serde_json::json!(spec))
@@ -1592,8 +1592,8 @@ fn fraction_output_curves(
 /// calls it again and produces nothing on failure, because the job registry fixes that function's
 /// return type and a silent guess is the one outcome that must not happen.
 pub fn validate_cutoffs(req: &McRequest) -> Result<Cutoffs, String> {
-    use crate::workflow::{CutoffQuantity, CutoffSense};
-    let entered = |e: &Option<crate::workflow::CutoffSpec>,
+    use crate::paysummary::{CutoffQuantity, CutoffSense};
+    let entered = |e: &Option<crate::paysummary::CutoffSpec>,
                    q: CutoffQuantity,
                    sense: CutoffSense,
                    label: &str| {
@@ -2046,7 +2046,7 @@ pub fn run_monte_carlo(
                 bottom: zone.bottom_depth,
                 gross: zone.bottom_depth - zone.top_depth,
                 discretisation_model: req.discretisation.token().to_string(),
-                sample_interval: crate::workflow::median_sample_interval(&step_thick),
+                sample_interval: crate::paysummary::median_sample_interval(&step_thick),
                 iterations: used_iterations,
                 net: summarize(&net, lo_p, hi_p),
                 ntg: summarize(&ntg, lo_p, hi_p),
@@ -2439,7 +2439,7 @@ mod tests {
         // test module ends by counting braces, and a brace in a comment counts.
         let body = &source[start..][..source[start..].find("\n}").expect("the declaration closes")];
         assert_eq!(
-            body.matches("Option<crate::workflow::CutoffSpec>").count(),
+            body.matches("Option<crate::paysummary::CutoffSpec>").count(),
             recorded.len(),
             "a pay cut-off was added to the request without a place in the provenance record",
         );
@@ -2449,15 +2449,15 @@ mod tests {
         McRequest {
             well_ids: vec![well.into()],
             // DEC-071: MC fixtures keep their hand-derived FORWARD expectations.
-            discretisation: crate::workflow::DiscretisationModel::Forward,
+            discretisation: crate::paysummary::DiscretisationModel::Forward,
             steps: vec![step("vsh_gr"), step("phi_den"), step("sw_indo")],
             mc_params: mc,
             iterations,
             seed,
             custody: Some(crate::workflow::test_run_custody()),
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+            vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::paysummary::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
             perm_min: None,
             bins: 10,
             low_pctl: 0.10,
@@ -2592,7 +2592,7 @@ mod tests {
         crate::equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![1.0f32; n]).unwrap();
         let dbm = Mutex::new(conn);
 
-        let run = |steps: Vec<ChainStep>, perm_min: Option<crate::workflow::CutoffSpec>| -> McResult {
+        let run = |steps: Vec<ChainStep>, perm_min: Option<crate::paysummary::CutoffSpec>| -> McResult {
             let mc = vec![McParam {
                 param: "GR_MA".into(),
                 dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
@@ -2611,7 +2611,7 @@ mod tests {
         // it, the equality below would prove only that the cutoff is broken everywhere.
         let reads_perm = || vec![step("vsh_gr"), step("phi_den"), step("sw_indo"), step("rocktyping")];
         let a_open = run(reads_perm(), None);
-        let a_cut = run(reads_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
+        let a_cut = run(reads_perm(), Some(crate::paysummary::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         assert!(a_open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
         assert_eq!(a_cut.zones[0].net.mid, 0.0, "1 mD cannot pass a 1e9 mD cutoff — the cutoff works here");
 
@@ -2621,7 +2621,7 @@ mod tests {
         let makes_perm =
             || vec![step("vsh_gr"), step("phi_den"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
         let b_open = run(makes_perm(), None);
-        let b_cut = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
+        let b_cut = run(makes_perm(), Some(crate::paysummary::CutoffEntry { value: 1.0e9, unit: "mD".into() }.into()));
         let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
         assert!(bo.net.mid > 0.0, "chain B must have pay to lose");
         assert_eq!(bc.net.mid, 0.0, "a 1e9 mD cutoff must bite in chain B exactly as in chain A");
@@ -2639,7 +2639,7 @@ mod tests {
         // And the cutoff is still a cutoff rather than a switch that now deletes everything: a
         // threshold the modelled rock CLEARS must leave the pay alone. Without this, setting
         // `has_perm_cut` unconditionally would pass every assertion above.
-        let b_loose = run(makes_perm(), Some(crate::workflow::CutoffEntry { value: 1.0e-9, unit: "mD".into() }.into()));
+        let b_loose = run(makes_perm(), Some(crate::paysummary::CutoffEntry { value: 1.0e-9, unit: "mD".into() }.into()));
         assert_eq!(
             b_loose.zones[0].net.mid, bo.net.mid,
             "a cutoff the modelled permeability passes must not remove pay"
@@ -2665,7 +2665,7 @@ mod tests {
         // Deliberately NO PERM curve in the project and no permeability model in the chain.
         let dbm = Mutex::new(conn);
 
-        let run = |perm_min: Option<crate::workflow::CutoffSpec>| -> McResult {
+        let run = |perm_min: Option<crate::paysummary::CutoffSpec>| -> McResult {
             let mc = vec![McParam {
                 param: "GR_MA".into(),
                 dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
@@ -2690,7 +2690,7 @@ mod tests {
         );
 
         // Active cutoff, no PERM anywhere: every sample fails for want of evidence.
-        let cut = run(Some(crate::workflow::CutoffEntry { value: 0.1, unit: "mD".into() }.into()));
+        let cut = run(Some(crate::paysummary::CutoffEntry { value: 0.1, unit: "mD".into() }.into()));
         assert_eq!(cut.zones[0].net.mid, 0.0, "missing permeability cannot pass an active cutoff");
         assert_eq!(cut.zones[0].hpv.mid, 0.0, "and books no hydrocarbon volume on missing data");
         assert!(
@@ -2758,16 +2758,16 @@ mod tests {
             );
             assert!(res[0].error.is_none(), "{m} failed: {:?}", res[0].error);
         }
-        let chain_rows = crate::workflow::run_pay_summary(
+        let chain_rows = crate::paysummary::run_pay_summary(
             &dbm,
-            &crate::workflow::PaySummaryRequest {
+            &crate::paysummary::PaySummaryRequest {
                 // DEC-071: compared against the FORWARD MC fixture above.
-                discretisation: crate::workflow::DiscretisationModel::Forward,
+                discretisation: crate::paysummary::DiscretisationModel::Forward,
                 input_set: None,
                 well_ids: vec![well.clone()],
-                vsh_max: Some(crate::workflow::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
-                phie_min: Some(crate::workflow::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
-                swe_max: Some(crate::workflow::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
+                vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()),
+                phie_min: Some(crate::paysummary::CutoffEntry { value: 0.08, unit: "v/v".into() }.into()),
+                swe_max: Some(crate::paysummary::CutoffEntry { value: 0.6, unit: "v/v".into() }.into()),
                 perm_min: None,
                 enabled_unset: Vec::new(),
                 cutoff_use: Default::default(),
@@ -3600,7 +3600,7 @@ mod tests {
         let cut = Cutoffs { vsh_max: None, phie_min: None, swe_max: None, perm_min: None };
         let run = |phie: &[f32]| {
             zone_metrics(
-                crate::workflow::DiscretisationModel::Forward,
+                crate::paysummary::DiscretisationModel::Forward,
                 &vec![0.10f32; n],
                 phie,
                 &vec![0.20f32; n],

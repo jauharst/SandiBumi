@@ -59,7 +59,7 @@ fn append_text(bytes: &mut Vec<u8>, value: &str) {
     bytes.extend_from_slice(value.as_bytes());
 }
 
-fn packed_pay_summary(rows: &[workflow::PaySummaryRow]) -> Vec<u8> {
+fn packed_pay_summary(rows: &[crate::paysummary::PaySummaryRow]) -> Vec<u8> {
     let mut bytes = Vec::new();
     append_u64(&mut bytes, rows.len());
     for row in rows {
@@ -298,14 +298,14 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
         status => panic!("the recorded chain did not complete: {status:?}"),
     }
 
-    let pay = workflow::run_pay_summary(
+    let pay = crate::paysummary::run_pay_summary(
         &db,
-        &workflow::PaySummaryRequest {
-            discretisation: crate::workflow::DiscretisationModel::Forward,
+        &crate::paysummary::PaySummaryRequest {
+            discretisation: crate::paysummary::DiscretisationModel::Forward,
             well_ids: ids.clone(),
-            vsh_max: Some(crate::workflow::CutoffEntry { value: 0.55, unit: "v/v".into() }.into()),
-            phie_min: Some(crate::workflow::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
-            swe_max: Some(crate::workflow::CutoffEntry { value: 0.65, unit: "v/v".into() }.into()),
+            vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.55, unit: "v/v".into() }.into()),
+            phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()),
+            swe_max: Some(crate::paysummary::CutoffEntry { value: 0.65, unit: "v/v".into() }.into()),
             perm_min: None,
             enabled_unset: Vec::new(),
             cutoff_use: Default::default(),

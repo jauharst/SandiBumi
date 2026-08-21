@@ -8291,7 +8291,7 @@ mod tests {
         // OTHER direction: exclusion from summation is back, while display overlay stays
         // allowed. That file is outside this program's allowed paths and hash-bound to
         // DEC-018, so the reconciliation stays recorded in evidence rather than made here.
-        let pay = include_str!("workflow.rs");
+        let pay = include_str!("paysummary.rs");
         let candidates = pay
             .split("let phie_candidates = vec![")
             .nth(1)
@@ -11362,7 +11362,7 @@ mod tests {
     /// to minimal 0.001, not below").
     ///
     /// The porosity modules floor what they WRITE at the per-run `PHIE_FLOOR` (DEC-067); the pay
-    /// summary floors at the compile-time constant through `workflow::floored_phie` before it
+    /// summary floors at the compile-time constant through `paysummary::floored_phie` before it
     /// classifies or sums anything. A run permitted to set the parameter LOWER wrote a curve the
     /// pay page silently lifted - one well carrying two different floors, and the disagreement
     /// invisible because both numbers are plausible porosities and only the hydrocarbon column
@@ -11376,7 +11376,7 @@ mod tests {
     fn no_run_can_floor_porosity_below_the_floor_the_pay_summary_applies() {
         // Taken from the pay path ITSELF, not from the constant it happens to share - the point
         // is that the two agree, and reading one number twice could not tell.
-        let pay_floor = crate::workflow::floored_phie(&[0.0])[0];
+        let pay_floor = crate::paysummary::floored_phie(&[0.0])[0];
         let mut seen = 0usize;
         for spec in list_modules() {
             for arg in spec.args.iter().filter(|arg| arg.name == "PHIE_FLOOR") {
