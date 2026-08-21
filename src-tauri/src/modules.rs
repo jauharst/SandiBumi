@@ -1065,6 +1065,42 @@ pub(crate) fn log_out_flag(name: &str, desc: &str, kind: FlagKind) -> ArgSpec {
     ArgSpec { flag_kind: Some(kind), ..log_out(name, desc, "") }
 }
 
+/// SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the four members of one environmental-correction
+/// state group, for the output they describe.
+///
+/// The state is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single polarity,
+/// exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth, MISSING where the input is.
+/// DEC-060 names the group `ENVCORR_*`; it is namespaced by the CORRECTED OUTPUT rather than by the
+/// group, because three correction modules write into one store.
+///
+/// Declared here rather than three times in three manifests: a one-hot group whose members
+/// disagree about their own wording, or that ships with three of its four, is a group a reader
+/// cannot use - and nothing downstream could tell which of the three had drifted.
+fn envcorr_flag_group(corrected: &str) -> Vec<ArgSpec> {
+    vec![
+        log_out_flag(
+            &format!("{corrected}_FULL"),
+            "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
+            FlagKind::DiagnosticIndicator,
+        ),
+        log_out_flag(
+            &format!("{corrected}_PARTIAL"),
+            "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
+            FlagKind::DiagnosticIndicator,
+        ),
+        log_out_flag(
+            &format!("{corrected}_NONE"),
+            "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
+            FlagKind::DiagnosticIndicator,
+        ),
+        log_out_flag(
+            &format!("{corrected}_REFUSED"),
+            "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
+            FlagKind::DiagnosticIndicator,
+        ),
+    ]
+}
+
 pub(crate) fn log_out_flag_as(
     name: &str,
     pattern: &str,
@@ -4289,6 +4325,49 @@ pub(crate) fn shale_total_porosity(rho_dsh: f64, rho_sh: f64, rho_w: f64) -> f64
     (rho_dsh - rho_sh) / (rho_dsh - rho_w)
 }
 
+/// SB-POR-044 (DEC-066) / SB-POR-045: the PHIE ceiling for the selected limiting mode, the floor
+/// beneath it, and the limited value, for one sample.
+///
+/// This was written out three times - verbatim, comments included - in `phi_den`, `phi_dn` and
+/// `phi_dnbk`. Three copies of a porosity ceiling is three places for an exponent or a cutoff to be
+/// corrected in two, and the failure is SILENT: every mode still computes, still plots, and only
+/// the shale end of the curve moves. It sits beside `two_endpoint_fraction`, `shale_total_porosity`
+/// and `phit_sh_at`, which are the same argument already made for the rest of this file's shared
+/// porosity math.
+///
+/// `smooth` and `shale_reduced` come from the caller's `OPT_PHIEMAX` reading rather than being
+/// re-derived here, so a module cannot bypass its own kill branch and still reach this ceiling
+/// under a different mode than the one it announced.
+fn limited_phie(ctx: &ModuleContext, i: usize, pe: f64, v: f64, smooth: bool, shale_reduced: bool) -> f64 {
+    let phie_max = ctx.p("PHIE_MAX", i);
+    let phie_lim = if smooth {
+        // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
+        // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
+        // is negative under a non-integer power - undefined - so the term is 1 and
+        // the limit is the linear envelope; past the cutoff it decays smoothly,
+        // which is the whole point of offering an alternative to the step.
+        let roll = {
+            let past = v - ctx.p("VCL_CUTOFF", i);
+            if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
+        };
+        (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
+    } else if shale_reduced {
+        phie_max * (1.0 - v)
+    } else {
+        phie_max
+    };
+    // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
+    // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
+    // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
+    // kill branch fires before their ceiling can reach the floor.
+    let floor = ctx.p("PHIE_FLOOR", i);
+    let pe_l = limit(pe, floor, phie_lim.max(floor));
+    if pe_l != pe {
+        record_bound_limit("PHIE");
+    }
+    pe_l
+}
+
 /// Shared PHIT_SH derivation from phi_den/phi_dn: shale total porosity from densities.
 fn phit_sh_at(ctx: &ModuleContext, i: usize) -> f64 {
     shale_total_porosity(
@@ -4331,7 +4410,6 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let rho_ma = ctx.p("RHO_MA", i);
         let rho_sh = ctx.p("RHO_SH", i);
         let rho_fl = ctx.p("RHO_FL", i);
-        let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
         if !smooth && v >= ctx.p("VSH_SHALE", i) {
@@ -4347,31 +4425,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = two_endpoint_fraction(r, rho_ma, rho_fl)
             - v * two_endpoint_fraction(rho_sh, rho_ma, rho_fl);
         let pt = pe + v * phit_sh;
-        let phie_lim = if smooth {
-            // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
-            // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
-            // is negative under a non-integer power - undefined - so the term is 1 and
-            // the limit is the linear envelope; past the cutoff it decays smoothly,
-            // which is the whole point of offering an alternative to the step.
-            let roll = {
-                let past = v - ctx.p("VCL_CUTOFF", i);
-                if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
-            };
-            (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
-        } else if shale_reduced {
-            phie_max * (1.0 - v)
-        } else {
-            phie_max
-        };
-        // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
-        // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
-        // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
-        // kill branch fires before their ceiling can reach the floor.
-        let floor = ctx.p("PHIE_FLOOR", i);
-        let pe_l = limit(pe, floor, phie_lim.max(floor));
-        if pe_l != pe {
-            record_bound_limit("PHIE");
-        }
+        let pe_l = limited_phie(ctx, i, pe, v, smooth, shale_reduced);
         phie_den[i] = pe as f32;
         phit_den[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -4581,7 +4635,6 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let rho_sh = ctx.p("RHO_SH", i);
         let rho_fl = ctx.p("RHO_FL", i);
         let nphi_sh = ctx.p("NPHI_SH", i);
-        let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
         if !smooth && v >= ctx.p("VSH_SHALE", i) {
@@ -4617,31 +4670,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
 
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
-        let phie_lim = if smooth {
-            // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
-            // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
-            // is negative under a non-integer power - undefined - so the term is 1 and
-            // the limit is the linear envelope; past the cutoff it decays smoothly,
-            // which is the whole point of offering an alternative to the step.
-            let roll = {
-                let past = v - ctx.p("VCL_CUTOFF", i);
-                if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
-            };
-            (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
-        } else if shale_reduced {
-            phie_max * (1.0 - v)
-        } else {
-            phie_max
-        };
-        // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
-        // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
-        // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
-        // kill branch fires before their ceiling can reach the floor.
-        let floor = ctx.p("PHIE_FLOOR", i);
-        let pe_l = limit(pe, floor, phie_lim.max(floor));
-        if pe_l != pe {
-            record_bound_limit("PHIE");
-        }
+        let pe_l = limited_phie(ctx, i, pe, v, smooth, shale_reduced);
         phie_dn[i] = pe as f32;
         phit_dn[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -4856,7 +4885,6 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
         let rho_sh = ctx.p("RHO_SH", i);
         let rho_fl = ctx.p("RHO_FL", i);
         let nphi_sh = ctx.p("NPHI_SH", i);
-        let phie_max = ctx.p("PHIE_MAX", i);
         let phit_sh = phit_sh_at(ctx, i);
 
         if !smooth && v >= ctx.p("VSH_SHALE", i) {
@@ -4897,31 +4925,7 @@ fn phi_dnbk(ctx: &ModuleContext) -> ModuleOutputs {
 
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
-        let phie_lim = if smooth {
-            // IP 2025 embim71 (D-11 adopted): (PhiMax + DeltaPhiMax) x (1 - Vcl) x
-            // 10^(-10 x (Vcl - VclCutoff)^1.6). Below the cutoff the exponential's base
-            // is negative under a non-integer power - undefined - so the term is 1 and
-            // the limit is the linear envelope; past the cutoff it decays smoothly,
-            // which is the whole point of offering an alternative to the step.
-            let roll = {
-                let past = v - ctx.p("VCL_CUTOFF", i);
-                if past > 0.0 { 10f64.powf(-10.0 * past.powf(1.6)) } else { 1.0 }
-            };
-            (phie_max + ctx.p("DPHIMAX", i)) * (1.0 - v) * roll
-        } else if shale_reduced {
-            phie_max * (1.0 - v)
-        } else {
-            phie_max
-        };
-        // SB-POR-044: the smooth ceiling can roll below the floor at extreme shale; the
-        // floor then binds (SB-POR-045) and the limited curve terminates AT the floor -
-        // never a MISSING sample from an inverted clamp. Inert in the step modes, whose
-        // kill branch fires before their ceiling can reach the floor.
-        let floor = ctx.p("PHIE_FLOOR", i);
-        let pe_l = limit(pe, floor, phie_lim.max(floor));
-        if pe_l != pe {
-            record_bound_limit("PHIE");
-        }
+        let pe_l = limited_phie(ctx, i, pe, v, smooth, shale_reduced);
         phie_bk[i] = pe as f32;
         phit_bk[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -6688,32 +6692,10 @@ fn gr_hole_corr_spec() -> ModuleSpec {
             ),
             log_in("BS", "Bit size log", "in", "BS", false),
             log_out("GR_EC", "Environmentally corrected gamma ray", "gapi"),
-            // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the per-sample correction state
-            // is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single
-            // polarity, exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
-            // MISSING where the input is. DEC-060 names the group ENVCORR_*; it is namespaced
-            // by the corrected output here because three correction modules write one store.
-            log_out_flag(
-                "GR_EC_FULL",
-                "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "GR_EC_PARTIAL",
-                "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "GR_EC_NONE",
-                "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "GR_EC_REFUSED",
-                "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
-                FlagKind::DiagnosticIndicator,
-            ),
-        ],
+        ]
+        .into_iter()
+        .chain(envcorr_flag_group("GR_EC"))
+        .collect(),
     }
 }
 
@@ -6795,32 +6777,10 @@ fn nphi_env_corr_spec() -> ModuleSpec {
             // degF FTEMP would otherwise be silently applied as degC. Mirrors gascorr's contract.
             log_in_computed("FTEMP", "Formation temperature (precalc)", "degC", "FTEMP", false),
             log_out("NPHI_EC", "Environmentally corrected neutron porosity", "v/v"),
-            // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the per-sample correction state
-            // is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single
-            // polarity, exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
-            // MISSING where the input is. DEC-060 names the group ENVCORR_*; it is namespaced
-            // by the corrected output here because three correction modules write one store.
-            log_out_flag(
-                "NPHI_EC_FULL",
-                "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "NPHI_EC_PARTIAL",
-                "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "NPHI_EC_NONE",
-                "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "NPHI_EC_REFUSED",
-                "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
-                FlagKind::DiagnosticIndicator,
-            ),
-        ],
+        ]
+        .into_iter()
+        .chain(envcorr_flag_group("NPHI_EC"))
+        .collect(),
     }
 }
 
@@ -6906,32 +6866,10 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
                 )],
             ),
             log_out("RHOB_EC", "Environmentally corrected density", "g/cc"),
-            // SB-ENV-007 (DEC-060(a), reversing DEC-031(a)): the per-sample correction state
-            // is a one-hot BOOLEAN GROUP - ordinary 1 = true flags in SB-ENV-030's single
-            // polarity, exactly one of FULL/PARTIAL/NONE/REFUSED true per sampled depth,
-            // MISSING where the input is. DEC-060 names the group ENVCORR_*; it is namespaced
-            // by the corrected output here because three correction modules write one store.
-            log_out_flag(
-                "RHOB_EC_FULL",
-                "Correction applied in full at this sample (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "RHOB_EC_PARTIAL",
-                "Correction applied in part at this sample (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "RHOB_EC_NONE",
-                "Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group)",
-                FlagKind::DiagnosticIndicator,
-            ),
-            log_out_flag(
-                "RHOB_EC_REFUSED",
-                "Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled)",
-                FlagKind::DiagnosticIndicator,
-            ),
-        ],
+        ]
+        .into_iter()
+        .chain(envcorr_flag_group("RHOB_EC"))
+        .collect(),
     }
 }
 
@@ -11387,6 +11325,61 @@ mod tests {
     /// lines with nothing between them to say which had been reached: a refusal on the one path
     /// that runs before anything else in the application said WHAT was wrong and never WHICH
     /// contract had asked. The table is the list, and the list is checked here.
+    /// AUDIT-2026-08-20 finding 75. The PHIE ceiling (SMOOTH_ROLLOFF roll-off, the shale-reduced
+    /// and MAXIMUM envelopes, the SB-POR-045 floor beneath them) was written out three times in
+    /// `phi_den`, `phi_dn` and `phi_dnbk` - verbatim, comments included - and the four-member
+    /// ENVCORR one-hot group was declared three times in three manifests.
+    ///
+    /// What needs pinning is not the arithmetic, which has its own tests, but that the three still
+    /// SHARE it. A fourth copy pasted back in computes the same answer today and drifts silently
+    /// tomorrow, and only the shale end of a porosity curve moves when it does. Both sides: the
+    /// statement exists once, and every module that needs it reaches that one.
+    #[test]
+    fn the_porosity_ceiling_and_the_correction_flag_group_are_each_stated_once() {
+        let source = include_str!("modules.rs");
+        // Needles assembled rather than written out, so this test is not an offender against its
+        // own count.
+        let ceiling = ["let phie_lim = ", "if smooth {"].concat();
+        assert_eq!(
+            source.matches(ceiling.as_str()).count(),
+            1,
+            "the PHIE ceiling is one statement; a second is a second answer waiting to differ",
+        );
+        let call = ["limited_phie(ctx, ", "i, pe, v, smooth, shale_reduced)"].concat();
+        assert_eq!(
+            source.matches(call.as_str()).count(),
+            3,
+            "and all three porosity modules reach it",
+        );
+
+        // The one-hot group ships ALL FOUR members, namespaced by the corrected output - three of
+        // four is a group nothing downstream can read, and nothing would say which module lost one.
+        for corrected in ["GR_EC", "NPHI_EC", "RHOB_EC"] {
+            let declared: Vec<String> =
+                envcorr_flag_group(corrected).into_iter().map(|arg| arg.name).collect();
+            let expected: Vec<String> = ["FULL", "PARTIAL", "NONE", "REFUSED"]
+                .iter()
+                .map(|state| format!("{corrected}_{state}"))
+                .collect();
+            assert_eq!(declared, expected, "{corrected}: the one-hot group is all four members");
+        }
+        for (module, corrected) in
+            [("gr_hole_corr", "GR_EC"), ("nphi_env_corr", "NPHI_EC"), ("rhob_hole_corr", "RHOB_EC")]
+        {
+            let spec = list_modules()
+                .into_iter()
+                .find(|spec| spec.name == module)
+                .unwrap_or_else(|| panic!("{module} is registered"));
+            for state in ["FULL", "PARTIAL", "NONE", "REFUSED"] {
+                let name = format!("{corrected}_{state}");
+                assert!(
+                    spec.args.iter().any(|arg| arg.name == name),
+                    "{module} must still declare {name}",
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_catalog_registration_gate_that_refuses_says_which_contract_it_was() {
         let names: Vec<&str> = CATALOG_GATES.iter().map(|(name, _)| *name).collect();
