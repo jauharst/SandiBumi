@@ -5266,12 +5266,121 @@ pub const INTEGRITY_ML_TRAINING_WELL_CLASS: &str = "ml_models_unresolved_trainin
 pub const INTEGRITY_CURRENT_DUPLICATE_CLASS: &str = "computed_curves_duplicate_depths";
 pub const INTEGRITY_ARCHIVE_DUPLICATE_CLASS: &str = "computed_curves_archive_duplicate_depths";
 
-const PRUNABLE_INTEGRITY_CLASSES: [&str; 4] = [
-    INTEGRITY_CURRENT_LOG_SET_CLASS,
-    INTEGRITY_ARCHIVE_LOG_SET_CLASS,
-    INTEGRITY_WELL_GROUP_MEMBER_CLASS,
-    INTEGRITY_CURVE_SAMPLE_CLASS,
+/// AUDIT-2026-08-20 finding 52. One prunable integrity class, described ONCE.
+///
+/// Quarantine, restore and redo used to hand-transcribe each class's SQL in four separate
+/// functions - seven statements per class, with the IDENTITY KEY written out four times and no
+/// database constraint to catch a slip. `computed_curves` is deliberately primary-key-less (its
+/// uniqueness is upheld by the write discipline, not by an index), so a mistyped identity here
+/// has nothing underneath it: a restore would silently duplicate rows, or a redo would delete
+/// rows it never quarantined. That is not a class of bug this code path can afford.
+///
+/// So the identity is stated once and every statement is built from it. `{live}` is substituted
+/// with the live table's name, because a `DELETE` names the table where a `SELECT` uses an alias.
+struct PrunableClass {
+    class_id: &'static str,
+    /// The live table rows are quarantined FROM and restored back INTO.
+    live: &'static str,
+    /// The quarantine table for this class.
+    quarantine: &'static str,
+    /// `source_table` discriminator where two classes share one quarantine table; `None` where
+    /// the quarantine table serves a single class.
+    source_tag: Option<&'static str>,
+    /// The columns carried into quarantine and back out, in one order for both directions.
+    columns: &'static str,
+    /// What makes a live row the SAME ROW as a quarantined one. Written once, read by the
+    /// restore collision check, the redo liveness check and the redo delete.
+    identity: &'static str,
+    /// What makes a live row an ORPHAN - the reason it is prunable at all.
+    orphan: &'static str,
+}
+
+impl PrunableClass {
+    /// The quarantine-side filter: this batch, and this class's rows within it.
+    fn batch_filter(&self) -> String {
+        match self.source_tag {
+            Some(tag) => format!("q.batch_id = ?1 AND q.source_table = '{tag}'"),
+            None => "q.batch_id = ?1".to_string(),
+        }
+    }
+
+    /// The same filter for a statement with no `q` alias in scope.
+    fn plain_batch_filter(&self) -> String {
+        match self.source_tag {
+            Some(tag) => format!("batch_id = ?1 AND source_table = '{tag}'"),
+            None => "batch_id = ?1".to_string(),
+        }
+    }
+
+    /// `EXISTS (... this batch's quarantined twin of `live_ref`)`, the one identity comparison.
+    fn quarantined_twin_exists(&self, live_ref: &str) -> String {
+        format!(
+            "EXISTS (SELECT 1 FROM {} q WHERE {} AND {})",
+            self.quarantine,
+            self.batch_filter(),
+            self.identity.replace("{live}", live_ref)
+        )
+    }
+}
+
+/// The four prunable classes. `PRUNABLE_INTEGRITY_CLASSES` is derived from this, so the offered
+/// list and the executed list cannot disagree.
+const PRUNABLE_CLASSES: [PrunableClass; 4] = [
+    PrunableClass {
+        class_id: INTEGRITY_CURRENT_LOG_SET_CLASS,
+        live: "computed_curves",
+        quarantine: "integrity_quarantine_computed",
+        source_tag: Some("computed_curves"),
+        columns: "set_id, well_id, depth, curve_name, value",
+        // SB-DBM-026's identity for a CURRENT row. `set_id` is deliberately absent: a current row
+        // is one interpretation, so well+curve+depth names it.
+        identity: "q.well_id = {live}.well_id AND q.curve_name = {live}.curve_name                    AND q.depth = {live}.depth",
+        // Legacy NULL set_id rows are reported but never quarantined - they are labelled and
+        // visible, not broken references.
+        orphan: "{live}.set_id IS NOT NULL                  AND NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = {live}.set_id)",
+    },
+    PrunableClass {
+        class_id: INTEGRITY_ARCHIVE_LOG_SET_CLASS,
+        live: "computed_curves_archive",
+        quarantine: "integrity_quarantine_computed",
+        source_tag: Some("computed_curves_archive"),
+        columns: "set_id, well_id, depth, curve_name, value",
+        // Versions legitimately repeat a tuple across set_id values, so an ARCHIVE row's identity
+        // includes the set - the difference from the current class above, and the reason the two
+        // identities must not be shared.
+        identity: "q.set_id = {live}.set_id AND q.well_id = {live}.well_id                    AND q.curve_name = {live}.curve_name AND q.depth = {live}.depth",
+        orphan: "NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = {live}.set_id)",
+    },
+    PrunableClass {
+        class_id: INTEGRITY_WELL_GROUP_MEMBER_CLASS,
+        live: "well_group_members",
+        quarantine: "integrity_quarantine_group_members",
+        source_tag: None,
+        columns: "group_id, well_id",
+        identity: "q.group_id = {live}.group_id AND q.well_id = {live}.well_id",
+        orphan: "NOT EXISTS (SELECT 1 FROM wells w WHERE w.well_id = {live}.well_id)",
+    },
+    PrunableClass {
+        class_id: INTEGRITY_CURVE_SAMPLE_CLASS,
+        live: "curve_samples",
+        quarantine: "integrity_quarantine_curve_samples",
+        source_tag: None,
+        columns: "curve_id, depth, value",
+        identity: "q.curve_id = {live}.curve_id AND q.depth = {live}.depth",
+        orphan: "NOT EXISTS (SELECT 1 FROM curve_meta m WHERE m.curve_id = {live}.curve_id)",
+    },
 ];
+
+const PRUNABLE_INTEGRITY_CLASSES: [&str; 4] = [
+    PRUNABLE_CLASSES[0].class_id,
+    PRUNABLE_CLASSES[1].class_id,
+    PRUNABLE_CLASSES[2].class_id,
+    PRUNABLE_CLASSES[3].class_id,
+];
+
+fn prunable_class(class_id: &str) -> Option<&'static PrunableClass> {
+    PRUNABLE_CLASSES.iter().find(|class| class.class_id == class_id)
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct IntegrityClassReport {
@@ -5385,20 +5494,26 @@ fn active_integrity_prunes(conn: &Connection) -> Result<Vec<RecoverableIntegrity
 /// always names how many classes were checked, so an empty finding set can never collapse to a
 /// content-free "clean" badge.
 pub fn check_referential_integrity(conn: &Connection) -> Result<IntegrityReport, String> {
+    // AUDIT-2026-08-20 finding 52: the checker counts with the SAME orphan predicate the prune
+    // selects on, so what a report OFFERS to quarantine and what the prune actually takes cannot
+    // drift apart - which, on a primary-key-less table, is the difference between a clean redo
+    // and a delete nothing recorded.
+    let orphans = |class: &PrunableClass| -> Result<usize, String> {
+        integrity_count(conn, &format!(
+            "SELECT count(*) FROM {live} WHERE {orphan}",
+            live = class.live,
+            orphan = class.orphan.replace("{live}", class.live),
+        ))
+    };
+    // The one count that is NOT the prune predicate, and deliberately so: a legacy NULL set_id is
+    // reported because it is unresolvable, but it is not a broken reference and is never
+    // quarantined - it stays labelled and visible. That is why this class has two counts.
     let current_missing = integrity_count(conn,
         "SELECT count(*) FROM computed_curves c LEFT JOIN log_sets l ON l.set_id = c.set_id WHERE l.set_id IS NULL")?;
-    let current_prunable = integrity_count(conn,
-        "SELECT count(*) FROM computed_curves c LEFT JOIN log_sets l ON l.set_id = c.set_id
-         WHERE c.set_id IS NOT NULL AND l.set_id IS NULL")?;
-    let archive_missing = integrity_count(conn,
-        "SELECT count(*) FROM computed_curves_archive a LEFT JOIN log_sets l ON l.set_id = a.set_id
-         WHERE l.set_id IS NULL")?;
-    let group_missing = integrity_count(conn,
-        "SELECT count(*) FROM well_group_members m LEFT JOIN wells w ON w.well_id = m.well_id
-         WHERE w.well_id IS NULL")?;
-    let sample_missing = integrity_count(conn,
-        "SELECT count(*) FROM curve_samples s LEFT JOIN curve_meta m ON m.curve_id = s.curve_id
-         WHERE m.curve_id IS NULL")?;
+    let current_prunable = orphans(&PRUNABLE_CLASSES[0])?;
+    let archive_missing = orphans(&PRUNABLE_CLASSES[1])?;
+    let group_missing = orphans(&PRUNABLE_CLASSES[2])?;
+    let sample_missing = orphans(&PRUNABLE_CLASSES[3])?;
     let ml_unresolved = unresolved_ml_training_model_count(conn)?;
     let current_duplicates = integrity_count(conn,
         "SELECT count(*) FROM (SELECT well_id, curve_name, depth FROM computed_curves
@@ -5456,69 +5571,28 @@ pub fn prune_referential_integrity(conn: &Connection, class_ids: &[String]) -> R
         )?;
         let mut classes = Vec::new();
         for class_id in &selected {
-            let pruned = match *class_id {
-                INTEGRITY_CURRENT_LOG_SET_CLASS => {
-                    let count = conn.execute(
-                        "INSERT INTO integrity_quarantine_computed
-                             (batch_id, source_table, set_id, well_id, depth, curve_name, value)
-                         SELECT ?1, 'computed_curves', c.set_id, c.well_id, c.depth, c.curve_name, c.value
-                         FROM computed_curves c WHERE c.set_id IS NOT NULL
-                           AND NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = c.set_id)",
-                        params![batch_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM computed_curves WHERE set_id IS NOT NULL
-                           AND NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = computed_curves.set_id)",
-                        [],
-                    )?;
-                    count
-                }
-                INTEGRITY_ARCHIVE_LOG_SET_CLASS => {
-                    let count = conn.execute(
-                        "INSERT INTO integrity_quarantine_computed
-                             (batch_id, source_table, set_id, well_id, depth, curve_name, value)
-                         SELECT ?1, 'computed_curves_archive', a.set_id, a.well_id, a.depth, a.curve_name, a.value
-                         FROM computed_curves_archive a
-                         WHERE NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = a.set_id)",
-                        params![batch_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM computed_curves_archive
-                         WHERE NOT EXISTS (SELECT 1 FROM log_sets l WHERE l.set_id = computed_curves_archive.set_id)",
-                        [],
-                    )?;
-                    count
-                }
-                INTEGRITY_WELL_GROUP_MEMBER_CLASS => {
-                    let count = conn.execute(
-                        "INSERT INTO integrity_quarantine_group_members (batch_id, group_id, well_id)
-                         SELECT ?1, m.group_id, m.well_id FROM well_group_members m
-                         WHERE NOT EXISTS (SELECT 1 FROM wells w WHERE w.well_id = m.well_id)",
-                        params![batch_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM well_group_members
-                         WHERE NOT EXISTS (SELECT 1 FROM wells w WHERE w.well_id = well_group_members.well_id)",
-                        [],
-                    )?;
-                    count
-                }
-                INTEGRITY_CURVE_SAMPLE_CLASS => {
-                    let count = conn.execute(
-                        "INSERT INTO integrity_quarantine_curve_samples (batch_id, curve_id, depth, value)
-                         SELECT ?1, s.curve_id, s.depth, s.value FROM curve_samples s
-                         WHERE NOT EXISTS (SELECT 1 FROM curve_meta m WHERE m.curve_id = s.curve_id)",
-                        params![batch_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM curve_samples
-                         WHERE NOT EXISTS (SELECT 1 FROM curve_meta m WHERE m.curve_id = curve_samples.curve_id)",
-                        [],
-                    )?;
-                    count
-                }
-                _ => unreachable!("validated prunable class"),
+            // Validated against PRUNABLE_INTEGRITY_CLASSES above, which IS this table's class ids.
+            let class = prunable_class(class_id).ok_or_else(|| {
+                DbError::Invalid(format!("integrity class '{class_id}' has no prune descriptor"))
+            })?;
+            let orphan = class.orphan.replace("{live}", class.live);
+            let (tag_column, tag_value) = match class.source_tag {
+                Some(tag) => (", source_table".to_string(), format!("?1, '{tag}', ")),
+                None => (String::new(), "?1, ".to_string()),
             };
+            let pruned = conn.execute(
+                &format!(
+                    "INSERT INTO {q} (batch_id{tag_column}, {cols}) \
+                     SELECT {tag_value}{cols} FROM {live} WHERE {orphan}",
+                    q = class.quarantine,
+                    cols = class.columns,
+                    live = class.live,
+                ),
+                params![batch_id],
+            )?;
+            // The SAME orphan predicate the quarantine INSERT selected on, so the delete can
+            // never take a row the quarantine did not keep.
+            conn.execute(&format!("DELETE FROM {} WHERE {orphan}", class.live), [])?;
             classes.push(IntegrityPruneClassReceipt { class_id: (*class_id).into(), pruned_findings: pruned });
         }
         let pruned_findings = classes.iter().map(|class| class.pruned_findings).sum();
@@ -5557,54 +5631,35 @@ fn count_bound(conn: &Connection, sql: &str, batch_id: &str) -> DbResult<usize> 
 pub fn restore_referential_integrity_prune(conn: &Connection, batch_id: &str) -> Result<usize, String> {
     with_txn(conn, |conn| -> DbResult<usize> {
         require_integrity_batch_state(conn, batch_id, "ACTIVE")?;
-        let collision_queries = [
-            "SELECT count(*) FROM computed_curves c WHERE EXISTS (
-                 SELECT 1 FROM integrity_quarantine_computed q
-                 WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves'
-                   AND q.well_id = c.well_id AND q.curve_name = c.curve_name AND q.depth = c.depth)",
-            "SELECT count(*) FROM computed_curves_archive a WHERE EXISTS (
-                 SELECT 1 FROM integrity_quarantine_computed q
-                 WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves_archive'
-                   AND q.set_id = a.set_id AND q.well_id = a.well_id
-                   AND q.curve_name = a.curve_name AND q.depth = a.depth)",
-            "SELECT count(*) FROM well_group_members m WHERE EXISTS (
-                 SELECT 1 FROM integrity_quarantine_group_members q
-                 WHERE q.batch_id = ?1 AND q.group_id = m.group_id AND q.well_id = m.well_id)",
-            "SELECT count(*) FROM curve_samples s WHERE EXISTS (
-                 SELECT 1 FROM integrity_quarantine_curve_samples q
-                 WHERE q.batch_id = ?1 AND q.curve_id = s.curve_id AND q.depth = s.depth)",
-        ];
-        for (index, query) in collision_queries.iter().enumerate() {
-            if count_bound(conn, query, batch_id)? > 0 {
+        for class in PRUNABLE_CLASSES.iter() {
+            let query = format!(
+                "SELECT count(*) FROM {live} WHERE {twin}",
+                live = class.live,
+                twin = class.quarantined_twin_exists(class.live),
+            );
+            if count_bound(conn, &query, batch_id)? > 0 {
+                // Named, not numbered. This used to report "restore class {index + 1}" - a
+                // position in a local array, which tells a reader nothing and silently
+                // misattributes the moment anyone reorders it.
                 return Err(DbError::Invalid(format!(
-                    "integrity prune batch '{batch_id}' cannot be restored: identity collision in restore class {}",
-                    index + 1
+                    "integrity prune batch '{batch_id}' cannot be restored: identity collision in class '{}'",
+                    class.class_id
                 )));
             }
         }
         let mut restored = 0usize;
-        restored += conn.execute(
-            "INSERT INTO computed_curves (set_id, well_id, depth, curve_name, value)
-             SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed
-             WHERE batch_id = ?1 AND source_table = 'computed_curves'",
-            params![batch_id],
-        )?;
-        restored += conn.execute(
-            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
-             SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed
-             WHERE batch_id = ?1 AND source_table = 'computed_curves_archive'",
-            params![batch_id],
-        )?;
-        restored += conn.execute(
-            "INSERT INTO well_group_members (group_id, well_id)
-             SELECT group_id, well_id FROM integrity_quarantine_group_members WHERE batch_id = ?1",
-            params![batch_id],
-        )?;
-        restored += conn.execute(
-            "INSERT INTO curve_samples (curve_id, depth, value)
-             SELECT curve_id, depth, value FROM integrity_quarantine_curve_samples WHERE batch_id = ?1",
-            params![batch_id],
-        )?;
+        for class in PRUNABLE_CLASSES.iter() {
+            restored += conn.execute(
+                &format!(
+                    "INSERT INTO {live} ({cols}) SELECT {cols} FROM {q} WHERE {filter}",
+                    live = class.live,
+                    cols = class.columns,
+                    q = class.quarantine,
+                    filter = class.plain_batch_filter(),
+                ),
+                params![batch_id],
+            )?;
+        }
         conn.execute(
             "UPDATE integrity_prune_batches SET state = 'RESTORED', changed_at = now() WHERE batch_id = ?1",
             params![batch_id],
@@ -5621,6 +5676,8 @@ fn ensure_reapply_rows(
     missing_sql: &str,
     class_name: &str,
 ) -> DbResult<()> {
+    // `class_name` is the class ID (AUDIT-2026-08-20 finding 52), so the refusal names the class
+    // a caller can act on rather than a prose label only this function knew.
     let expected = count_bound(conn, expected_sql, batch_id)?;
     if expected == 0 { return Ok(()); }
     let live = count_bound(conn, live_sql, batch_id)?;
@@ -5638,34 +5695,28 @@ fn ensure_reapply_rows(
 pub fn reapply_referential_integrity_prune(conn: &Connection, batch_id: &str) -> Result<usize, String> {
     with_txn(conn, |conn| -> DbResult<usize> {
         require_integrity_batch_state(conn, batch_id, "RESTORED")?;
-        let checks = [
-            (
-                "SELECT count(*) FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves'",
-                "SELECT count(*) FROM computed_curves c WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves' AND q.well_id = c.well_id AND q.curve_name = c.curve_name AND q.depth = c.depth)",
-                "SELECT count(*) FROM (SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves' EXCEPT ALL SELECT set_id, well_id, depth, curve_name, value FROM computed_curves) missing",
-                "current computed rows",
-            ),
-            (
-                "SELECT count(*) FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves_archive'",
-                "SELECT count(*) FROM computed_curves_archive a WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves_archive' AND q.set_id = a.set_id AND q.well_id = a.well_id AND q.curve_name = a.curve_name AND q.depth = a.depth)",
-                "SELECT count(*) FROM (SELECT set_id, well_id, depth, curve_name, value FROM integrity_quarantine_computed WHERE batch_id = ?1 AND source_table = 'computed_curves_archive' EXCEPT ALL SELECT set_id, well_id, depth, curve_name, value FROM computed_curves_archive) missing",
-                "archived computed rows",
-            ),
-            (
-                "SELECT count(*) FROM integrity_quarantine_group_members WHERE batch_id = ?1",
-                "SELECT count(*) FROM well_group_members m WHERE EXISTS (SELECT 1 FROM integrity_quarantine_group_members q WHERE q.batch_id = ?1 AND q.group_id = m.group_id AND q.well_id = m.well_id)",
-                "SELECT count(*) FROM (SELECT group_id, well_id FROM integrity_quarantine_group_members WHERE batch_id = ?1 EXCEPT ALL SELECT group_id, well_id FROM well_group_members) missing",
-                "well-group memberships",
-            ),
-            (
-                "SELECT count(*) FROM integrity_quarantine_curve_samples WHERE batch_id = ?1",
-                "SELECT count(*) FROM curve_samples s WHERE EXISTS (SELECT 1 FROM integrity_quarantine_curve_samples q WHERE q.batch_id = ?1 AND q.curve_id = s.curve_id AND q.depth = s.depth)",
-                "SELECT count(*) FROM (SELECT curve_id, depth, value FROM integrity_quarantine_curve_samples WHERE batch_id = ?1 EXCEPT ALL SELECT curve_id, depth, value FROM curve_samples) missing",
-                "curve samples",
-            ),
-        ];
-        for (expected, live, missing, name) in checks {
-            ensure_reapply_rows(conn, batch_id, expected, live, missing, name)?;
+        for class in PRUNABLE_CLASSES.iter() {
+            let expected = format!(
+                "SELECT count(*) FROM {q} WHERE {filter}",
+                q = class.quarantine,
+                filter = class.plain_batch_filter(),
+            );
+            let live = format!(
+                "SELECT count(*) FROM {live} WHERE {twin}",
+                live = class.live,
+                twin = class.quarantined_twin_exists(class.live),
+            );
+            // EXCEPT ALL, so an EDITED value counts as missing even though its identity still
+            // matches - redo must refuse a row somebody changed after the undo, not delete it.
+            let missing = format!(
+                "SELECT count(*) FROM (SELECT {cols} FROM {q} WHERE {filter} \
+                 EXCEPT ALL SELECT {cols} FROM {live}) missing",
+                cols = class.columns,
+                q = class.quarantine,
+                filter = class.plain_batch_filter(),
+                live = class.live,
+            );
+            ensure_reapply_rows(conn, batch_id, &expected, &live, &missing, class.class_id)?;
         }
         let expected = count_bound(conn,
             "SELECT (SELECT count(*) FROM integrity_quarantine_computed WHERE batch_id = ?1) +
@@ -5673,30 +5724,18 @@ pub fn reapply_referential_integrity_prune(conn: &Connection, batch_id: &str) ->
                     (SELECT count(*) FROM integrity_quarantine_curve_samples WHERE batch_id = ?1)",
             batch_id,
         )?;
-        conn.execute(
-            "DELETE FROM computed_curves WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q
-             WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves'
-               AND q.well_id = computed_curves.well_id AND q.curve_name = computed_curves.curve_name
-               AND q.depth = computed_curves.depth)",
-            params![batch_id],
-        )?;
-        conn.execute(
-            "DELETE FROM computed_curves_archive WHERE EXISTS (SELECT 1 FROM integrity_quarantine_computed q
-             WHERE q.batch_id = ?1 AND q.source_table = 'computed_curves_archive'
-               AND q.set_id = computed_curves_archive.set_id AND q.well_id = computed_curves_archive.well_id
-               AND q.curve_name = computed_curves_archive.curve_name AND q.depth = computed_curves_archive.depth)",
-            params![batch_id],
-        )?;
-        conn.execute(
-            "DELETE FROM well_group_members WHERE EXISTS (SELECT 1 FROM integrity_quarantine_group_members q
-             WHERE q.batch_id = ?1 AND q.group_id = well_group_members.group_id AND q.well_id = well_group_members.well_id)",
-            params![batch_id],
-        )?;
-        conn.execute(
-            "DELETE FROM curve_samples WHERE EXISTS (SELECT 1 FROM integrity_quarantine_curve_samples q
-             WHERE q.batch_id = ?1 AND q.curve_id = curve_samples.curve_id AND q.depth = curve_samples.depth)",
-            params![batch_id],
-        )?;
+        for class in PRUNABLE_CLASSES.iter() {
+            // The same identity the collision check and the liveness check used, so a redo can
+            // only ever delete rows this batch actually quarantined.
+            conn.execute(
+                &format!(
+                    "DELETE FROM {live} WHERE {twin}",
+                    live = class.live,
+                    twin = class.quarantined_twin_exists(class.live),
+                ),
+                params![batch_id],
+            )?;
+        }
         conn.execute(
             "UPDATE integrity_prune_batches SET state = 'ACTIVE', changed_at = now() WHERE batch_id = ?1",
             params![batch_id],
@@ -6020,6 +6059,74 @@ mod inspector_tests {
         assert_eq!(check_referential_integrity(&conn).unwrap().finding_count, 0);
         restore_referential_integrity_prune(&conn, &receipt.batch_id).unwrap();
         assert_eq!(check_referential_integrity(&conn).unwrap().finding_count, 2);
+    }
+
+    /// AUDIT-2026-08-20 finding 52. Quarantine, restore and redo each hand-transcribed every
+    /// class's identity key, four times over, on a deliberately primary-key-less table. The
+    /// identity is stated ONCE now, so this pins the two things that statement has to get right.
+    ///
+    /// Pinned from BOTH sides, because one shared identity for both computed classes would pass
+    /// the first half and fail the second.
+    #[test]
+    fn a_quarantined_rows_identity_is_its_own_class_and_a_collision_names_that_class() {
+        let conn = mem_db();
+        let group_id = Uuid::new_v4().to_string();
+        let missing_well = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO well_groups (group_id, name) VALUES (?1, 'IDENTITY_FIXTURE')",
+            params![group_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO well_group_members (group_id, well_id) VALUES (?1, ?2)",
+            params![group_id, missing_well],
+        ).unwrap();
+
+        // A - a REAL collision. The membership is quarantined, then somebody recreates it, so
+        // restoring would duplicate a row on a table with no key to stop it. The refusal must
+        // name the CLASS: it used to say "restore class 2", a position in a local array that
+        // tells a reader nothing and misattributes the moment anyone reorders it.
+        let receipt = prune_referential_integrity(
+            &conn, &[INTEGRITY_WELL_GROUP_MEMBER_CLASS.to_string()],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO well_group_members (group_id, well_id) VALUES (?1, ?2)",
+            params![group_id, missing_well],
+        ).unwrap();
+        let refusal = restore_referential_integrity_prune(&conn, &receipt.batch_id).unwrap_err();
+        assert!(
+            refusal.contains(INTEGRITY_WELL_GROUP_MEMBER_CLASS),
+            "a collision must name the class it happened in, got: {refusal}"
+        );
+
+        // B - and NOT a collision. The two computed classes have deliberately different
+        // identities: a CURRENT row is named by well+curve+depth, an ARCHIVED row by those plus
+        // its SET, because versions legitimately repeat a tuple across sets. Same well, same
+        // curve, same depth, different set is a different archived row, and a restore that
+        // refused here would strand a batch nobody could ever undo.
+        let conn = mem_db();
+        let well = Uuid::new_v4().to_string();
+        let (set_a, set_b) = (Uuid::new_v4().to_string(), Uuid::new_v4().to_string());
+        conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
+             VALUES (?1, ?2, 0.0, 'IDENTITY_FIXTURE', NULL)",
+            params![set_a, well],
+        ).unwrap();
+        let receipt = prune_referential_integrity(
+            &conn, &[INTEGRITY_ARCHIVE_LOG_SET_CLASS.to_string()],
+        ).unwrap();
+        assert_eq!(receipt.pruned_findings, 1);
+        conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
+             VALUES (?1, ?2, 0.0, 'IDENTITY_FIXTURE', NULL)",
+            params![set_b, well],
+        ).unwrap();
+        restore_referential_integrity_prune(&conn, &receipt.batch_id).unwrap_or_else(|error| {
+            panic!("a different SET is a different archived row, not a collision: {error}")
+        });
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM computed_curves_archive", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "both archived versions must survive the restore");
     }
 
     #[test]
