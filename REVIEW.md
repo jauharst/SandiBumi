@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 63 (my audit P3): **a PNG plate was refused by the SVG export, which could have shown it**
+
+- [ ] **What to click.** You need a delivery whose plates are **not JPEG** — PNG, GIF or WebP —
+      which happens when the machine has no Pillow installed, so the pictures are stored exactly
+      as the lab sent them. Put an **image track** on a log view, then Plot → Composite… and
+      export **both** an SVG and a PDF. The SVG should now show the plates; the PDF still shows a
+      red framed box naming each one.
+- [ ] **What was wrong.** The rule has always been that a plate the **PDF** cannot carry prints a
+      named frame rather than a silent gap, so you can check a deliverable against the delivery
+      list. But that decision was being made once, when the drawing instructions were built, and
+      both exports then read the same instructions — so the SVG printed the same red refusal over
+      a picture it was perfectly capable of displaying. An SVG has no such limit: it carries any
+      picture inline as text, which is why a delivered SVG opens with its plates intact.
+- [ ] **What it does now.** Each export answers the question for itself at the moment it writes.
+      Only the PDF has the JPEG-only limit (it hands the camera's own bytes straight to the
+      reader, untouched, and there is no other format it encodes), so only the PDF draws the
+      frame. The frame text is unchanged and still names the plate.
+- [ ] **Why the test never caught it.** Every picture in the test fixtures was a JPEG, including
+      the one called "the plate that cannot be embedded" — so the case was named but never
+      actually run. The fixture now takes the picture's real format.
+- [ ] **Nothing else moved.** JPEG plates print exactly as before, in both exports.
+
 ## 2026-08-21 — Audit increment 62 (my audit P3): **a box-plot point track summarised different plugs depending on how far you had zoomed in**
 
 - [ ] **What to click.** Put a **core** point track on a log view with display **box** (or
