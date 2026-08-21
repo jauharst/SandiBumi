@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "registry_version": "curve-units-v2",
-  "source_sha256": "b8c27a5cb43cf6bd097ff5dbba53f5802b74250042ec63456960b71e1ef2f066",
+  "source_sha256": "da50bb60e0f7aa46830cabe0f20ecee7f2c3d77e4d42ac219d1f257bbe8f6ddb",
   "populations": {
     "families": 20,
-    "aliases": 151,
+    "aliases": 152,
     "alias_patterns": 3,
     "alias_exclusions": 4,
     "units": 46,
@@ -216,7 +216,8 @@
       "quantity_kind": "categorical",
       "aliases": [
         "MTH_VSH",
-        "VSH_DN_FLAG"
+        "VSH_DN_FLAG",
+        "VSH_PROV"
       ],
       "alias_patterns": [],
       "excluded_alias_patterns": []

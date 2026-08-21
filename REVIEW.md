@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-21 — Audit increment 48 (my audit P2): **a module can no longer be quietly left out of the shale-versus-clay check**
+
+- [ ] **Background.** SandiBumi refuses to feed a **clay volume** into an input that expects a
+      **shale volume** (they differ by however much silt the shale carries). Which inputs get
+      checked comes from an inventory listing each module by name.
+- [ ] **What was wrong.** The inventory caught a listed module whose argument had been renamed —
+      but **nothing caught a module that was never listed**. And an unlisted input is not checked
+      at all, so a new module's VSH slot would accept a VCL curve silently. It computes, it plots,
+      and it is wrong.
+- [ ] **Was anything wrong in your results?** No. All nine modules that take a shale volume were
+      in the list. This closes the door before the tenth one goes in.
+- [ ] **The fix.** The **curve's own family** now decides whether a declaration is required, not
+      the list. A new module with a shale or clay input stops the build until somebody says what
+      that input accepts.
+- [ ] **A misclassification found on the way.** `VSH_PROV` — the provenance code `vsh_gr` writes
+      to say *why* a sample has no value — was being treated as a **shale volume** because its
+      name starts with VSH. It is a categorical code with unit `flag`, and it already had a family
+      of its own; it just was not listed there. Now it is. Nothing about the curve's values
+      changes — it was never converted or averaged — but it is no longer described as a volume.
+- [ ] **What to check.** Run `vsh_gr` and put **VSH_PROV** on a log view: it should read exactly
+      as before (0 computed, 1 missing input, 2 masked, 3 endpoint invalid, 4 coal). Then run any
+      module that takes a VSH input on a well where you have both VSH and VCL curves — offering
+      the clay curve should still be refused by name.
+
 ## 2026-08-21 — Audit increment 47 (my audit P2): **the green gate now names the check that actually failed**
 
 - [ ] **What was wrong.** `tools\check.ps1` stage 1 runs thirteen separate repository checks, and

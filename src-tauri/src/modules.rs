@@ -1768,6 +1768,39 @@ fn apply_shale_clay_quantity_contracts(modules: &mut [ModuleSpec]) -> Result<(),
     }
     clay.accepted_shale_clay_quantities = vec![ShaleClayQuantity::ClayVolume];
 
+    // AUDIT-2026-08-20 finding 58. The table above is an INVENTORY, and an inventory that is
+    // authoritative has to reject a module missing FROM it. `argument_mut` catches the
+    // listed-but-gone direction; nothing caught exists-but-unlisted - and `workflow.rs` only
+    // validates an input when `accepted_shale_clay_quantities` is non-empty, so a forgotten
+    // module's VSH slot would accept a VCL curve with no check at all. Clay volume and shale
+    // volume are different quantities: feeding one where the other is expected computes, plots,
+    // and is wrong by however much silt the shale carries.
+    //
+    // So the slot's OWN curve family decides whether a contract is required, not the table. A new
+    // module with a VSH input stops the build until somebody declares what that input accepts.
+    for module in modules.iter() {
+        for arg in &module.args {
+            let (curve, declared) = match arg.kind {
+                ArgKind::LogIn => (
+                    arg.preferred_aliases.first().unwrap_or(&arg.default).as_str(),
+                    !arg.accepted_shale_clay_quantities.is_empty(),
+                ),
+                ArgKind::LogOut => (arg.name.as_str(), arg.output_shale_clay_quantity.is_some()),
+                _ => continue,
+            };
+            let Some(family) = crate::curves::family_for(curve) else { continue };
+            if !matches!(family.family, "VSH" | "VSH_UNCLIPPED" | "VCL") || declared {
+                continue;
+            }
+            return Err(format!(
+                "SB-CLY-043 quantity inventory is missing '{}.{}': curve '{curve}' is family {} \
+                 and every shale or clay slot must declare its quantity - an undeclared input is \
+                 never validated, so a clay volume would be accepted where a shale volume is meant",
+                module.name, arg.name, family.family
+            ));
+        }
+    }
+
     for module in modules {
         for arg in &module.args {
             if !arg.accepted_shale_clay_quantities.is_empty() && arg.kind != ArgKind::LogIn {
@@ -16565,5 +16598,60 @@ mod tests {
             (working - 1.0).abs() <= 1e-6,
             "the working SWE must still clamp at 1, got {working}"
         );
+    }
+    /// AUDIT-2026-08-20 finding 58. The SB-CLY-043 quantity table is an INVENTORY keyed by module
+    /// name, and it caught only one direction: `argument_mut` refuses a listed argument that no
+    /// longer exists, but nothing refused an argument that exists and is not listed. `workflow.rs`
+    /// validates an input only when `accepted_shale_clay_quantities` is non-empty, so a module
+    /// somebody forgot to add would take a CLAY volume into a SHALE slot with no check at all -
+    /// it computes, it plots, and it is wrong by however much silt the shale carries.
+    ///
+    /// Latent rather than live when the audit ran: all nine VSH-declaring modules were listed.
+    /// This makes the inventory authoritative, so the tenth cannot be forgotten quietly.
+    ///
+    /// Pinned from BOTH sides. The check has to fire on an undeclared shale slot, and it has to
+    /// stay silent on a slot that is not a quantity at all - `VSH_PROV` is a categorical
+    /// provenance token, and a check that demanded a quantity contract from it would be a check
+    /// nobody could satisfy.
+    #[test]
+    fn every_shale_or_clay_slot_declares_its_quantity_and_a_provenance_token_is_not_one() {
+        // A - the tenth module. A VSH input with no declared contract stops the build. Built on
+        // top of the real manifest, because the inventory's own lookups run first and every
+        // listed argument still has to exist.
+        let mut forgotten = list_modules();
+        forgotten.push(ModuleSpec {
+            name: "audit_58_fixture".into(),
+            title: "fixture".into(),
+            category: "VSH".into(),
+            doc: String::new(),
+            args: vec![log_in("VSH", "Volume of shale", "v/v", "VSH", true)],
+        });
+        let refusal = apply_shale_clay_quantity_contracts(&mut forgotten)
+            .expect_err("an undeclared shale slot must stop the build");
+        assert!(
+            refusal.contains("audit_58_fixture.VSH") && refusal.contains("SB-CLY-043"),
+            "the refusal must name the argument and the requirement, got: {refusal}"
+        );
+
+        // B - and VSH_PROV is NOT a shale volume. It is the CLY provenance registry token, unit
+        // `flag`, categorical, listed in `class_outputs` precisely so nothing averages it. The
+        // unit registry now classifies it as CLY_STATE rather than letting the `VSH*` pattern
+        // sweep it into the shale-volume family, which is what a provenance code is.
+        let family = crate::curves::family_for("VSH_PROV")
+            .expect("VSH_PROV must resolve to a family");
+        assert_eq!(
+            family.family, "CLY_STATE",
+            "a provenance token is a categorical flag, not a volume fraction"
+        );
+        assert!(
+            crate::modules::class_outputs("vsh_gr").contains(&"VSH_PROV"),
+            "and it stays a class output, so nothing interpolates a code"
+        );
+
+        // C - the shipping manifest satisfies the check, which is what makes A a real gate rather
+        // than a rule the repository itself breaks.
+        let mut shipping = list_modules();
+        apply_shale_clay_quantity_contracts(&mut shipping)
+            .expect("every shipping module must already declare its shale and clay quantities");
     }
 }

@@ -2,8 +2,8 @@
 # Canonical curve and unit registry
 
 - Registry version: `curve-units-v2`
-- Source SHA-256: `b8c27a5cb43cf6bd097ff5dbba53f5802b74250042ec63456960b71e1ef2f066`
-- Population: 20 families, 151 exact aliases, 3 vendor alias patterns, 4 pattern exclusions, 46 unit tokens, 10 conversion rules
+- Source SHA-256: `da50bb60e0f7aa46830cabe0f20ecee7f2c3d77e4d42ac219d1f257bbe8f6ddb`
+- Population: 20 families, 152 exact aliases, 3 vendor alias patterns, 4 pattern exclusions, 46 unit tokens, 10 conversion rules
 
 ## Families
 
@@ -21,7 +21,7 @@
 | `VSH` | `fraction` | `v/v` | `VSH`, `VSH_NMR`, `VDSH`, `VSH_SSC`, `VSHGR`, `VSHND`, `VSH_MM` | `VSH*` | `VSH*UNCL*`, `VSHH*`, `VSHV*` |
 | `VSH_UNCLIPPED` | `fraction` | `v/v` | `VSH_GR`, `VSH_DN`, `VSH_DS`, `VSH_NS`, `VSH_RES`, `VSH_MN`, `VSH_NPHI`, `VSH_SP`, `VSH_AVG`, `VSH_HL`, `VSH_MIN` | `VSH*UNCL*` |  |
 | `VCL` | `fraction` | `v/v` | `VCL`, `VCLAV`, `VCLMIX`, `VCL_NMR`, `VOL_CLAY` | `VCL*` | `VCLC*` |
-| `CLY_STATE` | `categorical` | `flag` | `MTH_VSH`, `VSH_DN_FLAG` |  |  |
+| `CLY_STATE` | `categorical` | `flag` | `MTH_VSH`, `VSH_DN_FLAG`, `VSH_PROV` |  |  |
 | `DT` | `slowness` | `us/ft` | `DT`, `DTC`, `DTCO`, `AC`, `DT24`, `DTP`, `DTCOMP` |  |  |
 | `DTS` | `slowness` | `us/ft` | `DTS`, `DTSM`, `DTSH`, `DTSHEAR`, `DT_S` |  |  |
 | `TEMP` | `temperature` | `DEGC` | `FTEMP` |  |  |
