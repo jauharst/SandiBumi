@@ -13,6 +13,18 @@ export const OUTPUT_PATHS = [
   'verification/unit-registry.json',
 ];
 
+/** Families a rule may name although no family declares them, because binding them is exactly
+ *  what must not happen automatically (AUDIT-2026-08-20 finding 48).
+ *
+ *  QV is the one. A curve labelled QV in meq/L has known arithmetic to meq/mL — 1 L is 10^3 mL —
+ *  and §7.1 O-2 still requires per-file confirmation before anything converts it, so the rule
+ *  ships `automatic: false` and no QV family exists for it to bind to. Naming the family on the
+ *  rule records which quantity the arithmetic belongs to; it is documentation until somebody
+ *  confirms a file, and `curves::family_for_import("QV", …)` refuses to bind or convert
+ *  meanwhile. Anything here must be absent from `families` AND still named by a
+ *  non-automatic rule, both checked below. */
+const UNBINDABLE_RULE_FAMILIES = new Set(['QV']);
+
 function fail(message) {
   throw new Error(`unit registry: ${message}`);
 }
@@ -111,6 +123,37 @@ export function validateRegistry(registry) {
     }
     if (!rule.derivation || !rule.factor_expression || !rule.offset_expression) {
       fail(`rule '${rule.from_unit}' -> '${rule.to_unit}' lacks arithmetic custody`);
+    }
+    // AUDIT-2026-08-20 finding 48. `rule.families` is the field the CONVERTER reads
+    // (`curves.rs` selects on `rule.families.contains(&family)`), and it was the one field on a
+    // rule nothing checked — tokens were validated, `convertible_families` was validated, this
+    // was not. A family misspelt here does not fail anything: the registry generates, the app
+    // boots, and the conversion the rule exists to perform simply never fires. A curve then
+    // lands in its declared unit under a canonical name, which is the silent-wrongness shape
+    // this whole registry is built to prevent.
+    for (const family of rule.families ?? []) {
+      if (families.has(family)) continue;
+      if (UNBINDABLE_RULE_FAMILIES.has(family)) {
+        // Named on purpose, and only ever on a rule that cannot be selected automatically.
+        if (rule.automatic) {
+          fail(
+            `rule '${rule.from_unit}' -> '${rule.to_unit}' binds automatically to '${family}', which is not a declared family`,
+          );
+        }
+        continue;
+      }
+      fail(`rule '${rule.from_unit}' -> '${rule.to_unit}' names family '${family}', which is absent from families`);
+    }
+  }
+  // An exception that outlives its reason is a hole in the check wearing the shape of a
+  // decision: a family that has since been declared, or that no rule names any more, must be
+  // struck from the list rather than sit here excusing nothing.
+  for (const family of UNBINDABLE_RULE_FAMILIES) {
+    if (families.has(family)) {
+      fail(`'${family}' is a declared family now — drop it from UNBINDABLE_RULE_FAMILIES`);
+    }
+    if (!registry.rules.some((rule) => (rule.families ?? []).includes(family))) {
+      fail(`no rule names '${family}' any more — drop it from UNBINDABLE_RULE_FAMILIES`);
     }
   }
   return registry;

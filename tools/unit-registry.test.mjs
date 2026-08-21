@@ -123,3 +123,47 @@ test('one_versioned_registry_generates_equal_runtime_ui_documentation_and_test_p
   wrongDimension.families[0].quantity_kind = 'length';
   assert.throws(() => validateRegistry(wrongDimension), /declares length.*gamma_ray/u);
 });
+
+// CORRECTNESS - AUDIT-2026-08-20 finding 48. `rule.families` is the field the converter
+// SELECTS on (curves.rs: `rule.families.contains(&family)`), and it was the one field on a rule
+// that nothing validated - unit tokens were checked, convertible_families was checked, this was
+// not. A family misspelt here fails nothing: the registry generates, the app boots, and the
+// conversion the rule exists to perform never fires, so the curve lands in its declared unit
+// under a canonical name. That is the exact silent wrongness the registry is built to prevent.
+test('a_rule_naming_a_family_that_does_not_exist_fails_the_registry_instead_of_generating', () => {
+  const base = loadRegistry();
+  const clone = () => JSON.parse(JSON.stringify(base));
+
+  // The live registry passes as it stands - the check is real, not vacuous.
+  assert.doesNotThrow(() => validateRegistry(clone()));
+
+  // A typo in an automatic rule's family is refused by name.
+  const typo = clone();
+  const automatic = typo.rules.find((rule) => rule.automatic && (rule.families ?? []).length);
+  assert.ok(automatic, 'the registry ships at least one automatic rule to mistype');
+  automatic.families = ['RHOOB'];
+  assert.throws(() => validateRegistry(typo), /RHOOB/, 'a misspelt family must fail the build');
+
+  // QV is named on purpose and only ever on a rule that cannot bind automatically. Flipping
+  // that flag is what would make the unbindable family bind, so it is refused too.
+  const bound = clone();
+  const qv = bound.rules.find((rule) => (rule.families ?? []).includes('QV'));
+  assert.ok(qv, 'the QV rule is what the exception exists for');
+  assert.equal(qv.automatic, false, 'and it ships non-automatic, per section 7.1 O-2');
+  qv.automatic = true;
+  assert.throws(() => validateRegistry(bound), /QV/, 'an unbindable family must not bind');
+
+  // The exception cannot outlive its reason in either direction.
+  const declared = clone();
+  declared.families.push({
+    family: 'QV',
+    canonical_unit: declared.families[0].canonical_unit,
+    quantity_kind: declared.families[0].quantity_kind,
+    aliases: [],
+  });
+  assert.throws(() => validateRegistry(declared), /declared family now/, 'a family that joined must leave the list');
+
+  const dropped = clone();
+  dropped.rules = dropped.rules.filter((rule) => !(rule.families ?? []).includes('QV'));
+  assert.throws(() => validateRegistry(dropped), /no rule names/, 'an excusal nothing uses must go');
+});
