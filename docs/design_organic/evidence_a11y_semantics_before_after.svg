@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="640" viewBox="0 0 980 640" font-family="Figtree, Segoe UI, system-ui, sans-serif">
+<rect width="980" height="640" fill="#f5ead8"/>
+<text x="24" y="34" font-size="17" font-weight="700" fill="#201e1d">Accessibility pass 2b: what the screen reader and the keyboard could reach</text>
+<text x="24" y="54" font-size="11" fill="#645c50">Every row measured against the running app through the accessibility tree, never read off the source. Grey rows were checked and found already correct.</text>
+<text x="24" y="88" font-size="11" font-weight="700" fill="#645c50">CHECK</text>
+<text x="392" y="88" font-size="11" font-weight="700" fill="#645c50">BEFORE</text>
+<text x="676" y="88" font-size="11" font-weight="700" fill="#645c50">AFTER</text>
+<line x1="24" y1="95" x2="956" y2="95" stroke="#dcd3c4" stroke-width="1"/>
+<text x="24" y="114" font-size="12" fill="#201e1d">A control in a dialog form row</text>
+<text x="392" y="114" font-size="12" fill="#a83e2c">no accessible name at all</text>
+<text x="676" y="114" font-size="12" fill="#56633f">named by its visible label</text>
+<text x="24" y="140" font-size="12" fill="#201e1d">A dialog</text>
+<text x="392" y="140" font-size="12" fill="#a83e2c">a plain div - no role, no name</text>
+<text x="676" y="140" font-size="12" fill="#56633f">dialog, named by its title bar</text>
+<text x="24" y="166" font-size="12" fill="#201e1d">The dialog close button</text>
+<text x="392" y="166" font-size="12" fill="#a83e2c">named "✕"</text>
+<text x="676" y="166" font-size="12" fill="#56633f">named "Close"</text>
+<text x="24" y="192" font-size="12" fill="#201e1d">Focus when a dialog opens</text>
+<text x="392" y="192" font-size="12" fill="#a83e2c">stays on the ribbon behind it</text>
+<text x="676" y="192" font-size="12" fill="#56633f">moves into the dialog</text>
+<text x="24" y="218" font-size="12" fill="#201e1d">Focus when a dialog closes</text>
+<text x="392" y="218" font-size="12" fill="#a83e2c">lost to the document body</text>
+<text x="676" y="218" font-size="12" fill="#56633f">returns to what opened it</text>
+<text x="24" y="244" font-size="12" fill="#201e1d">A ribbon tab</text>
+<text x="392" y="244" font-size="12" fill="#a83e2c">a button inside a role=tablist</text>
+<text x="676" y="244" font-size="12" fill="#56633f">role=tab, in a real tablist</text>
+<text x="24" y="270" font-size="12" fill="#201e1d">Which ribbon tab is open</text>
+<text x="392" y="270" font-size="12" fill="#a83e2c">a CSS class, and nothing else</text>
+<text x="676" y="270" font-size="12" fill="#56633f">aria-selected=true</text>
+<text x="24" y="296" font-size="12" fill="#201e1d">A ribbon panel</text>
+<text x="392" y="296" font-size="12" fill="#a83e2c">an unnamed section</text>
+<text x="676" y="296" font-size="12" fill="#56633f">tabpanel, named by its tab</text>
+<text x="24" y="322" font-size="12" fill="#201e1d">Landmarks from the app shell</text>
+<text x="392" y="322" font-size="12" fill="#a83e2c">none (the 5 present are dockview's)</text>
+<text x="676" y="322" font-size="12" fill="#56633f">banner / main / status</text>
+<text x="24" y="348" font-size="12" fill="#201e1d">Tab to a ribbon tool past the edge</text>
+<text x="392" y="348" font-size="12" fill="#a83e2c">left 9px outside the window</text>
+<text x="676" y="348" font-size="12" fill="#56633f">scrolled into view</text>
+<text x="24" y="374" font-size="12" fill="#8a8578">Controls with no accessible name</text>
+<text x="392" y="374" font-size="12" fill="#8a8578">0 of 13 in the shell</text>
+<text x="676" y="374" font-size="12" fill="#8a8578">unchanged - was already right</text>
+<text x="24" y="400" font-size="12" fill="#8a8578">Buttons with no accessible name</text>
+<text x="392" y="400" font-size="12" fill="#8a8578">0 of 135</text>
+<text x="676" y="400" font-size="12" fill="#8a8578">unchanged - was already right</text>
+<text x="24" y="426" font-size="12" fill="#8a8578">Horizontal scroll at 640x400</text>
+<text x="392" y="426" font-size="12" fill="#8a8578">none</text>
+<text x="676" y="426" font-size="12" fill="#8a8578">unchanged - reflow was already fine</text>
+<text x="24" y="452" font-size="12" fill="#8a8578">Language attribute on switch</text>
+<text x="392" y="452" font-size="12" fill="#8a8578">already followed the picker</text>
+<text x="676" y="452" font-size="12" fill="#8a8578">unchanged - was already right</text>
+<text x="24" y="492" font-size="13" font-weight="700" fill="#201e1d">Deliberately NOT changed</text>
+<text x="24" y="510" font-size="11" fill="#645c50">• aria-modal on dialogs — these are non-blocking by design (the scrim is pointer-transparent), so it would</text>
+<text x="24" y="528" font-size="11" fill="#645c50">   assert the workspace is inert and hide the whole app from a screen reader while everyone else kept using it.</text>
+<text x="24" y="546" font-size="11" fill="#645c50">• Roving tabindex and arrow keys on the ribbon tablist — that would REMOVE five tab stops that work today,</text>
+<text x="24" y="564" font-size="11" fill="#645c50">   and it is an authoring-practice nicety, not a WCAG AA requirement. The semantics are what was missing.</text>
+<text x="24" y="582" font-size="11" fill="#645c50">• The SandiBumi wordmark at 3.03:1 — WCAG 1.4.3 exempts a logotype, and --brand is declared once at :root.</text>
+<text x="24" y="620" font-size="10" fill="#645c50">One shared helper carried most of this: formRow builds a label that is a SIBLING of its control, so 333 rows across 51 files had no accessible name. Fixed once, at the helper.</text>
+</svg>

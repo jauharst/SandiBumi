@@ -1059,6 +1059,44 @@ What the foundation established, and the rules that keep it coherent:
   `overflow: hidden`; every floating menu is `position: fixed` and escapes — keep new
   menus that way. The dock gap lives in `workspace.ts` (dockview theme `gap: 7`), not CSS.
 
+### What names a control, and what a dialog owes a screen reader (2026-08-22)
+
+- **`formRow` associates its own label, and that is why it must stay the way rows are built.** The
+  row is a two-column grid, so the label is a SIBLING of its control - neighbours in the layout,
+  unconnected in the accessibility tree. Measured on the running app before the fix: a select built
+  this way resolved to **no accessible name at all**. `formRow` now links them (`labelableIn` finds
+  the control, generating an id only when it has none), so **333 call sites across 51 files** were
+  fixed in one place. A new dialog that hand-rolls its own label/control pair opts out of that and
+  gets the old bug back - use `formRow`.
+- **`button` is deliberately excluded from `LABELABLE`.** A button already carries its own name
+  from its text, and pointing a label at one makes the label text CLICK it - so "Core file" beside
+  a Browse button would open a file dialog.
+- **Never add `aria-modal` to these dialogs.** They are non-blocking by design (the scrim is
+  pointer-transparent, and the user keeps working in the panels behind them). `aria-modal="true"`
+  asserts the rest of the application is inert, which would hide the whole workspace from a screen
+  reader while every other user carried on. `role="dialog"` plus `aria-labelledby` on the title is
+  the correct pair, and is what `modal.ts` sets.
+- **A dialog takes focus on open and gives it back on close.** `openModal` focuses the DIALOG (not
+  its first field, so the title is read first) and restores focus to whatever opened it. A caller
+  that wants a particular field focused still wins, because it runs after.
+- **The ribbon tab strip is a real tablist**: `role="tab"` + `aria-selected` + `aria-controls` in
+  `index.html`, and `attachTabs` keeps `aria-selected` in step with the `active` class - which is
+  otherwise the ONLY place that information exists. There is deliberately **no roving tabindex or
+  arrow-key navigation**: that would remove five working tab stops, and it is an authoring-practice
+  nicety rather than a WCAG AA requirement.
+- **`.ribbon-body` scrolls the active panel to follow FOCUS, not just the chevrons.** Measured with
+  a real Tab keypress at a 640px viewport: focus landed on a tool whose right edge was 9px outside
+  the window and the panel did not move, so a keyboard user was operating a button they could not
+  see. `scrollLeft` is assigned directly - `scrollIntoView` would also scroll ancestors and jog the
+  whole workspace.
+- **`#status-bar` is `role="status"`, not `contentinfo`.** It is where `setStatus` writes, including
+  every refusal that also opens a dialog, and a polite live region is what makes those reach a
+  screen reader at all. It is not a body child, so it was never exposed as `contentinfo` anyway.
+- **Ask the accessibility tree, never grep.** Two "defects" found by grepping the source did not
+  exist - the ribbon selects are wrapped in `<label>` (a valid implicit association) and `i18n.ts`
+  has always set `document.documentElement.lang`. An audit that drives the UI must also inject
+  `* { transition: none }` first, for the reason recorded under the design system above.
+
 ## The launch screen (2026-08-01)
 
 `bootOverlay.ts` is a portrait launch card — artwork, mark, wordmark, edition and copyright — the

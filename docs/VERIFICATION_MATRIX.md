@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **165** of 685,
+Review sections counted toward no capability: **165** of 686,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -61,11 +61,11 @@ this table, so every figure above reads low by whatever those sections cover.
 | `report` | Report deliverables | Partially exercised | 8 / 116 | 2026-08-14 | 27 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
-| `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 170 | — | 30 |
+| `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 178 | — | 31 |
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 9 | — | 3 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
-| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 75 | 2026-07-19 | 18 |
+| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 253 | 2026-08-13 | 69 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 223 | 2026-08-13 | 59 |
