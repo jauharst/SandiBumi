@@ -1,5 +1,48 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit finding 13 (DEC-093): **your two SSC capillary-water rules are now in the note, and the tight-rock number is yours to set**
+
+- [ ] **What to click.** Run **SSC** on a well with a tight streak and confirm nothing changed —
+      the default is the same 0.05 the module has always run. Then open the SSC parameter dialog
+      and you will find a new **PHIT_TIGHT** field, per-zone overridable like every other one.
+- [ ] **What this settles.** `ssc()` runs four capillary-water conditioning rules; the banked note
+      carried two. You told me the other two are yours — *"i add those 2 rules to avoid minus and
+      non-reliable cwsh value, cwsh will always be exist even so small"* — so they were never a
+      transcription mistake to argue about against the `.lls`. They are method, and the **note** was
+      the thing that was wrong. Both are now written into `docs/method_ssc_sspw.md` step 8, in
+      Loglan order, with your authorship marked.
+- [ ] **Rule 2 does exactly what you said.** `PHIE − CWSH` **is** PHIFF (because PHIE = PHIT − CBW),
+      so that rule clamps free-fluid porosity at zero instead of letting the SSC triangle push it
+      negative. That is "avoid minus", precisely. Kept as written; its 0.001 now names `PHIE_FLOOR`
+      — the same number this app already uses everywhere as the smallest porosity it treats as real
+      — instead of repeating it as a second loose literal.
+- [ ] **Rule 4 is now `PHIT_TIGHT`, default 0.05.** Below that porosity every non-clay-bound pore is
+      declared capillary-held, so free porosity goes to zero and SWIRR reads 1.0. Nothing moved: the
+      default is the literal it replaced. But it is a per-zone number now, because a tight carbonate
+      stringer and a shaly sand should not have to share it — and because CWSH is `sw_rtc`'s CAPBW
+      input, so this rule moves Sw.
+- [ ] **Two things I measured that you should see.** First, rule 4 writes `PHIT − CBW`, which **is**
+      PHIE — the same value rule 2 writes. So the two differ only in *when* they fire. On tight rock
+      shaly enough that the triangle has already spent PHIE on capillary water, rule 2 clamps first
+      and rule 4 decides nothing. **Rule 4 is about clean tight rock**, and what it spends there is
+      not small: a clean streak at GR = GR_MA, RHOB 2.58, NPHI 0.04 computes PHIT 0.0406 and goes
+      from **3.9 p.u. of free porosity to zero**. Across a 270-point GR/RHOB/NPHI grid, 189 points
+      reach the rule, spanning GR 10–70 — it is not a corner case.
+- [ ] **Second, half of rule 4's test could never fire.** The condition was
+      `PHIT < 0.05 && CBW < 0.05`. But CBW = PHIT − PHIE with PHIE clamped into [0, PHIT], so
+      CBW ≤ PHIT always — `PHIT < 0.05` already forces `CBW < 0.05`. The clause is gone, and I would
+      still like to know what that second test was in your Loglan, because a test that cannot change
+      an outcome usually means a variable changed name on the way across.
+- [ ] **The option you did not take, for the record.** Retiring rule 4 and floating the floor on
+      SWIRR_MIN instead would need a non-zero SWIRR_MIN default — a petrophysical number, and yours
+      to give. SWIRR_MIN ships 0 today, so retiring rule 4 would have left tight rock with no floor
+      at all, which is the opposite of what you asked for. Say the word and I will do it once you
+      name the default.
+- [ ] **What stops it drifting.** A check pinned from both sides: the parameter really decides the
+      branch, **and** the shipped default still turns that clean 4-p.u. sample fully bound exactly as
+      before. A parameter nothing reads would pass the second half; a default that quietly differed
+      from the literal would pass the first.
+
 ## 2026-08-22 — Audit increment 90: **the rule protecting your data pointed at a function that only runs in tests**
 
 - [ ] **What to click.** Nothing. This is a documentation correction with a check behind it — no
