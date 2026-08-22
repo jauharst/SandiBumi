@@ -2277,4 +2277,90 @@ mod tests {
             "getTheme must consult the migration map, or every stored preference resets"
         );
     }
+
+    /// The label on an accent fill and the fill under it are ONE decision, and every theme
+    /// has to make it for its own ground.
+    ///
+    /// White on the light theme's terracotta measures 3.61:1 and on the dark theme's amber
+    /// 2.70:1 - both under the 4.5:1 floor for a button label. Darkening the fill rescues
+    /// neither: white needs #8c491a, which reads only 2.54:1 against the dark ground and
+    /// stops reading as a button at all. So those two grounds take an INK label while the
+    /// five colour themes keep white, and `--on-accent` is where each theme says which.
+    /// The fill itself is untouched - the terracotta is the design; only the label moved.
+    ///
+    /// Pinned from BOTH sides, because either half alone has a lazier reading that passes.
+    /// Side A alone (no rule hardcodes #fff on an accent fill) is satisfied by declaring
+    /// `--on-accent` once at `:root` and letting the colour themes inherit it - which paints
+    /// the light theme's near-black ink onto a deep blue accent. Side B alone (every theme
+    /// declares the token) is satisfied while the rules go on hardcoding #fff and never read
+    /// it. Only the pair forces a label that actually follows the theme.
+    #[test]
+    fn every_theme_declares_the_label_its_own_accent_fill_can_carry() {
+        let css = include_str!("../../src/styles.css").replace("\r\n", "\n");
+        // Built from code points rather than written as literals: `core_ancestry_tests::
+        // production_rust` separates production from test code by counting braces TEXTUALLY,
+        // so a lone brace in a char literal here would derail its cfg-test stripper.
+        let open_brace = char::from_u32(123).expect("U+007B");
+        let close = char::from_u32(125).expect("U+007D");
+
+        // Side A - no rule pairs an accent FILL with a hardcoded white label.
+        let mut offenders = Vec::new();
+        for chunk in css.split(close) {
+            let Some(at) = chunk.rfind(open_brace) else { continue };
+            let (selector, body) = chunk.split_at(at);
+            let selector = selector.rsplit('\n').next().unwrap_or(selector).trim();
+            let accent_fill = body.lines().any(|l| {
+                let l = l.trim();
+                (l.starts_with("background:") || l.starts_with("background-color:"))
+                    && l.contains("--accent")
+                    && !l.contains("-soft")
+            });
+            if !accent_fill {
+                continue;
+            }
+            let white_label = body.lines().any(|l| {
+                let l = l.trim().trim_end_matches(';').trim();
+                l == "color: #fff" || l == "color: #ffffff" || l == "color: white"
+            });
+            if white_label {
+                offenders.push(selector.to_string());
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these rules paint a hardcoded white label on an accent fill instead of reading \
+             var(--on-accent), so the label cannot follow the theme it is drawn on: {offenders:?}",
+        );
+
+        // Side B - every theme that sets its own --accent also says what rides on top of it.
+        let mut checked = 0;
+        for theme in ["dark", "color-1", "color-2", "color-3", "color-4", "white"] {
+            let needle = format!(":root[data-theme=\"{theme}\"] ");
+            let at = css.find(&needle).unwrap_or_else(|| panic!("styles.css lost {theme}"));
+            let block = css[at..].split(close).next().expect("the theme block closes");
+            assert!(block.contains("--accent:"), "{theme} must declare its own accent");
+            assert!(
+                block.contains("--on-accent:"),
+                "{theme} sets its own --accent but never says what colour a label on that \
+                 fill takes, so the label silently inherits another theme's ground",
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 6, "every non-default theme must be inspected, not fewer");
+
+        // And the two grounds that measurably cannot carry white must not be quietly set to
+        // it. Anchored on each block's own --accent-dim, which is unique to that theme.
+        for (theme, marker) in [
+            ("light", "--accent-dim: #8c491a;"),
+            ("dark", "--accent-dim: #b5651d;"),
+        ] {
+            let at = css.find(marker).unwrap_or_else(|| panic!("{theme} lost its --accent-dim"));
+            let block = css[at..].split(close).next().expect("the theme block closes");
+            assert!(
+                block.contains("--on-accent: #201e1d;"),
+                "{theme} carries an accent white cannot sit on (3.61:1 and 2.70:1 measured), \
+                 so its label has to stay ink",
+            );
+        }
+    }
 }

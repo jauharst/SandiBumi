@@ -1,5 +1,64 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Accessibility pass 2: **the ribbon, the log view and every dialog stay readable on all seven themes**
+
+- [ ] **What to click, and the one thing that looks different.** Switch theme through all
+      seven (Project ▸ Theme) and watch the **Run** button, the **active ribbon tab** and the
+      **📌 pin**. On the light and dark themes their label is now **near-black instead of
+      white**. The terracotta fill itself is untouched — only the writing on top of it moved.
+      On the five colour themes nothing changes: white was already readable there.
+- [ ] **Why it had to move, and why the fill could not move instead.** White on the light
+      theme's terracotta measures **3.61:1**, and on the dark theme's amber **2.70:1** — both
+      under the 4.5:1 a small label needs. I tried darkening the fill and keeping white: it
+      works on light (#8c491a reads 6.81:1) but **not on dark**, where white needs that same
+      #8c491a, which reads only **2.54:1 against the dark background** — the button stops
+      looking like a button at all. So the ground decides, and on those two grounds the
+      readable pairing is a bright fill with a dark label. Now 4.60:1 and 6.15:1.
+- [ ] **Hover and press moved with it.** With a dark label, darkening on hover runs the
+      writing into the fill (it measured 3.90:1 hovering, and **2.44:1 while pressed**). So on
+      those two themes an accent button now **lightens** as you press it, through
+      organic-tokens' own accent-500 and accent-400. The **border** darkens at the same time,
+      because a lighter fill loses its edge against the cream (2.52:1) while the border holds
+      it at 5.72:1. The five colour themes still darken, as they always did.
+- [ ] **Secondary text got one step darker on the default theme.** Depth ticks, ribbon group
+      captions, panel tab titles, the health labels. `--text-dim` was the handoff's
+      neutral-600, which measured **4.29:1** on a white panel and **3.55:1** on the cream —
+      and it was the odd one out: **every other theme in the app already sets its secondary
+      text between 5.07 and 6.33**. It is now neutral-700 from the same ramp: 6.59 / 5.53 /
+      5.44. Nothing else about it changed, and it should still read as clearly quieter than
+      the main text.
+- [ ] **The keyboard now shows you where you are, everywhere.** Press **Tab** repeatedly from
+      the ribbon. Every control draws the 2px accent ring. Two had none before — the log
+      view's **depth-scale dropdown** and the equation editor's **all-wells checkbox** —
+      because the blanket rule covered buttons only. All **72** focusable controls on screen
+      are covered now.
+- [ ] **The equation editor's line numbers.** Open the Equation Editor and look at the gutter
+      on the active line. CodeMirror was painting that one cell in its own hardcoded pale
+      blue, ignoring the theme entirely, which put the line number at **2.81:1 on dark**. It
+      takes the app's own hover tint now, on every theme.
+- [ ] **The measured result.** **101 pieces of unreadable text across the seven themes, down
+      to 6** — and all six are the same one item, the **SandiBumi wordmark** on the six
+      light themes. That one is deliberate: a logo is exempt from the contrast rule (WCAG
+      1.4.3), and this repo's own standing rule is that `--brand` is declared once and never
+      re-rolled by a theme. The dark theme is completely clean. Evidence card:
+      `docs/design_organic/evidence_accessibility_before_after.svg`.
+- [ ] **One thing I measured and deliberately left alone.** The little panel-header buttons
+      (＋ ⬌ ⬍ ▢ ⧉ ✕) are 22×18 px, under the 24×24 a touch target is supposed to be.
+      Making them bigger changes the height of every panel header, and dense data UI is a
+      decision you made on purpose. Say the word if you want them grown; I did not assume it.
+- [ ] **Small screens are fine.** Checked the layout at 1366×768 and 1024×640: nothing
+      overflows the window, the ribbon stays 82px, and where a ribbon tab is too wide the
+      ‹ › overflow chevrons already reach every tool — at 1024 the Project tab hides 578px
+      of buttons behind them and they all still come back.
+- [ ] **What the sweep actually covered, so you know where to look hardest.** 100 pieces of
+      text and 72 controls that were really on screen — the ribbon, Wells, Tops, Processing,
+      Performance, Log View, Inspector and the Equation Editor — across all seven themes.
+      **Dialogs and panes that were closed were not measured**, so they inherit the token
+      fixes but were not individually checked. If you open something and a label looks faint,
+      that is the place to tell me about.
+- [ ] **Nothing computed changed.** No parameter, cutoff or equation was touched; this pass
+      moved colours and a focus ring only.
+
 ## 2026-08-22 — Plots pass 1: **the crossplot stops changing colour when you change theme**
 
 - [ ] **What to click.** Open a **Crossplot** with no Z curve, then switch theme through all seven
