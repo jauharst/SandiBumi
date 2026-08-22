@@ -125,6 +125,12 @@ pub fn ssc_spec() -> ModuleSpec {
             param_open("PHIT_CL", "Total porosity of clay", "v/v", 0.0, 0.8, true),
             param_open("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 1.0, true),
             param(
+                "PHIT_TIGHT",
+                "Total porosity below which all non-clay-bound porosity is capillary-held",
+                "v/v", 0.05, 0.0, 0.5,
+                "Jauhar's own SSC conditioning rule, not the Loglan's (2026-08-20: 'i add those 2 rules to avoid minus and non-reliable cwsh value, cwsh will always be exist even so small'; KEPT and parameterised 2026-08-22, DEC-093). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it",
+            ),
+            param(
                 "GAS_C", "Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)",
                 "", 1.6, 0.0, 2.0,
                 "sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it: Jauhar rules 1.6 here too, extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately",
@@ -336,7 +342,13 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         if phie <= 0.002 {
             cwsh = phit - cbw;
         }
-        if phie - cwsh <= 0.001 {
+        // DEC-093 rule 2. `phie - cwsh` IS PHIFF (because PHIE = PHIT - CBW), so this clamps
+        // free-fluid porosity at zero instead of letting the SSC triangle drive it negative -
+        // Jauhar's "avoid minus". The dead band is `PHIE_FLOOR`, the smallest porosity this
+        // application treats as real anywhere, rather than a second bare literal meaning the
+        // same thing. `bw = phit` is the same value the recompute below reaches; kept because
+        // the Loglan order is preserved, harmless either way.
+        if phie - cwsh <= crate::modules::PHIE_FLOOR {
             cwsh = phie;
             bw = phit;
         }
@@ -347,7 +359,17 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
             }
         }
         cwsh = limit(cwsh, 0.0, phit);
-        if phit < 0.05 && cbw < 0.05 {
+        // DEC-093 rule 4. Below PHIT_TIGHT every non-clay-bound pore is declared capillary-held,
+        // so PHIFF goes to zero and SWIRR_T to 1.0: Jauhar's "cwsh will always be exist even so
+        // small", at the porosity where the SSC triangle stops discriminating. CWSH is `sw_rtc`'s
+        // declared CAPBW input, so this moves Sw on tight streaks - which is why the threshold is
+        // a per-zone parameter and not a literal.
+        //
+        // The Loglan-order companion test `cbw < 0.05` is GONE because it could never decide
+        // anything: `cbw = phit - phie` with PHIE clamped into [0, PHIT], so `cbw <= phit` always
+        // and `phit < 0.05` already implies it. Pinned by
+        // `the_tight_rock_floor_is_a_declared_parameter_whose_default_changes_nothing`.
+        if phit < ctx.p("PHIT_TIGHT", i) {
             cwsh = phit - cbw;
         }
         let phiff = phit - cbw - cwsh;
@@ -395,7 +417,7 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // The Loglan computes SWIRR_T and SWIRR_EFF together BEFORE the capillary
         // conditioning (.lls lines 213-216) and never revisits them; recomputing only
         // SWIRR_T from the post-conditioning BW here made the written pair mutually
-        // inconsistent whenever the SWIRR_MIN floor or the PHIT<0.05 rule fired.
+        // inconsistent whenever the SWIRR_MIN floor or the PHIT_TIGHT rule fired.
         // Write the reference's consistent pre-conditioning pair.
         set("SWIRR_T", swirr_t);
         set("SWIRR_EFF", swirr_eff);
@@ -625,6 +647,9 @@ mod tests {
             // exercise what actually ships. SSC's moved 1.0 -> 1.6 under DEC-088, which DOES move
             // SSC gas numbers - that was the ruling, not a side effect.
             ("ssc", "GAS_C") => 1.6,
+            // DEC-093: the literal this parameter replaced, stated here so every existing SSC
+            // fixture keeps running the tight-rock rule exactly as it always did.
+            ("ssc", "PHIT_TIGHT") => 0.05,
             ("sspw", "RHOB_MAT") => 2.65,
             ("sspw", "NPHI_MAT") => 0.0,
             ("sspw", "RHOB_SH") => 2.4,
@@ -733,6 +758,66 @@ mod tests {
         ));
         assert!(sh["VSAND_GR"][0].is_nan(), "degenerate VWSH must leave *_GR NaN, got {}", sh["VSAND_GR"][0]);
         assert!(sh["PHIT_GR"][0].is_nan());
+    }
+
+    /// DEC-093. `ssc()` runs FOUR capillary-water conditioning rules where
+    /// `docs/method_ssc_sspw.md` carried TWO. The extra pair is Jauhar's own, added to keep CWSH
+    /// non-negative and to keep some capillary water everywhere ("cwsh will always be exist even
+    /// so small", 2026-08-20); he KEPT both on 2026-08-22. What changes is that the tight-rock
+    /// threshold stops being a bare literal and becomes a per-zone parameter, because CWSH is
+    /// `sw_rtc`'s declared CAPBW input and this rule moves Sw.
+    ///
+    /// Rule 4 decides only CLEAN tight rock. Its assignment `cwsh = phit - cbw` IS `cwsh = phie`,
+    /// the same value rule 2 writes - so where a tight sample is shaly enough that the triangle
+    /// has already spent PHIE on capillary water, rule 2 clamps first and rule 4 changes nothing.
+    /// On clean rock the triangle leaves free porosity and rule 4 takes it.
+    ///
+    /// Pinned from both sides, because either half alone passes for the wrong reason. That the
+    /// parameter DRIVES the branch would be satisfied by a parameter whose default quietly
+    /// differs from the literal it replaced; that the default reproduces today's answer would be
+    /// satisfied by a parameter nothing reads.
+    #[test]
+    fn the_tight_rock_floor_is_a_declared_parameter_whose_default_changes_nothing() {
+        let spec = ssc_spec();
+        // A clean 4-p.u. streak - the rock this rule is about.
+        let mk = || ctx_with(vec![("GR", vec![10.0]), ("RHOB", vec![2.58]), ("NPHI", vec![0.04])], &spec, 1);
+
+        // Arm B: the shipped default is the literal it replaced, and it still turns this sample
+        // fully capillary-bound - the answer the module has given since it was written.
+        let shipped: f64 = spec
+            .args
+            .iter()
+            .find(|arg| arg.name == "PHIT_TIGHT")
+            .expect("the threshold is declared")
+            .default
+            .parse()
+            .expect("a numeric default");
+        assert_eq!(
+            shipped, 0.05,
+            "parameterising this rule must not move the number it replaced",
+        );
+        let bound = ssc(&mk());
+        let phit = bound["PHIT_SSC"][0] as f64;
+        assert!(
+            phit > 0.0 && phit < shipped,
+            "the fixture must be TIGHTER than the threshold or this test proves nothing: {phit}",
+        );
+        assert!(
+            bound["PHIFF_SSC"][0] as f64 <= 1e-9,
+            "below the threshold no porosity is free: {}",
+            bound["PHIFF_SSC"][0],
+        );
+
+        // Arm A: the parameter really decides the branch. Put it below the sample's own porosity
+        // and the triangle's answer survives - 3.9 p.u. here, which is the size of what this rule
+        // spends on one clean streak and the reason it is a per-zone number now.
+        let mut open = mk();
+        open.params.insert("PHIT_TIGHT".into(), vec![0.0]);
+        let free = ssc(&open)["PHIFF_SSC"][0] as f64;
+        assert!(
+            free > 0.03,
+            "with the threshold below PHIT the triangle's free porosity must survive: {free}",
+        );
     }
 
     #[test]

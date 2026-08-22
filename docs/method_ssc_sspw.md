@@ -48,10 +48,37 @@ Algorithm (all lines y=RHOB on x=NPHI):
    PHIT_SH=(RHOB_DSI−RHOB_WSI)/(RHOB_DSI−RHOB_FL); VWSH=VSH/(1−PHIT_SH);
    PHIFF=PHIE−VWSH·PHIT_SH; CWSH=VWSH−VDCL−CBW−VSILT (capillary-bound in silt/shale);
    BW=CBW+CWSH.
-8. **SWIRR**: SWIRR_T=BW/PHIT; SWIRR_EFF=1−PHIT·(1−SWIRR_T)/PHIE. Conditioning:
-   PHIE≤0.002→CWSH=PHIT−CBW; BW/PHIT<SWIRR_MIN→CWSH=RANNORMAL(SWIRR_MIN·PHIT,0.005)−CBW
-   (the SandiBumi port uses deterministic SWIRR_MIN·PHIT); PHIFF recomputed
-   = PHIT−CBW−CWSH.
+8. **SWIRR**: SWIRR_T=BW/PHIT; SWIRR_EFF=1−PHIT·(1−SWIRR_T)/PHIE. Conditioning runs FOUR rules
+   in Loglan order, then PHIFF is recomputed = PHIT−CBW−CWSH:
+
+   1. PHIE≤0.002 → CWSH=PHIT−CBW. *(the reference `.lls`)*
+   2. PHIFF≤PHIE_FLOOR → CWSH=PHIE. *(Jauhar's, DEC-093)* Written in the code as
+      `PHIE−CWSH≤PHIE_FLOOR`, which IS PHIFF because PHIE=PHIT−CBW. It clamps free-fluid
+      porosity at zero rather than letting the SSC triangle drive it negative. The dead band is
+      `PHIE_FLOOR` (0.001), the smallest porosity this application treats as real anywhere.
+   3. BW/PHIT<SWIRR_MIN → CWSH=RANNORMAL(SWIRR_MIN·PHIT,0.005)−CBW *(the reference `.lls`;* the
+      SandiBumi port uses deterministic SWIRR_MIN·PHIT). Shipped default SWIRR_MIN=0, so this is
+      OFF unless a zone sets it.
+   4. PHIT<**PHIT_TIGHT** → CWSH=PHIT−CBW. *(Jauhar's, DEC-093; PHIT_TIGHT default 0.05.)*
+      Below that porosity every non-clay-bound pore is declared capillary-held, so PHIFF=0 and
+      SWIRR_T=1.
+
+   Rules 2 and 4 are **Jauhar's own additions**, not the reference `.lls` (2026-08-20: *"i add
+   those 2 rules to avoid minus and non-reliable cwsh value, cwsh will always be exist even so
+   small"*); both were KEPT on 2026-08-22 and are recorded as DEC-093.
+
+   Two things a reader needs. Rule 4's assignment `PHIT−CBW` **is** PHIE, exactly what rule 2
+   writes — the rules differ only in their trigger, so rule 4 decides nothing on rock shaly enough
+   that the triangle has already spent PHIE on capillary water and rule 2 clamped first. It bites
+   on **clean** tight rock, where the triangle does leave free porosity: a clean 4-p.u. streak
+   (measured: GR at the matrix endpoint, RHOB 2.58, NPHI 0.04 → PHIT 0.0406) goes from 3.9 p.u. of
+   free porosity to zero. And rule 4's Loglan-order companion test `CBW<0.05` was REMOVED because
+   it could never decide anything: CBW=PHIT−PHIE with PHIE clamped into [0,PHIT], so CBW≤PHIT
+   always and PHIT<0.05 already implies it.
+
+   **CWSH is `sw_rtc`'s declared CAPBW input**, so both rules move Sw on tight streaks. That is
+   why the threshold is a per-zone parameter rather than a literal. Pinned by
+   `the_tight_rock_floor_is_a_declared_parameter_whose_default_changes_nothing`.
 9. **GR-equivalent volumes**: each SSC volume rescaled by VSHGR/VWSH (shale side) or
    (1−VSHGR)/(1−VWSH) (sand side) so track sums honour the chosen VSHGR
    (LINEAR/STIEBER/LARINOV/CLAVIER options).
