@@ -13,9 +13,13 @@
 //!   a lab-CEC calibration factor S, and shaly-sand exponents m*, n*.
 
 use crate::modules::{
-    log_in, log_in_one_of, log_out, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_in_one_of, log_out, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
 };
 use std::collections::HashMap;
+
+/// AUDIT-2026-08-20 finding 9 / DEC-094. One citation for both clay grain densities, because they
+/// come from one place and a second copy is a second thing to keep true.
+const CLAY_GRAIN_DENSITY_SOURCE: &str = "SandiMin's own endpoint library carries this grain density (sandimin.rs LIB: clay Kaolinite RHOB 2.62, clay Illite RHOB 2.78), and docs/multimin_ref_spec.md:62 verifies the same pair against the reference-suite Multimin bound-water coefficients (Illite 0.1841, Kaolinite 0.0694). IP 2025 ships the matching un-expanded illite coefficient 0.185 (docs/research_2026-07/ip2025_chm_ingest/C_mineral_solver.md 3.4), so the two tools agree on this pair to three decimals";
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
     if v.is_nan() { v } else { v.clamp(lo, hi) }
@@ -67,16 +71,49 @@ fn qv_at(qv_log: f64, phit: f64, cec: f64, rhog: f64) -> f64 {
     cec * rhog * (1.0 - phit) / (100.0 * phit)
 }
 
-/// Theoretical bulk CEC (meq/100g) from the clay model alone, BEFORE the lab scaling factor S:
-/// `Σ V_clay · CEC_literature` with the literature constants kaolinite 8 / illite 25 meq/100g
-/// (`docs/method_lrlc_rtc_imts.md`, IMTS §1).
+/// Theoretical bulk CEC from the clay model alone, BEFORE the lab scaling factor S, in
+/// **meq per 100 g of dry rock** - the units a laboratory CEC is reported in, which is what makes
+/// `S = CEC_lab / cec_theo_at(...)` a dimensionless ratio.
+///
+/// AUDIT-2026-08-20 finding 9 / DEC-094. This used to be `Σ V_clay · CEC_literature` with V taken
+/// straight from the VKAOL/VILL curves. Those curves are BULK VOLUME fractions - the manifest says
+/// so, and Jauhar confirmed on 2026-08-22 that they will be produced by other modules, which means
+/// a mineral solver, whose unity constraint is over volumes by construction. A volume fraction
+/// times a per-GRAM CEC is not a quantity at all, and the fitted S absorbed the mismatch silently
+/// because a dimensionless ratio will swallow a unit error and still report a plausible number.
+///
+/// Each clay's mass per cm3 of rock is `V·ρ_clay`; dividing the sum by the rock's own grain mass
+/// per cm3, `ρg·(1−φt)`, puts the answer on the laboratory's basis. The run then multiplies by
+/// that same `ρg·(1−φt)` on the way to Qv, so the two cancel and Qv reduces to the textbook
+/// `Σ V·ρ·CEC/(100·φt)` - which is the point: the density is what was missing, not the porosity.
+///
+/// Literature CEC constants kaolinite 8 / illite 25 meq/100g (`docs/method_lrlc_rtc_imts.md`,
+/// IMTS §1); grain densities kaolinite 2.62 / illite 2.78 g/cc, which this repository already
+/// carries twice over and consistently - `sandimin.rs`'s endpoint library (`clay("Kaolinite", …
+/// [2.62, …])`, `clay("Illite", … [2.78, …])`) and `docs/multimin_ref_spec.md:62`, where the same
+/// pair is verified against the reference-suite Multimin bound-water coefficients.
 ///
 /// Shared by the `sw_imts` module and the S-factor calibration below **on purpose**, for the same
 /// reason `qv_at` is shared with the RtC fit: `S = CEC_lab / cec_theo_at(...)` is then the exact
 /// algebraic inverse of what the run computes, so the calibration cannot quietly stop inverting
 /// the model it was fitted for.
-fn cec_theo_at(vkaol: f64, vill: f64, cec_kaol: f64, cec_ill: f64) -> f64 {
-    vkaol * cec_kaol + vill * cec_ill
+#[allow(clippy::too_many_arguments)]
+fn cec_theo_at(
+    vkaol: f64,
+    vill: f64,
+    cec_kaol: f64,
+    cec_ill: f64,
+    rho_kaol: f64,
+    rho_ill: f64,
+    rhog: f64,
+    phit: f64,
+) -> f64 {
+    // Grain mass per cm3 of rock. A sample with no porosity answer has no basis to report on.
+    let solid = rhog * (1.0 - phit);
+    if !(solid.is_finite() && solid > 0.0) {
+        return f64::NAN;
+    }
+    (vkaol * rho_kaol * cec_kaol + vill * rho_ill * cec_ill) / solid
 }
 
 /// Juhasz (1981) counterion mobility B as a function of temperature (degC) and Rw.
@@ -273,8 +310,11 @@ pub fn sw_imts_spec() -> ModuleSpec {
         category: "Saturation".into(),
         doc: "LRLC IMTS model: Waxman-Smits-family conductivity with the clay charge \
               referenced to the ACTIVE water — Qv_eff = Qv_bulk/(1−Swirr), where Qv_bulk \
-              is built from clay volumes (kaolinite/illite) times literature CEC constants \
-              (8 / 25 meq/100g), calibrated to lab CEC by scaling factor S. Iterates \
+              is the clay MASS per unit dry-rock mass times literature CEC constants \
+              (kaolinite 8 / illite 25 meq/100g of DRY ROCK), i.e. \
+              (V_kaol*RHO_KAOL*CEC_KAOL + V_ill*RHO_ILL*CEC_ILL)/(RHOG*(1-PHIT)) - the clay's \
+              own grain density is what converts its volume to the mass the charge sits on. \
+              Calibrated to lab CEC by scaling factor S. Iterates \
               Ct = SwT^N*/F*·(Cw + B·Qv_eff/SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) \
               until SwT is stable. SWE from CBW. VKAOL/VILL resolve from the selected clay curves. \
               S = measured lab CEC / XRD-theoretical CEC, so it is A PROPERTY OF THE ROCK AND \
@@ -282,7 +322,9 @@ pub fn sw_imts_spec() -> ModuleSpec {
               clay-charge term, so getting \
               it wrong scales Qv_eff directly and moves Sw with no outward sign. Fit your own \
               with Advance ▸ Calibrate S…, which regresses S from lab CEC measurements against \
-              the clay content of the very curves this run will use."
+              the clay content of the very curves this run will use. S is on the GRAIN-WEIGHT \
+              basis and is NAMED S_FACTOR_GW for that reason (DEC-094): a value fitted under the \
+              older bulk-volume denominator reads roughly a fifth high at ordinary porosity."
             .into(),
         args: vec![
             param_open(
@@ -312,12 +354,20 @@ pub fn sw_imts_spec() -> ModuleSpec {
                 true,
             ),
             param_open(
-                "S_FACTOR",
-                "CEC scaling factor S (lab/XRD)",
+                "S_FACTOR_GW",
+                "CEC scaling factor S (lab/XRD), grain-weight basis",
                 "",
                 0.01,
                 2.0,
                 true,
+            ),
+            param(
+                "RHO_KAOL", "Kaolinite grain density", "g/cc", 2.62, 1.0, 4.0,
+                CLAY_GRAIN_DENSITY_SOURCE,
+            ),
+            param(
+                "RHO_ILL", "Illite grain density", "g/cc", 2.78, 1.0, 4.0,
+                CLAY_GRAIN_DENSITY_SOURCE,
             ),
             param_open(
                 "CEC_KAOL",
@@ -365,7 +415,19 @@ pub fn sw_imts_spec() -> ModuleSpec {
     }
 }
 
-pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
+pub fn sw_imts(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
+    // AUDIT-2026-08-20 finding 9 / DEC-094, Jauhar's word: REFUSE. The Qv basis changed - the clay
+    // grain density entered `cec_theo_at` - so an S fitted before that change was fitted against a
+    // different denominator and is roughly a fifth too high at ordinary porosity. It would still
+    // be inside S's declared [0.01, 2.0] range, still produce a smooth Sw curve, and still plot;
+    // nothing downstream could catch it. The parameter was RENAMED for exactly that reason (the
+    // repository's own apparent-versus-corrected naming rule, `GRAIN_D50_APP` beside
+    // `GRAIN_D50_W`), so a stale value cannot arrive under the new meaning - and this refuses by
+    // NAME rather than returning a well of NaN, because "nothing happened" is not a message.
+    if !(0..ctx.n).any(|i| ctx.p("S_FACTOR_GW", i).is_finite()) {
+        return Err("sw_imts needs S_FACTOR_GW, the CEC scaling factor on the grain-weight Qv basis (DEC-094). If this project carries an S_FACTOR fitted before 2026-08-22, it was fitted against a different denominator and reads roughly a fifth high at 15 p.u. - re-run Advance > Calibrate S rather than copying the old number across.".to_string());
+    }
+
     let rt = ctx.log("RT");
     // SSPW fallback (see sw_rtc): PHIT/CBW fall back to their _SSPW equivalents when absent.
     let phit = prefer(&ctx.log("PHIT"), &ctx.log("PHIT_SSPW"));
@@ -414,8 +476,17 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         };
 
         // Qv_bulk from scaled XRD clay charge; Qv_eff references the active water.
-        let cec_bulk = ctx.p("S_FACTOR", i)
-            * cec_theo_at(vk, vi, ctx.p("CEC_KAOL", i), ctx.p("CEC_ILL", i));
+        let cec_bulk = ctx.p("S_FACTOR_GW", i)
+            * cec_theo_at(
+                vk,
+                vi,
+                ctx.p("CEC_KAOL", i),
+                ctx.p("CEC_ILL", i),
+                ctx.p("RHO_KAOL", i),
+                ctx.p("RHO_ILL", i),
+                ctx.p("RHOG", i),
+                pt,
+            );
         let qv_bulk = cec_bulk * ctx.p("RHOG", i) * (1.0 - pt) / (100.0 * pt);
         let qv_eff = qv_bulk / (1.0 - swirr);
         qveff_o[i] = qv_eff as f32;
@@ -487,7 +558,7 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         .iter()
         .map(|sw| if sw.is_finite() { crate::sandimin::SwModel::SwImts.flag_code() } else { f32::NAN })
         .collect();
-    HashMap::from([
+    Ok(HashMap::from([
         ("SWT_IMTS".to_string(), swt_raw_o),
         ("SWE_IMTS".to_string(), swe_raw_o),
         ("SWT".to_string(), swt_o),
@@ -495,7 +566,7 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         ("SW_METHOD".to_string(), method_flag),
         ("VOL_UWAT".to_string(), vol_uwat_o),
         ("QVEFF".to_string(), qveff_o),
-    ])
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -993,6 +1064,11 @@ pub struct SFactorFitRequest {
     pub vkaol_curve: String,
     #[serde(default)]
     pub vill_curve: String,
+    /// Total porosity, resolved the way `sw_imts` resolves it. DEC-094: the grain-weight Qv
+    /// basis needs the rock's own grain mass per unit volume, `RHOG·(1−PHIT)`, so the fit must
+    /// read the same porosity the run will - a plug scaled by a porosity the module never sees
+    /// would put the fit back out of alignment with the equation it exists to invert.
+    pub phit_curve: String,
     /// Literature CEC constants. Held FIXED — see the header note on identifiability.
     #[serde(default = "default_cec_kaol")]
     pub cec_kaol: f64,
@@ -1007,8 +1083,22 @@ pub struct SFactorFitRequest {
     /// most plugs and was made on whatever handful survived.
     #[serde(default)]
     pub depth_tol: Option<f64>,
+    /// DEC-094. Grain densities, held FIXED for the same identifiability reason as the CEC
+    /// constants: S multiplies `Σ V·ρ·CEC`, so scaling a density and scaling S are one operation.
+    #[serde(default = "default_rhog")]
+    pub rhog: f64,
+    #[serde(default = "default_rho_kaol")]
+    pub rho_kaol: f64,
+    #[serde(default = "default_rho_ill")]
+    pub rho_ill: f64,
 }
 
+fn default_rho_kaol() -> f64 {
+    2.62
+}
+fn default_rho_ill() -> f64 {
+    2.78
+}
 fn default_cec_kaol() -> f64 {
     8.0
 }
@@ -1025,6 +1115,9 @@ pub struct SFactorPoint {
     pub log_depth: f64,
     pub vkaol: f64,
     pub vill: f64,
+    /// DEC-094: the porosity that put this plug on the laboratory's mass basis. Reported so a
+    /// plug scaled by a suspicious porosity is visible in the scatter, like `log_depth`.
+    pub phit: f64,
     /// Theoretical bulk CEC from the clay model — the regression's x.
     pub cec_theo: f64,
     /// Measured laboratory CEC — the regression's y.
@@ -1057,6 +1150,10 @@ pub struct SFactorFitResult {
     /// Echoed back: S is only valid for these constants.
     pub cec_kaol_used: f64,
     pub cec_ill_used: f64,
+    /// DEC-094: and for these densities, for the same identifiability reason.
+    pub rho_kaol_used: f64,
+    pub rho_ill_used: f64,
+    pub rhog_used: f64,
     pub points: Vec<SFactorPoint>,
     pub excluded: Vec<(String, usize)>,
     pub notes: Vec<String>,
@@ -1076,6 +1173,9 @@ fn s_err(msg: &str) -> SFactorFitResult {
         wells_fitted: vec![],
         cec_kaol_used: f64::NAN,
         cec_ill_used: f64::NAN,
+        rho_kaol_used: f64::NAN,
+        rho_ill_used: f64::NAN,
+        rhog_used: f64::NAN,
         points: vec![],
         excluded: vec![],
         notes: vec![],
@@ -1120,6 +1220,19 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
     {
         return s_err("the literature CEC constants must be finite and non-negative");
     }
+    if !(req.rhog.is_finite() && req.rhog > 0.0)
+        || !(req.rho_kaol.is_finite() && req.rho_kaol > 0.0)
+        || !(req.rho_ill.is_finite() && req.rho_ill > 0.0)
+    {
+        return s_err(
+            "DEC-094: the grain densities must be positive. S is fitted on a mass basis, so RHOG, RHO_KAOL and RHO_ILL are part of what it means",
+        );
+    }
+    if req.phit_curve.trim().is_empty() {
+        return s_err(
+            "DEC-094: name the total-porosity curve. S is CEC_lab divided by a per-gram quantity, so the fit needs the same PHIT the run will use to put each plug on that basis",
+        );
+    }
     if req.cec_kaol <= 0.0 && req.cec_ill <= 0.0 {
         return s_err("both literature CEC constants are zero — the clay model then predicts no exchange capacity anywhere and S cannot be defined");
     }
@@ -1135,9 +1248,10 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
         }
     };
 
+    let phit_n = req.phit_curve.trim().to_uppercase();
     let mut pts: Vec<SFactorPoint> = Vec::new();
-    let (mut ex_nomatch, mut ex_noclay, mut ex_nolab, mut ex_noclaydata) =
-        (0usize, 0usize, 0usize, 0usize);
+    let (mut ex_nomatch, mut ex_noclay, mut ex_nolab, mut ex_noclaydata, mut ex_nophit) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
     let mut items_seen: std::collections::BTreeSet<String> = Default::default();
     let mut wells_used: std::collections::BTreeSet<String> = Default::default();
     let mut empty_wells: Vec<String> = Vec::new();
@@ -1152,6 +1266,7 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
         if !vi_n.is_empty() {
             names.push(vi_n.clone());
         }
+        names.push(phit_n.clone());
         for well_id in &req.well_ids {
             let before = pts.len();
             'well: {
@@ -1169,6 +1284,7 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
                 }
                 let vkv = cols.get(&vk_n);
                 let viv = cols.get(&vi_n);
+                let ptv = cols.get(&phit_n);
                 if vkv.is_none() && viv.is_none() {
                     break 'well;
                 }
@@ -1213,7 +1329,17 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
                     }
                     let vk = if vk.is_nan() { 0.0 } else { limit(vk, 0.0, 1.0) };
                     let vi = if vi.is_nan() { 0.0 } else { limit(vi, 0.0, 1.0) };
-                    let theo = cec_theo_at(vk, vi, req.cec_kaol, req.cec_ill);
+                    // DEC-094: no porosity, no mass basis. Substituting one would be inventing
+                    // the rock's own grain mass, and the fitted S would carry that invention
+                    // forward into every saturation the module computes.
+                    let pt = ptv.and_then(|c| c.get(idx)).map(|v| *v as f64).unwrap_or(f64::NAN);
+                    if !(pt.is_finite() && pt > 0.0 && pt < 1.0) {
+                        ex_nophit += 1;
+                        continue;
+                    }
+                    let theo = cec_theo_at(
+                        vk, vi, req.cec_kaol, req.cec_ill, req.rho_kaol, req.rho_ill, req.rhog, pt,
+                    );
                     if !(theo.is_finite() && theo > 0.0) {
                         // The clay model says there is no clay here. A ratio would divide by
                         // zero, and a lab CEC that is NOT zero at such a depth is evidence
@@ -1227,6 +1353,7 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
                         log_depth: ld,
                         vkaol: vk,
                         vill: vi,
+                        phit: pt,
                         cec_theo: theo,
                         cec_lab: lab,
                         ratio: lab / theo,
@@ -1350,14 +1477,14 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
         ));
     }
     notes.push(format!(
-        "S is valid for CEC_KAOL = {} and CEC_ILL = {} only — S multiplies those constants, so \
-         the three are not jointly identifiable and changing them afterwards invalidates it",
-        req.cec_kaol, req.cec_ill
+        "S is valid for CEC_KAOL = {}, CEC_ILL = {}, RHO_KAOL = {}, RHO_ILL = {} and RHOG = {} only. S multiplies all five, so none of them is jointly identifiable with it and changing any of them afterwards invalidates it",
+        req.cec_kaol, req.cec_ill, req.rho_kaol, req.rho_ill, req.rhog
     ));
 
     let excluded: Vec<(String, usize)> = [
         ("no log sample within the depth tolerance".to_string(), ex_nomatch),
         ("clay curves carry no data at that depth".to_string(), ex_noclaydata),
+        ("no total porosity at that depth".to_string(), ex_nophit),
         ("clay model says no clay there (no ratio to take)".to_string(), ex_noclay),
         ("laboratory CEC missing or negative".to_string(), ex_nolab),
     ]
@@ -1381,6 +1508,9 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
         n_wells,
         wells_fitted: wells_used.into_iter().collect(),
         cec_kaol_used: req.cec_kaol,
+        rho_kaol_used: req.rho_kaol,
+        rho_ill_used: req.rho_ill,
+        rhog_used: req.rhog,
         cec_ill_used: req.cec_ill,
         points: pts,
         excluded,
@@ -1476,7 +1606,7 @@ mod tests {
             ],
             &spec,
             1,
-        ));
+        )).expect("the fixture supplies S_FACTOR_GW");
         let expected = ((pt - cb) * out["SWE"][0] as f64) as f32;
         assert!(
             (out["VOL_UWAT"][0] - expected).abs() < 1e-6,
@@ -1496,7 +1626,7 @@ mod tests {
             ],
             &sw_imts_spec(),
             1,
-        ));
+        )).expect("the fixture supplies S_FACTOR_GW");
         assert!(
             clipped["SWT_IMTS"][0] > 1.0,
             "the fixture must land the solve on the bound with a raw excursion, got {}",
@@ -1534,7 +1664,7 @@ mod tests {
             ],
             &spec,
             1,
-        ));
+        )).expect("the fixture supplies S_FACTOR_GW");
         assert!(
             out["SWT_IMTS"][0].is_finite(),
             "a converging sample must keep its value, got {}",
@@ -1584,7 +1714,10 @@ mod tests {
             ("sw_imts", "TEMP_C") => 60.0,
             ("sw_imts", "A") => 1.0,
             ("sw_imts", "MSTAR") | ("sw_imts", "NSTAR") => 1.9,
-            ("sw_imts", "S_FACTOR") => 0.5,
+            ("sw_imts", "S_FACTOR_GW") => 0.5,
+            // DEC-094: the manifest defaults, stated explicitly like every other one here.
+            ("sw_imts", "RHO_KAOL") => 2.62,
+            ("sw_imts", "RHO_ILL") => 2.78,
             ("sw_imts", "CEC_KAOL") => 8.0,
             ("sw_imts", "CEC_ILL") => 25.0,
             ("sw_imts", "RHOG") => 2.65,
@@ -1634,7 +1767,7 @@ mod tests {
         let run = |extra: Vec<(&str, Vec<f32>)>| {
             let mut logs = base.clone();
             logs.extend(extra);
-            sw_imts(&ctx_with(logs, &spec, 1))
+            sw_imts(&ctx_with(logs, &spec, 1)).expect("the fixture supplies S_FACTOR_GW")
         };
 
         // (a) Both minerals logged — the control: a real clay charge and a real saturation.
@@ -1860,7 +1993,7 @@ mod tests {
             &spec,
             3,
         );
-        let out = sw_imts(&ctx);
+        let out = sw_imts(&ctx).expect("the fixture supplies S_FACTOR_GW");
         for i in 0..3 {
             assert!(out["SWT_IMTS"][i].is_finite(), "sample {i}: SWT_IMTS must be computed, got NaN");
             assert!(out["SWE_IMTS"][i] <= out["SWT_IMTS"][i], "sample {i}: SWE <= SWT");
@@ -1894,7 +2027,7 @@ mod tests {
             ],
             &spec,
             1,
-        ));
+        )).expect("the fixture supplies S_FACTOR_GW");
         assert_eq!(ssc_only["SWT_IMTS"][0], out["SWT_IMTS"][0]);
     }
 
@@ -1941,7 +2074,7 @@ mod tests {
             &spec,
             1,
         );
-        let out = sw_imts(&ctx);
+        let out = sw_imts(&ctx).expect("the fixture supplies S_FACTOR_GW");
         let swt = out["SWT_IMTS"][0] as f64;
         assert!(swt > 0.0 && swt <= 1.0, "SwT out of range: {swt}");
         // With extra clay conductivity explained, SwT must be below the Archie-like seed.
@@ -1977,7 +2110,7 @@ mod tests {
             &spec,
             1,
         );
-        let out = sw_imts(&ctx);
+        let out = sw_imts(&ctx).expect("the fixture supplies S_FACTOR_GW");
         let expect = ((1.0 / 0.25_f64.powf(1.9)) * (1.0 / 8.0) * 0.3).powf(1.0 / 1.9) as f32;
         assert!((out["SWT_IMTS"][0] - expect).abs() < 1e-4, "{} vs {}", out["SWT_IMTS"][0], expect);
         assert_eq!(out["QVEFF"][0], 0.0, "no clay measured means no clay charge");
@@ -2002,7 +2135,7 @@ mod tests {
             &spec,
             1,
         );
-        let out = sw_imts(&ctx);
+        let out = sw_imts(&ctx).expect("the fixture supplies S_FACTOR_GW");
         let swt = out["SWT_IMTS"][0] as f64;
         assert!(swt > 0.0 && swt <= 1.0, "SwT out of range: {swt}");
         let seed = ((1.0 / 0.25_f64.powf(1.9)) * (1.0 / 20.0) / (1.0 / 0.3)).powf(1.0 / 1.9);
@@ -2385,13 +2518,18 @@ mod tests {
         db::insert_well(conn, wid, name, None, None, Some(0.0)).unwrap();
 
         let mut depth = Vec::with_capacity(n_samples);
-        let (mut vk, mut vi) = (vec![], vec![]);
+        let (mut vk, mut vi, mut pt) = (vec![], vec![], vec![]);
         for i in 0..n_samples {
             let f = i as f64 / (n_samples - 1) as f64;
             depth.push((1000.0 + 0.5 * i as f64) as f32);
             let (a, b) = clay_at(f);
             vk.push(a as f32);
             vi.push(b as f32);
+            // DEC-094: porosity VARIES down the well on purpose. A constant PHIT would let the
+            // old volume-fraction basis pass this round trip, because the missing
+            // rho_clay/(RHOG*(1-PHIT)) factor is then a constant the fitted S absorbs whole -
+            // which is exactly how the defect survived until the audit found it.
+            pt.push((0.05 + 0.25 * f) as f32);
         }
         let nan = vec![f32::NAN; n_samples];
         db::insert_standard_curves(
@@ -2400,7 +2538,8 @@ mod tests {
         )
         .unwrap();
         crate::equations::write_computed_curves_batch(
-            conn, &wid.to_string(), &depth, &[("VKAOL_SYN", &vk), ("VILL_SYN", &vi)],
+            conn, &wid.to_string(), &depth,
+            &[("VKAOL_SYN", &vk), ("VILL_SYN", &vi), ("PHIT_SYN", &pt)],
         )
         .unwrap();
 
@@ -2414,7 +2553,9 @@ mod tests {
         let rows: Vec<db::AuxRow> = (0..n_plugs)
             .map(|k| {
                 let i = (k * step).min(n_samples - 1);
-                let theo = cec_theo_at(vk[i] as f64, vi[i] as f64, 8.0, 25.0);
+                let theo = cec_theo_at(
+                    vk[i] as f64, vi[i] as f64, 8.0, 25.0, 2.62, 2.78, 2.65, pt[i] as f64,
+                );
                 db::AuxRow {
                     dataset: "CEC".into(),
                     depth_top: (depth[i] as f64 + plug_offset) as f32,
@@ -2436,9 +2577,13 @@ mod tests {
             cec_item: "CEC".into(),
             vkaol_curve: "VKAOL_SYN".into(),
             vill_curve: "VILL_SYN".into(),
+            phit_curve: "PHIT_SYN".into(),
             cec_kaol: 8.0,
             cec_ill: 25.0,
             depth_tol: Some(0.15),
+            rhog: 2.65,
+            rho_kaol: 2.62,
+            rho_ill: 2.78,
         }
     }
 
@@ -2477,6 +2622,92 @@ mod tests {
     /// The fitted S must make `sw_imts` reproduce the measured CEC — that is the point of
     /// deriving the fit as the algebraic inverse of `cec_theo_at` rather than from the method
     /// note. QVEFF is the module's only exposed view of the clay charge, so check it there.
+    /// AUDIT-2026-08-20 finding 9 / DEC-094. `sw_imts` built its clay charge as
+    /// `Σ V·CEC · ρg·(1−φt)`, which is the arithmetic for a GRAIN-WEIGHT fraction - while VKAOL
+    /// and VILL are BULK VOLUME fractions, as the manifest says and as any mineral solver produces
+    /// (its unity constraint is over volumes). A volume fraction times a per-gram CEC is not a
+    /// quantity, and the error is not a constant: the missing factor is `ρ_clay/(ρg·(1−φt))`, so it
+    /// moves with porosity. The fitted S has no porosity term, so it absorbs only the MEAN over the
+    /// calibration plugs - leaving Sw overstated in rock more porous than the plugs and understated
+    /// in tighter rock, which rotates the Sw-vs-φ trend a cutoff is read off.
+    ///
+    /// Pinned from both sides, because either half alone passes for the wrong reason. Matching the
+    /// corrected closed form would be satisfied by any expression that happens to agree at one
+    /// sample; differing from the old form would be satisfied by any change at all, right or wrong.
+    /// So: the run equals the corrected form exactly, AND it is measurably NOT the old one - by the
+    /// audit's own magnitude, which is what says the fix is the one that was needed.
+    #[test]
+    fn the_clay_charge_is_built_from_grain_mass_not_bulk_volume() {
+        let spec = sw_imts_spec();
+        let (vk, vi) = (0.20f64, 0.10f64);
+        let (cec_k, cec_i) = (8.0f64, 25.0f64);
+        let (rho_k, rho_i, rhog, phit) = (2.62f64, 2.78f64, 2.65f64, 0.25f64);
+        let mut ctx = ctx_with(
+            vec![
+                ("RT", vec![10.0]),
+                ("PHIT", vec![phit as f32]),
+                ("VKAOL", vec![vk as f32]),
+                ("VILL", vec![vi as f32]),
+            ],
+            &spec,
+            1,
+        );
+        for (name, value) in [
+            ("S_FACTOR_GW", 1.0),
+            ("CEC_KAOL", cec_k),
+            ("CEC_ILL", cec_i),
+            ("RHO_KAOL", rho_k),
+            ("RHO_ILL", rho_i),
+            ("RHOG", rhog),
+            // No irreducible-water lift, so QVEFF is Qv_bulk and the arithmetic below is readable.
+            ("SWIRR_DEF", 0.0),
+        ] {
+            ctx.params.insert(name.into(), vec![value]);
+        }
+        let qv = sw_imts(&ctx).expect("the fixture supplies S_FACTOR_GW")["QVEFF"][0] as f64;
+
+        // Each clay's own mass per cm3 of rock carries its own exchange capacity.
+        let corrected = (vk * rho_k * cec_k + vi * rho_i * cec_i) / (100.0 * phit);
+        assert!(
+            (qv - corrected).abs() < 1e-6 * corrected,
+            "Qv must be the grain-mass form: {qv} vs {corrected}",
+        );
+
+        // The form it used to compute: a volume fraction fed through the grain-WEIGHT conversion.
+        let bulk_volume = (vk * cec_k + vi * cec_i) * rhog * (1.0 - phit) / (100.0 * phit);
+        let shortfall = 1.0 - bulk_volume / corrected;
+        assert!(
+            (0.20..0.35).contains(&shortfall),
+            "the old form must be materially LOW at reservoir porosity - the audit measured 24% for kaolinite and 28.5% for illite, and this mix sits between them: {shortfall}",
+        );
+    }
+
+    /// AUDIT-2026-08-20 finding 9 / DEC-094, Jauhar's word on 2026-08-22: REFUSE. An S fitted
+    /// before the basis changed is roughly a fifth high at ordinary porosity, sits comfortably
+    /// inside S's declared [0.01, 2.0] range, and produces a smooth plausible Sw curve - nothing
+    /// downstream can catch it. `S_FACTOR` was RENAMED to `S_FACTOR_GW` so a stale value cannot
+    /// arrive under the new meaning, and the module refuses BY NAME rather than returning a well
+    /// of NaN, because a curve that silently comes back empty is not a message.
+    #[test]
+    fn a_run_without_the_grain_weight_scaling_factor_refuses_by_name() {
+        let spec = sw_imts_spec();
+        let mut ctx = ctx_with(
+            vec![
+                ("RT", vec![10.0]),
+                ("PHIT", vec![0.25]),
+                ("VKAOL", vec![0.20]),
+                ("VILL", vec![0.10]),
+            ],
+            &spec,
+            1,
+        );
+        ctx.params.remove("S_FACTOR_GW");
+        let error = sw_imts(&ctx).expect_err("a run with no scaling factor must refuse");
+        for needle in ["S_FACTOR_GW", "DEC-094", "Calibrate S"] {
+            assert!(error.contains(needle), "the refusal must name {needle}: {error}");
+        }
+    }
+
     #[test]
     fn the_fitted_s_makes_the_module_reproduce_the_measured_cec() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2488,7 +2719,11 @@ mod tests {
 
         // Take a real plug and run the module at its clay content with the fitted S.
         let p = &r.points[10];
-        let (rhog, swirr, phit) = (2.65f64, 0.2f64, 0.25f64);
+        // DEC-094: the module runs at the PLUG's own porosity, not an arbitrary one. The lab CEC
+        // was measured on that rock, and porosity is now part of what puts a clay volume on the
+        // laboratory's mass basis - running the module elsewhere would be asking it to reproduce
+        // a measurement made on different rock.
+        let (rhog, swirr, phit) = (2.65f64, 0.2f64, p.phit);
         let spec = sw_imts_spec();
         let mut ctx = ctx_with(
             vec![
@@ -2500,10 +2735,10 @@ mod tests {
             &spec,
             1,
         );
-        ctx.params.insert("S_FACTOR".into(), vec![r.s_factor]);
+        ctx.params.insert("S_FACTOR_GW".into(), vec![r.s_factor]);
         ctx.params.insert("SWIRR_DEF".into(), vec![swirr]);
         ctx.params.insert("RHOG".into(), vec![rhog]);
-        let qveff = sw_imts(&ctx)["QVEFF"][0] as f64;
+        let qveff = sw_imts(&ctx).expect("the fixture supplies S_FACTOR_GW")["QVEFF"][0] as f64;
 
         // What the laboratory measurement itself says Qv_eff is at this plug.
         let expect = p.cec_lab * rhog * (1.0 - phit) / (100.0 * phit * (1.0 - swirr));
@@ -2675,7 +2910,7 @@ mod tests {
         assert_eq!(half.cec_kaol_used, 4.0);
         assert_eq!(half.cec_ill_used, 12.5);
         assert!(
-            half.notes.iter().any(|n| n.contains("not jointly identifiable")),
+            half.notes.iter().any(|n| n.contains("none of them is jointly identifiable")),
             "{:?}",
             half.notes
         );

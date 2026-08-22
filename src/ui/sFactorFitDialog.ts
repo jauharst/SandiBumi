@@ -179,6 +179,10 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
   };
   const kaolIn = mkNum("Kaolinite CEC (meq/100g)", 8, "0.1", "Literature constant. Held fixed — S multiplies it");
   const illIn = mkNum("Illite CEC (meq/100g)", 25, "0.1", "Literature constant. Held fixed — S multiplies it");
+  const ptIn = mkText("PHIT curve", "PHIT_SSC", "Total porosity — sw_imts's own default input. S is a per-gram quantity, so each plug is put on that basis with the same porosity the run will use");
+  const rhogIn = mkNum("Grain density (g/cc)", 2.65, "0.01", "The rock's own grain density. Held fixed — S multiplies it");
+  const rhoKaolIn = mkNum("Kaolinite grain density (g/cc)", 2.62, "0.01", "SandiMin's endpoint library, verified in docs/multimin_ref_spec.md:62. Held fixed — S multiplies it");
+  const rhoIllIn = mkNum("Illite grain density (g/cc)", 2.78, "0.01", "SandiMin's endpoint library, verified in docs/multimin_ref_spec.md:62. Held fixed — S multiplies it");
   // Typed, so it is in the project's STORED unit and reaches the backend unconverted — and the
   // default is one 6-inch sample expressed in that unit, not a bare 0.15 that means 1.8 inches
   // on a foot project and drops most of the plugs the fit needs.
@@ -227,13 +231,17 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
     }
     const f = (v: number, d = 4) => (Number.isFinite(v) ? v.toFixed(d) : "—");
     const rows: [string, string][] = [
-      ["S_FACTOR (fitted)", f(r.s_factor, 4)],
+      ["S_FACTOR_GW (fitted)", f(r.s_factor, 4)],
       ["Median per-plug ratio", f(r.s_median_ratio, 4)],
       ["Plug ratios P10 → P90", `${f(r.ratio_p10, 3)} → ${f(r.ratio_p90, 3)}`],
       ["R²", f(r.r2, 3)],
       ["RMS residual (meq/100g)", f(r.rms, 4)],
       ["Plugs / wells", `${r.n_points} / ${r.n_wells}`],
       ["Fitted against CEC_KAOL / CEC_ILL", `${f(r.cec_kaol_used, 1)} / ${f(r.cec_ill_used, 1)}`],
+      [
+        "…and RHO_KAOL / RHO_ILL / RHOG",
+        `${f(r.rho_kaol_used, 2)} / ${f(r.rho_ill_used, 2)} / ${f(r.rhog_used, 2)}`,
+      ],
     ];
     const tbl = document.createElement("table");
     tbl.className = "mc-table";
@@ -294,7 +302,7 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
 
     const copy = document.createElement("button");
     copy.className = "btn";
-    copy.textContent = "Copy S_FACTOR";
+    copy.textContent = "Copy S_FACTOR_GW";
     copy.addEventListener("click", () => {
       // A copy, not an auto-apply — same reasoning as the RtC fit. S is a judgement made after
       // reading the spread and the exclusions, and writing it straight into the module defaults
@@ -302,7 +310,7 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
       // The CEC constants travel with it: S multiplies them, so the three are one setting.
       void navigator.clipboard
         .writeText(
-          `S_FACTOR=${r.s_factor}\nCEC_KAOL=${r.cec_kaol_used}\nCEC_ILL=${r.cec_ill_used}`
+          `S_FACTOR_GW=${r.s_factor}\nCEC_KAOL=${r.cec_kaol_used}\nCEC_ILL=${r.cec_ill_used}\nRHO_KAOL=${r.rho_kaol_used}\nRHO_ILL=${r.rho_ill_used}`
         )
         .then(() => setStatus("S factor copied — paste it into the sw_imts parameters"));
     });
@@ -317,9 +325,11 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
         scopedWells: scope.getWellIds(),
         wellName,
         params: [
-          { name: "S_FACTOR", value: r.s_factor },
+          { name: "S_FACTOR_GW", value: r.s_factor },
           { name: "CEC_KAOL", value: r.cec_kaol_used },
           { name: "CEC_ILL", value: r.cec_ill_used },
+          { name: "RHO_KAOL", value: r.rho_kaol_used },
+          { name: "RHO_ILL", value: r.rho_ill_used },
         ],
       })
     );
@@ -332,9 +342,13 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
       cec_item: itemIn.value.trim(),
       vkaol_curve: vkIn.value.trim(),
       vill_curve: viIn.value.trim(),
+      phit_curve: ptIn.value.trim(),
       cec_kaol: num(kaolIn, 8),
       cec_ill: num(illIn, 25),
       depth_tol: num(tolIn, sameDepthTolerance()),
+      rhog: num(rhogIn, 2.65),
+      rho_kaol: num(rhoKaolIn, 2.62),
+      rho_ill: num(rhoIllIn, 2.78),
     };
     runBtn.disabled = true;
     runBtn.textContent = "Fitting…";

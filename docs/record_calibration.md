@@ -51,10 +51,22 @@ SwT with nothing on the log to show for it. `lrlc::run_s_factor_fit` (Advance �
 
 **The regression is the algebraic inverse of the module's own line, not a re-derivation** —
 same discipline as RtC. `sw_imts` computes `cec_bulk = S · cec_theo_at(vk, vi, CEC_KAOL,
-CEC_ILL)`, so `S = CEC_lab / cec_theo_at(...)`, and `cec_theo_at` is **shared by the module and
+CEC_ILL, RHO_KAOL, RHO_ILL, RHOG, phit)`, so `S = CEC_lab / cec_theo_at(...)`, and `cec_theo_at`
+is **shared by the module and
 the fit** exactly as `qv_at` is shared with the RtC fit. Pinned by
 `the_fitted_s_makes_the_module_reproduce_the_measured_cec`, which runs the fitted S back through
 `sw_imts` and checks QVEFF lands on the laboratory value.
+
+**CEC is a charge per unit MASS, so the denominator is dry-rock mass, not bulk volume**
+(2026-08-22, DEC-094, AUDIT-2026-08-20 finding 9). `cec_theo_at` summed `V_clay × CEC_lit` -
+a volume fraction times a meq/100 g - which is not a quantity at all. Because S is fitted as
+the RATIO of the measurement to that sum, the dimensional error cancelled inside the fit and
+re-appeared as a wrong Qv the moment the run met a different porosity than the plugs did.
+That is why the fit is affected as well as the run, and why the parameter was RENAMED
+`S_FACTOR` -> `S_FACTOR_GW` and the module now REFUSES without it (Jauhar's ruling, 2026-08-22)
+rather than silently accepting a stale number that sits inside the declared range and plots
+smoothly. The fit therefore takes a PHIT curve as a required input: the plug's own porosity is
+part of the basis it inverts.
 
 **The clay must come from the curves the RUN will use, not from the XRD table.** This is the
 trap the dialog exists to close: calibrate S against XRD weight fractions, run against a
@@ -137,7 +149,7 @@ there is the point of a field calibration) but it is a choice, it names the unca
 and the option is hidden when it would be identical to the default.
 
 **The held-fixed constants are written in the same batch or not at all.** RtC writes RSF with
-A_CAP/B_QV/C0, the S fit writes CEC_KAOL/CEC_ILL with S_FACTOR. In both cases the constant and the
+A_CAP/B_QV/C0, the S fit writes CEC_KAOL/CEC_ILL and the two clay grain densities RHO_KAOL/RHO_ILL with S_FACTOR_GW. In both cases the constant and the
 coefficients are not jointly identifiable, so writing one without the other yields a calibration
 that is silently for different rock.
 

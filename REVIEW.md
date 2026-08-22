@@ -1,5 +1,50 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit finding 9 (DEC-094): **the IMTS clay charge was standing on the wrong denominator, so your S has to be re-fitted**
+
+- [ ] **Read this before you run IMTS again.** `sw_imts` will now **refuse** on any well until you
+      give it a freshly fitted **S_FACTOR_GW**. That refusal is deliberate and it is what you asked
+      for. If a project of yours carries an old `S_FACTOR`, **do not copy the number across** — it
+      was fitted against a different denominator and reads roughly a **fifth too high** at ordinary
+      porosity. Re-fit it with **Advance ▸ Calibrate S…**.
+- [ ] **What was wrong, in rock terms.** CEC is a charge per unit **mass** of dry rock — meq per
+      100 grams. The code was multiplying it by a clay **volume** fraction. A volume times a
+      per-gram capacity is not a quantity at all; the clay's volume has to be turned into its
+      **mass** first, which is what its own grain density does. The right sum is
+      `(V_kaol×ρ_kaol×CEC_kaol + V_ill×ρ_ill×CEC_ill) ÷ (ρg×(1−φt))` — clay mass over dry-rock
+      mass. **Your own method note had this right all along**: its S line writes
+      *Vmin,**weight** × CEC*, weight subscript and all. The code read it as volume.
+- [ ] **A pleasing check that it is now right.** When that corrected CEC goes into the unchanged
+      `Qv = CEC·ρg·(1−φt)/(100·φt)`, the `ρg·(1−φt)` **cancels out completely**. Only each clay's
+      own grain density is left. That cancellation is the whole content of the fix, and it is now
+      written into the note so it cannot be read the old way again.
+- [ ] **How big it is.** The old form ran **low** by `1 − ρg(1−φt)/ρ_clay`: at 15 p.u. with ρg 2.65
+      that is **14.0% for kaolinite, 19.0% for illite**, and it grows with porosity. The audit's own
+      case measured 24% and 28.5%; the new test's mixed-clay fixture sits between them at **26.9%**
+      (Qv 0.32595 where 0.44568 was due).
+- [ ] **Why the fit is affected too, not just the run — and why I renamed the parameter.** S is
+      fitted as the *ratio* of your lab CEC to that same sum, so the error cancelled inside the
+      regression and only re-appeared when the run met a porosity your plugs did not have. An old S
+      still sits inside the declared 0.01–2.0 range and still draws a smooth, plausible Sw curve.
+      Nothing downstream could ever catch it. So `S_FACTOR` is now **`S_FACTOR_GW`** — the same
+      naming rule this app already uses for `GRAIN_D50_APP` beside `GRAIN_D50_W` — and a stale
+      value simply cannot arrive under the new meaning.
+- [ ] **The Calibrate S pane now asks for a PHIT curve, and it is required.** The plug's own
+      porosity is part of the basis being inverted, so a fit that did not know it could not invert
+      the module's own line. A plug with no porosity reading is skipped and counted, like every
+      other exclusion on that pane.
+- [ ] **Two new numbers, both cited, neither invented.** `RHO_KAOL` **2.62** and `RHO_ILL` **2.78**
+      g/cc, taken from SandiMin's own endpoint library (`sandimin.rs` LIB) and cross-checked two
+      ways: `docs/multimin_ref_spec.md:62` verifies the same pair against the reference-suite
+      bound-water coefficients (Illite 0.1841, Kaolinite 0.0694), and IP 2025 ships the matching
+      illite coefficient 0.185 — so the two tools agree on this pair to three decimals. They are
+      editable per zone and are written into the calibration batch alongside CEC_KAOL/CEC_ILL,
+      because S and the CECs are not separately identifiable.
+- [ ] **Your other answer is recorded, and needed no code.** You said VKAOL and VILL *"will be
+      curves, sourced by other modules"* — that is already exactly how the module reads them. It is
+      written into the record because it is what makes S a property of **the run and the clay curves
+      it is paired with**, not of the XRD table.
+
 ## 2026-08-22 — Audit finding 13 (DEC-093): **your two SSC capillary-water rules are now in the note, and the tight-rock number is yours to set**
 
 - [ ] **What to click.** Run **SSC** on a well with a tight streak and confirm nothing changed —

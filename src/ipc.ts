@@ -5442,9 +5442,18 @@ export interface SFactorFitRequest {
    *  ratio between them, and both look like clay volumes. */
   vkaol_curve: string;
   vill_curve?: string;
+  /** Total porosity, resolved the way sw_imts resolves it. DEC-094: the grain-weight Qv basis
+   *  needs the rock's own grain mass per unit volume, so the fit must read the same PHIT the run
+   *  will - a plug scaled by a porosity the module never sees puts the fit back out of alignment
+   *  with the equation it exists to invert. */
+  phit_curve: string;
   /** Held fixed; S multiplies these, so the fitted S belongs to them only. */
   cec_kaol?: number;
   cec_ill?: number;
+  /** DEC-094: and to these grain densities, for the same identifiability reason. */
+  rhog?: number;
+  rho_kaol?: number;
+  rho_ill?: number;
   /** How far a plug may sit from the nearest log sample and still be paired with it, in the
    *  PROJECT's stored depth unit (it is typed in the pane, which labels it). Omitted means the
    *  project's own default — one standard 6-inch sample, 0.15 m or 0.5 ft. */
@@ -5464,6 +5473,10 @@ export interface SFactorFitResult {
   wells_fitted: string[];
   cec_kaol_used: number;
   cec_ill_used: number;
+  /** DEC-094: the grain densities S was fitted with; it belongs to them too. */
+  rho_kaol_used: number;
+  rho_ill_used: number;
+  rhog_used: number;
   points: SFactorPoint[];
   excluded: [string, number][];
   notes: string[];

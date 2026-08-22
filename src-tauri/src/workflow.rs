@@ -444,7 +444,7 @@ pub(crate) const UNFITTED_COEFFICIENTS_PROVENANCE_KEY: &str = "unfitted_coeffici
 pub(crate) fn lrlc_calibration_coefficients(module: &str) -> &'static [&'static str] {
     match module {
         "sw_rtc" => &["A_CAP", "B_QV", "C0", "RSF"],
-        "sw_imts" => &["S_FACTOR"],
+        "sw_imts" => &["S_FACTOR_GW"],
         _ => &[],
     }
 }

@@ -745,8 +745,8 @@ differs 4×. Nothing in the product tells the user that number was not measured.
 -discipline violation in shipped code**, not merely a divergence from a vendor.
 
 The LRLC modules are handled differently and better. `sw_rtc` ships `A_CAP 0.45`, `B_QV 0.0057`,
-`C0 −0.0071`, `RSF 2.25` (`lrlc.rs:96-99`) and `sw_imts` ships `S_FACTOR 0.5`
-(`lrlc.rs:205`) — and both doc strings say, in capitals, that these are **one study's
+`C0 −0.0071`, `RSF 2.25` (`lrlc.rs:96-99`); `sw_imts`'s `S_FACTOR_GW` is `param_open` and
+ships NO default at all (DEC-094)
 calibration from one field** and **a placeholder** respectively, that a foreign calibration
 *"does not announce itself: it yields a smooth, plausible Sw that is simply wrong"*, and they
 name the in-product calibration route that replaces them (`lrlc.rs:83-90`, `:191-197`). Both
@@ -1975,8 +1975,8 @@ SB-SAT-008 and SB-SAT-027 both require cross-assertion.
 
 #### SB-SAT-048 — LRLC coefficients are declared as one field's calibration [P2] [status: PRESENT-UNVERIFIED]
 
-**Requirement.** `sw_rtc`'s `A_CAP`/`B_QV`/`C0`/`RSF` and `sw_imts`'s `S_FACTOR` MUST be
-presented as **one study's calibration** and **a placeholder** respectively, never as constants;
+**Requirement.** `sw_rtc`'s `A_CAP`/`B_QV`/`C0`/`RSF` and `sw_imts`'s `S_FACTOR_GW` MUST be
+presented as **one study's calibration** and **absent, with the run refusing** respectively (DEC-094), never as constants;
 each MUST name the in-product calibration route that replaces it; and a run using an unreplaced
 shipped coefficient MUST be flagged in the provenance record of SB-SAT-043.
 
@@ -2136,8 +2136,9 @@ exists in any corpus read, and they ship absent.
 | Worthington 1985 type | — | `sw_indo` type 4; `sw_sim`, `sw_ws`, `sw_juha`, `sw_dual`, `sw_tot` type 2; `sw_arch`, `sw_nige`, `sw_pnl` none. Techlog: original Simandoux type 1, ELAN/modified type 2 | — | Geolog module manifests; Techlog Elan concept pages | T1 / T3 |
 | Nigeria half-exponent | — | ABSENT — ships with no default | dimensionless | Geolog ships `sw_nige`; no equation form or coefficient is held in the corpus at a transcribable level | T1 |
 | LRLC RtC calibration set | `A_CAP`, `B_QV`, `C0`, `RSF` | 0.45, 0.0057, −0.0071, 2.25 | mixed | SandiBumi `lrlc.rs:96-99`. **One study's calibration, not constants** — declared as such at `lrlc.rs:83-90`; replaced by `run_rtc_fit` | — |
-| LRLC IMTS scaling factor | `S_FACTOR` | 0.5 | dimensionless | SandiBumi `lrlc.rs:205`. **Placeholder** — replaced by `run_s_factor_fit`. Multiplies the whole clay-charge term | — |
+| LRLC IMTS scaling factor | `S_FACTOR_GW` | ABSENT — `param_open`, ships no default; the run REFUSES without it | dimensionless | SandiBumi `lrlc.rs`. Fitted by `run_s_factor_fit`. Multiplies the whole clay-charge term, on the GRAIN-WEIGHT basis (DEC-094) — a value fitted before 2026-08-22 reads roughly a fifth high | — |
 | LRLC kaolinite / illite CEC | `CEC_KAOL`, `CEC_ILL` | 8, 25 | meq/100 g | SandiBumi `lrlc.rs:206-207`. Uncited in the dossier and the vendor corpus | — |
+| LRLC clay grain densities | `RHO_KAOL`, `RHO_ILL` | 2.62, 2.78 | g/cc | SandiBumi `lrlc.rs`. Cited to SandiMin's own endpoint library (`sandimin.rs` LIB) and cross-checked against `docs/multimin_ref_spec.md:62`; IP 2025 ships the matching illite coefficient 0.185. DEC-094 | T2/T3 |
 | SandiBumi shale resistivity | `Rsh` | 4.0 — **WITHDRAWN** by SB-SAT-035 | ohm·m | No source. Matches no vendor (Techlog is 5). `multimin2.rs:377-379`, `src/ui/multiminDialog.ts:430, 818` | — |
 | SandiBumi shale porosity | `φ_sh` | 0.10 — **WITHDRAWN** by SB-SAT-035 | v/v | No source. Matches no vendor (Techlog is 0.4). `multimin2.rs:383-385`, `src/ui/multiminDialog.ts:820` | — |
 | SandiBumi `Rw` defaults | `Rw` | 0.1 (`modules.rs:1943`) and 0.3 (`lrlc.rs:93, 200`) — **WITHDRAWN** by SB-SAT-031 | ohm·m | 0.1 is IP's value, rejected above; 0.3 has no source. The two put SandiBumi's own engines √3 = 1.73× apart on Sw before the user touches anything | — |

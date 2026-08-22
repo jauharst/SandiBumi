@@ -3817,7 +3817,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
         "ssc" => Ok(crate::ssc::ssc(ctx)),
         "sspw" => Ok(crate::ssc::sspw(ctx)),
         "sw_rtc" => Ok(crate::lrlc::sw_rtc(ctx)),
-        "sw_imts" => Ok(crate::lrlc::sw_imts(ctx)),
+        "sw_imts" => crate::lrlc::sw_imts(ctx),
         "sw_height" => Ok(crate::satheight::sw_height(ctx)),
         "midplot" => Ok(crate::lithology::midplot(ctx)),
         "rocktyping" => Ok(crate::rocktyping::rocktyping(ctx)),
@@ -13390,11 +13390,12 @@ mod tests {
             ],
             &[
                 ("RW", 0.25), ("TEMP_C", 80.0), ("A", 1.0), ("MSTAR", 2.0), ("NSTAR", 2.0),
-                ("S_FACTOR", 1.0), ("CEC_KAOL", 3.0), ("CEC_ILL", 20.0), ("RHOG", 2.65),
+                ("S_FACTOR_GW", 1.0), ("CEC_KAOL", 3.0), ("CEC_ILL", 20.0), ("RHOG", 2.65),
+                ("RHO_KAOL", 2.62), ("RHO_ILL", 2.78),
                 ("SWIRR_DEF", 0.1),
             ],
             &[],
-        ));
+        )).expect("the fixture supplies S_FACTOR_GW");
         assert_pair("sw_imts SWT", imts["SWT"][0], imts["SWT_IMTS"][0], 1.0, true);
         assert_pair("sw_imts SWE", imts["SWE"][0], imts["SWE_IMTS"][0], 1.0, true);
 

@@ -29,14 +29,21 @@ Calibrates XRD mineralogy to lab CEC and focuses charge on the ACTIVE pore water
 (capillary), not total:
 
 - Scaling factor **S = CEC_measured / Σ(Vmin_i,weight × CEC_lit_i)**; literature
-  constants: kaolinite 8, illite 25 meq/100g (measured lab CEC ≪ XRD-theoretical → S < 1).
+  constants: kaolinite 8, illite 25 meq/100g of the DRY ROCK (measured lab CEC ≪ XRD-theoretical → S < 1).
+  The `,weight` subscript is load-bearing and was mis-read once: CEC is a charge per unit
+  MASS, so a clay VOLUME fraction cannot be fed to it. The theoretical bulk CEC is
+  **CEC_bulk = Sigma(V_i*rho_i*CEC_lit_i) / (rho_g*(1-phi_t))** — clay mass over dry-rock
+  mass. See DEC-094; AUDIT-2026-08-20 finding 9.
 - Qv_bulk = CEC_bulk·ρg/100·(1−φt)/φt; **Qv_eff = Qv_bulk/(1−Swirr)** (charge referenced
   to the conductive fraction; ion concentration per unit available water rises when HC
   displaces free water).
 - Corrected resistivities for exponent fitting: Rt_corr = Rt·(1+Rw·B·Qv_eff),
   Ro_corr = Ro·(1+Rw·B·Qv_eff); m* from slope of log(Ro_corr) vs log(φt).
 - Full saturation equation (iterative in Sw, Waxman-Smits family with F*=a/φt^m*):
-  **Ct = Sw^n*/F* · [Cw + B·S·(ΣVmin_i·CEC_lit_i)·ρg·(1−φt)/(100·φt·(1−Swirr))/Sw]**
+  **Ct = Sw^n*/F* · [Cw + B·S·(ΣVmin_i·ρ_i·CEC_lit_i)/(100·φt·(1−Swirr))/Sw]**
+  Note ρg·(1−φt) CANCELS between CEC_bulk and the Qv conversion: only each clay's OWN
+  grain density survives. Writing the volume fraction and keeping the ρg·(1−φt) factor -
+  which is what the code did until 2026-08-22 - reads about a fifth low at 15 p.u.
   where B = counterion mobility (Waxman-Smits/Juhasz temperature form). Iterate SwT to
   stability; SwE from the CBW split. m*, n* trend high when dispersed kaolinite present.
 - Result on their LRLC samples: SwE lower than Archie everywhere; slightly lower than
