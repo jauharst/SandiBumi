@@ -591,3 +591,121 @@ fn perf_where_time_goes() {
     let _ = std::fs::remove_file(&db_path);
     let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
 }
+
+// ============================================================================================
+// THE READ/WRITE SPLIT - pass 3 increment 2. It also changes nothing.
+//
+// Increment 1 proved the shared connection serialises parallel reads, and measured that one
+// connection per thread would buy 4-8x on the read IT timed. It could not say how much of a real
+// module run that read is, so it could not turn "4-8x on reads" into "X minutes off a 23-minute
+// chain". This measures the split, using `lock_probe` (see that module for why the probe is in
+// production code and why it cannot reach a shipped build).
+//
+// FOUR MODULES, NOT ONE AND NOT ALL SIXTY-TWO. The split is driven by how many curves a module
+// READS and WRITES, not by its arithmetic, so one module cannot speak for the rest - and pass 2
+// measured a 4.2x spread in per-well cost across exactly these four. They are also the workload
+// every other number in this brief was taken on, so the answer lands against the 23-minute chain
+// directly instead of having to be transferred to it. If the four agree, that generalises with
+// evidence; if they disagree, the disagreement is the finding.
+
+#[test]
+#[ignore]
+fn perf_read_write_split() {
+    let n_wells = env_usize("SANDIBUMI_PERF_WELLS", DEFAULT_WELLS);
+    let n_samples = env_usize("SANDIBUMI_PERF_SAMPLES", DEFAULT_SAMPLES);
+
+    let db_path = std::env::temp_dir().join(format!("sandibumi_split_{n_wells}w_{n_samples}s.duckdb"));
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+
+    println!("\n============ THE READ/WRITE SPLIT INSIDE A MODULE RUN ============");
+    println!("wells {n_wells} x {n_samples} samples ; rayon threads: {}", rayon::current_num_threads());
+    println!("build: {}", if cfg!(debug_assertions) { "DEBUG (unoptimised)" } else { "release" });
+
+    let (well_ids, _) = build_project(&db_path, n_wells, n_samples);
+    let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
+    let db = Mutex::new(conn);
+
+    println!(
+        "\n{:<18} {:>9} {:>11} {:>11} {:>11} {:>11}  {}",
+        "MODULE", "WALL", "QUEUE", "READ", "COMPUTE", "WRITE", "PRODUCED"
+    );
+
+    let mut totals = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    for module in ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"] {
+        crate::lock_probe::reset();
+        let t = Instant::now();
+        let produced = run_and_count(&db, module, &well_ids);
+        let wall = ms(t.elapsed());
+        let (wait_ns, read_ns, write_ns, well_ns) = crate::lock_probe::snapshot();
+
+        // COMPUTE is per-well work minus the read scopes inside it. The write is batched AFTER the
+        // parallel loop (one DELETE plus one Appender for every well - the phase 9 write-path
+        // work), so it is deliberately not inside the per-well total and is added separately.
+        let queue = wait_ns as f64 / 1e6;
+        let read = read_ns as f64 / 1e6;
+        let write = write_ns as f64 / 1e6;
+        let compute = (well_ns as f64 / 1e6 - read - queue).max(0.0);
+
+        println!(
+            "{:<18} {:>8.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms  {}",
+            module, wall, queue, read, compute, write, produced
+        );
+        totals.0 += wall;
+        totals.1 += queue;
+        totals.2 += read;
+        totals.3 += compute;
+        totals.4 += write;
+    }
+
+    let (wall, queue, read, compute, write) = totals;
+    let accounted = queue + read + compute + write;
+    println!(
+        "{:<18} {:>8.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms  4-module chain",
+        "TOTAL", wall, queue, read, compute, write
+    );
+    println!(
+        "\nShare of the work actually accounted for ({:.1}ms of {:.1}ms wall, {:.0}%):",
+        accounted, wall, 100.0 * accounted / wall
+    );
+    println!("  QUEUE   {:>5.1}%   <- waiting for the shared connection; a pool DELETES this", 100.0 * queue / accounted);
+    println!("  READ    {:>5.1}%   <- lock held, reading; a pool PARALLELISES this", 100.0 * read / accounted);
+    println!("  COMPUTE {:>5.1}%   <- already parallel; rayon keeps this", 100.0 * compute / accounted);
+    println!("  WRITE   {:>5.1}%   <- serial regardless; DuckDB is single-writer by design", 100.0 * write / accounted);
+
+    // Increment 1 measured a 4-8x speed-up on the read phase. Amdahl's law then bounds what the
+    // whole chain can gain: the read shrinks, everything else does not.
+    // Amdahl's law, expressed in WALL CLOCK - the only clock anyone waits on. A pool removes the
+    // QUEUE outright and divides the READ; COMPUTE and WRITE do not move, and the write is already
+    // one batched single-threaded transaction, so its summed time IS its wall time.
+    //
+    // Quoting the ratio against `accounted` instead would report ~14x, because blocked threads
+    // inflate the summed total. That is a real number about thread-seconds and a false one about
+    // how long a chain takes.
+    println!("
+What a connection pool would buy, in WALL CLOCK:");
+    for factor in [4.0f64, 8.0] {
+        let after = read / factor + compute + write;
+        println!(
+            "  queue gone, reads {:.0}x faster: {:.1}s -> {:.1}s  ({:.2}x)  - of which write {:.1}s ({:.0}%)",
+            factor,
+            wall / 1000.0,
+            after / 1000.0,
+            wall / after,
+            write / 1000.0,
+            100.0 * write / after
+        );
+    }
+    println!(
+        "  The WRITE is the floor. It is one batched transaction and DuckDB is single-writer by
+           design, so no change to connection semantics moves it."
+    );
+    println!(
+        "\nThe phases are SUMS across wells and threads, not wall-clock. While the loop is\n\
+         serialised the sum tracks the wall-clock, which is the check on the probe; once a pool\n\
+         lands they must diverge, and that divergence is the parallelism working."
+    );
+
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+}

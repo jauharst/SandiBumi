@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 40,
+ "expected_ignored_test_count": 41,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 3
+  "MANUAL-ARTIFACT": 4
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -425,6 +425,20 @@
    "tests": [
     {
      "key": "src/perf_baseline_test.rs|perf_baseline",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-032",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "The read/write split inside a module run: it reports how a batch run's time divides between queueing for the shared connection, reading under it, computing, and the batched write, for the four modules of the standard chain. Evidence ABOUT SB-CORE-032, not a pass/fail on it. It reads crate::lock_probe, which is #[cfg(test)] and therefore absent from any shipped build - verified by breaking that file deliberately and confirming a release cargo check still passes. Ignored because it runs a four-module chain the green gate must not wait on.",
+   "tests": [
+    {
+     "key": "src/perf_baseline_test.rs|perf_read_write_split",
      "ignore_reason": null,
      "bare_ignore": true
     }
