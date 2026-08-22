@@ -304,8 +304,22 @@ class curve (electrofacies) to render as full-track-width colored interval block
 of a value line. Both renderers implement it: `LogCanvasRenderer.buildBlockGeometries`
 (one geometry per class, existing fill pipeline; the line pass draws 0 vertices) and
 `composite.rs draw_class_blocks` for print/SVG/PDF. Class colors come from
-`FACIES_PALETTE` in `plotCanvas.ts`, **duplicated in `composite.rs` — keep the two in
-sync**. Built-in "Facies" layout lives in `layout.rs`; min/max on a blocks curve is
+`FACIES_PALETTE` in `plotCanvas.ts`, **duplicated in `composite.rs`** — no longer by hand:
+`the_screen_and_the_print_paint_the_same_facies_the_same_colour` reads the TypeScript file
+and fails the build on any drift, in either direction.
+
+**The palette's ORDER is load-bearing, not presentation** (2026-08-22). `faciesColor` maps
+class *i* to slot *i*, so a run with K classes shows exactly slots 0…K−1 — the palette is a
+nested family, and each slot must stay separable from every slot BEFORE it. The shipped order
+was chosen by the `dataviz` skill's validator (`scripts/validate_palette.js`), never by eye,
+because the previous one put two colours at slots 2 and 3 that measured **ΔE 0.7 apart under
+deuteranopia** — the same colour to a red-green colour-blind reader, inside the default K = 5,
+on two *neighbouring shaliness bands*. **Re-run that validator before touching a hex or the
+order**, and note the ceiling: past K ≈ 6 no palette separates every pair, so a high-K scheme
+needs class labels rather than more colours. The K ≤ 12 refusal is pinned to the real palette
+length by `the_facies_class_ceiling_is_the_palette_length_and_the_refusal_says_so`, so the
+message can never quote a ceiling that has moved. Built-in "Facies" layout lives in
+`layout.rs`; min/max on a blocks curve is
 ignored (header shows "class blocks" instead of editable scale). min/max decimation never
 averages, so decimated class values stay valid integers.
 
