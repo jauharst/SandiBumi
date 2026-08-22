@@ -5208,6 +5208,24 @@ export async function bootReport(): Promise<string[]> {
   return invoke("boot_report");
 }
 
+/** Builds the diagnostic report for a support call — plain text, ready to read and then send.
+ *
+ *  `provenanceWellId` adds that well's full curve provenance (module, version, inputs and
+ *  PARAMETER VALUES). Omit it to leave that section out. Nothing is transmitted by this call;
+ *  the text comes back and the user decides what happens to it. See `src-tauri/src/diagnostics.rs`
+ *  for what is redacted. */
+export async function diagnosticReport(provenanceWellId?: string | null): Promise<string> {
+  return invoke<string>("diagnostic_report", { provenanceWellId: provenanceWellId ?? null });
+}
+
+/** Writes the report the user just read to a path they chose.
+ *
+ *  Takes the text rather than rebuilding it, so the saved file is byte-identical to what was on
+ *  screen — a rebuild could pick up an operation that finished while the save dialog was open. */
+export async function saveDiagnosticReport(destPath: string, text: string): Promise<void> {
+  return invoke<void>("save_diagnostic_report", { destPath, text });
+}
+
 // ---------------------------------------------------------------------------
 // Database inspector (whitelisted tables; cells travel as strings)
 // ---------------------------------------------------------------------------

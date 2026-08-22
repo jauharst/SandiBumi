@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — One file you can send me when something goes wrong
+
+- [ ] **What to click.** Project tab → **Monitor** → **Diagnostics…** (new, fourth button beside
+      History / Processing / Performance). It opens as a pane. Press **Build report**, read what
+      comes out, then **Save…** or **Copy**. Do it once with a well selected and once with none —
+      with none, the tick box greys itself and says why, in the pane.
+- [ ] **Read the report before you decide anything else.** The point of this is that you can send
+      it to me. So check it yourself: **no well names, no field names, no project name, no file
+      paths, no curve values.** Your wells appear as WELL-1, WELL-2. If you find ANYTHING in there
+      that identifies a client, that is a defect and I want to know immediately — that is the whole
+      contract of the feature.
+- [ ] **It does carry your parameter values**, because you chose that: m, n, a, Rw, the cut-offs
+      and endpoints behind the curves. Without them there is usually no way for me to say why a
+      number looks wrong. The report says so on its own first page, and the pane says so above the
+      Save button. Check both say it clearly enough that somebody in a hurry would still notice.
+- [ ] **"It was slow" now has an answer.** Open a big project and look at the **OPENING THIS
+      PROJECT** section — all 13 storage-upgrade steps with their times, so a slow open names the
+      one responsible. Before this, nine of those thirteen went to a console that a built exe does
+      not have, which is how a 15-minute migration looked like a hang.
+- [ ] **Run something long — a chain over a few wells, a big import — then rebuild the report.**
+      Every run, chain, import, export and render should be listed with how long it took, how many
+      items, and whether it worked. Nothing measured this before, so a chain that ran for hours
+      left no trace of which step was slow.
+- [ ] **"The numbers look wrong" now travels.** With a well selected, the last section is that
+      well's full provenance — which module made each curve, its version, which curves it read,
+      and the parameter values it used. That existed already; what it could not do was leave your
+      project file.
+- [ ] **Nothing is transmitted.** No background collection, no daemon, nothing phones home. The
+      file exists only where you save it. If you never press Save, nothing is written anywhere.
+- [ ] **A cosmetic fix found by measuring this pane.** Three existing cards in module panes had a
+      background that CSS was silently discarding — the stylesheet asked for a colour named
+      `--panel`, which this project has never had. They should now read as proper cards: the amber
+      **Check this before you send it** box here, and the validity boxes in module panes.
+- [ ] **Nothing computed changed.** No number, no curve, no cutoff, no write path.
+
 ## 2026-08-22 — Security review, and the one thing it found worth fixing
 
 - [ ] **What to click.** Take a project file that was **not** created on this machine — copy one

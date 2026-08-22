@@ -7205,8 +7205,47 @@ input[type="number"].num-editing:focus {
 .dock-core-trace .module-pane,
 .dock-fluid-contacts .module-pane,
 .dock-depth-reg .module-pane,
-.dock-mineral-class .module-pane {
+.dock-mineral-class .module-pane,
+/* A fixed-width report is a picture, not a form: its columns are laid out in monospace and a
+ * 620px column would wrap every operation row. */
+.dock-diagnostics .module-pane {
   max-width: none;
+}
+
+/* The diagnostic report, shown in full so it is READ before it is sent. Monospace because the
+ * report aligns its columns with spaces; scrolls inside its own box in both directions so a long
+ * operation label never makes the pane itself scroll sideways. */
+.diagnostics-option {
+  margin: 4px 0 10px;
+}
+.diagnostics-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+/* An .eq-note carries a tinted background, so an EMPTY one renders as a stray coloured bar. Both
+   of these only exist once they have something to say. */
+.diagnostics-status:empty,
+.diagnostics-report:empty {
+  display: none;
+}
+.diagnostics-status {
+  margin-top: 10px;
+}
+.diagnostics-report {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre;
+  tab-size: 4;
 }
 
 /* --- Module pane, Organic (design 1d) -------------------------------------- */
@@ -7290,7 +7329,7 @@ input[type="number"].num-editing:focus {
 .module-validity-item {
   border-left: 3px solid var(--border);
   padding: 4px 7px;
-  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  background: color-mix(in srgb, var(--bg-panel) 84%, transparent);
   font-size: var(--fs-xs);
   line-height: 1.35;
 }
@@ -7312,7 +7351,7 @@ input[type="number"].num-editing:focus {
 .module-validity-un_evaluable,
 .module-validity-check_failed {
   border-left-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 9%, var(--panel));
+  background: color-mix(in srgb, var(--warn) 9%, var(--bg-panel));
 }
 .module-validity-un_evaluable .module-validity-status,
 .module-validity-check_failed .module-validity-status {
@@ -7357,7 +7396,7 @@ input[type="number"].num-editing:focus {
   border-radius: var(--r-lg);
   padding: 9px 12px;
   margin-bottom: 10px;
-  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-panel));
 }
 .module-contamination-title {
   color: var(--text);

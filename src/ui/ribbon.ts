@@ -246,6 +246,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#history-btn")?.addEventListener("click", () => workspace.openHistory());
     q<HTMLButtonElement>("#processing-btn")?.addEventListener("click", () => workspace.openProcessing());
     q<HTMLButtonElement>("#health-btn")?.addEventListener("click", () => workspace.openHealth());
+    q<HTMLButtonElement>("#diagnostics-btn")?.addEventListener("click", () => workspace.openDiagnostics());
     // Contextual Help (?): opens a guide for whichever panel is active — the future hook for
     // the illustrated HTML help library, keyed to the "current active panel".
     q<HTMLButtonElement>("#help-btn")?.addEventListener("click", () => void workspace.openHelpForActivePanel());

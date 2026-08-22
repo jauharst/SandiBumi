@@ -385,6 +385,7 @@ export class Workspace {
       ["Database Inspector", () => this.openDbInspector(group)],
       ["SQL Query", () => this.openSqlQuery(group)],
       ["Processing History", () => this.openHistory(group)],
+      ["Diagnostics (for a support call)", () => this.openDiagnostics(group)],
     ];
     for (const entry of entries) {
       if (entry === "sep") {
@@ -482,6 +483,12 @@ export class Workspace {
           "dock-health",
           () => import("./healthPanel").then((m) => m.buildHealthContent(setStatus)),
           "performance monitor",
+        );
+      case "diagnostics":
+        return this.asyncPane(
+          "dock-diagnostics",
+          () => import("./diagnosticsPanel").then((m) => m.buildDiagnosticsContent(setStatus)),
+          "diagnostics",
         );
       // Tool panes ported from popups (ROADMAP §4c item 14): dynamic imports keep
       // workspace.ts free of ribbon↔dialog cycles, same as the workflow builder.
@@ -961,6 +968,8 @@ export class Workspace {
       items.push({ heading: "Processing" });
     } else if (kind === "health") {
       items.push({ heading: "Performance" });
+    } else if (kind === "diagnostics") {
+      items.push({ heading: "Diagnostics" });
     } else if (kind === "intake") {
       items.push({ heading: "Intake" });
     } else if (kind === "statistics") {
@@ -1469,6 +1478,10 @@ export class Workspace {
     this.openSingleton("health", "health", "Performance", group);
   }
 
+  openDiagnostics(group?: DockviewGroupPanel): void {
+    this.openSingleton("diagnostics", "diagnostics", "Diagnostics", group);
+  }
+
   /** Placeholder help copy keyed by panel kind — the seed for the future HTML help library.
    *  The Help tool (the ? in the quick-access bar) resolves the ACTIVE panel to its kind and
    *  shows this; module panes instead surface their manifest doc (spec.doc, the narration that
@@ -1490,6 +1503,8 @@ export class Workspace {
     processing:
       "Processing — live progress, the well being worked, per-reason ✓/⚠/✗ outcomes and a Cancel button for every long operation. Expand 'details' for the grouped failure report.",
     health: "Performance — CPU, system memory and USER/GDI object-handle gauges for this session.",
+    diagnostics:
+      "Diagnostics — builds one plain-text file to send when something went wrong: how long the project took to open, how long every operation ran, anything that failed, and optionally how the selected well's curves were computed. It carries no well names, no field names, no file paths and no curve values, but it DOES carry parameter values — read it before you send it.",
     paysummary: "Cutoffs & Pay Summary — apply VSH/PHIE/SW cutoffs and summarise net/gross pay per zone and well.",
     cutoff: "Cutoff Sensitivity — sweep net pay against VSH/PHIE/SW cutoffs and read them off DST-highlighted crossplots.",
     ml: "Machine Learning — supervised prediction (regression/classification) and unsupervised clustering/reduction via scikit-learn.",
