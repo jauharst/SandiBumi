@@ -1566,18 +1566,29 @@ fn load_set_write_discipline(
         .as_deref()
         .and_then(crate::schema_vocab::SamplingStyle::parse)
         .ok_or_else(|| {
-            "log-set write refused: sampling style is legacy-unrecorded or invalid".to_string()
+            "log-set write refused: this set's sampling style is unrecorded or unreadable. A \
+             version cannot be allocated for a set whose depths have no declared meaning, \
+             because every later read would inherit the guess. Re-import the set with its \
+             sampling style declared."
+                .to_string()
         })?;
     let duplicate_resolution = stored
         .1
         .as_deref()
         .and_then(crate::schema_vocab::DuplicateDepthResolution::parse)
         .ok_or_else(|| {
-            "log-set write refused: duplicate-depth resolution is legacy-unrecorded or invalid"
+            "log-set write refused: this set's duplicate-depth resolution is unrecorded or \
+             unreadable. Whether two rows at one depth are an error or a correction changes \
+             what every later read returns, so it cannot be assumed. Re-import the set with \
+             its duplicate-depth resolution declared."
                 .to_string()
         })?;
     if duplicate_resolution != crate::schema_vocab::DuplicateDepthResolution::Refuse {
-        return Err("continuous log sets must declare duplicate-depth resolution REFUSE".into());
+        return Err("log-set write refused: a continuous set must declare duplicate-depth \
+                    resolution REFUSE, and this one declares something else. On a continuous \
+                    log two rows at one depth are a delivery fault, not a choice between \
+                    readings. Re-import the set with REFUSE declared."
+            .into());
     }
     let discipline = SetWriteDiscipline { sampling_style };
     validate_set_write_discipline(discipline)?;

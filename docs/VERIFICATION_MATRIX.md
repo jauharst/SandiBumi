@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **165** of 684,
+Review sections counted toward no capability: **165** of 685,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -67,5 +67,5 @@ this table, so every figure above reads low by whatever those sections cover.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 75 | 2026-07-19 | 18 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 244 | 2026-08-13 | 68 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 253 | 2026-08-13 | 69 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 223 | 2026-08-13 | 59 |
