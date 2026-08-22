@@ -1,5 +1,46 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Accessibility pass 2b: **the dialogs and the ribbon now say what they are**
+
+- [ ] **What to click, and it should all feel identical.** Open any dialog (**Data Sets…**,
+      **Well header…**, a module pane) and check nothing moved: same layout, same fields, same
+      buttons. Then two things that ARE different, both improvements. First, **press Escape** —
+      focus goes back to the ribbon button you opened it from, so the next Tab carries on from
+      there instead of restarting at the top of the app. Second, **click the text label** beside a
+      checkbox in any dialog — it now toggles the box, the way every other application does.
+- [ ] **Then make the window narrow** (or press Ctrl+= a few times to zoom to 200%) until the
+      ribbon shows its **›** chevron, and **Tab along the ribbon**. Focus used to walk off the
+      right-hand edge and keep going — you would be on a button you could not see, pressing Enter
+      on you-don't-know-what. The ribbon now scrolls to follow it.
+- [ ] **The big one is invisible, which is the point.** Every control in every dialog had **no
+      name at all** as far as a screen reader was concerned. `formRow` puts the label text in one
+      grid column and the control in the next, and being neighbours is not the same as being
+      connected — so the label was read out as loose text and the control announced as a bare
+      "combo box". That is **333 rows across 51 files**, and it is fixed in **one place**, the
+      helper itself, rather than at 333 call sites.
+- [ ] **The ribbon was claiming to be something it was not.** The tab strip declared itself a tab
+      list, then gave its six tabs no tab role and never said which one was open — that lived
+      purely in a CSS class. Half a widget is worse than none: it announces "tab list" and then
+      the contents come out as ordinary buttons. Now they are real tabs, each pointing at the
+      panel it opens.
+- [ ] **Two things I proposed and then found were already right — worth knowing.** I had this
+      down as *"three unlabelled dropdowns in the ribbon"* and *"the language switch does not
+      update the page language"*. Neither was true: all three dropdowns are wrapped in a label,
+      which is a perfectly valid way to name them, and `i18n.ts` has always set the page language.
+      I had grepped for one spelling of the answer instead of asking the browser what the name
+      actually resolved to. **0 of 13 controls and 0 of 135 buttons in the shell were unnamed** —
+      the shell was in good shape, and the real problem was in the dialogs.
+- [ ] **One thing I proposed that would have made it WORSE.** I had said the dialogs should get
+      `aria-modal`. They should not, and this app is the reason: its dialogs are deliberately
+      **non-blocking** — you keep working in the panels behind them. `aria-modal` tells a screen
+      reader the rest of the application is inert, so it would have **hidden the whole workspace**
+      from a screen-reader user while everyone else carried on using it. The dialogs are announced
+      properly without it.
+- [ ] **Nothing computed changed, and nothing looks different.** No number moved, no colour moved,
+      no layout moved. The only behaviour that changed at all is the three keyboard/focus items
+      named above, and each of them adds something rather than taking anything away.
+- [ ] **Evidence.** `docs/design_organic/evidence_a11y_semantics_before_after.svg` — fourteen
+      measured rows, including the four that were already correct.
 ## 2026-08-22 — Refusal copy pass 3: **the app now refuses in one voice, and every refusal says what to do**
 
 - [ ] **What to click.** Try each of these deliberately wrong things and read the message, not the

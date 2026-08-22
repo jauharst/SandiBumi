@@ -506,7 +506,14 @@ export class Ribbon {
     for (const tab of tabs) {
       tab.addEventListener("click", () => {
         const target = tab.dataset.tab!;
-        for (const t of tabs) t.classList.toggle("active", t === tab);
+        for (const t of tabs) {
+          const on = t === tab;
+          t.classList.toggle("active", on);
+          // Which tab is showing lived only in that CSS class, so the accessibility
+          // tree could not say which of the six was open. The tablist role was already
+          // declared in index.html; this is the half that makes it true.
+          t.setAttribute("aria-selected", String(on));
+        }
         for (const [key, el] of panels) el.hidden = key !== target;
         this.updateRibbonOverflow?.(); // the newly shown panel may over/under-flow differently
       });
@@ -602,6 +609,27 @@ export class Ribbon {
     };
     left.addEventListener("click", () => scrollActive(-1));
     right.addEventListener("click", () => scrollActive(1));
+
+    // A control tabbed to past the panel's edge STAYS there: the browser does not scroll an
+    // overflowing ribbon panel to follow focus. Measured with a real Tab keypress at a 640px
+    // viewport (a 1280px window at 200% zoom) — focus landed on "Statistics…" with the panel's
+    // scrollLeft still 0 and the button's right edge 9px outside the window. The chevron reaches
+    // it with a mouse, so this was a keyboard-only failure: operating a button you cannot see.
+    //
+    // scrollLeft is assigned rather than calling scrollIntoView, for the reason above and one
+    // more — scrollIntoView also scrolls ANCESTORS, so it would jog the whole workspace to chase
+    // a ribbon button.
+    body.addEventListener("focusin", (event) => {
+      const p = activePanel();
+      const el = event.target;
+      if (!p || !(el instanceof HTMLElement) || !p.contains(el)) return;
+      const box = el.getBoundingClientRect();
+      const view = p.getBoundingClientRect();
+      const pad = 8; // room for the focus ring, rather than flush against the clipped edge
+      if (box.right > view.right - pad) p.scrollLeft += box.right - view.right + pad;
+      else if (box.left < view.left + pad) p.scrollLeft -= view.left + pad - box.left;
+      update(); // scroll events are async; refresh the chevrons now so neither sticks
+    });
 
     for (const p of panels) p.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
