@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 38,
+ "expected_ignored_test_count": 39,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 1
+  "MANUAL-ARTIFACT": 2
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -411,6 +411,20 @@
    "tests": [
     {
      "key": "src/composite.rs|dump_sample",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-031",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "The performance baseline harness: it prints a timing table for a human to read and asserts nothing, so it is an artifact generator, not an acceptance pass. It is ignored because it builds a synthetic project and runs a multi-well chain, which the green gate must not wait on. It partially satisfies SB-CORE-031 - the harness is now committed to the tree rather than living in prose - but NOT the 'part of the gate' half, because a pass/fail threshold needs a declared portfolio-scale budget, which is SB-CORE-030 and is blocked on Jauhar.",
+   "tests": [
+    {
+     "key": "src/perf_baseline_test.rs|perf_baseline",
      "ignore_reason": null,
      "bare_ignore": true
     }
