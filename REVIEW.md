@@ -32,9 +32,11 @@
 - [ ] **`LARINOV3` is deliberately left alone**, even though it overshoots to 1.133. Nothing in the
       repo cites a source for that form, so there is no published pair to normalise it against, and
       making one up would read exactly as authoritative as the two that are real.
-- [ ] **One question back to you.** `OPT_GR` still defaults to **LINEAR**. Should it? The requirement
-      does not say, and picking a shipped default transform is a petrophysical call, so it is yours
-      rather than mine. Say the word and it is one line.
+- [ ] **The default stays LINEAR — you ruled it (DEC-097), and nothing changed in the code.**
+      `VSH = IGR` asserts nothing beyond the two endpoints you picked. Every non-linear transform in
+      that list embeds a claim about the rock's compaction history — Larionov k = 2 means Mesozoic
+      and older, k = 3.7 means Tertiary — and shipping one would be making that call for you,
+      invisibly, on a curve that looks normal either way.
 
 ## 2026-08-22 — Audit finding 34 (DEC-095): **SandiMin lets you type the salinity in, and its α ceiling stopped hiding**
 
