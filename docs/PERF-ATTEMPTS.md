@@ -29,6 +29,12 @@ it. So every `WHERE well_id = ?` looked like a full table scan of the whole proj
 
 ### What was measured
 
+> **The absolutes below are inflated ~1.7x and are not comparable to any other document.**
+> This experiment ran with the filter `perf_baseline`, which by then also selected the two
+> other probes in the module and ran all three concurrently - see
+> `PERF-VARIANCE-2026-08-23.md` §1. Before and after were contaminated equally, so **the
+> comparison and the verdict stand**; the milliseconds do not travel.
+
 100 wells × 1562 samples, release, same harness before and after:
 
 ```
@@ -43,6 +49,10 @@ plot data: ALL wells         119.9ms    160.3ms
 
 **The read did not improve.** That is the decisive result: if the report were paying for a full
 scan, an index on the scanned column would have moved it. It did not move at all.
+
+**Precision reduced 2026-08-23:** report render's measured noise floor is **1.14x**, so the
+honest claim is *no improvement larger than 14%* rather than *no improvement*. The verdict is
+unchanged - a fix for a full table scan would have been far larger than that.
 
 The write-side figures look worse, but run-to-run variance on this machine is large — the same
 100-well chain has measured 36 s and 56 s in identical conditions — so *those* numbers are not
@@ -124,6 +134,9 @@ cache — biasing the comparison *against* the cheaper variant.
 No win at any size; the limited form is marginally slower at all three, and it had the easier job.
 DuckDB materialises the whole distinct aggregate before a limit can apply, so there is nothing for
 the limit to short-circuit — it only trims a result that has already been built.
+
+**Precision reduced 2026-08-23:** that operation's measured noise floor is **1.06×**, so read this
+as *no win larger than 6%*. The verdict is unchanged.
 
 **No production code was ever written for this.** The variant was measured in the probe first, which
 is the cheapest possible place to kill an idea.
