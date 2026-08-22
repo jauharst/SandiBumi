@@ -171,9 +171,5 @@ time. Nothing here rests on it, and it should not be quoted until it is repeated
 
 ## 8. The attempt ledger
 
-Pass 2 measured; it optimized nothing, so the ledger stays empty by design. Pass 3 fills it,
-reverts included.
-
-| Idea | Baseline → Result | Verdict | Why |
-|---|---|---|---|
-| _(none yet — passes 1 and 2 measure only)_ | | | |
+**One ledger, in `docs/PERF-ATTEMPTS.md`.** Every attempt lands there, kept and reverted alike —
+four ledgers in four documents is four places for the same dead idea to go missing from.

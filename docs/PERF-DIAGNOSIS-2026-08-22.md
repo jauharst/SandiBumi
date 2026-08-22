@@ -111,8 +111,5 @@ single query missing a well filter.
 
 ## 7. The attempt ledger
 
-Still empty: this increment measured and changed nothing.
-
-| Idea | Baseline → Result | Verdict | Why |
-|---|---|---|---|
-| _(none yet — passes 1–3.1 measure only)_ | | | |
+**One ledger, in `docs/PERF-ATTEMPTS.md`.** Every attempt lands there, kept and reverted alike —
+four ledgers in four documents is four places for the same dead idea to go missing from.
