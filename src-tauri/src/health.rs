@@ -13,6 +13,10 @@
 pub(crate) struct HealthSnapshot {
     /// System memory in use, 0..100 (`MEMORYSTATUSEX.dwMemoryLoad`).
     pub mem_system: Option<f32>,
+    /// Total physical memory, MB (`MEMORYSTATUSEX.ullTotalPhys`). Constant for the session, so
+    /// the panel does not plot it - it is here for the diagnostic report, where "85% memory in
+    /// use" means something very different on an 8 GB field laptop and a 64 GB workstation.
+    pub mem_total_mb: Option<u64>,
     /// Total CPU utilisation across all cores, 0..100, over the interval since the previous
     /// snapshot (`GetSystemTimes` busy-vs-idle delta). `None` on the first snapshot (no baseline).
     pub cpu_load: Option<f32>,
@@ -33,8 +37,10 @@ const OBJ_LIMIT: f32 = 10_000.0;
 pub(crate) fn snapshot() -> HealthSnapshot {
     let user = gui_count(true);
     let gdi = gui_count(false);
+    let (mem_system, mem_total_mb) = mem_status();
     HealthSnapshot {
-        mem_system: mem_load(),
+        mem_system,
+        mem_total_mb,
         cpu_load: cpu_load(),
         user_objects: user.map(|c| c as f32 / OBJ_LIMIT * 100.0),
         gdi_objects: gdi.map(|c| c as f32 / OBJ_LIMIT * 100.0),
@@ -48,15 +54,19 @@ pub(crate) fn snapshot() -> HealthSnapshot {
     HealthSnapshot::default()
 }
 
+/// Memory load and total physical memory from ONE `GlobalMemoryStatusEx` call - the struct
+/// carries both, and asking twice could return two readings taken a moment apart.
 #[cfg(windows)]
-fn mem_load() -> Option<f32> {
+fn mem_status() -> (Option<f32>, Option<u64>) {
     use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     let mut s = MEMORYSTATUSEX {
         dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
         ..Default::default()
     };
-    unsafe { GlobalMemoryStatusEx(&mut s) }.ok()?;
-    Some(s.dwMemoryLoad as f32)
+    if unsafe { GlobalMemoryStatusEx(&mut s) }.is_err() {
+        return (None, None);
+    }
+    (Some(s.dwMemoryLoad as f32), Some(s.ullTotalPhys / (1024 * 1024)))
 }
 
 /// USER or GDI object count for THIS process. `GetGuiResources` returns 0 on error, and a

@@ -284,10 +284,23 @@ where
 {
     let id = Uuid::new_v4();
     let cancel = Arc::new(AtomicBool::new(false));
-    let handle = register(&reg, id, kind, label, items, cancel, cancellable);
+    // Captured before `register` consumes them, and timed here rather than at each of the 25
+    // call sites: this is the one place a module run, a chain, an import, an export and a render
+    // all pass through, so timing it once covers every operation the user can start. Nothing
+    // measured a duration before this, which is why "it was slow" had no answer - a chain that
+    // ran for hours left no record of WHICH step was slow.
+    let kind = kind.into();
+    let label = label.into();
+    let item_count = items.len();
+    let started = std::time::Instant::now();
+    let handle = register(&reg, id, kind.clone(), label.clone(), items, cancel, cancellable);
     handle.running(total);
     let finalize = handle.clone();
-    match tauri::async_runtime::spawn_blocking(move || work(handle)).await {
+    let outcome = tauri::async_runtime::spawn_blocking(move || work(handle)).await;
+    // The state is decided FIRST and then recorded, rather than recording `outcome.is_ok()`.
+    // A cancelled run is not a completed one, and a diagnostic report that called a four-minute
+    // abandoned chain "ok" would mislead in exactly the situation it exists for.
+    let (state, result) = match outcome {
         Ok(out) => {
             // "Cancelled" must mean the work actually STOPPED, not merely that the user clicked.
             // Only a handful of job kinds poll the flag; the rest run to completion and commit
@@ -297,17 +310,20 @@ where
             // honest report for it is Completed: the cancel simply arrived too late to matter.
             if finalize.cancel_was_observed() {
                 finalize.cancelled();
+                ("cancelled", Ok(out))
             } else {
                 finalize.complete();
+                ("ok", Ok(out))
             }
-            Ok(out)
         }
         Err(e) => {
             let msg = format!("worker thread failed: {e}");
             finalize.failed(msg.clone());
-            Err(msg)
+            ("FAILED", Err(msg))
         }
-    }
+    };
+    crate::diagnostics::record_op(&kind, &label, started.elapsed().as_millis(), item_count, state);
+    result
 }
 
 /// Coarse single-unit off-thread job for a MONOLITHIC op that has no natural per-well/per-file

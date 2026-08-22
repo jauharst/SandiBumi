@@ -15,6 +15,7 @@ mod curves;
 mod db;
 mod decimate;
 mod deviation;
+mod diagnostics;
 mod distribution;
 mod biff5;
 mod dlis;
@@ -243,6 +244,42 @@ async fn compact_project(
 #[tauri::command]
 fn boot_report() -> Vec<String> {
     db::take_boot_notes()
+}
+
+/// Builds the diagnostic report a user can send when something went wrong.
+///
+/// Read-only and sync, like `get_curve_ancestry_disclosures` beside it, which does considerably
+/// more work: these are `COUNT(*)`s that DuckDB answers from row-group metadata, plus one well's
+/// provenance. Nothing is written and nothing is transmitted - the string comes back, the pane
+/// shows it, and the user decides whether to save it.
+///
+/// `provenance_well_id` is the selected well, or `None` to leave that section out. See
+/// `diagnostics.rs` for what travels and what is redacted.
+#[tauri::command]
+fn diagnostic_report(
+    db: tauri::State<DbState>,
+    provenance_well_id: Option<String>,
+) -> Result<String, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(diagnostics::build_report(
+        &conn,
+        env!("CARGO_PKG_VERSION"),
+        &diagnostics::ReportSpec { provenance_well_id },
+    ))
+}
+
+/// Writes an already-built diagnostic report to a path the user chose in a save dialog.
+///
+/// Takes the text back rather than rebuilding it, so the file is byte-identical to what the user
+/// read in the pane. A report that regenerated on save could differ from the one they approved -
+/// another operation may have finished in between.
+#[tauri::command]
+async fn save_diagnostic_report(dest_path: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&dest_path, text.as_bytes()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The recent-projects list (most recent first), for the Project ribbon dropdown.
@@ -4383,6 +4420,12 @@ mod startup_gate_tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // First thing, before anything that can panic. A panic poisons whatever mutex it was holding
+    // and every later use of that mutex panics in turn, so what the user sees is an app that has
+    // stopped working with no first cause anywhere. This does not fix that - it records where it
+    // started, so the diagnostic report can say so.
+    diagnostics::install_panic_hook();
+
     // The most recently opened project that still exists, else the legacy
     // `project.duckdb` in the cwd — so existing installs open exactly as before.
     let startup = project::startup_path();
@@ -4444,6 +4487,8 @@ pub fn run() {
             save_project_as,
             compact_project,
             boot_report,
+            diagnostic_report,
+            save_diagnostic_report,
             list_recent_projects,
             current_project,
             open_project,

@@ -195,22 +195,27 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     let t0 = std::time::Instant::now();
     let t = t0;
     let conn = db::init_db_resilient(path).map_err(|e| format!("could not open {path}: {e}"))?;
-    eprintln!("[boot] init_db_resilient: {:?}  ({path})", t.elapsed());
+    // The only step not using `diagnostics::boot_step`: its console line names the project PATH,
+    // which the diagnostic report must never carry. One measurement, printed with the path and
+    // recorded without it.
+    let opened = t.elapsed();
+    eprintln!("[boot] init_db_resilient: {opened:?}  ({path})");
+    crate::diagnostics::record_boot_step("init_db_resilient", opened.as_millis());
 
     let t = std::time::Instant::now();
     db::migrate_standard_curves_to_generic_store(&conn)
         .map_err(|e| format!("curve-store migration failed: {e}"))?;
-    eprintln!("[boot] migrate_standard_curves_to_generic_store: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_standard_curves_to_generic_store", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_drop_computed_curves_pk(&conn, Some(path))
         .map_err(|e| format!("computed-curves migration failed: {e}"))?;
-    eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_drop_computed_curves_pk", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_point_data_sets(&conn, Some(path))
         .map_err(|e| format!("point-data set migration failed: {e}"))?;
-    eprintln!("[boot] migrate_point_data_sets: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_point_data_sets", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_array_logs_store(&conn).map_err(|e| format!("array-log migration failed: {e}"))?;
@@ -219,7 +224,7 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
         .map_err(|e| format!("run-degradation vocabulary migration failed: {e}"))?;
     db::migrate_log_set_timestamps_to_utc(&conn)
         .map_err(|e| format!("timestamp migration failed: {e}"))?;
-    eprintln!("[boot] migrate_array_logs_store: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_array_logs_store", t.elapsed());
 
     // DEC-089's second half. Must run AFTER migrate_standard_curves_to_generic_store, which is
     // what gives a pre-generic-store project a generic store to project FROM.
@@ -236,41 +241,41 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
             "Standard-curve unit migration skipped: {e}. The project opens unchanged."
         )),
     }
-    eprintln!("[boot] migrate_standard_curves_canonical: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_standard_curves_canonical", t.elapsed());
 
     // Must run AFTER migrate_point_data_sets, which rebuilds core_data for its primary key —
     // a column added before that rebuild would be dropped by it.
     let t = std::time::Instant::now();
     db::migrate_core_depth_orig(&conn).map_err(|e| format!("core depth-record migration failed: {e}"))?;
-    eprintln!("[boot] migrate_core_depth_orig: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_core_depth_orig", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_delivery_depth_basis(&conn)
         .map_err(|e| format!("delivery depth-basis migration failed: {e}"))?;
-    eprintln!("[boot] migrate_delivery_depth_basis: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_delivery_depth_basis", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_plate_scale_and_prep(&conn)
         .map_err(|e| format!("plate scale migration failed: {e}"))?;
-    eprintln!("[boot] migrate_plate_scale_and_prep: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_plate_scale_and_prep", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_core_image_recipe(&conn)
         .map_err(|e| format!("core image recipe migration failed: {e}"))?;
-    eprintln!("[boot] migrate_core_image_recipe: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_core_image_recipe", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_fluid_contact_zone(&conn)
         .map_err(|e| format!("fluid contact marker migration failed: {e}"))?;
-    eprintln!("[boot] migrate_fluid_contact_zone: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_fluid_contact_zone", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_log_set_frame(&conn).map_err(|e| format!("log set frame migration failed: {e}"))?;
-    eprintln!("[boot] migrate_log_set_frame: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_log_set_frame", t.elapsed());
 
     let t = std::time::Instant::now();
     db::migrate_array_log_axis(&conn).map_err(|e| format!("array log axis migration failed: {e}"))?;
-    eprintln!("[boot] migrate_array_log_axis: {:?}", t.elapsed());
+    crate::diagnostics::boot_step("migrate_array_log_axis", t.elapsed());
 
     // A long open is almost always the one-time storage upgrades above (each backs up the
     // whole project first). Tell the user so — from their chair a silent 15-minute open on

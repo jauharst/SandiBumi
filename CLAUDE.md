@@ -1111,6 +1111,52 @@ in the BRAND's own colours — a launch screen that waits on an asset is the one
 never fail to appear, and a client skin must not re-roll the product's identity (the
 brand-is-not-accent rule).
 
+## The diagnostic report: sendable, or it does not exist (2026-08-22)
+
+`docs/OBSERVABILITY-2026-08-22.md`. Project ribbon -> Monitor -> **Diagnostics...** builds ONE
+plain-text file a user can send when they report "it was slow" or "the numbers look wrong".
+`diagnostics.rs` collects, redacts and renders it; the pane (`diagnosticsPanel.ts`) shows it in
+full before anything is saved.
+
+**It is not telemetry and must not become one.** Nothing is transmitted, nothing is collected in
+the background, there is no daemon and no phone-home. The user presses a button, reads what it
+produced, and decides whether it goes anywhere. Do not add a scheduler, an uploader or an opt-out.
+
+- **A name from the shipped vocabulary travels. A name the user invented is masked.** Module ids,
+  curve mnemonics, job kinds and error text are OURS and are the diagnosis. Well names, field
+  names, the project name and every file path are the client's and are replaced - `WELL-1`,
+  `WELL-2`, consistent within ONE report, mapping never stored.
+- **The mapping is built from the project's OWN well and field list, never from a pattern**, and
+  applies LONGEST NAME FIRST - with `SANDI-1` and `SANDI-10` in one project, the short name first
+  leaves `WELL-1` followed by a stray `0`. Redaction happens once, at RENDER: `record_op` stores a
+  label verbatim because the Processing panel shows the same label and needs it intact.
+- **Parameter VALUES travel; curve values never do.** Jauhar's call, asked as an explicit choice -
+  without m, n, a, Rw and the cut-offs there is usually no way to say why a number looks wrong. The
+  consequence is that the file carries the client's own calibration, so it SAYS SO above everything
+  else, in the report and again in the pane above the Save button. Do not quietly widen what
+  travels; these were two separate decisions and the report states which is which.
+- **Pinned from BOTH sides** by
+  `diagnostics::tests::a_report_carries_the_shape_of_the_problem_and_none_of_the_delivery` - a
+  redactor that blanked the whole file would satisfy "nothing leaks" perfectly and be useless, so
+  the module name, the duration and the counts are asserted to SURVIVE.
+- **`jobs::run_job` is where an operation is timed**, because it is the one choke point every
+  module run, chain, import, export and render passes through (25 `run_simple_job` sites all
+  delegate to it). Time it there, never at a call site.
+- **`diagnostics::boot_step` prints AND records from one `t.elapsed()`.** A second call would print
+  one number and record another. The single exception is `init_db_resilient`, whose console line
+  names the project PATH: it takes one measurement and uses it twice, so the path reaches the
+  console and never the report.
+- **`install_panic_hook` is the observability half of F2, not a fix.** A panic poisons whatever
+  mutex it held and every later `lock().unwrap()` panics in turn. One hook rather than a guard at
+  each of the 182 `db.0.lock().unwrap()` sites - and not merely because it is smaller: `.unwrap()`
+  panics BEFORE any code at that site could record anything, so a per-site guard structurally
+  cannot catch the first one. Recovering from the poisoning is still open.
+- **The surface token is `--bg-panel`. There is no `--panel`.** Found by measuring this pane's
+  contrast: `background: var(--panel)` is an invalid declaration CSS drops silently, and three
+  pre-existing rules had been doing it - including `.module-contamination`, the caution card. A
+  dropped background does not fail any gate and does not look broken; it looks like a design
+  choice.
+
 ## A project file is not inert (2026-08-22)
 
 `SECURITY-REVIEW-2026-08-22.md` finding F1. A `.duckdb` carries **saved equations** (`documents`

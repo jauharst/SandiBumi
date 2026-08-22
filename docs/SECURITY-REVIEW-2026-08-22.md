@@ -178,6 +178,8 @@ What this does NOT claim: it is a notice, not a defence. Someone who acknowledge
 hostile model still runs it. That is the honest limit of option (a), and it is why option (b) was
 described as looking stronger than it is.
 
+**Partially addressed 2026-08-22 (pass 2), and the half that is NOT done is named.** `diagnostics::install_panic_hook` now records where the first panic happened, so the diagnostic report can name it instead of the user reporting an application that stopped working for no visible reason. **The poisoning itself is not recovered from** — this is reporting, not repair. One hook rather than a guard at each of the 182 `db.0.lock().unwrap()` sites, because `.unwrap()` panics before any code at that site could record anything: a per-site guard structurally cannot catch the first one. See `docs/OBSERVABILITY-2026-08-22.md` §5.
+
 ### F2 — One panic anywhere makes the project unusable until restart
 
 * **Severity: MEDIUM** (robustness, not classic security) · **Confidence 9**
