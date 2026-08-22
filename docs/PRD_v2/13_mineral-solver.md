@@ -712,8 +712,12 @@ good design decision and should be preserved explicitly rather than by accident.
 `cbw = 0.0007·(T_C + 8.5)·(T_C + 298)` (`:580`) — Geolog's form, carrying the same
 Clavier-Coates-Dumanoir `(T + 8.5)` term as Elan Eq 62; and auto row uncertainties
 `u_ct = 0.03·cw^(1/w)`, `u_cxo = 0.03·cmf^(1/w)` (`:597`–`:598`). `alpha_expansion`
-(`multimin2.rs:557`–`:563`) is `sqrt(20455/S)` below 20,455 ppm **capped at 5.0** — the cap is a
-SandiBumi engineering guard, not a vendor value, and is labelled as such in §5.
+(`sandimin.rs`) is `sqrt(20455/S)` below 20,455 ppm, held at the declared parameter **`ALPHA_MAX`,
+default 5.0** — the ceiling is a SandiBumi engineering guard, not a vendor value, and is labelled as
+such in §5. Since DEC-095 (2026-08-22) it is a parameter rather than a literal and the run REPORTS
+when it bound: `docs/multimin_ref_spec.md:60` writes α with no ceiling, so a run that reaches ours
+carries less clay-bound water than the spec would and must not do so silently. The salinity itself
+may now be entered from a water analysis instead of being back-calculated from Rw.
 `bndwat_multiplier` (`multimin2.rs:604`–`:606`) uses the constant `96.0` with ρ in g/cc, which is the
 correct half of the unit trap: Geolog's printed `0.096` requires ρ in kg/m³, and
 `1 × 96 × 0.25 × 2.78 / 362.4 = 0.18411` reproduces the dossier's verified fixture. **This is why

@@ -2558,10 +2558,19 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 **Preconditions:** precalc'd well selected; a second precalc'd well available; zones defined.
 **Steps:**
 
-1. Advance ▸ **SandiMin…**. Verify: components box grouped **Minerals / Clays / Fluids** (fluids badged flushed/unflushed) with Quartz, Illite, Water Sxo, Water Sw pre-ticked; tool rows with curve + σ fields (Formation Density 0.0264, Neutron 0.014, Sonic Transit Time 1.951, Total Gamma Ray 6, Unflushed Conductivity (from RT) → RES_DEEP with σ blank = "auto"); **Fluid properties (CT/CXO — resistivity → conductivity)** box with Rw/Rmf/temps/m/n/Mud and a live preview line (w=… Cw=… Cbw=…).
+1. Advance ▸ **SandiMin…**. Verify: components box grouped **Minerals / Clays / Fluids** (fluids badged flushed/unflushed) with Quartz, Illite, Water Sxo, Water Sw pre-ticked; tool rows with curve + σ fields (Formation Density 0.0264, Neutron 0.014, Sonic Transit Time 1.951, Total Gamma Ray 6, Unflushed Conductivity (from RT) → RES_DEEP with σ blank = "auto"); **Fluid properties (CT/CXO — resistivity → conductivity)** box with Rw/Rmf/temps/m/n/Mud, the three DEC-095 fields **Water salinity (ppm)** / **Filtrate salinity (ppm)** (both blank, placeholders reading "from Rw" / "from Rmf") and **α ceiling** (5), and a live preview line (w=… Cw=… Cbw=… α(x/u)=… salinity(w/mf)=… ppm).
 2. In the **Autofill from precalc** row leave "(whole well)" and click **Read** → Formation temp (°F) and Rmf sample fill; status reads "SandiMin autofill (WELL, whole well): FTEMP … °F, RMF … ohmm (n/n samples)". Repeat with a zone picked (covers REVIEW.md §"SandiMin: wet→dry clay converter + fluid autofill from precalc (#22)" autofill items).
 3. Switch to the second well in the Wells pane: the autofill zone list refreshes to that well's zones (covers §#22 "Switch wells…"). Click **Read**, then IMMEDIATELY switch back to well 1 before it resolves.
 4. On a well never precalc'd, click **Read**.
+5. **DEC-095, the salinity and the α ceiling.** Leave both salinity boxes blank and read the
+   preview's `salinity(w/mf)` — those are the Bateman-Konen back-calculations from Rw and Rmf.
+   Now type **500** into **Water salinity (ppm)**: the preview's salinity jumps to 500 and
+   α(x/u)'s second number pins at **5.00** with **(held from …/6.40)** appended — the ceiling
+   bound, and the preview says what α would have been. Raise **α ceiling** to **10**: the held-from
+   note disappears and α reads 6.40, which is the reference spec's own uncapped value. Put the
+   ceiling back to 5, run the solver, and confirm the result panel carries an amber line naming
+   ALPHA_MAX and the unheld value. Clear the salinity box again and confirm the preview returns to
+   the derived number — blank must mean *derive it*, never zero.
    **Expected:** steps 1–2 as described. Step 3: the form is NOT stamped with the wrong well's FTEMP/RMF after the switch (stale response discarded). Step 4: status "SandiMin autofill: no FTEMP_F/RMF samples on … — run the precalc module first"; nothing applied.
    **Known issue:** AUDIT-2026-07-21 "SandiMin's 'Autofill from precalc' Read button has no stale-response race guard, unlike refreshZones() in the same file" — fixed in the uncommitted Round-4 batch (REVIEW.md §Round 4 "Race guards", unchecked). Expect PASS on step 3; stale values appearing is that finding — log as known.
    **Result — T-ADV-14:**

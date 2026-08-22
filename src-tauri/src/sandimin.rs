@@ -990,6 +990,27 @@ pub struct FluidProps {
     /// B(T) fit disagrees with a measured B (it overshoots above ~120 °C).
     #[serde(default)]
     pub ws_b: f64,
+    /// Formation-water NaCl-equivalent salinity (ppm). `None` derives it from `rw` through the
+    /// Bateman-Konen inverse, which is what this always did - but that inverse ASSUMES the dissolved
+    /// solids behave as pure NaCl, and in the fresh-to-brackish water where the diffuse-layer
+    /// expansion actually bites, bicarbonate and sulphate make a real water analysis disagree with
+    /// it. A measured salinity is better evidence than a back-calculation from Rw, so when the user
+    /// has one it WINS (DEC-095, Jauhar 2026-08-22: "salinity input from user").
+    #[serde(default)]
+    pub salinity_w_ppm: Option<f64>,
+    /// Mud-filtrate NaCl-equivalent salinity (ppm), same rule against `rmf`. Read only on WATER mud -
+    /// an oil mud's X zone takes the formation water's alpha by construction.
+    #[serde(default)]
+    pub salinity_mf_ppm: Option<f64>,
+    /// Ceiling on the dual-water diffuse-layer expansion alpha. **The reference spec's form has NO
+    /// ceiling** (`docs/multimin_ref_spec.md:60` - alpha = sqrt(20455/n) below 20,455 ppm NaCl,
+    /// else 1), so a run that reaches this ceiling has left the spec and must not do so silently.
+    /// Default 5.0, unchanged from the literal it replaces; it binds below 818 ppm. For scale, IP
+    /// 2025's Sand/Silt/Malay model caps the same physical quantity - bound water against the clay's
+    /// own total porosity - at 1.5x, which is the equivalent of alpha = 1.5 and would bind below
+    /// 9,091 ppm (`docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md` 2.4, T2).
+    #[serde(default = "default_alpha_max")]
+    pub alpha_max: f64,
 }
 
 fn default_mud() -> String {
@@ -1007,6 +1028,9 @@ fn default_simandoux_c() -> f64 {
 fn default_phit_sh() -> f64 {
     0.10
 }
+fn default_alpha_max() -> f64 {
+    5.0
+}
 
 /// Derived fluid quantities (also exposed to the dialog via `sandimin_fluid_calc`).
 #[derive(Debug, Clone, Serialize)]
@@ -1021,6 +1045,11 @@ pub struct FluidCalc {
     pub cbw_u: f64,
     pub alpha_x: f64,
     pub alpha_u: f64,
+    /// Alpha BEFORE `FluidProps.alpha_max` was applied. Equal to `alpha_x`/`alpha_u` where the
+    /// ceiling did not bind, so `alpha_uncapped_u > alpha_u` is exactly "the ceiling bound here" -
+    /// which is what lets a run SAY it departed from the reference spec's uncapped form (DEC-095).
+    pub alpha_uncapped_x: f64,
+    pub alpha_uncapped_u: f64,
     pub salinity_w_ppm: f64,
     pub salinity_mf_ppm: f64,
     /// Auto uncertainties for the transformed CT/CXO rows.
@@ -1152,11 +1181,35 @@ pub struct SandiminResult {
     pub dof: i64,
     /// Set when `dof == 0` — a heads-up that the reconstruction can't discriminate the model.
     pub dof_note: Option<String>,
+    /// DEC-095: set when `ALPHA_MAX` held the diffuse-layer expansion down. The reference spec's
+    /// form has no ceiling, so a run that reached ours produced a SMALLER clay-bound water volume
+    /// than the spec would, and that departure is stated rather than left in the arithmetic.
+    /// (`dof_note`'s shape - the run succeeded, and this qualifies what it means.)
+    pub alpha_note: Option<String>,
     pub error: Option<String>,
 }
 
 fn fail(msg: &str) -> SandiminResult {
-    SandiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
+    SandiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, alpha_note: None, error: Some(msg.to_string()) }
+}
+
+/// DEC-095: name the diffuse-layer ceiling when it bound. The reference spec's alpha is uncapped
+/// (`docs/multimin_ref_spec.md:60`), so a run that reaches `ALPHA_MAX` has departed from the spec and
+/// carries LESS clay-bound water than the spec would give it - a difference that shows up only in
+/// the answer, never on the log. Said once per run: alpha is salinity-driven and does not vary with
+/// formation temperature, so a per-sample message would repeat one fact thousands of times.
+fn alpha_ceiling_note(fc: &FluidCalc, cap: f64) -> Option<String> {
+    let mut hit: Vec<String> = vec![];
+    if fc.alpha_uncapped_u > fc.alpha_u {
+        hit.push(format!("formation water would be {:.2} at {:.0} ppm NaCl", fc.alpha_uncapped_u, fc.salinity_w_ppm));
+    }
+    if fc.alpha_uncapped_x > fc.alpha_x {
+        hit.push(format!("mud filtrate would be {:.2} at {:.0} ppm NaCl", fc.alpha_uncapped_x, fc.salinity_mf_ppm));
+    }
+    if hit.is_empty() {
+        return None;
+    }
+    Some(format!("Diffuse-layer expansion held at ALPHA_MAX {:.2} ({}). The reference spec writes this factor with no ceiling, so this run carries less clay-bound water than the spec would; raise ALPHA_MAX to follow the spec, or leave it and read the bound water as deliberately limited.", cap, hit.join("; ")))
 }
 
 /// Curve-safe token for a component name: uppercase, non-alphanumeric → '_'.
@@ -1189,12 +1242,28 @@ fn salinity_ppm(r_sample: f64, t_sample_f: f64) -> f64 {
     10f64.powf((3.562 - (r75 - 0.0123).log10()) / 0.955)
 }
 
-/// Dual-water diffuse-layer expansion factor: α = sqrt(20455 / S) below 20,455 ppm NaCl.
-fn alpha_expansion(salinity: f64) -> f64 {
+/// DEC-095: the user's measured salinity if they gave one, otherwise the Bateman-Konen inverse of
+/// the resistivity sample. A non-finite or non-positive entry is NOT a measurement and falls back.
+fn measured_or_derived(measured: Option<f64>, r_sample: f64, t_sample_f: f64) -> f64 {
+    match measured {
+        Some(s) if s.is_finite() && s > 0.0 => s,
+        _ => salinity_ppm(r_sample, t_sample_f),
+    }
+}
+
+/// Dual-water diffuse-layer expansion factor: α = sqrt(20455 / S) below 20,455 ppm NaCl, held at
+/// `alpha_max`. Returns **(held, unheld)** so a caller can say the ceiling bound: the reference spec
+/// writes this factor with no ceiling at all (`docs/multimin_ref_spec.md:60`), so a run that reaches
+/// ours has departed from the spec, and a departure nothing reports is a silent one. A ceiling below
+/// 1.0 would REDUCE the diffuse layer rather than limit its expansion, which is not what the
+/// parameter means, so it falls back to the shipped 5.0 rather than being honoured.
+fn alpha_expansion(salinity: f64, alpha_max: f64) -> (f64, f64) {
     if salinity > 0.0 && salinity < 20_455.0 {
-        (20_455.0 / salinity).sqrt().min(5.0)
+        let raw = (20_455.0 / salinity).sqrt();
+        let cap = if alpha_max.is_finite() && alpha_max >= 1.0 { alpha_max } else { 5.0 };
+        (raw.min(cap), raw)
     } else {
-        1.0
+        (1.0, 1.0)
     }
 }
 
@@ -1214,11 +1283,17 @@ pub fn fluid_calc_at(p: &FluidProps, ftemp_f: f64) -> FluidCalc {
     let cmf = 1.0 / arps_f(p.rmf, p.rmf_temp_f, ftemp_f).max(1e-4);
     let t_c = (ftemp_f - 32.0) * 5.0 / 9.0;
     let cbw = 0.0007 * (t_c + 8.5) * (t_c + 298.0);
-    let sal_w = salinity_ppm(p.rw, p.rw_temp_f);
-    let sal_mf = salinity_ppm(p.rmf, p.rmf_temp_f);
-    let alpha_u = alpha_expansion(sal_w);
+    // DEC-095: a salinity the user MEASURED outranks one back-calculated from Rw. The Bateman-Konen
+    // inverse assumes pure NaCl; a water analysis does not have to.
+    let sal_w = measured_or_derived(p.salinity_w_ppm, p.rw, p.rw_temp_f);
+    let sal_mf = measured_or_derived(p.salinity_mf_ppm, p.rmf, p.rmf_temp_f);
+    let (alpha_u, alpha_u_raw) = alpha_expansion(sal_w, p.alpha_max);
     // Oil mud: no filtrate invasion of water — X zone driven by formation water too.
-    let alpha_x = if p.mud_type.eq_ignore_ascii_case("OIL") { alpha_u } else { alpha_expansion(sal_mf) };
+    let (alpha_x, alpha_x_raw) = if p.mud_type.eq_ignore_ascii_case("OIL") {
+        (alpha_u, alpha_u_raw)
+    } else {
+        alpha_expansion(sal_mf, p.alpha_max)
+    };
     FluidCalc {
         w,
         cw,
@@ -1228,6 +1303,8 @@ pub fn fluid_calc_at(p: &FluidProps, ftemp_f: f64) -> FluidCalc {
         cbw_u: cbw / alpha_u,
         alpha_x,
         alpha_u,
+        alpha_uncapped_x: alpha_x_raw,
+        alpha_uncapped_u: alpha_u_raw,
         salinity_w_ppm: sal_w,
         salinity_mf_ppm: sal_mf,
         u_ct: 0.03 * cw.powf(1.0 / w),
@@ -1678,6 +1755,11 @@ pub fn run_sandimin(
     } else {
         req.fluid.as_ref().map(fluid_calc)
     };
+    // DEC-095: computed here, where `fluid` is settled, and carried out on the result.
+    let alpha_note = fluid
+        .as_ref()
+        .zip(req.fluid.as_ref())
+        .and_then(|(fc, p)| alpha_ceiling_note(fc, p.alpha_max));
 
     let zs = classify(&req.components);
     if has_cond && zs.x_water.is_empty() && zs.u_water.is_empty() && zs.x_bw.is_empty() && zs.u_bw.is_empty() {
@@ -2564,6 +2646,7 @@ pub fn run_sandimin(
         wells,
         dof,
         dof_note,
+        alpha_note,
         error: None,
     }
 }
@@ -3764,6 +3847,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let fc = fluid_calc(&props);
         let inv_w = 1.0 / fc.w;
@@ -3956,6 +4042,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let fc = fluid_calc(&props);
         assert!((fc.w - 2.0).abs() < 1e-9);
@@ -3964,6 +4053,115 @@ mod tests {
         assert!((fc.salinity_w_ppm - 13_048.0).abs() < 800.0, "S {}", fc.salinity_w_ppm);
         assert!(fc.cmf > fc.cw, "filtrate is saltier here: Cmf {} Cw {}", fc.cmf, fc.cw);
         assert!(fc.u_ct > 0.0 && fc.u_cxo > 0.0);
+    }
+
+    /// A FluidProps at the reference example's Rw/Rmf, with the two DEC-095 knobs left at
+    /// "derive it" and the shipped ceiling.
+    fn dec095_props() -> FluidProps {
+        FluidProps {
+            rw: 0.43,
+            rw_temp_f: 77.0,
+            rmf: 0.10,
+            rmf_temp_f: 62.0,
+            ftemp_f: 148.0,
+            m: 2.0,
+            n: 2.0,
+            mud_type: "WATER".into(),
+            rsh: 4.0,
+            archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
+            phit_sh: 0.1,
+            ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
+        }
+    }
+
+    /// DEC-095, Jauhar 2026-08-22: "salinity input from user". The fallback back-calculates
+    /// salinity from Rw with the Bateman-Konen inverse, which ASSUMES the dissolved solids are
+    /// pure NaCl; a water analysis does not have to be. Pinned from BOTH sides - an
+    /// implementation that ignored the entry would pass the derive half, and one that
+    /// required an entry would pass the measured half.
+    #[test]
+    fn a_measured_salinity_outranks_the_one_back_calculated_from_rw() {
+        let derived = fluid_calc(&dec095_props());
+        // Rw 0.43 @ 77 F back-calculates to about 13,000 ppm - the reference example's own number.
+        assert!(
+            (derived.salinity_w_ppm - 13_043.0).abs() < 300.0,
+            "the fallback must still be the Bateman-Konen inverse: {}",
+            derived.salinity_w_ppm,
+        );
+        let expect_derived = (20_455.0f64 / derived.salinity_w_ppm).sqrt();
+        assert!((derived.alpha_u - expect_derived).abs() < 1e-9, "alpha follows it: {}", derived.alpha_u);
+
+        // A water analysis says 5,000 ppm. Not near the ceiling, so this isolates the salinity path.
+        let mut measured = dec095_props();
+        measured.salinity_w_ppm = Some(5_000.0);
+        let fc = fluid_calc(&measured);
+        assert!((fc.salinity_w_ppm - 5_000.0).abs() < 1e-9, "the measurement wins: {}", fc.salinity_w_ppm);
+        let expect_measured = (20_455.0f64 / 5_000.0).sqrt();
+        assert!(
+            (fc.alpha_u - expect_measured).abs() < 1e-9,
+            "and alpha follows the MEASURED salinity, not Rw: {} vs {}",
+            fc.alpha_u,
+            expect_measured,
+        );
+        assert!(fc.alpha_u > derived.alpha_u, "fresher water expands the diffuse layer further");
+        // Rmf was left blank, so the filtrate side is untouched by the formation-water entry.
+        assert!((fc.salinity_mf_ppm - derived.salinity_mf_ppm).abs() < 1e-9);
+        // Zero is not a measurement - it is an empty box that reached the backend as a number.
+        let mut zeroed = dec095_props();
+        zeroed.salinity_w_ppm = Some(0.0);
+        assert!(
+            (fluid_calc(&zeroed).salinity_w_ppm - derived.salinity_w_ppm).abs() < 1e-9,
+            "a non-positive entry falls back rather than dividing by it",
+        );
+    }
+
+    /// AUDIT-2026-08-20 finding 34 / DEC-095, Jauhar 2026-08-22: "yes please make it a parameter
+    /// and speak". `docs/multimin_ref_spec.md:60` writes alpha with NO ceiling, so the 5.0 that
+    /// was buried in `.min(5.0)` was a departure from the spec that nothing declared and nothing
+    /// reported. It is now a parameter and a run that reaches it says so. Pinned from BOTH sides:
+    /// a ceiling that ignored the parameter would pass the binds half, and one that never bound
+    /// would pass the raised half.
+    #[test]
+    fn the_diffuse_layer_ceiling_is_declared_and_a_run_that_reaches_it_says_so() {
+        // The shipped default reproduces the literal it replaced, so no existing project moved.
+        let json = serde_json::json!({
+            "rw": 0.43, "rw_temp_f": 77.0, "rmf": 0.10, "rmf_temp_f": 62.0,
+            "ftemp_f": 148.0, "m": 2.0, "n": 2.0, "archie_a": 1.0,
+        });
+        let defaulted: FluidProps = serde_json::from_value(json).expect("the optional knobs default");
+        assert!((defaulted.alpha_max - 5.0).abs() < 1e-9, "shipped ceiling: {}", defaulted.alpha_max);
+        assert!(defaulted.salinity_w_ppm.is_none() && defaulted.salinity_mf_ppm.is_none());
+
+        // 500 ppm NaCl - fresh water, the regime the expansion exists for. Uncapped alpha is 6.40.
+        let mut fresh = dec095_props();
+        fresh.salinity_w_ppm = Some(500.0);
+        fresh.salinity_mf_ppm = Some(500.0);
+        let held = fluid_calc(&fresh);
+        let raw = (20_455.0f64 / 500.0).sqrt();
+        assert!((held.alpha_uncapped_u - raw).abs() < 1e-9, "the unheld value is reported: {}", held.alpha_uncapped_u);
+        assert!((held.alpha_u - 5.0).abs() < 1e-9, "the ceiling holds it: {}", held.alpha_u);
+        let note = alpha_ceiling_note(&held, fresh.alpha_max).expect("a run that reaches the ceiling says so");
+        assert!(note.contains("ALPHA_MAX 5.00") && note.contains("6.40"), "the note names both: {note}");
+
+        // Raised past the unheld value, the spec's own uncapped form is what runs, and nothing is said.
+        let mut open = fresh.clone();
+        open.alpha_max = 10.0;
+        let free = fluid_calc(&open);
+        assert!((free.alpha_u - raw).abs() < 1e-9, "the parameter is what decides: {}", free.alpha_u);
+        assert!(
+            alpha_ceiling_note(&free, open.alpha_max).is_none(),
+            "a ceiling that did not bind must say nothing - a note on every run is not a message",
+        );
+
+        // Saline water never reaches the ceiling and is unaffected either way.
+        let saline = fluid_calc(&dec095_props());
+        assert!((saline.alpha_u - saline.alpha_uncapped_u).abs() < 1e-9);
+        assert!(alpha_ceiling_note(&saline, 5.0).is_none());
     }
 
     #[test]
@@ -4089,6 +4287,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let req = SandiminRequest {
             input_set: None,
@@ -4435,6 +4636,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let dc = dry_clay_calc(&WetClayInput {
             rhob_wet: 2.18333,
@@ -4616,6 +4820,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let req = SandiminRequest {
             input_set: None,
@@ -4730,6 +4937,9 @@ mod tests {
                 simandoux_c: 1.0,
                 phit_sh: 0.1,
                 ws_b: 0.0,
+                salinity_w_ppm: None,
+                salinity_mf_ppm: None,
+                alpha_max: 5.0,
             };
             let req = SandiminRequest {
                 input_set: None,
@@ -5206,6 +5416,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let req = SandiminRequest {
             input_set: None,
@@ -5300,6 +5513,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let req = SandiminRequest {
             input_set: None,
@@ -5405,6 +5621,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         let req = SandiminRequest {
             input_set: None,
@@ -5471,6 +5690,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         // fluid_calc IS fluid_calc_at at p.ftemp_f — bit-identical.
         let base = fluid_calc(&p);
@@ -5545,6 +5767,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         };
         SandiminRequest {
             input_set: None,

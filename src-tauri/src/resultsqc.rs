@@ -595,6 +595,9 @@ mod tests {
             simandoux_c: 1.0,
             phit_sh: 0.10,
             ws_b: 0.0,
+            salinity_w_ppm: None,
+            salinity_mf_ppm: None,
+            alpha_max: 5.0,
         }
     }
 

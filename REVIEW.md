@@ -1,5 +1,48 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit finding 34 (DEC-095): **SandiMin lets you type the salinity in, and its α ceiling stopped hiding**
+
+- [ ] **What to click.** Advance ▸ **SandiMin…**, fluid-properties box. Three new fields at the end
+      of the grid: **Water salinity (ppm)**, **Filtrate salinity (ppm)** and **α ceiling**. Leave all
+      three alone and nothing about your work changes — the ceiling default is the same 5.0 the code
+      has always used, and a blank salinity box means exactly what it meant before.
+- [ ] **The salinity, in rock terms.** When the box is blank the app back-calculates salinity from
+      Rw with the Bateman-Konen inverse — which **assumes every dissolved solid behaves as NaCl**.
+      In fresh-to-brackish water, which is the only place the diffuse-layer expansion matters at all,
+      bicarbonate and sulphate make a real water analysis disagree with that assumption. If you have
+      a water analysis, its NaCl-equivalent ppm is a **measurement** and the back-calculation is a
+      **guess**, so now the measurement wins. Type it in and watch the preview's `salinity(w/mf)`
+      change. Clear the box and it goes back to the derived number — blank means *derive it*, never
+      zero.
+- [ ] **The α ceiling, and why it needed saying.** α = √(20455 / salinity) is the dual-water
+      diffuse-layer expansion: fresher water, thicker charged layer around the clay, more bound
+      water. The reference spec writes it with **no ceiling**. Our code had `.min(5.0)` sitting in it
+      as a bare number, which means every run below **818 ppm** was quietly carrying *less*
+      clay-bound water than the spec asks for, with nothing on the log or the panel to say so.
+      It is now the **α ceiling** field, and when it bites the run tells you.
+- [ ] **See it bite.** Type **500** into Water salinity. The preview shows α pinned at **5.00** with
+      **(held from …/6.40)** after it — 6.40 being what α would have been. Raise the α ceiling to
+      **10** and the note goes away: α reads 6.40, which is the reference spec's own value. Run the
+      solver with the ceiling back at 5 and the result panel carries an amber line naming ALPHA_MAX
+      and the unheld number.
+- [ ] **What IP does, since you asked me to check.** IP 2025's Sand/Silt/Malay model caps the same
+      physical thing from the other end: `Vbw <= Vcl × PhiTclay × 1.5` — bound water against the
+      clay's own porosity — and their own manual calls it *a hard-coded constant in the model, not a
+      parameter*. It is not an α cap (IP never computes α there), but it is the same ceiling on the
+      same volume, and it sits at the equivalent of **α = 1.5**, which would bite below **9,091 ppm**.
+      So **our 5.0 is far more permissive than IP's** — which is the useful thing to know when you
+      decide where to set it. Worth noting: that same IP model reports the limits it hit (their Logic
+      Flag 7 is *PhieMax limit used*), which is exactly the "speak" you asked for.
+- [ ] **Two things I did NOT do, deliberately.** First, **5.0 is still an uncited number** — you
+      asked me to declare it and report it, not to source it, and declaring a number is not the same
+      as justifying it. If you want IP's more conservative equivalent as the default instead, that
+      is one number and I will change it. Second, our α still **drops the Debye-Hückel activity
+      ratio** that Geolog carries (+6.7 % at 5,000 ppm, +8.9 % at 3,000 ppm). That is a separate open
+      item (`SB-SAT-019`) and this increment did not touch it — I changed the ceiling and where the
+      salinity comes from, not the formula between them.
+- [ ] **Nothing moved.** Leave the fields alone and every existing project computes exactly what it
+      computed yesterday.
+
 ## 2026-08-22 — Audit finding 9 (DEC-094): **the IMTS clay charge was standing on the wrong denominator, so your S has to be re-fitted**
 
 - [ ] **Read this before you run IMTS again.** `sw_imts` will now **refuse** on any well until you
