@@ -2708,10 +2708,17 @@ pub fn run_workflow_module_into(
                 p.start_item(well_id);
             }
             let compute = || -> Result<ComputedRun, String> {
+                #[cfg(test)]
+                let _phase_well = crate::lock_probe::well();
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
                 let (depth, mut logs, input_units, params, defaulted_parameters, log_args) = {
+                    #[cfg(test)]
+                    let conn = { let _phase_wait = crate::lock_probe::wait(); db.lock().unwrap() };
+                    #[cfg(not(test))]
                     let conn = db.lock().unwrap();
+                    #[cfg(test)]
+                    let _phase_read = crate::lock_probe::read();
                     let log_args = resolved_log_args_for_well(
                         &conn,
                         well_id,
@@ -2763,7 +2770,12 @@ pub fn run_workflow_module_into(
                 // (generic-store aware).
                 let mask_name = req.opts.get("MASK").map(|s| s.trim()).unwrap_or("");
                 let mask = {
+                    #[cfg(test)]
+                    let conn = { let _phase_wait = crate::lock_probe::wait(); db.lock().unwrap() };
+                    #[cfg(not(test))]
                     let conn = db.lock().unwrap();
+                    #[cfg(test)]
+                    let _phase_read = crate::lock_probe::read();
                     fetch_mask_aligned(
                         &conn,
                         well_id,
@@ -2811,7 +2823,12 @@ pub fn run_workflow_module_into(
                 // DECLARED neutron matrix basis, so the runner resolves the same curve the
                 // fetch used and injects its declaration - never inferring one.
                 if declared.reads_input_neutron_basis {
+                    #[cfg(test)]
+                    let conn = { let _phase_wait = crate::lock_probe::wait(); db.lock().unwrap() };
+                    #[cfg(not(test))]
                     let conn = db.lock().unwrap();
+                    #[cfg(test)]
+                    let _phase_read = crate::lock_probe::read();
                     if let Some(basis) = nphimat_declared_basis(&conn, well_id, &log_args) {
                         well_opts.insert(modules::NEUTRON_BASIS_OPT.to_string(), basis);
                     }
@@ -3039,6 +3056,8 @@ pub fn run_workflow_module_into(
                         if !invalid.is_empty() {
                             let zones = {
                                 let conn = db.lock().map_err(|_| "database busy".to_string())?;
+                                #[cfg(test)]
+                                let _phase_read = crate::lock_probe::read();
                                 db::list_zones(&conn, well_id).map_err(|e| e.to_string())?
                             };
                             let mut groups: Vec<(String, usize, f64, f64)> = Vec::new();
@@ -3335,6 +3354,8 @@ pub fn run_workflow_module_into(
         None
     } else {
         let conn = db.lock().unwrap();
+        #[cfg(test)]
+        let _phase_write = crate::lock_probe::write();
         let err = ancestry::write_computed_curves_with_ancestry_batch(&conn, &writes).err();
         // SB-MLA-055. Record which of these curves hold CLASS CODES, so a later re-frame or block
         // cannot average them into a value that is not any class. Declared from the manifest's

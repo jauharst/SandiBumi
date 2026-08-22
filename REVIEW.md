@@ -1,5 +1,38 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — Nine tenths of a batch run is waiting, and the maths is one thousandth
+
+- [ ] **Still nothing changed in the app.** You asked what a batch run actually spends its time on
+      before deciding whether to fix the connection. Here it is.
+- [ ] **Where the time goes on a four-module chain over 100 wells.** Waiting in the queue for the
+      database: **91%**. Reading, once it gets in: 3.5%. Writing the answers: 5.5%. The actual
+      petrophysics — Larionov, density porosity, Indonesia saturation, Wyllie-Rose permeability,
+      over 156,200 samples — is **0.1%**.
+- [ ] **Read that last number again, because it surprised me.** All four equations across a hundred
+      wells cost about a quarter of a second in total. Everything else is fetching and storing.
+- [ ] **What the fix is actually worth: about 1.8×, not 8×.** I have to correct what I told you
+      last time. I said a connection pool buys 4–8×. That was true of the *reading*, and the
+      reading turns out to be only 3.5% of the job. End to end, a batch run over 100 wells would go
+      from ~36 seconds to ~19–20 seconds. On your 23-minute chain that is roughly ten minutes back
+      — worth having, but not the transformation "32 idle cores" makes it sound like.
+- [ ] **And then you hit the writing, which cannot be shared.** After the fix, 85–91% of what is
+      left is writing results, and DuckDB only ever allows one writer. Anything beyond that has to
+      make the writing *cheaper*, not more parallel. So the ceiling is now known, not guessed.
+- [ ] **One good consequence: the safe version of the change is the version that wins.** Extra
+      permits for *reading*, one writer as now. That removes the queue and leaves the write
+      discipline — the thing that keeps two PHIE values from landing at the same depth — completely
+      untouched. The risky version (many writers) would buy nothing measurable.
+- [ ] **I got my own measurement wrong first, and want you to know how.** My first stopwatch timed
+      how long the database was *held* but not how long each thread *queued* for it — and that
+      waiting got silently counted as "computing". It reported the maths as 92% of the work and the
+      fix as worth 1.03×, which is the opposite of the truth. The corrected version separates
+      queueing from working.
+- [ ] **Nothing to click** — `docs/PERF-SPLIT-2026-08-23.md`. To run it:
+      `cargo test --release --lib perf_read_write_split -- --ignored --nocapture` from `src-tauri`.
+- [ ] **The measuring code cannot get into a build you ship.** I proved it rather than claiming it:
+      I deliberately filled that file with nonsense, and a release build still compiled clean,
+      because it is only ever compiled for tests. Then I put it back.
+
 ## 2026-08-22 — Found out why batch runs ignore your 32 cores
 
 - [ ] **Still nothing changed in the app.** You asked me to prove the cause before fixing

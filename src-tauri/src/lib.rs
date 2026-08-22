@@ -54,6 +54,10 @@ mod paysummary;
 pub mod parameter_pack;
 mod parsers;
 mod petrography;
+/// Phase timing for the module runner. `#[cfg(test)]` so it does not exist in a shipped build —
+/// see the module's own header for why it is in production code at all.
+#[cfg(test)]
+mod lock_probe;
 #[cfg(test)]
 mod perf_baseline_test;
 #[cfg(test)]
