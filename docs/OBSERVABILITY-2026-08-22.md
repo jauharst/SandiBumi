@@ -78,7 +78,7 @@ and decides whether it goes anywhere.
 | Project shape | Counts only — the denominator for "slow". 60 s over 5 wells and over 2000 are different statements. |
 | Opening this project | All 13 steps, so a slow open names the migration responsible. |
 | Operations this session | Every run, chain, import, export and render, with its duration, item count and outcome — `ok`, `cancelled` or `FAILED`. |
-| Session errors | The panic hook's record — see §5. |
+| Crashes and internal errors | Read from disk, **across sessions** — in a shipped build the run that crashed cannot report itself. See §5. |
 | How these curves were made | One well's full `CurveAncestry`, **including parameter values**. |
 
 ### The redaction rule
@@ -118,20 +118,48 @@ repo does not accept between two renderings of one measurement. The one step tha
 is `init_db_resilient`, whose console line names the project PATH; it takes one measurement and
 uses it twice, deliberately, so the path reaches the console and never the report.
 
-## 5. F2, half-closed and said so
+## 5. F2, corrected - and what a shipped crash really looks like
 
-`SECURITY-REVIEW-2026-08-22.md` finding F2 — *one panic anywhere makes the project unusable until
-restart* — is **not fixed here**. A panic poisons whatever mutex it held and every later
-`lock().unwrap()` panics in turn, so the user sees an application that has stopped working with no
-first cause visible anywhere.
+The proposal for this pass said F2 was half-closed: the panic hook recorded where a crash started,
+and recovering the poisoned mutex was left for later. **Both halves of that were wrong, and finding
+out why produced the more valuable half of this increment.**
 
-What landed is the observability half: `diagnostics::install_panic_hook` records where the first
-panic happened, so the report can name it. One hook rather than a guard at each of the **182**
-`db.0.lock().unwrap()` sites in `lib.rs`
-(`git show HEAD~1:src-tauri/src/lib.rs | grep -c 'db\.0\.lock()\.unwrap()'` → 182) — and not merely
-because it is smaller. **`.unwrap()` panics before any code at that site could record anything**,
-so a per-site guard structurally cannot catch the first one. The hook can, wherever it happens.
-Recovering from the poisoning is a separate change and remains open.
+`[profile.release]` sets `panic = "abort"`. Measured with a standalone probe compiled both ways:
+
+| | hook runs | mutex poisoned | code after the panic |
+|---|---|---|---|
+| `panic = "unwind"` (dev, `cargo test`) | yes | **yes** | runs |
+| `panic = "abort"` (**release**) | yes | n/a | **nothing runs** |
+
+Two consequences:
+
+- **F2's scenario cannot happen to a user.** There is no session in which everything stops working,
+  because there is no session - the process is gone. Sweeping the 182 `db.0.lock().unwrap()` sites
+  would have changed nothing for any shipped build, so it was not done, and the security report now
+  says so under F2 rather than leaving the recommendation standing.
+- **An in-memory crash record is unreadable by construction.** The hook wrote to a static that died
+  with the process about a microsecond later. In `tauri dev` it worked; in the product it recorded
+  into a void.
+
+What a client actually experiences is this: the window closes. `windows_subsystem = "windows"` means
+there is no console, and abort means there is no dialog. They report *"it just closed"*.
+
+So `record_internal_error` writes to **`crash-log.txt`** in the per-user config directory, from
+inside the hook, before the process dies - and the NEXT launch's report reads it back, redacted and
+dated. It is capped at 40 records, keeps the newest, and collapses a multi-line panic message into
+one record so a stack-shaped message cannot masquerade as several crashes.
+
+It sits beside `trusted-code.json` rather than in the project, for two reasons: a marker inside a
+`.duckdb` travels with the file, so a project passed between two operators would carry a trace of
+every machine that had crashed on it; and the project is exactly what may be unopenable at the
+moment this needs writing.
+
+Dates are formatted in Rust because the report is a plain-text file read days later, and no date
+crate is a dependency (the brief forbids adding one). `civil_from_days` is Howard Hinnant's
+algorithm, checked against Python's calendar over 100,000 consecutive days with zero mismatches, and
+pinned by anchors on both sides of the epoch including 1900-03-01 and 2100-03-01 - the two century
+years that are not leap years. Those two were added *because* mutation testing showed the original
+three anchors left the century-correction term completely uncovered.
 
 ## 6. Found by measuring, fixed here
 

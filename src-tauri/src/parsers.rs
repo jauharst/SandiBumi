@@ -1119,7 +1119,19 @@ impl LasSectionScan {
                 1
             }
             LasSection::CurveBlock => 2,
-            LasSection::Header | LasSection::AsciiData => unreachable!(),
+            // Unreachable today, and proven so by reading rather than assumed: `classify_las_section`
+            // returns only the four block kinds or `None` (which returns `Header` above), and
+            // `AsciiData` has already returned. It was an `unreachable!()`, which is a latent
+            // whole-application kill - `[profile.release]` sets `panic = "abort"`, so a panic in an
+            // import does not fail the import, it closes the window. Adding a `Header` arm to
+            // `classify_las_section` would arm that silently. A parse error costs one line, changes
+            // nothing for any file that parses today, and fails the IMPORT instead of the app.
+            // SECURITY-REVIEW-2026-08-22 finding F3.
+            LasSection::Header | LasSection::AsciiData => {
+                return Err(ParseError::Las(format!(
+                    "{source}: line {line}: ~{name} is not a section this reader ranks"
+                )))
+            }
         };
         if self.highest_pre_data_rank.is_some_and(|highest| rank < highest) {
             self.handling.push(LasSectionHandling {

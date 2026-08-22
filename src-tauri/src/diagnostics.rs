@@ -12,7 +12,10 @@
 //! So this module does two things and deliberately nothing else:
 //!
 //! 1. **Collects** what the app already knew but threw away - step timings, operation durations,
-//!    internal errors. In memory, capped, never written to the project. A diagnostic is not an
+//!    crashes. Timings live in memory for the session, capped. **Crashes go straight to disk**, in
+//!    the per-user config directory, because `[profile.release]` sets `panic = "abort"`: a panic in
+//!    a built copy terminates the process, so the session that crashed can never be the session
+//!    that reports it. Nothing is written into the PROJECT either way - a diagnostic is not an
 //!    interpretation and must never turn up in a log set.
 //! 2. **Renders** one plain-text report, with every name that belongs to the client replaced.
 //!
@@ -57,16 +60,24 @@ struct OpTiming {
     state: String,
 }
 
-/// The session hit something that should not happen. Recorded rather than swallowed, because
-/// "nothing works any more" with no explanation is the worst support call there is.
-struct InternalError {
-    context: String,
-    at_millis: u128,
-}
-
 static BOOT_STEPS: Mutex<Vec<BootStep>> = Mutex::new(Vec::new());
 static OPS: Mutex<Vec<OpTiming>> = Mutex::new(Vec::new());
-static ERRORS: Mutex<Vec<InternalError>> = Mutex::new(Vec::new());
+/// Contexts already written this session, so one repeating fault does not fill the file.
+static SEEN_ERRORS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Crash records kept. Small enough to stay readable, long enough to cover an intermittent fault
+/// somebody only reports after it has happened several times.
+const CRASH_LOG_MAX_LINES: usize = 40;
+
+/// Where a crash record goes: beside the recents and the trusted-code list, on this machine.
+///
+/// **Not inside the project**, for the same reason the trusted-code list is not: a marker written
+/// into the `.duckdb` travels with it, and a project passed between two operators would carry a
+/// trace of every machine that had crashed on it. It also must not be in the project because the
+/// project is exactly what may be unopenable when this needs writing.
+fn crash_log_path() -> std::path::PathBuf {
+    crate::project::config_dir().join("crash-log.txt")
+}
 
 /// Operations kept. A session that ran two thousand wells would otherwise grow this without
 /// bound, and the last hundred is what a support call is about.
@@ -121,32 +132,130 @@ pub fn record_op(kind: &str, label: &str, millis: u128, items: usize, state: &st
     }
 }
 
-/// Record that the session hit an internal error.
+/// Record that the session hit an internal error, TO DISK, immediately.
+///
+/// To disk rather than to memory, because of what the shipped build actually does. `[profile.release]`
+/// sets `panic = "abort"`, so a panic in a built `sandibumi.exe` runs this and then **terminates the
+/// process** - measured, not assumed. An in-memory record would die with it, unread, and combined
+/// with `windows_subsystem = "windows"` there is no console either: from the user's chair the window
+/// simply vanishes. The file is the only thing that can outlive that and reach the next session.
+///
+/// The write is best-effort throughout. Anything that could fail here is already happening during a
+/// crash, and a diagnostic that panics while recording a panic would recurse.
 pub fn record_internal_error(context: &str) {
-    if let Ok(mut errors) = ERRORS.lock() {
-        // One entry per distinct context. A panic inside a rayon fold fires once per well, and a
-        // report listing the same line two thousand times says less than one saying it happened.
-        if errors.iter().any(|e| e.context == context) {
-            return;
+    // One entry per distinct context. A fault inside a rayon fold fires once per well, and a file
+    // holding the same line two thousand times says less than one holding it once.
+    match SEEN_ERRORS.lock() {
+        Ok(mut seen) => {
+            if seen.iter().any(|known| known == context) {
+                return;
+            }
+            seen.push(context.to_string());
         }
-        errors.push(InternalError { context: context.to_string(), at_millis: since_epoch_millis() });
+        // A poisoned dedupe list must not silence the record - losing the crash matters more than
+        // writing it twice.
+        Err(poisoned) => {
+            let mut seen = poisoned.into_inner();
+            if seen.iter().any(|known| known == context) {
+                return;
+            }
+            seen.push(context.to_string());
+        }
+    }
+    append_crash_line(since_epoch_millis(), context);
+}
+
+/// One record per line: `<utc millis>\t<context>`. Tabs and newlines inside the context are
+/// collapsed so a multi-line panic message can never become several records.
+fn append_crash_line(millis: u128, context: &str) {
+    let flattened: String = context
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' || c == '\t' { ' ' } else { c })
+        .collect();
+    let mut lines = read_crash_lines();
+    lines.push(format!("{millis}\t{flattened}"));
+    let overflow = lines.len().saturating_sub(CRASH_LOG_MAX_LINES);
+    lines.drain(..overflow);
+    if crate::project::config_dir().exists() || std::fs::create_dir_all(crate::project::config_dir()).is_ok() {
+        let _ = std::fs::write(crash_log_path(), lines.join("\n"));
     }
 }
 
-/// Catches every panic in the process and records where it happened.
+fn read_crash_lines() -> Vec<String> {
+    std::fs::read_to_string(crash_log_path())
+        .map(|text| text.lines().filter(|line| !line.trim().is_empty()).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// Parsed crash records, oldest first. A line that does not parse is kept with a zero timestamp
+/// rather than dropped - a record nobody can date is still a record that something happened.
+fn read_crash_log() -> Vec<(u128, String)> {
+    read_crash_lines()
+        .into_iter()
+        .map(|line| match line.split_once('\t') {
+            Some((stamp, context)) => (stamp.parse().unwrap_or(0), context.to_string()),
+            None => (0, line),
+        })
+        .collect()
+}
+
+/// `2026-08-22 09:14:03 UTC` from UTC milliseconds.
 ///
-/// This is the observability half of `SECURITY-REVIEW-2026-08-22.md` finding F2 - "one panic
-/// anywhere makes the project unusable until restart". A panic poisons whatever mutex it was
-/// holding, and every later `lock().unwrap()` on it panics in turn, so the user sees an app that
-/// has stopped working with no first cause visible anywhere. **This does not fix that** - it makes
-/// the first cause reportable. Recovering from a poisoned lock is a separate change.
+/// Written here rather than taken from a crate because none of the date crates are dependencies,
+/// and the brief forbids adding one. The frontend already formats these stamps with
+/// `toISOString()`; this is the same instant in the same order, for the plain-text FILE, which is
+/// read days after the crash by somebody correlating it with what the user remembers.
+fn utc_stamp(millis: u128) -> String {
+    let secs = (millis / 1000) as i64;
+    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
+    let tod = secs.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC",
+        tod / 3600,
+        (tod % 3600) / 60,
+        tod % 60
+    )
+}
+
+/// Days since 1970-01-01 to (year, month, day). Howard Hinnant's `civil_from_days`, which is exact
+/// for every date in the proleptic Gregorian calendar and needs no table.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let shifted = days + 719_468;
+    let era = if shifted >= 0 { shifted } else { shifted - 146_096 } / 146_097;
+    let day_of_era = (shifted - era * 146_097) as i64; // [0, 146096]
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365; // [0, 399]
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100); // [0, 365]
+    let month_shifted = (5 * day_of_year + 2) / 153; // [0, 11], March = 0
+    let day = (day_of_year - (153 * month_shifted + 2) / 5 + 1) as u32; // [1, 31]
+    let month = if month_shifted < 10 { month_shifted + 3 } else { month_shifted - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
+/// Catches every panic in the process and writes where it happened to disk, before the process
+/// goes away.
 ///
-/// One hook rather than a guard at each of the 182 `db.0.lock().unwrap()` sites in `lib.rs`, and
-/// not only because it is smaller: `.unwrap()` panics BEFORE any code at that site could record
-/// anything, so a per-site guard structurally cannot catch the first one. The hook can, wherever
-/// it happens.
+/// **What a shipped crash actually looks like, measured rather than assumed.** `[profile.release]`
+/// sets `panic = "abort"`, so a panic in a built `sandibumi.exe` runs this hook and then terminates
+/// the process - no unwinding, no destructors, no code after it. With `windows_subsystem = "windows"`
+/// there is no console either. From the user's chair the window simply vanishes, and they report
+/// "it just closed", which is the least diagnosable sentence there is.
 ///
-/// The default hook still runs, so `tauri dev` keeps printing its backtrace.
+/// So the hook has exactly one job and it must finish it before returning: get the location and the
+/// message onto disk. `record_internal_error` writes them to `crash-log.txt` in the per-user config
+/// directory, and the NEXT launch's diagnostic report reads them. Nothing else survives.
+///
+/// This corrects `SECURITY-REVIEW-2026-08-22.md` finding F2, which described the `panic = "unwind"`
+/// failure - a poisoned mutex making every later `lock().unwrap()` fail for the rest of the session.
+/// That is real in `tauri dev` and under `cargo test`, and cannot happen in a shipped build, which
+/// has already terminated. `project::open_and_migrate` had documented the abort behaviour all along.
+///
+/// One hook rather than a guard at each lock site, and not only because it is smaller: `.unwrap()`
+/// panics BEFORE any code at that site could record anything, so a per-site guard structurally
+/// cannot catch the first one. The hook can, wherever it happens.
+///
+/// The default hook still runs after it, so `tauri dev` keeps printing its backtrace.
 pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -356,16 +465,20 @@ pub fn build_report(conn: &Connection, app_version: &str, spec: &ReportSpec) -> 
     }
     out.push('\n');
 
-    out.push_str("== SESSION ERRORS ==\n");
-    match ERRORS.lock() {
-        Ok(errors) if !errors.is_empty() => {
-            out.push_str("This session hit an internal error. Everything after it may have behaved\n");
-            out.push_str("oddly - this is what to report first.\n\n");
-            for error in errors.iter() {
-                out.push_str(&format!("at {} ms since epoch: {}\n", error.at_millis, error.context));
-            }
+    out.push_str("== CRASHES AND INTERNAL ERRORS ==\n");
+    let crashes = read_crash_log();
+    if crashes.is_empty() {
+        out.push_str("none recorded on this machine\n");
+    } else {
+        // Deliberately NOT limited to this session. In a shipped build a panic terminates the
+        // process, so the session that hit one is never the session that reports it - the whole
+        // point of writing these to disk is that the NEXT launch can still see them.
+        out.push_str("Recorded on this machine, oldest first, across sessions. In a built copy a\n");
+        out.push_str("crash closes the window immediately, so the run that hit one could not have\n");
+        out.push_str("reported it itself - this is that record.\n\n");
+        for (millis, context) in &crashes {
+            out.push_str(&format!("{}  {}\n", utc_stamp(*millis), redactor.apply(context)));
         }
-        _ => out.push_str("none\n"),
     }
     out.push('\n');
 
@@ -409,6 +522,75 @@ mod tests {
             .expect("insert well");
         }
         conn
+    }
+
+    /// A crash outlives the process that had it.
+    ///
+    /// This is the whole reason the record goes to a FILE. `[profile.release]` sets
+    /// `panic = "abort"`, so in a built copy the hook runs and the process then terminates - the
+    /// session that crashed can never be the session that reports it. Verified by experiment
+    /// before this was written: under `-C panic=abort` nothing after the hook executes at all.
+    ///
+    /// So the test deliberately does NOT read back through the same in-memory state that wrote it.
+    /// It writes, drops every trace the process holds, and reads the file the way the next launch
+    /// would - which is the only path that matters.
+    #[test]
+    fn a_crash_is_written_where_the_next_session_can_still_find_it() {
+        let _guard = crate::project::tests::CONFIG_DIR.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = std::env::temp_dir().join("sandibumi-crashlog-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::set_var("SANDIBUMI_CONFIG_DIR", &dir);
+
+        append_crash_line(1_755_878_400_000, "modules.rs:42 - deliberate\nsecond line");
+        // Nothing of this process is consulted: read the bytes the next launch would open.
+        let raw = std::fs::read_to_string(crash_log_path()).expect("the crash record must be on disk");
+        assert!(raw.contains("modules.rs:42"), "the location must survive: {raw}");
+        assert_eq!(raw.lines().count(), 1, "a multi-line message is ONE record, not two:\n{raw}");
+        assert!(raw.contains("deliberate second line"), "newlines collapse rather than split: {raw}");
+
+        let parsed = read_crash_log();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(utc_stamp(parsed[0].0), "2025-08-22 16:00:00 UTC", "the stamp must be readable");
+
+        // The file is capped, so a fault that repeats forever cannot fill the disk - and the
+        // NEWEST records are the ones kept, because those are the ones being reported.
+        for n in 0..CRASH_LOG_MAX_LINES + 5 {
+            append_crash_line(1_755_878_400_000 + n as u128, &format!("fault {n}"));
+        }
+        let capped = read_crash_log();
+        assert_eq!(capped.len(), CRASH_LOG_MAX_LINES, "the record file must stay bounded");
+        assert!(
+            capped.last().expect("a record").1.contains(&format!("fault {}", CRASH_LOG_MAX_LINES + 4)),
+            "the newest record must be the one kept"
+        );
+
+        std::env::remove_var("SANDIBUMI_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The date in a support file is a fact, so it is pinned against dates that can be checked by
+    /// hand: the epoch, a century-leap-year boundary, and a leap day.
+    #[test]
+    fn a_crash_date_is_the_calendar_date_it_happened_on() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        // 1970-01-01 to 2000-01-01 is 30*365 + 7 leap days = 10957; +31 (Jan) +29 (Feb 2000 is a
+        // leap year, the century rule's exception) = 11017.
+        assert_eq!(civil_from_days(11_017), (2000, 3, 1));
+        // 1970 to 2024-01-01 is 54*365 + 13 leap days = 19723; +31 +28 = 19782.
+        assert_eq!(civil_from_days(19_782), (2024, 2, 29));
+
+        // The century rule itself, from BOTH sides of the epoch. None of the anchors above
+        // exercise it - checked by mutation, which is how this hole was found: deleting the
+        // century correction left all three of them green. These two catch it, and they catch it
+        // loudly, because the broken answer is 29 February of a year that had no 29 February.
+        // 1900 and 2100 are divisible by 100 and not by 400, so neither is a leap year.
+        assert_eq!(civil_from_days(-25_508), (1900, 3, 1), "1900 was not a leap year");
+        assert_eq!(civil_from_days(47_541), (2100, 3, 1), "2100 is not a leap year");
+        // A negative day also exercises the era correction for dates before 1970, which nothing
+        // above reaches.
+        assert_eq!(civil_from_days(-1), (1969, 12, 31));
+        assert_eq!(utc_stamp(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(utc_stamp(86_399_000), "1970-01-01 23:59:59 UTC");
     }
 
     /// A report can be sent, and it can still be read.

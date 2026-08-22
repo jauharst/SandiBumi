@@ -1,5 +1,45 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — When SandiBumi closes on you, it now leaves a note
+
+- [ ] **First, the correction — I got the previous finding wrong.** I told you a crash leaves the
+      app running but broken, so nothing works until you restart, and I proposed hardening 182
+      places to fix it. That is not what your installed copy does. The shipping build is compiled
+      to **stop dead** on an internal error: the window closes, there is no error box, no console,
+      nothing. I proved it with a small test program compiled both ways rather than arguing from
+      the settings file. Your own code had said so all along, in a comment in `project.rs`, and my
+      review contradicted it without noticing.
+- [ ] **So the 182-place change was NOT made, deliberately.** It would have changed nothing about
+      any copy you or a client actually runs. I would rather tell you I withdrew it than quietly
+      do work that reads as thorough and does nothing.
+- [ ] **What I built instead.** The moment SandiBumi hits an internal error it writes one line —
+      where it happened and what it said — to a small file next to your recent-projects list, and
+      *then* closes. Next time you open the app, **Project → Monitor → Diagnostics… → Build
+      report** shows it, with the date and time. "It just closed" now has an answer.
+- [ ] **What to click.** You cannot easily crash it on purpose, and that is the point — so just
+      check the section exists: open **Diagnostics…**, press **Build report**, and find
+      **CRASHES AND INTERNAL ERRORS**. On a healthy machine it should say *none recorded on this
+      machine*. If it ever says anything else, that is exactly what I want sent to me.
+- [ ] **It records across sessions, not just this one.** The run that crashes cannot report itself
+      — it is gone. So the file survives restarts. It keeps the 40 most recent, so a fault that
+      repeats every day for a month cannot fill your disk, and a long panic message counts as one
+      crash rather than looking like ten.
+- [ ] **The record is on your machine, never inside the project.** Same reasoning as the
+      code-notice list: a mark written into the `.duckdb` travels with the file, so a project
+      passed between two of your clients would carry a trace of every machine that had crashed on
+      it. It is also the safer place because the project itself may be what would not open.
+- [ ] **The dates are checked, not approximated.** They are worked out in the app rather than by a
+      library, because adding a library was not on the table. I checked the calculation against a
+      known-good calendar for 100,000 consecutive days with no disagreement, and pinned it on
+      1900 and 2100 — the two century years that are **not** leap years, which is where this kind
+      of arithmetic usually breaks.
+- [ ] **One LAS reader line hardened.** A branch in the LAS section reader would have crashed the
+      whole app rather than failing the file. It turns out no LAS can currently reach it — I
+      traced it — but under a build that stops dead, that branch was one unrelated edit away from
+      closing your window on a bad file. It now fails the import and says so.
+- [ ] **Nothing computed changed.** No number, no curve, no cutoff, no write path, and every LAS
+      that parses today parses identically.
+
 ## 2026-08-22 — One file you can send me when something goes wrong
 
 - [ ] **What to click.** Project tab → **Monitor** → **Diagnostics…** (new, fourth button beside
