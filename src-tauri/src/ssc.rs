@@ -69,6 +69,14 @@ fn vsh_from_gr(method: &str, mut v: f64) -> f64 {
         "STIEBER1" => { v = limit(v, -10.0, 1.49); v / (3.0 - 2.0 * v) }
         "STIEBER2" => { v = limit(v, -10.0, 1.99); v / (2.0 - v) }
         "STIEBER3" => { v = limit(v, -10.0, 1.33); v / (4.0 - 3.0 * v) }
+        // SB-CLY-004 / DEC-096: the EXACT normalised Larionov, `(2^(k*I) - 1)/(2^k - 1)`,
+        // which closes at exactly 1.0 where the published decimals below fall 1.00% and
+        // 0.43% short. Separate IDS rather than changed arithmetic: the id is what
+        // `params_json` stores, so re-pointing it would move every saved run in silence.
+        "LARINOV1_NORM" => (2.0_f64.powf(2.0 * v) - 1.0) / (2.0_f64.powf(2.0) - 1.0),
+        "LARINOV2_NORM" => (2.0_f64.powf(3.7 * v) - 1.0) / (2.0_f64.powf(3.7) - 1.0),
+        // SB-CLY-005: the vendors' published decimals, kept reachable for digit-for-digit
+        // parity against an existing curve. They do NOT reach 1.0 at IGR = 1.
         "LARINOV1" => 0.33 * (2.0_f64.powf(2.0 * v) - 1.0),
         "LARINOV2" => 0.083 * (2.0_f64.powf(3.7 * v) - 1.0),
         "LARINOV3" => 0.127 * (3.15_f64.powf(2.0 * v) - 1.0),
