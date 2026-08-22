@@ -178,9 +178,46 @@ What this does NOT claim: it is a notice, not a defence. Someone who acknowledge
 hostile model still runs it. That is the honest limit of option (a), and it is why option (b) was
 described as looking stronger than it is.
 
-**Partially addressed 2026-08-22 (pass 2), and the half that is NOT done is named.** `diagnostics::install_panic_hook` now records where the first panic happened, so the diagnostic report can name it instead of the user reporting an application that stopped working for no visible reason. **The poisoning itself is not recovered from** — this is reporting, not repair. One hook rather than a guard at each of the 182 `db.0.lock().unwrap()` sites, because `.unwrap()` panics before any code at that site could record anything: a per-site guard structurally cannot catch the first one. See `docs/OBSERVABILITY-2026-08-22.md` §5.
-
 ### F2 — One panic anywhere makes the project unusable until restart
+
+**CORRECTED 2026-08-22 (pass 2). This finding was wrong about the shipped product, and the
+correction matters more than the finding did.**
+
+`src-tauri/Cargo.toml` sets `panic = "abort"` under `[profile.release]`. A shipped
+`sandibumi.exe` therefore does not unwind: a panic runs the panic hook and then **terminates the
+process**. No stack is unwound, no destructor runs, and **no mutex is ever poisoned**. The failure
+described below - a session in which every later database operation fails - can happen under
+`cargo test` and `tauri dev`, which use the unwinding dev profile, and cannot happen in a build a
+client runs.
+
+Measured rather than reasoned, with a standalone probe compiled both ways
+(`rustc -C panic=unwind` / `-C panic=abort`, panic on a thread holding a `Mutex`):
+
+| | hook runs | mutex poisoned | code after the panic |
+|---|---|---|---|
+| `panic = "unwind"` (dev, test) | yes | **yes** | runs |
+| `panic = "abort"` (release) | yes | n/a | **nothing runs** |
+
+`project::open_and_migrate` had documented this all along - *"with `panic = "abort"` plus
+`windows_subsystem = "windows"` it kills the process with no window, no dialog and no console"* -
+and this review contradicted the codebase without noticing. That is the more useful lesson here:
+the finding was assembled from a `grep -c` of `lock().unwrap()` and the standard poisoning rule,
+without checking which panic strategy the product ships with.
+
+**So the recommendation below - replace the lock sites with a recovering helper - is withdrawn.**
+It would have touched 182 call sites and changed the behaviour of no shipped build whatsoever.
+
+**What the real shipped failure is, and what was done about it.** A panic closes the window
+instantly, with no console and no dialog. The user reports *"it just closed"*, which is the least
+diagnosable sentence there is. `diagnostics::install_panic_hook` now writes the panic's location and
+message to `crash-log.txt` in the per-user config directory **before the process dies**, and the next
+launch's diagnostic report reads it back, redacted and dated. That converts the one failure mode a
+client can actually hit from silent into reportable. See `docs/OBSERVABILITY-2026-08-22.md` section 5.
+
+**Still open, and deliberately not done:** recovering from a poisoned lock, which would only ever
+help a developer running `tauri dev`. It is worth doing if the dev loop ever suffers for it; it is
+not worth 182 call sites for a shipped-build benefit of zero.
+
 
 * **Severity: MEDIUM** (robustness, not classic security) · **Confidence 9**
 * **Category:** `availability` / `error_handling`
@@ -204,6 +241,8 @@ internal error. The data is not corrupted by a panic — DuckDB transactions are
 recovering the guard is sound and turns a bricked session into one failed command. This is
 mechanical, gated by the compiler, and I would want it in the observability increment rather than
 here.
+
+**RESOLVED 2026-08-22 (pass 2).** It is provably unreachable today, which this review could not establish: `classify_las_section` returns only `VersionBlock`, `WellBlock`, `CurveBlock`, `AsciiData` or `None`, the `None` arm returns `Header` earlier, and `AsciiData` has already returned above. So no LAS can reach it. It was still changed to a parse error, because an `unreachable!()` under `panic = "abort"` is not a failed import - it is a closed window, and adding a `Header` arm to `classify_las_section` would have armed that silently. One line, no behaviour change for any file that parses today.
 
 ### F3 — An `unreachable!()` on a LAS section I could not prove unreachable
 

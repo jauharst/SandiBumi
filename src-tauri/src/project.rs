@@ -30,7 +30,7 @@ pub struct RecentProject {
 /// Managed Tauri state: absolute path of the currently open project file.
 pub struct ProjectState(pub std::sync::Mutex<String>);
 
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     // Test override — unit tests point this at a temp dir so they never touch the
     // real per-user list.
     if let Ok(dir) = std::env::var("SANDIBUMI_CONFIG_DIR") {
@@ -425,7 +425,7 @@ pub fn is_current(state: &ProjectState, path: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Mutex;
 
@@ -468,7 +468,7 @@ mod tests {
     /// `SANDIBUMI_CONFIG_DIR` is process-global, so every test that redirects it takes this
     /// first. It is what lets the trust-list contract below have a name of its own instead of
     /// being appended to a test about something else.
-    static CONFIG_DIR: Mutex<()> = Mutex::new(());
+    pub(crate) static CONFIG_DIR: Mutex<()> = Mutex::new(());
 
     /// Recents round-trip, startup fallback and a live connection swap, in ONE test —
     /// they share the redirected config dir and the same `DbState`.

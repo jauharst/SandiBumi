@@ -1146,11 +1146,29 @@ produced, and decides whether it goes anywhere. Do not add a scheduler, an uploa
   one number and record another. The single exception is `init_db_resilient`, whose console line
   names the project PATH: it takes one measurement and uses it twice, so the path reaches the
   console and never the report.
-- **`install_panic_hook` is the observability half of F2, not a fix.** A panic poisons whatever
-  mutex it held and every later `lock().unwrap()` panics in turn. One hook rather than a guard at
-  each of the 182 `db.0.lock().unwrap()` sites - and not merely because it is smaller: `.unwrap()`
-  panics BEFORE any code at that site could record anything, so a per-site guard structurally
-  cannot catch the first one. Recovering from the poisoning is still open.
+- **A shipped panic CLOSES THE WINDOW; it does not poison a mutex.** `[profile.release]` sets
+  `panic = "abort"`, so a built `sandibumi.exe` runs the panic hook and then terminates - measured
+  with a probe compiled both ways, not inferred. With `windows_subsystem = "windows"` there is no
+  console and no dialog either, so the user's whole report is *"it just closed"*. Mutex poisoning
+  is real only under `cargo test` and `tauri dev`, which unwind. **Do not "harden" the 182
+  `db.0.lock().unwrap()` sites** - that was SECURITY-REVIEW F2's recommendation, it is withdrawn
+  there, and it would change no shipped build's behaviour at all.
+- **Therefore a crash record must reach DISK inside the hook.** `record_internal_error` writes to
+  `crash-log.txt` beside the recents and the trusted-code list - never into the project, which is
+  both what travels between operators and what may be unopenable at that moment - and the NEXT
+  launch's report reads it back, redacted and dated. An in-memory record is unreadable by
+  construction: the process is gone a microsecond later. Capped at 40, newest kept, and a
+  multi-line panic message is collapsed into ONE record so a stack cannot look like several
+  crashes.
+- **`civil_from_days` is Hinnant's algorithm and the report formats its own dates**, because no
+  date crate is a dependency and the plain-text file is read days after the crash. Checked against
+  Python's calendar over 100,000 days; pinned at 1900-03-01 and 2100-03-01, the century years that
+  are NOT leap years - added because mutation testing showed the first three anchors left the
+  century-correction term entirely uncovered.
+- **An `unreachable!()` in an import path is a closed window, not a failed import.** Under abort
+  there is no "fail this file and carry on". Prefer a parse error even where the arm is provably
+  dead today (SECURITY-REVIEW F3, `parsers.rs`) - the cost is one line and it cannot be armed later
+  by an unrelated edit.
 - **The surface token is `--bg-panel`. There is no `--panel`.** Found by measuring this pane's
   contrast: `background: var(--panel)` is an invalid declaration CSS drops silently, and three
   pre-existing rules had been doing it - including `.module-contamination`, the caution card. A
