@@ -1,5 +1,41 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit finding 27 (DEC-096): **Larionov now has a form that actually reaches 100 % shale**
+
+- [ ] **What to click.** Petrophysics ▸ **VSH from GR**. The `OPT_GR` dropdown has two new entries at
+      the head of the Larionov block: **LARINOV1_NORM** and **LARINOV2_NORM**. Nothing you have already
+      run has changed — `LARINOV1` and `LARINOV2` compute exactly what they always did, and the
+      default is still LINEAR.
+- [ ] **What was wrong, in rock terms.** Larionov's published coefficients 0.33 and 0.083 are
+      *rounded*: the exact values are 1/(2²−1) = **0.333333…** and 1/(2^3.7−1) = **0.0833609…**.
+      Because they were rounded down, the transform never gets to 1.0. **At pure shale — IGR = 1,
+      GR sitting exactly on your GR_SH pick — `LARINOV1` reads 0.990 and `LARINOV2` reads 0.9957.**
+      Every other transform in that dropdown (LINEAR, all three Stieber, Clavier) closes on exactly
+      1.000. So your shale endpoint depended on which entry you picked.
+- [ ] **It is not just the endpoint — that is the part worth knowing.** The two forms are the same
+      curve times a different number, so the gap is a **constant fraction at every IGR**: the exact
+      form reads **1.00 % higher than `LARINOV1`** and **0.43 % higher than `LARINOV2`**, all the way
+      through the shaly section, not only at pure shale. Check it at three gamma values and you will
+      get the same ratio each time.
+- [ ] **For Mahakam, this means `LARINOV2_NORM`.** Miocene deltaic is the Tertiary / unconsolidated
+      class, so `LARINOV2` was already the right family — the normalised version of it is the one to
+      use from here, and it reads 0.43 % more shale throughout.
+- [ ] **Why I did not just fix the old ones in place.** The option id is what gets stored in
+      `params_json` on every saved run. If I had re-pointed `LARINOV1` at the exact arithmetic, every
+      run you have ever saved under that name would quietly compute something 1 % different, with
+      nothing on the log to say so. Same failure I refused two increments ago with S_FACTOR. So the
+      exact form got its own name instead.
+- [ ] **The old ones are still there on purpose.** `LARINOV1` / `LARINOV2` now say *"published 0.33 —
+      parity only, 0.990 at IGR 1"* in their own labels. If a client hands you a curve made in IP or
+      Geolog and you need to reproduce it digit for digit, that is what those are for — and being
+      unable to do it is how you lose a bake-off.
+- [ ] **`LARINOV3` is deliberately left alone**, even though it overshoots to 1.133. Nothing in the
+      repo cites a source for that form, so there is no published pair to normalise it against, and
+      making one up would read exactly as authoritative as the two that are real.
+- [ ] **One question back to you.** `OPT_GR` still defaults to **LINEAR**. Should it? The requirement
+      does not say, and picking a shipped default transform is a petrophysical call, so it is yours
+      rather than mine. Say the word and it is one line.
+
 ## 2026-08-22 — Audit finding 34 (DEC-095): **SandiMin lets you type the salinity in, and its α ceiling stopped hiding**
 
 - [ ] **What to click.** Advance ▸ **SandiMin…**, fluid-properties box. Three new fields at the end

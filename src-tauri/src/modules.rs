@@ -3893,6 +3893,13 @@ fn vsh_gr_spec() -> ModuleSpec {
             // published ones (Larionov 1969) and are pinned against the closed forms by
             // `every_vsh_gr_transform_lands_on_its_published_coefficient`.
             //
+            // SB-CLY-004 (P1) mandates the EXACT normalised form and SB-CLY-005 (P2) mandates the
+            // published decimals stay reachable as a labelled, non-default parity option. Both are
+            // met by four ids rather than by changing two: the id is what `params_json` stores, so
+            // re-pointing `LARINOV1` at different arithmetic would move every saved run with
+            // nothing on the log to say so. The exact pair leads because it is the one to pick;
+            // the published pair says in its own label what it is for and what it costs.
+            //
             // LARINOV3 is stated by its coefficients rather than attributed: nothing in the repo
             // cites a source for that form, and inventing one is the move the provenance rules
             // forbid.
@@ -3906,8 +3913,22 @@ fn vsh_gr_spec() -> ModuleSpec {
                         ("STIEBER1", "STIEBER1 — Stieber, IGR/(3−2·IGR)"),
                         ("STIEBER2", "STIEBER2 — Stieber, IGR/(2−IGR)"),
                         ("STIEBER3", "STIEBER3 — Stieber, IGR/(4−3·IGR)"),
-                        ("LARINOV1", "LARINOV1 — Larionov, Mesozoic and older"),
-                        ("LARINOV2", "LARINOV2 — Larionov, Tertiary / unconsolidated"),
+                        (
+                            "LARINOV1_NORM",
+                            "LARINOV1_NORM — Larionov, Mesozoic and older (exact, reaches 1.0)",
+                        ),
+                        (
+                            "LARINOV2_NORM",
+                            "LARINOV2_NORM — Larionov, Tertiary / unconsolidated (exact, reaches 1.0)",
+                        ),
+                        (
+                            "LARINOV1",
+                            "LARINOV1 — Larionov, Mesozoic and older (published 0.33 — parity only, 0.990 at IGR 1)",
+                        ),
+                        (
+                            "LARINOV2",
+                            "LARINOV2 — Larionov, Tertiary / unconsolidated (published 0.083 — parity only, 0.996 at IGR 1)",
+                        ),
                         ("LARINOV3", "LARINOV3 — 0.127·(3.15^(2·IGR) − 1)"),
                         ("CLAVIER", "CLAVIER — Clavier et al."),
                     ],
@@ -4017,6 +4038,14 @@ fn vsh_gr(ctx: &ModuleContext) -> ModuleOutputs {
                 v = limit(v, -10.0, 1.33);
                 v / (4.0 - 3.0 * v)
             }
+            // SB-CLY-004 / DEC-096: the EXACT normalised Larionov, `(2^(k*I) - 1)/(2^k - 1)`,
+            // which closes at exactly 1.0 where the published decimals below fall 1.00% and
+            // 0.43% short. Separate IDS rather than changed arithmetic: the id is what
+            // `params_json` stores, so re-pointing it would move every saved run in silence.
+            "LARINOV1_NORM" => (2.0_f64.powf(2.0 * v) - 1.0) / (2.0_f64.powf(2.0) - 1.0),
+            "LARINOV2_NORM" => (2.0_f64.powf(3.7 * v) - 1.0) / (2.0_f64.powf(3.7) - 1.0),
+            // SB-CLY-005: the vendors' published decimals, kept reachable for digit-for-digit
+            // parity against an existing curve. They do NOT reach 1.0 at IGR = 1.
             "LARINOV1" => 0.33 * (2.0_f64.powf(2.0 * v) - 1.0),
             "LARINOV2" => 0.083 * (2.0_f64.powf(3.7 * v) - 1.0),
             "LARINOV3" => 0.127 * (3.15_f64.powf(2.0 * v) - 1.0),
@@ -10185,7 +10214,7 @@ mod tests {
         assert!(error.contains("TYPO"), "unrecognised value missing: {error}");
         assert!(
             error.contains(
-                "[LINEAR, STIEBER1, STIEBER2, STIEBER3, LARINOV1, LARINOV2, LARINOV3, CLAVIER]"
+                "[LINEAR, STIEBER1, STIEBER2, STIEBER3, LARINOV1_NORM, LARINOV2_NORM, LARINOV1, LARINOV2, LARINOV3, CLAVIER]"
             ),
             "complete permitted set missing or reordered: {error}"
         );
@@ -10667,6 +10696,8 @@ mod tests {
             "\"STIEBER1\"=>{v=limit(v,-10.0,1.49);v/(3.0-2.0*v)}",
             "\"STIEBER2\"=>{v=limit(v,-10.0,1.99);v/(2.0-v)}",
             "\"STIEBER3\"=>{v=limit(v,-10.0,1.33);v/(4.0-3.0*v)}",
+            "\"LARINOV1_NORM\"=>(2.0_f64.powf(2.0*v)-1.0)/(2.0_f64.powf(2.0)-1.0)",
+            "\"LARINOV2_NORM\"=>(2.0_f64.powf(3.7*v)-1.0)/(2.0_f64.powf(3.7)-1.0)",
             "\"LARINOV1\"=>0.33*(2.0_f64.powf(2.0*v)-1.0)",
             "\"LARINOV2\"=>0.083*(2.0_f64.powf(3.7*v)-1.0)",
             "\"LARINOV3\"=>0.127*(3.15_f64.powf(2.0*v)-1.0)",
@@ -13058,6 +13089,95 @@ mod tests {
             label("LARINOV3")
         );
         assert!(label("LARINOV3").contains("0.127"), "it states its coefficient instead: {}", label("LARINOV3"));
+    }
+
+    /// SB-CLY-004 (P1) / AUDIT-2026-08-20 finding 27 / DEC-096. The published decimals 0.33 and
+    /// 0.083 are ROUNDED values of `1/(2^2-1) = 0.33333...` and `1/(2^3.7-1) = 0.0833609...`, so
+    /// the transforms they build miss their own boundary condition: at IGR = 1, where every
+    /// sibling transform closes on exactly 1.0, they read 0.990 and 0.995671. The shale endpoint
+    /// then depends on which dropdown entry was picked, on a curve that looks entirely normal.
+    ///
+    /// Pinned from BOTH sides on purpose. The exact pair MUST close at 1.0, and the published pair
+    /// MUST NOT - because the lazy way to satisfy the first half is to re-point `LARINOV1` at the
+    /// exact arithmetic, which would silently move every saved run that names it (SB-CLY-005 keeps
+    /// the published pair reachable for digit-for-digit parity against an existing curve).
+    #[test]
+    fn the_exact_larionov_closes_at_one_and_the_published_pair_deliberately_does_not() {
+        // GR_MA 20 / GR_SH 120, so GR 120 is IGR = 1 exactly - the shale endpoint itself.
+        let at_shale = |method: &str| -> f64 {
+            let ctx = ctx_with(
+                1,
+                &[("GR", vec![120.0])],
+                &[("GR_MA", 20.0), ("GR_SH", 120.0)],
+                &[("OPT_GR", method)],
+            );
+            vsh_gr(&ctx)["VSH_GR"][0] as f64
+        };
+
+        for id in ["LARINOV1_NORM", "LARINOV2_NORM"] {
+            let v = at_shale(id);
+            assert!((v - 1.0).abs() < 1e-6, "{id} must close on the shale point: {v}");
+        }
+        // And the published pair must still fall exactly as short as it always did - this is the
+        // half that fails if the fix is applied by re-pointing an existing id.
+        let published_older = at_shale("LARINOV1");
+        let published_tertiary = at_shale("LARINOV2");
+        assert!(
+            (published_older - 0.99).abs() < 1e-6,
+            "LARINOV1 is the vendors' published 0.33 and reads 0.990 at IGR 1: {published_older}",
+        );
+        assert!(
+            (published_tertiary - 0.995671).abs() < 1e-5,
+            "LARINOV2 is the vendors' published 0.083 and reads 0.9957 at IGR 1: {published_tertiary}",
+        );
+
+        // The two forms are pure scalings of one function, so the divergence is a CONSTANT
+        // fraction across the whole range, not something that only shows up at the endpoint:
+        // 1.00% for the older-rock pair and 0.43% for the Tertiary pair, at every IGR.
+        for gr in [45.0f32, 70.0, 95.0] {
+            let ctx = |m: &str| {
+                ctx_with(1, &[("GR", vec![gr])], &[("GR_MA", 20.0), ("GR_SH", 120.0)], &[("OPT_GR", m)])
+            };
+            let older_gap =
+                vsh_gr(&ctx("LARINOV1_NORM"))["VSH_GR"][0] as f64 / vsh_gr(&ctx("LARINOV1"))["VSH_GR"][0] as f64;
+            let tertiary_gap =
+                vsh_gr(&ctx("LARINOV2_NORM"))["VSH_GR"][0] as f64 / vsh_gr(&ctx("LARINOV2"))["VSH_GR"][0] as f64;
+            assert!((older_gap - 1.0 / (0.33 * 3.0)).abs() < 1e-5, "at GR {gr}: {older_gap}");
+            assert!(
+                (tertiary_gap - 1.0 / (0.083 * (2.0f64.powf(3.7) - 1.0))).abs() < 1e-5,
+                "at GR {gr}: {tertiary_gap}",
+            );
+        }
+    }
+
+    /// SB-CLY-005 (P2). Reproducing a client's or a vendor's existing curve digit-for-digit is a
+    /// real requirement in a competitive replacement, so the published decimals stay reachable -
+    /// but as a NAMED, non-default choice whose own label says what it is for and what it costs.
+    /// Pinned from both sides: the parity ids must exist AND must not be what a run gets by
+    /// default, and the exact pair must not be labelled as parity.
+    #[test]
+    fn the_published_larionov_stays_reachable_as_a_labelled_non_default_parity_option() {
+        let spec = list_modules().into_iter().find(|m| m.name == "vsh_gr").unwrap();
+        let arg = spec.args.iter().find(|a| a.name == "OPT_GR").unwrap();
+        let label = |id: &str| -> &str {
+            let i = arg.choices.iter().position(|c| c == id).unwrap_or_else(|| panic!("{id} must stay reachable"));
+            arg.choice_labels[i].as_str()
+        };
+
+        for (id, coefficient) in [("LARINOV1", "0.33"), ("LARINOV2", "0.083")] {
+            let l = label(id);
+            assert!(l.contains("parity"), "{id} must say what it is for: {l}");
+            assert!(l.contains(coefficient), "{id} must state the published coefficient: {l}");
+        }
+        // The exact pair carries no parity wording - a label that hedged both ways would leave the
+        // user with no way to tell which one to pick.
+        for id in ["LARINOV1_NORM", "LARINOV2_NORM"] {
+            assert!(!label(id).contains("parity"), "{}", label(id));
+            assert!(label(id).contains("exact"), "{}", label(id));
+        }
+        // Non-default: the manifest ships LINEAR, so neither parity id is what a run gets for free.
+        assert_ne!(arg.default, "LARINOV1");
+        assert_ne!(arg.default, "LARINOV2");
     }
 
     /// T-PETRO-02. Every `OPT_GR` transform at the same mid-range gamma ray, against the

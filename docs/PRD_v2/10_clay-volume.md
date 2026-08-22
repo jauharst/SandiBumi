@@ -532,8 +532,10 @@ coefficient-for-coefficient:
 | `STIEBER1` | `v / (3 − 2v)` | `modules.rs:547` | shape `n = 2` — agrees on the equation, diverges on naming |
 | `STIEBER2` | `v / (2 − v)` | `modules.rs:551` | shape `n = 1` |
 | `STIEBER3` | `v / (4 − 3v)` | `modules.rs:555` | shape `n = 3` |
-| `LARINOV1` | `0.33 · (2^(2v) − 1)` | `modules.rs:557` | **rounded**, not the exact normalised form |
-| `LARINOV2` | `0.083 · (2^(3.7v) − 1)` | `modules.rs:558` | **rounded** |
+| `LARINOV1_NORM` | `(2^(2v) − 1)/(2² − 1)` | `modules.rs::vsh_gr` | **exact normalised form** — closes on 1.0 (added 2026-08-22, DEC-096) |
+| `LARINOV2_NORM` | `(2^(3.7v) − 1)/(2^3.7 − 1)` | `modules.rs::vsh_gr` | **exact normalised form** — closes on 1.0 |
+| `LARINOV1` | `0.33 · (2^(2v) − 1)` | `modules.rs::vsh_gr` | **rounded** — retained under SB-CLY-005 as a labelled parity option |
+| `LARINOV2` | `0.083 · (2^(3.7v) − 1)` | `modules.rs::vsh_gr` | **rounded** — same, parity only |
 | `LARINOV3` | `0.127 · (3.15^(2v) − 1)` | `modules.rs:559` | **uncited form, implemented** |
 | `CLAVIER` | `1.7 − √(3.38 − (v+0.7)²)` | `modules.rs:562` | agrees |
 
@@ -851,21 +853,26 @@ SandiBumi's own meaning with no alias layer and no import path that reads a vend
 
 **Verified by.** SB-CLY-T12, SB-CLY-T13
 
-#### SB-CLY-004 — Larionov in the exact normalised form&nbsp;&nbsp;&nbsp;[P1] [status: PRESENT-DIVERGENT]
+#### SB-CLY-004 — Larionov in the exact normalised form&nbsp;&nbsp;&nbsp;[P1] [status: PRESENT-OK]
 
 **Requirement.** SandiBumi MUST compute the Larionov transforms as `Vsh = (2^(k·I) − 1)/(2^k − 1)`
 with `k = 2` (Mesozoic and older) and `k = 3.7` (Tertiary / unconsolidated), so that `Vsh = 0` at
 `I = 0` and `Vsh = 1` at `I = 1` exactly.
 
 **Rationale.** The published decimal coefficients 0.33 and 0.083 are rounded values of
-`1/(2²−1) = 0.3333…` and `1/(2^3.7−1) = 0.083346…`; using them makes the transform miss its own
+`1/(2²−1) = 0.3333…` and `1/(2^3.7−1) = 0.0833609…` (this line read `0.083346…` until 2026-08-22; §F2 above always carried the correct digits); using them makes the transform miss its own
 boundary condition by 1.00 % and 0.43 % low at `I = 1` (dossier F2). Every vendor ships the rounded
 form. The exact form is arithmetically identical in intent, correct at the boundary, and free.
 
-**As-built.** `PRESENT-DIVERGENT` — `modules.rs:557` `0.33·(2^(2v) − 1)` and `modules.rs:558`
-`0.083·(2^(3.7v) − 1)`, with the shortfall pinned as expected behaviour by
-`modules.rs:3756-3769` (`LARINOV1` raw 0.99, `LARINOV2` raw 0.995671). The label mapping is correct
-and confirmed at `modules.rs:511-518`.
+**As-built.** `PRESENT-OK` since 2026-08-22 (DEC-096, AUDIT-2026-08-20 finding 27) — `OPT_GR`
+carries **`LARINOV1_NORM`** = `(2^(2·IGR) − 1)/(2² − 1)` and **`LARINOV2_NORM`** =
+`(2^(3.7·IGR) − 1)/(2^3.7 − 1)`, both closing on exactly 1.0 at `IGR = 1`, in `modules.rs::vsh_gr`
+and its verbatim twin `ssc.rs::vsh_from_gr`. The published-decimal pair keeps its own ids and its
+own arithmetic under SB-CLY-005 below — a separate id rather than re-pointed arithmetic, because
+the id is what `params_json` stores and re-pointing it would move every saved run in silence. The
+label mapping is correct and confirmed. Pinned by
+`the_exact_larionov_closes_at_one_and_the_published_pair_deliberately_does_not`, which asserts the
+exact pair closes AND that the published pair still falls exactly as short as it always did.
 
 **Verified by.** SB-CLY-T02, SB-CLY-T04
 
@@ -880,9 +887,14 @@ MUST record that fact in the provenance curve of SB-CLY-031.
 requirement in a competitive replacement; being unable to do so is a lost bake-off. Making it a
 named, recorded, non-default choice satisfies both the parity need and the correctness need.
 
-**As-built.** `PRESENT-OK` as an implementation — `modules.rs:557-558` — but it is the *only*
-implementation and it is the default behaviour, so the requirement is met only in the sense that
-the code to reproduce exists.
+**As-built.** `PRESENT-OK` since 2026-08-22 (DEC-096) — `LARINOV1` and `LARINOV2` keep the
+published decimals 0.33 and 0.083 and their exact previous arithmetic, and their dropdown labels now
+read *"published 0.33 — parity only, 0.990 at IGR 1"* and *"published 0.083 — parity only, 0.996 at
+IGR 1"*. Neither is the default (`OPT_GR` ships `LINEAR`), and the chosen id is recorded in
+`params_json` on every saved run — which is where SB-CLY-031's record of it belongs, because DEC-036
+already ruled that method identity is a registry-STRUCTURE field, never a per-sample provenance
+code. Pinned by
+`the_published_larionov_stays_reachable_as_a_labelled_non_default_parity_option`.
 
 **Verified by.** SB-CLY-T03
 
