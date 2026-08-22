@@ -1,5 +1,47 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — One question, asked once per well, is a third of the time you wait
+
+- [ ] **Still nothing changed in the app.** You said go ahead on measuring the Field Dashboard
+      before touching it. This is that measurement, and it found something specific.
+- [ ] **The Field Dashboard is almost entirely reading, not calculating.** Over 500 wells it spends
+      5.6 of its 5.5 seconds fetching data — yes, slightly more than the whole run, because the
+      timings overlap on a warm cache. What that means in plain terms: **the cut-off arithmetic is
+      too small to measure.** Deciding sand, reservoir and pay on 156,200 samples costs less than
+      the noise in the measurement. All the time is fetching.
+- [ ] **Where the fetching goes, at 500 wells.** Reading the four curves it summarises: 54%. Working
+      out **which version** of the porosity curve it just read: **40%**. Reading zone tops: 5%.
+      Reading the well's name: 4%.
+- [ ] **That 40% is the finding, and it is one line of code.** Once per well, the app asks the
+      database "which log set does this well's PHIE belong to?" — and to answer it, reads all 1,562
+      porosity samples for that well and throws away 1,561 identical answers. The version label
+      belongs to the curve; it is stored on every single sample.
+- [ ] **It is also the part that gets worse fastest.** Per well it goes 1.2 ms → 1.6 ms → 3.9 ms
+      across 10, 100 and 500 wells — 3.3 times more expensive per well in a bigger project, worse
+      than anything else in the operation. That is what was making the whole dashboard degrade.
+- [ ] **I tried the cheap fix in the measuring code first, and it does not work.** The app only
+      needs to know whether there is exactly one version, so stopping after the second row would be
+      free. Measured at all three sizes: no gain — in fact marginally slower, and I gave the cheap
+      version the harder job on purpose so a win would be believable. DuckDB builds the whole answer
+      before it applies a limit, so there is nothing to cut short. **No app code was written for
+      this**; it died in the measuring harness, which is the cheapest place for an idea to die.
+      Written down in `docs/PERF-ATTEMPTS.md` so nobody tries it again.
+- [ ] **The real fix needs your decision, not mine, and here is why.** The app does not need the
+      version label here at all — it only checks whether the curve exists, and throws the label
+      away. But asking the cheap question instead would change *which wells appear*: today, a well
+      whose porosity does not resolve to exactly one recorded version is **dropped from the
+      dashboard with no message**, and the cheap check would include it. That is a call about your
+      data, not about speed. **Reading the code says that is what happens; I have not produced such
+      a well to prove it**, and I am flagging it rather than reporting it as observed.
+- [ ] **What it is worth if you say go: about 1.55×.** The 500-well dashboard would go from 5.5 s to
+      roughly 3.6 s; the 49 seconds at 2000 wells would become about 32. And then you are down to
+      reading the actual curve values, which is real work and has no second 36% behind it.
+- [ ] **Nothing to click** — `docs/PERF-DASHBOARD-2026-08-23.md`. To run it yourself:
+      `cargo test --release --lib perf_dashboard_scale -- --ignored --nocapture` from `src-tauri`.
+- [ ] **Nothing in the app was instrumented this time.** Last increment I had to put a stopwatch
+      inside the running code. This one measures entirely from the outside, so `paysummary.rs` is
+      untouched — not even a test-only line.
+
 ## 2026-08-23 — The printed page that looked like it was reading every well, and was not
 
 - [ ] **Still nothing changed in the app, and this time that is the finding.** You asked me to fix
