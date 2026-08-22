@@ -108,11 +108,14 @@
      invisible on the next. Both values below clear WCAG 3:1 (non-text) on EVERY shipped
      plot ground, measured, and neither is re-rolled by a [data-theme] block - the same
      discipline --brand follows, and the same light/dark-only split --plot-grid uses.
-     Sources: series-1 is FACIES_PALETTE[0] (already the app's data palette, already
-     shared with the print path); series-2 light is organic-tokens.css --color-accent-600
-     and series-2 dark is FACIES_PALETTE[1]. Blue against orange is also the standard
-     colour-vision-deficiency-safe pair. */
-  --plot-series-1: #4e79a7;
+     Sources: series-1 is the blue the facies palette carries (its slot 1), series-2 light
+     is organic-tokens.css --color-accent-600, and series-2 dark is a facies-palette orange.
+     Blue against orange is also the standard colour-vision-deficiency-safe pair.
+     series-1 was FACIES_PALETTE[0] until 2026-08-22, when the dataviz validator measured
+     that colour's chroma at 0.086, under the 0.10 floor at which a hue stops doing identity
+     work and starts reading as grey. The pair now clears every one of the validator's checks
+     on the light plot ground (CVD dE 24.8, normal 27.9) and keeps 3:1 on the dark one. */
+  --plot-series-1: #2a78d6;
   --plot-series-2: #b2622d;
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
      canvas ctx.font and mono field derives from these, never from per-file literals.
