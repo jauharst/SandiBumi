@@ -87,6 +87,19 @@
      override the gridline (white would glare on near-black). */
   --plot-bg: var(--bg-panel-alt);
   --plot-grid: #ffffff;
+  /* DATA-series colours. These are deliberately NOT --accent/--accent2: a plotted mark
+     is DATA, and a theme recolours the APPLICATION, never the data. Painting a series
+     with the theme accent made the same crossplot overlay measure 1.66:1 on one colour
+     theme and 8.22:1 on another - the identical curve, legible on one and nearly
+     invisible on the next. Both values below clear WCAG 3:1 (non-text) on EVERY shipped
+     plot ground, measured, and neither is re-rolled by a [data-theme] block - the same
+     discipline --brand follows, and the same light/dark-only split --plot-grid uses.
+     Sources: series-1 is FACIES_PALETTE[0] (already the app's data palette, already
+     shared with the print path); series-2 light is organic-tokens.css --color-accent-600
+     and series-2 dark is FACIES_PALETTE[1]. Blue against orange is also the standard
+     colour-vision-deficiency-safe pair. */
+  --plot-series-1: #4e79a7;
+  --plot-series-2: #b2622d;
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
      canvas ctx.font and mono field derives from these, never from per-file literals.
      Organic redesign: Figtree is the body/UI face (Segoe stays as the fallback until
@@ -173,6 +186,9 @@
 
 :root[data-theme="dark"] {
   --plot-grid: #3d3223;
+  /* series-1 clears 3:1 on the dark ground unchanged (3.31); only series-2 needs the
+     lift - #b2622d reads 1.79:1 here, FACIES_PALETTE[1] reads 6.22:1. */
+  --plot-series-2: #f28e2b;
   --bg-app: #1c1610;
   --bg-panel: #241d15;
   --bg-panel-alt: #2e2519;
@@ -208,6 +224,7 @@
      An explicit theme choice must ignore the OS preference entirely. */
   :root:not([data-theme]) {
     --plot-grid: #3d3223;
+    --plot-series-2: #f28e2b;
     --bg-app: #1c1610;
     --bg-panel: #241d15;
     --bg-panel-alt: #2e2519;

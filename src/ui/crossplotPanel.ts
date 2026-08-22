@@ -364,7 +364,7 @@ const METHOD_LABEL: Record<RegMethod, string> = { yx: "", xy: " · X on Y", rma:
  *  line sand→shale, the dispersed-shale line descending to its porosity minimum at
  *  VSH = PHI_SD (pores full of shale), and circle handles on the two endpoints. */
 export function drawTsOverlay(plot: PlotCanvas, phiSd: number, phiSh: number): void {
-  const lamColor = plot.theme.accent2;
+  const lamColor = plot.theme.series2;
   plot.drawLine(
     [
       [0, phiSd],
@@ -451,7 +451,7 @@ export function matchRockOverlayAxes(xName: string, yName: string): "normal" | "
 export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean): void {
   const coef = ROCK_OVERLAY_COEF[kind];
   if (!coef) return;
-  const color = plot.theme.accent2;
+  const color = plot.theme.series2;
   const { ctx } = plot;
   // Sample φ across the practical band, log-spaced so log-φ axes stay smooth.
   const PHI_LO = 0.01;
@@ -1190,7 +1190,7 @@ export function drawCrossplot(
   plot.ctx.textAlign = "left";
   plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
   plot.ctx.restore();
-  const pointColor = opts.color || plot.theme.accent;
+  const pointColor = opts.color || plot.theme.series1;
 
   // Z coloring only when a Z curve is selected. Discrete class curves (electrofacies,
   // clusters) get categorical coloring + a swatch legend; continuous curves get the chosen
@@ -1231,7 +1231,7 @@ export function drawCrossplot(
     };
     const [lowXs, lowYs] = edgePoints("low");
     const [highXs, highYs] = edgePoints("high");
-    plot.drawDiamonds(lowXs, lowYs, plot.theme.accent2, Math.max(2.5, opts.pointSize + 1));
+    plot.drawDiamonds(lowXs, lowYs, plot.theme.series2, Math.max(2.5, opts.pointSize + 1));
     plot.drawDiamonds(highXs, highYs, plot.theme.warn, Math.max(2.5, opts.pointSize + 1));
   }
 
@@ -1338,7 +1338,7 @@ export function drawCrossplot(
     // Z-colored cloud gets a label instead of a misleading single swatch.
     const legend = contextLegend(context!.activeName, context!.layers);
     row(
-      hasZ ? null : opts.color || plot.theme.accent,
+      hasZ ? null : opts.color || plot.theme.series1,
       `${legend.activeName} (active${hasZ ? `, by ${zName}` : ""})`,
     );
     for (const entry of legend.rows) row(entry.color, entry.name);
@@ -1411,7 +1411,7 @@ export function drawCrossplot(
         const t = fit.a + fit.b * (xNeedsLog ? Math.log10(x) : x);
         points.push([x, yFromT(t)]);
       }
-      plot.drawLine(points, plot.theme.accent2, 1.8, [7, 4]);
+      plot.drawLine(points, plot.theme.series2, 1.8, [7, 4]);
       const { ctx } = plot;
       const r = plot.plotRect;
       ctx.save();
@@ -1929,7 +1929,7 @@ export async function buildCrossplotContent(
       const coreY = coreByName.get(CORE_OVERLAY_MAP[ySel.value.toUpperCase()] ?? "");
       if (coreX && coreY) {
         const { xs: cxs, ys: cys } = alignCoreSeriesByDepth(coreX, coreY);
-        p.drawDiamonds(cxs, cys, p.theme.accent2);
+        p.drawDiamonds(cxs, cys, p.theme.series2);
       }
     }
     if (opts.tsOverlay) drawTsOverlay(p, opts.tsPhiSd, opts.tsPhiSh);

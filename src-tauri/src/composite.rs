@@ -2591,6 +2591,126 @@ pub(crate) fn assemble_single_page_pdf(content: &str, w_pt: f64, h_pt: f64) -> V
 
 #[cfg(test)]
 mod tests {
+
+    /// The screen and the print must not disagree about which colour is which facies.
+    ///
+    /// `FACIES_PALETTE` and the reject grey are declared TWICE - here for the print path and in
+    /// `src/ui/plotCanvas.ts` for the screen - and until now a comment on each was the only thing
+    /// holding them together. A hand-desync is invisible in review and produces a WRONG
+    /// DELIVERABLE: the log view shows facies 3 in red, the PDF prints facies 3 in blue, and the
+    /// report's own legend is then a lie about the rock. Nothing else in the pipeline can catch it,
+    /// because both halves are internally consistent.
+    ///
+    /// Pinned rather than merged into one source: a Rust `const` array cannot read a `.ts` file at
+    /// compile time without a build script, and cross-file `include_str!` pinning is already this
+    /// repo's idiom for exactly this problem (`the_gr_ladder_ships_verbatim_in_both_homes`).
+    ///
+    /// Pinned from BOTH sides. Equality alone would be satisfied by a lazy "make them agree" that
+    /// collapsed the palette onto the reject grey, so the second half requires the reject colour to
+    /// stay OUTSIDE the palette - which is the whole reason it exists (SB-MLA-021: a rejected
+    /// sample must not be paintable as a legitimate cluster).
+    #[test]
+    fn the_screen_and_the_print_paint_the_same_facies_the_same_colour() {
+        let ts = include_str!("../../src/ui/plotCanvas.ts").replace("\r\n", "\n");
+
+        let after = |src: &str, marker: &str| -> String {
+            let at = src.find(marker).unwrap_or_else(|| panic!("plotCanvas.ts lost {marker}"));
+            src[at + marker.len()..].split(';').next().unwrap().to_string()
+        };
+
+        // Every #rrggbb the TS palette literal carries, in source order.
+        let palette_src = after(&ts, "export const FACIES_PALETTE: string[] =");
+        let screen: Vec<String> = palette_src
+            .split('"')
+            .filter(|s| s.starts_with('#') && s.len() == 7)
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
+
+        assert_eq!(
+            screen.len(),
+            FACIES_PALETTE.len(),
+            "the two palettes are different LENGTHS: screen {} vs print {} - a class the screen \
+             colours would wrap onto a different colour in the PDF",
+            screen.len(),
+            FACIES_PALETTE.len(),
+        );
+        for (i, (s, p)) in screen.iter().zip(FACIES_PALETTE.iter()).enumerate() {
+            assert_eq!(
+                s.as_str(),
+                p.to_ascii_lowercase(),
+                "facies {i} is {s} on screen and {p} in print",
+            );
+        }
+
+        let reject_src = after(&ts, "export const REJECT_COLOR =");
+        let screen_reject = reject_src
+            .split('"')
+            .find(|s| s.starts_with('#'))
+            .expect("plotCanvas.ts declares a reject colour")
+            .to_ascii_lowercase();
+        assert_eq!(
+            screen_reject,
+            FACIES_REJECT_COLOR.to_ascii_lowercase(),
+            "a REJECTED sample is a different grey on screen than in print",
+        );
+
+        // The other side: the reject grey must stay outside the palette, or "make them agree"
+        // could be satisfied by erasing the distinction the colour exists to draw.
+        assert!(
+            !FACIES_PALETTE.iter().any(|c| c.eq_ignore_ascii_case(FACIES_REJECT_COLOR)),
+            "the reject grey has become one of the cluster colours",
+        );
+        assert!(
+            !screen.iter().any(|c| c.eq_ignore_ascii_case(FACIES_REJECT_COLOR)),
+            "the reject grey has become one of the screen cluster colours",
+        );
+    }
+
+    /// A colour theme recolours the APPLICATION, never the DATA.
+    ///
+    /// `--accent`/`--accent2` are chrome and every colour theme re-rolls them, so painting a
+    /// plotted mark with one made the SAME crossplot overlay measure 1.66:1 on `color-1` and
+    /// 8.22:1 on `color-2` - one curve, legible on one theme and nearly invisible on the next.
+    /// The data-series tokens exist to be theme-independent, which is only true if no theme block
+    /// redefines them. This is the `--brand` discipline (declared once at `:root`, never inside a
+    /// `[data-theme]` block) applied to the plot's data colours.
+    ///
+    /// `dark` and the system-dark block MAY override, and that is not an exception: the plot
+    /// GROUND genuinely flips there, so a fixed foreground could not clear contrast on both. The
+    /// five colour themes all draw on a light ground and have no such claim - exactly the latitude
+    /// `--plot-grid` already takes.
+    #[test]
+    fn no_colour_theme_re_rolls_the_plot_data_colours() {
+        let css = include_str!("../../src/styles.css").replace("\r\n", "\n");
+        // Built from its code point rather than written as a literal: `core_ancestry_tests::
+        // production_rust` separates production from test code by counting braces TEXTUALLY, and a
+        // lone closing brace in a string here would end its skip early (CLAUDE.md rule 5).
+        let close = char::from_u32(125).expect("U+007D");
+
+        assert!(
+            css.contains("--plot-series-1:") && css.contains("--plot-series-2:"),
+            "the data-series tokens must be declared",
+        );
+
+        let mut checked = 0;
+        for chunk in css.split(close) {
+            // Each chunk ends with one rule body; its selector is whatever preceded the body.
+            let Some(open) = chunk.rfind('{') else { continue };
+            let (selector, body) = chunk.split_at(open);
+            let selector = selector.rsplit('\n').next().unwrap_or(selector);
+            for theme in ["color-1", "color-2", "color-3", "color-4", "white"] {
+                if selector.contains(&format!("[data-theme=\"{theme}\"]")) {
+                    checked += 1;
+                    assert!(
+                        !body.contains("--plot-series-"),
+                        "theme {theme} re-rolls a plot data colour; a theme recolours the \
+                         application, never the data",
+                    );
+                }
+            }
+        }
+        assert_eq!(checked, 5, "all five colour themes must be inspected, not fewer");
+    }
     use super::*;
     use crate::db;
     use crate::layout::standard_layout;

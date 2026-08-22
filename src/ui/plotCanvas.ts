@@ -20,6 +20,11 @@ export interface PlotTheme {
   text: string;
   accent: string;
   accent2: string;
+  /** DATA-series colours. Separate from `accent`/`accent2` on purpose: those are CHROME,
+   *  re-rolled by every colour theme, and a plotted mark is data. See the --plot-series-*
+   *  block in styles.css for the measured reason. */
+  series1: string;
+  series2: string;
   warn: string;
   /** Canvas font family from --font-canvas — use via [`canvasFont`], never a literal. */
   fontFamily: string;
@@ -49,6 +54,8 @@ export function readTheme(el: HTMLElement): PlotTheme {
     text: v("--text-dim", "#7c6b52"),
     accent: v("--accent", "#b5651d"),
     accent2: v("--accent2", "#5f7350"),
+    series1: v("--plot-series-1", "#4e79a7"),
+    series2: v("--plot-series-2", "#b2622d"),
     warn: v("--warn", "#a83e2c"),
     fontFamily: v("--font-canvas", "system-ui, sans-serif"),
   };
@@ -277,12 +284,13 @@ export class PlotCanvas {
     ctx.restore();
   }
 
-  /** Scatter with optional colors: per-point array, one uniform color, or the theme
-   *  accent when omitted. Clips to the plot area. */
+  /** Scatter with optional colors: per-point array, one uniform color, or the DATA-series
+   *  colour when omitted (NOT the theme accent - a plotted mark must not change colour
+   *  because the application skin did). Clips to the plot area. */
   drawScatter(xs: ArrayLike<number>, ys: ArrayLike<number>, colors?: string[] | string, radius = 1.6): void {
     const { ctx } = this;
     const r = this.plotRect;
-    const uniform = typeof colors === "string" ? colors : colors ? null : this.theme.accent;
+    const uniform = typeof colors === "string" ? colors : colors ? null : this.theme.series1;
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);

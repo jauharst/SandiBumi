@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **165** of 681,
+Review sections counted toward no capability: **165** of 682,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -50,7 +50,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 71 | 2026-07-19 | 15 |
 | `histogram` | Histogram | Partially exercised | 5 / 48 | 2026-07-20 | 11 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 35 | 2026-07-20 | 11 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 43 | 2026-07-20 | 12 |
 | `pickett` | Pickett plot | Not exercised | 0 / 30 | — | 8 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 64 | — | 17 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 81 | 2026-07-20 | 21 |
@@ -65,7 +65,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 9 | — | 3 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
-| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
+| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 64 | 2026-07-19 | 17 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 244 | 2026-08-13 | 68 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 223 | 2026-08-13 | 59 |
