@@ -1,5 +1,44 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — I said the stopwatch was unreliable. I measured it, and it is not
+
+- [ ] **Still nothing changed in the app.** You asked me to run the variance check. I did, and it
+      corrected me rather than confirming me.
+- [ ] **I told you this machine wobbled 25–55% between runs, so several of my findings might be
+      noise. That was wrong.** Five clean runs of the same 100-well project: every heavy operation
+      lands within **2% to 16%** of itself. Opening the project varies by 2%. The Field Dashboard by
+      3%. The four-module chain by 7–16%. Nothing here is unreliable.
+- [ ] **Where my wrong number came from.** One pair of readings — 55 seconds and 36 seconds for the
+      same work — taken from the single most heavily instrumented test in the set. I generalised one
+      test's wobble to the whole machine without checking. That is exactly the mistake I have been
+      writing documents warning about.
+- [ ] **What that means for everything I have told you: it all holds.** Every finding — the chain
+      getting worse per well, the dashboard degrading fastest, the shared connection being the
+      bottleneck, the version lookup being a third of the summary — clears the wobble by a wide
+      margin. The smallest of them beats it four times over.
+- [ ] **But the check found a real bug, and that is the more useful half.** The command I put in the
+      documents for re-running the timings — and gave you in an earlier checklist — **has been
+      quietly wrong since I added the second probe.** It matches tests by name fragment, and the
+      fragment also matches the three later probes, so it ran **four heavy tests at once**. Result:
+      a 100-well chain reading **83 seconds instead of 33**. Two and a half times too slow, with
+      nothing on screen to say anything was wrong.
+- [ ] **Fixed in all three places, and the checking tool now refuses that kind of transcript**
+      rather than warning about it — a warning inside a wall of compiler output is a warning nobody
+      sees.
+- [ ] **One of my own experiments was affected.** The index test from two increments ago ran with
+      that bad command, so its readings are about 1.7× too slow. Both halves were affected equally,
+      so **the conclusion is unchanged** — the index still did nothing — but I have marked those
+      particular numbers as not comparable to anything else.
+- [ ] **And one honest downgrade.** Because printing a report wobbles 14% by itself, "the index made
+      no difference" should read "the index made no difference bigger than 14%". Same verdict, less
+      certainty than I claimed.
+- [ ] **What I still cannot tell you.** All of this was measured at 100 wells. The 2000-well figures
+      — 23-minute chain, 3-minute open, 49-second dashboard — are still **one run each**, and a
+      bigger project may well be less steady than a smaller one. That gap is real and still open.
+- [ ] **Nothing to click** — `docs/PERF-VARIANCE-2026-08-23.md`. To run it yourself, five times:
+      `cargo test --release --lib perf_baseline_test::perf_baseline -- --exact --ignored --nocapture`
+      then `node tools/perf-variance.mjs run1.txt ... run5.txt`.
+
 ## 2026-08-23 — One question, asked once per well, is a third of the time you wait
 
 - [ ] **Still nothing changed in the app.** You said go ahead on measuring the Field Dashboard
@@ -199,7 +238,9 @@
       single-writer lock, which is open item #129. I am not touching that without asking you.
 - [ ] **Nothing to click for this one** — it is all numbers. If you want to see them yourself,
       the full report is `docs/PERF-BASELINE-2026-08-22.md`, and the harness is re-runnable:
-      `cargo test --release --lib perf_baseline -- --ignored --nocapture` from `src-tauri`.
+      `cargo test --release --lib perf_baseline_test::perf_baseline -- --exact --ignored --nocapture`
+      from `src-tauri`. (The `--exact` was added 2026-08-23; without it the filter also runs the
+      three later probes, all at once, and every number comes out about twice as slow.)
       It builds its own fake wells, so it needs no data from you.
 - [ ] **One thing worth knowing about the old test.** `pipeline_field_100well_stress` has been
       printing timings for 400 module runs that all FAILED — 100 errors per module, and a pay
