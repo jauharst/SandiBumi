@@ -968,9 +968,12 @@ What the foundation established, and the rules that keep it coherent:
 
 - **Tokens**: default `:root` is now the Organic theme — cream ground `#f5ead8`, WHITE
   panel cards, terracotta `#c67139` + sage `#7a8a5e`. Mapping from the handoff ramps:
-  `--border`/`--border-strong` = neutral-200/300, `--text-dim` = neutral-600,
+  `--border`/`--border-strong` = neutral-200/300, `--text-dim` = **neutral-700**,
   `--accent-dim` = accent-700, the `-soft` pair = the 100 tints. Dark theme and the five
-  client skins keep their own colour blocks untouched.
+  client skins keep their own colour blocks untouched. `--text-dim` was neutral-600 until
+  2026-08-22 and that was the handoff's own mapping — it measured 4.29:1 on a white panel
+  and 3.55:1 on the cream, and it was the odd one out, since every other theme in the app
+  already sets its secondary text between 5.07 and 6.33. Same ramp, one step down.
 - **Shape is theme-INDEPENDENT** (client skins recolor, never reshape): pills
   (`--r-pill`) for buttons, ribbon tabs, segments and chips; 12px (`--r-lg`) panel cards;
   16px (`--r-xl`) dialogs; `--r-sm`/`--r-md` for dense inline controls unchanged.
@@ -983,7 +986,24 @@ What the foundation established, and the rules that keep it coherent:
   machines client work happens on.
 - **Interaction**: hover is a TINT from the accent ramp (`--accent-soft`), never grey;
   pressed is one ramp step darker (mix toward `--accent-dim`, so client skins get their
-  step for free); focus is a 2px accent outline at offset 2. Transitions stay paint-only.
+  step for free); focus is a 2px accent outline at offset 2, and since 2026-08-22 that one
+  ring covers `select`/`input`/`textarea`/`a[href]` as well as buttons. Transitions stay
+  paint-only — and an audit that drives the UI must inject `* { transition: none }` first,
+  because `getComputedStyle` returns the INTERPOLATED value mid-transition, so reading a
+  colour in the same tick as a theme switch returns the OUTGOING theme's.
+- **On a surface FILLED with the accent, the label decides the direction** (2026-08-22).
+  White on the light terracotta measures 3.61:1 and on the dark amber 2.70:1, and darkening
+  the fill rescues neither — white needs `#8c491a`, which reads 2.54:1 against the dark
+  ground and stops reading as a button. So **`--on-accent` states the label** (ink on light
+  and dark, white on the five colour themes) and **`--accent-hover`/`--accent-active` move
+  the fill AWAY from it** — lighter under an ink label, darker under a white one. The fill
+  itself is never changed to fix contrast: the terracotta is the design. A lightened fill
+  loses its edge against the cream (2.52:1, under the 3:1 non-text floor), so those states
+  pin the boundary with an `--accent-dim` border. The accent used **as TEXT** on a panel is
+  `--accent-text`, not `--accent` — on light that is accent-700, because the brand
+  terracotta reads 3.61:1 on white. Every theme declares all four or a label silently
+  inherits another theme's ground; pinned from both sides by
+  `every_theme_declares_the_label_its_own_accent_fill_can_carry`.
 - **Load-bearing details**: `.ribbon-body` is 82px, not 80 — the card's 1px borders
   would otherwise clip the tool captions. The unsaved-state dot goes panel-white on the
   ACTIVE ribbon tab (`--warn` red on the terracotta pill is invisible, and that dot is
