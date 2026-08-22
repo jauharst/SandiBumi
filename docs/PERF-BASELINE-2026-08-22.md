@@ -67,10 +67,17 @@ not a finding, and confirming it is separate work.
 
 Median of 3–7 repetitions. Every run succeeded; that is what the PRODUCED column is for.
 
+> **Corrected by Pass 2 (`PERF-SCALING-2026-08-22.md` §5):** the row below labelled *cold project
+> open* is a **WARM re-open**. `bench` times every repetition with no warm-up, so only the FIRST
+> open pays for a cold file cache, and the median of three is a warm one. The genuine cold open was
+> hiding in the MAX column, and it scales with well count: 589.6 ms at 10 wells, 1045.0 ms at 20,
+> and 185.4 **seconds** at 2000. The harness now reports the two as separate rows.
+
 ```
 OPERATION                            10 WELLS   20 WELLS   PRODUCED (20w)
 == OPEN ==
-cold project open                     102.6ms    111.1ms   20 wells
+project re-open (warm)                102.6ms    111.1ms   20 wells
+first project open (COLD)             589.6ms   1045.0ms   20 wells
 == READ PATH (the backend half of a click) ==
 curve catalog (every plot opens)        2.1ms      2.2ms   6 curves
 well switch: log view, 6 curves         1.0ms      1.0ms   6 series
@@ -146,6 +153,11 @@ Extrapolating the 4-module chain — 3.09 s at 10 wells, 6.65 s at 20 — projec
 wells**, consistent with the 21 s recorded at `ROADMAP.md:398` on real data with different per-well
 sample counts, and to roughly 11 minutes at 2,000 wells. Both are extrapolations. Turning them into
 measurements is Pass 2.
+
+> **Pass 2 measured both.** 100 wells: **36.5 s**, close to the projection. 2,000 wells: **23.0
+> minutes**, against 11 projected — a factor of two, because this extrapolation drew a straight line
+> through a curve that bends. The chain's scaling exponent rises from 1.06 (20→100 wells) to 1.31
+> (500→2000). Treat every straight-line projection in this document as a lower bound.
 
 ### Measure in release, always
 

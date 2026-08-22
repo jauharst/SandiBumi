@@ -20,6 +20,10 @@ Every file matches what `src-tauri/src/parsers.rs` accepts TODAY; the cargo test
 fails the gate loudly.
 
 Usage:  py -3 tools/make_example_data.py
+        py -3 tools/make_example_data.py --stress --wells 500 [--samples 1562] [--out DIR]
+
+The `--stress` mode is a separate job sharing this file's geology: a GENERATED scaling fixture
+for the performance brief, written outside the repo, never committed. See `make_stress` below.
 """
 
 from pathlib import Path
@@ -85,9 +89,25 @@ def curve_value(name: str, depth: float, shift: float, rng: Lcg) -> float:
     return base + NOISE[name] * rng.gauss()
 
 
-def make_las(well: str, shift: float, seed: int) -> str:
+def fold_depth(depth: float, shift: float) -> float:
+    """Map a deep sample back into the one parasequence `ZONES` describes.
+
+    The zone model covers 60 m. A stress well is hundreds of metres, and simply extending it
+    would leave every sample below 1560 m sitting in flat SHALE-2 — which is not a neutral
+    simplification: DuckDB is columnar and a near-constant column compresses far better than a
+    varying one, so a flat fixture would understate exactly the storage and read cost the
+    fixture exists to measure. Folding stacks the shale/sand/sand/shale sequence instead, which
+    is also what a deltaic section actually looks like.
+    """
+    span = LAS_BASE - LAS_TOP
+    return LAS_TOP + shift + ((depth - LAS_TOP - shift) % span)
+
+
+def make_las(well: str, shift: float, seed: int, samples: int | None = None) -> str:
+    """One LAS well. `samples` extends the window past the 60 m zone model by folding (above);
+    left None it produces the committed example wells byte-for-byte as before."""
     top, base = LAS_TOP + shift, LAS_BASE + shift
-    n = int(round((base - top) / STEP)) + 1
+    n = int(round((base - top) / STEP)) + 1 if samples is None else samples
     stop = top + (n - 1) * STEP
     rng = Lcg(seed)
     hdr = f"""~Version Information
@@ -127,7 +147,10 @@ def make_las(well: str, shift: float, seed: int) -> str:
     for i in range(n):
         d = top + i * STEP
         in_gap = gap_top <= d <= gap_base
-        vals = {name: curve_value(name, d, shift, rng) for name in ZONES}
+        # The washout gap stays anchored at its real depth (one per well, in the first cycle);
+        # only the VALUES are read off the folded depth.
+        dz = d if samples is None else fold_depth(d, shift)
+        vals = {name: curve_value(name, dz, shift, rng) for name in ZONES}
         if in_gap:
             vals["NPHI"] = NULL
             vals["PEF"] = NULL
@@ -429,7 +452,74 @@ def make_bad_las(well: str, kind: str) -> str:
     return "".join(lines)
 
 
+# --- stress fixture (pass 2 of the performance brief) --------------------------------------
+#
+# A scaling fixture is GENERATED, never committed. Measured: 1.3 MB per 10 wells at 1562
+# samples, so 2000 wells is ~260 MB of LAS — which has no business in a git history, and would
+# be re-uploaded on every clone. It writes OUTSIDE the repo by default for the same reason.
+#
+# This is the one thing the in-Rust harness (`perf_baseline_test.rs`) cannot provide. That
+# harness builds wells straight into a database, which is right for timing the read and write
+# paths but skips the IMPORT entirely — and import is where the alarming number in
+# `SB-CORE-030`'s rationale lives ("540 wells for a 15-minute project open"). It is also the
+# only form of the fixture a human can open in the app and click through.
+
+STRESS_SAMPLES = 1562  # matches the per-well sample count the pass-1 baseline was taken at
+
+
+def stress_shift(index: int) -> float:
+    """Per-well structural shift in metres. Deterministic and spread over a 40 m range, so tops
+    genuinely differ well to well — a field where every well is identical would let a columnar
+    store share dictionaries across wells and flatter every read number."""
+    return round(-20.0 + 40.0 * (((index * 2654435761) % 1000) / 1000.0), 2)
+
+
+def make_stress_tops(wells: list[tuple[str, float]]) -> str:
+    rows = ["WELL,TOP,MD\n"]  # same header make_tops writes, so the same reader takes it
+    for well, shift in wells:
+        for name, depth in TOPS.items():
+            rows.append(f"{well},{name},{depth + shift:.1f}\n")
+    return "".join(rows)
+
+
+def make_stress(out: Path, n_wells: int, samples: int) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    wells = [(f"SANDI-{i + 1:04d}", stress_shift(i)) for i in range(n_wells)]
+    total = 0
+    for i, (well, shift) in enumerate(wells):
+        body = make_las(well, shift, seed=7000 + i, samples=samples)
+        (out / f"{well}.las").write_text(body, encoding="ascii", newline="\n")
+        total += len(body)
+        if (i + 1) % 100 == 0 or i + 1 == n_wells:
+            print(f"  {i + 1}/{n_wells} wells, {total / 1e6:.1f} MB")
+    tops = make_stress_tops(wells)
+    (out / "tops_stress.csv").write_text(tops, encoding="ascii", newline="\n")
+    total += len(tops)
+    print(
+        f"wrote {n_wells} wells x {samples} samples = {n_wells * samples:,} samples"
+        f"  ({total / 1e6:.1f} MB) to {out}"
+    )
+
+
 def main() -> None:
+    import argparse
+    import tempfile
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stress", action="store_true",
+                       help="generate a scaling fixture instead of the committed examples")
+    parser.add_argument("--wells", type=int, default=100, help="stress well count (default 100)")
+    parser.add_argument("--samples", type=int, default=STRESS_SAMPLES,
+                       help=f"samples per stress well (default {STRESS_SAMPLES})")
+    parser.add_argument("--out", type=Path, default=None,
+                       help="stress output directory (default: a temp dir, never the repo)")
+    args = parser.parse_args()
+
+    if args.stress:
+        out = args.out or Path(tempfile.gettempdir()) / f"sandibumi-stress-{args.wells}w"
+        make_stress(out, args.wells, args.samples)
+        return
+
     OUT.mkdir(parents=True, exist_ok=True)
     files = {}
     for i, (well, shift) in enumerate(WELLS.items()):

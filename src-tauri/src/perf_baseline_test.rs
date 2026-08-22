@@ -260,15 +260,25 @@ fn perf_baseline() {
     };
     println!("build (setup, not an app operation): {:.1}ms", ms(build));
 
-    // ---- COLD OPEN --------------------------------------------------------------------------
-    // Measured on its own connection and reported before anything warms a cache. This is the one
-    // operation a user waits on before the window is usable.
-    let open = bench("cold project open", 3, || {
-        let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
-        let wells: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap_or(-1);
-        format!("{wells} wells")
-    });
-    print_table("== OPEN ==", &[open]);
+    // ---- OPEN -------------------------------------------------------------------------------
+    // TWO operations, not one, and reporting them under a single label hid the interesting half.
+    // `bench` times every repetition with no warm-up, so the FIRST open pays for a cold OS file
+    // cache and unread DuckDB metadata while every later one does not. At 500 wells that was
+    // 32.8s against a 130ms median: the median under a row labelled "cold" was a WARM re-open,
+    // and the cold number - the one a user waits on after launching the app - was hiding in MAX.
+    // The cold open scales with well count; the warm re-open barely moves. They are separate rows.
+    let mut open_n = |label: &'static str, reps: usize| {
+        bench(label, reps, || {
+            let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
+            let wells: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap_or(-1);
+            format!("{wells} wells")
+        })
+    };
+    // Order matters: the cold one must be FIRST, because it is only cold once.
+    let cold = open_n("first project open (COLD)", 1);
+    let warm = open_n("project re-open (warm)", 3);
+    print_table("== OPEN ==", &[cold, warm]);
 
     let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
     let db = Mutex::new(conn);
