@@ -1543,10 +1543,12 @@ pub(crate) fn create_complete_log_set(
     ))
 }
 
-/// Versioned batch write: refreshes the CURRENT store (same delete-then-append discipline
-/// as `write_computed_curves_batch`, rows tagged with `set_id`) and appends the identical
-/// rows to the append-only archive. Prior versions' archive rows are untouched — that is
-/// the "never overwrite" guarantee; any version can be restored via `restore_log_set`.
+/// The set's declared sampling style, refused unless the set is live and the declaration parses.
+///
+/// A POINT set is refused outright: point deliveries have their own store, which declares and logs
+/// how it resolves a repeated depth. So is a set whose duplicate-depth resolution is anything but
+/// REFUSE - a continuous curve that silently picks a winner at a repeated depth has decided which
+/// of two measurements is the rock.
 fn load_set_write_discipline(
     conn: &Connection,
     set_id: &str,
@@ -1659,6 +1661,18 @@ fn validate_archived_continuous_depth_uniqueness(
     Ok(())
 }
 
+/// Versioned batch write, and THE discipline the PK-less `computed_curves` table rests on:
+/// refreshes the CURRENT store (delete-then-append, rows tagged with `set_id`) and appends the
+/// identical rows to the append-only archive, all inside one transaction. Prior versions' archive
+/// rows are untouched — that is the "never overwrite" guarantee; any version can be restored via
+/// `restore_log_set`.
+///
+/// EVERY production write arrives here: [`write_computed_curves_with_ancestry`], its `_batch` and
+/// `_clearing` siblings verify the complete-ancestry set and then call this. The `#[cfg(test)]`
+/// fixtures `equations::write_computed_curves_batch` and [`write_computed_curves_versioned`] are
+/// shorter doors onto the same function, not second implementations - which is why a comment that
+/// names one of THEM as the write discipline is naming a fixture. Pinned by
+/// `the_pk_less_write_discipline_names_the_function_that_performs_it`.
 fn write_versioned_rows_raw(
     conn: &Connection,
     well_id: &str,
@@ -3006,6 +3020,93 @@ pub(crate) fn delete_log_set(_conn: &Connection, _set_id: &str) -> Result<(), St
 mod tests {
     use super::*;
     use duckdb::Connection;
+
+    /// CLAUDE.md states the `computed_curves` uniqueness contract - the table carries NO primary
+    /// key, so uniqueness rests entirely on delete-then-append - and for a long time CLAUDE.md, the
+    /// schema comment beside the table, `frame.rs`'s module doc and two more doc blocks all named
+    /// `equations::write_computed_curves_batch` as the function that performs it. That function is
+    /// `#[cfg(test)]`: it builds a TEST_FIXTURE ancestry and delegates, so it is a fixture front
+    /// door, and a reader sent there to check or change the discipline lands in test code.
+    ///
+    /// Pinned from both sides, because either half alone passes for the wrong reason. "Name the
+    /// production writer everywhere" is satisfied by pointing the prose at any production function
+    /// at all; "the writer performs the DELETE" is satisfied while the prose still names the
+    /// fixture. So: the fixture is still gated and is never named in production prose WITHOUT being
+    /// called a fixture, AND the function the schema comment does name really performs the
+    /// delete-then-append.
+    #[test]
+    fn the_pk_less_write_discipline_names_the_function_that_performs_it() {
+        // Needles assembled, comment lines only, production halves only - so this test is never an
+        // occurrence of what it counts.
+        let fixture = ["write_computed_curves", "_batch"].concat();
+        let writer = ["write_versioned", "_rows_raw"].concat();
+
+        // Arm A, first half: the fixture is still gated, so naming it really would send a reader
+        // into test code. House convention puts `#[cfg(test)]` on the line before the `fn`.
+        let equations: Vec<&str> = include_str!("equations.rs").lines().map(str::trim).collect();
+        let declared = ["pub(crate) fn ", fixture.as_str()].concat();
+        let at = equations
+            .iter()
+            .position(|line| line.starts_with(declared.as_str()))
+            .expect("the fixture is declared");
+        assert_eq!(
+            equations[at - 1], "#[cfg(test)]",
+            "{fixture} is no longer test-gated; if it has become a production writer this whole check needs rethinking, not relaxing",
+        );
+
+        // Arm A, second half: no production comment names the fixture as the discipline. Naming it
+        // is allowed only while calling it what it is.
+        for (name, source) in [
+            ("db.rs", include_str!("db.rs")),
+            ("frame.rs", include_str!("frame.rs")),
+            ("ancestry.rs", include_str!("ancestry.rs")),
+            ("equations.rs", include_str!("equations.rs")),
+        ] {
+            let production = source
+                .split("
+mod tests")
+                .next()
+                .expect("a split always yields one piece");
+            let unlabelled: Vec<&str> = production
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("//"))
+                .filter(|line| line.contains(fixture.as_str()))
+                .filter(|line| !line.to_ascii_lowercase().contains("fixture"))
+                .collect();
+            assert!(
+                unlabelled.is_empty(),
+                "{name} names the test fixture where the write discipline belongs: {unlabelled:?}",
+            );
+        }
+
+        // Arm B: the function the schema comment names is production, and it carries the DELETE.
+        assert!(
+            include_str!("db.rs")
+                .contains(["WRITE DISCIPLINE: `ancestry::", writer.as_str()].concat().as_str()),
+            "the comment beside the PK-less table must name the writer that upholds it",
+        );
+        let here: Vec<&str> = include_str!("ancestry.rs").lines().map(str::trim).collect();
+        let start = here
+            .iter()
+            .position(|line| line.starts_with(["fn ", writer.as_str()].concat().as_str()))
+            .expect("the production writer is declared");
+        assert_ne!(
+            here[start - 1], "#[cfg(test)]",
+            "the named write discipline must not itself be test-gated",
+        );
+        let end = here[start + 1..]
+            .iter()
+            .position(|line| line.starts_with("fn ") || line.starts_with("pub(crate) fn "))
+            .map(|offset| start + 1 + offset)
+            .unwrap_or(here.len());
+        let body = here[start..end].join(" ");
+        let delete = ["DELETE FROM computed", "_curves WHERE well_id"].concat();
+        assert!(
+            body.contains(delete.as_str()),
+            "{writer} is named as the delete-then-append discipline but does not delete",
+        );
+    }
 
     /// AUDIT-2026-08-20 finding 53. `equations.rs` had grown from 2,246 to 6,892 lines because it
     /// absorbed this subsystem whole, and the highest-traffic question in the repository - how a

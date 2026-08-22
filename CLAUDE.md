@@ -94,9 +94,13 @@ write bottleneck was `computed_curves`'s 3-column `PRIMARY KEY` (ART uniqueness 
 insert overhead, proven by the probe in `pipeline_blso_test.rs`). Fix: **dropped the PK**
 (schema is now PK-less; `db::migrate_drop_computed_curves_pk` rebuilds existing projects on
 launch, idempotent via `duckdb_constraints()`) — uniqueness is upheld by the write discipline
-(`equations::write_computed_curves_batch` DELETEs a well's target curve names before appending;
-point-updates UPDATE in place; **nothing inserts a duplicate — do not add ON CONFLICT/upsert
-paths that assume a PK**). Also batched each well's whole module output into one DELETE + one
+(`ancestry::write_versioned_rows_raw`, which every production write reaches through
+`write_computed_curves_with_ancestry`, DELETEs a well's target curve names before appending and
+does it inside ONE transaction; point-updates UPDATE in place; **nothing inserts a duplicate — do
+not add ON CONFLICT/upsert paths that assume a PK**). It was `equations::write_computed_curves_batch`
+when this shipped, and that name is now a `#[cfg(test)]` fixture front door which builds a
+TEST_FIXTURE ancestry and delegates — so it is the wrong place to read the discipline or to change
+it. Pinned by `the_pk_less_write_discipline_names_the_function_that_performs_it`. Also batched each well's whole module output into one DELETE + one
 Appender (used by `workflow.rs`). Real 100-well × 4-module chain: ~50s → **21s**. GPU stays
 render-only; DuckDB single-writer (`Mutex<Connection>`) is fundamental, so the win is the
 per-row index removal, not parallelism.
