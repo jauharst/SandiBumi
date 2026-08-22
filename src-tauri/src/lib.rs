@@ -55,6 +55,8 @@ pub mod parameter_pack;
 mod parsers;
 mod petrography;
 #[cfg(test)]
+mod perf_baseline_test;
+#[cfg(test)]
 mod pipeline_field_test;
 mod plotting;
 mod plugqc;

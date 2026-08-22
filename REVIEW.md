@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — How fast is it, actually? The first real numbers
+
+- [ ] **Nothing in the app changed.** This is a stopwatch, not a fix. It lives in the test suite
+      and in `tools/`, never in the shipping build, and it was deliberate that no speed-up was
+      attempted before there were numbers to justify one.
+- [ ] **The short version: nothing you click is slow.** Opening a crossplot on one well is about
+      five thousandths of a second. Switching wells in a log view is about the same. Scrolling and
+      zooming a log cost the same 3–4 ms whether the well has 1,562 samples or 156,200 — the
+      WebGPU log view is doing exactly what it was built to do.
+- [ ] **The one slow click is the multi-well crossplot.** With a hundred wells overlaid it takes
+      about a quarter of a second to appear. That is the only interaction measured past the point
+      where a person notices a delay.
+- [ ] **The real finding is batch runs.** A four-module chain over 20 wells takes twice as long as
+      over 10, which sounds obvious but should not be true — the code hands the wells to 32
+      processor cores. It is behaving as though it had one. Running 20 wells costs 43 ms per well;
+      running a single well on its own costs 50 ms. So the cores buy nothing. I have measured that
+      this happens; I have **not** yet proved why, and the likely cause is the database's
+      single-writer lock, which is open item #129. I am not touching that without asking you.
+- [ ] **Nothing to click for this one** — it is all numbers. If you want to see them yourself,
+      the full report is `docs/PERF-BASELINE-2026-08-22.md`, and the harness is re-runnable:
+      `cargo test --release --lib perf_baseline -- --ignored --nocapture` from `src-tauri`.
+      It builds its own fake wells, so it needs no data from you.
+- [ ] **One thing worth knowing about the old test.** `pipeline_field_100well_stress` has been
+      printing timings for 400 module runs that all FAILED — 100 errors per module, and a pay
+      summary with zero rows. It checks nothing, so nothing caught it. Its 59-second figure is
+      the cost of failing, not the cost of working. Do not quote it. I have not worked out why it
+      fails yet; that is separate.
+
 ## 2026-08-22 — When SandiBumi closes on you, it now leaves a note
 
 - [ ] **First, the correction — I got the previous finding wrong.** I told you a crash leaves the
