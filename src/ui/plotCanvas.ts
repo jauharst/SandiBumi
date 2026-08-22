@@ -884,8 +884,13 @@ export function colorRampEx(
 /** Fixed qualitative palette for discrete facies / cluster coloring (Tableau-10 + spares,
  *  wraps beyond 12). Distinct hues so adjacent facies are easy to tell apart. */
 export const FACIES_PALETTE: string[] = [
-  "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1", "#76b7b2",
-  "#edc948", "#ff9da7", "#9c755f", "#8cd17d", "#86bcb6", "#d37295",
+  // Ordered as a NESTED FAMILY, and the order is load-bearing: `faciesColor` maps class i to
+  // slot i, so a run with K classes shows exactly slots 0..K-1 and K defaults to 5. Each slot
+  // is therefore chosen to stay separable from every slot BEFORE it, which is why the strong,
+  // widely-spaced hues come first and the near-neighbours sit at the tail where only a high-K
+  // run reaches them.
+  "#edc948", "#2a78d6", "#e34948", "#76b7b2", "#b07aa1", "#f28e2b",
+  "#8cd17d", "#9c755f", "#4e79a7", "#d37295", "#59a14f", "#ff9da7",
 ];
 
 /** Neutral grey for a REJECTED sample (SB-MLA-021), deliberately outside the qualitative palette

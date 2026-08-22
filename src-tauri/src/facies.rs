@@ -993,6 +993,44 @@ mod tests {
         assert!(electrofacies(&ctx(logs(), 12.0, 40)).is_ok(), "K at the cap must still run");
     }
 
+    /// The class ceiling IS the palette length, and the refusal says the same number out loud.
+    ///
+    /// `electrofacies` refuses K above 12 because a thirteenth class would reuse a colour and
+    /// print two different facies identically. But the ceiling is written as a literal here, the
+    /// palette lives in `composite.rs`, and the refusal spells the number out a third time in
+    /// prose - three copies of one fact, none of which knew about the others. Re-stepping the
+    /// palette (2026-08-22) is exactly the kind of edit that could have changed its length and
+    /// left an operator being told to lower K to a ceiling that had moved.
+    ///
+    /// Pinned from BOTH sides. Side A alone - K at the length runs, one above is refused - would
+    /// still pass with a message reading "maximum of 12" beside a fourteen-colour palette, and
+    /// the operator acts on the message, not on the constant. Side B alone - the message names
+    /// the palette length - would pass even if the code refused at a completely different K.
+    #[test]
+    fn the_facies_class_ceiling_is_the_palette_length_and_the_refusal_says_so() {
+        let n = crate::composite::FACIES_PALETTE.len();
+        let logs = || HashMap::from([("CURVE1".to_string(), (0..40).map(|i| i as f32).collect::<Vec<f32>>())]);
+
+        // Side A - the behaviour sits exactly at the palette length.
+        assert!(
+            electrofacies(&ctx(logs(), n as f64, 40)).is_ok(),
+            "K at the palette length ({n}) must run - every class still has its own colour",
+        );
+        let err = electrofacies(&ctx(logs(), n as f64 + 1.0, 40))
+            .expect_err("K above the palette length must be refused, not clamped");
+
+        // Side B - and the sentence the operator reads names that same number, twice: the
+        // ceiling to lower K to, and the palette size that explains why.
+        assert!(
+            err.contains(&format!("maximum of {n}")),
+            "the refusal must name the real ceiling, or it sends the operator to a wrong K: {err}",
+        );
+        assert!(
+            err.contains(&format!("{n} colours")),
+            "the refusal must name the real palette size, or its reason no longer holds: {err}",
+        );
+    }
+
     /// SB-MLA-T13 case (a). A well where no input curve carries a single reading cannot be
     /// clustered, and both engines must say so BY NAME. The failure mode this pins is not a
     /// crash but a courtesy: returning the pre-allocated all-NaN vector as `Ok`. On a log view

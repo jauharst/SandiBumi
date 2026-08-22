@@ -1,5 +1,47 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Plots pass 1b: **two facies were the same colour to a colour-blind reader**
+
+- [ ] **What to click.** Run **Electrofacies** on a well at the default K = 5 and look at the
+      FACIES track in the **log view**, then colour a **crossplot** by FACIES, then print the
+      same well through **Composite…**. The class colours have changed, and screen and print
+      still agree exactly. Nothing about the classification itself moved — same clusters, same
+      class numbers, same curve; only which colour each class is painted.
+- [ ] **What was wrong, and it was not a matter of taste.** Facies **2** (`#59a14f`, green) and
+      facies **3** (`#e15759`, red) measured **ΔE 0.7** apart under deuteranopia — for a
+      red-green colour-blind reader they were *the same colour*. The safe threshold is 8. Three
+      things made that worse than it sounds: both sit inside the **default K = 5**, so it was
+      not an edge case at high cluster counts; classes are numbered by ascending GR, so 2 and 3
+      are **neighbouring shaliness bands**, the pair you most need to separate; and roughly one
+      man in twelve has some red-green deficiency.
+- [ ] **What changed — two colours out of twelve.** The red that collided with the green, and
+      `#86bcb6`, which was a near-duplicate of `#76b7b2` (**ΔE 2.4** — those two teals were
+      nearly identical to *everyone*, not just to colour-blind readers). They were replaced by
+      two documented values, and the twelve were then **re-ordered**. The order is now
+      load-bearing: a run with K classes shows exactly slots 0…K−1, so each slot is chosen to
+      stay separable from every slot before it. Worst pair in the default set goes
+      **0.7 → 8.5** for a colour-blind reader and **12.8 → 15.0** for everyone else.
+- [ ] **A happy accident worth keeping.** Facies **0** is the lowest-GR class — the cleanest
+      rock — and it now lands on **yellow**, which is the conventional sand colour. That fell
+      out of the measurement rather than being chosen, but it reads correctly.
+- [ ] **What this still cannot do, stated plainly.** Above about **K = 6** no palette can keep
+      every pair apart — twelve mutually distinguishable hues do not exist, which is why the
+      method this came from caps a colour-coded set at eight. A high-K facies scheme needs
+      **class labels on the track**, not a better palette. The app still refuses K above 12 for
+      the same reason it always did, and that refusal is now tested against the real palette
+      length so it can never quote a ceiling that has moved.
+- [ ] **One more colour moved, on the crossplot.** The default scatter colour was the old
+      facies slot 0, whose chroma measured 0.086 — under the 0.10 at which a hue stops doing
+      any identity work and starts reading as grey. It is now the palette's blue, which clears
+      every check against both plot grounds.
+- [ ] **How this was found.** Pass 1 asked me to use the `dataviz` skill and I reported it
+      unavailable; it was not, I had looked in the wrong place. Running its validator against
+      what pass 1 shipped is what produced every number above. The screen-vs-print pin added in
+      pass 1 did its job — it is what guarantees the composite followed this change.
+- [ ] **Evidence.** `docs/design_organic/evidence_facies_palette_before_after.svg`.
+- [ ] **Nothing computed changed.** No cluster, class number, count or curve moved — this pass
+      changed only which colour a class is drawn in.
+
 ## 2026-08-22 — Accessibility pass 2: **the ribbon, the log view and every dialog stay readable on all seven themes**
 
 - [ ] **What to click, and the one thing that looks different.** Switch theme through all

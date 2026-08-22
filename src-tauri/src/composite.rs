@@ -2024,9 +2024,12 @@ fn draw_array_series(
 
 /// Qualitative palette for discrete facies/cluster blocks.
 /// Keep in sync with FACIES_PALETTE in src/ui/plotCanvas.ts.
-const FACIES_PALETTE: [&str; 12] = [
-    "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1", "#76b7b2",
-    "#edc948", "#ff9da7", "#9c755f", "#8cd17d", "#86bcb6", "#d37295",
+pub(crate) const FACIES_PALETTE: [&str; 12] = [
+    // Ordered as a NESTED FAMILY - see the note on the TypeScript twin. The order is part of
+    // the contract, not presentation: class i takes slot i, so slots 0..K-1 are what a run
+    // with K classes actually shows.
+    "#edc948", "#2a78d6", "#e34948", "#76b7b2", "#b07aa1", "#f28e2b",
+    "#8cd17d", "#9c755f", "#4e79a7", "#d37295", "#59a14f", "#ff9da7",
 ];
 
 /// Neutral grey for a REJECTED sample (SB-MLA-021), deliberately outside the qualitative palette.
