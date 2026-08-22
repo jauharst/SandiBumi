@@ -219,6 +219,31 @@ fn cutoff(value: f64) -> crate::paysummary::CutoffSpec {
     crate::paysummary::CutoffEntry { value, unit: "v/v".into() }.into()
 }
 
+/// Builds a synthetic project on disk and returns its well ids plus the build duration. Shared by
+/// both harnesses so they measure the same field rather than two similar ones.
+fn build_project(
+    db_path: &std::path::Path,
+    n_wells: usize,
+    n_samples: usize,
+) -> (Vec<String>, std::time::Duration) {
+    let mut well_ids = Vec::with_capacity(n_wells);
+    let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
+    let t = Instant::now();
+    for i in 0..n_wells {
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, &format!("SANDI-{:04}", i + 1), Some("Sandi synthetic"), None, None)
+            .expect("insert_well");
+        let w = synthetic_well(i as u64, n_samples);
+        crate::db::insert_standard_curves(&conn, id, w.depth, w.gr, w.res_deep, w.nphi, w.rhob, w.dt, w.sp)
+            .expect("insert_standard_curves");
+        well_ids.push(id.to_string());
+    }
+    let elapsed = t.elapsed();
+    // conn dropped by the caller's scope end, so a cold open afterwards really is cold
+    drop(conn);
+    (well_ids, elapsed)
+}
+
 #[test]
 #[ignore]
 fn perf_baseline() {
@@ -235,29 +260,7 @@ fn perf_baseline() {
     println!("build: {}", if cfg!(debug_assertions) { "DEBUG (unoptimised)" } else { "release" });
 
     // ---- build the project ------------------------------------------------------------------
-    let mut well_ids = Vec::with_capacity(n_wells);
-    let build = {
-        let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
-        let t = Instant::now();
-        for i in 0..n_wells {
-            let id = uuid::Uuid::new_v4();
-            crate::db::insert_well(
-                &conn,
-                id,
-                &format!("SANDI-{:04}", i + 1),
-                Some("Sandi synthetic"),
-                None,
-                None,
-            )
-            .expect("insert_well");
-            let w = synthetic_well(i as u64, n_samples);
-            crate::db::insert_standard_curves(&conn, id, w.depth, w.gr, w.res_deep, w.nphi, w.rhob, w.dt, w.sp)
-                .expect("insert_standard_curves");
-            well_ids.push(id.to_string());
-        }
-        t.elapsed()
-        // conn dropped here, so the cold open below really is cold
-    };
+    let (well_ids, build) = build_project(&db_path, n_wells, n_samples);
     println!("build (setup, not an app operation): {:.1}ms", ms(build));
 
     // ---- OPEN -------------------------------------------------------------------------------
@@ -438,6 +441,151 @@ fn perf_baseline() {
     println!(
         "\nNOTE: backend only. A user's click-to-paint is this plus Tauri IPC plus the canvas\n\
          paint, so every figure above is a LOWER BOUND on what is felt.\n"
+    );
+
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+}
+
+// ============================================================================================
+// WHERE THE TIME GOES - pass 3 increment 1. It DIAGNOSES and changes nothing.
+//
+// Passes 1 and 2 measured that a chain over N wells costs N times one well, even though
+// `workflow.rs` hands the wells to `par_iter` and this machine reports 32 rayon threads. That
+// established the SYMPTOM. It did not establish the CAUSE, and fixing before the cause is known
+// is the guessing this whole brief exists to avoid.
+//
+// The suspect is the single `Mutex<Connection>`: the per-well closure takes that lock four
+// separate times, once for input resolution (which is also the largest read), once for the run
+// mask, once for the neutron-basis declaration, and once to write. `SB-CORE-032` predicts exactly
+// this - "no operation whose duration scales with well count or sample count may hold the global
+// database mutex for its duration" - and is already recorded PRESENT-DIVERGENT.
+//
+// So: read the same curves for every well three ways, changing only HOW THE CONNECTION IS SHARED.
+//
+//   A  serial, one shared connection            - the reference
+//   B  PARALLEL, one shared connection          - what the app does today
+//   C  PARALLEL, one connection per thread      - what #129 (connection pool) would do
+//
+// B/A near 1.0 proves the lock serialises the parallel loop. C/A is then the measured answer to
+// the brief's "measure whether #129 is worth doing" - WITHOUT implementing it, because
+// `Connection::try_clone` gives a second handle on the already-open database, which is the same
+// primitive a pool would be built from.
+//
+// This is a read-only experiment on purpose. Writes are genuinely serial in DuckDB (one writer is
+// fundamental), so a read that refuses to parallelise is the half that could be fixed, and the
+// half worth measuring first.
+
+#[test]
+#[ignore]
+fn perf_where_time_goes() {
+    use rayon::prelude::*;
+
+    let n_wells = env_usize("SANDIBUMI_PERF_WELLS", DEFAULT_WELLS);
+    let n_samples = env_usize("SANDIBUMI_PERF_SAMPLES", DEFAULT_SAMPLES);
+    let threads = rayon::current_num_threads();
+
+    let db_path = std::env::temp_dir().join(format!("sandibumi_lock_{n_wells}w_{n_samples}s.duckdb"));
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+
+    println!("\n========= WHERE THE TIME GOES: is the shared connection the bottleneck? =========");
+    println!("wells {n_wells} x {n_samples} samples ; rayon threads: {threads}");
+    println!("build: {}", if cfg!(debug_assertions) { "DEBUG (unoptimised)" } else { "release" });
+
+    let (well_ids, _) = build_project(&db_path, n_wells, n_samples);
+    let curves: Vec<String> = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+    let base = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
+
+    let db = Mutex::new(base);
+
+    let chunk = n_wells.div_ceil(threads).max(1);
+    let read_all = |conn: &Connection, wells: &[String]| -> usize {
+        wells
+            .iter()
+            .map(|w| crate::equations::fetch_curve_frame(conn, w, &curves).map(|f| f.0.len()).unwrap_or(0))
+            .sum()
+    };
+
+    // A: serial, through the shared lock.
+    let serial = |()| -> (std::time::Duration, usize) {
+        let t = Instant::now();
+        let conn = db.lock().unwrap();
+        let n = read_all(&conn, &well_ids);
+        (t.elapsed(), n)
+    };
+    // B: parallel, through the shared lock - today's behaviour.
+    let parallel_shared = |()| -> (std::time::Duration, usize) {
+        let t = Instant::now();
+        let n: usize = well_ids
+            .par_iter()
+            .map(|w| {
+                let conn = db.lock().unwrap();
+                crate::equations::fetch_curve_frame(&conn, w, &curves).map(|f| f.0.len()).unwrap_or(0)
+            })
+            .sum();
+        (t.elapsed(), n)
+    };
+    // C: parallel, one connection per thread - no shared lock at all.
+    //
+    // `Connection` is `Send` but deliberately NOT `Sync` (it owns a `RefCell`), which is precisely
+    // why the app wraps one in a `Mutex` in the first place. So the connections are MOVED into the
+    // worker threads, one each, rather than shared by reference - which is also what a pool is.
+    // The clones are made OUTSIDE the timer: a real pool builds them once per session, not per
+    // read, so charging them here would understate the benefit.
+    let parallel_pooled = || -> (std::time::Duration, usize) {
+        let work: Vec<(Connection, Vec<String>)> = {
+            let base = db.lock().unwrap();
+            well_ids
+                .chunks(chunk)
+                .map(|wells| (base.try_clone().expect("try_clone"), wells.to_vec()))
+                .collect()
+        };
+        let t = Instant::now();
+        let n: usize = work.into_par_iter().map(|(conn, wells)| read_all(&conn, &wells)).sum();
+        (t.elapsed(), n)
+    };
+
+    // Warm-up pass, discarded: the first read of a freshly built file pays for a cold OS cache,
+    // and charging that to whichever variant happened to run first would decide the answer.
+    let _ = serial(());
+    let _ = parallel_shared(());
+    let _ = parallel_pooled();
+
+    let (t_serial, n_serial) = serial(());
+    let (t_shared, n_shared) = parallel_shared(());
+    let (t_pooled, n_pooled) = parallel_pooled();
+
+    // Every variant must have read the same data, or the comparison is between different jobs.
+    assert_eq!(n_serial, n_shared, "shared-lock parallel read returned a different sample count");
+    assert_eq!(n_serial, n_pooled, "pooled parallel read returned a different sample count");
+
+    let a = ms(t_serial);
+    let b = ms(t_shared);
+    let c = ms(t_pooled);
+    println!("\nReading {} curves for all {n_wells} wells ({n_serial} samples), three ways:\n", curves.len());
+    println!("{:<44} {:>10} {:>12}", "VARIANT", "TIME", "SPEED-UP");
+    println!("{:<44} {:>9.1}ms {:>12}", "A  serial, one shared connection", a, "1.00x");
+    println!("{:<44} {:>9.1}ms {:>11.2}x", "B  PARALLEL, one shared connection (today)", b, a / b);
+    println!("{:<44} {:>9.1}ms {:>11.2}x", "C  PARALLEL, one connection per thread (#129)", c, a / c);
+
+    println!(
+        "\n{}",
+        if a / b < 1.5 {
+            "B is no faster than A: the shared connection SERIALISES the parallel loop."
+        } else {
+            "B is meaningfully faster than A: the shared connection is NOT the read bottleneck."
+        }
+    );
+    println!(
+        "C is {:.2}x variant B, which is what a connection pool would buy on the READ half.\n\
+         Writes stay serial regardless - DuckDB is single-writer - so this is an upper bound on\n\
+         the read side only, not on a whole module run.",
+        b / c
     );
 
     let _ = std::fs::remove_file(&db_path);
