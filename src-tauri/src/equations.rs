@@ -1253,17 +1253,26 @@ fn fetch_verified_import_set_frame(
     // refusing in identical words. One pattern states it once.
     let Some((true, effective)) = verdict else {
         return Err(duckdb::Error::InvalidParameterName(format!(
-            "frame-indexed read refused for import set '{set_name}': sampling style has not been verified"
+            "frame-indexed read refused for import set '{set_name}': sampling style has not \
+             been verified. Reading by frame index assumes every curve in the set shares one \
+             depth frame, and nothing has checked that this one does. Re-import the set with \
+             its sampling style declared."
         )));
     };
     let style = crate::schema_vocab::SamplingStyle::parse(&effective).ok_or_else(|| {
         duckdb::Error::InvalidParameterName(format!(
-            "frame-indexed read refused for import set '{set_name}': stored sampling verdict '{effective}' is invalid"
+            "frame-indexed read refused for import set '{set_name}': the stored sampling \
+             verdict '{effective}' is not one this version recognises. It was written by \
+             another version or edited by hand, so what its depths mean cannot be \
+             established. Re-import the set with its sampling style declared."
         ))
     })?;
     if style == crate::schema_vocab::SamplingStyle::Point {
         return Err(duckdb::Error::InvalidParameterName(format!(
-            "frame-indexed read refused for import set '{set_name}': POINT data has no continuous frame"
+            "frame-indexed read refused for import set '{set_name}': POINT data has no \
+             continuous frame. A point delivery sits at the depths somebody sampled and has \
+             no spacing between them, so there is no frame to index. Read it as point data \
+             instead."
         )));
     }
 

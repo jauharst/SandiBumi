@@ -227,7 +227,12 @@ fn storable(p: &PlatePore) -> bool {
 fn check_zones(spec: &PoreSpec) -> Result<(), String> {
     for z in &spec.reference_zones {
         if z.image_id.trim().is_empty() {
-            return Err(format!("the interval covering {} has no reference plate", zone_span(z)));
+            return Err(format!(
+                "the interval covering {} has no reference plate. Every plate in an interval \
+                 is colour-corrected onto that one plate, so without it there is nothing to \
+                 correct onto. Choose one in Reference plate, or delete the interval.",
+                zone_span(z)
+            ));
         }
         // Refused, not silently swapped. A base above its top is a typo or a transposed column, and
         // guessing which number was meant is how it survives into a deliverable.
@@ -1544,12 +1549,24 @@ fn unfolded_distribution(nv: &[f64], upper: &[f64]) -> (Vec<f64>, Vec<f64>) {
 ///
 /// Split out and public so the test suite can pin the refusal without needing Pillow: this is the
 /// rule that matters most and the one that must never quietly become a default.
+/// The refusal when a well has no plates in the chosen dataset.
+///
+/// One wording rather than one per call site - the `requireWell` argument. Two panes reach
+/// this same decision, and two copies is two places for the wording to drift apart.
+fn no_plates(dataset: &str) -> String {
+    format!(
+        "no plates in {dataset} for this well. A thin-section measurement reads pictures that \
+         are already in the project - it cannot open them from disk. Import them with Import \
+         Images, giving the dataset name {dataset}."
+    )
+}
+
 pub fn epoxy_check(prepared: &str) -> Result<(), &'static str> {
     match prepared.trim() {
         "blue_epoxy" => Ok(()),
-        "" => Err("preparation not stated - a blue rule on an unimpregnated section returns a porosity anyway"),
-        "plain" => Err("not impregnated"),
-        _ => Err("preparation is not blue-dyed epoxy"),
+        "" => Err("preparation not stated - an undeclared section is not an impregnated one"),
+        "plain" => Err("not impregnated - a blue rule would return a porosity anyway"),
+        _ => Err("preparation is not blue-dyed epoxy - a blue rule reads only blue-dyed sections"),
     }
 }
 
@@ -1721,7 +1738,7 @@ pub fn run_plate_classifier(
     let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
         .map_err(|e| e.to_string())?;
     if all.is_empty() {
-        return Err(format!("no pictures in {} for this well", spec.dataset));
+        return Err(no_plates(&spec.dataset));
     }
 
     // Enough clicks per mineral to hold some out, or the accuracy is a number about nothing.
@@ -1733,8 +1750,9 @@ pub fn run_plate_classifier(
         }
     }
     if per.len() < 2 {
-        return Err("label at least two minerals - a classifier with one class has nothing to \
-                    decide, and its 100% is meaningless"
+        return Err("the classifier needs at least two minerals labelled, and this run has \
+                    one. A classifier with a single class has nothing to decide, so its 100% \
+                    is a number about nothing. Click examples of a second mineral, then train."
             .into());
     }
     if let Some((m, n)) = per.iter().find(|(_, n)| *n < MIN_CLICKS_PER_CLASS) {
@@ -2016,7 +2034,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
         .map_err(|e| e.to_string())?;
     if all.is_empty() {
-        return Err(format!("no pictures in {} for this well", spec.dataset));
+        return Err(no_plates(&spec.dataset));
     }
 
     let mut skipped: Vec<String> = Vec::new();
@@ -2142,7 +2160,10 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             }
             let Some(rgb) = row.median_rgb else {
                 return Err(format!(
-                    "{} gave no matrix colour, so nothing can be corrected onto it",
+                    "{} gave no matrix colour, so there is nothing to correct the interval \
+                     onto. The plate read as empty under the current band, which usually \
+                     means the band or the picture is wrong for this stain. Choose another \
+                     reference plate, or tune the band on this one first.",
                     info.name
                 ));
             };

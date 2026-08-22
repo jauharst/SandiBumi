@@ -1290,12 +1290,23 @@ fn sample_count(span: f32, step: f32) -> usize {
 /// **The depth range is taken to span the picture end to end along `axis`.** Cropping in Condition
 /// Core Photos is therefore also the statement of where the core is in the frame — crop the tray and
 /// the tape away, or they are read as rock.
+/// The refusal when a well has no core photographs in the chosen dataset.
+///
+/// One wording rather than one per call site, for the reason `petrography::no_plates` gives.
+fn no_photographs(dataset: &str) -> String {
+    format!(
+        "no core photographs in {dataset} for this well. A core-photograph run reads \
+         pictures that are already in the project - it cannot open them from disk. Import \
+         them with Import Images, giving the dataset name {dataset}."
+    )
+}
+
 pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLogResult, String> {
     let python = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
     let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
         .map_err(|e| e.to_string())?;
     if all.is_empty() {
-        return Err(format!("no pictures in {} for this well", spec.dataset));
+        return Err(no_photographs(&spec.dataset));
     }
 
     let mut res = CoreLogResult::default();
@@ -2687,7 +2698,7 @@ pub fn build_core_strips(conn: &Connection, spec: &StripSpec) -> Result<StripRes
     let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
         .map_err(|e| e.to_string())?;
     if all.is_empty() {
-        return Err(format!("no pictures in {} for this well", spec.dataset));
+        return Err(no_photographs(&spec.dataset));
     }
 
     let mut res = StripResult { dataset: target.clone(), set_name: STRIP_SET.to_string(), ..Default::default() };

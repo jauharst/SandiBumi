@@ -1,5 +1,56 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Refusal copy pass 3: **the app now refuses in one voice, and every refusal says what to do**
+
+- [ ] **What to click.** Try each of these deliberately wrong things and read the message, not the
+      code: import a LAS **without choosing a Sampling style**; choose **CONTINUOUS_REGULAR** and
+      leave **Regular-step tolerance** empty; import a LAS whose header has no **STEP**; open
+      **Pore Area…** on a well with no plates imported; run the **Mineral Classifier…** having
+      clicked only one mineral; add a reference interval and leave its **Reference plate** unset.
+      Every one of them now tells you the same three things in the same order.
+- [ ] **What was wrong.** The app already refused by name — that part was right. But it was
+      speaking **two different languages**. The petrography tools talked to a petrophysicist and
+      named the pane to go and fix it (*“Set the impregnation in Plate Details — it is a fact about
+      the section, not something the picture can be asked”*). The import checks talked like a
+      schema validator arguing with its own author: *“CONTINUOUS_REGULAR requires a finite non-zero
+      declared STEP”*. True, and useless — it never said where STEP lives or what to do instead.
+- [ ] **The pattern, and it is this app's own.** I took it from the three best messages already in
+      the code rather than importing anyone's house style: **what was refused, naming the thing —
+      why the app cannot simply guess — what to do, naming the control by the label printed on
+      it.** 24 refusals across seven files now follow it. So *“CONTINUOUS_REGULAR requires a finite
+      non-zero declared STEP”* became *“this delivery is declared CONTINUOUS_REGULAR, but its
+      declared STEP is zero or not finite. A step of zero describes no spacing at all, so there is
+      nothing for the depths to be checked against. Correct STEP in the file header, or declare the
+      set CONTINUOUS_IRREGULAR.”*
+- [ ] **One thing deliberately left terse, and please check I called this right.** A **skip line**
+      in a list is not a refusal that stops the run. When a pore-area run skips plates, that list
+      can be 134 lines long, so each line stays short (*“PLATE-07: not impregnated — a blue rule
+      would return a porosity anyway”*) and the **fix is stated once**, by the run-level message.
+      Repeating “declare it in Plate Details” 134 times would bury the plate names, which are the
+      part you actually need. The three preparation lines are now parallel with each other, which
+      they were not — one carried a full explanation and another was two words.
+- [ ] **A duplicate that was quietly waiting to drift.** The same refusal, *“no pictures in … for
+      this well”*, was written out **four times** in two files. Each file now states it **once** and
+      calls it twice — the same argument this app already makes for `requireWell`. They also now
+      say the right noun: thin sections are **plates**, core photographs are **photographs**.
+- [ ] **One small leak fixed.** The quantity-kind refusal printed a Rust type name at you
+      (*“gAPI is GammaRay”*). It now reads *“gAPI measures GammaRay but mV measures
+      ElectricPotential, and there is no conversion between two different quantities”*, and ends by
+      telling you to give the curve a unit of the same quantity as its target.
+- [ ] **Nothing about WHEN the app refuses changed.** Not one condition moved. Every check that
+      refused before refuses now, on exactly the same input, and every check that passed still
+      passes. This pass changed only the words. **No number moved anywhere.**
+- [ ] **No test needed rewriting, and that is by design rather than luck.** Where a test pins a
+      refusal it pins the phrase that says *which* condition fired — `at least two minerals`,
+      `sampling style has not been verified`, `quantity-kind mismatch`, `cannot be a reference
+      plate`. Those are the load-bearing half, so I kept every one of them word for word and
+      rewrote only the prose around them. The full gate confirms it: **1226 passed, 0 failed**.
+- [ ] **What stops this drifting back.** Two new checks in `source_hygiene_tests.rs`. The first
+      holds the list of 24 named refusals and fails if any of them stops saying what to do; the
+      second fails if that duplicated wording is ever copied back. Both were verified by breaking
+      them on purpose — strip one fix and the first goes red, paste one copy back and the second
+      does.
+
 ## 2026-08-22 — Plots pass 1b: **two facies were the same colour to a colour-blind reader**
 
 - [ ] **What to click.** Run **Electrofacies** on a well at the default K = 5 and look at the

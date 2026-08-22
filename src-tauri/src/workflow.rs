@@ -2042,7 +2042,10 @@ pub(crate) fn shale_clay_quantity_for_ancestry_input(
             .collect::<Vec<_>>();
         if matches.len() > 1 {
             return Err(format!(
-                "computed input '{}' carries duplicate quantity metadata",
+                "computed input '{}' carries duplicate quantity metadata. Two records claim \
+                 the same parameter with different units, so which one the run should honour \
+                 cannot be decided. Re-run the module that produced this curve so its \
+                 metadata is written once.",
                 input.curve
             ));
         }

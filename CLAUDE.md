@@ -934,6 +934,40 @@ it simply cannot be the only place it appears. One helper rather than nine copie
 Callers: Export LAS, Import DLIS, Import SCAL, Import deviation, Import Aux, Import pictures, Data
 Sets, Shift Core, Well header.
 
+### And the words it refuses in (2026-08-22)
+
+`requireWell` was the shape; this is the shape written down, because the app was refusing by name
+in **two different voices**. The petrography tools named the pane to go and fix it; the import
+checks read like a schema validator arguing with its own author - *"CONTINUOUS_REGULAR requires a
+finite non-zero declared STEP"* is true and tells a petrophysicist nothing they can act on.
+
+**The house pattern, taken from this app's own best three messages** (`petrography.rs` 2058 / 2115 /
+2137), is: **what was refused, naming the thing - why the app cannot simply guess - what to do,
+naming the control by the label printed on it.** The fix comes last and names a real destination
+(`Plate Details`, `Reference plate`, `Sampling style`, `Regular-step tolerance`, `Import Images`) -
+never "check your settings".
+
+Three rules that are not obvious from the pattern alone:
+
+- **A skip line in a list is a different genre from a refusal that stops the run.** `epoxy_check`
+  renders as `"PLATE-07: not impregnated - ..."`, once per plate, and a pore-area run can skip 134
+  of them. Those stay short and PARALLEL with each other, and the fix is stated **once**, by the
+  run-level refusal. Repeating the instruction 134 times buries the plate names, which are the part
+  the reader needs.
+- **A pass-through keeps the inner error.** `"{} cannot be a reference plate: {}"` forwards the
+  runner's own message; appending a generic instruction to it would bury the specific one.
+- **Where a test pins a refusal it pins the NAMING phrase, never the prose.** `at least two
+  minerals`, `sampling style has not been verified`, `quantity-kind mismatch`, `cannot be a
+  reference plate`, `no reference plate covers` - those say WHICH condition fired, which is the half
+  worth pinning; the sentence after them is copy and may be improved without touching a test. Keep
+  it that way when adding a refusal.
+
+Pinned by `source_hygiene_tests::a_refusal_that_stops_a_run_says_what_to_do_about_it`, which holds
+the audited list of 24 named refusals and fails if one stops naming a fix, and by
+`one_refusal_is_worded_once_and_called_twice_rather_than_copied` - the four copies of *"no pictures
+in ... for this well"* were one wording waiting to drift, and are now one function called twice per
+file. Rust refusal text stays ASCII (` - `, never an em dash), matching the exemplars.
+
 ## The Organic design system (2026-08-01 — the standing UI mindset)
 
 Jauhar delivered a high-fidelity redesign handoff and made it the STANDING design scenario:

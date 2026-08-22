@@ -336,3 +336,161 @@ fn a_test_only_item_never_wears_a_production_shape_without_saying_why() {
         "a private helper declares no surface and is not this class"
     );
 }
+
+
+/// The opening word of an instruction a reader can act on.
+///
+/// A refusal that stops a run has to reach one of these. Stating only what went wrong leaves the
+/// reader with the question they already had, and the usual next move is to try the same click
+/// again - which refuses again, in the same words.
+const FIX_CUES: &[&str] = &[
+    "Set ", "Choose ", "Pick ", "Import ", "Re-import ", "Re-run ", "Correct ", "Add ",
+    "Declare ", "Enter ", "Give ", "Click ", "Read ", "Tune ", "Widen ", "Delete ",
+];
+
+/// The refusals a user meets, each keyed by the phrase that names what was refused.
+///
+/// The audited set (2026-08-22), deliberately not every `Err` in the tree. An internal fault has
+/// nobody to instruct, and a pass-through that forwards a runner's own error must not bury it
+/// under a generic instruction - `"{} cannot be a reference plate: {}"` is that shape and is
+/// rightly absent. The naming phrase is the key because it is the half a test should pin: it
+/// says WHICH condition refused, while the sentence after it is prose that may be improved.
+const NAMED_REFUSALS: &[(&str, &str)] = &[
+    ("petrography.rs", "has no reference plate."),
+    ("petrography.rs", "no plates in {dataset} for this well."),
+    ("petrography.rs", "at least two minerals labelled"),
+    ("petrography.rs", "gave no matrix colour"),
+    ("petrography.rs", "is declared as blue-dyed epoxy."),
+    ("petrography.rs", "cannot be a reference plate: it is not among"),
+    ("petrography.rs", "cannot be a reference plate: its own median hue"),
+    ("petrography.rs", "not measured - no reference plate covers"),
+    ("coreimage.rs", "no core photographs in {dataset} for this well."),
+    ("ingest.rs", "does not declare a sampling style."),
+    ("ingest.rs", "is declared POINT, so it cannot be imported"),
+    ("ingest.rs", "but no regular-step tolerance"),
+    ("ingest.rs", "the regular-step tolerance must be"),
+    ("ingest.rs", "carries no STEP."),
+    ("ingest.rs", "its declared STEP is not a number."),
+    ("ingest.rs", "STEP is zero or not finite."),
+    ("equations.rs", "sampling style has not been verified."),
+    ("equations.rs", "the stored sampling verdict"),
+    ("equations.rs", "POINT data has no continuous frame."),
+    ("ancestry.rs", "sampling style is unrecorded or unreadable."),
+    ("ancestry.rs", "duplicate-depth resolution is unrecorded or"),
+    ("ancestry.rs", "must declare duplicate-depth resolution REFUSE"),
+    ("workflow.rs", "carries duplicate quantity metadata."),
+    ("curves.rs", "quantity-kind mismatch:"),
+];
+
+/// What a refusal says AFTER its naming phrase, read as the operator sees it.
+///
+/// Rust's backslash continuation eats the newline and the indent behind it, so a message written
+/// across five source lines is one sentence at run time. Joining first is the whole point: a fix
+/// that happens to start on the line after a break is otherwise invisible to a line-wise scan.
+fn refusal_after(text: &str, marker: &str) -> Option<String> {
+    let continuation = regex::Regex::new(r"\\\r?\n\s*").expect("continuation pattern");
+    let joined = continuation.replace_all(text, "");
+    let start = joined.find(marker)? + marker.len();
+    let mut out = String::new();
+    let mut rest = joined[start..].chars();
+    while let Some(character) = rest.next() {
+        match character {
+            '\\' => {
+                rest.next();
+            }
+            '"' => return Some(out),
+            _ => out.push(character),
+        }
+    }
+    None
+}
+
+fn source_named(file: &str) -> String {
+    let path = sorted_sources()
+        .into_iter()
+        .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(file))
+        .unwrap_or_else(|| panic!("{file} is in the source tree"));
+    std::fs::read_to_string(path).expect("read a UTF-8 Rust source file")
+}
+
+#[test]
+fn a_refusal_that_stops_a_run_says_what_to_do_about_it() {
+    // The house pattern, taken from this app's own best three messages rather than imported:
+    // what was refused, naming the thing - why it cannot be guessed - what to do, naming the
+    // control. Before this sweep the halves were split across the tree: petrography named a
+    // pane and a reason, while the import refusals read like a schema validator talking to its
+    // author ("CONTINUOUS_REGULAR requires a finite non-zero declared STEP") and told a
+    // petrophysicist nothing they could act on.
+    let mut missing = Vec::new();
+    let mut unfound = Vec::new();
+    for (file, marker) in NAMED_REFUSALS {
+        let source = source_named(file);
+        match refusal_after(&source, marker) {
+            None => unfound.push(format!("{file}: {marker}")),
+            Some(tail) => {
+                if !FIX_CUES.iter().any(|cue| tail.contains(cue)) {
+                    missing.push(format!("{file}: {marker}"));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        unfound,
+        Vec::<String>::new(),
+        "a named refusal has moved or been reworded away, so this list no longer covers the set"
+    );
+    assert_eq!(
+        missing,
+        Vec::<String>::new(),
+        "a refusal states what went wrong but never what to do about it"
+    );
+
+    // Pinned from both sides. A cue vocabulary that matched anything would report zero offenders
+    // just as loudly, so the bare statement of a fault must NOT pass.
+    assert!(
+        !FIX_CUES.iter().any(|cue| "preparation is not blue-dyed epoxy".contains(cue)),
+        "naming the fault is not the same as saying what to do about it"
+    );
+    // And the continuation join has to happen, or the scan silently stops reading at the first
+    // line break and every wrapped fix looks absent. Assembled rather than written literally, so
+    // this file is not an offender against the sibling scans above.
+    let wrapped = ["\"a fault occurred. \\", "     Set it in Plate Details.\""].join("\n");
+    let tail = refusal_after(&wrapped, "a fault occurred.").expect("the marker is present");
+    assert!(tail.contains("Set "), "a fix wrapped onto the next source line still counts");
+}
+
+#[test]
+fn one_refusal_is_worded_once_and_called_twice_rather_than_copied() {
+    // Four call sites carried one byte-identical "no pictures..." refusal, two in each of two
+    // files. Four copies is four places for the wording to drift apart - the `requireWell`
+    // argument, which this repository already makes for the same reason.
+    //
+    // The needle is assembled rather than written literally, so this file is not an offender
+    // against its own scan - the same care the two sweeps above take.
+    let needle = ["no pictures", " in "].concat();
+    let mut copies = Vec::new();
+    for path in sorted_sources() {
+        let source = std::fs::read_to_string(&path).expect("read a UTF-8 Rust source file");
+        let hits = source.matches(needle.as_str()).count();
+        if hits > 0 {
+            copies.push(format!("{}: {hits}", path.display()));
+        }
+    }
+    assert_eq!(copies, Vec::<String>::new(), "the copied refusal is back in the tree");
+
+    // Both sides: one wording, and both call sites still reaching it. A helper nobody calls would
+    // satisfy the sweep above just as well.
+    for (file, helper) in [("petrography.rs", "no_plates"), ("coreimage.rs", "no_photographs")] {
+        let source = source_named(file);
+        assert_eq!(
+            source.matches(&format!("fn {helper}(")).count(),
+            1,
+            "{file} states the wording exactly once"
+        );
+        assert_eq!(
+            source.matches(&format!("{helper}(&spec.dataset)")).count(),
+            2,
+            "{file} reaches that one wording from both call sites"
+        );
+    }
+}

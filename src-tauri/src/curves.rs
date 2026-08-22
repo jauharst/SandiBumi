@@ -219,7 +219,9 @@ impl std::fmt::Display for UnitRegistryError {
                 to_kind,
             } => write!(
                 formatter,
-                "quantity-kind mismatch: {from_unit} is {from_kind:?}, but {to_unit} is {to_kind:?}"
+                "quantity-kind mismatch: {from_unit} measures {from_kind:?} but {to_unit} \
+                 measures {to_kind:?}, and there is no conversion between two different \
+                 quantities. Give the curve a unit of the same quantity as its target."
             ),
             Self::MissingNumericConversion { from_unit, to_unit } => write!(
                 formatter,

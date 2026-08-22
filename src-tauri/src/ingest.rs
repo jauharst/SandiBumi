@@ -177,12 +177,18 @@ fn verify_import_set_sampling(
     options: &LasImportOptions,
 ) -> Result<ImportSetSamplingVerdict, String> {
     let declared = options.sampling_style.ok_or_else(|| {
-        "sampling style declaration is required before import; it is never inferred from depths"
+        "this delivery does not declare a sampling style. It is never inferred from the \
+         depths, because a regular log with gaps and a genuinely irregular one look identical \
+         there. Choose Sampling style in the import dialog."
             .to_string()
     })?;
     match declared {
         crate::schema_vocab::SamplingStyle::Point => Err(
-            "POINT sampling must use the point-delivery store, not continuous LAS ingest".into(),
+            "this delivery is declared POINT, so it cannot be imported as a continuous log. A \
+             plug or a sample sits at one depth and has no spacing, and reading it as a log \
+             would state a continuity the data does not have. Import it through the core or \
+             point-data wizard instead."
+                .into(),
         ),
         crate::schema_vocab::SamplingStyle::ContinuousIrregular => Ok(ImportSetSamplingVerdict {
             declared,
@@ -194,22 +200,45 @@ fn verify_import_set_sampling(
         }),
         crate::schema_vocab::SamplingStyle::ContinuousRegular => {
             let tolerance = options.sampling_style_verify_tolerance.ok_or_else(|| {
-                "CONTINUOUS_REGULAR requires an explicit unit-typed sampling verification tolerance; no default ships"
+                "this delivery is declared CONTINUOUS_REGULAR, but no regular-step tolerance \
+                 was given. The tolerance is how far a depth may drift from the declared step \
+                 before the set is called irregular, and no default ships because that \
+                 distance belongs to the logging tool, not to the software. Enter \
+                 Regular-step tolerance with its unit in the import dialog."
                     .to_string()
             })?;
             if !tolerance.value.is_finite() || tolerance.value < 0.0 {
-                return Err("sampling verification tolerance must be finite and non-negative".into());
+                return Err("the regular-step tolerance must be a finite, non-negative \
+                            distance. A negative tolerance would reject every depth, \
+                            including an exactly correct one. Correct Regular-step tolerance \
+                            in the import dialog."
+                    .into());
             }
             let raw_step = declared_step
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
-                    "CONTINUOUS_REGULAR requires a declared STEP in the delivery".to_string()
+                    "this delivery is declared CONTINUOUS_REGULAR, but its file header \
+                     carries no STEP. The step is what the depths get checked against, and \
+                     taking it from those same depths would only check them against \
+                     themselves. Add STEP to the file header, or declare the set \
+                     CONTINUOUS_IRREGULAR."
+                        .to_string()
                 })?
                 .parse::<f64>()
-                .map_err(|_| "CONTINUOUS_REGULAR has an unreadable declared STEP".to_string())?;
+                .map_err(|_| {
+                    "this delivery is declared CONTINUOUS_REGULAR, but its declared STEP is \
+                     not a number. Correct STEP in the file header, or declare the set \
+                     CONTINUOUS_IRREGULAR."
+                        .to_string()
+                })?;
             if !raw_step.is_finite() || raw_step == 0.0 {
-                return Err("CONTINUOUS_REGULAR requires a finite non-zero declared STEP".into());
+                return Err("this delivery is declared CONTINUOUS_REGULAR, but its declared \
+                            STEP is zero or not finite. A step of zero describes no spacing \
+                            at all, so there is nothing for the depths to be checked \
+                            against. Correct STEP in the file header, or declare the set \
+                            CONTINUOUS_IRREGULAR."
+                    .into());
             }
             let expected_step = crate::units::convert_depth(raw_step, file_unit, stored_unit);
             let stored_tolerance = crate::units::convert_depth(
