@@ -1,5 +1,43 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — What happens at 2000 wells
+
+- [ ] **Still nothing changed in the app.** This is the same stopwatch as last time, run on bigger
+      and bigger fake fields: 10, 20, 100, 500 and 2000 wells.
+- [ ] **The good news first, because it is the bigger half.** Everything you click stays fast no
+      matter how big the project gets. Scrolling a log, zooming, switching wells, opening a plot on
+      one well — all still about a thousandth of a second at 2000 wells, the same as at 10. Opening
+      a project you already have open takes 0.14 seconds at 2000 wells. The interactive side of the
+      app scales.
+- [ ] **The bad news is everything that touches every well at once.** At 2000 wells: opening the
+      project the first time takes **3.1 minutes**, a four-module chain takes **23 minutes**, and
+      the Field Dashboard takes **49 seconds**.
+- [ ] **The shape of it matters more than the numbers.** These do not just get bigger, they get
+      *worse per well*. One well costs 309 ms to interpret in a 10-well project and 690 ms in a
+      2000-well one — more than twice as much, for the same well and the same maths. The Field
+      Dashboard is the worst: 5.7 ms per well at 10 wells, 24.5 ms per well at 2000. The turn
+      starts somewhere between 100 and 500 wells and gets steeper after that.
+- [ ] **I was wrong last time and want to say so plainly.** I predicted there would be no knee and
+      that 2000 wells would take about 11 minutes for a chain. There is a knee, and it takes 23
+      minutes. I had drawn a straight line through a curve that bends.
+- [ ] **I also found a mistake in my own stopwatch.** The row I called "cold project open" was
+      actually measuring re-opening a project already in memory. The real first-open number was
+      hiding in a column I was not reading. Both are now reported separately, and the real one is
+      the 3.1 minutes above.
+- [ ] **The old stress test's failures are explained.** Last time I said 400 module runs were
+      failing and I did not know why. It is the curve names in that delivery — feed the same test
+      wells with ordinary GR/RHOB/NPHI names and all 400 runs succeed. Nothing is wrong with the
+      module runner.
+- [ ] **Nothing to click again** — it is all numbers, in `docs/PERF-SCALING-2026-08-22.md`. If you
+      want a big fake field to play with:
+      `py -3 tools/make_example_data.py --stress --wells 500` writes 500 LAS files plus a tops file
+      to a temp folder (it prints the path) that you can import like any delivery. It never writes
+      into the project folder.
+- [ ] **One honest limit.** These are made-up wells. I measured that the same job on *imported*
+      wells was 10× slower than on wells I built directly, so the real numbers on your own data
+      will be worse than the ones above, not better. How much worse is something only your data can
+      answer.
+
 ## 2026-08-22 — How fast is it, actually? The first real numbers
 
 - [ ] **Nothing in the app changed.** This is a stopwatch, not a fix. It lives in the test suite
