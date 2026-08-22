@@ -656,8 +656,8 @@ different things. Introducing the sand-fraction curves without settling this is 
 accident waiting to happen. Generates `SB-TBD-062`.
 
 **Both carry candidly-labelled uncited constants** — `sw_rtc`'s doc string records its calibration as
-*"one study's calibration … from one field"*, and `sw_imts`'s `S_FACTOR` is described in its own
-source as *"a placeholder … not a value measured anywhere"*. Those are `12_saturation.md`'s
+*"one study's calibration … from one field"*, and `sw_imts`'s `S_FACTOR_GW` is described in its own
+source as *"a property of the rock and of the clay curves it is paired with … not a value measured anywhere"*. Those are `12_saturation.md`'s
 parameters and are not restated in §5 here; they are noted because §7's claim assessment depends on
 them.
 
@@ -1794,7 +1794,7 @@ all, and `SB-TBD-066` [P0] removes them.
 | `Vcm` regression coefficients | `K` factors | **ABSENT — fitted per depositional system, never defaulted** | — | Madjid & Worthington SPE 163071 Eq 8–10 with φ_tsh (11), φ_tsd (12), φ_esd (13). Calibration chain: core porosity → `ρ_bc` → a `Vcm`-vs-`Vsh` regression fitted on **thick** beds and exported to the thin beds | T4 |
 | VLSA published validation figures | — | 2.41 / 1.41 / 2.40 | ft (HPT) | Memory `reference_thinbed_deconv_vlsa_tools.md` — Passey's own True / Conventional / VLSA validation. Used as the acceptance fixture for `SB-TBD-059`, not as a shipped parameter | T4 |
 | LRLC recognition taxonomy dimensions | — | 4 manifestations × 6 causes | — | Worthington (2000), via `docs/research_2026-07/ref_thin_bed_lrlc.md` | T4 |
-| `sw_rtc` / `sw_imts` calibration constants | — | **SEAM — `12_saturation.md` owns every value** | — | `lrlc.rs:73-117`, `lrlc.rs:179-224`. Carried here only to record that `sw_rtc`'s doc string labels its own calibration *"one study's calibration … from one field"* and `sw_imts`'s `S_FACTOR` is labelled *"a placeholder … not a value measured anywhere"*. Both bear on §7.5 | source |
+| `sw_rtc` / `sw_imts` calibration constants | — | **SEAM — `12_saturation.md` owns every value** | — | `lrlc.rs:73-117`, `lrlc.rs:179-224`. Carried here only to record that `sw_rtc`'s doc string labels its own calibration *"one study's calibration … from one field"* and `sw_imts`'s `S_FACTOR_GW` is labelled *"A PROPERTY OF THE ROCK AND OF THE CLAY CURVES IT IS PAIRED WITH"* and ships absent, the run refusing without it (DEC-094). Both bear on §7.5 | source |
 
 ### 5.2 Counts and what they mean
 

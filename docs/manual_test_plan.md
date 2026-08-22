@@ -2456,7 +2456,7 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 **Preconditions:** T-ADV-02 and T-ADV-08 step 2 done.
 **Steps:**
 
-1. Advance ▸ **IMTS**, scope **Selection**. Defaults: RT = RES_DEEP, PHIT = PHIT_SSC, VKAOL = VDCL, SWIRR = SWIRR_T, CBW = CBW; set RW and TEMP_C to your zone values; MSTAR/NSTAR 1.9, S_FACTOR 0.5, CEC_KAOL 8 / CEC_ILL 25. **Run**.
+1. Advance ▸ **IMTS**, scope **Selection**. Defaults: RT = RES_DEEP, PHIT = PHIT_SSC, VKAOL = VDCL, SWIRR = SWIRR_T, CBW = CBW; set RW and TEMP_C to your zone values; MSTAR/NSTAR 1.9, CEC_KAOL 8 / CEC_ILL 25, RHO_KAOL 2.62 / RHO_ILL 2.78. **S_FACTOR_GW ships absent and the run REFUSES without it** (DEC-094) - fit it first with Advance ▸ Calibrate S…, whose PHIT curve is required because the plug's own porosity is part of the grain-weight basis. **Run**.
 2. Log View: SWT_IMTS/SWE_IMTS next to SWE_INDO and SWT_RTC; add QVEFF.
    **Expected:** SWT_IMTS ∈ [0,1]; QVEFF ≥ 0, rising with clay volume and shrinking porosity; in high-clay LRLC pay SWT_IMTS reads LOWER than SWE_INDO and broadly agrees with SWT_RTC (the two excess-conductivity methods should tell the same geological story); clean water sand ~1 for all. Curve Catalog + History entries as usual.
    **Result — T-ADV-09:**
