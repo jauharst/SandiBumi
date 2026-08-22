@@ -636,13 +636,23 @@ bisection otherwise, and it is shared with Juhász so the two cannot drift.
 **Three quantified divergences in the chain that feeds it.**
 
 **(a) The diffuse-layer expansion factor drops the Debye-Hückel activity ratio.**
-`multimin2.rs:557-563`:
+`sandimin.rs` (the file was `multimin2.rs` when this was written):
 
 ```rust
-fn alpha_expansion(salinity: f64) -> f64 {
-    if salinity > 0.0 && salinity < 20_455.0 { (20_455.0 / salinity).sqrt().min(5.0) } else { 1.0 }
+fn alpha_expansion(salinity: f64, alpha_max: f64) -> (f64, f64) {
+    if salinity > 0.0 && salinity < 20_455.0 {
+        let raw = (20_455.0 / salinity).sqrt();
+        let cap = if alpha_max.is_finite() && alpha_max >= 1.0 { alpha_max } else { 5.0 };
+        (raw.min(cap), raw)
+    } else {
+        (1.0, 1.0)
+    }
 }
 ```
+
+The ceiling became the declared parameter `ALPHA_MAX` on 2026-08-22 (DEC-095) and the run now
+reports when it bound. **That is the ceiling only** — the γ divergence below is untouched and
+SB-SAT-019 stays `PRESENT-DIVERGENT`.
 
 Geolog computes `α = MAX(1, √((γ(0.35)·0.35)/(γ(n)·n)))` with
 `γ(x) = 10^(−0.5085√x/(1 + 0.3281·4.5·√x))` (**T1** `sw_dual.lls:365-372`). SandiBumi's form is
@@ -1266,7 +1276,10 @@ scales `Swb` directly.
 
 **As-built.** `PRESENT-DIVERGENT` — `multimin2.rs:557-563` computes `√(20455/S)`, which is the
 γ-free form with the ppm↔molarity conversion folded into the threshold
-(20 455/58 450 = 0.34995). The `.min(5.0)` ceiling is uncited.
+(20 455/58 450 = 0.34995). The ceiling that was `.min(5.0)` is now the declared parameter
+`ALPHA_MAX`, default 5.0 (DEC-095, audit finding 34): still uncited as a VALUE, but no longer
+hidden, and a run that reaches it says so on the result. **The γ ratio is untouched** — this
+requirement remains `PRESENT-DIVERGENT` on its own terms.
 
 **Verified by.** SB-SAT-T28
 
@@ -2103,7 +2116,8 @@ exists in any corpus read, and they ship absent.
 | Debye-Hückel activity coefficient | `γ(x)` | `10^(−0.5085·√x / (1 + 0.3281·4.5·√x))` | dimensionless | Geolog `sw_dual.lls:365-372`, citing **Skoog & West, 4th ed.** | T1 |
 | α reference molarity | — | 0.35 | mol/L | Geolog `sw_dual.lls`. Note `20455/58450 = 0.34995`, i.e. SandiBumi's ppm threshold is this constant with the conversion folded in | T1 |
 | NaCl molar mass (α molarity conversion) | — | 58450 | mg/mol | Geolog `sw_dual.lls` | T1 |
-| α ceiling | — | ABSENT — no source | dimensionless | SandiBumi ships `.min(5.0)` at `multimin2.rs:562`. No vendor caps α | — |
+| α ceiling | `ALPHA_MAX` | 5.0 — **no vendor source for the value**; declared, not hidden (DEC-095) | dimensionless | SandiBumi `sandimin.rs`. No vendor caps α in the dual-water chain, and `docs/multimin_ref_spec.md:60` writes it uncapped. Binds below **818 ppm**. For scale, IP 2025's Sand/Silt/Malay model caps the same physical quantity — bound water against the clay's own total porosity — at **1.5×** (`Vbw <= Vcl × PhiTclay × 1.5`, a hard-coded constant, `research_2026-07/ip2025_chm_ingest/B_core_petro.md` §2.4), which is the equivalent of α = 1.5 and would bind below 9,091 ppm. A run that reaches SandiBumi's ceiling carries LESS clay-bound water than the spec would give it and states so | T2 (the IP comparison) |
+| Water / filtrate salinity | `salinity_w_ppm`, `salinity_mf_ppm` | ABSENT — derived from `Rw`/`Rmf` when not given | ppm NaCl equivalent | SandiBumi `sandimin.rs`. DEC-095: a measured water analysis outranks the Bateman-Konen inverse, which assumes the dissolved solids are pure NaCl — an assumption that fails in exactly the fresh-to-brackish water where α matters | — |
 | Bound-water equivalent conductance | `β` | `2.05 · (T°C + 8.5)/(22 + 8.5) · (1 − β_const·e^(−2·Cw))` | `mho·mL/(m·meq)` — unit derived from `Cwb = β/vQ`; Geolog states none | Geolog `sw_dual.lls:637-638` | T1 |
 | β salinity-dilution switch | `β_const` | 1 (default), validation 0:1 | dimensionless | Geolog `sw_dual.info` DEFAULT=1 VALIDATION=0:1. At Cw 4 the factor is 0.99966; at Cw 1 (Rw 1.0) it is 0.8647, so omission makes `Cwb` **15.7 % high** | T1 |
 | `Qv` admissibility bound | — | `Qv ≤ 1/(α·vQh)` | meq/mL | Geolog `sw_dual.lls:129` — documented, and **both enforcing sites ship commented out** (`:449-450`, `:460-461`) | T1 |

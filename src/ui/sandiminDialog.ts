@@ -551,6 +551,31 @@ export async function buildSandiminContent(
     o.textContent = v === "WATER" ? "Water-based mud" : "Oil-based mud";
     mudSel.appendChild(o);
   }
+  // DEC-095. A measured salinity is a water analysis; the fallback back-calculates it from Rw with
+  // the Bateman-Konen inverse, which assumes the dissolved solids are pure NaCl. In fresh-to-brackish
+  // water - exactly where the diffuse-layer expansion bites - bicarbonate and sulphate make the two
+  // disagree, so a measurement must be enterable and must win. Blank stays blank: it reaches the
+  // backend as an ABSENT field, the archie_a idiom, not as a zero.
+  const salWInp = numInput(0, 80);
+  salWInp.value = "";
+  salWInp.placeholder = "from Rw";
+  salWInp.title =
+    "Formation-water NaCl-equivalent salinity in ppm, from a water analysis. Blank derives it from " +
+    "Rw through the Bateman-Konen inverse, which assumes pure NaCl.";
+  const salMfInp = numInput(0, 80);
+  salMfInp.value = "";
+  salMfInp.placeholder = "from Rmf";
+  salMfInp.title =
+    "Mud-filtrate NaCl-equivalent salinity in ppm. Blank derives it from Rmf. Read only on " +
+    "water-based mud - an oil mud's flushed zone takes the formation water's expansion factor.";
+  const alphaMaxInp = numInput(5, 64);
+  alphaMaxInp.min = "1";
+  alphaMaxInp.title =
+    "Ceiling on the dual-water diffuse-layer expansion α = sqrt(20455/salinity). The reference " +
+    "spec's form has NO ceiling; 5.0 is SandiBumi's own and binds below 818 ppm. For scale, IP 2025 " +
+    "caps the same quantity - bound water against the clay's own porosity - at the equivalent of 1.5, " +
+    "which would bind below 9,091 ppm. The run says so whenever this ceiling holds α down.";
+
   const fluidFields: [string, HTMLElement][] = [
     ["Rw sample (ohmm)", rwInp],
     ["@ temp (°F)", rwTInp],
@@ -561,6 +586,9 @@ export async function buildSandiminContent(
     ["m", mInp],
     ["n", nInp],
     ["Mud", mudSel],
+    ["Water salinity (ppm)", salWInp],
+    ["Filtrate salinity (ppm)", salMfInp],
+    ["α ceiling", alphaMaxInp],
   ];
   for (const [lab, inp] of fluidFields) {
     const cell = document.createElement("label");
@@ -851,6 +879,11 @@ export async function buildSandiminContent(
       simandoux_c: Number(simandouxCInp.value) || 1,
       phit_sh: Number(phitShInp.value) || 0.1,
       ws_b: Number(wsBInp.value) || 0,
+      // DEC-095: blank means "derive it from the resistivity", so it must be ABSENT rather than 0 -
+      // the same reason `archie_a` above is spread in conditionally.
+      ...(salWInp.value.trim() === "" ? {} : { salinity_w_ppm: Number(salWInp.value) }),
+      ...(salMfInp.value.trim() === "" ? {} : { salinity_mf_ppm: Number(salMfInp.value) }),
+      alpha_max: Number(alphaMaxInp.value) || 5,
     };
   }
 
@@ -863,6 +896,12 @@ export async function buildSandiminContent(
           fluidPreview.textContent =
             `w=${fc.w.toFixed(2)}  Cw=${fc.cw.toFixed(2)}  Cmf=${fc.cmf.toFixed(2)}  Cbw=${fc.cbw.toFixed(2)} mho/m` +
             `  α(x/u)=${fc.alpha_x.toFixed(2)}/${fc.alpha_u.toFixed(2)}` +
+            // DEC-095: an α the ceiling held down is not the α the reference spec asks for, so the
+            // preview names the value it would have taken rather than showing a bare 5.00.
+            (fc.alpha_uncapped_u > fc.alpha_u || fc.alpha_uncapped_x > fc.alpha_x
+              ? ` (held from ${fc.alpha_uncapped_x.toFixed(2)}/${fc.alpha_uncapped_u.toFixed(2)})`
+              : "") +
+            `  salinity(w/mf)=${Math.round(fc.salinity_w_ppm)}/${Math.round(fc.salinity_mf_ppm)} ppm` +
             `  σCT=${fc.u_ct.toFixed(3)}  σCXO=${fc.u_cxo.toFixed(3)}`;
         })
         .catch(() => {
@@ -1205,6 +1244,15 @@ export async function buildSandiminContent(
       dofLine.textContent = `Model DOF ${res.dof} (over-determined — RECON/incoherence is a real fit-quality signal).`;
     }
     resultBox.appendChild(dofLine);
+
+    // DEC-095: the run departed from the reference spec's uncapped α and says so.
+    if (res.alpha_note) {
+      const alphaLine = document.createElement("div");
+      alphaLine.className = "mc-chain-note";
+      alphaLine.style.color = "var(--warn)";
+      alphaLine.textContent = res.alpha_note;
+      resultBox.appendChild(alphaLine);
+    }
 
     const table = document.createElement("table");
     table.className = "sm-endpoints";

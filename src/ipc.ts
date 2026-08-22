@@ -2542,6 +2542,11 @@ export interface SmFluidProps {
   /** Core-measured Waxman-Smits B override (mho·mL/(m·meq)). 0/blank ⇒ compute B(T,Rw) from the
    *  Juhász fit. Only the `waxman_smits` model reads it. Backend default 0. */
   ws_b?: number;
+  /** Measured NaCl-equivalent salinity (ppm). Omitted = derive from rw/rmf (Bateman-Konen). DEC-095. */
+  salinity_w_ppm?: number;
+  salinity_mf_ppm?: number;
+  /** Ceiling on the dual-water expansion alpha. Default 5.0; the reference spec's form is uncapped. */
+  alpha_max?: number;
 }
 
 /** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
@@ -2580,6 +2585,9 @@ export interface SmFluidCalc {
   cbw_u: number;
   alpha_x: number;
   alpha_u: number;
+  /** Alpha before alpha_max was applied — greater than alpha_x/alpha_u means the ceiling bound. */
+  alpha_uncapped_x: number;
+  alpha_uncapped_u: number;
   salinity_w_ppm: number;
   salinity_mf_ppm: number;
   u_ct: number;
@@ -2656,6 +2664,8 @@ export interface SandiminResult {
   dof: number;
   /** Set when dof == 0 — a heads-up that the reconstruction can't discriminate the model. */
   dof_note: string | null;
+  /** Set when ALPHA_MAX held the diffuse-layer expansion down (DEC-095). */
+  alpha_note: string | null;
   error: string | null;
 }
 
