@@ -1,5 +1,38 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Audit increment 90: **the rule protecting your data pointed at a function that only runs in tests**
+
+- [ ] **What to click.** Nothing. This is a documentation correction with a check behind it — no
+      behaviour changed anywhere. If you want reassurance, re-run any module twice on one well and
+      confirm the curve is replaced, not doubled; that is the contract this is about.
+- [ ] **What was wrong.** `computed_curves` — the table every computed curve lives in — deliberately
+      carries **no primary key**, because the uniqueness index made field-scale writes ~3.7× slower.
+      That was the right call, but it means nothing in the database itself stops the same curve being
+      written twice. The only thing keeping a re-run from doubling your rows is the **write
+      discipline**: delete the well's rows for that curve name, *then* append.
+- [ ] **Why that matters in the log.** A doubled curve is not a crash. Every row is a real value at a
+      real depth, so the curve still plots, still exports, still runs through a pay summary — and
+      every average, every net-pay sum and every histogram silently counts that interval twice.
+      There is no symptom to notice.
+- [ ] **The defect.** `CLAUDE.md`, the comment beside the table in the schema, `frame.rs`'s module
+      note and two more doc blocks all named `equations::write_computed_curves_batch` as the function
+      that upholds it. That function is **test-only** (`#[cfg(test)]`). Anyone sent there to check the
+      rule — or to change it — arrives in test code and reasons about the wrong thing.
+- [ ] **The good news, and why this stayed small.** I checked whether the contract was also *tested*
+      against the wrong function. It is not: that test-only helper builds a fixture record and then
+      calls the real writer, so the tests were always exercising the production path — just through a
+      shorter door. So this was purely a wrong sign on a correct road. The real writer is
+      `ancestry::write_versioned_rows_raw`, and every production write in the app reaches it.
+- [ ] **One thing found on the way.** The doc block describing that write had come adrift and was
+      sitting on the function *below* it, which loads a log set's sampling policy — so the writer
+      itself had no description at all and the other function had someone else's. Both now say what
+      they do. Same family as the audit's finding 65.
+- [ ] **What stops it drifting back.** A check pinned from both sides: the test-only helper is still
+      test-only and is never named in production prose without being called a fixture, **and** the
+      function the schema comment does name really performs the delete. Naming any production
+      function would satisfy the first half alone; the second alone would pass while the prose still
+      pointed at the fixture.
+
 ## 2026-08-22 — Audit increment 89 (my audit P2): **the module runner stops knowing modules by name**
 
 - [ ] **What to click.** Nothing new appears, and five existing behaviours must be unchanged. Run

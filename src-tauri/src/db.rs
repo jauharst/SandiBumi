@@ -349,8 +349,8 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- but a 3-column PRIMARY KEY forces DuckDB to maintain an ART uniqueness index on
         -- every inserted row — measured ~3.7× slower inserts (311k vs 1.16M rows/s), which
         -- dominated field-scale runs (2000 wells). Uniqueness is instead guaranteed by the
-        -- WRITE DISCIPLINE: `write_computed_curves_batch` always DELETEs a well's rows for the
-        -- curve names it is about to write before appending fresh ones, and the point-update
+        -- WRITE DISCIPLINE: `ancestry::write_versioned_rows_raw` always DELETEs a well's rows
+        -- for the curve names it is about to write before appending fresh ones, and the point-update
         -- path (`update_computed_sample`) UPDATEs in place — no code path ever inserts a
         -- duplicate. Existing databases are rebuilt PK-less by `migrate_drop_computed_curves_pk`.
         CREATE TABLE IF NOT EXISTS computed_curves (
@@ -1839,7 +1839,7 @@ fn decode_samples(bytes: &[u8]) -> Vec<f32> {
 
 /// Replaces one array curve on one well, wholesale.
 ///
-/// The write discipline mirrors `write_computed_curves_batch`: DELETE the (well, set, curve)
+/// The write discipline mirrors `ancestry::write_versioned_rows_raw`: DELETE the (well, set, curve)
 /// rows first, then insert fresh ones — a re-run replaces its own output and never unions two
 /// runs' realizations into one distribution. `depths` and `samples` must be the same length;
 /// a depth whose vector is EMPTY is skipped rather than stored, so "no realizations survived
@@ -8985,9 +8985,13 @@ mod inspector_tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Without the PK, uniqueness rests on the write discipline: `write_computed_curves_batch`
-    /// must overwrite (not duplicate) a well's curves on re-run, write several curves at once,
-    /// keep other wells untouched, and leave `update_computed_sample` working.
+    /// Without the PK, uniqueness rests on `ancestry::write_versioned_rows_raw`: a re-run must
+    /// overwrite (not duplicate) a well's curves, write several curves at once, keep other wells
+    /// untouched, and leave `update_computed_sample` working.
+    ///
+    /// Driven through the `write_computed_curves_batch` FIXTURE, which builds a TEST_FIXTURE
+    /// ancestry and then calls the production writer - so what is exercised below is the
+    /// production discipline reached through a shorter door, not a second implementation of it.
     #[test]
     fn batch_write_overwrites_without_duplicating() {
         use crate::equations::write_computed_curves_batch;

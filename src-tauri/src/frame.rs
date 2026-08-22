@@ -3,7 +3,7 @@
 //!
 //! ## What is here, and what deliberately is not
 //!
-//! A module's outputs are written at the RUN's own depth frame — `write_computed_curves_batch`
+//! A module's outputs are written at the RUN's own depth frame — `ancestry::write_versioned_rows_raw`
 //! zips each output vector against the depth column the run read. So an operation that changes
 //! how often a well is sampled cannot be a module: it would have to write a different depth
 //! column, which is a property of the well rather than of one curve. Resample, Regularize and
