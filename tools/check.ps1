@@ -70,6 +70,7 @@ $stage1Gates = @(
     @{ Name = "chart derivation (check)";     Run = { & npm run check:chart-derivation } },
     @{ Name = "release inventory";            Run = { & npm run test:release-inventory } },
     @{ Name = "generated artifacts";          Run = { & npm run test:generated-artifact } },
+    @{ Name = "perf variance report";         Run = { & npm run test:perf-variance } },
     @{ Name = "third-party licenses";         Run = { & node "tools/gen-third-party-licenses.mjs" --check } }
 )
 

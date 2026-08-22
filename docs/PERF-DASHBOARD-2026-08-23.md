@@ -1,5 +1,9 @@
 # Where the Field Dashboard spends its time — 2026-08-23
 
+> **Read `PERF-VARIANCE-2026-08-23.md` beside this.** It measures how steady the instrument is
+> (every heavy operation 1.02×–1.16× between runs), re-adjudicates every claim below against
+> that floor, and records a filter defect that inflated some absolutes by ~2.5×.
+
 **Pass 3, increment 4. It measures and changes nothing that affects an answer.**
 
 Pass 2 named the Field Dashboard the **fastest-degrading operation in the whole sweep** — exponent

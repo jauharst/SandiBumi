@@ -1,5 +1,9 @@
 # Performance baseline — 2026-08-22
 
+> **Read `PERF-VARIANCE-2026-08-23.md` beside this.** It measures how steady the instrument is
+> (every heavy operation 1.02×–1.16× between runs), re-adjudicates every claim below against
+> that floor, and records a filter defect that inflated some absolutes by ~2.5×.
+
 The first measured answer to "is SandiBumi fast enough?". Before this, the honest answer was that
 nobody knew: there was no criterion, no `benches/`, and no stored timings anywhere in the repo.
 
@@ -23,7 +27,7 @@ fixture configured. Size is env-settable:
 ```
 set SANDIBUMI_PERF_WELLS=20
 set SANDIBUMI_PERF_SAMPLES=1562
-cargo test --release --lib perf_baseline -- --ignored --nocapture
+cargo test --release --lib perf_baseline_test::perf_baseline -- --exact --ignored --nocapture
 ```
 
 The frontend harness never calls the backend by design — it feeds the draw functions typed arrays

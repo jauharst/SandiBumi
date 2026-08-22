@@ -3,8 +3,13 @@
 //! Run it explicitly - it is `#[ignore]`d, so the green gate never waits on it:
 //!
 //! ```text
-//! cargo test --release perf_baseline -- --ignored --nocapture
+//! cargo test --release --lib perf_baseline_test::perf_baseline -- --exact --ignored --nocapture
 //! ```
+//!
+//! **`--exact` is not decoration.** A bare `perf_baseline` filter is a SUBSTRING match against
+//! the full test path, so it also matches every other test in the module `perf_baseline_test` -
+//! and cargo runs them CONCURRENTLY. Measured 2026-08-23: that put the 100-well chain at ~83 s
+//! against ~36 s for the same work run alone. The rows look completely normal either way.
 //!
 //! `SANDIBUMI_PERF_WELLS` (default 10) and `SANDIBUMI_PERF_SAMPLES` (default 1562, the sample
 //! count of a real logged well on this machine) set the size. Pass 2 drives the same harness at

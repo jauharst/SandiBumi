@@ -1,5 +1,9 @@
 # Scaling to 2000 wells — 2026-08-22
 
+> **Read `PERF-VARIANCE-2026-08-23.md` beside this.** It measures how steady the instrument is
+> (every heavy operation 1.02×–1.16× between runs), re-adjudicates every claim below against
+> that floor, and records a filter defect that inflated some absolutes by ~2.5×.
+
 **Pass 2 of three.** Pass 1 (`PERF-BASELINE-2026-08-22.md`) built the instrument and measured 10
 and 20 wells. This pass builds the generated fixture and takes the same measurements at **10, 20,
 100, 500 and 2000 wells** — the largest size that completes.
