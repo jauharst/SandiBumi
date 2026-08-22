@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Security review, and the one thing it found worth fixing
+
+- [ ] **What to click.** Take a project file that was **not** created on this machine — copy one
+      from another folder, or from a colleague — and make sure it has at least one **saved
+      equation** or one **saved model** in it. Open it. Once the workspace is up you should get a
+      single notice saying the project was made somewhere else and contains code. Press
+      **Continue**, and carry on as normal. **Close and reopen the same project: it must not ask
+      again.** Then open a project you made yourself — it must say nothing, ever.
+- [ ] **Why this exists, in one line.** A LAS file is inert — the worst it can do is give you
+      wrong numbers, and QC catches that. A **project file is not**: alongside the curves it
+      carries saved equations and saved ML models, and those are instructions. A saved model is a
+      Python pickle, which runs code the moment it loads. So a project from a partner is closer to
+      a spreadsheet with a macro in it than to a LAS, and the app never said so.
+- [ ] **Nothing is blocked.** You picked "warn once, then let it run" over the stricter option, so
+      this never gates a run and never refuses anything. It is the yellow bar, not a lock. It is
+      also a notice rather than a defence — someone who reads it and runs a hostile model still
+      runs it, and I would rather say that plainly than oversell it.
+- [ ] **Nothing about you travels in the file.** The record of "I have seen this project" lives in
+      `%APPDATA%\SandiBumi`, beside your recent-projects list — never inside the `.duckdb`. Had it
+      gone in the project, a file passed between two of your clients would carry a trace of every
+      machine that had opened it. There is a test that compares the project's bytes before and
+      after acknowledging, so that cannot quietly change.
+- [ ] **The rest of the review found nothing to fix**, which is the more useful half. Confirmed by
+      enumeration rather than spot-check: every Python runner reads bytes rather than text; no user
+      text ever reaches a command line; all 21 places that build SQL are safe (a hostile well name
+      like `..\..\Windows\System32\x` sanitises to underscores, and the SQL panel cannot write —
+      I checked the one shape the test suite had missed, and DuckDB itself refuses it); every panic
+      site reachable from an import is guarded. Details in
+      `docs/SECURITY-REVIEW-2026-08-22.md`.
+- [ ] **Nothing computed changed.** No number, no curve, no cutoff, no write path. This adds one
+      notice and nothing else.
+
 ## 2026-08-22 — Accessibility pass 2b: **the dialogs and the ribbon now say what they are**
 
 - [ ] **What to click, and it should all feel identical.** Open any dialog (**Data Sets…**,

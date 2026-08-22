@@ -8,7 +8,8 @@ import {
   readAutosave,
   showCrashRecoveryDialog,
 } from "./autosave";
-import { awaitProjectOpen, bootReport, saveSessionDocument } from "./ipc";
+import { awaitProjectOpen, bootReport, projectCodeNotice, saveSessionDocument } from "./ipc";
+import { showProjectCodeNotice } from "./ui/projectCodeNotice";
 import { recordProcess } from "./processLog";
 import { showBootOverlay } from "./bootOverlay";
 import { showStartupProblemDialog } from "./startupNotice";
@@ -92,6 +93,21 @@ window.addEventListener("DOMContentLoaded", () => {
       workspace.applyAutosaveExtras(autosave);
     }
     installAutosave(workspace);
+
+    // A project file is not inert: saved equations and saved ML models are instructions,
+    // and a model is a pickle that runs code when it loads. Told ONCE, for a project this
+    // machine has not seen before that actually carries some - never for one created here,
+    // and never for a project holding only curves. Fired after the workspace is up so it
+    // cannot collide with the crash-recovery or failed-open dialogs, both of which are
+    // about whether the app works at all and outrank this.
+    void projectCodeNotice()
+      .then((notice) => {
+        if (notice.trusted || notice.equations + notice.models === 0) return;
+        return showProjectCodeNotice(notice).then(() =>
+          recordProcess("Project", `Foreign project opened: ${notice.equations} saved equation(s), ${notice.models} saved model(s)`),
+        );
+      })
+      .catch(() => {});
   };
 
   const bootWithWorkspaceChoice = () => {

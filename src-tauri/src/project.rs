@@ -123,6 +123,53 @@ pub fn list_recents() -> Vec<RecentProject> {
     list
 }
 
+fn trusted_path() -> PathBuf {
+    config_dir().join("trusted-code.json")
+}
+
+fn load_trusted() -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(trusted_path()) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+/// Whether this machine has already been told what code lives inside `path`.
+///
+/// A project file is not inert. Alongside the curves it carries saved equations and saved ML
+/// models, and both are INSTRUCTIONS rather than numbers — a model is a joblib pickle, which
+/// executes code the moment it is loaded, before any of the checks around it run. So a project
+/// that arrived from somebody else is an attachment, not a data file, and the app says so once
+/// before running anything out of it (SECURITY-REVIEW-2026-08-22 finding F1).
+///
+/// **The list lives HERE, on this machine, and deliberately NOT inside the project.** A marker
+/// written into the file would travel with it, so a project passed between two operators would
+/// carry a trace of where it had been. Nothing about who made a project may ride along inside it
+/// — the same rule the repository keeps about client identifiers, pointed at file metadata.
+pub fn project_code_is_trusted(path: &str) -> bool {
+    let abs = absolute(path);
+    load_trusted().iter().any(|known| same_path(known, &abs))
+}
+
+/// Record that this machine has been told about `path`'s saved code, so the notice is shown once
+/// rather than every time. Called when the user acknowledges it, and when the app CREATES a
+/// project — code you saved into your own new project is not code that arrived from anywhere.
+pub fn trust_project_code(path: &str) {
+    let abs = absolute(path);
+    let mut list = load_trusted();
+    if list.iter().any(|known| same_path(known, &abs)) {
+        return;
+    }
+    list.push(abs);
+    // Same convenience rule as the recents: never fail an operation over this file.
+    if std::fs::create_dir_all(config_dir()).is_err() {
+        return;
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&list) {
+        let _ = std::fs::write(trusted_path(), json);
+    }
+}
+
 /// The path the app opens at startup: the most recently opened project that still
 /// exists, else the legacy `project.duckdb` next to the process cwd.
 pub fn startup_path() -> String {
@@ -413,11 +460,16 @@ mod tests {
         let _ = std::fs::remove_file(p.with_extension("duckdb.wal"));
     }
 
+    /// `SANDIBUMI_CONFIG_DIR` is process-global, so every test that redirects it takes this
+    /// first. It is what lets the trust-list contract below have a name of its own instead of
+    /// being appended to a test about something else.
+    static CONFIG_DIR: Mutex<()> = Mutex::new(());
+
     /// Recents round-trip, startup fallback and a live connection swap, in ONE test —
-    /// SANDIBUMI_CONFIG_DIR is process-global, so splitting these into parallel tests
-    /// would race on it.
+    /// they share the redirected config dir and the same `DbState`.
     #[test]
     fn recents_roundtrip_and_project_switch() {
+        let _guard = CONFIG_DIR.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("sandibumi-proj-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -471,6 +523,49 @@ mod tests {
         std::env::remove_var("SANDIBUMI_CONFIG_DIR");
         // Windows can't delete an open DuckDB; state still holds A — drop first.
         drop(state);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A project that arrived from elsewhere is announced ONCE, and the record of that lives on
+    /// this machine rather than inside the project.
+    ///
+    /// Both halves are load-bearing and neither implies the other. Announcing every time trains
+    /// the user to click past it; announcing never is the state this replaced. And writing the
+    /// acknowledgement INTO the `.duckdb` would be the easy implementation - it would also make
+    /// the file carry a trace of every machine that had opened it, so a project passed between
+    /// two operators would leak where it had been. That is the same rule this repository keeps
+    /// about client identifiers, pointed at file metadata (SECURITY-REVIEW-2026-08-22, F1).
+    #[test]
+    fn a_project_from_elsewhere_is_announced_once_and_nothing_is_written_into_it() {
+        let _guard = CONFIG_DIR.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("sandibumi-trust-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("SANDIBUMI_CONFIG_DIR", tmp.join("cfg").to_str().unwrap());
+
+        let foreign = tmp.join("from-a-partner.duckdb");
+        let path = foreign.to_str().unwrap();
+        drop(db::init_db_resilient(path).unwrap());
+        let bytes_before = std::fs::read(&foreign).unwrap();
+
+        // Side A: unknown until acknowledged, then known - so the notice fires once, not always.
+        assert!(!project_code_is_trusted(path), "a project never opened here is not yet trusted");
+        trust_project_code(path);
+        assert!(project_code_is_trusted(path), "acknowledging it must be remembered");
+        trust_project_code(path); // idempotent - a second acknowledgement adds no second entry
+        let recorded = std::fs::read_to_string(trusted_path()).unwrap();
+        assert_eq!(recorded.matches("from-a-partner").count(), 1, "recorded once, not twice");
+
+        // Side B: the project file is untouched. An implementation that stamped the acknowledgement
+        // inside the .duckdb would satisfy Side A just as well, and would leak where the file had
+        // been - so the bytes are compared, not just the behaviour.
+        assert_eq!(
+            std::fs::read(&foreign).unwrap(),
+            bytes_before,
+            "the acknowledgement must live on this machine, never inside the project"
+        );
+
+        std::env::remove_var("SANDIBUMI_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
