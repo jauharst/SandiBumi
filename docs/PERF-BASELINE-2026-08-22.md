@@ -193,9 +193,5 @@ symptom is real and matches the prediction. Confirming the mechanism is Pass 3's
 
 ## 8. The attempt ledger
 
-Kept per the `performance-optimization` skill, so a dead idea stays dead and is not re-run. Pass 1
-optimized nothing, so it is empty by design; Pass 3 fills it, reverts included.
-
-| Idea | Baseline → Result | Verdict | Why |
-|---|---|---|---|
-| _(none yet — Pass 1 measures only)_ | | | |
+**One ledger, in `docs/PERF-ATTEMPTS.md`.** Every attempt lands there, kept and reverted alike —
+four ledgers in four documents is four places for the same dead idea to go missing from.

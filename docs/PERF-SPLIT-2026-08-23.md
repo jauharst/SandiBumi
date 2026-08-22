@@ -121,8 +121,5 @@ Still Jauhar's call, and still subject to `ROADMAP.md`: #129 cannot be signed of
 
 ## 7. The attempt ledger
 
-Still empty. Nothing has been optimized yet.
-
-| Idea | Baseline → Result | Verdict | Why |
-|---|---|---|---|
-| _(none yet — passes 1–3.2 measure only)_ | | | |
+**One ledger, in `docs/PERF-ATTEMPTS.md`.** Every attempt lands there, kept and reverted alike —
+four ledgers in four documents is four places for the same dead idea to go missing from.

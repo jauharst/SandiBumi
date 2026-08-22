@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — The printed page that looked like it was reading every well, and was not
+
+- [ ] **Still nothing changed in the app, and this time that is the finding.** You asked me to fix
+      the report render. I could not, because after measuring it there is nothing there to fix.
+- [ ] **What looked wrong.** Printing a report for ONE well got slower as the project got bigger —
+      41 ms in a 10-well project, 165 ms in a 2000-well one. A report about one well should not know
+      or care how many other wells exist, so that shape said something was reading the whole field.
+- [ ] **What I thought the cause was, and it was a good guess.** The table that holds computed
+      curves has no index on it at all. That is deliberate — we removed one back in July because it was
+      making every batch write about three and a half times slower — but nothing replaced it, so asking for one
+      well's curves genuinely looked like it had to walk past every other well's.
+- [ ] **I added the index back and measured. It made no difference to reading.** 52.3 ms before,
+      56.3 ms after, on the same 100-well project. If the report had been paying for a full sweep of
+      the table, indexing the column being swept would have moved it. It did not move at all. So the
+      guess was wrong, and I took the index back out.
+- [ ] **Then I timed each piece of a report separately, which is what I should have done first.**
+      Between a 10-well project and a 500-well one: reading the zones 0.3 → 0.4 ms, the curve
+      provenance 4.3 → 5.2 ms, the pay summary 11.4 → 17.3 ms, drawing the log page 12.6 → 19.4 ms.
+- [ ] **Fifty times the wells for one and a half times the time — spread evenly over every piece.**
+      That is not what a runaway sweep looks like. A sweep grows in step with the field and grows in
+      one place. This grows everywhere, slightly. It is just the ordinary cost of reading out of a
+      bigger file: more data, less of it already in memory.
+- [ ] **So the verdict is: not a bug, and not worth changing.** At 2000 wells a report page takes a
+      sixth of a second. The shape is mildly untidy; the wait is not something you would notice.
+- [ ] **I have written the failed attempt down on purpose** — `docs/PERF-ATTEMPTS.md`, with the
+      before and after numbers. Reverted work leaves no trace in the history, which is exactly how
+      the same dead idea gets tried again next year. That file now says "do not index that table for
+      reading; it was measured and it does nothing".
+- [ ] **What this did turn up, and I think it is the better target.** The pay summary is already the
+      largest single piece of a one-well report. The Field Dashboard is that same calculation run
+      over every well in the field — and it is the fastest-degrading thing in the whole sweep: 49
+      seconds at 2000 wells, and getting worse per well as the field grows, faster than anything
+      else I measured. If you want me to chase one more of these, that is the one I would pick.
+- [ ] **Nothing to click** — `docs/PERF-ATTEMPTS.md` §1 has the full reasoning and both tables.
+
 ## 2026-08-23 — Nine tenths of a batch run is waiting, and the maths is one thousandth
 
 - [ ] **Still nothing changed in the app.** You asked what a batch run actually spends its time on
