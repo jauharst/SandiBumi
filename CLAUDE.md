@@ -1111,6 +1111,40 @@ in the BRAND's own colours — a launch screen that waits on an asset is the one
 never fail to appear, and a client skin must not re-roll the product's identity (the
 brand-is-not-accent rule).
 
+## A project file is not inert (2026-08-22)
+
+`SECURITY-REVIEW-2026-08-22.md` finding F1. A `.duckdb` carries **saved equations** (`documents`
+doc_type `equation`) and **saved ML models** (`ml_models.data`, a joblib pickle that executes on
+load, before every check around it). Both are instructions rather than numbers, so a project that
+arrived from somebody else is an attachment, not a data file.
+
+Jauhar's call, put to him as a choice: **warn once, then let it run** - never gate, never refuse.
+`project_code_notice` counts what is there, `showProjectCodeNotice` says it once after the
+workspace is up, `trust_project_code` records it. A project holding only curves says nothing, and
+`new_project` trusts what it creates so the user's own work never nags them.
+
+- **The acknowledgement lives in `%APPDATA%\SandiBumi\trusted-code.json`, NEVER inside the
+  project.** A marker in the file travels with it, so a project passed between two operators would
+  carry a trace of every machine that had opened it - the client-identifier rule pointed at file
+  metadata. Pinned from BOTH sides by
+  `project::tests::a_project_from_elsewhere_is_announced_once_and_nothing_is_written_into_it`,
+  which compares the project's bytes: stamping the acknowledgement inside would pass the behaviour
+  half on its own.
+- **`SANDIBUMI_CONFIG_DIR` is process-global**, so every test redirecting it takes the `CONFIG_DIR`
+  guard in `project::tests` first. Without it two such tests race.
+- **It is a notice, not a defence.** Someone who acknowledges and runs a hostile model still runs
+  it. Do not describe it as protection, and do not add a signature scheme whose key ships in the
+  binary - that looks like a guarantee and is not one.
+
+What the same review confirmed safe, so it is not re-litigated: every Python runner reads
+`sys.stdin.buffer`; no user text reaches a command line (every spawn is `args(["-c", CONST])` or a
+constant written to a temp file); all 21 SQL-building `format!` sites are constants, type-enforced
+`&'static str`, allowlist-checked or numeric; `run_readonly_query`'s subquery wrap is a security
+boundary and DuckDB additionally refuses data-modifying CTEs (`A CTE needs a SELECT`, measured);
+export stems sanitise to alphanumeric + `-_`. **Rule 7's subprocess boundary isolates FAILURE, not
+PRIVILEGE** - a crash in dlisio or Pillow fails only the import, but those subprocesses run with
+full user rights.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

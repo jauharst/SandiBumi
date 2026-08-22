@@ -5150,6 +5150,27 @@ export async function awaitProjectOpen(): Promise<OpenOutcome> {
   return invoke("await_project_open");
 }
 
+/** What executable content the open project carries, and whether this machine has been told.
+ *
+ *  A project file is not inert: saved equations and saved ML models are instructions rather than
+ *  numbers, and a model is a pickle that runs code when it loads. See
+ *  `docs/SECURITY-REVIEW-2026-08-22.md` finding F1. */
+export interface ProjectCodeNotice {
+  trusted: boolean;
+  equations: number;
+  models: number;
+  name: string;
+}
+
+export async function projectCodeNotice(): Promise<ProjectCodeNotice> {
+  return invoke<ProjectCodeNotice>("project_code_notice");
+}
+
+/** Records that the notice has been read for the open project. Shown once, never again. */
+export async function trustProjectCode(): Promise<void> {
+  return invoke<void>("trust_project_code");
+}
+
 export async function listRecentProjects(): Promise<RecentProject[]> {
   return invoke("list_recent_projects");
 }

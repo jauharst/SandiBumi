@@ -324,8 +324,56 @@ async fn new_project(
     let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
         .await
         .map_err(|e| e.to_string())??;
+    // A project created here is this machine's own. Whatever equations or models get saved into
+    // it later were written by the person sitting in front of it, so the foreign-code notice must
+    // never fire on it.
+    project::trust_project_code(&info.path);
     *proj.0.lock().unwrap() = info.path.clone();
     Ok(info)
+}
+
+/// What executable content the open project carries, and whether this machine has been told.
+///
+/// Saved equations and saved ML models are instructions, not numbers: a model is a joblib pickle
+/// and unpickling runs code. Counted rather than listed — the notice says how much there is, and
+/// the user goes and looks if they want to know what.
+#[derive(serde::Serialize)]
+struct ProjectCodeNotice {
+    trusted: bool,
+    equations: usize,
+    models: usize,
+    name: String,
+}
+
+#[tauri::command]
+async fn project_code_notice(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+) -> Result<ProjectCodeNotice, String> {
+    let path = proj.0.lock().unwrap().clone();
+    let trusted = project::project_code_is_trusted(&path);
+    let name = project::project_name(&path);
+    let handle = db.0.clone();
+    let (equations, models) = tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        // A project too old to carry either table is not a failure — it carries no code.
+        let equations: i64 = conn
+            .query_row("SELECT COUNT(*) FROM documents WHERE doc_type = 'equation'", [], |r| r.get(0))
+            .unwrap_or(0);
+        let models: i64 =
+            conn.query_row("SELECT COUNT(*) FROM ml_models", [], |r| r.get(0)).unwrap_or(0);
+        (equations.max(0) as usize, models.max(0) as usize)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(ProjectCodeNotice { trusted, equations, models, name })
+}
+
+/// The user has read the notice for the open project. Shown once, never again for this file.
+#[tauri::command]
+fn trust_project_code(proj: tauri::State<'_, project::ProjectState>) {
+    let path = proj.0.lock().unwrap().clone();
+    project::trust_project_code(&path);
 }
 
 /// The project's declared depth unit as a code ("M"/"FT"), and whether it was explicitly
@@ -4400,6 +4448,8 @@ pub fn run() {
             current_project,
             open_project,
             new_project,
+            project_code_notice,
+            trust_project_code,
             list_wells,
             probe_las_well_identities,
             import_las_files,
