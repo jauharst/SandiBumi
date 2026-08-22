@@ -9,6 +9,7 @@ Read this before proposing a performance change.
 | # | Idea | Baseline → Result | Verdict | Why |
 |---|---|---|---|---|
 | 1 | Index `computed_curves(well_id)` to stop a one-well report scanning the project | report render 52.3 ms → **56.3 ms**; chain total 55.9 s → 60.9 s | **REVERTED** | The read did not improve at all, which refutes the premise. See §1. |
+| 2 | `LIMIT 2` on the set-id scan that resolves a well's PHIE log set | 1973.0 ms → **2055.7 ms** across 500 wells | **REFUTED BEFORE WRITING** | No win at 10, 100 or 500 wells, and the cheaper form had the colder cache. See §2. |
 
 ---
 
@@ -82,3 +83,56 @@ The Field Dashboard, not the report. Pass 2 measured it as the **fastest-degradi
 whole sweep** (exponent 1.61 over the final segment; **49 s at 2000 wells**, 5.7 → 24.5 ms per
 well). This probe shows why it is the right target: `run_pay_summary` is already the largest single
 part of a *one-well* report at 11–17 ms, and the dashboard is that same operation over every well.
+
+---
+
+## §2 — `LIMIT 2` on the ancestry set-id scan (2026-08-23, pass 3 increment 4)
+
+### What it would have fixed
+
+`perf_dashboard_scale` measured one statement at **35.7% of the whole Field Dashboard** —
+`ancestry::try_resolve_ancestry_input`, called once per well to say which log set that well's PHIE
+belongs to:
+
+```sql
+SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves
+ WHERE well_id = ?1 AND upper(curve_name) = ?2
+```
+
+It reads all 1,562 of that well's PHIE sample rows and de-duplicates 1,562 copies of one set id.
+
+### Why `LIMIT 2` looked free
+
+The caller checks `set_ids.len() != 1` and errors on anything but one, so **a second row is all it
+ever needs to see**. Adding `LIMIT 2` cannot change any answer: one row stays one, two-or-more stays
+two-or-more, and the error fires identically.
+
+### Measured, with the bias pointed the right way
+
+Both forms were timed per well, the **limited form first** so the unlimited one ran on the warmer
+cache — biasing the comparison *against* the cheaper variant.
+
+```
+                   unlimited     LIMIT 2
+10 wells              12.1ms      12.6ms
+100 wells            157.0ms     176.7ms
+500 wells           1973.0ms    2055.7ms
+```
+
+### Verdict: REFUTED BEFORE WRITING
+
+No win at any size; the limited form is marginally slower at all three, and it had the easier job.
+DuckDB materialises the whole distinct aggregate before a limit can apply, so there is nothing for
+the limit to short-circuit — it only trims a result that has already been built.
+
+**No production code was ever written for this.** The variant was measured in the probe first, which
+is the cheapest possible place to kill an idea.
+
+### What this rules out for anyone who tries again
+
+- **Do not put `LIMIT` on a `DISTINCT` in DuckDB expecting it to stop early.** It does not. If a
+  scan needs to stop early, the query has to stop being a `DISTINCT`.
+- The 36% is still there and still worth taking. Taking it means **not asking the ancestry question
+  at all** — which changes which wells appear in the summary, so it is a provenance decision rather
+  than a performance one. `PERF-DASHBOARD-2026-08-23.md` §6 sets out the choice.
+

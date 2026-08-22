@@ -270,7 +270,7 @@ fn perf_baseline() {
     // 32.8s against a 130ms median: the median under a row labelled "cold" was a WARM re-open,
     // and the cold number - the one a user waits on after launching the app - was hiding in MAX.
     // The cold open scales with well count; the warm re-open barely moves. They are separate rows.
-    let mut open_n = |label: &'static str, reps: usize| {
+    let open_n = |label: &'static str, reps: usize| {
         bench(label, reps, || {
             let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
             let wells: i64 =
@@ -708,4 +708,213 @@ What a connection pool would buy, in WALL CLOCK:");
 
     let _ = std::fs::remove_file(&db_path);
     let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// PASS 3 INCREMENT 4: where the Field Dashboard's time goes, and why it gets worse per well.
+// ---------------------------------------------------------------------------------------------
+// Pass 2 measured the dashboard as the fastest-degrading operation in the sweep: 5.7 ms per well
+// in a 10-well project and 24.5 ms per well in a 2000-well one, exponent 1.61 over the last
+// segment. Nothing about a well changes when other wells are added, so a per-well cost that rises
+// with the project is the finding, and this attributes it to a NAMED phase.
+//
+// It measures FROM OUTSIDE. `run_pay_summary`'s per-well loop takes the lock once and makes four
+// reads under it; every one of those functions is reachable from this crate, so the sequence is
+// replayed here rather than bracketed inside paysummary.rs. Nothing in the production path is
+// touched - not even a #[cfg(test)] statement.
+//
+// The honest caveat, stated rather than buried: the replay runs AFTER a discarded dashboard pass,
+// so both it and the measured pass see the same warm caches. It cannot be otherwise - a cold
+// measurement of one phase is a warm measurement of every phase after it - and the comparison
+// that matters here is between SIZES, which that does not affect.
+
+#[test]
+#[ignore]
+fn perf_dashboard_scale() {
+    let n_samples = env_usize("SANDIBUMI_PERF_SAMPLES", DEFAULT_SAMPLES);
+    let sizes: Vec<usize> = std::env::var("SANDIBUMI_PERF_DASH_SIZES")
+        .unwrap_or_else(|_| "10,100,500".into())
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    assert!(!sizes.is_empty(), "SANDIBUMI_PERF_DASH_SIZES parsed to nothing");
+
+    println!("\n============ WHERE THE FIELD DASHBOARD SPENDS ITS TIME ============");
+    println!("sizes {sizes:?} x {n_samples} samples per well");
+    println!("build: {}", if cfg!(debug_assertions) { "DEBUG (unoptimised)" } else { "release" });
+    println!(
+        "\n{:<7} {:>10} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}  {}",
+        "WELLS", "WALL", "name", "alias", "curves", "zones", "READS", "compute", "PRODUCED"
+    );
+
+    // Per-well cost of each phase at each size, kept so the growth can be printed as a ratio.
+    let mut per_well: Vec<(usize, [f64; 8])> = Vec::new();
+
+    for &n_wells in &sizes {
+        let db_path = std::env::temp_dir()
+            .join(format!("sandibumi_dash_{n_wells}w_{n_samples}s.duckdb"));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+
+        let (well_ids, _) = build_project(&db_path, n_wells, n_samples);
+        let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
+        let db = Mutex::new(conn);
+
+        // The dashboard summarises interpreted curves, so the interpretation has to exist first.
+        // Same four modules as every other number in this brief.
+        for module in ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"] {
+            let produced = run_and_count(&db, module, &well_ids);
+            assert!(
+                !produced.contains("FAILED"),
+                "{n_wells}-well fixture: chain step {module} produced no answer: {produced}"
+            );
+        }
+
+        let dash = |db: &Mutex<Connection>| {
+            run_pay_summary(
+                db,
+                &PaySummaryRequest {
+                    well_ids: well_ids.clone(),
+                    vsh_max: Some(cutoff(0.5)),
+                    phie_min: Some(cutoff(0.10)),
+                    swe_max: Some(cutoff(0.60)),
+                    perm_min: None,
+                    input_set: None,
+                    skip_version: false,
+                    stats_only: true,
+                    enabled_unset: Vec::new(),
+                    discretisation: crate::paysummary::DiscretisationModel::Forward,
+                    cutoff_use: Default::default(),
+                    custody: Some(crate::workflow::test_run_custody()),
+                    frame: Default::default(),
+                    weighting: Default::default(),
+                },
+            )
+        };
+
+        // Discarded: it warms whatever a first pass would otherwise pay for, so the replay below
+        // and the measured pass start level with each other.
+        let _ = dash(&db).expect("warm-up pay summary");
+
+        // ---- replay the per-well read sequence, one lock per well, as the loop does ------------
+        let curve_names: Vec<String> =
+            vec!["VSH".into(), "PHIE".into(), "SWE".into(), "PERM".into()];
+        let phie_candidates = vec!["PHIE".to_string()];
+        let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let (mut t_name, mut t_alias, mut t_curves, mut t_zones) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        // Inside the alias step, the one query that scans: which log set does this well's PHIE
+        // belong to. `LIMIT 2` is timed FIRST and the unlimited form second, so the unlimited
+        // one runs on the warmer cache - the comparison is biased AGAINST the cheaper variant,
+        // which is the direction that makes a win believable.
+        let (mut t_setid_lim, mut t_setid) = (0.0f64, 0.0f64);
+        let mut frames = 0usize;
+        for id in &well_ids {
+            let conn = db.lock().unwrap();
+
+            let t = Instant::now();
+            let _name: String = conn
+                .query_row(
+                    "SELECT well_name FROM wells WHERE well_id = ?1",
+                    duckdb::params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or_else(|_| id.clone());
+            t_name += ms(t.elapsed());
+
+            let t = Instant::now();
+            let _alias = crate::workflow::first_available_input_alias(
+                &conn, id, "PHIE", &phie_candidates, None, None, &empty,
+            );
+            t_alias += ms(t.elapsed());
+
+            let t = Instant::now();
+            let frame =
+                crate::equations::fetch_curve_frame_from_set(&conn, id, &curve_names, None, None);
+            t_curves += ms(t.elapsed());
+            if matches!(&frame, Ok((d, _)) if !d.is_empty()) {
+                frames += 1;
+            }
+
+            let t = Instant::now();
+            let _zones = crate::db::list_zones(&conn, id);
+            t_zones += ms(t.elapsed());
+
+            // The scan inside `try_resolve_ancestry_input`, timed on its own so the finding
+            // names a QUERY and not a function. Both forms answer the same question the
+            // caller asks - is there exactly one live set for this curve - because the caller
+            // errors on any count other than one, so a second row is all it ever needs to see.
+            let run = |sql: &str| -> usize {
+                let mut stmt = conn.prepare(sql).expect("prepare");
+                let rows: Vec<Option<String>> = stmt
+                    .query_map(duckdb::params![id, "PHIE"], |row| row.get(0))
+                    .expect("query")
+                    .collect::<duckdb::Result<_>>()
+                    .expect("collect");
+                rows.len()
+            };
+            let t = Instant::now();
+            let _ = run(
+                "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves \
+                 WHERE well_id = ?1 AND upper(curve_name) = ?2 LIMIT 2",
+            );
+            t_setid_lim += ms(t.elapsed());
+            let t = Instant::now();
+            let _ = run(
+                "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves \
+                 WHERE well_id = ?1 AND upper(curve_name) = ?2",
+            );
+            t_setid += ms(t.elapsed());
+        }
+        assert_eq!(frames, n_wells, "{n_wells}-well fixture: a well returned no curve frame");
+
+        // ---- and the operation itself ----------------------------------------------------------
+        let t = Instant::now();
+        let rows = dash(&db).expect("pay summary");
+        let wall = ms(t.elapsed());
+
+        let reads = t_name + t_alias + t_curves + t_zones;
+        // By subtraction: the cut-off arithmetic, the zone sweep, the row building, and whatever
+        // lock overhead the replay did not reproduce. Named by how it was derived, not called
+        // "compute" as though it had been timed directly.
+        let compute = (wall - reads).max(0.0);
+        let w = n_wells as f64;
+
+        println!(
+            "{:<7} {:>9.1}ms {:>8.1}ms {:>8.1}ms {:>8.1}ms {:>8.1}ms {:>8.1}ms {:>8.1}ms  {} rows",
+            n_wells, wall, t_name, t_alias, t_curves, t_zones, reads, compute, rows.len()
+        );
+        println!(
+            "        of which the set-id scan: {:>8.1}ms unlimited vs {:>8.1}ms with LIMIT 2",
+            t_setid, t_setid_lim
+        );
+        per_well.push((
+            n_wells,
+            [wall / w, t_name / w, t_alias / w, t_curves / w, t_zones / w, compute / w,
+             t_setid / w, t_setid_lim / w],
+        ));
+
+        drop(db);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+    }
+
+    // ---- the finding: which phase costs more PER WELL as the field grows ----------------------
+    println!("\n-- PER-WELL COST (ms/well) - a well does not change, so whatever rises here is the cause --");
+    let header: String = per_well.iter().map(|(n, _)| format!("{n:>10}")).collect();
+    println!("{:<12} {header}{:>8}", "PHASE", "growth");
+    for (i, phase) in ["TOTAL", "well name", "alias", "curves", "zones", "compute",
+                       "  set-id q", "  same+LIM"]
+        .iter()
+        .enumerate()
+    {
+        let cells: String = per_well.iter().map(|(_, v)| format!("{:>10.3}", v[i])).collect();
+        let growth = if per_well.len() > 1 {
+            let (first, last) = (per_well[0].1[i], per_well[per_well.len() - 1].1[i]);
+            if first > 0.0 { format!("{:>7.1}x", last / first) } else { "      -".into() }
+        } else {
+            String::new()
+        };
+        println!("{phase:<12} {cells}{growth}");
+    }
+    println!("\nA phase whose per-well cost is FLAT is not the cause, however large its share.");
 }

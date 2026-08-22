@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 41,
+ "expected_ignored_test_count": 42,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 4
+  "MANUAL-ARTIFACT": 5
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -453,6 +453,20 @@
    "tests": [
     {
      "key": "src/perf_baseline_test.rs|perf_where_time_goes",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-030",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "Where the Field Dashboard's time goes as a field grows: it builds 10-, 100- and 500-well projects, runs the standard chain on each, then replays run_pay_summary's per-well read sequence phase by phase and prints the per-well cost of each phase beside the whole operation. Evidence toward SB-CORE-030's MEASURED half only - the declared-target half is blocked on Jauhar, so it asserts nothing about a budget. It measures entirely FROM OUTSIDE: every function it times is reachable from this crate, so paysummary.rs carries no probe at all, not even a #[cfg(test)] statement. Its assertions only check that the fixture is real - that every chain step produced an answer and every well returned a curve frame - so a timing is never reported for work that did not happen. Ignored because it builds three synthetic projects and runs three chains, which the green gate must not wait on.",
+   "tests": [
+    {
+     "key": "src/perf_baseline_test.rs|perf_dashboard_scale",
      "ignore_reason": null,
      "bare_ignore": true
     }
