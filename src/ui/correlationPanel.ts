@@ -599,14 +599,14 @@ export async function buildCorrelationContent(
         if (topDisplay !== null && bottomDisplay !== null) {
           const y0 = yOf(topDisplay - s.shift);
           const y1 = yOf(bottomDisplay - s.shift);
-          ctx.fillStyle = theme.accent;
+          ctx.fillStyle = theme.series1;
           ctx.globalAlpha = 0.09;
           ctx.fillRect(left, Math.min(y0, y1), stripW, Math.abs(y1 - y0));
           ctx.globalAlpha = 1;
         }
       }
 
-      ctx.strokeStyle = theme.accent2;
+      ctx.strokeStyle = theme.series2;
       ctx.lineWidth = 1;
       ctx.beginPath();
       let pen = false;

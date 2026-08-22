@@ -1,5 +1,47 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Plots pass 1: **the crossplot stops changing colour when you change theme**
+
+- [ ] **What to click.** Open a **Crossplot** with no Z curve, then switch theme through all seven
+      (Project ▸ Theme): light, dark, and the five colour themes. **The points stay the same blue
+      in every one.** Do the same with a **Thomas-Stieber overlay** and with a **regression line**
+      on — both stay the same orange. Then check the **Correlation** panel's correlated intervals.
+      Nothing else moves.
+- [ ] **What was wrong, and it was measurable.** A plotted mark was painted with `--accent` /
+      `--accent2` — the same tokens the ribbon buttons use. Those are re-rolled by every colour
+      theme, so **the identical overlay measured 1.66:1 contrast on `color-1` and 8.22:1 on
+      `color-2`**. One curve, one dataset, legible on one theme and nearly invisible on the next.
+      On the default light theme the scatter points themselves measured **2.98:1** — under the
+      3:1 floor for a graphical object.
+- [ ] **The rule this settles.** This app already says a theme recolours the **application**, never
+      the product's own mark — that is why `--brand` is declared once and never inside a
+      `[data-theme]` block. The same is now true one step further in: **a theme recolours the
+      application, never the DATA.** Plotted marks read two new tokens, `--plot-series-1` and
+      `--plot-series-2`, which no colour theme is allowed to redefine (there is a test that fails
+      if one does).
+- [ ] **What did NOT change, deliberately.** Anything you *grab* keeps the accent — draggable
+      parameter handles, the lasso, the brush highlight, the hover crosshair, the selection rings,
+      the cutoff region, the datum line. Those are controls, not rock, and they should match the
+      buttons. So the app still feels like the theme you picked; only the data stopped moving.
+- [ ] **Where the two colours came from — neither invented.** `--plot-series-1` is `#4e79a7`,
+      which is already `FACIES_PALETTE[0]`, the app's own data palette, already shared with the
+      print path. `--plot-series-2` is `#b2622d`, which is `--color-accent-600` straight out of
+      `docs/design_organic/organic-tokens.css`. Blue against orange is also the standard pair for
+      colour-vision deficiency. Series 2 lifts to `#f28e2b` on dark grounds for the same reason
+      `--plot-grid` already does — the ground flips, so a fixed foreground could not clear
+      contrast on both.
+- [ ] **The screen and the print can no longer disagree about facies.** You flagged this one:
+      `FACIES_PALETTE` is declared in `plotCanvas.ts` **and again** in `composite.rs`, and a comment
+      was the only thing holding them together. A hand-desync would print facies 3 in a different
+      colour than the log view showed it — a wrong deliverable with a legend that lies about the
+      rock, and nothing downstream could catch it. There is now a test that reads the TypeScript
+      file and compares all twelve colours **in order**, plus the reject grey, and fails the build
+      on any drift. Try it if you like: swap two colours in either file and the gate goes red.
+- [ ] **Evidence.** `docs/design_organic/evidence_plot_series_before_after.svg` — every theme,
+      before and after, with the measured contrast on each. Worst case goes **1.66:1 → 3.31:1**.
+- [ ] **Nothing computed changed.** No number moved; this pass touched only which colour a mark is
+      painted.
+
 ## 2026-08-22 — Audit finding 27 (DEC-096): **Larionov now has a form that actually reaches 100 % shale**
 
 - [ ] **What to click.** Petrophysics ▸ **VSH from GR**. The `OPT_GR` dropdown has two new entries at
