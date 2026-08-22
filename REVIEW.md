@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-22 — Found out why batch runs ignore your 32 cores
+
+- [ ] **Still nothing changed in the app.** You asked me to prove the cause before fixing
+      anything, and that is all this is.
+- [ ] **The cause is confirmed: everything queues at one door.** SandiBumi keeps a single
+      connection to the project database, and every well in a batch has to take it in turn. I read
+      the same curves for every well three ways to prove it — one well at a time, all wells at once
+      through that single connection, and all wells at once with a connection each.
+- [ ] **The numbers, at 500 wells.** One at a time: 597 ms. All at once through the single
+      connection: 610 ms — *slower*, because the queueing costs more than the sharing saves. With a
+      connection each: 74 ms. So your 32 processor cores are currently buying you nothing at all on
+      a batch run, and this is why.
+- [ ] **What fixing it would be worth: about 4× to 8× on the reading, and it gets better the
+      bigger the project.** Not 32× — the database already splits work internally and there is only
+      one disk, so it levels off. I want to be clear about that, because "32 cores" makes 32× sound
+      like the answer and it is not.
+- [ ] **A second, independent check agrees.** A chain over N wells costs almost exactly what one
+      well costs multiplied by N — within a few percent, all the way from 20 wells to 2000. That is
+      what "one at a time" looks like from the outside, measured a completely different way.
+- [ ] **What I have NOT worked out, and will not pretend I have.** I measured one particular read.
+      A real module run does considerably more database work behind that same door, plus the
+      writing — and writing genuinely cannot be shared, that is how DuckDB works. So I can tell you
+      the reading would get 4–8× faster; I cannot yet tell you how much faster a whole 23-minute
+      chain would get. Finding that out means putting a stopwatch inside the running code, which is
+      the next thing to do and is a change I did not want to make without telling you.
+- [ ] **This is your decision, not mine.** Item #129 is the connection-pool change. You told me it
+      is high risk and not to implement it without asking, so I have not. The evidence says it is
+      worth doing. Say the word and I will scope it properly first.
+- [ ] **Nothing to click** — it is all in `docs/PERF-DIAGNOSIS-2026-08-22.md`. To see it yourself:
+      `cargo test --release --lib perf_where_time_goes -- --ignored --nocapture` from `src-tauri`.
+
 ## 2026-08-22 — What happens at 2000 wells
 
 - [ ] **Still nothing changed in the app.** This is the same stopwatch as last time, run on bigger

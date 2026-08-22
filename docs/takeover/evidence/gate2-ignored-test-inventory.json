@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 39,
+ "expected_ignored_test_count": 40,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 2
+  "MANUAL-ARTIFACT": 3
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -425,6 +425,20 @@
    "tests": [
     {
      "key": "src/perf_baseline_test.rs|perf_baseline",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-032",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "The shared-connection diagnosis: it reads the same curves serially, in parallel through the one shared connection, and in parallel through one connection per thread, and prints the three for a human to compare. It is evidence ABOUT SB-CORE-032 (the compute path must not hold the global mutex across long work), not a pass/fail on it - the assertions it does carry only check that the three variants read identical data, so the comparison is between the same job three ways. Ignored because it builds a synthetic project the green gate must not wait on.",
+   "tests": [
+    {
+     "key": "src/perf_baseline_test.rs|perf_where_time_goes",
      "ignore_reason": null,
      "bare_ignore": true
     }
