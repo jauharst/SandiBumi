@@ -4519,6 +4519,95 @@ GR.API :
             .expect("one input path produces one import result")
     }
 
+    /// docs/PERF-COLD-OPEN-2026-08-23.md. The legacy `standard_curves` -> generic-store backfill
+    /// is what a first project open actually spends its time on: 96.5-96.9% of it, measured over
+    /// five clean runs at 100 wells. That cost is ONE-TIME, and **a well that arrived through an
+    /// import never pays it at all** - `import_las_files` writes both stores from the same decoded
+    /// columns in one transaction and marks the well done, so the backfill has nothing to do.
+    ///
+    /// This is why the performance harness's "first project open" figure is a fixture artifact:
+    /// `perf_baseline_test::build_project` calls `db::insert_standard_curves` directly, never the
+    /// import path, so every one of its wells stays permanently un-migrated.
+    ///
+    /// Pinned from BOTH sides on purpose. An implementation that simply stopped marking wells
+    /// would still pass "the imported well is already complete"; one that marked every well
+    /// unconditionally would still pass "the imported well is not migrated twice". Only the
+    /// contrast with a directly-written well distinguishes them.
+    #[test]
+    fn an_imported_well_never_pays_the_legacy_backfill_and_a_directly_written_one_does() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        let curves_of = |well_id: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM curve_meta WHERE well_id = ?1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let marked_done = |well_id: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM curve_migration_done WHERE well_id = ?1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+
+        // (a) THE IMPORT PATH - what a user's project is made of.
+        let las = make_dio015_las("sandibumi_coldopen_import.las", "M", "COLD-OPEN-IMPORTED");
+        let imported = import_dio015_las(&conn, &las, &LasImportOptions::default());
+        assert!(imported.error.is_none(), "the fixture import must succeed: {:?}", imported.error);
+        std::fs::remove_file(&las).ok();
+        let imported_id: String = conn
+            .query_row(
+                "SELECT CAST(well_id AS VARCHAR) FROM wells WHERE well_name = 'COLD-OPEN-IMPORTED'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(marked_done(&imported_id), 1, "an import marks its own well done");
+        let imported_curves = curves_of(&imported_id);
+        assert!(imported_curves > 0, "an import writes the generic store as it goes");
+
+        // (b) THE DIRECT PATH - what the performance harness builds, and what a pre-set-era
+        // project on disk looks like. Same six columns, no generic store, not marked.
+        let written = uuid::Uuid::new_v4();
+        db::insert_well(&conn, written, "COLD-OPEN-WRITTEN", None, None, None).unwrap();
+        db::insert_standard_curves(
+            &conn,
+            written,
+            vec![1000.0, 1001.0],
+            vec![50.0, 60.0],
+            vec![10.0, 11.0],
+            vec![0.3, 0.3],
+            vec![2.4, 2.4],
+            vec![f32::NAN, f32::NAN],
+            vec![f32::NAN, f32::NAN],
+        )
+        .unwrap();
+        let written_id = written.to_string();
+        assert_eq!(marked_done(&written_id), 0, "a direct write marks nothing");
+        assert_eq!(curves_of(&written_id), 0, "a direct write leaves the generic store empty");
+
+        // The backfill an open performs. The imported well must cost nothing; the written one is
+        // the entire reason the step exists.
+        db::migrate_standard_curves_to_generic_store(&conn).unwrap();
+
+        assert_eq!(
+            curves_of(&imported_id),
+            imported_curves,
+            "the backfill must add nothing to a well the import already completed - a second \
+             identity for the same delivery would break reproducible ancestry across copies"
+        );
+        assert!(
+            curves_of(&written_id) > 0,
+            "the backfill must still do its job for a well that never went through an import"
+        );
+        assert_eq!(marked_done(&written_id), 1, "and record it, so the next open skips it");
+    }
+
     #[test]
     fn an_index_with_no_file_or_project_unit_refuses_names_both_sources_and_commits_nothing() {
         // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T22.

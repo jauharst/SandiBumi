@@ -1,5 +1,54 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — The three minutes to open a project is not something you will ever wait for
+
+- [ ] **Nothing in the app changed.** One test probe and one named test, neither of them shipped.
+- [ ] **I told you a 2000-well project takes 3.1 minutes to open, and that it was the second-worst
+      number in the whole exercise. I have to walk most of that back.** Opening the file takes
+      **68 milliseconds**. Almost everything else in that figure — **96.5% to 96.9%**, and it came
+      out the same on all five runs — is a **one-time conversion** of old-format wells.
+- [ ] **And your own projects never run it.** When you import a LAS, SandiBumi writes both of its
+      curve stores at once and marks that well finished, so the conversion has nothing left to do.
+      The only project that pays it is one made by a version of SandiBumi from before the curve
+      store existed, opened for the first time on a new build — and that wait happens once, and the
+      app already tells you about it in the status line.
+- [ ] **Why my number was wrong: my fake wells were built the wrong way.** The test harness writes
+      curves straight into the database instead of importing them, so every one of its wells stays
+      permanently unconverted and pays the conversion on every single open. Real wells never do.
+      I have pinned that difference with a test, and checked the test by deliberately breaking the
+      behaviour two different ways to make sure it noticed both.
+- [ ] **So I built the same field twice and opened both.** Same wells, same curves, same row counts
+      — one written the harness's way, one imported from LAS the way you would:
+
+      | wells | harness-built | imported |
+      |------:|--------------:|---------:|
+      |    10 |      647 ms   |  **110 ms** |
+      |   100 |      6.1 s    |  **121 ms** |
+      |   500 |     39.5 s    |  **175 ms** |
+
+- [ ] **Read the right-hand column across, not down.** From 10 wells to 500 the imported project's
+      opening time goes from 110 ms to 175 ms — it barely moves. **A project you built by importing
+      wells has no slow first open at all**; the first one costs about what every later one costs.
+      The harness's column is the one that grows, and it is growing a conversion, not an opening.
+- [ ] **What you do pay for is the import itself**, and that is where the cost belongs: about
+      50 milliseconds per well, steady at all three sizes, while you are watching an import you
+      asked for — not while you are waiting for the window to appear.
+- [ ] **At 500 wells the app warned about this on its own**, without being asked, in the middle of
+      my test run: *"Opening this project took 39s — one-time storage upgrades ran (the project was
+      backed up first); the next open will be fast."* That is the behaviour I was about to go and
+      build. It was already there.
+- [ ] **The number stays in the report, but relabelled.** It is a real measurement of a real thing
+      — converting an old project — and it is now marked as that, so nobody (me included) quotes it
+      again as how long SandiBumi takes to start.
+- [ ] **I was about to spend a whole increment making it faster.** That would have been an
+      increment spent on something you never wait for. It is written into the attempt ledger so no
+      future session repeats it.
+- [ ] **And I got it wrong once more before I got it right.** My first version of the two-way test
+      still created its imported project by a route the app does not use, which left one of the two
+      conversions running and reported the gap as 3.3× instead of 50×. Same mistake as the original,
+      one layer down. It is written into the test as a comment rather than quietly corrected.
+- [ ] **Nothing to click** — it is all in `docs/PERF-COLD-OPEN-2026-08-23.md`.
+
 ## 2026-08-23 — Your gamma and neutron arrive under names SandiBumi does not know
 
 - [ ] **Nothing in the app changed, again — but this one is about your data, not my stopwatch.**

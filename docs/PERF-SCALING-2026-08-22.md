@@ -72,6 +72,18 @@ report render, 1 WELL            41.1     40.7     46.2     64.9    165.3   0.26
 At 2000 wells, in the units a person uses: **first open 3.1 minutes, four-module chain 23.0
 minutes, Field Dashboard 49 seconds.** A log view still scrolls in 1.3 ms.
 
+> **Added 2026-08-23 — `first project open (COLD)` is mislabelled and must not be read as launch
+> cost.** The `[boot]` breakdown, over five clean runs at 100 wells, puts **96.5–96.9%** of it in
+> two ONE-TIME migrations; opening the file itself takes **68 ms**. A project whose wells arrived
+> through an import never runs either migration — the harness's fixture does only because
+> `build_project` bypasses `ingest`. So this row measures **converting a legacy project**, once,
+> and 3.1 minutes is not something a user waits for on launch. Measured by building the same field
+> both ways and opening each: at 500 wells, **39.5 s written against 174.7 ms imported**, and the
+> imported project's scaling exponent is **0.12** — this row belongs with the FLAT block above,
+> not here.
+> `PERF-COLD-OPEN-2026-08-23.md` has the attribution and the contract test; `PERF-ATTEMPTS.md` §3
+> records why speeding it up is not worth an increment. **The other rows are unaffected.**
+
 ## 3. Where it stops being linear — the knee
 
 The knee is not a cliff. It is a **steady worsening that begins between 100 and 500 wells and
