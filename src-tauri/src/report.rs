@@ -918,7 +918,7 @@ mod tests {
         if with_curves {
             let n = 40;
             let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 conn,
                 wid,
                 depths,
@@ -1154,7 +1154,7 @@ mod tests {
         let n = 20usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
             vec![2.4; n], nan.clone(), nan,
         )
@@ -1231,7 +1231,7 @@ mod tests {
             let n = 20usize;
             let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
                 vec![2.4; n], nan.clone(), nan,
             )
@@ -1315,7 +1315,7 @@ mod tests {
         let n = 40usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
             vec![2.4; n], nan.clone(), nan,
         )
@@ -1402,7 +1402,7 @@ mod tests {
         let n = 40usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
             vec![2.4; n], nan.clone(), nan,
         )
@@ -1488,7 +1488,7 @@ mod tests {
         let n = 40usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
             vec![2.4; n], nan.clone(), nan,
         )
@@ -1657,7 +1657,7 @@ mod tests {
             let n = 10usize;
             let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, wid, depth.clone(), vec![30.0; n], vec![2.0; n], vec![0.2; n],
                 vec![2.4; n], nan.clone(), nan,
             )

@@ -1281,12 +1281,16 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       `db::migrate_standard_curves_to_generic_store` — the project-wide back-fill, a **WRITE** —
       from inside the module-input READ whenever a curve is missing from the generic store. One
       connection runs it once invisibly; N connections each run the whole thing and collide on
-      `curve_meta`'s primary key. **Not a live bug** (the shared mutex serializes it). Blocked on a
-      behaviour decision, not a performance one: run the back-fill at project open, make it
-      idempotent, or refuse instead of back-filling — `PERF-ATTEMPTS.md` §4 sets out all three.
-      Re-runnable as
-      `workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`.
-      Ceiling once unblocked: the write is 17.2 s of a 21.5 s chain.
+      `curve_meta`'s primary key. **Not a live bug** (the shared mutex serializes it). **Fixed
+      2026-08-23** on Jauhar's call of *run it at the open* — which the open had been doing all
+      along, so the fix was to delete the lazy call; 83 fixtures that had been relying on the
+      read to repair them now ask by name through `db::insert_standard_curves_as_opened_project`,
+      the same function called explicitly and earlier, so no number moved. Measured on 8 cloned
+      connections: the un-backfilled project goes 7-of-8-failed → 0 failed and 0 `curve_meta` rows
+      written, and a properly opened one resolves 8 of 8
+      (`workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`).
+      **Stage 2 is now unblocked and NOT yet re-attempted** — one variable at a time, after the
+      last attempt moved two. Ceiling: the write is 17.2 s of a 21.5 s chain.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

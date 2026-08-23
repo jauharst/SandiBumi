@@ -1799,7 +1799,7 @@ mod tests {
         let n = 400usize;
         let depths: Vec<f32> = (0..n).map(|i| (1000.0 + i as f64 * 0.1524) as f32).collect();
         let gr: Vec<f32> = (0..n).map(|i| if i % 2 == 0 { 40.0 } else { 80.0 }).collect();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths.clone(),
@@ -1887,7 +1887,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let wid = Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-SUB", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             vec![1000.0, 1001.0, 1002.0],

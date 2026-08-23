@@ -1917,7 +1917,7 @@ mod tests {
 
         // The pre-DEC-089 state: standard holds the file's raw porosity units, the generic store
         // holds the converted v/v, and nothing reconciles them.
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             id,
             depth.to_vec(),
@@ -1981,7 +1981,7 @@ mod tests {
         let id2 = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn2, id2, "SANDI-PARTIAL", None, None, None).unwrap();
         let well2 = id2.to_string();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn2,
             id2,
             depth.to_vec(),
@@ -2144,7 +2144,7 @@ mod tests {
         let well = id.to_string();
         let depth = [1000.0f32, 1001.0, 1002.0];
         let nan = vec![f32::NAN; 3];
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn, id, depth.to_vec(), vec![40.0; 3], vec![20.0; 3], vec![0.2; 3],
             vec![2.35; 3], nan.clone(), nan,
         )
@@ -2553,7 +2553,7 @@ mod tests {
         let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.1).collect();
         let facies: Vec<f32> = (0..n).map(|i| if i % 41 == 40 { 7.0 } else { 2.0 }).collect();
         let gr: Vec<f32> = (0..n).map(|i| 40.0 + (i % 100) as f32).collect();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, well, depths.clone(), gr.clone(),
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -2611,7 +2611,7 @@ mod tests {
         db::insert_well(&conn, well, "SHADOW-1", None, None, None).unwrap();
         let wid = well.to_string();
         let depths = vec![100.0f32, 101.0, 102.0];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, well, depths.clone(), vec![10.0f32; 3],
             vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3],
         )
@@ -2655,7 +2655,7 @@ mod tests {
         let wid = well.to_string();
         let depths = vec![100.0f32, 101.0, 102.0];
         // res_deep all-NaN; CALI is non-standard, so "CALI" always resolves via the generic store.
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, well, depths.clone(), vec![10.0f32; 3],
             vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3],
         )
@@ -2692,7 +2692,7 @@ mod tests {
         db::insert_well(&conn, well, "RAW-PRIORITY-1", None, None, None).unwrap();
         let well_id = well.to_string();
         let depths = vec![100.0_f32, 101.0, 102.0];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well,
             depths.clone(),
@@ -2812,7 +2812,7 @@ mod tests {
         db::insert_well(&conn, wid, "EQ-1", None, None, Some(0.0)).unwrap();
         let depths = vec![1000.0f32, 1000.5, 1001.0];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depths.clone(),
             vec![40.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -2866,7 +2866,7 @@ mod tests {
             db::insert_well(&conn, wid, name, None, None, Some(0.0)).unwrap();
             let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
             let n = depths.len();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 wid,
                 depths,
@@ -2957,7 +2957,7 @@ mod tests {
         let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
         let gr = vec![40.0f32, 80.0, 40.0, 80.0];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths,
@@ -3041,7 +3041,7 @@ mod tests {
         // Half the GR is absent — a washout, a tool off bottom, an interval nobody logged.
         let gr = vec![40.0f32, f32::NAN, 45.0, f32::NAN];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths,

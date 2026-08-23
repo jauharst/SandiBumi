@@ -1063,7 +1063,7 @@ mod tests {
         db::insert_well(&conn, wid, "PY-1", None, None, Some(0.0)).unwrap();
         let depths = vec![1000.0f32, 1000.5, 1001.0];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depths.clone(),
             vec![40.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -1239,7 +1239,7 @@ mod tests {
             db::insert_well(&conn, wid, name, None, None, Some(0.0)).unwrap();
             let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
             let n = depths.len();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 wid,
                 depths,

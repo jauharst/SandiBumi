@@ -508,3 +508,71 @@ pins the sane ladder unchanged, both refusals by condition id and source, and bo
 as VALID. Three mutations red at three distinct assertions — pointing the rule at the wrong axis,
 treating `NotAbove` as strict (which refuses the shared-cutoff ladder), and letting the porosity
 axis compare against itself.
+
+
+---
+
+## A read path never writes (2026-08-23, #129)
+
+This one moved no number, which is why it sits at the end of a file about findings that did. It
+changes WHERE a piece of work happens, not what the work produces.
+
+`ancestry::try_resolve_ancestry_input` answers "which log set does this well's curve belong to?".
+When the generic store had no answer it did not say so - it ran
+`db::migrate_standard_curves_to_generic_store`, the whole project's legacy back-fill, and asked
+again. A repair, performed from inside a read, by a function every caller treats as a lookup.
+
+Behind SandiBumi's single `Mutex<Connection>` that is invisible: the first well through runs it,
+commits, and every well after finds the store already built. #129's reader pool removed exactly
+that serialization, and the result was **99 of 100 wells failing** with
+
+```
+TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE
+constraint violation: duplicate key "<uuid>"
+```
+
+reported out of a SELECT. The duplicate key is a **well id**, and nothing on that read path inserts
+a well - which is why the message read as impossible and why six hypotheses died before a bisect
+named it. `PERF-ATTEMPTS.md` §4 is that bisect.
+
+**The repair was already unreachable in production.** `project::open_and_migrate` is the only route
+any production open takes - startup, project switch, new project, installation - and it runs the
+back-fill at step 2, before a window can ask for a well. The one production writer of
+`standard_curves` is the LAS import (`ingest.rs`), which calls `db::mark_standard_curve_migration_done`
+in the same transaction. DLIS import writes no standard columns at all. So the lazy call could only
+ever fire in a state production does not produce.
+
+**83 tests disagreed**, and they were right to: they build a project with `db::create_schema` plus
+`db::insert_standard_curves` and never open it, which is a legacy project frozen a moment before
+its first open. They were relying on the read to repair them. They now ask for the repair by name
+through `db::insert_standard_curves_as_opened_project`, which is the same function called
+explicitly and earlier - so not one number moved.
+
+**Two of them had to stay on the raw door, and they name the rule.** A fixture that also writes its
+own `curve_meta`/`curve_samples` rows is not a legacy project, it is an IMPORTED one, and
+back-filling it adds a competing `standard_curves migration` identity for a curve that already has
+one. That surfaced as a changed winning curve in a candidate-selection test and as four extra
+curves in an export count - the two tests whose subject was curve identity, which is exactly where
+an invented identity would show.
+
+Pinned from both sides by
+`ancestry::tests::a_legacy_curve_resolves_because_the_open_backfilled_it_and_never_because_the_read_did`:
+a legacy project opened through `open_and_migrate` resolves its GR, and the same project WITHOUT
+that open declines and leaves `curve_meta` exactly as it found it. Either half alone passes for the
+wrong reason - the first passed on the old code because the lazy repair made it pass, and the
+second is satisfied perfectly by a read that resolves nothing at all.
+
+Measured concurrently by the `#[ignore]`d
+`workflow::tests::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`,
+8 wells on cloned connections:
+
+```
+                          before            after
+un-backfilled project     7 of 8 failed     0 failed, 0 resolved
+back-filled project       0 failed          0 failed, 8 of 8 resolved
+curve_meta rows written   from 8 threads    0
+```
+
+The `0 resolved` row is the honest half and the reason the probe counts resolutions at all: a read
+that resolves nothing cannot collide with anything, so a failure count alone would have called the
+fix a success on a project where nothing worked.

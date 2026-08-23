@@ -1881,7 +1881,7 @@ mod tests {
         crate::db::insert_well(&conn, well_id, "SYNTHETIC", None, None, None).unwrap();
         let depth = vec![1000.0_f32, 1000.5, 1001.0];
         let nan = vec![f32::NAN; depth.len()];
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             well_id,
             depth,

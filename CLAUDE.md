@@ -887,6 +887,18 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
   wrong for the other.** `sw_height`'s measured-depth fallback fires only when the well carries no
   TVD curve at all; a gap in one it does carry withholds the sample, because switching depth
   reference mid-well is not a fallback. Same rule as `sw_rtc`'s `has_cbw`.
+- **A read path never writes, and the generic-store back-fill belongs to the OPEN.**
+  `ancestry::try_resolve_ancestry_input` used to run `db::migrate_standard_curves_to_generic_store`
+  - the whole project's back-fill - lazily whenever a curve was missing, then retry. One shared
+  connection ran it once and it was invisible; N reader connections meant N rayon threads each
+  running the whole write and colliding on `curve_meta`'s primary key, which is what broke #129's
+  connection pool. It was also unreachable in production: `project::open_and_migrate` is the route
+  every open takes and runs the back-fill before any well can be read, and a LAS import (the ONE
+  production writer of `standard_curves`) marks its own wells done inside the import transaction.
+  A fixture that wants a readable legacy project asks for one by name -
+  `db::insert_standard_curves_as_opened_project` - and a fixture that also writes its own
+  `curve_meta`/`curve_samples` rows is an IMPORTED project, so it must NOT be back-filled or the
+  repair invents a competing identity for a curve that already has one.
 
 ### `docs/record_parallel_lanes.md` — running a second agent beside Claude Code
 

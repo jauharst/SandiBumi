@@ -14,6 +14,7 @@ Read this before proposing a performance change.
 | 4 | Speed up `phi_den` on real data by improving CURVE INPUT RESOLUTION, the mechanism `PERF-FIELD-FIXTURE-2026-08-23.md` §7 proposed | read phase 5.832 s generated -> **5.777 s** real (**0.99x**) while the write went 11.4 s -> 45.7 s | **REFUTED BY MEASUREMENT** | The read is identical on both fixtures. `RHOB` - the only curve `phi_den` asks for - is populated in the standard column on BOTH, so neither side takes the fallback path. The penalty is 89,600 degradation INSERTs. See `PERF-PHI-DEN-2026-08-23.md`. |
 | 5 | Write the 89,600 degradation rows through ONE appender instead of one `INSERT` each, the fix attempt 4 named | real delivery: `phi_den` 61.72 s -> **15.86 s** (3.89x), its write phase 51.14 s -> **5.34 s** (9.58x), chain total 85.86 s -> **41.92 s** (2.05x) | **KEPT** | The first surviving fix in pass 3. Paired A/B on the same machine in the same session; identical row counts in both tables at every step. Generated fixture gains only 1.37x on the step and 1.09x on the chain, which is INSIDE the variance floor - synthetic wells clamp 177 samples where real ones clamp 896. See `PERF-DEGRADATION-BATCH-2026-08-23.md`. |
 | 6 | #129 **stage 2** - pooled reader connections on the chain's four read paths, for the modelled 1.95x | the queue really did vanish (`wait` 124,407 ms -> **29 ms**) and **99 of 100 wells then failed** on the real fixture | **REVERTED** | A pooled read returns `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint violation` from a SELECT. **Cause named the same day by bisection**: that read path runs a project-wide back-fill WRITE (`ancestry::try_resolve_ancestry_input` -> `db::migrate_standard_curves_to_generic_store`), and N connections each run the whole thing. Stage 1 (the swap catch) stays. See §4. |
+| 7 | Take that back-fill off the read path, so #129 stage 2 can be re-attempted - Jauhar's call of *run it at the open*, which the open was already doing | 8 wells on cloned connections: un-backfilled project **7 of 8 failed -> 0 failed**, `curve_meta` rows written by the reads **8 racing threads -> 0**, opened project **8 of 8 resolved** | **KEPT** | Buys no speed by itself and was not meant to - it unblocks the 1.95x. The lazy repair was unreachable in production (the open runs the back-fill; the LAS import marks its own wells done), so no number moved: the 83 fixtures that relied on it now call the same function explicitly through `db::insert_standard_curves_as_opened_project`. See §4. |
 
 ---
 
@@ -328,20 +329,41 @@ re-runs the identical concurrent read with the back-fill done first, CLEAN-STORE
 group on the migrated project to show there is no SECOND lazy write further down, and CONTROL runs
 the sequence serially to show the fixture is not what is broken.
 
-### What the next attempt should do FIRST
+### The blocker is cleared - route 1, 2026-08-23
 
-Deal with the lazy back-fill, and only then re-attempt the concurrency. **This is a decision for
-Jauhar, not a performance change** - the three obvious routes are not equivalent:
+Three routes were put to Jauhar and he chose the first: run the back-fill at project open, delete
+the lazy call. **It turned out to be half done already** - `project::open_and_migrate` has always
+run the back-fill at step 2, and it is the route every production open takes, so route 1 reduced to
+deleting the lazy call.
 
-1. **Run the back-fill once at project open** and delete the lazy call. Honest and simple; it moves
-   an already-announced one-time cost to where §3's `[boot]` lines already report it. Costs a cold
-   open on a legacy project that would otherwise have paid it later.
-2. **Make the lazy call idempotent under concurrency.** Smallest diff, but it is a write discipline
-   change on `curve_meta`, and `CLAUDE.md` forbids adding upsert paths casually.
-3. **Refuse rather than back-fill** when the curve is missing. Cleanest boundary, changes behaviour
-   for legacy projects.
+Which raised the obvious question: if the open already does it, what was the lazy call FOR? The
+counted answer is nothing. The one production writer of `standard_curves` is the LAS import, which
+marks its own wells done in the same transaction (`ingest.rs`); DLIS writes no standard columns;
+every other call site in the crate is `#[cfg(test)]`. The repair could only fire in a state
+production does not produce.
 
-The 1.95x is reachable once one of those lands - the queue really did disappear. The reverted stage
+**83 tests were in exactly that state** and had been relying on the read to repair them. They now
+ask for it by name - `db::insert_standard_curves_as_opened_project`, the same function called
+explicitly and earlier, so no number moved. Two fixtures had to stay on the raw door because they
+write their own generic curves and are therefore IMPORTED projects, where a back-fill invents a
+second identity; both showed up as identity failures, which is where an invented identity would.
+
+Measured on 8 wells over cloned connections:
+
+```
+                          before            after
+un-backfilled project     7 of 8 failed     0 failed, 0 resolved
+back-filled project       0 failed          0 failed, 8 of 8 resolved
+curve_meta rows written   from 8 threads    0
+```
+
+`0 resolved` is the honest half - a read that resolves nothing cannot collide with anything - and
+is why the probe now counts resolutions rather than failures alone.
+
+**Stage 2 is unblocked but NOT re-attempted here**, deliberately: the last attempt moved two things
+at once and cost a day. One variable at a time.
+
+The 1.95x is reachable now - the queue really did disappear. The reverted stage
 2 patch is preserved against `ff7cecf5` in this session's scratchpad and deliberately not in the
 repository, because a broken concurrency change sitting in the tree is exactly the thing somebody
 re-enables without re-reading this. The probe stays IN the tree, because verifying whichever route
