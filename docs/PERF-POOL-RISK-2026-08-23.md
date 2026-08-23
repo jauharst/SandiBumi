@@ -130,7 +130,7 @@ transaction*. A pooled reader that held one open across a chain step would serve
 This is a discipline rather than a hazard: pooled readers take no explicit transaction and are
 returned to the pool between operations.
 
-### M8 — a pooled read returns a COMMIT failure. **Blocking, and NAMED.** (added 2026-08-23)
+### M8 — a pooled read returns a COMMIT failure. **CLEARED 2026-08-23.** (added 2026-08-23)
 
 Found by building stage 2. With the runner's four read paths on pooled connections, the queue
 vanished as modelled (`lock_probe` WAIT **124,407 ms → 29 ms**) and then **99 of 100 wells failed**
@@ -151,10 +151,11 @@ is a **well id**, which is why the error read as impossible: nothing on that rea
 well, and the back-fill does. Written up with its four-arm evidence in `PERF-ATTEMPTS.md` §4, and
 re-runnable as `workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`.
 
-**This is still the blocker.** How the lazy back-fill should be dealt with — run it at open, make it
-idempotent, or refuse instead of back-filling — is a behaviour decision for Jauhar, not a
-performance one, and §4 sets out the three routes. It is not a live bug today: the single shared
-mutex serializes that write.
+**Cleared.** Jauhar chose *run it at the open*, and the open had been running it all along
+(`project::open_and_migrate` step 2), so the fix was to delete the lazy call. The same concurrent
+read on 8 cloned connections now loses 0 wells and writes 0 rows, and on a project opened the
+production way resolves 8 of 8. Stage 2 is unblocked and deliberately not re-attempted in the same
+increment. It was never a live bug: the single shared mutex serialized that write.
 
 ### M5 — 203 lock sites, 195 of them in `lib.rs`
 

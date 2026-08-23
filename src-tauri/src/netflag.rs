@@ -410,7 +410,7 @@ mod tests {
         nphi[5] = f32::NAN;
         rhob[5] = f32::NAN;
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(conn, id, depth, vec![50.0; n], nan.clone(), nphi, rhob, nan.clone(), nan)
+        db::insert_standard_curves_as_opened_project(conn, id, depth, vec![50.0; n], nan.clone(), nphi, rhob, nan.clone(), nan)
             .unwrap();
         id.to_string()
     }
@@ -501,7 +501,7 @@ mod tests {
         let res: Vec<f32> = vec![1.0, 10.0, 100.0, 1000.0];
         let nphi: Vec<f32> = vec![0.10, 0.10, 0.10, 0.10];
         let nan = vec![f32::NAN; 4];
-        db::insert_standard_curves(&conn, id, depth, vec![50.0; 4], res, nphi, nan.clone(), nan.clone(), nan)
+        db::insert_standard_curves_as_opened_project(&conn, id, depth, vec![50.0; 4], res, nphi, nan.clone(), nan.clone(), nan)
             .unwrap();
         let w = id.to_string();
         // A data-space box around the 10..100 decade. In log10 space x spans log10(5)..log10(200)

@@ -878,16 +878,23 @@ pub(crate) fn try_resolve_ancestry_input(
 
     // SB-DIO-034: provenance must resolve with the SAME request type the reader used
     // (SemanticFamily), or a run could record one curve while calculating from another.
-    let mut imported =
+    //
+    // #129: there is deliberately NO repair here. A curve missing from the generic store used to
+    // trigger `db::migrate_standard_curves_to_generic_store` - the whole project's legacy
+    // back-fill, a WRITE - from inside this read, and then retry. Behind the one shared connection
+    // that ran once, committed, and was invisible; on N reader connections, N rayon threads each
+    // ran the whole back-fill and collided on `curve_meta`'s primary key, which is what broke the
+    // connection pool. `PERF-ATTEMPTS.md` §4 has the bisect that named it.
+    //
+    // The back-fill belongs to the open, and already runs there: `project::open_and_migrate` is
+    // the route every production open takes, and it runs the back-fill before any well can be
+    // read. A LAS import marks its own wells done inside the import transaction, so a well that
+    // arrives mid-session is not owed one either. A curve still absent after that is absent - this
+    // returns None, the caller tries the next alias, and an input that resolves nowhere is a named
+    // missing-input error rather than a silent substitution.
+    let imported =
         resolve_generic_curve_decision(conn, well_id, &upper, CurveRequest::SemanticFamily)
             .map_err(|error| error.to_string())?;
-    if imported.is_none() {
-        crate::db::migrate_standard_curves_to_generic_store(conn)
-            .map_err(|error| error.to_string())?;
-        imported =
-            resolve_generic_curve_decision(conn, well_id, &upper, CurveRequest::SemanticFamily)
-                .map_err(|error| error.to_string())?;
-    }
     let Some(GenericCurveDecision {
         chosen,
         rule,
@@ -4321,5 +4328,84 @@ mod tests").next().expect("a split always yields one piece");
             )
             .unwrap();
         assert_eq!(rows, 0, "the valid event beside the impossible one must not survive either");
+    }
+
+    /// #129: the module-input read used to REPAIR the project when a curve was missing from the
+    /// generic store - `db::migrate_standard_curves_to_generic_store`, the whole project's legacy
+    /// back-fill, run lazily from inside a read and then retried. One shared connection ran it
+    /// once and nobody noticed; N reader connections each ran the whole thing and collided on
+    /// `curve_meta`'s primary key, which is what broke the connection pool
+    /// (`PERF-ATTEMPTS.md` §4).
+    ///
+    /// The back-fill belongs to the open. Pinned from BOTH sides, because either half alone
+    /// passes for the wrong reason: "a legacy well's curve still resolves" passed on the old code
+    /// too - the lazy repair is what made it pass - and "the read writes nothing" is satisfied
+    /// perfectly by a read that resolves nothing at all.
+    #[test]
+    fn a_legacy_curve_resolves_because_the_open_backfilled_it_and_never_because_the_read_did() {
+        let dir = std::env::temp_dir().join("sandibumi_ancestry_backfill_boundary");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp directory");
+
+        // A project shaped like one made before the generic store existed: standard columns only,
+        // and no `curve_migration_done` row to say the back-fill has already run.
+        let legacy = |name: &str| -> (String, String) {
+            let text = dir
+                .join(name)
+                .to_str()
+                .expect("a temp path is valid UTF-8")
+                .to_string();
+            let conn = crate::db::init_db(&text).expect("a fresh project");
+            let well = uuid::Uuid::new_v4();
+            crate::db::insert_well(&conn, well, "SANDI-1", None, None, None).expect("a well");
+            let n = 8usize;
+            let depth: Vec<f32> = (0..n).map(|k| 1000.0 + k as f32).collect();
+            let nan = vec![f32::NAN; n];
+            crate::db::insert_standard_curves(
+                &conn,
+                well,
+                depth,
+                vec![40.0; n],
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan,
+            )
+            .expect("standard curves");
+            (text, well.to_string())
+        };
+        let curves_in_store = |conn: &Connection| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM curve_meta", [], |row| row.get(0))
+                .expect("counting curve_meta")
+        };
+
+        // Side 1 - opened the way every production open opens, the legacy curve resolves.
+        let (opened_path, opened_well) = legacy("opened.duckdb");
+        let opened = crate::project::open_and_migrate(&opened_path).expect("the project opens");
+        assert!(
+            try_resolve_ancestry_input(&opened, &opened_well, "GR", "GR", None, None)
+                .expect("resolution must not error")
+                .is_some(),
+            "the open-time back-fill is what makes a legacy well's GR resolvable"
+        );
+
+        // Side 2 - the same project WITHOUT that open. The read must decline, and must leave the
+        // store exactly as it found it. On the old code this call repaired the project and
+        // returned Some, so this is the half that fails if the lazy write ever comes back.
+        let (bare_path, bare_well) = legacy("bare.duckdb");
+        let bare = crate::db::init_db(&bare_path).expect("the same project, unmigrated");
+        let before = curves_in_store(&bare);
+        assert!(
+            try_resolve_ancestry_input(&bare, &bare_well, "GR", "GR", None, None)
+                .expect("resolution must not error")
+                .is_none(),
+            "an un-backfilled store has no curve to resolve, and the read must say so"
+        );
+        assert_eq!(
+            curves_in_store(&bare),
+            before,
+            "the module-input read path must never write - the back-fill belongs to the open"
+        );
     }
 }

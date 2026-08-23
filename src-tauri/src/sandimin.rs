@@ -3348,7 +3348,7 @@ mod tests {
             rhob.push(mix("RHOB") as f32);
             dt.push(mix("DT") as f32);
         }
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn, wid, depth.clone(), gr, vec![2.0f32; n], nphi, rhob, dt, vec![f32::NAN; n],
         )
         .unwrap();
@@ -3484,7 +3484,7 @@ mod tests {
             rhob.push(mix("RHOB") as f32);
             dt.push(mix("DT") as f32);
         }
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn, wid, depth.clone(), gr, vec![2.0f32; n], nphi, rhob.clone(), dt, vec![f32::NAN; n],
         )
         .unwrap();
@@ -3578,7 +3578,7 @@ mod tests {
         crate::db::insert_well(&conn, wid, "MM-DOF", None, None, None).unwrap();
         let n = 6usize;
         let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn, wid, depth, vec![40.0; n], vec![2.0; n], vec![0.2; n], vec![2.45; n], vec![80.0; n], vec![f32::NAN; n],
         )
         .unwrap();
@@ -3644,7 +3644,7 @@ mod tests {
         crate::db::insert_well(&conn, wid, "MM-BLIND", None, None, None).unwrap();
         let n = 8usize;
         let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn, wid, depth, vec![40.0; n], vec![2.0; n], vec![0.2; n], vec![2.45; n], vec![80.0; n],
             vec![f32::NAN; n],
         )
@@ -4791,7 +4791,7 @@ mod tests {
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "MM-IND", None, None, None).unwrap();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depth,
@@ -4909,7 +4909,7 @@ mod tests {
             crate::db::create_schema(&conn).unwrap();
             let wid = uuid::Uuid::new_v4();
             crate::db::insert_well(&conn, wid, "MM-SAT25", None, None, None).unwrap();
-            crate::db::insert_standard_curves(
+            crate::db::insert_standard_curves_as_opened_project(
                 &conn,
                 wid,
                 depth.clone(),
@@ -5095,7 +5095,7 @@ mod tests {
         let dry = uuid::Uuid::new_v4();
         for (id, name) in [(cored, "MM-CORE"), (dry, "MM-NOCORE")] {
             crate::db::insert_well(&conn, id, name, None, None, None).unwrap();
-            crate::db::insert_standard_curves(
+            crate::db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth.clone(),
@@ -5388,7 +5388,7 @@ mod tests {
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "MM-DWNL", None, None, None).unwrap();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depth,
@@ -5485,7 +5485,7 @@ mod tests {
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "MM-WS", None, None, None).unwrap();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depth,
@@ -5593,7 +5593,7 @@ mod tests {
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "MM-WS-SH", None, None, None).unwrap();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depth,
@@ -5732,7 +5732,7 @@ mod tests {
         crate::db::create_schema(&conn).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, name, None, None, None).unwrap();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depth.clone(),

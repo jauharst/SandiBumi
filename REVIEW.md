@@ -18853,3 +18853,38 @@ note now states both defaults and where they come from.
 - [ ] **Set it per zone** in the zone-parameter table on a well with both a gas sand and a wet
       sand — the wet zone should be unaffected whatever you choose, because with no crossover
       the correction does nothing at any c.
+
+
+## A curve lookup no longer quietly repairs your project (#129, 2026-08-23)
+
+**Nothing on screen changes, and no number changes.** This is a plumbing fix, and the only reason
+it needs your eyes is that it touched the code that decides *which curve a module reads*, which is
+the last place either of us wants a surprise.
+
+What it was. When a module asked "which log set does this well's GR belong to?", and the answer was
+not in the curve store, the app did not say "not there" - it quietly rebuilt the curve store for
+**the whole project**, then asked again. A repair, run from inside a question. With one connection
+to the database that happens once, works, and nobody notices. It is also what made the
+faster-batch-runs work fail 99 of your 100 wells: with several connections, several wells each
+started the same rebuild at the same moment and collided.
+
+What it is now. The rebuild happens where it always happened - when the project OPENS - and the
+lookup just answers. Every route into a project already ran it, and a LAS import already marks its
+own wells as done, so in practice nothing is being taken away; it is being taken off a path it was
+never supposed to be on.
+
+Worth checking, on real wells:
+
+- [ ] **Open an OLD project** - one made before the curve store existed, if you still have one -
+      and run any module. The curves must resolve exactly as before, and the run record must still
+      name which log set each input came from.
+- [ ] **Open a project you made recently** and run a chain over several wells. Same expectation:
+      no missing-input refusals that were not there yesterday.
+- [ ] **Import a LAS into an existing well and run a module on it** - the freshest possible curve,
+      the case most likely to be affected if anything is.
+- [ ] **Look at a run record** (Processing / the log-set provenance) on one of those runs and
+      confirm it still cites a real input curve rather than saying it could not find one.
+
+If any of those turns up a module suddenly unable to find a curve it found before, that is this
+change and I want to hear about it - it would mean there is a fifth way wells arrive that neither
+the search nor the test suite found.

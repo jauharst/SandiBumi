@@ -2402,7 +2402,7 @@ mod tests {
         let rhob: Vec<f32> = vec![2.35; n];
         let dt: Vec<f32> = vec![80.0; n];
         let sp: Vec<f32> = vec![f32::NAN; n];
-        db::insert_standard_curves(conn, id, depth, gr, res, nphi, rhob, dt, sp).unwrap();
+        db::insert_standard_curves_as_opened_project(conn, id, depth, gr, res, nphi, rhob, dt, sp).unwrap();
         id.to_string()
     }
 

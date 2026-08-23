@@ -1100,7 +1100,7 @@ mod tests {
         let depth: Vec<f32> = (0..201).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let gr = depth.clone();
         let nan = vec![f32::NAN; depth.len()];
-        db::insert_standard_curves(conn, id, depth, gr, nan.clone(), nan.clone(), nan.clone(), nan.clone(), nan)
+        db::insert_standard_curves_as_opened_project(conn, id, depth, gr, nan.clone(), nan.clone(), nan.clone(), nan.clone(), nan)
             .unwrap();
         id.to_string()
     }

@@ -3729,7 +3729,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, name, None, None, Some(0.0)).unwrap();
             let missing = vec![f32::NAN; depth.len()];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth.clone(),
@@ -3871,7 +3871,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, "DRHO-THRESHOLD-UNIT", None, None, Some(0.0)).unwrap();
             let depth = vec![1000.0, 1000.5];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth.clone(),
@@ -3950,7 +3950,7 @@ mod tests")
         fn add_well(conn: &Connection, name: &str) -> String {
             let id = uuid::Uuid::new_v4();
             db::insert_well(conn, id, name, None, None, None).unwrap();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 conn,
                 id,
                 vec![1000.0, 1001.0],
@@ -4154,7 +4154,7 @@ mod tests")
         db::insert_well(&conn, well_uuid, "PARAMETER-STATE-FIXTURE", None, None, None).unwrap();
         let well_id = well_uuid.to_string();
         let depth = vec![1000.0_f32, 1001.0, 1002.0];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well_uuid,
             depth.clone(),
@@ -4847,7 +4847,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(conn, id, name, None, None, None).unwrap();
             let missing = vec![f32::NAN; depth.len()];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 conn,
                 id,
                 depth.to_vec(),
@@ -5151,7 +5151,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
                 vec![2.35; n], nan.clone(), nan,
             )
@@ -5268,7 +5268,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
                 vec![2.35; n], nan.clone(), nan,
             )
@@ -5367,7 +5367,7 @@ mod tests")
             let rhob: Vec<f32> =
                 (0..n).map(|i| if i < low_rhob { 1.5 } else { 2.35 }).collect();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n],
                 rhob, nan.clone(), nan,
             )
@@ -5462,7 +5462,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, name, Some("Synthetic"), None, None).unwrap();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], nphi, rhob,
                 nan.clone(), nan,
             )
@@ -5563,7 +5563,7 @@ mod tests")
         dt[14] = 200.0;
         let flag: Vec<f32> = (0..n).map(|i| if i == 14 { 1.0 } else { 0.0 }).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), gr, nan.clone(), nan.clone(), nan.clone(), dt, nan,
         )
         .unwrap();
@@ -5644,7 +5644,7 @@ mod tests")
         let n = 5usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth, vec![60.0; n], nan.clone(), nan.clone(), nan.clone(),
             nan.clone(), nan,
         )
@@ -5695,7 +5695,7 @@ mod tests")
         let n = 3usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), vec![60.0; n], nan.clone(), nan.clone(), nan.clone(),
             nan.clone(), nan,
         )
@@ -5789,7 +5789,7 @@ mod tests")
         let n = 4usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), vec![50.0; n], nan.clone(),
             vec![0.20, 0.22, 0.24, 0.26], vec![2.30, 2.35, 2.40, 2.45], nan.clone(), nan,
         )
@@ -6060,7 +6060,7 @@ mod tests")
         let n = 4usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth, vec![60.0, 70.0, 80.0, 90.0], nan.clone(), nan.clone(),
             nan.clone(), nan.clone(), nan,
         )
@@ -6237,7 +6237,7 @@ mod tests")
         let n = 4usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), vec![60.0; n], nan.clone(), nan.clone(), nan.clone(),
             nan.clone(), nan,
         )
@@ -6355,7 +6355,7 @@ mod tests")
         .unwrap();
         db::insert_curve_samples(&conn, &cali_id, &depth, &[10.5, f32::NAN, 10.5, f32::NAN])
             .unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth, vec![80.0; n], nan.clone(), nan.clone(), nan.clone(),
             nan.clone(), nan,
         )
@@ -6431,7 +6431,7 @@ mod tests")
         let n = 3usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth, nan.clone(), nan.clone(), vec![0.18; n], nan.clone(),
             nan.clone(), nan,
         )
@@ -6535,7 +6535,7 @@ mod tests")
         let n = 12usize;
         let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             conn, id, depth.clone(), vec![55.0; n], vec![9.0; n], nan.clone(), nan.clone(),
             nan.clone(), nan,
         )
@@ -6576,7 +6576,7 @@ mod tests")
         let n = 3usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth, vec![50.0; n], nan.clone(), vec![0.21; n], vec![2.35; n],
             nan.clone(), nan,
         )
@@ -6979,7 +6979,7 @@ mod tests")
         let n = 20usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
             nan.clone(), nan,
         )
@@ -7088,7 +7088,7 @@ mod tests")
         let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
         // A raw well: real deep resistivity, no porosity interpretation of any kind.
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), vec![60.0; n], vec![8.0; n], nan.clone(), nan.clone(),
             nan.clone(), nan,
         )
@@ -7308,7 +7308,7 @@ mod tests")
         let n = depths.len();
 
         // RHOB/NPHI/DT go in the fixed table; GR too (for the masked run). RES/SP unused.
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths.clone(),
@@ -7405,7 +7405,7 @@ mod tests")
         // Dead well: every standard curve is all-NaN.
         let dead = Uuid::new_v4();
         db::insert_well(&conn, dead, "DEAD-1", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, dead, depths.clone(),
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7414,7 +7414,7 @@ mod tests")
         // Live well: a real GR that clusters and computes a real VSH.
         let live = Uuid::new_v4();
         db::insert_well(&conn, live, "LIVE-1", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, live, depths.clone(),
             vec![20.0, 55.0, 90.0, 120.0], vec![f32::NAN; n], vec![f32::NAN; n],
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7467,7 +7467,7 @@ mod tests")
         // Five good-hole GR samples spanning 30–70 gAPI, plus one washed-out sample at GR=500.
         let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5, 1002.0, 1002.5];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths.clone(),
@@ -7532,7 +7532,7 @@ mod tests")
         let w = wid.to_string();
         let depths = vec![1000.0f32, 1001.0, 1002.0, 1003.0];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depths.clone(),
             vec![50.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7658,7 +7658,7 @@ mod tests")
         let w = wid.to_string();
         let depths = vec![1000.0f32, 1001.0, 1002.0, 1003.0];
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depths.clone(),
             vec![50.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7786,7 +7786,7 @@ mod tests")
                 .map(|i| base + span * (((i * 37) % n) as f32 / (n - 1) as f32))
                 .collect();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth,
@@ -7921,7 +7921,7 @@ mod tests")
             db::insert_well(&conn, wid, "SANDI-PFX", None, None, Some(0.0)).unwrap();
             let n = 5usize;
             let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 wid,
                 depths,
@@ -8293,7 +8293,7 @@ mod tests")
         let well_id = well_uuid.to_string();
         let depth = vec![1000.0_f32, 1000.5];
         let missing = vec![f32::NAN; depth.len()];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well_uuid,
             depth.clone(),
@@ -8548,7 +8548,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, label, None, None, Some(0.0)).unwrap();
             let missing = vec![f32::NAN; depth.len()];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth.clone(),
@@ -8727,7 +8727,7 @@ mod tests")
         let well = uuid::Uuid::new_v4();
         db::insert_well(&conn, well, "SMOOTHING-POLICY", None, None, Some(0.0)).unwrap();
         let missing = vec![f32::NAN; 5];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well,
             vec![1000.0, 1001.0, 1002.0, 1003.0, 1004.0],
@@ -8901,7 +8901,7 @@ mod tests")
         .unwrap();
         let well_id = well_uuid.to_string();
         let depth = vec![1000.0, 1000.5, 1001.0, 1001.5];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well_uuid,
             depth.clone(),
@@ -9047,7 +9047,7 @@ mod tests")
         // Vertical well, no TVDSS curve — precalc falls back to measured depth as a whole curve.
         let depths: Vec<f32> = (0..11).map(|i| 1000.0 + i as f32 * 100.0).collect();
         let n = depths.len();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths.clone(),
@@ -9176,7 +9176,7 @@ mod tests")
         let mut rhob = rhob_true.clone();
         rhob[washout] = 1.95; // mud, not rock
 
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths.clone(),
@@ -9336,7 +9336,7 @@ mod tests")
         let depths = vec![1000.0f32, 1500.0, 2000.0];
         let n = depths.len();
         let nphi_in = 0.30f32;
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             wid,
             depths.clone(),
@@ -9458,7 +9458,7 @@ mod tests")
         db::insert_well(&conn, well_uuid, "MISSING-CALIPER", None, None, Some(0.0)).unwrap();
         let well = well_uuid.to_string();
         let depths = vec![1000.0f32, 1000.5];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well_uuid,
             depths.clone(),
@@ -9559,7 +9559,7 @@ mod tests")
         let n = 3usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             id,
             depth.clone(),
@@ -9732,7 +9732,7 @@ mod tests")
         let well_id = uuid::Uuid::new_v4();
         db::insert_well(&conn, well_id, "UNDECLARED-DEPTH-UNIT", None, None, None).unwrap();
         let depth = vec![1000.0_f32, 1000.5, 1001.0];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well_id,
             depth,
@@ -9813,7 +9813,7 @@ mod tests")
         let w = wid.to_string();
         let n = 8usize;
         let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, wid, depths,
             vec![45.0; n], vec![f32::NAN; n], vec![0.2; n], vec![2.4; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -9879,7 +9879,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, name, None, None, None).unwrap();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depth.clone(), vec![50.0; n], nan.clone(), vec![0.2; n],
                 vec![2.4; n], nan.clone(), nan,
             )
@@ -10005,7 +10005,7 @@ mod tests")
         let n = 20usize;
         let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let nan = vec![f32::NAN; n];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, id, depth.clone(), vec![50.0; n], vec![4.0; n], vec![0.25; n],
             vec![2.4; n], nan.clone(), nan,
         )
@@ -10093,7 +10093,7 @@ mod tests")
             db::insert_well(&conn, id, name, None, None, None).unwrap();
             let n = 5usize;
             let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depth,
                 vec![gr; n], vec![f32::NAN; n], vec![0.2; n], vec![2.4; n], vec![f32::NAN; n], vec![f32::NAN; n],
             )
@@ -10306,7 +10306,7 @@ mod tests")
             let well_id = uuid::Uuid::new_v4();
             db::insert_well(conn, well_id, name, None, None, None).unwrap();
             let depth = vec![1000.0_f32, 1001.0];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 conn,
                 well_id,
                 depth.clone(),
@@ -10520,7 +10520,7 @@ mod tests")
         let well_id = uuid::Uuid::new_v4();
         db::insert_well(&conn, well_id, "PARTIAL-PRECONDITION", None, None, None).unwrap();
         let well = well_id.to_string();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             well_id,
             vec![1000.0, 1001.0, 1002.0],
@@ -10747,7 +10747,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, label, None, None, Some(0.0)).unwrap();
             let missing = vec![f32::NAN; depth.len()];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth.clone(),
@@ -10878,7 +10878,7 @@ mod tests")
             let id = uuid::Uuid::new_v4();
             db::insert_well(&conn, id, family, None, None, Some(0.0)).unwrap();
             let missing = vec![f32::NAN; depth.len()];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depth.clone(),
@@ -11012,33 +11012,41 @@ mod tests")
         );
     }
 
-    /// #129 stage 2 named its blocker with this. `PERF-ATTEMPTS.md` §4: pooled reader
-    /// connections made 99 of 100 wells fail with a COMMIT error reported out of a READ, and six
-    /// hypotheses were ruled out before this bisect found the cause.
+    /// #129 stage 2 named its blocker with this, and this is now what shows the blocker is gone.
+    /// `PERF-ATTEMPTS.md` §4: pooled reader connections made 99 of 100 wells fail with a COMMIT
+    /// error reported out of a READ, and six hypotheses were ruled out before this bisect found
+    /// the cause - `ancestry::try_resolve_ancestry_input` ran
+    /// `db::migrate_standard_curves_to_generic_store`, the project-wide back-fill, from inside the
+    /// read whenever a curve was missing, and N connections meant N threads each running the whole
+    /// write. The read no longer repairs anything; the back-fill belongs to
+    /// `project::open_and_migrate`.
     ///
-    /// **The module-input read path performs exactly one write, and it is a project-wide
-    /// migration.** `ancestry::try_resolve_ancestry_input` calls
-    /// `db::migrate_standard_curves_to_generic_store` whenever a curve is missing from the generic
-    /// store, then retries the resolution. Behind the one shared connection it runs once and is
-    /// invisible; on N connections, N rayon threads each run the whole back-fill and collide on a
-    /// primary key.
+    /// What the four arms said then, and say now:
     ///
-    /// Four arms, and each is needed:
+    ///   - DEPTH walks the statement groups on an UN-BACKFILLED project - a legacy project that
+    ///     was never opened. It used to lose 7 of 8 wells at group 1 to a duplicate `well_id`.
+    ///     Now: 0 failed, and 0 resolved. **Both halves of that matter.** Zero failures is the
+    ///     fix; zero resolutions is why the failure count alone would be worthless here, because
+    ///     a read that resolves nothing cannot collide with anything.
+    ///   - CONFIRM runs the back-fill once up front and repeats the same concurrent read. Clean
+    ///     then and now; it is what turned a first-failing group into a named cause.
+    ///   - CLEAN-STORE re-walks every group on the back-filled project - the state every
+    ///     production open leaves behind. 0 failed and 8 of 8 resolved, which is the arm that
+    ///     says the concurrency is genuinely usable rather than merely quiet.
+    ///   - CONTROL runs the whole sequence serially. Clean, so the probe is measuring concurrency
+    ///     rather than a broken fixture.
     ///
-    ///   - DEPTH walks the statement groups on a FRESH store, so the first one that fails names
-    ///     the culprit. Only depth 1 fails - and depths 2-5 look clean here for the wrong reason,
-    ///     because depth 1 already ran the back-fill.
-    ///   - CONFIRM runs the back-fill once up front and repeats the same concurrent read. Clean.
-    ///     That is the difference between naming a cause and guessing one.
-    ///   - CLEAN-STORE then re-walks every statement group on the migrated project, which is what
-    ///     DEPTH could not do honestly. All clean, so there is no SECOND lazy write further down.
-    ///   - CONTROL runs the whole sequence serially on the base connection. Clean, so the probe is
-    ///     measuring concurrency rather than a broken fixture.
+    /// STORE closes it: the un-backfilled project holds 0 `curve_meta` rows after every read
+    /// above. Before the fix those rows arrived from eight threads racing to write them.
     ///
-    /// Kept rather than deleted because a future stage 2 needs exactly this to verify a fix, and
-    /// re-deriving it cost six experiments. `#[ignore]`d: it builds two projects and runs rayon
-    /// over them, which the green gate must not wait on. It asserts nothing - it PRINTS, for a
-    /// human to read - so it is never evidence that anything passes.
+    /// The fixtures here deliberately DO NOT use
+    /// `db::insert_standard_curves_as_opened_project` - an un-opened project is the state this
+    /// exists to exercise, and handing it a repaired one would make every arm vacuously clean.
+    ///
+    /// Kept rather than deleted because the next stage-2 attempt needs exactly this to verify
+    /// itself, and re-deriving it cost six experiments. `#[ignore]`d: it builds two projects and
+    /// runs rayon over both, which the green gate must not wait on. It asserts nothing - it
+    /// PRINTS, for a human to read - so it is never evidence that anything passes.
     #[test]
     #[ignore]
     fn the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill() {
@@ -11089,43 +11097,52 @@ mod tests")
                 .map(|id| (id.clone(), base.try_clone().expect("try_clone")))
                 .collect();
 
-            let errors: Vec<String> = work
+            let outcomes: Vec<Result<bool, String>> = work
                 .into_par_iter()
-                .filter_map(|(well_id, conn)| {
-                    let attempt = || -> Result<(), String> {
+                .map(|(well_id, conn)| {
+                    let attempt = || -> Result<bool, String> {
+                        let resolved = crate::ancestry::try_resolve_ancestry_input(
+                            &conn, &well_id, "GR", "GR", None, None,
+                        )?
+                        .is_some();
                         let log_args = resolved_log_args_for_well(
                             &conn, &well_id, &spec, &no_logs, None, None, &HashSet::new(),
                         )?;
                         if depth_limit == 1 {
-                            return Ok(());
+                            return Ok(resolved);
                         }
                         validate_shale_clay_input_quantities(
                             &conn, &well_id, &spec, &log_args, None, None,
                         )?;
                         if depth_limit == 2 {
-                            return Ok(());
+                            return Ok(resolved);
                         }
                         validate_neutron_basis_input(&conn, &well_id, &spec, &log_args)?;
                         if depth_limit == 3 {
-                            return Ok(());
+                            return Ok(resolved);
                         }
                         let (depth, _logs, _units) = fetch_module_input_logs(
                             &conn, &well_id, &spec, &log_args, None, None,
                         )?;
                         if depth_limit == 4 {
-                            return Ok(());
+                            return Ok(resolved);
                         }
                         let _ = resolve_param_arrays_with_default_usage(
                             &conn, &well_id, &spec, &params, &depth,
                         )?;
-                        Ok(())
+                        Ok(resolved)
                     };
-                    attempt().err()
+                    attempt()
                 })
                 .collect();
 
+            let errors: Vec<String> = outcomes
+                .iter()
+                .filter_map(|outcome| outcome.as_ref().err().cloned())
+                .collect();
+            let resolved = outcomes.iter().filter(|outcome| matches!(outcome, Ok(true))).count();
             println!(
-                "DEPTH {label}: {} of {wells} failed{}",
+                "DEPTH {label}: {} of {wells} failed, {resolved} of {wells} resolved GR{}",
                 errors.len(),
                 errors.first().map(|e| format!(" - first: {e}")).unwrap_or_default()
             );
@@ -11180,42 +11197,52 @@ mod tests")
                     .iter()
                     .map(|id| (id.clone(), base2.try_clone().expect("try_clone")))
                     .collect();
-                let errors: Vec<String> = work
+                let outcomes: Vec<Result<bool, String>> = work
                     .into_par_iter()
-                    .filter_map(|(well_id, conn)| {
-                        let attempt = || -> Result<(), String> {
+                    .map(|(well_id, conn)| {
+                        let attempt = || -> Result<bool, String> {
+                            let resolved = crate::ancestry::try_resolve_ancestry_input(
+                                &conn, &well_id, "GR", "GR", None, None,
+                            )?
+                            .is_some();
                             let log_args = resolved_log_args_for_well(
                                 &conn, &well_id, &spec, &no_logs, None, None, &HashSet::new(),
                             )?;
                             if depth_limit == 1 {
-                                return Ok(());
+                                return Ok(resolved);
                             }
                             validate_shale_clay_input_quantities(
                                 &conn, &well_id, &spec, &log_args, None, None,
                             )?;
                             if depth_limit == 2 {
-                                return Ok(());
+                                return Ok(resolved);
                             }
                             validate_neutron_basis_input(&conn, &well_id, &spec, &log_args)?;
                             if depth_limit == 3 {
-                                return Ok(());
+                                return Ok(resolved);
                             }
                             let (depth, _l, _u) = fetch_module_input_logs(
                                 &conn, &well_id, &spec, &log_args, None, None,
                             )?;
                             if depth_limit == 4 {
-                                return Ok(());
+                                return Ok(resolved);
                             }
                             let _ = resolve_param_arrays_with_default_usage(
                                 &conn, &well_id, &spec, &params, &depth,
                             )?;
-                            Ok(())
+                            Ok(resolved)
                         };
-                        attempt().err()
+                        attempt()
                     })
                     .collect();
+                let errors: Vec<String> = outcomes
+                    .iter()
+                    .filter_map(|outcome| outcome.as_ref().err().cloned())
+                    .collect();
+                let resolved =
+                    outcomes.iter().filter(|outcome| matches!(outcome, Ok(true))).count();
                 println!(
-                    "CLEAN-STORE {label}: {} of {wells} failed{}",
+                    "CLEAN-STORE {label}: {} of {wells} failed, {resolved} of {wells} resolved GR{}",
                     errors.len(),
                     errors.first().map(|e| format!(" - first: {e}")).unwrap_or_default()
                 );
@@ -11244,5 +11271,16 @@ mod tests")
             }
         }
         println!("CONTROL serial on the base connection: {serial_errors} of {wells} failed");
+
+        // And the whole reason the read stopped repairing: `base` was never opened through
+        // `project::open_and_migrate`, so its generic store is empty - and every concurrent read
+        // above must have LEFT it empty. Before #129's fix this count was non-zero and the rows
+        // arrived from eight threads racing to write them.
+        let store_rows: i64 = base
+            .query_row("SELECT COUNT(*) FROM curve_meta", [], |row| row.get(0))
+            .expect("counting curve_meta");
+        println!(
+            "STORE un-backfilled project holds {store_rows} curve_meta rows after every read above (0 = the read never wrote)"
+        );
     }
 }

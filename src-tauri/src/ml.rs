@@ -6775,7 +6775,7 @@ mod tests {
         // The well's own frame: 0.5 units.
         let n = 40usize;
         let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
-        crate::db::insert_standard_curves(
+        crate::db::insert_standard_curves_as_opened_project(
             &conn,
             id,
             depth.clone(),
@@ -7044,7 +7044,7 @@ mod tests {
         // Train well: only 5 complete GR + RHOB(target) samples.
         let train = Uuid::new_v4();
         db::insert_well(&conn, train, "TR-1", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, train, depths.clone(),
             (0..n).map(|i| 20.0 + i as f32 * 5.0).collect(), // GR
             vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7055,7 +7055,7 @@ mod tests {
         // Apply well with a real GR.
         let apply = Uuid::new_v4();
         db::insert_well(&conn, apply, "AP-1", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, apply, depths.clone(),
             (0..n).map(|i| 30.0 + i as f32).collect(),
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7064,7 +7064,7 @@ mod tests {
         // Apply well whose GR is entirely missing → no complete apply samples.
         let empty = Uuid::new_v4();
         db::insert_well(&conn, empty, "AP-EMPTY", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, empty, depths.clone(),
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -7114,7 +7114,7 @@ mod tests {
         let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
         let well = Uuid::new_v4();
         db::insert_well(&conn, well, "MASK-AP", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, well, depths.clone(),
             (0..n).map(|i| 30.0 + i as f32).collect(), // GR present on every row
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
@@ -7180,7 +7180,7 @@ mod tests {
         // A target that is a clean function of GR, so the fit is never the thing under test here.
         let rhob: Vec<f32> = gr.iter().map(|g| 2.65 - g * 0.001).collect();
         // (gr, res_deep, nphi, rhob, dt, sp) — RHOB is the fourth curve column.
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, well, depths.clone(), gr,
             vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -7545,7 +7545,7 @@ mod tests {
         let well = Uuid::new_v4();
         db::insert_well(&conn, well, "SANDI-LOG10", None, None, Some(0.0)).unwrap();
         let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32).collect();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, well, depths.clone(), gr.clone(),
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -8240,7 +8240,7 @@ mod tests {
             // extrapolating into the other two - a split by SAMPLE would hide that completely.
             let gr: Vec<f32> = (0..n).map(|i| 20.0 + (w * 60) as f32 + i as f32).collect();
             let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
                 rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
             )
@@ -8314,7 +8314,7 @@ mod tests {
             let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
             let gr: Vec<f32> = (0..n).map(|i| 20.0 + (w * 60) as f32 + i as f32).collect();
             let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
                 rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
             )
@@ -8389,7 +8389,7 @@ mod tests {
 
         let good = Uuid::new_v4();
         db::insert_well(&conn, good, "SANDI-GOOD", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, good, depths.clone(),
             (0..n).map(|i| 20.0 + (i as f32 * 3.0) % 110.0).collect(),
             nan(), nan(), nan(), nan(), nan(),
@@ -8398,7 +8398,7 @@ mod tests {
 
         let empty = Uuid::new_v4();
         db::insert_well(&conn, empty, "SANDI-EMPTY", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(&conn, empty, depths.clone(), nan(), nan(), nan(), nan(), nan(), nan())
+        db::insert_standard_curves_as_opened_project(&conn, empty, depths.clone(), nan(), nan(), nan(), nan(), nan(), nan())
             .unwrap();
 
         let (gid, eid) = (good.to_string(), empty.to_string());
@@ -8451,7 +8451,7 @@ mod tests {
             let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
             let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32).collect();
             let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
                 rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
             )
@@ -8665,7 +8665,7 @@ mod tests {
         // ... and two depths where the TARGET was never measured. Nothing to do with the mask.
         rhob[8] = f32::NAN;
         rhob[9] = f32::NAN;
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, a, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob,
             vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -9454,7 +9454,7 @@ mod tests {
             let rt: Vec<f32> = (0..n)
                 .map(|i| if i >= n / 2 { f32::NAN } else { 5.0 + (i % 11) as f32 })
                 .collect();
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn, id, depths.clone(), gr.clone(), rt.clone(), vec![f32::NAN; n],
                 rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
             )
@@ -9812,7 +9812,7 @@ mod tests {
 
         let train = Uuid::new_v4();
         db::insert_well(&conn, train, "TR-M", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, train, depths.clone(), gr.clone(),
             vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -9820,7 +9820,7 @@ mod tests {
         crate::equations::write_computed_curve(&conn, &train.to_string(), &depths, "MASK", &mask).unwrap();
         let apply = Uuid::new_v4();
         db::insert_well(&conn, apply, "AP-M", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, apply, depths.clone(), gr,
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -9857,7 +9857,7 @@ mod tests {
         // GOOD: has both GR (feature) and RHOB (target).
         let good = Uuid::new_v4();
         db::insert_well(&conn, good, "GOOD", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, good, depths.clone(), gr.clone(),
             vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -9866,7 +9866,7 @@ mod tests {
         // BAD: has GR but NO RHOB (target all-NaN) — the wrong-target-mnemonic case.
         let bad = Uuid::new_v4();
         db::insert_well(&conn, bad, "BAD", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn, bad, depths.clone(), gr,
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
@@ -9916,11 +9916,11 @@ mod tests {
         // Well A: 40 good rows, mask all 0. Well B: 40 rows, mask ALL 1 (fully excluded).
         let a = Uuid::new_v4();
         db::insert_well(&conn, a, "EV-A", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(&conn, a, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
+        db::insert_standard_curves_as_opened_project(&conn, a, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
         crate::equations::write_computed_curve(&conn, &a.to_string(), &depths, "MASK", &vec![0.0f32; n]).unwrap();
         let b = Uuid::new_v4();
         db::insert_well(&conn, b, "EV-B", None, None, Some(0.0)).unwrap();
-        db::insert_standard_curves(&conn, b, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
+        db::insert_standard_curves_as_opened_project(&conn, b, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
         crate::equations::write_computed_curve(&conn, &b.to_string(), &depths, "MASK", &vec![1.0f32; n]).unwrap();
 
         let (ida, idb) = (a.to_string(), b.to_string());

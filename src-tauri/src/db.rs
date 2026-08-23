@@ -2360,6 +2360,44 @@ pub struct StandardCurveRow {
     pub rhob: f32,
 }
 
+/// The seeding a pre-generic-store project holds, followed by the back-fill that
+/// `project::open_and_migrate` runs on every open - so a fixture reads the way a real project
+/// reads, instead of relying on somebody repairing it mid-test.
+///
+/// #129: production has exactly ONE writer of `standard_curves`, the LAS import, and it marks its
+/// own wells done inside the same import transaction (`ingest.rs`). A fixture that writes those
+/// columns directly is therefore a legacy project, and a legacy project that has not been OPENED
+/// is a state no reader ever meets. Until 2026-08-23 `ancestry::try_resolve_ancestry_input`
+/// papered over that by running this back-fill lazily from inside a read, which is what broke the
+/// connection pool - N reader connections each ran the whole project-wide write and collided on
+/// `curve_meta`'s primary key (`PERF-ATTEMPTS.md` §4). The repair is the open's job; a fixture
+/// that wants a readable project asks for one HERE.
+///
+/// **Which door a fixture takes is decided by what it writes.** A fixture that writes ONLY the
+/// standard columns is a legacy project and takes this one. A fixture that also writes its own
+/// `curve_meta`/`curve_samples` rows is an IMPORTED project - the import wrote both views from one
+/// delivery and marked the well done - so it takes the plain `insert_standard_curves` and must
+/// not be back-filled: the back-fill would add a competing `standard_curves migration` identity,
+/// which is a third candidate in a candidate-selection test and four extra curves in an export
+/// count. Both of those were caught that way.
+#[cfg(test)]
+pub(crate) fn insert_standard_curves_as_opened_project(
+    conn: &Connection,
+    well_id: Uuid,
+    depths: Vec<f32>,
+    gr: Vec<f32>,
+    res_deep: Vec<f32>,
+    nphi: Vec<f32>,
+    rhob: Vec<f32>,
+    dt: Vec<f32>,
+    sp: Vec<f32>,
+) -> DbResult<Vec<(String, usize)>> {
+    let screened =
+        insert_standard_curves(conn, well_id, depths, gr, res_deep, nphi, rhob, dt, sp)?;
+    migrate_standard_curves_to_generic_store(conn)?;
+    Ok(screened)
+}
+
 /// Bulk-inserts standard curve columns for a single well using DuckDB's Appender,
 /// which streams rows without per-row transaction overhead.
 pub fn insert_standard_curves(

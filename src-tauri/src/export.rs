@@ -1276,7 +1276,7 @@ mod tests {
         let nphi = vec![0.30f32; 6];
         let rhob = vec![2.45f32; 6];
         let nan = vec![f32::NAN; 6];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             conn,
             id,
             depth.clone(),
@@ -1475,7 +1475,7 @@ mod tests {
         let well_id = id.to_string();
         db::insert_well(&conn, id, "CANONICAL-UNITS", None, None, None).unwrap();
         let depth = vec![1000.0_f32, 1000.5, 1001.0];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             id,
             depth.clone(),
@@ -1546,7 +1546,7 @@ mod tests {
         let stored_depth = vec![1000.0_f32, 1000.1, 1000.35, 1001.0];
         let stored_gr = vec![10.0_f32, 40.0, 15.0, 90.0];
         let missing = vec![f32::NAN; stored_depth.len()];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             id,
             stored_depth.clone(),
@@ -2032,7 +2032,7 @@ mod tests {
             let n = depths.len();
             let gr: Vec<f32> = (0..n).map(|i| 40.0 + i as f32).collect();
             let nan = vec![f32::NAN; n];
-            db::insert_standard_curves(
+            db::insert_standard_curves_as_opened_project(
                 &conn,
                 id,
                 depths.to_vec(),
@@ -2500,7 +2500,7 @@ mod tests {
         let measured_id = Uuid::new_v4();
         db::insert_well(&measured, measured_id, "MEASURED-ONLY", None, None, None).unwrap();
         let measured_depth = vec![1000.0_f32, 1000.5];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &measured,
             measured_id,
             measured_depth,
@@ -2724,7 +2724,7 @@ mod tests {
         let well_id = id.to_string();
         db::insert_well(&conn, id, "PHIE-STATES", None, None, None).unwrap();
         let depth = vec![1800.0_f32, 1800.5, 1801.0];
-        db::insert_standard_curves(
+        db::insert_standard_curves_as_opened_project(
             &conn,
             id,
             depth.clone(),
