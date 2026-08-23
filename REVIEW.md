@@ -1,5 +1,49 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — Your gamma and neutron now answer to their own names
+
+- [ ] **This is your ruling, made.** `GRN_CS` is a gamma curve; `NPHI_COR` is a corrected neutron
+      log, not a computed porosity. Recorded as **DEC-098** with your words as the citation, the
+      same way RHO_DSH 2.70 is recorded.
+- [ ] **Worth clicking through, because this one moves what modules see.** Open one of your wells
+      and run any module that wants gamma or neutron **without touching the curve pickers**. It
+      should now find them. Before today you had to point every module at `GRN_CS` and `NPHI_COR`
+      by hand, every run.
+- [ ] **Same for a log view.** Add a track called `GR` on one of those wells. It should draw. It
+      drew nothing yesterday. (Adding it as `GRN_CS` worked before and still works.)
+- [ ] **Measured on your own delivery, not argued.** The stress test asks what a module finds with
+      its normal settings and nothing bound. Two runs, the dictionary the only difference:
+
+      before   vsh_gr with DEFAULT inputs, nothing bound: missing GR=GR
+      after    vsh_gr with DEFAULT inputs, nothing bound: missing nothing
+
+- [ ] **Your existing numbers do not move, and I did not just assert that.** `NPHI` and `POR` are
+      the same quantity in the same unit — both volume-fraction, both `v/v` — and every unit
+      conversion that applies to one applies to the other with identical arithmetic. So re-filing
+      the spelling changes **which requests find the curve**, and cannot change what the curve
+      says. There is a test that converts the same value under both families across six unit
+      spellings and fails if they ever disagree. Gamma has no unit conversion at all, so `GRN_CS`
+      only gained a family and a tidier unit label.
+- [ ] **What I deliberately did not change, and why you may want to.** The six standard columns —
+      the GR / RES / NPHI / RHOB / DT / SP slots a well is imported into — are filled from a
+      **different list** that still does not carry either spelling. So on your wells that GR column
+      is still empty; the modules just stop caring, because they now find the curve where it
+      actually lives. **Filling that column is a separate decision**, and a bigger one: it elects
+      one channel as *the* gamma of the well, over anything else the file carries. Say the word if
+      you want it and I will put the choice to you properly.
+- [ ] **The honest risk.** I saw both spellings on one delivery. If some other vendor ships
+      `NPHI_COR` meaning a computed porosity, SandiBumi now reads it as a neutron log there too,
+      and the curve looks entirely normal either way. The limit on the damage is that each spelling
+      was admitted **by name** — not as a wildcard — and there is a test that fails if anyone later
+      widens it to one.
+- [ ] **Checked by breaking it three ways.** Reaching `GRN_CS` through a `GRN*` wildcard, filing
+      `NPHI_COR` back under porosity, and claiming it in both families at once. The first two were
+      caught by tests — the wildcard by the *second half* of its test, which is the half that
+      exists for exactly that shortcut. The third turned out to be impossible to even write down:
+      the dictionary refuses one spelling in two families before anything runs.
+- [ ] **Where it is written down**: `docs/DICTIONARY-2026-08-23.md`. The old report that raised the
+      question now carries a dated note saying it is the BEFORE picture.
+
 ## 2026-08-23 — The three minutes to open a project is not something you will ever wait for
 
 - [ ] **Nothing in the app changed.** One test probe and one named test, neither of them shipped.
@@ -82,6 +126,8 @@
       sits among SandiBumi's own computed porosity outputs, which is where an app-made curve
       belongs. Either change moves numbers on every delivery that uses those spellings, so both
       are your call, not mine. **Tell me which, and I will make it.**
+- [ ] _Answered 2026-08-23 — you took both. Made, and written up in the entry at the top of this
+      file; the two bullets above are the BEFORE picture and are kept as the record of the ask._
 - [ ] **A small one you can fix in a minute.** The fixture folder's core file is `Core.xlsx`, and
       the harness only reads `.csv`. So the one test that reads your real core table has never
       actually run. Export that sheet to CSV and it starts running.

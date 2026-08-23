@@ -28,9 +28,19 @@ use std::time::Instant;
 const WELLS_WANTED: usize = 4;
 
 /// The configured field fixture carries explicit corrected-channel mnemonics rather than the
-/// canonical module inputs. Keep that delivery fact here as a run-time choice; adding either
-/// mnemonic to the global alias table would turn one delivery's convention into an automatic
-/// interpretation for every import.
+/// canonical module inputs.
+///
+/// **Superseded in part, 2026-08-23.** This comment used to end "adding either mnemonic to the
+/// global alias table would turn one delivery's convention into an automatic interpretation for
+/// every import" - which was the right thing for a TEST to say, and the wrong body to decide it.
+/// Jauhar decided it: `GRN_CS` is a gamma curve and `NPHI_COR` is a corrected neutron log, and
+/// both are now registered aliases (`curves::FAMILIES`). So these bindings are no longer what
+/// makes the run resolve.
+///
+/// They are kept anyway, deliberately. This test states which curve plays which role on its own
+/// fixture instead of inheriting that from a dictionary it does not control - so if the dictionary
+/// moves again, the timings stay comparable and the change shows up in the DEFAULT-inputs probe
+/// below rather than silently re-interpreting the delivery.
 fn field_log_inputs(spec: &modules::ModuleSpec) -> HashMap<String, String> {
     spec.args
         .iter()
@@ -500,7 +510,11 @@ fn pipeline_field_100well_stress() {
     //
     // On the delivery measured here two of those six arrive filled (its resistivity is `DRES` and
     // its density `RHOB`, both registered aliases) and gamma and neutron do NOT: the channels are
-    // `GRN_CS` and `NPHI_COR`, and neither reaches the GR or NPHI column. `field_log_inputs`
+    // `GRN_CS` and `NPHI_COR`, and neither reaches the GR or NPHI column. That stays true after
+    // the 2026-08-23 dictionary decision: the standard six are filled from `parsers::GR_ALIASES`
+    // and friends, which is a SEPARATE list from `curves::FAMILIES` and does not carry either
+    // spelling. The decision moved which requests RESOLVE, not which column a curve lands in.
+    // `field_log_inputs`
     // therefore points the modules straight at those two mnemonics - but a mnemonic that is not a
     // standard column can only be read from the GENERIC STORE, and the clone had no generic store
     // at all. So the same binding that works on the real well resolved to nothing on its copy.
@@ -562,15 +576,15 @@ fn pipeline_field_100well_stress() {
     // and the stress run must answer it the SAME way or the two halves of this file would be
     // timing and validating different interpretations of the same delivery.
     //
-    // Resist binding roles here by some second rule of this test's own. Measured 2026-08-23, on
-    // an attempt to do exactly that: `GRN_CS` is not an alias of family GR (the table carries
-    // `GRN`, not `GRN_CS`), and `NPHI_COR` is registered under family **POR**, beside PHIE and
-    // PHIT, not under NPHI - so a family-based binding resolves neither, and a hand-written
-    // family map is a third opinion about a question `curves.rs` already answers.
+    // Resist binding roles here by some second rule of this test's own. A hand-written family map
+    // is a third opinion about a question `curves.rs` already answers, and the first attempt at
+    // one guessed `RES` for a family actually named `RES_DEEP`.
     //
-    // Whether `NPHI_COR` should be a neutron curve rather than a porosity curve is a question for
-    // the mnemonic dictionary, and answering it would move numbers on every delivery using that
-    // spelling. It is reported, not decided here.
+    // The dictionary question this test raised has since been ANSWERED (Jauhar, 2026-08-23):
+    // `GRN_CS` is now an alias of family GR and `NPHI_COR` of family NPHI, so a family-based
+    // binding would resolve both. That is what the DEFAULT-inputs probe below reports. The
+    // explicit bindings stay for the reason given on `field_log_inputs` - this test states its own
+    // interpretation rather than inheriting one.
     let chain = ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"];
     let chain_specs: Vec<modules::ModuleSpec> = chain
         .iter()

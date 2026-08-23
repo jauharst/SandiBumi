@@ -153,6 +153,14 @@ and a dictionary decision moves numbers on every delivery that uses the spelling
 The brief's rule is that a speed change must not move a number, and that anything which would is a
 petrophysics decision to be asked about rather than made. This is that.
 
+> **Decided 2026-08-23 — Jauhar took both, and §3 above is now the BEFORE picture.** `GRN_CS` is
+> an alias of family `GR`; `NPHI_COR` moved from `POR` to `NPHI`. So the table's two bold rows and
+> the two consequence paragraphs describe the state before that decision, not the state now: a
+> module run with its manifest defaults resolves gamma and neutron on this delivery, and a log
+> track added as `GR` draws. `docs/DICTIONARY-2026-08-23.md` records what changed, what it cannot
+> change, and the one question it deliberately left alone (the standard-column alias lists in
+> `parsers.rs`, which are a separate table and were not touched).
+
 ## 4. A smaller one: the core fixtures have never run
 
 `field_fixtures::core_table()` looks for `<root>/core/*.csv`. The configured folder holds one

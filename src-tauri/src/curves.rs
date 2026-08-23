@@ -1191,4 +1191,98 @@ mod tests {
             }
         }
     }
+
+    /// DEC-098, 2026-08-23, on a real delivery whose gamma arrives spelled `GRN_CS`: `_CS`
+    /// is a vendor suffix on a gamma curve, so the spelling belongs to family GR. Before this it
+    /// belonged to no family at all, and a module asking for GR - or a log track added as GR -
+    /// found nothing on those wells and drew nothing.
+    ///
+    /// Pinned from BOTH sides, because the lazy way to satisfy the first half is a `GRN*` pattern.
+    /// That would also swallow every future `GRN_`-anything, and this table's rule is that a
+    /// spelling is admitted by NAME, once somebody has looked at it. A wildcard passes the first
+    /// assertion and fails the second.
+    #[test]
+    fn grn_cs_is_a_gamma_curve_and_the_spelling_was_admitted_by_name_rather_than_by_wildcard() {
+        for spelling in ["GRN_CS", "grn_cs", " GRN_CS "] {
+            assert_eq!(
+                family_for(spelling).map(|f| f.family),
+                Some("GR"),
+                "{spelling} must reach family GR - it is a gamma curve with a vendor suffix"
+            );
+        }
+        assert_eq!(family_for("GRN").map(|f| f.family), Some("GR"), "the plain spelling is unchanged");
+        for unadmitted in ["GRN_XX", "GRN_CSX", "GR_CS"] {
+            assert!(
+                family_for(unadmitted).is_none(),
+                "{unadmitted} must still resolve to nothing - GRN_CS was added as one alias, not as a pattern"
+            );
+        }
+    }
+
+    /// DEC-098, same ruling, same message: `NPHI_COR` is an environmentally corrected NEUTRON log,
+    /// which is what a neutron log is after processing - not a computed porosity. It had been
+    /// filed under POR, beside PHIE and PHIT, so a request for NPHI missed it while a request
+    /// resolving by family POR could have picked a raw neutron curve up as an answer.
+    ///
+    /// Pinned from BOTH sides: moving the alias satisfies the first half, and deleting POR's
+    /// claim to it is the second. An implementation that listed it in both families would read
+    /// as correct from the neutron side and still hand a neutron log to a porosity request.
+    #[test]
+    fn nphi_cor_is_a_corrected_neutron_log_and_porosity_no_longer_claims_it() {
+        assert_eq!(
+            family_for("NPHI_COR").map(|f| f.family),
+            Some("NPHI"),
+            "a corrected neutron log is a neutron log"
+        );
+        assert_eq!(
+            FAMILIES
+                .iter()
+                .filter(|f| f.aliases.contains(&"NPHI_COR"))
+                .map(|f| f.family)
+                .collect::<Vec<_>>(),
+            vec!["NPHI"],
+            "exactly one family may claim the spelling, and it is not POR"
+        );
+        // And nothing else moved with it, in either direction.
+        assert_eq!(family_for("NPHI_LS").map(|f| f.family), Some("NPHI"));
+        for computed in ["PHIE", "PHIT", "DPHI"] {
+            assert_eq!(
+                family_for(computed).map(|f| f.family),
+                Some("POR"),
+                "{computed} is a computed porosity and stays in POR"
+            );
+        }
+    }
+
+    /// The reason the move above is safe to make on a project that already holds `NPHI_COR`
+    /// curves: NPHI and POR are the SAME quantity in the same canonical unit, and every
+    /// conversion rule that names one names the other with identical arithmetic. So re-filing the
+    /// spelling changes which requests find the curve and cannot change what the curve says.
+    ///
+    /// This is the claim reported to Jauhar, so it is measured here rather than reasoned about. If
+    /// a rule is ever added to one family and not the other, this fails - which is the moment the
+    /// reassurance stops being true.
+    #[test]
+    fn re_filing_a_spelling_between_two_fraction_families_cannot_change_a_stored_value() {
+        assert_eq!(canonical_unit("NPHI"), canonical_unit("POR"), "same canonical unit");
+        assert_eq!(canonical_unit("NPHI"), Some("v/v"));
+
+        for unit in ["%", "pu", "p.u.", "v/v", "V/V", "PU"] {
+            let convert = |family: &str| -> (f32, bool) {
+                let mut vals = [30.0_f32];
+                let applied = convert_to_canonical("NPHI_COR", family, Some(unit), &mut vals).is_some();
+                (vals[0], applied)
+            };
+            let (as_por, por_applied) = convert("POR");
+            let (as_nphi, nphi_applied) = convert("NPHI");
+            assert_eq!(
+                por_applied, nphi_applied,
+                "NPHI_COR .{unit}: the two families must agree on WHETHER a conversion applies"
+            );
+            assert!(
+                (as_por - as_nphi).abs() < f32::EPSILON,
+                "NPHI_COR .{unit}: POR gave {as_por}, NPHI gave {as_nphi} - re-filing must not move a value"
+            );
+        }
+    }
 }
