@@ -93,6 +93,12 @@ queue gone, reads 4x faster:  35.9s -> 20.4s  (1.76x)  - of which write 17.4s (8
 queue gone, reads 8x faster:  35.9s -> 19.0s  (1.88x)  - of which write 17.4s (91%)
 ```
 
+> **Superseded for the REAL delivery on 2026-08-23**, and upward. This estimate assumes the
+> write stays serial, and the degradation batching later that day cut the real chain’s write from
+> 61.75 s to 17.24 s — so the same model now predicts **1.95× at 4 readers and 2.15× at 8**. The
+> 1.8× below still stands for the GENERATED fixture, whose chain barely moved. See
+> `PERF-POOL-RISK-2026-08-23.md`.
+
 **A connection pool is worth roughly 1.8× on a batch run — and then the write is the wall.** At that
 point 85–91% of what remains is one batched transaction that cannot be parallelised, because DuckDB
 is single-writer by design.
