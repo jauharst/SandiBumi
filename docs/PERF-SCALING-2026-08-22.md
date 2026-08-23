@@ -69,6 +69,13 @@ CHAIN TOTAL (4 modules)        3091.2   6648.0  36531.7 224456.7 1380565.8  1.15
 report render, 1 WELL            41.1     40.7     46.2     64.9    165.3   0.26
 ```
 
+> **The `chain 2/4 phi_den` row is superseded from 2026-08-23** and must not be quoted as a
+> current cost. Its time was dominated by writing one degradation row per statement; that write
+> is now batched, and on a real 100-well delivery the step went **61.72 s -> 15.86 s** with the
+> chain total **85.86 s -> 41.92 s**. The generated fixture gains far less (1.37x on the step)
+> because its wells clamp 177 samples where real ones clamp 896. See
+> `PERF-DEGRADATION-BATCH-2026-08-23.md`. Every other row above stands.
+
 At 2000 wells, in the units a person uses: **first open 3.1 minutes, four-module chain 23.0
 minutes, Field Dashboard 49 seconds.** A log view still scrolls in 1.3 ms.
 
