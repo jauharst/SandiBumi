@@ -923,3 +923,126 @@ fn perf_dashboard_scale() {
     }
     println!("\nA phase whose per-well cost is FLAT is not the cause, however large its share.");
 }
+
+// ---------------------------------------------------------------------------------------------
+// COLD OPEN: what a first project open is actually spending its time on
+// ---------------------------------------------------------------------------------------------
+
+/// docs/PERF-COLD-OPEN-2026-08-23.md.
+///
+/// `PERF-SCALING-2026-08-22.md` reports `first project open (COLD)` as the second-largest number
+/// in the brief - 3.1 minutes at 2000 wells - and the `[boot]` breakdown says 96.5-96.9% of it is
+/// two ONE-TIME migrations. This probe asks the question that number cannot answer on its own:
+/// **does a project a user actually built pay them?**
+///
+/// It builds the SAME field twice, at the same well and sample count, differing only in how the
+/// wells got there:
+///
+/// - **written** - `db::insert_standard_curves` straight into the six columns, which is what
+///   `build_project` does and therefore what every published figure was measured on;
+/// - **imported** - real LAS files through `ingest::import_las_files`, which is the only way a
+///   well arrives in a user's project.
+///
+/// Then it closes each and opens it cold. Run it with `--nocapture` and read the `[boot]` lines
+/// between the two headings: they attribute each open step by step.
+///
+/// Deliberately NOT folded into `perf_baseline`. That probe's numbers are published and comparable
+/// across five sizes; adding an import phase would change its shape and its file, and the whole
+/// reason this exists is that a fixture's construction path is not a detail.
+#[test]
+#[ignore]
+fn perf_cold_open_construction() {
+    let n_wells = env_usize("SANDIBUMI_PERF_WELLS", DEFAULT_WELLS);
+    let n_samples = env_usize("SANDIBUMI_PERF_SAMPLES", DEFAULT_SAMPLES);
+    println!("\n=== COLD OPEN vs HOW THE WELLS GOT THERE: {n_wells} wells x {n_samples} samples ===");
+
+    // ---- written: the path every published figure was measured on ----------------------------
+    let written_path =
+        std::env::temp_dir().join(format!("sandibumi_coldopen_written_{n_wells}w_{n_samples}s.duckdb"));
+    std::fs::remove_file(&written_path).ok();
+    std::fs::remove_file(written_path.with_extension("duckdb.wal")).ok();
+    let (written_ids, written_build) = build_project(&written_path, n_wells, n_samples);
+    println!("\n-- WRITTEN ({} wells built in {written_build:?}) --", written_ids.len());
+    let t = Instant::now();
+    let conn = crate::project::open_and_migrate(written_path.to_str().unwrap()).expect("open written");
+    let written_open = t.elapsed();
+    let written_curves: i64 = conn
+        .query_row("SELECT COUNT(*) FROM curve_meta", [], |r| r.get(0))
+        .unwrap();
+    drop(conn);
+
+    // ---- imported: the only way a well reaches a user's project ------------------------------
+    let las_dir = std::env::temp_dir().join(format!("sandibumi_coldopen_las_{n_wells}w_{n_samples}s"));
+    std::fs::create_dir_all(&las_dir).expect("las dir");
+    let t = Instant::now();
+    let mut las_paths = Vec::with_capacity(n_wells);
+    for i in 0..n_wells {
+        let w = synthetic_well(i as u64, n_samples);
+        // A minimal LAS 2.0 with a DECLARED index unit - an undeclared one is refused outright
+        // (SB-DIO-015), which would make this measure a refusal instead of an import.
+        let mut las = String::with_capacity(n_samples * 64);
+        las.push_str("~VERSION\nVERS. 2.0 :\nWRAP. NO :\n~WELL\nNULL. -999.25 :\n");
+        las.push_str(&format!("WELL. SANDI-{:04} :\n", i + 1));
+        las.push_str("~CURVE\nDEPT.M : depth\nGR.GAPI :\nRES_DEEP.OHMM :\nNPHI.V/V :\nRHOB.G/C3 :\nDT.US/F :\nSP.MV :\n~ASCII\n");
+        for s in 0..n_samples {
+            las.push_str(&format!(
+                "{:.4} {:.3} {:.3} {:.4} {:.4} {:.3} {:.3}\n",
+                w.depth[s], w.gr[s], w.res_deep[s], w.nphi[s], w.rhob[s], w.dt[s], w.sp[s]
+            ));
+        }
+        let path = las_dir.join(format!("sandi_{:04}.las", i + 1));
+        std::fs::write(&path, las).expect("write las");
+        las_paths.push(path.to_str().unwrap().to_string());
+    }
+    let las_write = t.elapsed();
+
+    let imported_path =
+        std::env::temp_dir().join(format!("sandibumi_coldopen_imported_{n_wells}w_{n_samples}s.duckdb"));
+    std::fs::remove_file(&imported_path).ok();
+    std::fs::remove_file(imported_path.with_extension("duckdb.wal")).ok();
+    let t = Instant::now();
+    {
+        // Mirror what the application does, which is the whole point of this probe. `new_project`
+        // calls `project::switch_project`, which calls `open_and_migrate` on the brand-new file
+        // while it is still EMPTY - and that is when `migrate_standard_curves_canonical` writes
+        // its project-level done flag, over zero wells, in no time at all.
+        //
+        // Measured before this line existed, with `db::init_db` here instead: the imported
+        // project still paid 1.909 s of canonical migration at 100 wells, because its flag had
+        // never been set. That was a flaw in this fixture, not in the application - exactly the
+        // class of mistake this probe exists to expose, so it is recorded rather than quietly
+        // corrected.
+        let conn = crate::project::open_and_migrate(imported_path.to_str().unwrap())
+            .expect("create imported project the way the app does");
+        let results = crate::ingest::import_las_files(&conn, &las_paths, None);
+        let failed: Vec<&String> = results.iter().filter_map(|r| r.error.as_ref()).collect();
+        assert!(failed.is_empty(), "{} of {n_wells} imports failed - first: {}", failed.len(), failed[0]);
+    }
+    let import = t.elapsed();
+    println!(
+        "\n-- IMPORTED ({n_wells} LAS written in {las_write:?}, imported in {import:?}) --"
+    );
+    let t = Instant::now();
+    let conn = crate::project::open_and_migrate(imported_path.to_str().unwrap()).expect("open imported");
+    let imported_open = t.elapsed();
+    let imported_curves: i64 = conn
+        .query_row("SELECT COUNT(*) FROM curve_meta", [], |r| r.get(0))
+        .unwrap();
+    let imported_wells: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap();
+    drop(conn);
+    assert_eq!(imported_wells, n_wells as i64, "every well must have imported");
+
+    println!("\n=== FIRST OPEN ===");
+    println!("  written  (insert_standard_curves) : {written_open:?}   curve_meta rows after: {written_curves}");
+    println!("  imported (import_las_files)       : {imported_open:?}   curve_meta rows after: {imported_curves}");
+    let ratio = written_open.as_secs_f64() / imported_open.as_secs_f64().max(f64::MIN_POSITIVE);
+    println!("  the written fixture's first open costs {ratio:.1}x the imported project's");
+    println!(
+        "\nThe published `first project open (COLD)` row is the WRITTEN one. A user's project is\n\
+         the IMPORTED one. Read the [boot] lines above each heading for the step-by-step split."
+    );
+
+    std::fs::remove_dir_all(&las_dir).ok();
+    std::fs::remove_file(&written_path).ok();
+    std::fs::remove_file(&imported_path).ok();
+}

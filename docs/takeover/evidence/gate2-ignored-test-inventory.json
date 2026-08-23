@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 42,
+ "expected_ignored_test_count": 43,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 5
+  "MANUAL-ARTIFACT": 6
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -467,6 +467,20 @@
    "tests": [
     {
      "key": "src/perf_baseline_test.rs|perf_dashboard_scale",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-030",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "How a project's first open divides between actually opening the file and the one-time migrations, and whether that division depends on how the wells got there. It builds the same field twice - once through db::insert_standard_curves the way the perf harness does, once written out as LAS 2.0 and imported through crate::ingest::import_las_files the way a user's project is made - and opens both through crate::project::open_and_migrate, printing the two times and the [boot] step breakdown for a human to read. Evidence toward SB-CORE-030's MEASURED half only: it is the successor to the 540-well project-open observation that requirement's own text cites, and it shows that observation measures a legacy conversion rather than an open. It asserts nothing about a budget, because the declared-target half is blocked on Jauhar. What it does assert is that the fixture is real - every LAS imported without error, every well present, and both projects holding the same curve_meta row count - so a timing is never reported for two projects that are not the same field. Ignored because it builds two synthetic projects and imports one of them, which the green gate must not wait on.",
+   "tests": [
+    {
+     "key": "src/perf_baseline_test.rs|perf_cold_open_construction",
      "ignore_reason": null,
      "bare_ignore": true
     }

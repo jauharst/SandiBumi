@@ -10,6 +10,7 @@ Read this before proposing a performance change.
 |---|---|---|---|---|
 | 1 | Index `computed_curves(well_id)` to stop a one-well report scanning the project | report render 52.3 ms → **56.3 ms**; chain total 55.9 s → 60.9 s | **REVERTED** | The read did not improve at all, which refutes the premise. See §1. |
 | 2 | `LIMIT 2` on the set-id scan that resolves a well's PHIE log set | 1973.0 ms → **2055.7 ms** across 500 wells | **REFUTED BEFORE WRITING** | No win at 10, 100 or 500 wells, and the cheaper form had the colder cache. See §2. |
+| 3 | Speed up the `standard_curves` → generic-store backfill, which is 96.8% of `first project open (COLD)` | same field built both ways at 500 wells: harness-written 39.5 s → imported **174.7 ms** | **NOT WORTH DOING** | A project built by importing wells never runs it. The harness's fixture does, because it bypasses `ingest`. See §3. |
 
 ---
 
@@ -149,3 +150,73 @@ is the cheapest possible place to kill an idea.
   at all** — which changes which wells appear in the summary, so it is a provenance decision rather
   than a performance one. `PERF-DASHBOARD-2026-08-23.md` §6 sets out the choice.
 
+---
+
+## §3 — Speeding up the cold-open backfill (2026-08-23, pass 3 increment 7)
+
+### The hypothesis anyone would form
+
+`first project open (COLD)` is the second-largest number in the brief — 3.1 minutes at 2000
+wells — and it grows faster than linearly (exponent 1.25 over the 500→2000 step). It is also the
+first thing a user waits for. That makes it look like the obvious next target.
+
+### What was measured
+
+The opening sequence is already instrumented, so this took no new probe — only reading the
+`[boot]` lines already present in five clean `perf_baseline` transcripts at 100 wells:
+
+```
+init_db_resilient                          68.1 ms   <- actually opening the file
+migrate_standard_curves_to_generic_store 3391.9 ms
+migrate_standard_curves_canonical        1776.2 ms
+ten other migrations, together             29.6 ms
+```
+
+**96.5–96.9% of the cold open is those two migrations**, reproduced across all five runs.
+
+### Verdict: NOT WORTH DOING
+
+Both are ONE-TIME and both are gated, and **a well that arrived through an import never triggers
+either**: `ingest.rs` marks each imported well done inside the import transaction, and the
+canonical migration writes its own project-level done flag unconditionally on its first run,
+before any well exists. The performance harness builds wells with `db::insert_standard_curves`
+and never touches `ingest`, so its fixture is permanently un-migrated — which is the entire
+reason the number is large.
+
+Pinned by `ingest::tests::an_imported_well_never_pays_the_legacy_backfill_and_a_directly_written_one_does`,
+mutation-verified from both sides.
+
+### And then measured, because a gated code path is easy to reason wrongly about
+
+`perf_baseline_test::perf_cold_open_construction` builds the same field twice — written and
+LAS-imported — and opens both, asserting equal `curve_meta` counts so it is the same field:
+
+```
+wells    written      imported     ratio
+   10     646.8 ms     109.5 ms     5.9x
+  100    6066.1 ms     120.5 ms    50.3x
+  500   39519.9 ms     174.7 ms   226.2x
+```
+
+Scaling exponent over 10 → 500 wells: **1.05 written, 0.12 imported.** An imported project's
+FIRST open costs what the warm re-open row costs, at every size measured.
+
+**The first version of this probe was itself wrong**, and in the same direction as the thing it
+was measuring: it created the imported project with `db::init_db` rather than
+`project::open_and_migrate`, so that project never got the canonical migration's done flag and
+still paid 1.909 s of it at 100 wells — reported as 3.3× instead of 50.3×. The finding held; the
+size of it did not. A comment at the fixed line records this, because a probe built to catch
+"the harness took a route no user takes" had to be caught taking one.
+
+### What this rules out for anyone who tries again
+
+- **Do not optimise this backfill for launch time.** The only project that pays it is one created
+  before the generic store existed, opening for the first time on a current build. That wait is
+  real, is paid once, and is already announced through `db::boot_note`.
+- **Do not read the cold-open row as launch cost.** It is the cost of converting a legacy project.
+  `PERF-SCALING-2026-08-22.md` now carries a dated note saying so at the table.
+- **"There must be a missing index" is not a good first guess about this store.** The quadratic
+  explanation for the 1.25 exponent fails on inspection: `curve_meta` declares
+  `UNIQUE (well_id, set_name, mnemonic, run_no)`, whose index is prefixed on `well_id`. That is
+  the second such hypothesis in two increments to die on reading the schema.
+- Full reasoning: `docs/PERF-COLD-OPEN-2026-08-23.md`.
