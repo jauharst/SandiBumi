@@ -171,3 +171,13 @@ Neither is attempted in this increment: this increment measured.
   hundred clones.
 - **`lock_probe`'s WAIT sums across threads** and is not a wall-clock quantity; it is reported to
   show contention is unchanged between fixtures (0.98×), not as a duration anyone waits.
+
+## 8. What happened next (added 2026-08-23, same day)
+
+The batching in §6 was done and it worked. Paired A/B on this machine: `phi_den` **61.72 s ->
+15.86 s** on the real delivery, its write phase **51.14 s -> 5.34 s**, the whole chain **85.86 s ->
+41.92 s**, with identical row counts in `computed_curves` and `run_degradations` at every step.
+Full numbers, verdicts and the safety argument: `PERF-DEGRADATION-BATCH-2026-08-23.md`.
+
+**The 896-into-1 question in §6 is still open and still Jauhar’s.** It was never the performance
+fix and is not needed as one now — it is a question about what the provenance record should say.
