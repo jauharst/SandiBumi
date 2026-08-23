@@ -1273,9 +1273,13 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       batching the same day removed the serialized write that was capping it. Seven corruption modes
       reasoned; a WRITER pool is recommended AGAINST by name (no modelled return, and it splits the one
       transaction covering a chain step). **Stage 1 shipped**: `reader_pool.rs`, the generation stamp,
-      `DbState::install` as the only route to a swap, one reader, no concurrency. **Stage 2 (N readers
-      on `workflow.rs`'s read paths) is the speed and is NOT started** — it waits on Jauhar clicking
-      through stage 1 on real wells. Ceiling after it: the write is 17.2 s of a 21.5 s chain.
+      `DbState::install` as the only route to a swap, one reader, no concurrency. **Stage 2 was attempted 2026-08-23 and
+      REVERTED**: it delivered the modelled speed-up (the lock queue went 124,407 ms → 29 ms) and
+      then failed 99 of 100 wells with `TransactionContext Error: Failed to commit: PRIMARY KEY or
+      UNIQUE constraint violation` **reported out of a read**. Reproducible, concurrency-dependent,
+      and NOT explained; six hypotheses ruled out one experiment each. Blocked until that statement
+      has a name — `PERF-ATTEMPTS.md` §4 says what to do first. Ceiling if it is ever unblocked:
+      the write is 17.2 s of a 21.5 s chain.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

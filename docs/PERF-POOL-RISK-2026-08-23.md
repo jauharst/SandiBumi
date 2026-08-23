@@ -4,7 +4,11 @@ The brief says: *"#129 changes DB connection semantics and is HIGH RISK. Measure
 doing; do not implement it without asking."* `ROADMAP.md:1267` adds: *"writes must stay
 single-writer to protect the WAL/131MB file. Corruption modes must be reasoned explicitly."*
 
-This was that assessment, and Jauhar answered it: **stage 1 only.** It is built - see `reader_pool.rs`
+This was that assessment, and Jauhar answered it: **stage 1, then stage 2.** Stage 1 is built and
+green. **Stage 2 was built, measured, and REVERTED** - it delivered the modelled speed-up and broke
+99 of 100 wells; see M8 below and `PERF-ATTEMPTS.md` §4.
+
+Original framing follows. It is built - see `reader_pool.rs`
 and the REVIEW entry of the same date. §3 M1 below carries a correction that building it produced.
 Stages 2 and 3, and everything about concurrency, remain unbuilt.
 
@@ -126,6 +130,22 @@ transaction*. A pooled reader that held one open across a chain step would serve
 This is a discipline rather than a hazard: pooled readers take no explicit transaction and are
 returned to the pool between operations.
 
+### M8 — a pooled read returns a COMMIT failure. **Blocking, and unexplained.** (added 2026-08-23)
+
+Found by building stage 2. With the runner's four read paths on pooled connections, the queue
+vanished as modelled (`lock_probe` WAIT **124,407 ms → 29 ms**) and then **99 of 100 wells failed**
+on the real fixture with `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE
+constraint violation: duplicate key "<uuid>"` — a commit failure reported out of a *read*.
+
+Ruled out by experiment, one at a time: it is concurrency-dependent (serial rayon passes); it is
+read site 1 specifically; it is not handle reuse (capacity 0 still fails); it is not lazy minting
+(pre-warming still fails); `try_clone` really is a separate connection (measured three ways); and it
+is not an in-memory artifact (the file-backed project fails worse). No function on that path writes
+anything.
+
+**This is the blocker, and it outranks every number in §1.** The full reproduction and what the next
+attempt should do first are in `PERF-ATTEMPTS.md` §4.
+
 ### M5 — 203 lock sites, 195 of them in `lib.rs`
 
 Every `db.0.lock()` today means "take THE connection". With a pool each site has to declare read or
@@ -158,6 +178,12 @@ assumes a single handle at open time and must keep doing so.
 was that Q4 shows per-well writes do not conflict, which makes it *feasible*, not *worthwhile*.
 
 ## 5. Recommendation
+
+**Superseded 2026-08-23 by M8.** Stage 1 is done. **Stage 2 was attempted and reverted**, and
+stages 2-3 are blocked until the commit failure in M8 has a named cause. The 1.95x is still there —
+the queue really did disappear — but it is not reachable safely yet.
+
+Original plan follows.
 
 **Do A, in three stages, and only if the swap invalidation is proven first.**
 

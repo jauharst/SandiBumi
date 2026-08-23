@@ -13,6 +13,7 @@ Read this before proposing a performance change.
 | 3 | Speed up the `standard_curves` → generic-store backfill, which is 96.8% of `first project open (COLD)` | same field built both ways at 500 wells: harness-written 39.5 s → imported **174.7 ms** | **NOT WORTH DOING** | A project built by importing wells never runs it. The harness's fixture does, because it bypasses `ingest`. See §3. |
 | 4 | Speed up `phi_den` on real data by improving CURVE INPUT RESOLUTION, the mechanism `PERF-FIELD-FIXTURE-2026-08-23.md` §7 proposed | read phase 5.832 s generated -> **5.777 s** real (**0.99x**) while the write went 11.4 s -> 45.7 s | **REFUTED BY MEASUREMENT** | The read is identical on both fixtures. `RHOB` - the only curve `phi_den` asks for - is populated in the standard column on BOTH, so neither side takes the fallback path. The penalty is 89,600 degradation INSERTs. See `PERF-PHI-DEN-2026-08-23.md`. |
 | 5 | Write the 89,600 degradation rows through ONE appender instead of one `INSERT` each, the fix attempt 4 named | real delivery: `phi_den` 61.72 s -> **15.86 s** (3.89x), its write phase 51.14 s -> **5.34 s** (9.58x), chain total 85.86 s -> **41.92 s** (2.05x) | **KEPT** | The first surviving fix in pass 3. Paired A/B on the same machine in the same session; identical row counts in both tables at every step. Generated fixture gains only 1.37x on the step and 1.09x on the chain, which is INSIDE the variance floor - synthetic wells clamp 177 samples where real ones clamp 896. See `PERF-DEGRADATION-BATCH-2026-08-23.md`. |
+| 6 | #129 **stage 2** - pooled reader connections on the chain's four read paths, for the modelled 1.95x | the queue really did vanish (`wait` 124,407 ms -> **29 ms**) and **99 of 100 wells then failed** on the real fixture | **REVERTED** | A pooled read returns `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint violation` from a SELECT. Reproducible, concurrency-dependent, and NOT explained. Stage 1 (the swap catch) stays. See §4. |
 
 ---
 
@@ -222,3 +223,72 @@ size of it did not. A comment at the fixed line records this, because a probe bu
   `UNIQUE (well_id, set_name, mnemonic, run_no)`, whose index is prefixed on `well_id`. That is
   the second such hypothesis in two increments to die on reading the schema.
 - Full reasoning: `docs/PERF-COLD-OPEN-2026-08-23.md`.
+
+
+---
+
+## §4 — #129 stage 2: pooled readers (2026-08-23, pass 3 increment 11)
+
+### The hypothesis
+
+`PERF-POOL-RISK-2026-08-23.md` modelled **1.95x at 4 readers, 2.15x at 8** on a real 100-well chain,
+and stage 1 had already built the safety catch (the generation stamp, `DbState::install` as the
+only route to a swap). Stage 2 was the concurrency: `ReaderPool::read` stops holding the connection
+mutex for the duration of a read, and the runner's four read paths in `workflow.rs` go through it.
+
+### What was measured
+
+**The mechanism works exactly as modelled.** On the real 100-well fixture, `lock_probe`'s WAIT
+counter - the queue, 90.9% of a batch run - went from **124,407 ms to 29 ms** on the first chain
+step. That is the 1.95x arriving.
+
+**And 99 of the 100 wells failed.**
+
+```
+vsh_gr: 99 of 100 wells produced no answer - first: duckdb error:
+TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint
+violation: duplicate key "98feb98e-0d68-4d6e-9b0a-cf047f9b2bf1"
+```
+
+A **commit failure, reported out of a read**. Seven `cargo test --lib` tests fail the same way.
+
+### What was ruled out, each by its own experiment
+
+| Hypothesis | Experiment | Result |
+|---|---|---|
+| It is not concurrency | `RAYON_NUM_THREADS=1` | **passes** - so it is |
+| Some other read path | reverted read site 1 (module inputs + parameters), kept 2-4 pooled | **passes** - site 1 is the trigger |
+| Reusing a handle across wells is unsound | pool capacity forced to 0, so every read mints a fresh connection and drops it | **still fails** |
+| Minting a connection *during* parallel work is unsound (`PERF-DIAGNOSIS` experiment C cloned every handle BEFORE its loop and was clean) | added `prewarm`, minting every handle up front | **still fails** |
+| `try_clone` secretly shares one connection | probe: a clone cannot see the original's uncommitted row (0), cannot COMMIT the original's transaction (false), and two handles hold concurrent transactions (both Ok) | **separate connections** - refuted |
+| It is an in-memory-database artifact | the real file-backed 100-well fixture | **fails there too, worse** |
+
+### Verdict: REVERTED, and the mechanism is an open question
+
+The failure is reproducible, it is concurrency-dependent, and **it is not understood**. A SELECT
+should not return a duplicate-key commit failure, and none of the functions on that read path
+writes anything - `resolve_param_arrays_with_default_usage` reads `list_zones` and
+`list_zone_params` and nothing else; the validators and the curve fetch are reads.
+
+`CLAUDE.md`'s own standard settles what to do with that: *"probably works is not the standard for
+the table that holds every interpretation."* A concurrency change whose failure mode cannot be
+explained does not ship, however large the number attached to it.
+
+**Stage 1 stays** - the generation stamp, `DbState::install`, and the `list_wells` consumer are
+committed and green. It buys no speed and was never meant to; its value is that it made this
+discoverable with one variable moving instead of two.
+
+### What the next attempt should do FIRST
+
+Not re-implement this. **Find the write.** The most direct route is a minimal reproduction outside
+the runner: a file-backed project, N cloned connections, and the *exact* statement sequence of
+`resolved_log_args_for_well` + `fetch_module_input_logs` +
+`resolve_param_arrays_with_default_usage` run concurrently, bisecting statement by statement until
+one of them returns the commit error on its own. Until that statement has a name, the 1.95x is not
+available - and note that `PERF-DIAGNOSIS` experiment C ran `fetch_curve_frame` on one clone per
+thread and measured 4-8x cleanly, so the difference is WHICH statements are run concurrently, not
+that clones are used at all.
+
+The attempt is preserved as a patch against `ff7cecf5` in this session's scratchpad; it is not in
+the repository, deliberately, because a broken concurrency change sitting in the tree is exactly
+the thing somebody re-enables without re-reading this.
