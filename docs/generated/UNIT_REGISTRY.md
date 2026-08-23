@@ -2,22 +2,22 @@
 # Canonical curve and unit registry
 
 - Registry version: `curve-units-v2`
-- Source SHA-256: `da50bb60e0f7aa46830cabe0f20ecee7f2c3d77e4d42ac219d1f257bbe8f6ddb`
-- Population: 20 families, 152 exact aliases, 3 vendor alias patterns, 4 pattern exclusions, 46 unit tokens, 10 conversion rules
+- Source SHA-256: `0bcae80bd050a94922c929be08fbddf396007fa51efb31550c7a83f08b376563`
+- Population: 20 families, 153 exact aliases, 3 vendor alias patterns, 4 pattern exclusions, 46 unit tokens, 10 conversion rules
 
 ## Families
 
 | Family | Quantity kind | Canonical unit | Exact mnemonic aliases | Vendor alias patterns | Pattern exclusions |
 |---|---|---|---|---|---|
-| `GR` | `gamma_ray` | `gAPI` | `GR`, `GRN`, `GRD`, `CGR`, `SGR`, `GRGC`, `GRKT` |  |  |
+| `GR` | `gamma_ray` | `gAPI` | `GR`, `GRN`, `GRD`, `GRN_CS`, `CGR`, `SGR`, `GRGC`, `GRKT` |  |  |
 | `SP` | `electric_potential` | `mV` | `SP`, `SPC`, `SPR` |  |  |
 | `CALI` | `length` | `in` | `CALI`, `CAL`, `CALS`, `CALX`, `CALY`, `HCAL`, `LCAL`, `DCAL`, `HORD` |  |  |
 | `BS` | `length` | `in` | `BS`, `BITSIZE`, `BIT` |  |  |
 | `RHOB` | `bulk_density` | `g/cc` | `RHOB`, `RHOZ`, `RHOBED`, `DEN`, `ZDEN`, `ROBB`, `SBD2` |  |  |
 | `DRHO` | `bulk_density` | `g/cc` | `DRHO`, `HDRA`, `ZCOR`, `DCOR` |  |  |
 | `PEF` | `photoelectric_factor` | `b/e` | `PEF`, `PE`, `PEFZ`, `PEB`, `PDPE` |  |  |
-| `NPHI` | `fraction` | `v/v` | `NPHI`, `TNPH`, `NPHIED`, `NPHI_LS`, `NPOR`, `NEUT`, `APLC`, `FPLC`, `SNP`, `HNPO`, `FSTP` |  |  |
-| `POR` | `fraction` | `v/v` | `PHIE`, `PHIT`, `PHIA`, `DPHI`, `NPHI_COR`, `PHIE_LIM`, `PHIE_DEN`, `PHIT_DEN`, `PHIE_DN`, `PHIT_DN`, `PHIE_DN_LIM`, `PHIT_DN_LIM`, `PHIT_SON`, `PHIE_SON`, `PHI_CAP`, `PHI_MAX`, `PHIT_SSC`, `PHIE_SSC`, `PHIFF_SSC`, `PHIFF_GR`, `PHIE_GR`, `PHIT_GR`, `PHIT_SSPW`, `PHIE_SSPW`, `PHIFF_SSPW` |  |  |
+| `NPHI` | `fraction` | `v/v` | `NPHI`, `TNPH`, `NPHIED`, `NPHI_LS`, `NPHI_COR`, `NPOR`, `NEUT`, `APLC`, `FPLC`, `SNP`, `HNPO`, `FSTP` |  |  |
+| `POR` | `fraction` | `v/v` | `PHIE`, `PHIT`, `PHIA`, `DPHI`, `PHIE_LIM`, `PHIE_DEN`, `PHIT_DEN`, `PHIE_DN`, `PHIT_DN`, `PHIE_DN_LIM`, `PHIT_DN_LIM`, `PHIT_SON`, `PHIE_SON`, `PHI_CAP`, `PHI_MAX`, `PHIT_SSC`, `PHIE_SSC`, `PHIFF_SSC`, `PHIFF_GR`, `PHIE_GR`, `PHIT_GR`, `PHIT_SSPW`, `PHIE_SSPW`, `PHIFF_SSPW` |  |  |
 | `VSH` | `fraction` | `v/v` | `VSH`, `VSH_NMR`, `VDSH`, `VSH_SSC`, `VSHGR`, `VSHND`, `VSH_MM` | `VSH*` | `VSH*UNCL*`, `VSHH*`, `VSHV*` |
 | `VSH_UNCLIPPED` | `fraction` | `v/v` | `VSH_GR`, `VSH_DN`, `VSH_DS`, `VSH_NS`, `VSH_RES`, `VSH_MN`, `VSH_NPHI`, `VSH_SP`, `VSH_AVG`, `VSH_HL`, `VSH_MIN` | `VSH*UNCL*` |  |
 | `VCL` | `fraction` | `v/v` | `VCL`, `VCLAV`, `VCLMIX`, `VCL_NMR`, `VOL_CLAY` | `VCL*` | `VCLC*` |
