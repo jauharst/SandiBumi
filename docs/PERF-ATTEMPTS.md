@@ -13,7 +13,7 @@ Read this before proposing a performance change.
 | 3 | Speed up the `standard_curves` → generic-store backfill, which is 96.8% of `first project open (COLD)` | same field built both ways at 500 wells: harness-written 39.5 s → imported **174.7 ms** | **NOT WORTH DOING** | A project built by importing wells never runs it. The harness's fixture does, because it bypasses `ingest`. See §3. |
 | 4 | Speed up `phi_den` on real data by improving CURVE INPUT RESOLUTION, the mechanism `PERF-FIELD-FIXTURE-2026-08-23.md` §7 proposed | read phase 5.832 s generated -> **5.777 s** real (**0.99x**) while the write went 11.4 s -> 45.7 s | **REFUTED BY MEASUREMENT** | The read is identical on both fixtures. `RHOB` - the only curve `phi_den` asks for - is populated in the standard column on BOTH, so neither side takes the fallback path. The penalty is 89,600 degradation INSERTs. See `PERF-PHI-DEN-2026-08-23.md`. |
 | 5 | Write the 89,600 degradation rows through ONE appender instead of one `INSERT` each, the fix attempt 4 named | real delivery: `phi_den` 61.72 s -> **15.86 s** (3.89x), its write phase 51.14 s -> **5.34 s** (9.58x), chain total 85.86 s -> **41.92 s** (2.05x) | **KEPT** | The first surviving fix in pass 3. Paired A/B on the same machine in the same session; identical row counts in both tables at every step. Generated fixture gains only 1.37x on the step and 1.09x on the chain, which is INSIDE the variance floor - synthetic wells clamp 177 samples where real ones clamp 896. See `PERF-DEGRADATION-BATCH-2026-08-23.md`. |
-| 6 | #129 **stage 2** - pooled reader connections on the chain's four read paths, for the modelled 1.95x | the queue really did vanish (`wait` 124,407 ms -> **29 ms**) and **99 of 100 wells then failed** on the real fixture | **REVERTED** | A pooled read returns `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint violation` from a SELECT. Reproducible, concurrency-dependent, and NOT explained. Stage 1 (the swap catch) stays. See §4. |
+| 6 | #129 **stage 2** - pooled reader connections on the chain's four read paths, for the modelled 1.95x | the queue really did vanish (`wait` 124,407 ms -> **29 ms**) and **99 of 100 wells then failed** on the real fixture | **REVERTED** | A pooled read returns `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint violation` from a SELECT. **Cause named the same day by bisection**: that read path runs a project-wide back-fill WRITE (`ancestry::try_resolve_ancestry_input` -> `db::migrate_standard_curves_to_generic_store`), and N connections each run the whole thing. Stage 1 (the swap catch) stays. See §4. |
 
 ---
 
@@ -263,32 +263,86 @@ A **commit failure, reported out of a read**. Seven `cargo test --lib` tests fai
 | `try_clone` secretly shares one connection | probe: a clone cannot see the original's uncommitted row (0), cannot COMMIT the original's transaction (false), and two handles hold concurrent transactions (both Ok) | **separate connections** - refuted |
 | It is an in-memory-database artifact | the real file-backed 100-well fixture | **fails there too, worse** |
 
-### Verdict: REVERTED, and the mechanism is an open question
+### Verdict: REVERTED, and at the time the mechanism was an open question
 
-The failure is reproducible, it is concurrency-dependent, and **it is not understood**. A SELECT
-should not return a duplicate-key commit failure, and none of the functions on that read path
-writes anything - `resolve_param_arrays_with_default_usage` reads `list_zones` and
-`list_zone_params` and nothing else; the validators and the curve fetch are reads.
+The failure is reproducible, it is concurrency-dependent, and at this point **it was not
+understood**. `CLAUDE.md`'s own standard settles what to do with that: *"probably works is not the
+standard for the table that holds every interpretation."* A concurrency change whose failure mode
+cannot be explained does not ship, however large the number attached to it.
 
-`CLAUDE.md`'s own standard settles what to do with that: *"probably works is not the standard for
-the table that holds every interpretation."* A concurrency change whose failure mode cannot be
-explained does not ship, however large the number attached to it.
+**One sentence written here was wrong and the bisect below refuted it.** It read: *"none of the
+functions on that read path writes anything."* One of them does. That is exactly the shape of
+claim reasoning produces and measurement kills - it was true of every function I had read, and
+false of the one I had not.
 
 **Stage 1 stays** - the generation stamp, `DbState::install`, and the `list_wells` consumer are
 committed and green. It buys no speed and was never meant to; its value is that it made this
 discoverable with one variable moving instead of two.
 
+### The bisect - ANSWERED 2026-08-23
+
+The instruction to the next attempt was *"not re-implement this - FIND THE WRITE"*, by running the
+runner's own statement sequence on N cloned connections and adding one statement group at a time
+until one failed. That was done, and it named one statement.
+
+`workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill` -
+`#[ignore]`d, prints rather than asserts, 8 wells x 200 samples on a file-backed project:
+
+```
+DEPTH 1 resolved_log_args_for_well:              7 of 8 failed - first: duckdb error:
+    Constraint Error: Duplicate key "well_id: d28515c7-..." violates primary key constraint.
+DEPTH 2 + validate_shale_clay_input_quantities:  0 of 8 failed
+DEPTH 3 + validate_neutron_basis_input:          0 of 8 failed
+DEPTH 4 + fetch_module_input_logs:               0 of 8 failed
+DEPTH 5 + resolve_param_arrays_with_default:     0 of 8 failed
+CONFIRM   back-fill run first, then the same concurrent read:   0 of 8 failed
+CLEAN-STORE 1..5 (every group, on the migrated project):        0 of 8 failed each
+CONTROL   whole sequence serially on the base connection:       0 of 8 failed
+```
+
+**The named cause** - `ancestry.rs`, inside `try_resolve_ancestry_input`, reached from
+`resolved_log_args_for_well` via `first_available_input_alias`:
+
+```rust
+let mut imported = resolve_generic_curve_decision(conn, well_id, &upper, SemanticFamily)?;
+if imported.is_none() {
+    crate::db::migrate_standard_curves_to_generic_store(conn)?;   // <- a WRITE, on a read path
+    imported = resolve_generic_curve_decision(conn, well_id, &upper, SemanticFamily)?;
+}
+```
+
+A curve missing from the generic store triggers **the whole project's back-fill**, lazily, from
+inside what every caller treats as a read. Behind one shared connection it runs once, commits, and
+is invisible - which is why `PERF-DIAGNOSIS` experiment C measured 4-8x cleanly on clones: it
+called `fetch_curve_frame`, which never reaches this. With N connections, N rayon threads each miss,
+each start the same back-fill, and collide on `curve_meta`'s primary key. The duplicate key in the
+message is a **well id**, which is what made the error unreadable as a symptom - nothing on the
+read path inserts a well, and the back-fill does.
+
+**It is not a live bug today.** The single shared mutex serializes that write, and §3 above already
+established the back-fill only has work to do in a project written directly rather than imported.
+
+Three arms exist beyond the walk because a first-failing depth is not a cause on its own: DEPTH's
+own depths 2-5 look clean for the wrong reason (depth 1 already ran the back-fill), so CONFIRM
+re-runs the identical concurrent read with the back-fill done first, CLEAN-STORE re-walks every
+group on the migrated project to show there is no SECOND lazy write further down, and CONTROL runs
+the sequence serially to show the fixture is not what is broken.
+
 ### What the next attempt should do FIRST
 
-Not re-implement this. **Find the write.** The most direct route is a minimal reproduction outside
-the runner: a file-backed project, N cloned connections, and the *exact* statement sequence of
-`resolved_log_args_for_well` + `fetch_module_input_logs` +
-`resolve_param_arrays_with_default_usage` run concurrently, bisecting statement by statement until
-one of them returns the commit error on its own. Until that statement has a name, the 1.95x is not
-available - and note that `PERF-DIAGNOSIS` experiment C ran `fetch_curve_frame` on one clone per
-thread and measured 4-8x cleanly, so the difference is WHICH statements are run concurrently, not
-that clones are used at all.
+Deal with the lazy back-fill, and only then re-attempt the concurrency. **This is a decision for
+Jauhar, not a performance change** - the three obvious routes are not equivalent:
 
-The attempt is preserved as a patch against `ff7cecf5` in this session's scratchpad; it is not in
-the repository, deliberately, because a broken concurrency change sitting in the tree is exactly
-the thing somebody re-enables without re-reading this.
+1. **Run the back-fill once at project open** and delete the lazy call. Honest and simple; it moves
+   an already-announced one-time cost to where §3's `[boot]` lines already report it. Costs a cold
+   open on a legacy project that would otherwise have paid it later.
+2. **Make the lazy call idempotent under concurrency.** Smallest diff, but it is a write discipline
+   change on `curve_meta`, and `CLAUDE.md` forbids adding upsert paths casually.
+3. **Refuse rather than back-fill** when the curve is missing. Cleanest boundary, changes behaviour
+   for legacy projects.
+
+The 1.95x is reachable once one of those lands - the queue really did disappear. The reverted stage
+2 patch is preserved against `ff7cecf5` in this session's scratchpad and deliberately not in the
+repository, because a broken concurrency change sitting in the tree is exactly the thing somebody
+re-enables without re-reading this. The probe stays IN the tree, because verifying whichever route
+is chosen means running exactly it.

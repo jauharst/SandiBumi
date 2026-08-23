@@ -130,7 +130,7 @@ transaction*. A pooled reader that held one open across a chain step would serve
 This is a discipline rather than a hazard: pooled readers take no explicit transaction and are
 returned to the pool between operations.
 
-### M8 — a pooled read returns a COMMIT failure. **Blocking, and unexplained.** (added 2026-08-23)
+### M8 — a pooled read returns a COMMIT failure. **Blocking, and NAMED.** (added 2026-08-23)
 
 Found by building stage 2. With the runner's four read paths on pooled connections, the queue
 vanished as modelled (`lock_probe` WAIT **124,407 ms → 29 ms**) and then **99 of 100 wells failed**
@@ -140,11 +140,21 @@ constraint violation: duplicate key "<uuid>"` — a commit failure reported out 
 Ruled out by experiment, one at a time: it is concurrency-dependent (serial rayon passes); it is
 read site 1 specifically; it is not handle reuse (capacity 0 still fails); it is not lazy minting
 (pre-warming still fails); `try_clone` really is a separate connection (measured three ways); and it
-is not an in-memory artifact (the file-backed project fails worse). No function on that path writes
-anything.
+is not an in-memory artifact (the file-backed project fails worse).
 
-**This is the blocker, and it outranks every number in §1.** The full reproduction and what the next
-attempt should do first are in `PERF-ATTEMPTS.md` §4.
+**The cause, found by bisection the same day and no longer a guess:** `ancestry.rs`'s
+`try_resolve_ancestry_input` calls `db::migrate_standard_curves_to_generic_store` — the project-wide
+back-fill, a WRITE — from inside the module-input read whenever a curve is missing from the generic
+store. Behind one connection it runs once and is invisible; on N connections, N rayon threads each
+run the whole back-fill and collide on `curve_meta`'s primary key. The duplicate key in the message
+is a **well id**, which is why the error read as impossible: nothing on that read path inserts a
+well, and the back-fill does. Written up with its four-arm evidence in `PERF-ATTEMPTS.md` §4, and
+re-runnable as `workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`.
+
+**This is still the blocker.** How the lazy back-fill should be dealt with — run it at open, make it
+idempotent, or refuse instead of back-filling — is a behaviour decision for Jauhar, not a
+performance one, and §4 sets out the three routes. It is not a live bug today: the single shared
+mutex serializes that write.
 
 ### M5 — 203 lock sites, 195 of them in `lib.rs`
 

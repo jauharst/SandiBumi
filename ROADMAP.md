@@ -1276,10 +1276,17 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       `DbState::install` as the only route to a swap, one reader, no concurrency. **Stage 2 was attempted 2026-08-23 and
       REVERTED**: it delivered the modelled speed-up (the lock queue went 124,407 ms → 29 ms) and
       then failed 99 of 100 wells with `TransactionContext Error: Failed to commit: PRIMARY KEY or
-      UNIQUE constraint violation` **reported out of a read**. Reproducible, concurrency-dependent,
-      and NOT explained; six hypotheses ruled out one experiment each. Blocked until that statement
-      has a name — `PERF-ATTEMPTS.md` §4 says what to do first. Ceiling if it is ever unblocked:
-      the write is 17.2 s of a 21.5 s chain.
+      UNIQUE constraint violation` **reported out of a read**. Six hypotheses were ruled out one experiment
+      each, and then **a bisect named the cause**: `ancestry::try_resolve_ancestry_input` calls
+      `db::migrate_standard_curves_to_generic_store` — the project-wide back-fill, a **WRITE** —
+      from inside the module-input READ whenever a curve is missing from the generic store. One
+      connection runs it once invisibly; N connections each run the whole thing and collide on
+      `curve_meta`'s primary key. **Not a live bug** (the shared mutex serializes it). Blocked on a
+      behaviour decision, not a performance one: run the back-fill at project open, make it
+      idempotent, or refuse instead of back-filling — `PERF-ATTEMPTS.md` §4 sets out all three.
+      Re-runnable as
+      `workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`.
+      Ceiling once unblocked: the write is 17.2 s of a 21.5 s chain.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer
