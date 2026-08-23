@@ -1,5 +1,48 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — The slowest module is not doing petrophysics, it is writing 89,600 notes to itself
+
+- [ ] **Nothing in the app changed.** Test instrumentation only. But this one changes what I have
+      been telling you, twice over.
+- [ ] **First, I have to withdraw the "real data is 10× slower" headline.** I got it by comparing
+      two different test harnesses and calling the difference "real data". Run properly — one
+      harness, same 100 wells, only the data swapped — the Field Dashboard's pay summary is
+      **6.03 s on made-up wells and 6.04 s on yours. 1.00×.** The 10× was the harness.
+- [ ] **What survives is one module.** `phi_den` — porosity from density — is **2.90×** slower on
+      your data. Every other module in the chain is between 0.79× and 1.11×, which is noise; gamma
+      shale volume is actually *faster* on your wells.
+- [ ] **And it is not reading your curves.** I had told you the likely cause was SandiBumi
+      struggling to find the right curves on your delivery. Measured: the reading takes **5.78 s on
+      your data and 5.83 s on made-up data — identical**. That explanation was wrong, and the
+      evidence against it was already printed in the test's own output: `phi_den` only asks for
+      density, and your density sits in the standard slot exactly like the made-up one does.
+- [ ] **It is the writing — and not the writing of your curves.** `phi_den` and `sw_indo` write the
+      **same number of rows** (624,800 each). `sw_indo` takes 5 seconds. `phi_den` takes **46**.
+- [ ] **Here is what it is really doing.** Every time SandiBumi clamps a calculated value back
+      inside its allowed range, it writes a note into the run record saying so. Those notes are
+      meant to be collapsed — *"clamped 896 times"* should be one line. But the note includes the
+      range it clamped to, and for `phi_den` the upper limit is **PHIT at that sample**, which is a
+      different number at every depth. So no two notes match and nothing collapses:
+
+      vsh_gr    clamped to the existing range [0, 1]                  <- same every sample, 1 note
+      phi_den   clamped to the existing range [0.001, 0.0181837...]   <- different every sample
+      phi_den   clamped to the existing range [0.001, 0.0209731...]
+      phi_den   clamped to the existing range [0.001, 0.0238905...]
+
+- [ ] **896 notes per well, 89,600 for the hundred**, each written as its own separate database
+      statement at about half a millisecond. That is the 46 seconds, near enough exactly.
+- [ ] **The count itself is honest, and it is telling you something real**: your rock hits the
+      porosity ceiling on **896 of 1,562 samples**, where the made-up section hits it on 177. That
+      is a genuine difference between real and invented rock. The cost is not the petrophysics —
+      it is one database statement per number.
+- [ ] **Two possible fixes, and only one is mine to make.** Writing all 89,600 in a single batch
+      instead of 89,600 separate statements would change **nothing** about what is recorded, and
+      should remove most of those 46 seconds. That one I can just do. **Collapsing the 896 notes
+      into one** would be nicer to read — *"clamped on 896 of 1,562 samples"* — but it changes what
+      the run record says you did, and the run record is what a study gets defended with. **That is
+      your call.** Tell me and I will do it; otherwise I will do the batching only.
+- [ ] **Nothing to click** — `docs/PERF-PHI-DEN-2026-08-23.md`.
+
 ## 2026-08-23 — Your gamma and neutron now answer to their own names
 
 - [ ] **This is your ruling, made.** `GRN_CS` is a gamma curve; `NPHI_COR` is a corrected neutron
