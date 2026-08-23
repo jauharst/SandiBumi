@@ -278,6 +278,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
     let custody = workflow::test_run_custody();
     chain::run_chain(
         &db,
+        &crate::reader_pool::ReaderPool::new(),
         &registry,
         job_id,
         &cancel,

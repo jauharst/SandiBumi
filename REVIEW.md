@@ -18888,3 +18888,50 @@ Worth checking, on real wells:
 If any of those turns up a module suddenly unable to find a curve it found before, that is this
 change and I want to hear about it - it would mean there is a fifth way wells arrive that neither
 the search nor the test suite found.
+
+
+## Batch runs stopped queueing: a 100-well chain is 1.39x faster (#129, 2026-08-23)
+
+**Your numbers do not change. The wait does.**
+
+What was wrong. SandiBumi opens ONE connection to the project file. Running a chain over 100 wells
+splits the wells across your 32 cores, but every one of those wells had to take a turn at that single
+connection just to READ its curves - so 31 of them stood in a queue while one read. Measured on the
+100-well fixture: **357 seconds of queueing** across the threads, against about 14 seconds of actual
+reading.
+
+What it is now. Reading opens its own handles - up to 8 - so the wells read at the same time instead
+of in turn. **Writing is unchanged and still goes one at a time**, deliberately: that is what
+protects the project file, and it is the part I will not make parallel.
+
+Measured on the real 100-well fixture, both runs in one session, the NEW one run first so the disk
+cache favoured the OLD:
+
+```
+  vsh_gr             6.6 s  ->   4.3 s
+  phi_den           15.7 s  ->  10.4 s
+  sw_indo           12.0 s  ->   9.4 s
+  perm_wyllie_rose   4.3 s  ->   3.7 s
+  whole chain       38.6 s  ->  27.7 s     1.39x
+```
+
+**One thing I got wrong, on the record:** I told you this was worth 1.95x. It is worth 1.39x. The
+estimate assumed the reading itself would cost the same once it ran in parallel, and it does not -
+eight readers competing for the same memory make each read slower. So do not expect a bigger number
+by allowing more connections; that is not where the limit is.
+
+Nothing moved: identical row counts at every step, and on your real wells the pay summary is
+identical to the last decimal - net, N/G, PHIE, SWE and HPV, all four wells, before and after.
+
+Worth checking, on real wells:
+
+- [ ] **Run a chain over a lot of wells** and watch the Processing panel. It should finish in
+      roughly two thirds of the time you are used to, with the same well count and no new failures.
+- [ ] **Compare a pay summary** from before this against one after, on the same wells and cutoffs.
+      Every number should match. This is the one that matters - if anything differs, stop and tell
+      me.
+- [ ] **Open a different project while a chain is running.** It should refuse, as it always has.
+      That refusal is now load-bearing, not just tidy.
+- [ ] **Compact Project on a project you have been working in**, then keep working. Everything you
+      read afterwards must come from the compacted file - this is the failure I most want a second
+      pair of eyes on, because a stale read would look completely normal.

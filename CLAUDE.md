@@ -711,6 +711,36 @@ how a 15-minute one-time migration looked like a hang.** DuckDB files never shri
 DELETE (module re-runs bloated BLSO to ~4× its live size), so point users at Compact
 Project when a long-lived project drags.
 
+## Reads are pooled; the write is not (2026-08-23, #129)
+
+`reader_pool.rs`. The module runner's per-well `rayon` loop reads through `ReaderPool::read`, which
+locks the connection mutex only long enough to MINT a handle and never for the read itself. Measured
+on the real 100-well chain: **38.57 s → 27.72 s (1.39×)**, lock contention **357,347 ms → 116 ms**,
+every row count and every real-data value unchanged (`docs/PERF-POOL-STAGE2-2026-08-23.md`).
+
+- **The write path is NOT pooled and must not be.** Every write still takes `db.lock()` and reaches
+  `ancestry::write_versioned_rows_batch_raw`. DuckDB single-writer is what protects the file, and a
+  writer pool is recommended against BY NAME in `PERF-POOL-RISK-2026-08-23.md` §4 — no modelled
+  return, and it splits the one transaction covering a chain step.
+- **The generation stamp is the whole protection against a stale handle, and there is no second
+  one.** `Connection::try_clone` produces a handle that outlives the connection it came from and
+  keeps answering rows out of the OLD file. It was assumed Windows would refuse to rename a file
+  with an open handle and give a loud backstop; that was MEASURED and is false. So every swap goes
+  through `DbState::install`, which is the only place `invalidate` is called, and a source gate pins
+  that there is exactly one such place.
+- **Lock order: the pool's lock alone, or under the connection mutex. Never the reverse.**
+  `install` holds the connection and calls `invalidate`, so a `read` holding the pool lock while
+  reaching for the connection would deadlock the two. `read` releases the pool lock before it
+  touches the connection, and takes the connection FIRST when it has to mint.
+- **A read whose project was replaced mid-flight returns an ERROR, not an answer.** The job guards
+  (`chain::any_active || jobs::any_active`) make that window nearly impossible, but they are a check
+  followed by an action, so the stamp is re-checked on completion. A failed chain step saying so is
+  the outcome to want; an interpretation computed from one project and written into another is not
+  detectable downstream.
+- **Do not raise `MAX_IDLE` expecting more speed.** 8 handles and 32 rayon threads measured ~3.3
+  effective concurrent readers — the limit is memory bandwidth and DuckDB's own internals, not the
+  handle count. The number to beat is 1.39× on the field fixture, PAIRED.
+
 ## The build record — the contracts, and where the reasoning lives
 
 Everything named below shipped and was field-verified. On 2026-08-07 the reasoning moved into

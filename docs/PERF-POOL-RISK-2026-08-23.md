@@ -190,9 +190,11 @@ was that Q4 shows per-well writes do not conflict, which makes it *feasible*, no
 
 ## 5. Recommendation
 
-**Superseded 2026-08-23 by M8.** Stage 1 is done. **Stage 2 was attempted and reverted**, and
-stages 2-3 are blocked until the commit failure in M8 has a named cause. The 1.95x is still there —
-the queue really did disappear — but it is not reachable safely yet.
+**Resolved 2026-08-23.** M8 was named, fixed (the back-fill left the read path) and stage 2
+landed on the second attempt. **Measured 1.39x on the real 100-well chain, not the 1.95x modelled in
+§1** — reading is not free once it overlaps, and `PERF-POOL-STAGE2-2026-08-23.md` §3 is why. Stage 3
+is not planned: the write is now the largest serialized cost and a writer pool is recommended
+AGAINST in §4 below.
 
 Original plan follows.
 

@@ -510,15 +510,11 @@ fn list_wells(
     db: tauri::State<DbState>,
     scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<db::WellSummary>, String> {
-    // #129 stage 1's one real consumer, chosen for what it would look like if the invalidation
+    // #129. Chosen as the pool's first consumer for what it would look like if the invalidation
     // ever broke: the well list is rebuilt on every project switch, so a stale reader would show
     // the PREVIOUS project's wells the moment you opened a new one. That is the loudest place in
     // the app for M1 to surface, and it is a pure read - it writes nothing and decides nothing.
-    //
-    // The lock is still held for the whole read, so this serialises exactly as it did before.
-    // Stage 2 is what changes that; see `reader_pool.rs`.
-    let conn = db.0.lock().unwrap();
-    db.1.with_reader(&conn, |reader| {
+    db.1.read(&db.0, |reader| {
         let well_ids = well_scope::resolve_well_scope(reader, &scope, "well inventory")?;
         db::list_wells_by_ids(reader, &well_ids).map_err(|e| e.to_string())
     })
@@ -2284,9 +2280,12 @@ async fn run_workflow_module(
     }
     let total = req.well_ids.len();
     let conn = db.0.clone();
+    // #129: the SAME pool the rest of the session uses, not a private one - a pool of its own
+    // would never be invalidated by a project swap, which is corruption mode M1.
+    let pool = db.1.clone();
     let reg = jobs_reg.inner().clone();
     jobs::run_job(reg, "Module", req.module.clone(), items, total, true, move |job| {
-        workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))
+        workflow::run_workflow_module_into(&conn, &pool, &req, None, Some(&job.cancel), Some(&job))
     })
     .await
 }
@@ -4206,6 +4205,9 @@ fn run_workflow_chain(
     // command this blocked the event loop for the whole multi-minute chain — which is exactly
     // why the existing progress bar sat frozen at "Starting…". db.0 is an Arc<Mutex<Connection>>
     // so we clone the handle into the worker; the chain registry is already an Arc.
+    // #129: the session's own pool, so a project swap invalidates this chain's readers too.
+    // Read BEFORE `db` is shadowed by its own Arc field on the next line.
+    let pool = db.1.clone();
     let db = db.0.clone();
     let registry = registry.inner().clone();
     // Plain OS thread, NOT tokio::spawn_blocking: a sync #[tauri::command] runs on the main
@@ -4229,6 +4231,7 @@ fn run_workflow_chain(
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             chain::run_chain(
                 &db,
+                &pool,
                 &registry,
                 uuid,
                 &cancel,

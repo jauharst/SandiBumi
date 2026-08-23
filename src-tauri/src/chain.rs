@@ -483,6 +483,7 @@ fn complete_chain_sets(
 /// [`register`]ed; `cancel` is that job's shared flag.
 pub(crate) fn run_chain(
     db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     registry: &ChainRegistry,
     job_id: Uuid,
     cancel: &AtomicBool,
@@ -594,7 +595,7 @@ pub(crate) fn run_chain(
             input_set: input_set.map(str::to_string),
             custody: custody.clone(),
         };
-        let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets), Some(cancel), job);
+        let results = workflow::run_workflow_module_into(db, pool, &req, Some(&preset_sets), Some(cancel), job);
         for r in &results {
             curves_written += r.output_curves.len();
             if let Some(e) = &r.error {
@@ -778,6 +779,7 @@ mod tests {
         let shared_cancel = job.cancel.clone();
         let results = workflow::run_workflow_module_into(
             db,
+            &crate::reader_pool::ReaderPool::new(),
             request,
             None,
             Some(shared_cancel.as_ref()),
@@ -903,6 +905,7 @@ mod tests {
         };
         run_chain(
             &database,
+            &crate::reader_pool::ReaderPool::new(),
             &chain_registry,
             chain_job_id,
             chain_cancel.as_ref(),
@@ -964,6 +967,7 @@ mod tests {
 
         run_chain(
             &database,
+            &crate::reader_pool::ReaderPool::new(),
             &registry,
             job_id,
             cancel.as_ref(),
@@ -1065,6 +1069,7 @@ mod tests {
         let cancel = register(&registry, job_id);
         run_chain(
             &database,
+            &crate::reader_pool::ReaderPool::new(),
             &registry,
             job_id,
             cancel.as_ref(),
@@ -1247,6 +1252,7 @@ mod tests {
         let cancel = register(&registry, job_id);
         run_chain(
             &database,
+            &crate::reader_pool::ReaderPool::new(),
             &registry,
             job_id,
             cancel.as_ref(),
@@ -1318,7 +1324,7 @@ mod tests {
         let db = Mutex::new(conn);
         let steps = vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")];
 
-        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None, None, &test_custody(),
+        run_chain(&db, &crate::reader_pool::ReaderPool::new(), &reg, job, &cancel, &steps, &[well.clone()], None, None, &test_custody(),
             None);
 
         match status(&reg, job).unwrap() {
@@ -1385,7 +1391,7 @@ mod tests {
         cancel.store(true, Ordering::SeqCst); // cancel before it starts
         let db = Mutex::new(conn);
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, &test_custody(),
+        run_chain(&db, &crate::reader_pool::ReaderPool::new(), &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, &test_custody(),
             None);
 
         match status(&reg, job).unwrap() {
@@ -1434,7 +1440,7 @@ mod tests {
              worker thread has run a single step"
         );
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, &test_custody(),
+        run_chain(&db, &crate::reader_pool::ReaderPool::new(), &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, &test_custody(),
             None);
 
         assert!(matches!(status(&reg, job).unwrap(), ChainStatus::Completed { .. }));
@@ -1449,7 +1455,7 @@ mod tests {
         let job2 = U::new_v4();
         let cancel2 = register(&reg, job2);
         cancel2.store(true, Ordering::SeqCst);
-        run_chain(&db, &reg, job2, &cancel2, &[step("vsh_gr")], &[well.clone()], None, None,
+        run_chain(&db, &crate::reader_pool::ReaderPool::new(), &reg, job2, &cancel2, &[step("vsh_gr")], &[well.clone()], None, None,
             &test_custody(), None);
         assert!(matches!(status(&reg, job2).unwrap(), ChainStatus::Cancelled { .. }));
         assert!(!any_active(&reg), "a cancelled chain must release the guard");
