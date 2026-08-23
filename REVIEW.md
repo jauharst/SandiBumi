@@ -1,5 +1,68 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — Your gamma and neutron arrive under names SandiBumi does not know
+
+- [ ] **Nothing in the app changed, again — but this one is about your data, not my stopwatch.**
+      Every speed number I have given you so far came from wells this program invented. The one
+      test that was supposed to measure your *real* delivery has been measuring nothing at all.
+- [ ] **It was timing four hundred module runs that all failed, and calling that a result.**
+      100 errors on each of the four modules, a pay summary with zero rows, and the test reported
+      **ok**. It counted the failures, printed the count, and never checked it. That is fixed: the
+      run now stops and quotes the first refusal, and the pay summary has to produce rows.
+- [ ] **Why they failed — and it is not the module runner.** The test built its hundred wells by
+      copying six columns off your well. Two of those six arrive filled on your data (your
+      resistivity is `DRES` and your density is `RHOB`, both names SandiBumi recognises) and gamma
+      and neutron do not. So the copies had no gamma and no neutron to interpret, while your real
+      well interprets perfectly.
+- [ ] **Which sharpens what I told you on 22 August.** I said then it was "the curve names in that
+      delivery" and that nothing was wrong with the module runner. Both halves were right, but
+      there were **two** faults, not one, and each alone would have been enough. The stress test
+      never told the modules which curves to use at all — while its sibling test, the one that
+      runs four of your real wells end to end, always has, and always passed. And even if it had,
+      the copies it made carried none of those curves. Curing one would still have left the other.
+- [ ] **The part worth your attention.** Your gamma is `GRN_CS` and your neutron is `NPHI_COR`,
+      in **all 15 files** in the fixture folder. SandiBumi's mnemonic dictionary does not list
+      `GRN_CS` at all, and it files `NPHI_COR` under **porosity**, beside PHIE and PHIT, rather
+      than under neutron. So a module opened on one of these wells and run with its normal
+      settings finds no gamma and no neutron, and says so. It is not silently wrong — but you
+      have to point every module at those two curves by hand, every time.
+- [ ] **I have not changed the dictionary, on purpose.** Adding `GRN_CS` to gamma reads `_CS` as a
+      vendor suffix — probably right for your data, but that is a guess about a convention until
+      you say so. Moving `NPHI_COR` to neutron is the bigger one: it usually means a neutron log
+      with environmental corrections applied, which is a neutron measurement, but it currently
+      sits among SandiBumi's own computed porosity outputs, which is where an app-made curve
+      belongs. Either change moves numbers on every delivery that uses those spellings, so both
+      are your call, not mine. **Tell me which, and I will make it.**
+- [ ] **A small one you can fix in a minute.** The fixture folder's core file is `Core.xlsx`, and
+      the harness only reads `.csv`. So the one test that reads your real core table has never
+      actually run. Export that sheet to CSV and it starts running.
+- [ ] **The numbers, at last — and this is the first time this test has measured work rather than
+      failure.** A hundred of your wells, four modules, zero errors, 300 pay-summary rows. Run
+      twice: `vsh_gr` 4.5 s, `phi_den` **65.7 s**, `sw_indo` 12.7 s, `perm_wyllie_rose` 4.1 s,
+      chain total **87.1 s**, pay summary 6.9 s — and the chain total from the first run was
+      86.7 s, so it repeats to within **1%**.
+- [ ] **Your wells cost 2.38× what my made-up ones cost.** Same hundred wells, same 1,562 samples
+      each, same four modules, same machine — 87 s against 36.5 s. That is the number the whole
+      exercise was missing: everything I have told you so far was measured on invented wells.
+- [ ] **One module accounts for nearly all of it: `phi_den`, 3.6× slower on your data.** The other
+      three are within 1.4×, and `vsh_gr` is actually slightly *faster*. Inside the run `phi_den`
+      costs **15 times** what `vsh_gr` costs; on invented wells it costs 3.6 times. **I have not
+      worked out why, and I am not guessing** — my first idea (an unindexed lookup) died when I
+      read the schema. What I can say is that the four modules line up in order of how many curves
+      each one asks for: one input 0.87×, one input 1.20×, three inputs 1.38×, seven inputs 3.59×.
+      Four points is a pattern, not a cause. That is the next thing to measure.
+- [ ] **And it confirms something I told you on 22 August.** I said the pay summary ran 10× slower
+      on imported wells than on built ones — 6,590 ms against 659 ms. Today, on a different
+      fixture, it averaged **7,281 ms**. Two sessions, two fixtures, the same answer, so that
+      finding is solid. **But note what it was**: that 10× was the pay summary alone. Applying it
+      to the whole 23-minute chain figure would overstate it about fourfold — the chain's own
+      real-data multiplier is 2.38×.
+- [ ] **Nothing to click** — it is all in `docs/PERF-FIELD-FIXTURE-2026-08-23.md`. The test is
+      re-runnable from `src-tauri`:
+      `cargo test --release --lib pipeline_field_test::pipeline_field_100well_stress -- --exact --ignored --nocapture --test-threads=1`
+      and it now **skips with a printed reason** rather than pretending, if the delivery it is
+      pointed at cannot drive the chain.
+
 ## 2026-08-23 — I said the stopwatch was unreliable. I measured it, and it is not
 
 - [ ] **Still nothing changed in the app.** You asked me to run the variance check. I did, and it

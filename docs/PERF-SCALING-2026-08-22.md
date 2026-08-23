@@ -156,6 +156,13 @@ that was imported rather than generated**, on top of already being a backend-onl
 So a real 2000-well delivery is slower than 23 minutes, not faster. How much slower is his to
 measure on his own data.
 
+> **Added 2026-08-23 — this 10× reproduced, and it is narrower than the sentence above implies.**
+> `PERF-FIELD-FIXTURE-2026-08-23.md` measured the pay summary at **7,682 ms** on a third fixture,
+> 1.17× from the 6,590 ms here, so the pay-summary finding is solid. But the **chain** had never
+> been measured on real curve data, and now it has been: **2.37×**, not 10×, with only `phi_den`
+> badly affected. "Every number in §2 is a lower bound" is still true; reading 10× as the size of
+> that bound for the 23-minute chain figure overstates it about fourfold.
+
 ## 7. A confirmed diagnosis, and a number withdrawn
 
 **`pipeline_field_100well_stress`'s 400 failures are caused by the fixture's curve naming.** Pass 1
@@ -167,6 +174,13 @@ broken; the test was feeding it curves it could not resolve.
 Note the direction: the all-failing run reported **59.4 s** for the chain and the all-succeeding
 run **44.3 s**. Failing was *slower* than working, which is why a duration with no output count
 beside it is not a measurement.
+
+> **Added 2026-08-23 — right, but one of two causes.** Swapping the fixture cured the symptom and
+> so hid a second fault underneath it: the stress run also **cloned its hundred wells from the six
+> `standard_curves` columns alone**, with no generic store, so on any delivery whose curves live
+> outside those six columns the copies were empty whatever the test asked for. Both are fixed in
+> `PERF-FIELD-FIXTURE-2026-08-23.md`, and the run now asserts on failures instead of printing a
+> count — which is what let this stand for as long as it did.
 
 **The write-cost probe's "13.2× PK overhead" quoted in Pass 1 is withdrawn as unstable.** The same
 probe, same code, reported 840 ms / 63 ms on one run and 48 ms / 13 ms on another — a 17× swing on

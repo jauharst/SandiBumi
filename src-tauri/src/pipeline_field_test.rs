@@ -489,6 +489,153 @@ fn pipeline_field_100well_stress() {
         }
     }
     let samples_per_well = depth.len();
+
+    // A TIMING IS ONLY A TIMING IF THE WORK HAPPENED. Measured 2026-08-23, before this block
+    // existed: all 400 module runs errored, the chain printed `0.0M sample-evals/s`, the pay
+    // summary returned 0 rows, and the test passed - because it counted errors into a variable,
+    // printed the count, and asserted nothing.
+    //
+    // WHY THE CLONES HAD NOTHING TO INTERPRET. This test used to rebuild each well from the six
+    // `standard_curves` columns alone - so a clone was a copy of six columns, not of a well.
+    //
+    // On the delivery measured here two of those six arrive filled (its resistivity is `DRES` and
+    // its density `RHOB`, both registered aliases) and gamma and neutron do NOT: the channels are
+    // `GRN_CS` and `NPHI_COR`, and neither reaches the GR or NPHI column. `field_log_inputs`
+    // therefore points the modules straight at those two mnemonics - but a mnemonic that is not a
+    // standard column can only be read from the GENERIC STORE, and the clone had no generic store
+    // at all. So the same binding that works on the real well resolved to nothing on its copy.
+    //
+    // The clone now carries `curve_meta` + `curve_samples` + the well's depth unit, which is what
+    // makes it a copy of the well.
+    let finite = |v: &[f32]| v.iter().filter(|x| x.is_finite()).count();
+    println!(
+        "  source well: {samples_per_well} samples; finite in the six standard columns: GR={} RES_DEEP={} NPHI={} RHOB={} DT={} SP={}",
+        finite(&gr), finite(&rd), finite(&np), finite(&rb), finite(&dt), finite(&sp)
+    );
+
+    // The generic store as delivered, so each clone is a real well and not six columns.
+    struct SrcCurve {
+        curve_id: String,
+        set_name: String,
+        mnemonic: String,
+        unit: Option<String>,
+        family: Option<String>,
+        source: Option<String>,
+        run_no: Option<i32>,
+    }
+    let src_curves: Vec<SrcCurve> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT CAST(curve_id AS VARCHAR), set_name, mnemonic, unit, family, source, run_no
+                 FROM curve_meta WHERE well_id = ?1 ORDER BY mnemonic",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map(params![src_id], |r| {
+                Ok(SrcCurve {
+                    curve_id: r.get(0)?,
+                    set_name: r.get(1)?,
+                    mnemonic: r.get(2)?,
+                    unit: r.get(3)?,
+                    family: r.get(4)?,
+                    source: r.get(5)?,
+                    run_no: r.get(6)?,
+                })
+            })
+            .unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    };
+    // The depth unit is a property of the well, not of a curve. A delivery in feet cloned onto a
+    // well row that never declared one would put every depth-sized parameter on the wrong scale.
+    let src_depth_unit: Option<String> = conn
+        .query_row("SELECT depth_unit FROM wells WHERE well_id = ?1", params![src_id], |r| r.get(0))
+        .ok()
+        .flatten();
+    println!(
+        "  source well: {} generic-store curves ({}), depth unit {}",
+        src_curves.len(),
+        src_curves.iter().map(|c| c.mnemonic.as_str()).collect::<Vec<_>>().join(" "),
+        src_depth_unit.as_deref().unwrap_or("undeclared")
+    );
+
+    // WHICH CURVE PLAYS WHICH ROLE. The full run already answers this with `field_log_inputs`,
+    // and the stress run must answer it the SAME way or the two halves of this file would be
+    // timing and validating different interpretations of the same delivery.
+    //
+    // Resist binding roles here by some second rule of this test's own. Measured 2026-08-23, on
+    // an attempt to do exactly that: `GRN_CS` is not an alias of family GR (the table carries
+    // `GRN`, not `GRN_CS`), and `NPHI_COR` is registered under family **POR**, beside PHIE and
+    // PHIT, not under NPHI - so a family-based binding resolves neither, and a hand-written
+    // family map is a third opinion about a question `curves.rs` already answers.
+    //
+    // Whether `NPHI_COR` should be a neutron curve rather than a porosity curve is a question for
+    // the mnemonic dictionary, and answering it would move numbers on every delivery using that
+    // spelling. It is reported, not decided here.
+    let chain = ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"];
+    let chain_specs: Vec<modules::ModuleSpec> = chain
+        .iter()
+        .map(|m| {
+            modules::list_modules()
+                .into_iter()
+                .find(|spec| spec.name == *m)
+                .unwrap_or_else(|| panic!("chain module {m} is not in the manifest"))
+        })
+        .collect();
+
+    // What the FIRST chain step finds with no bindings at all, printed because it is the thing a
+    // user actually experiences: a module opened on this delivery and run with its manifest
+    // defaults. It is not a skip condition - the run below supplies bindings - it is evidence,
+    // measured rather than reasoned from the alias table.
+    println!(
+        "  vsh_gr with DEFAULT inputs, nothing bound: missing {}",
+        {
+            let bare = missing_inputs(&conn, &chain_specs[0], &HashMap::new(), &src_id).all;
+            if bare.is_empty() { "nothing".to_string() } else { bare.join(" ") }
+        }
+    );
+
+    // A TIMING IS ONLY A TIMING IF THE WORK HAPPENED, so ask the app's own resolution - through
+    // `missing_inputs`, with the delivery's bindings applied - whether the source well can drive
+    // this chain, BEFORE cloning it a hundred times. A delivery that cannot is a FIXTURE fact,
+    // not a code defect: it SKIPS by name, because a fresh clone pointed at any folder must
+    // still go green.
+    //
+    // Walk the chain IN ORDER and forgive an input an earlier step will write. Only the delivery
+    // has to carry gamma, density and resistivity; VSH and PHIE are absent from the source well
+    // by construction, and checking the four modules independently would skip on the chain's own
+    // intermediate products. What each step produces comes from `workflow::resolve_output_names`
+    // - the one place output names are resolved - so this cannot drift from what the run writes.
+    let mut produced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unresolved: Vec<String> = Vec::new();
+    for spec in &chain_specs {
+        unresolved.extend(
+            missing_inputs(&conn, spec, &field_log_inputs(spec), &src_id)
+                .required
+                .into_iter()
+                .filter(|input| {
+                    !input.rsplit('=').next().is_some_and(|mnemonic| produced.contains(mnemonic))
+                }),
+        );
+        produced.extend(
+            crate::workflow::resolve_output_names(spec, &HashMap::new())
+                .expect("chain module output names")
+                .into_iter()
+                .map(|(_, curve_name)| curve_name),
+        );
+    }
+    println!("  chain inputs no earlier step writes and the delivery cannot fill: {}",
+        if unresolved.is_empty() { "none".to_string() } else { unresolved.join(" ") });
+    if !unresolved.is_empty() {
+        eprintln!(
+            "SKIP pipeline_field_100well_stress: the source well fills none of {}, so the chain \
+             would have nothing to interpret and every timing would be a timing of a failure. \
+             Point {} at a delivery carrying those channels.",
+            unresolved.join(" or "),
+            crate::field_fixtures::FIELD_FIXTURE_ENV
+        );
+        return;
+    }
+
     const N_WELLS: usize = 100;
 
     let t0 = Instant::now();
@@ -508,6 +655,37 @@ fn pipeline_field_100well_stress() {
             sp.clone(),
         )
         .unwrap();
+        if let Some(unit) = &src_depth_unit {
+            conn.execute(
+                "UPDATE wells SET depth_unit = ?2 WHERE well_id = ?1",
+                params![id.to_string(), unit],
+            )
+            .unwrap();
+        }
+        for c in &src_curves {
+            let new_curve_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no)
+                 VALUES (CAST(?1 AS UUID), CAST(?2 AS UUID), ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    new_curve_id,
+                    id.to_string(),
+                    c.set_name,
+                    c.mnemonic,
+                    c.unit,
+                    c.family,
+                    c.source,
+                    c.run_no
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO curve_samples (curve_id, depth, value)
+                 SELECT CAST(?1 AS UUID), depth, value FROM curve_samples WHERE curve_id = CAST(?2 AS UUID)",
+                params![new_curve_id, c.curve_id],
+            )
+            .unwrap();
+        }
         ids.push(id.to_string());
     }
     println!(
@@ -523,13 +701,16 @@ fn pipeline_field_100well_stress() {
     // A representative interpretation chain (each call fans across all 100 wells via rayon).
     // phi_den, not phi_dn: SB-POR-024 (DEC-025) gates phi_dn on a declared neutron
     // basis, and this chain measures write-path timing, not the N-D boundary.
-    let chain = ["vsh_gr", "phi_den", "sw_indo", "perm_wyllie_rose"];
+    // `chain`/`chain_specs` are bound above, where the skip decision needs them.
     let mut grand = std::time::Duration::ZERO;
-    for m in chain {
+    for (m, spec) in chain.iter().zip(&chain_specs) {
         let req = RunModuleRequest {
-            module: m.into(),
+            module: (*m).into(),
             well_ids: ids.clone(),
-            log_inputs: HashMap::new(),
+            // The same bindings the full run uses. Without them the modules fall back to their
+            // standard defaults, which on this delivery resolve to nothing at all - which is how
+            // 400 failed runs came to be reported as timings.
+            log_inputs: field_log_inputs(spec),
             params: generic_chain_params(m),
             opts: HashMap::new(),
             output_set: None,
@@ -540,24 +721,39 @@ fn pipeline_field_100well_stress() {
         let runs = run_workflow_module(&db, &req);
         let el = t.elapsed();
         grand += el;
-        let errs = runs.iter().filter(|r| r.error.is_some()).count();
+        let errs: Vec<String> = runs.iter().filter_map(|r| r.error.clone()).collect();
         println!(
             "  {:<18} {:?}  ({:.0} wells/s, {} errors)",
             m,
             el,
             N_WELLS as f64 / el.as_secs_f64(),
-            errs
+            errs.len()
+        );
+        // The count was already printed before this assert existed; what was missing was the
+        // MESSAGE, so a hundred identical failures said nothing about why. Naming the first one
+        // is the difference between "it failed" and a diagnosis.
+        assert!(
+            errs.is_empty(),
+            "{m}: {} of {N_WELLS} wells produced no answer - first: {}",
+            errs.len(),
+            errs[0]
         );
     }
     let total_samples = (N_WELLS * samples_per_well * chain.len()) as f64;
+    // Thousands, not millions. This chain has never once reached 0.1M sample-evals/s - not on
+    // real wells and not on the synthetic sweep - so `{:.1}M` printed `0.0M` every time, which is
+    // indistinguishable from the reading it gave while all 400 runs were failing. A unit that
+    // rounds every real answer to zero is not a unit.
     println!(
-        "  chain total {:?} → {:.1}M sample-evals/s",
+        "  chain total {:?} → {:.1}k sample-evals/s",
         grand,
-        total_samples / grand.as_secs_f64() / 1e6
+        total_samples / grand.as_secs_f64() / 1e3
     );
 
     // Pay summary across all 100 wells.
     let t = Instant::now();
+    // `.unwrap_or(0)` used to turn an Err into the string "0 rows", which reads as an empty
+    // field rather than as a failed summary.
     let pay = run_pay_summary(
         &db,
         &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::paysummary::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
@@ -569,7 +765,13 @@ fn pipeline_field_100well_stress() {
             weighting: Default::default(),
         },
     );
-    println!("  pay_summary(100 wells) {:?} → {} rows", t.elapsed(), pay.map(|r| r.len()).unwrap_or(0));
+    let pay_elapsed = t.elapsed();
+    let pay = pay.expect("pay summary over the stress field");
+    println!("  pay_summary(100 wells) {pay_elapsed:?} → {} rows", pay.len());
+    assert!(
+        !pay.is_empty(),
+        "the pay summary produced no rows over {N_WELLS} interpreted wells"
+    );
 
     // ---- Write-cost probe: the control that justified dropping the PK ---
     // Same row volume appended into (a) a table carrying the OLD 3-column PRIMARY KEY
