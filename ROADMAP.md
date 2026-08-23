@@ -60,7 +60,7 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**; **async commands (#128)** ✅ **shipped 2026-07-30** (project open/switch, Save As, Compact, TVD rebuild and SQL query all off the event loop). **pre-window startup** ✅ **shipped 2026-07-30** (window first, project opens behind a boot overlay). Remaining: connection pool [**high-risk**] (#129), needs a live 100-well run to sign off.
+- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**; **async commands (#128)** ✅ **shipped 2026-07-30** (project open/switch, Save As, Compact, TVD rebuild and SQL query all off the event loop). **pre-window startup** ✅ **shipped 2026-07-30** (window first, project opens behind a boot overlay). Remaining: connection pool [**high-risk**] (#129) - **stage 1 (the swap-invalidation catch) shipped 2026-08-23**, buys no speed by design; stages 2-3 are the concurrency and need a live 100-well run to sign off. Assessment: `docs/PERF-POOL-RISK-2026-08-23.md`.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
@@ -1268,6 +1268,14 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
       writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the
       WAL/131MB file. Corruption modes must be reasoned explicitly.
+      **Measured and reasoned 2026-08-23** (`docs/PERF-POOL-RISK-2026-08-23.md`): worth **1.95x at 4
+      readers / 2.15x at 8** on a real 100-well chain — up from 1.30x, because the degradation-write
+      batching the same day removed the serialized write that was capping it. Seven corruption modes
+      reasoned; a WRITER pool is recommended AGAINST by name (no modelled return, and it splits the one
+      transaction covering a chain step). **Stage 1 shipped**: `reader_pool.rs`, the generation stamp,
+      `DbState::install` as the only route to a swap, one reader, no concurrency. **Stage 2 (N readers
+      on `workflow.rs`'s read paths) is the speed and is NOT started** — it waits on Jauhar clicking
+      through stage 1 on real wells. Ceiling after it: the write is 17.2 s of a 21.5 s chain.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

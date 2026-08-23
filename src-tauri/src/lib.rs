@@ -66,6 +66,7 @@ mod plotting;
 mod plugqc;
 mod project;
 mod python_engine;
+mod reader_pool;
 mod reframe;
 mod registration;
 mod report;
@@ -96,7 +97,44 @@ use uuid::Uuid;
 /// IPC/main thread (#128). project::switch_project swaps the Connection *inside* this Mutex, so
 /// a background job holding an Arc clone transparently follows a project switch; the job
 /// registries' `any_active` guards block a switch while a job is still running.
-pub struct DbState(pub Arc<Mutex<Connection>>);
+pub struct DbState(pub Arc<Mutex<Connection>>, pub Arc<reader_pool::ReaderPool>);
+
+impl DbState {
+    pub fn new(conn: Connection) -> Self {
+        Self(Arc::new(Mutex::new(conn)), Arc::new(reader_pool::ReaderPool::new()))
+    }
+
+    /// A second handle on the SAME connection and the SAME reader pool, for a background worker.
+    ///
+    /// The pool rides in `DbState` rather than in its own managed state deliberately: a swap site
+    /// that can reach the connection can always reach the pool, so `invalidate` cannot be
+    /// forgotten for want of a parameter. Forgetting it is corruption mode M1 in
+    /// `PERF-POOL-RISK-2026-08-23.md`, and it is the silent one.
+    pub fn share(&self) -> Self {
+        Self(self.0.clone(), self.1.clone())
+    }
+
+    /// Replace the live connection, returning the outgoing one.
+    ///
+    /// **This is the only route to that assignment, and that is the point.** Invalidating the
+    /// reader pool is corruption mode M1 in `PERF-POOL-RISK-2026-08-23.md`: a pooled handle that
+    /// survives a swap goes on serving rows out of the old database file, and those rows look
+    /// entirely normal. Leaving the two steps separate would mean every swap site - three today,
+    /// an unknown number later - has to remember the second one, and forgetting it produces no
+    /// error, no warning and no visible symptom.
+    ///
+    /// So the pool bump is not a step a caller can forget. It is not reachable to skip.
+    /// `a_swap_of_the_live_connection_cannot_be_written_without_invalidating_the_pool` refuses any
+    /// production code that assigns the live connection some other way.
+    ///
+    /// The outgoing connection is RETURNED rather than dropped here, because `compact_project`
+    /// needs the drop to happen at a point it chooses - dropping a DuckDB connection checkpoints
+    /// and removes the WAL, and that has to be finished before the file is renamed.
+    pub fn install(&self, live: &mut Connection, incoming: Connection) -> Connection {
+        self.1.invalidate();
+        std::mem::replace(live, incoming)
+    }
+}
 
 /// Why the project on disk could not be opened, and what the session is running on instead.
 ///
@@ -238,7 +276,7 @@ async fn compact_project(
         return Err("A background job is still running — wait for it to finish before compacting".to_string());
     }
     let path = proj.0.lock().unwrap().clone();
-    let owned = DbState(db.0.clone());
+    let owned = db.share();
     tauri::async_runtime::spawn_blocking(move || project::compact_project(&owned, &path))
         .await
         .map_err(|e| e.to_string())?
@@ -338,7 +376,7 @@ async fn open_project(
     if !std::path::Path::new(&path).exists() {
         return Err(format!("File not found: {path}"));
     }
-    let owned = DbState(db.0.clone());
+    let owned = db.share();
     let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
         .await
         .map_err(|e| e.to_string())??;
@@ -363,7 +401,7 @@ async fn new_project(
     if std::path::Path::new(&path).exists() {
         return Err(format!("{path} already exists — use Open Project to open it"));
     }
-    let owned = DbState(db.0.clone());
+    let owned = db.share();
     let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
         .await
         .map_err(|e| e.to_string())??;
@@ -472,9 +510,18 @@ fn list_wells(
     db: tauri::State<DbState>,
     scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<db::WellSummary>, String> {
+    // #129 stage 1's one real consumer, chosen for what it would look like if the invalidation
+    // ever broke: the well list is rebuilt on every project switch, so a stale reader would show
+    // the PREVIOUS project's wells the moment you opened a new one. That is the loudest place in
+    // the app for M1 to surface, and it is a pure read - it writes nothing and decides nothing.
+    //
+    // The lock is still held for the whole read, so this serialises exactly as it did before.
+    // Stage 2 is what changes that; see `reader_pool.rs`.
     let conn = db.0.lock().unwrap();
-    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "well inventory")?;
-    db::list_wells_by_ids(&conn, &well_ids).map_err(|e| e.to_string())
+    db.1.with_reader(&conn, |reader| {
+        let well_ids = well_scope::resolve_well_scope(reader, &scope, "well inventory")?;
+        db::list_wells_by_ids(reader, &well_ids).map_err(|e| e.to_string())
+    })
 }
 
 /// Parses and ingests a batch of LAS 2.0 files (parsed concurrently via `rayon`), inserting
@@ -4337,7 +4384,11 @@ fn publish_open_outcome(
     use tauri::Manager as _;
     if let Some(conn) = conn {
         if let Some(db) = handle.try_state::<DbState>() {
-            *db.0.lock().unwrap() = conn;
+            let mut guard = db.0.lock().unwrap();
+            // Swap site 3 of 3 (#129 M1). The placeholder this replaces is an in-memory database,
+            // so a pooled handle on it would answer every query with an empty project rather than
+            // an error - the failure would read as "my wells are gone", not as a bug.
+            drop(db.install(&mut guard, conn));
         }
     }
     if let Some(proj) = handle.try_state::<project::ProjectState>() {
@@ -4459,7 +4510,7 @@ pub fn run() {
     // together, and revisit the zero-network-egress claim in docs/PRD.md section 7.5.
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(DbState(Arc::new(Mutex::new(placeholder))))
+        .manage(DbState::new(placeholder))
         .manage(project::ProjectState(Mutex::new(String::new())))
         .manage(StartupState(Mutex::new(None)))
         .manage(DbInit(Arc::new((Mutex::new(None), std::sync::Condvar::new()))))

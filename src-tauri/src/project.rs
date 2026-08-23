@@ -354,12 +354,15 @@ pub fn compact_project(db: &DbState, path: &str) -> Result<CompactReport, String
 
     // Release the file handle so the swap can rename it: park a throwaway in-memory DB in
     // the state. Dropping the old connection closes gracefully (checkpoint + WAL removal).
+    // Swap site 1 of 3 (#129 M1). The pool release matters here for a second reason beyond the
+    // generation stamp: the rename below cannot move a file that something still holds open, so an
+    // idle pooled handle would fail Compact Project outright on Windows.
     let placeholder = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
-    drop(std::mem::replace(&mut *guard, placeholder));
+    drop(db.install(&mut guard, placeholder));
 
     if let Err(e) = std::fs::rename(path, &old) {
         let _ = std::fs::remove_file(&tmp);
-        *guard = open_and_migrate(path)?;
+        drop(db.install(&mut guard, open_and_migrate(path)?));
         return Err(format!("compact aborted (could not move the old file): {e} — the project is unchanged"));
     }
     // A leftover WAL belongs to the ORIGINAL file — it must follow it, or the compacted
@@ -371,19 +374,20 @@ pub fn compact_project(db: &DbState, path: &str) -> Result<CompactReport, String
     if let Err(e) = std::fs::rename(&tmp, path) {
         let _ = std::fs::rename(format!("{old}.wal"), &wal);
         let _ = std::fs::rename(&old, path);
-        *guard = open_and_migrate(path)?;
+        drop(db.install(&mut guard, open_and_migrate(path)?));
         return Err(format!("compact aborted (could not move the compacted file into place): {e} — the project is unchanged"));
     }
 
     match open_and_migrate(path) {
-        Ok(conn) => *guard = conn,
+        Ok(conn) => drop(db.install(&mut guard, conn)),
         Err(e) => {
             // The compacted copy verified on counts but failed to open — put everything back.
             let _ = std::fs::rename(path, &tmp);
             let _ = std::fs::rename(&old, path);
             let _ = std::fs::rename(format!("{old}.wal"), &wal);
-            *guard = open_and_migrate(path)
+            let reopened = open_and_migrate(path)
                 .map_err(|e2| format!("compact failed ({e}) and reopening the original also failed: {e2} — the original file is intact at {path}; restart SandiBumi"))?;
+            drop(db.install(&mut guard, reopened));
             return Err(format!("compact aborted (the compacted copy failed to open: {e}); the project is unchanged"));
         }
     }
@@ -407,7 +411,8 @@ pub fn switch_project(db: &DbState, path: &str) -> Result<RecentProject, String>
         // Flush the outgoing project's WAL; failure is not fatal to the switch
         // (the WAL simply replays on that file's next open).
         let _ = guard.execute_batch("CHECKPOINT;");
-        *guard = new_conn;
+        // Swap site 2 of 3 (#129 M1) - Open Project and New Project both land here.
+        drop(db.install(&mut guard, new_conn));
     }
     register_recent(path);
     Ok(RecentProject {
@@ -465,6 +470,81 @@ pub(crate) mod tests {
         let _ = std::fs::remove_file(p.with_extension("duckdb.wal"));
     }
 
+    /// #129 stage 1, end to end: `reader_pool.rs` pins the pool, this pins that the two swap
+    /// sites in THIS file actually call it. A pool that is correct and never invalidated is
+    /// corruption mode M1 with extra steps.
+    ///
+    /// Both sites are covered because both fail the same silent way - the reader keeps serving the
+    /// PREVIOUS project's wells, and they look exactly like wells.
+    ///
+    /// It was expected that `compact_project` would fail more loudly, on the theory that Windows
+    /// will not rename a file something still holds open. Measured: it will. A mutation that
+    /// bumped the generation but never released the pooled handle ran Compact Project to
+    /// completion. There is no accidental filesystem guard behind the stamp, which is worth
+    /// knowing rather than assuming - see the note in `reader_pool.rs`.
+    ///
+    /// This lives here rather than beside the pool because it needs a real file on a real
+    /// filesystem and the two real swap functions, not a hand-made pair of connections.
+    #[test]
+    fn a_pooled_reader_follows_the_project_across_both_swap_sites() {
+        let _guard = CONFIG_DIR.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("sandibumi-pool-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("SANDIBUMI_CONFIG_DIR", tmp.join("cfg").to_str().unwrap());
+
+        let make = |path: &std::path::Path, well: &str| {
+            let conn = db::init_db_resilient(path.to_str().unwrap()).unwrap();
+            conn.execute_batch(&format!(
+                "INSERT INTO wells (well_id, well_name, field_name, td, kb) \
+                 VALUES (gen_random_uuid(), '{well}', NULL, NULL, NULL);"
+            ))
+            .unwrap();
+            conn
+        };
+        let a = tmp.join("alpha.duckdb");
+        let b = tmp.join("beta.duckdb");
+        let state = DbState::new(make(&a, "SANDI-A"));
+        drop(make(&b, "SANDI-B"));
+
+        let pooled_well = |state: &DbState| -> String {
+            let conn = state.0.lock().unwrap();
+            state
+                .1
+                .with_reader(&conn, |reader| {
+                    reader
+                        .query_row("SELECT well_name FROM wells", [], |r| r.get::<_, String>(0))
+                        .map_err(|e| e.to_string())
+                })
+                .unwrap()
+        };
+
+        // A pooled read leaves its handle behind - without that there is nothing stale to serve
+        // and the rest of this test would pass for the wrong reason.
+        assert_eq!(pooled_well(&state), "SANDI-A");
+        assert!(state.1.holds_idle_handle(), "the read must leave a handle in the pool");
+
+        // Swap site 2 of 3.
+        switch_project(&state, b.to_str().unwrap()).expect("switch");
+        assert_eq!(
+            pooled_well(&state),
+            "SANDI-B",
+            "the pooled reader served the previous project after Open Project"
+        );
+
+        // Swap site 1 of 3. Compact Project rewrites the file and swaps the connection under it,
+        // so a reader that survived would answer from a file that is no longer the project.
+        assert!(state.1.holds_idle_handle(), "the read above must have left a handle to release");
+        compact_project(&state, b.to_str().unwrap()).expect("compact must still succeed");
+        assert_eq!(
+            pooled_well(&state),
+            "SANDI-B",
+            "the pooled reader lost the project across Compact Project"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// `SANDIBUMI_CONFIG_DIR` is process-global, so every test that redirects it takes this
     /// first. It is what lets the trust-list contract below have a name of its own instead of
     /// being appended to a test about something else.
@@ -505,7 +585,7 @@ pub(crate) mod tests {
         assert_eq!(startup_path(), absolute(a.to_str().unwrap()));
 
         // Live swap: state starts on A (1 well), switches to fresh B (0 wells), back to A.
-        let state = DbState(std::sync::Arc::new(Mutex::new(db::init_db_resilient(a.to_str().unwrap()).unwrap())));
+        let state = DbState::new(db::init_db_resilient(a.to_str().unwrap()).unwrap());
         let wells = |s: &DbState| -> i64 {
             s.0.lock()
                 .unwrap()
@@ -603,7 +683,7 @@ pub(crate) mod tests {
              CHECKPOINT;",
         )
         .unwrap();
-        let state = DbState(std::sync::Arc::new(Mutex::new(conn)));
+        let state = DbState::new(conn);
 
         let rep = compact_project(&state, &path).expect("compact must succeed");
         assert!(
@@ -670,7 +750,7 @@ pub(crate) mod tests {
              CHECKPOINT;",
         )
         .unwrap();
-        let state = DbState(std::sync::Arc::new(Mutex::new(conn)));
+        let state = DbState::new(conn);
 
         {
             let conn = state.0.lock().unwrap();

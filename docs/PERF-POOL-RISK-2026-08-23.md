@@ -4,7 +4,9 @@ The brief says: *"#129 changes DB connection semantics and is HIGH RISK. Measure
 doing; do not implement it without asking."* `ROADMAP.md:1267` adds: *"writes must stay
 single-writer to protect the WAL/131MB file. Corruption modes must be reasoned explicitly."*
 
-This is that assessment. **Nothing here is implemented.**
+This was that assessment, and Jauhar answered it: **stage 1 only.** It is built - see `reader_pool.rs`
+and the REVIEW entry of the same date. §3 M1 below carries a correction that building it produced.
+Stages 2 and 3, and everything about concurrency, remain unbuilt.
 
 ## 1. The earlier number cannot be quoted, and the reason is good news
 
@@ -75,22 +77,31 @@ Four of these change the risk picture:
 ### M1 — the stale handle after a project swap. **Top risk, and silent.**
 
 Measured (Q6): a cloned connection outlives the handle it was cloned from and keeps answering.
-`project.rs` replaces `*guard` in place on **Open Project, New Project, Save As and Compact
-Project**. A pooled reader created before a swap would go on serving rows from the *old* database
-file, and those rows look completely normal.
+`project.rs` replaces the live connection in place on **Open Project, New Project and Compact
+Project**, and `lib.rs` does it a third time at startup, when the real project replaces the
+in-memory placeholder the window is built on. (**Save As does not belong on that list** and was
+listed here in error: it copies the project to a new file with `db::engine_copy_to` and leaves the
+current one open, so there is nothing to invalidate. The startup swap was missing from it.)
+
+A pooled reader created before a swap would go on serving rows from the *old* database file, and
+those rows look completely normal.
 
 The concrete scenario: the user runs Compact Project on a bloated field, keeps working, and reads
 answers out of the pre-compact file for the rest of the session. Nothing errors. Nothing looks
 wrong.
 
-There is one accidental guard: `compact_project` parks the original as `.pre-compact-<ts>.duckdb`
-by renaming it, and on Windows an open handle blocks a rename — so a stale reader would likely
-produce a *loud* failure there. That is luck, not design, and it does not cover Open Project.
+**There is no accidental guard, and this paragraph originally said there was.** It claimed that
+`compact_project`'s rename would fail on Windows with a pooled handle open, giving a loud failure
+behind the silent one. Building stage 1 tested it: a mutation that bumped the generation but never
+released the handle ran Compact Project to completion, rename and all. The claim was wrong and is
+withdrawn. Every swap path fails the same silent way, and the generation stamp is the only thing
+standing in front of all of them.
 
-**Mitigation, if built:** the pool is generation-stamped, and the stamp is bumped **inside the same
-critical section that performs the swap**. Any handle whose generation is stale is dropped rather
-than used. This must be pinned by a test that swaps the project and asserts a pre-swap handle is
-refused rather than served.
+**Mitigation, as built (stage 1, 2026-08-23):** the pool is generation-stamped and the stamp is
+bumped **inside the same critical section that performs the swap** — and the bump is not a step a
+caller can forget, because `DbState::install` is the only production route to replacing the live
+connection and it is what performs both. `reader_pool.rs` holds the contract and the gate that
+refuses any second route.
 
 ### M2 — write atomicity, which is a semantic change and not a performance one
 

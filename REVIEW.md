@@ -1,5 +1,46 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — The safety catch before the speed: SandiBumi can now open a second door on your project
+
+- [ ] **Nothing is faster yet, and that is deliberate.** This is stage 1 of the connection pool you
+      said yes to. It builds the safety catch **only**, with exactly one reading door open — so it
+      performs identically to before. If the catch is wrong, it shows up now, with nothing else
+      changed to muddy the picture.
+- [ ] **What the catch is for.** Opening extra doors for reading is how we get the ~2× on batch
+      runs. The catch is that when you switch projects or compact one, SandiBumi swaps the database
+      underneath — and a door opened for the old project keeps working. You would carry on reading
+      answers out of the file you just replaced, and **they would look completely normal**. That is
+      the failure this stage exists to make impossible.
+- [ ] **How it is made impossible rather than just tested.** Every door is stamped with which
+      project it was opened for, and the stamp is checked before use. There is now exactly **one**
+      place in the whole app that can swap the database, and that place does the stamping — so a
+      future change cannot forget it, because there is no other route. A test refuses any second
+      route if somebody writes one.
+- [ ] **I was wrong about something I told you this morning.** I said Windows would refuse to rename
+      a file that a stale door still held open, giving us a loud failure as a backstop. I tested it
+      while building this: **Windows renames it happily.** There is no backstop. The stamp is the
+      only thing protecting you, and the assessment now says so.
+- [ ] **The one place using it so far is the well list**, chosen because it is the loudest possible
+      place for the failure to appear: the list is rebuilt every time you switch projects, so a
+      stale door would show you the *previous* project's wells the moment you opened a new one.
+
+**What to click:**
+
+- [ ] **Open a project, then open a different one.** The Wells pane must show the second project's
+      wells, immediately and completely. If you ever see the previous project's wells after a
+      switch, stop and tell me — that is exactly the failure this stage is built to prevent, and it
+      would mean the catch is not holding.
+- [ ] **New Project, then Open Project back to the first one.** Same check, both directions.
+- [ ] **Run Compact Project on a bloated field project**, then look at the Wells pane. The wells
+      must still be right, and the compact must still succeed and still park the original beside
+      the project as `.pre-compact-<timestamp>.duckdb`.
+- [ ] **Then just work normally for a while** on a project you know — batch runs, plots, exports.
+      Nothing should feel any different at all. That is the result I am hoping for: this stage is
+      supposed to be invisible.
+- [ ] **The speed comes in stage 2**, which opens the doors properly and is where the ~2× lives.
+      I have not started it and will not until you have clicked through this one on real wells.
+
+
 ## 2026-08-23 — Porosity from density is four times faster, and writes exactly the same notes
 
 - [ ] **This is the fix for the thing I described last time.** `phi_den` was writing its 89,600
