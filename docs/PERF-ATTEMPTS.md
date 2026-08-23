@@ -15,6 +15,7 @@ Read this before proposing a performance change.
 | 5 | Write the 89,600 degradation rows through ONE appender instead of one `INSERT` each, the fix attempt 4 named | real delivery: `phi_den` 61.72 s -> **15.86 s** (3.89x), its write phase 51.14 s -> **5.34 s** (9.58x), chain total 85.86 s -> **41.92 s** (2.05x) | **KEPT** | The first surviving fix in pass 3. Paired A/B on the same machine in the same session; identical row counts in both tables at every step. Generated fixture gains only 1.37x on the step and 1.09x on the chain, which is INSIDE the variance floor - synthetic wells clamp 177 samples where real ones clamp 896. See `PERF-DEGRADATION-BATCH-2026-08-23.md`. |
 | 6 | #129 **stage 2** - pooled reader connections on the chain's four read paths, for the modelled 1.95x | the queue really did vanish (`wait` 124,407 ms -> **29 ms**) and **99 of 100 wells then failed** on the real fixture | **REVERTED** | A pooled read returns `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint violation` from a SELECT. **Cause named the same day by bisection**: that read path runs a project-wide back-fill WRITE (`ancestry::try_resolve_ancestry_input` -> `db::migrate_standard_curves_to_generic_store`), and N connections each run the whole thing. Stage 1 (the swap catch) stays. See §4. |
 | 7 | Take that back-fill off the read path, so #129 stage 2 can be re-attempted - Jauhar's call of *run it at the open*, which the open was already doing | 8 wells on cloned connections: un-backfilled project **7 of 8 failed -> 0 failed**, `curve_meta` rows written by the reads **8 racing threads -> 0**, opened project **8 of 8 resolved** | **KEPT** | Buys no speed by itself and was not meant to - it unblocks the 1.95x. The lazy repair was unreachable in production (the open runs the back-fill; the LAS import marks its own wells done), so no number moved: the 83 fixtures that relied on it now call the same function explicitly through `db::insert_standard_curves_as_opened_project`. See §4. |
+| 8 | #129 **stage 2, second attempt** - the same pooled reader connections, now that the write on the read path is gone | real 100-well chain, paired, AFTER arm run FIRST so the cache favoured BEFORE: **38.57 s -> 27.72 s (1.39x)**; lock contention **357,347 ms -> 116 ms**; 0 errors of 100 on all four steps in both arms | **KEPT** | Every row count identical at every step, and every value `pipeline_field_full_run` prints on real wells is unchanged (0 rows differing). The model said 1.95x and the machine says 1.39x, because reading is not free once it overlaps - 13.7 s of serialized read thread-time became 92.7 s of concurrent read thread-time. See `PERF-POOL-STAGE2-2026-08-23.md`. |
 
 ---
 
@@ -368,3 +369,38 @@ The 1.95x is reachable now - the queue really did disappear. The reverted stage
 repository, because a broken concurrency change sitting in the tree is exactly the thing somebody
 re-enables without re-reading this. The probe stays IN the tree, because verifying whichever route
 is chosen means running exactly it.
+
+
+---
+
+## §5 — #129 stage 2, second attempt (2026-08-23, pass 3 increment 13)
+
+The first attempt is §4 above: it delivered the speed and broke 99 of 100 wells, and the bisect
+named the cause as a project-wide back-fill WRITE running from inside the module-input READ. Route 1
+removed it. This is the same change, re-attempted with one variable moved instead of two.
+
+**It works.** Real 100-well fixture, paired in one session, AFTER arm run FIRST so the disk cache
+favoured BEFORE:
+
+```
+                      before        after      ratio
+CHAIN TOTAL          38.565 s     27.725 s     1.39x
+wait  (contention)  357,347 ms      116 ms
+read  (doing work)   13,718 ms   92,713 ms     <- reads now overlap
+write (serialized)   16,090 ms   16,358 ms     <- untouched, as designed
+```
+
+`cargo test --lib`: **1244 passed, 0 failed** - the first attempt failed 7 the same way it failed
+the wells. Row counts identical at every step, and `pipeline_field_full_run` on real wells prints
+identical values in both arms, **0 rows differing**.
+
+**The honest shortfall: modelled 1.95x, measured 1.39x.** The model treated the read cost as fixed
+and deleted the queue around it; in fact 13.7 s of serialized reading became 92.7 s of concurrent
+reading, which over a 27.7 s chain is only ~3.3 threads busy. Eight handles and 32 rayon threads do
+not produce eight-fold reading, so **raising the capacity is not the lever** - the full argument is
+`PERF-POOL-STAGE2-2026-08-23.md` §3.
+
+`prewarm` from the first attempt was DROPPED rather than carried forward. It existed to test the
+hypothesis that lazy minting was the fault, the bisect refuted that, and the perf rule that governs
+this whole ledger says unmeasured complexity does not ship. Removing it cost nothing to check,
+because this increment was being measured anyway.

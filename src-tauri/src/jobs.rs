@@ -723,7 +723,7 @@ mod tests {
             "ingest::import_las_files_with(&c, &paths, Some(&job), &opts)",
             "python_engine::run_python_equation(&conn, &equation, &well_ids, &custody, Some(&job))",
             "equations::run_equation(&conn, &equation, &well_ids, &custody, Some(&job))",
-            "workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))",
+            "workflow::run_workflow_module_into(&conn, &pool, &req, None, Some(&job.cancel), Some(&job))",
             "montecarlo::run_monte_carlo(&conn, &req, Some(&job))",
             "ml::run_ml(&conn, &req, Some(&job))",
             "ml::apply_ml_model(&conn, &req, Some(&job))",

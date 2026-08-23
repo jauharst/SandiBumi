@@ -1264,7 +1264,7 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       the DB `Mutex` still serializes, so nothing observes a half-swapped project.
       The STARTUP open (pre-window) was the remaining gap and is **also done 2026-07-30** — see
       the startup item below.
-- [ ] **(#129) [HIGH-RISK]** Rayon over wells is defeated by the single global `Mutex<Connection>` — every
+- [x] **(#129) [HIGH-RISK]** ~~Rayon over wells is defeated by the single global `Mutex<Connection>`~~ — **DONE 2026-08-23.** Original text and the whole road to it follow, because the modelled number and the measured one differ and both matter. Rayon over wells is defeated by the single global `Mutex<Connection>` — every
       well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
       writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the
       WAL/131MB file. Corruption modes must be reasoned explicitly.
@@ -1289,8 +1289,15 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       connections: the un-backfilled project goes 7-of-8-failed → 0 failed and 0 `curve_meta` rows
       written, and a properly opened one resolves 8 of 8
       (`workflow.rs::the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill`).
-      **Stage 2 is now unblocked and NOT yet re-attempted** — one variable at a time, after the
-      last attempt moved two. Ceiling: the write is 17.2 s of a 21.5 s chain.
+      **Stage 2 landed on the second attempt, 2026-08-23** (`PERF-POOL-STAGE2-2026-08-23.md`):
+      the four reads in the runner's per-well rayon loop go through the pool, the write path is
+      untouched. Paired on the real 100-well chain with the AFTER arm run first so the cache
+      favoured BEFORE: **38.57 s → 27.72 s (1.39×)**, lock contention **357,347 ms → 116 ms**,
+      0 errors of 100 on all four steps in both arms, every row count identical, and every value
+      `pipeline_field_full_run` prints on real wells unchanged. **Measured 1.39×, not the modelled
+      1.95×** — 13.7 s of serialized read thread-time became 92.7 s of concurrent read thread-time,
+      so ~3.3 threads' worth, and raising the pool capacity is NOT the lever. The write is now the
+      largest serialized cost and a writer pool stays recommended against.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

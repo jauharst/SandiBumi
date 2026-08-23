@@ -1668,7 +1668,9 @@ pub fn rerun_log_set(
 /// test suite — hence `allow(dead_code)` for the lib-proper build.
 #[allow(dead_code)]
 pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Vec<ModuleRunResult> {
-    run_workflow_module_into(db, req, None, None, None)
+    // Test-only wrapper, so it owns its pool rather than threading one through ten call sites.
+    // Correct because it is never live beside a project swap: the pool dies with the call.
+    run_workflow_module_into(db, &crate::reader_pool::ReaderPool::new(), req, None, None, None)
 }
 
 fn resolved_log_args(spec: &modules::ModuleSpec, log_inputs: &HashMap<String, String>) -> Vec<(String, String)> {
@@ -2536,6 +2538,7 @@ pub fn despike_contamination_preview(
 /// effect within a well or two instead of after the whole step finishes.
 pub fn run_workflow_module_into(
     db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     req: &RunModuleRequest,
     preset_sets: Option<&HashMap<String, ancestry::CompleteSetId>>,
     cancel: Option<&std::sync::atomic::AtomicBool>,
@@ -2712,15 +2715,12 @@ pub fn run_workflow_module_into(
                 let _phase_well = crate::lock_probe::well();
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
-                let (depth, mut logs, input_units, params, defaulted_parameters, log_args) = {
-                    #[cfg(test)]
-                    let conn = { let _phase_wait = crate::lock_probe::wait(); db.lock().unwrap() };
-                    #[cfg(not(test))]
-                    let conn = db.lock().unwrap();
-                    #[cfg(test)]
-                    let _phase_read = crate::lock_probe::read();
+                // #129. Through the reader pool: this used to hold the ONE shared connection for the
+                // whole of its work, so every other well in the rayon loop queued behind it.
+                let (depth, mut logs, input_units, params, defaulted_parameters, log_args) =
+                    pool.read(db, |conn| {
                     let log_args = resolved_log_args_for_well(
-                        &conn,
+                        conn,
                         well_id,
                         &spec,
                         &req.log_inputs,
@@ -2729,7 +2729,7 @@ pub fn run_workflow_module_into(
                         &HashSet::new(),
                     )?;
                     validate_shale_clay_input_quantities(
-                        &conn,
+                        conn,
                         well_id,
                         &spec,
                         &log_args,
@@ -2738,9 +2738,9 @@ pub fn run_workflow_module_into(
                     )?;
                     // SB-POR-024 (DEC-025): the N-D methods refuse an undeclared or
                     // wrong-basis neutron before anything computes.
-                    validate_neutron_basis_input(&conn, well_id, &spec, &log_args)?;
+                    validate_neutron_basis_input(conn, well_id, &spec, &log_args)?;
                     let (depth, logs, input_units) = fetch_module_input_logs(
-                        &conn,
+                        conn,
                         well_id,
                         &spec,
                         &log_args,
@@ -2752,14 +2752,14 @@ pub fn run_workflow_module_into(
                         return Err("no curve data for well".into());
                     }
                     let (params, defaulted_parameters) = resolve_param_arrays_with_default_usage(
-                        &conn,
+                        conn,
                         well_id,
                         &spec,
                         &req.params,
                         &depth,
                     )?;
-                    (depth, logs, input_units, params, defaulted_parameters, log_args)
-                };
+                    Ok((depth, logs, input_units, params, defaulted_parameters, log_args))
+                })?;
 
                 // Optional bad-hole (or any flag) mask. Resolve it BEFORE the module runs so
                 // flagged samples can be excluded from the module's INPUTS, not just its
@@ -2769,21 +2769,15 @@ pub fn run_workflow_module_into(
                 // sample, flagged or not. The mask is resolved like any other input
                 // (generic-store aware).
                 let mask_name = req.opts.get("MASK").map(|s| s.trim()).unwrap_or("");
-                let mask = {
-                    #[cfg(test)]
-                    let conn = { let _phase_wait = crate::lock_probe::wait(); db.lock().unwrap() };
-                    #[cfg(not(test))]
-                    let conn = db.lock().unwrap();
-                    #[cfg(test)]
-                    let _phase_read = crate::lock_probe::read();
+                let mask = pool.read(db, |conn| {
                     fetch_mask_aligned(
-                        &conn,
+                        conn,
                         well_id,
                         mask_name,
                         req.input_set.as_deref(),
                         own_set,
-                    )?
-                };
+                    )
+                })?;
 
                 // SB-ENV-027 (DEC-033): the ONE approved repair exemption - log_predict's SYN
                 // when OPT_COMBINE = MAX_RAW, the mode that is genuinely a washout repair. The
@@ -2823,13 +2817,10 @@ pub fn run_workflow_module_into(
                 // DECLARED neutron matrix basis, so the runner resolves the same curve the
                 // fetch used and injects its declaration - never inferring one.
                 if declared.reads_input_neutron_basis {
-                    #[cfg(test)]
-                    let conn = { let _phase_wait = crate::lock_probe::wait(); db.lock().unwrap() };
-                    #[cfg(not(test))]
-                    let conn = db.lock().unwrap();
-                    #[cfg(test)]
-                    let _phase_read = crate::lock_probe::read();
-                    if let Some(basis) = nphimat_declared_basis(&conn, well_id, &log_args) {
+                    let basis = pool.read(db, |conn| {
+                        Ok(nphimat_declared_basis(conn, well_id, &log_args))
+                    })?;
+                    if let Some(basis) = basis {
                         well_opts.insert(modules::NEUTRON_BASIS_OPT.to_string(), basis);
                     }
                 }
@@ -3054,12 +3045,9 @@ pub fn run_workflow_module_into(
                             .map(|(index, _)| index)
                             .collect();
                         if !invalid.is_empty() {
-                            let zones = {
-                                let conn = db.lock().map_err(|_| "database busy".to_string())?;
-                                #[cfg(test)]
-                                let _phase_read = crate::lock_probe::read();
-                                db::list_zones(&conn, well_id).map_err(|e| e.to_string())?
-                            };
+                            let zones = pool.read(db, |conn| {
+                                db::list_zones(conn, well_id).map_err(|e| e.to_string())
+                            })?;
                             let mut groups: Vec<(String, usize, f64, f64)> = Vec::new();
                             for index in invalid {
                                 let sample_depth = depth[index];
@@ -3985,7 +3973,7 @@ mod tests")
 
         // Positive side: ordinary execution must write both the curve and its complete record.
         let control_result =
-            run_workflow_module_into(&dbm, &request(vec![control.clone()], "CONTROL"), None, None, None);
+            run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &request(vec![control.clone()], "CONTROL"), None, None, None);
         assert_eq!(control_result.len(), 1);
         assert!(control_result[0].error.is_none(), "{:?}", control_result[0].error);
         {
@@ -4032,6 +4020,7 @@ mod tests")
         progress.running(2);
         let failed = run_workflow_module_into(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &request(vec![first_fault.clone(), second_fault.clone()], "FAULT"),
             None,
             None,
@@ -4237,7 +4226,7 @@ mod tests")
             custody: test_run_custody(),
         };
         let forced = ForcedParameterSerializationFailure::arm();
-        let module_result = run_workflow_module_into(&dbm, &module_request, None, None, None);
+        let module_result = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &module_request, None, None, None);
         drop(forced);
         assert_eq!(module_result.len(), 1);
         let error = module_result[0]
@@ -4985,6 +4974,7 @@ mod tests")
         let cancel = crate::chain::register(&chain_registry, chain_job);
         crate::chain::run_chain(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &chain_registry,
             chain_job,
             &cancel,
@@ -5189,7 +5179,7 @@ mod tests")
             input_set: None,
             custody: test_run_custody(),
         };
-        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
@@ -5303,7 +5293,7 @@ mod tests")
             input_set: None,
             custody: test_run_custody(),
         };
-        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
 
@@ -5399,7 +5389,7 @@ mod tests")
             input_set: None,
             custody: test_run_custody(),
         };
-        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
         let conn = dbm.lock().unwrap();
@@ -5494,7 +5484,7 @@ mod tests")
                 input_set: None,
                 custody: test_run_custody(),
             };
-            let results = run_workflow_module_into(&dbm, &req, None, None, None);
+            let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
             assert!(results.iter().all(|r| r.error.is_none()), "{module}: {:?}",
                 results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
         }
@@ -5591,7 +5581,7 @@ mod tests")
                 input_set: None,
                 custody: test_run_custody(),
             };
-            let results = run_workflow_module_into(&dbm, &req, None, None, None);
+            let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
             assert!(results.iter().all(|r| r.error.is_none()), "{mode}: {:?}",
                 results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
         };
@@ -5660,7 +5650,7 @@ mod tests")
             input_set: None,
             custody: test_run_custody(),
         };
-        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert!(results.iter().all(|r| r.error.is_none()), "{:?}",
             results.iter().filter_map(|r| r.error.clone()).collect::<Vec<_>>());
         let conn = dbm.lock().unwrap();
@@ -6702,6 +6692,7 @@ mod tests")
     fn seed_typed_vsh(dbm: &Mutex<duckdb::Connection>, well: &str) {
         let results = run_workflow_module_into(
             dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &RunModuleRequest {
                 module: "vsh_gr".into(),
                 well_ids: vec![well.to_string()],
@@ -6742,6 +6733,7 @@ mod tests")
         let run = |module: &str, curve: &str, params: HashMap<String, f64>, opts: Vec<(&str, &str)>| {
             let results = run_workflow_module_into(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &RunModuleRequest {
                     module: module.into(),
                     well_ids: vec![well.clone()],
@@ -7837,7 +7829,7 @@ mod tests")
             input_set: None,
             custody: test_run_custody(),
         };
-        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert_eq!(results.len(), 2);
         for r in &results {
             assert!(r.error.is_none(), "gr_normalize failed: {:?}", r.error);
@@ -8934,7 +8926,7 @@ mod tests")
             custody: test_run_custody(),
         };
         let database = Mutex::new(conn);
-        let refused = run_workflow_module_into(&database, &request, None, None, None);
+        let refused = run_workflow_module_into(&database, &crate::reader_pool::ReaderPool::new(), &request, None, None, None);
         let error = refused[0]
             .error
             .as_deref()
@@ -9663,7 +9655,7 @@ mod tests")
         };
 
         // Run against the CURRENT version (2, the shaly one).
-        let r = run_workflow_module_into(&dbm, &req, None, None, None);
+        let r = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert!(r[0].error.is_none(), "phi_den on v2: {:?}", r[0].error);
         let phie_v2 = phie_at(1000.0);
 
@@ -9672,7 +9664,7 @@ mod tests")
             let c = dbm.lock().unwrap();
             restore_log_set(&c, set1.as_str()).unwrap();
         }
-        let r = run_workflow_module_into(&dbm, &req, None, None, None);
+        let r = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert!(r[0].error.is_none(), "phi_den on restored v1: {:?}", r[0].error);
         let phie_v1 = phie_at(1000.0);
 
@@ -9750,6 +9742,7 @@ mod tests")
         let dbm = Mutex::new(conn);
         let refused = run_workflow_module_into(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &RunModuleRequest {
                 module: "depth_shift".into(),
                 well_ids: vec![well.clone()],
@@ -9771,6 +9764,7 @@ mod tests")
 
         let independent = run_workflow_module_into(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &RunModuleRequest {
                 module: "vsh_gr".into(),
                 well_ids: vec![well.clone()],
@@ -9834,7 +9828,7 @@ mod tests")
 
         // Flag already set → every well is a no-op, nothing written.
         let cancel = std::sync::atomic::AtomicBool::new(true);
-        let results = run_workflow_module_into(&dbm, &req, None, Some(&cancel), None);
+        let results = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, Some(&cancel), None);
         assert_eq!(results.len(), 1);
         assert!(results[0].error.is_none(), "cancel skip is a clean no-op, not an error");
         assert_eq!(results[0].rows_written, 0, "a cancelled well writes nothing");
@@ -9848,7 +9842,7 @@ mod tests")
 
         // Control: the same run WITHOUT the flag DOES write VSH — proving the skip above was the
         // cancel, not a broken fixture.
-        let results2 = run_workflow_module_into(&dbm, &req, None, None, None);
+        let results2 = run_workflow_module_into(&dbm, &crate::reader_pool::ReaderPool::new(), &req, None, None, None);
         assert!(results2[0].error.is_none(), "uncancelled: {:?}", results2[0].error);
         assert!(results2[0].rows_written > 0, "uncancelled run must write VSH");
     }
@@ -10374,6 +10368,7 @@ mod tests")
         progress.running(3);
         let results = run_workflow_module_into(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &RunModuleRequest {
                 module: "phimax".into(),
                 well_ids: vec![clamped.clone(), substituted.clone(), clean.clone()],
@@ -10580,6 +10575,7 @@ mod tests")
         progress.running(1);
         let flagged = run_workflow_module_into(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &request(Some("FLAG_VALID_SAMPLES"), "FLAGGED-PARTIAL"),
             None,
             None,

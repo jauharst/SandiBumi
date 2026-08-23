@@ -508,10 +508,9 @@ pub(crate) mod tests {
         drop(make(&b, "SANDI-B"));
 
         let pooled_well = |state: &DbState| -> String {
-            let conn = state.0.lock().unwrap();
             state
                 .1
-                .with_reader(&conn, |reader| {
+                .read(&state.0, |reader| {
                     reader
                         .query_row("SELECT well_name FROM wells", [], |r| r.get::<_, String>(0))
                         .map_err(|e| e.to_string())
