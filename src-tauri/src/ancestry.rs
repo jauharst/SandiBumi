@@ -2626,6 +2626,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
         // current + archive rows. A curve can therefore never commit while the warning that
         // qualifies it is lost. Workflow steps reuse one set_id, so new events append after prior
         // positions and a later clean step never erases an earlier DEGRADED state.
+        let mut pending_degradations: Vec<(String, i64, String, &str, String, i64)> = Vec::new();
+        let mut next_position: HashMap<String, i64> = HashMap::new();
         for well in wells {
             let (Some(module), Some(events)) =
                 (&well.degradation_module, &well.degradations)
@@ -2668,44 +2670,86 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
                     well.set_id
                 )));
             }
-            let mut position = conn
-                .query_row(
-                    "SELECT position FROM run_degradations
-                     WHERE set_id = ?1 ORDER BY position DESC LIMIT 1",
-                    params![well.set_id],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-                .map_err(|error| {
-                    duckdb::Error::InvalidParameterName(format!(
-                        "locating the next degradation position for {} failed: {error}",
-                        well.set_id
-                    ))
-                })?
-                .map_or(0, |last| last + 1);
+            // The seed comes from the table on first sight of a set and from memory afterwards.
+            // The rows this loop plans are not in the table yet - they are appended once, below -
+            // so a set_id appearing twice in one batch would otherwise read the same seed twice
+            // and plan two rows at the same position, which the primary key would then reject.
+            // Re-reading was what made the row-by-row version safe against that; carrying the
+            // counter forward is what replaces it.
+            let mut position = match next_position.get(&well.set_id) {
+                Some(next) => *next,
+                None => conn
+                    .query_row(
+                        "SELECT position FROM run_degradations
+                         WHERE set_id = ?1 ORDER BY position DESC LIMIT 1",
+                        params![well.set_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()
+                    .map_err(|error| {
+                        duckdb::Error::InvalidParameterName(format!(
+                            "locating the next degradation position for {} failed: {error}",
+                            well.set_id
+                        ))
+                    })?
+                    .map_or(0, |last| last + 1),
+            };
             for event in events {
-                conn.execute(
-                    "INSERT INTO run_degradations
-                        (set_id, position, module, kind, detail, occurrences)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        well.set_id,
-                        position,
-                        module,
-                        event.kind.as_str(),
-                        event.detail,
-                        event.occurrences as i64,
-                    ],
-                )
-                .map_err(|error| {
-                    duckdb::Error::InvalidParameterName(format!(
-                        "persisting {} degradation for {} failed: {error}",
-                        event.kind.as_str(),
-                        well.set_id
-                    ))
-                })?;
+                pending_degradations.push((
+                    well.set_id.clone(),
+                    position,
+                    module.clone(),
+                    event.kind.as_str(),
+                    event.detail.clone(),
+                    event.occurrences as i64,
+                ));
                 position += 1;
             }
+            next_position.insert(well.set_id.clone(), position);
+        }
+
+        // Phase 5: ONE appender for every degradation row of every well, for the same reason
+        // phases 2 and 3 use one - and here it is the difference between a chain step that takes
+        // 46 seconds and one that does not.
+        //
+        // Measured 2026-08-23 (`PERF-PHI-DEN-2026-08-23.md`): `phi_den` writes 896 degradation
+        // rows per well because it clamps PHIE to [PHIE_FLOOR, PHIT] and PHIT differs at every
+        // sample, so the `(kind, detail)` aggregation in `modules.rs` never collapses them. At 100
+        // wells that was 89,600 separate `conn.execute` calls at about half a millisecond each,
+        // holding the single shared connection throughout - 45.7 s of a 60.4 s module run, against
+        // `sw_indo` writing the same 624,800 CURVE rows in 5.3 s.
+        //
+        // Nothing about what is recorded changes: same rows, same positions, same order, same
+        // occurrences. Verified byte-for-byte by
+        // `the_batched_degradation_write_stores_exactly_what_the_row_by_row_write_stored`.
+        //
+        // The appender is safe here, which was measured rather than assumed: `run_degradations`
+        // carries CHECK constraints on `kind` and `occurrences > 0` and a PRIMARY KEY on
+        // (set_id, position), and a probe confirmed the appender REFUSES all three violations
+        // exactly as the statement did. Pinned by
+        // `the_batched_degradation_write_still_refuses_what_the_schema_forbids`.
+        //
+        // The per-well UPDATE and position lookup above are deliberately NOT batched: they are two
+        // statements per well against 896, so at 100 wells they are ~200 statements out of 89,800.
+        // Batching them would trade the per-well `updated != 1` check - which names the well that
+        // lost its log-set row - for a group count that does not.
+        if !pending_degradations.is_empty() {
+            let count = pending_degradations.len();
+            let mut degradations = conn.appender("run_degradations")?;
+            for (set_id, position, module, kind, detail, occurrences) in &pending_degradations {
+                degradations
+                    .append_row(params![set_id, position, module, kind, detail, occurrences])
+                    .map_err(|error| {
+                        duckdb::Error::InvalidParameterName(format!(
+                            "persisting {kind} degradation for {set_id} failed: {error}"
+                        ))
+                    })?;
+            }
+            degradations.flush().map_err(|error| {
+                duckdb::Error::InvalidParameterName(format!(
+                    "persisting {count} degradation row(s) failed: {error}"
+                ))
+            })?;
         }
         Ok::<(), duckdb::Error>(())
     })
@@ -4047,5 +4091,235 @@ mod tests").next().expect("a split always yields one piece");
             )
             .unwrap();
         assert_eq!(migrated, (None, None, "REQUIRED_UNSET".into()));
+    }
+
+
+    /// PERF-PHI-DEN-2026-08-23. The degradation rows used to go in one `INSERT` at a time -
+    /// 89,600 of them for a 100-well `phi_den` run, because that module clamps PHIE to PHIT and
+    /// PHIT differs at every sample, so the `(kind, detail)` aggregation never collapses. They now
+    /// go through ONE appender, the way the curve rows and the archive rows above them already do.
+    ///
+    /// Speed is the only thing that was allowed to change, so this pins what must not: the same
+    /// rows, in the same order, at the same positions, and the same outcome state beside them.
+    ///
+    /// Pinned from both sides, because either half alone passes for the wrong reason. An appender
+    /// that wrote nothing at all would satisfy "no row is wrong"; a flat 0,1,2,3,4 across the whole
+    /// batch would satisfy "every event is present". So the CONTENT and the POSITION SEQUENCE are
+    /// asserted separately, and a clean well is asserted to contribute no rows while still being
+    /// classified.
+    #[test]
+    fn the_batched_degradation_write_records_every_event_in_its_own_position() {
+        use crate::modules::{RunDegradation, RunDegradationKind};
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let a = "55555555-5555-5555-5555-555555555555";
+        let b = "66666666-6666-6666-6666-666666666666";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{a}', 'SANDI-D1'), ('{b}', 'SANDI-D2');"
+        ))
+        .unwrap();
+
+        let spec = LogSetSpec {
+            set_name: "INTERP".into(),
+            module: "phi_den".into(),
+            params_json: "{}".into(),
+            inputs_json: "[\"RHOB\"]".into(),
+        };
+        let (set_a, _) = create_log_set(&conn, a, &spec).unwrap();
+        let (set_b, _) = create_log_set(&conn, b, &spec).unwrap();
+
+        // Synthetic fixture values, not petrophysical defaults - the point is that two events with
+        // the SAME kind and different detail must stay two rows, which is exactly the shape
+        // `phi_den` produces and the reason the row count is large enough to matter.
+        let events = vec![
+            RunDegradation {
+                kind: RunDegradationKind::Clamped,
+                detail: "PHIE above PHIT 0.184".into(),
+                occurrences: 3,
+            },
+            RunDegradation {
+                kind: RunDegradationKind::Clamped,
+                detail: "PHIE above PHIT 0.191".into(),
+                occurrences: 1,
+            },
+            RunDegradation {
+                kind: RunDegradationKind::Defaulted,
+                detail: "RHOMA".into(),
+                occurrences: 7,
+            },
+        ];
+        let well_write =
+            |well_id: &str, set_id: &str, curve: &str, events: Vec<RunDegradation>| WellWrite {
+                well_id: well_id.into(),
+                depth: vec![1000.0, 1000.5],
+                curves: vec![(curve.into(), vec![0.2, 0.21])],
+                set_id: set_id.into(),
+                degradation_module: Some("phi_den".into()),
+                degradations: Some(events),
+            };
+
+        // Well A degraded, well B clean, in ONE batch - so a clean well sitting between degraded
+        // ones cannot shift anybody's positions.
+        write_computed_curves_versioned_batch(
+            &conn,
+            &[
+                well_write(a, &set_a, "PHIE", events.clone()),
+                well_write(b, &set_b, "PHIE", Vec::new()),
+            ],
+        )
+        .unwrap();
+
+        let stored = |set_id: &str| -> Vec<(i64, String, String, String, i64)> {
+            let mut statement = conn
+                .prepare(
+                    "SELECT position, module, kind, detail, occurrences
+                     FROM run_degradations WHERE set_id = ?1 ORDER BY position",
+                )
+                .unwrap();
+            let rows = statement
+                .query_map(params![set_id], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                })
+                .unwrap();
+            rows.map(|row| row.unwrap()).collect()
+        };
+
+        // Arm 1 - CONTENT. Every field of every event survives the appender unchanged, including
+        // the two details that differ only in their last digit.
+        assert_eq!(
+            stored(&set_a),
+            vec![
+                (0, "phi_den".into(), "CLAMPED".into(), "PHIE above PHIT 0.184".into(), 3),
+                (1, "phi_den".into(), "CLAMPED".into(), "PHIE above PHIT 0.191".into(), 1),
+                (2, "phi_den".into(), "DEFAULTED".into(), "RHOMA".into(), 7),
+            ],
+            "the batched write must store exactly the events it was handed, in order"
+        );
+        assert!(stored(&set_b).is_empty(), "a clean run records no degradation row");
+
+        let outcome = |set_id: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT outcome_state FROM log_sets WHERE set_id = ?1",
+                params![set_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(outcome(&set_a).as_deref(), Some(RUN_OUTCOME_DEGRADED));
+        assert_eq!(
+            outcome(&set_b).as_deref(),
+            Some(RUN_OUTCOME_CLEAN),
+            "a well with no events is still classified - silence is not the same as unrecorded"
+        );
+
+        // Arm 2 - POSITION SEQUENCE, which the appender is the reason to doubt. The row-by-row
+        // version re-read the last position before every single insert; the batch reads it once
+        // per set and carries the counter forward in memory. Two cases distinguish those:
+        //
+        //   (a) a LATER batch continues where the earlier one stopped - the seed still comes from
+        //       the table, so this fails if the read were dropped;
+        //   (b) one set appearing TWICE in a single batch - those rows are not in the table yet,
+        //       so this fails if the counter were not carried forward, and it fails loudly as a
+        //       primary-key violation rather than quietly as an overwrite.
+        write_computed_curves_versioned_batch(
+            &conn,
+            &[well_write(a, &set_a, "PHIT", vec![events[0].clone()])],
+        )
+        .unwrap();
+        assert_eq!(
+            stored(&set_a).iter().map(|row| row.0).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3],
+            "a second write into the same set continues the sequence rather than restarting it"
+        );
+
+        write_computed_curves_versioned_batch(
+            &conn,
+            &[
+                well_write(a, &set_a, "VSH", vec![events[2].clone()]),
+                well_write(a, &set_a, "SWE", vec![events[1].clone()]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            stored(&set_a).iter().map(|row| row.0).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5],
+            "one set twice in one batch must not plan two rows at the same position"
+        );
+    }
+
+    /// The companion to the contract above: a batch is refused WHOLE. The events are validated
+    /// before anything is written, so an impossible one costs the whole batch and not just the
+    /// rows that happened to follow it - which matters more now than it did, because the rows are
+    /// no longer inserted as the loop walks them.
+    ///
+    /// `occurrences: 0` is the case a reader cannot see is wrong: `run_degradations` carries a
+    /// CHECK on it, so the appender would refuse it too (measured, not assumed), but by then a
+    /// well's curve rows are already in the transaction. The guard says so first, by name.
+    #[test]
+    fn a_batch_carrying_one_impossible_degradation_writes_none_of_them() {
+        use crate::modules::{RunDegradation, RunDegradationKind};
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let a = "77777777-7777-7777-7777-777777777777";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{a}', 'SANDI-D3');"
+        ))
+        .unwrap();
+        let (set_a, _) = create_log_set(
+            &conn,
+            a,
+            &LogSetSpec {
+                set_name: "INTERP".into(),
+                module: "phi_den".into(),
+                params_json: "{}".into(),
+                inputs_json: "[\"RHOB\"]".into(),
+            },
+        )
+        .unwrap();
+
+        let error = write_computed_curves_versioned_batch(
+            &conn,
+            &[WellWrite {
+                well_id: a.into(),
+                depth: vec![1000.0],
+                curves: vec![("PHIE".into(), vec![0.2])],
+                set_id: set_a.clone(),
+                degradation_module: Some("phi_den".into()),
+                degradations: Some(vec![
+                    RunDegradation {
+                        kind: RunDegradationKind::Clamped,
+                        detail: "PHIE above PHIT".into(),
+                        occurrences: 2,
+                    },
+                    RunDegradation {
+                        kind: RunDegradationKind::Defaulted,
+                        detail: "RHOMA".into(),
+                        occurrences: 0,
+                    },
+                ]),
+            }],
+        )
+        .expect_err("an event that occurred zero times is not an event");
+        assert!(
+            error.contains("DEFAULTED"),
+            "the refusal must name which kind was impossible, got: {error}"
+        );
+
+        let rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM run_degradations WHERE set_id = ?1",
+                params![set_a],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0, "the valid event beside the impossible one must not survive either");
     }
 }

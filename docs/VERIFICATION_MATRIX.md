@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **178** of 700,
+Review sections counted toward no capability: **178** of 701,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -32,7 +32,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 114 | — | 19 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 69 | — | 13 |
-| `porosity` | Porosity interpretation | Not exercised | 0 / 107 | — | 27 |
+| `porosity` | Porosity interpretation | Not exercised | 0 / 115 | — | 28 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 206 | 2026-08-13 | 49 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 40 | — | 6 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 15 | — | 3 |
@@ -67,5 +67,5 @@ this table, so every figure above reads low by whatever those sections cover.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 253 | 2026-08-13 | 69 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 261 | 2026-08-13 | 70 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 223 | 2026-08-13 | 59 |

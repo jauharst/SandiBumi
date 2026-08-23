@@ -1,5 +1,41 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-23 — Porosity from density is four times faster, and writes exactly the same notes
+
+- [ ] **This is the fix for the thing I described last time.** `phi_den` was writing its 89,600
+      clamp notes one at a time. It now writes them all in one go, the way it has always written
+      the curves themselves. That is the whole change.
+- [ ] **On your own wells, 100 of them:** `phi_den` went **61.7 s → 15.9 s**, and the full
+      four-module chain went **85.9 s → 41.9 s**. So a chain that took a minute and a half now
+      takes forty seconds. The writing step inside `phi_den` alone went 51.1 s → 5.3 s.
+- [ ] **Nothing it records moved.** Same number of notes at every step (200, then 89,800, then
+      90,200, then 90,300), same number of curve rows (468,600 / 624,800 / 624,800 / 312,400),
+      no errors either way. I measured both versions back to back on this machine today rather
+      than comparing against a number from an earlier session.
+- [ ] **On made-up wells the gain is much smaller** — the module is 1.37× faster and the chain
+      only 1.09×, which is inside the noise. That is the expected answer, not a disappointment:
+      the synthetic rock clamps 177 samples per well where yours clamps 896, so there is a fifth
+      as much to write. It is a good reminder that a synthetic project shows scaling and does not
+      show what you feel on your own data.
+
+**What to click:**
+
+- [ ] **Run your usual chain on a real set of wells and time it.** VSH → PHIE → SW → PERM is the
+      one I measured. It should feel roughly twice as quick end to end, with the porosity step
+      being where the difference is.
+- [ ] **Then check the run record says the same things it did before.** Open the log-set history
+      on a well the chain touched — the run should still be marked degraded, and the clamp notes
+      should still be there in the same order with the same counts. If anything about that list
+      looks different, that is a real problem and I need to hear about it.
+- [ ] **Re-run one module twice into the same set** and confirm the second run's notes are added
+      after the first's rather than replacing them. This is the one thing the change could
+      plausibly have broken, so it has a test on it, but your eyes on it are worth more.
+- [ ] **The 896-notes-into-1 question is still yours and still open.** Collapsing them would make
+      the record shorter and arguably more readable (*"clamped on 896 of 1,562 samples"*), but it
+      changes what the record says a run did, so I have not touched it. It is no longer needed for
+      speed.
+
+
 ## 2026-08-23 — The slowest module is not doing petrophysics, it is writing 89,600 notes to itself
 
 - [ ] **Nothing in the app changed.** Test instrumentation only. But this one changes what I have
