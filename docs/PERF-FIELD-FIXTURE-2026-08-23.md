@@ -255,6 +255,16 @@ correlation: an unindexed scan of the generic store would explain it, and `curve
 `PRIMARY KEY (curve_id, depth)`, so those lookups are indexed. Measuring where those 64 seconds
 actually go is the next increment.
 
+> **Measured 2026-08-23 — the correlation was real and the mechanism was wrong; and these ratios
+> compare two HARNESSES.** `PERF-PHI-DEN-2026-08-23.md` re-ran both sides inside one harness:
+> `phi_den` is **2.90×** (not 3.59×), every other module is inside the variance floor, and the pay
+> summary is **1.00×** — so the 10× and the 11.04× above are withdrawn as real-versus-synthetic
+> findings. The penalty is **entirely in the write** (read 0.99×, write 4.01×), so input resolution
+> is refuted: `RHOB` — the only curve `phi_den` actually asks for — is populated in the standard
+> column on BOTH fixtures, as the table in §3 of this document already showed (`RHOB=1373`). The
+> cause is **89,600 individual degradation INSERTs**, one per distinct clamp bound, because
+> `phi_den` clamps PHIE to `[PHIE_FLOOR, PHIT]` and PHIT differs at every sample.
+
 ### What this settles about the synthetic numbers
 
 The brief said a synthetic project proves scaling and does not prove what the application feels

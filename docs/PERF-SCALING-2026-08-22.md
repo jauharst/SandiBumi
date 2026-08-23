@@ -175,6 +175,17 @@ measure on his own data.
 > badly affected. "Every number in §2 is a lower bound" is still true; reading 10× as the size of
 > that bound for the 23-minute chain figure overstates it about fourfold.
 
+> **Withdrawn 2026-08-23 — the 10× was the HARNESS, not the data.** The table above compares
+> `perf_baseline`'s pay summary (659 ms) with `pipeline_field_100well_stress`'s (6,590 ms), which
+> are two different harnesses. Run inside ONE harness with only the source data changed, the pay
+> summary measures **6,032 ms on generated wells against 6,041 ms on the real delivery — 1.00×**.
+> So the ~9× lives between the two harnesses on identical synthetic data and none of it is
+> attributable to real data. The "reproduced at 7,682 ms" note above is consistent with this and
+> does not rescue the claim: all three of those figures are the stress harness measuring itself.
+> **`phi_den` is the only operation with a genuine real-data penalty** (2.90×), and
+> `PERF-PHI-DEN-2026-08-23.md` attributes it — entirely to the write, and specifically to 89,600
+> individual degradation INSERTs, not to curve resolution.
+
 ## 7. A confirmed diagnosis, and a number withdrawn
 
 **`pipeline_field_100well_stress`'s 400 failures are caused by the fixture's curve naming.** Pass 1

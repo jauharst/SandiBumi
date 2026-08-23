@@ -27,30 +27,26 @@ use std::time::Instant;
 /// How many wells of the delivery this harness exercises.
 const WELLS_WANTED: usize = 4;
 
-/// The configured field fixture carries explicit corrected-channel mnemonics rather than the
-/// canonical module inputs.
+/// Manifest defaults, deliberately - this fixture binds NOTHING.
 ///
-/// **Superseded in part, 2026-08-23.** This comment used to end "adding either mnemonic to the
-/// global alias table would turn one delivery's convention into an automatic interpretation for
-/// every import" - which was the right thing for a TEST to say, and the wrong body to decide it.
-/// Jauhar decided it: `GRN_CS` is a gamma curve and `NPHI_COR` is a corrected neutron log, and
-/// both are now registered aliases (`curves::FAMILIES`). So these bindings are no longer what
-/// makes the run resolve.
+/// Until 2026-08-23 this mapped `GR -> GRN_CS` and `NPHI -> NPHI_COR`, because the configured
+/// delivery spells its gamma and neutron that way and neither spelling reached a family. DEC-098
+/// admitted both, so the bindings stopped being what makes the run resolve - and removing them is
+/// what makes this test honour its own contract.
 ///
-/// They are kept anyway, deliberately. This test states which curve plays which role on its own
-/// fixture instead of inheriting that from a dictionary it does not control - so if the dictionary
-/// moves again, the timings stay comparable and the change shows up in the DEFAULT-inputs probe
-/// below rather than silently re-interpreting the delivery.
-fn field_log_inputs(spec: &modules::ModuleSpec) -> HashMap<String, String> {
-    spec.args
-        .iter()
-        .filter(|arg| arg.kind == ArgKind::LogIn)
-        .filter_map(|arg| match arg.default.as_str() {
-            "GR" => Some((arg.name.clone(), "GRN_CS".to_string())),
-            "NPHI" => Some((arg.name.clone(), "NPHI_COR".to_string())),
-            _ => None,
-        })
-        .collect()
+/// `SANDIBUMI_FIELD_FIXTURES` means *whatever the folder holds*. A hard-coded pair of mnemonics
+/// fits exactly ONE delivery: pointed at generated wells the pre-flight refused with "the source
+/// well fills none of GR=GRN_CS" - on a well carrying a perfectly good `GR`. After the change the
+/// DEFAULT-inputs probe reports `missing nothing` on the real delivery AND on generated wells, so
+/// the SAME harness times the same work on either. That is the only way a real-versus-synthetic
+/// ratio means anything; while this helper existed, the two sides of that ratio came from two
+/// different harnesses.
+///
+/// A delivery the dictionary genuinely cannot resolve still skips by name in the pre-flight below.
+/// That is the correct outcome, and it is now the only one - rather than being masked for one
+/// delivery by a binding written for it.
+fn field_log_inputs(_spec: &modules::ModuleSpec) -> HashMap<String, String> {
+    HashMap::new()
 }
 
 #[derive(Default)]
@@ -721,9 +717,6 @@ fn pipeline_field_100well_stress() {
         let req = RunModuleRequest {
             module: (*m).into(),
             well_ids: ids.clone(),
-            // The same bindings the full run uses. Without them the modules fall back to their
-            // standard defaults, which on this delivery resolve to nothing at all - which is how
-            // 400 failed runs came to be reported as timings.
             log_inputs: field_log_inputs(spec),
             params: generic_chain_params(m),
             opts: HashMap::new(),
@@ -731,18 +724,90 @@ fn pipeline_field_100well_stress() {
             input_set: None,
             custody: crate::workflow::test_run_custody(),
         };
+        // Where the time goes, phase by phase, so a real-versus-generated ratio can be attributed
+        // instead of merely reported. `lock_probe` is #[cfg(test)] and absent from any shipped
+        // build; its counters SUM ACROSS THREADS, so WAIT is contention on the one shared
+        // connection and will exceed the wall clock whenever more than one well is in flight.
+        crate::lock_probe::reset();
+        let rows_before: i64 = {
+            let conn = db.lock().unwrap();
+            conn.query_row("SELECT count(*) FROM computed_curves", [], |r| r.get(0)).unwrap()
+        };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
         let el = t.elapsed();
+        let (wait_ns, read_ns, write_ns, _well_ns) = crate::lock_probe::snapshot();
         grand += el;
         let errs: Vec<String> = runs.iter().filter_map(|r| r.error.clone()).collect();
+        let ms = |ns: u64| ns as f64 / 1e6;
         println!(
-            "  {:<18} {:?}  ({:.0} wells/s, {} errors)",
+            "  {:<18} {:?}  ({:.0} wells/s, {} errors)  wait {:.0}ms  read {:.0}ms  write {:.0}ms",
             m,
             el,
             N_WELLS as f64 / el.as_secs_f64(),
-            errs.len()
+            errs.len(),
+            ms(wait_ns),
+            ms(read_ns),
+            ms(write_ns)
         );
+        // What that write actually wrote. A duration with no row count beside it cannot say
+        // whether a module is slow or simply writing more - the same rule this file already
+        // applies to timings with no output count.
+        {
+            let conn = db.lock().unwrap();
+            let rows_after: i64 =
+                conn.query_row("SELECT count(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT curve_name, count(*) FROM computed_curves                      WHERE well_id = ?1 GROUP BY curve_name ORDER BY curve_name",
+                )
+                .unwrap();
+            let per: Vec<(String, i64)> = stmt
+                .query_map(params![&ids[0]], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .filter_map(Result::ok)
+                .collect();
+            // Degradation bookkeeping: aggregated per kind, but each degraded well costs an
+            // UPDATE plus a SELECT plus its inserts, serialized under the write lock.
+            let (degr_rows, degr_sets): (i64, i64) = conn
+                .query_row(
+                    "SELECT count(*), count(DISTINCT set_id) FROM run_degradations",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap_or((-1, -1));
+            println!("  {:<18} degradation rows so far: {degr_rows} across {degr_sets} runs", "");
+            {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT module, kind, detail, count(*) FROM run_degradations                          GROUP BY module, kind, detail ORDER BY count(*) DESC LIMIT 3",
+                    )
+                    .unwrap();
+                let top: Vec<String> = stmt
+                    .query_map([], |r| {
+                        Ok(format!(
+                            "{}/{} x{}: {}",
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, i64>(3)?,
+                            r.get::<_, String>(2)?
+                        ))
+                    })
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .collect();
+                for line in top {
+                    println!("  {:<18} top detail | {line}", "");
+                }
+            }
+            println!(
+                "  {:<18} wrote {} rows ({} per well); well 1 now holds: {}",
+                "",
+                rows_after - rows_before,
+                (rows_after - rows_before) / N_WELLS as i64,
+                per.iter().map(|(n, c)| format!("{n}={c}")).collect::<Vec<_>>().join(" ")
+            );
+        }
         // The count was already printed before this assert existed; what was missing was the
         // MESSAGE, so a hundred identical failures said nothing about why. Naming the first one
         // is the difference between "it failed" and a diagnosis.
