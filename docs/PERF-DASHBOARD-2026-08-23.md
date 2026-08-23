@@ -174,3 +174,20 @@ as a finding.
 ## 9. The attempt ledger
 
 **One ledger, in `docs/PERF-ATTEMPTS.md`.** Attempt 2 (the `LIMIT 2` variant) is recorded there.
+
+## 10. What was done about it - 2026-08-24
+
+`PERF-DASHBOARD-PARALLEL-2026-08-24.md`. The finding above is that the reads ARE the operation, so
+the fix is not a faster query: the four per-well reads now run at the same time through the #129
+reader pool, and the summation below them is untouched. Paired on this same probe, AFTER arm first:
+**5.50x at 10 wells, 5.24x at 100, 3.21x at 500**.
+
+Two things in this document to re-read with that in mind:
+
+- **The `compute` column now clamps to zero by construction**, not by measurement. It is derived by
+  subtracting the SERIAL replay from the wall clock, and the operation is no longer serial. §2's
+  reading - that the arithmetic is below what the instrument can separate from noise - was measured
+  before that was true and still stands; the column itself no longer means what its name says.
+- **§4-§7 are unchanged and still open.** The set-id scan is still there and still cannot be removed
+  as a performance change, for the provenance reason §6 gives. It is now that share of a smaller
+  number.

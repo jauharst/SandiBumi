@@ -18935,3 +18935,55 @@ Worth checking, on real wells:
 - [ ] **Compact Project on a project you have been working in**, then keep working. Everything you
       read afterwards must come from the compacted file - this is the failure I most want a second
       pair of eyes on, because a stale read would look completely normal.
+
+## The Field Dashboard stopped reading wells one at a time (#129, 2026-08-24)
+
+**Your numbers do not change. The wait does.**
+
+What was wrong. Opening the Field Dashboard over a field asks four questions of the project about
+every well - what is it called, which log set does its PHIE belong to, give me VSH/PHIE/SWE/PERM,
+and what are its zone tops. Those four ran for one well, then the next, then the next. Measured
+last year on 500 wells: **the reading was the whole operation**, and the cut-off arithmetic - the
+part that actually decides net pay over 156,200 samples - was too small to time at all.
+
+What it is now. Every well is asked at the same time, through the same read handles the batch runs
+got last increment. **Everything after the reading is untouched**: the cut-offs, the zone sweep and
+the row building still run one well at a time, in the order you asked for them, and writing a flag
+curve still goes through the single writer.
+
+Measured on your real 100-well delivery, both runs in one session, the NEW one first so the disk
+cache favoured the OLD:
+
+```
+  Field Dashboard        964 ms  ->  220 ms     4.4x
+```
+
+On a generated field it is 5.5x at 10 wells, 5.2x at 100 and 3.2x at 500 - the gain shrinks as the
+field grows, because reading more wells at once cannot make each read cheaper.
+
+**One number that did NOT move, and why I am telling you rather than leaving it out:** a Cutoffs &
+Summary run that WRITES the flag curves went 7.72 s to 7.01 s, which on this machine is inside the
+noise. That is the designed result - almost all of that run is writing three curves per well, and I
+deliberately did not touch writing. It is the same code as the dashboard; the difference is only
+whether it saves anything.
+
+Nothing moved: 300 pay rows before and after, and on your wells every printed value is identical -
+the three validation means and all four wells' net, N/G, PHIE, SWE and HPV.
+
+**Still not done, and it is your call, not mine.** About a third of what is left is one question:
+*which log set does this well's PHIE belong to?* I can make that much cheaper, but only by changing
+WHICH WELLS APPEAR in the summary - today a well whose PHIE does not trace to exactly one live log
+set is dropped from the dashboard silently. Whether such a well belongs in a field summary is a
+petrophysics decision, so I have left it alone. Tell me which you want.
+
+Worth checking, on real wells:
+
+- [ ] **Open the Field Dashboard on a lot of wells.** It should appear in roughly a quarter of the
+      time, with the same wells listed and the same numbers in every column.
+- [ ] **Compare a dashboard against one you took before this**, same wells and same cutoffs. Every
+      number should match. This is the one that matters - if anything differs, stop and tell me.
+- [ ] **Check the well count.** If the dashboard now lists MORE or FEWER wells than you are used
+      to, that is exactly the thing I said I had not changed, and I want to know.
+- [ ] **Open a different project while a dashboard is building.** Worst case it should fail and say
+      so - it must never show you a summary built from two projects.
+

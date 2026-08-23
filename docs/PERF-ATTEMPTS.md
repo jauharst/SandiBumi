@@ -16,6 +16,7 @@ Read this before proposing a performance change.
 | 6 | #129 **stage 2** - pooled reader connections on the chain's four read paths, for the modelled 1.95x | the queue really did vanish (`wait` 124,407 ms -> **29 ms**) and **99 of 100 wells then failed** on the real fixture | **REVERTED** | A pooled read returns `TransactionContext Error: Failed to commit: PRIMARY KEY or UNIQUE constraint violation` from a SELECT. **Cause named the same day by bisection**: that read path runs a project-wide back-fill WRITE (`ancestry::try_resolve_ancestry_input` -> `db::migrate_standard_curves_to_generic_store`), and N connections each run the whole thing. Stage 1 (the swap catch) stays. See §4. |
 | 7 | Take that back-fill off the read path, so #129 stage 2 can be re-attempted - Jauhar's call of *run it at the open*, which the open was already doing | 8 wells on cloned connections: un-backfilled project **7 of 8 failed -> 0 failed**, `curve_meta` rows written by the reads **8 racing threads -> 0**, opened project **8 of 8 resolved** | **KEPT** | Buys no speed by itself and was not meant to - it unblocks the 1.95x. The lazy repair was unreachable in production (the open runs the back-fill; the LAS import marks its own wells done), so no number moved: the 83 fixtures that relied on it now call the same function explicitly through `db::insert_standard_curves_as_opened_project`. See §4. |
 | 8 | #129 **stage 2, second attempt** - the same pooled reader connections, now that the write on the read path is gone | real 100-well chain, paired, AFTER arm run FIRST so the cache favoured BEFORE: **38.57 s -> 27.72 s (1.39x)**; lock contention **357,347 ms -> 116 ms**; 0 errors of 100 on all four steps in both arms | **KEPT** | Every row count identical at every step, and every value `pipeline_field_full_run` prints on real wells is unchanged (0 rows differing). The model said 1.95x and the machine says 1.39x, because reading is not free once it overlaps - 13.7 s of serialized read thread-time became 92.7 s of concurrent read thread-time. See `PERF-POOL-STAGE2-2026-08-23.md`. |
+| 9 | Run the Field Dashboard's four per-well reads at the same time, through the #129 pool - `PERF-DASHBOARD` measured them as 101.7% of the operation | real 100-well delivery, paired, AFTER arm run FIRST: **963.97 ms -> 219.57 ms (4.39x)**; synthetic probe 5.50x / 5.24x / 3.21x at 10 / 100 / 500 wells | **KEPT** | The summation itself is untouched - same cut-offs, same zone sweep, same serial write under `db.lock()`. 300 pay rows in both arms, `pipeline_field_full_run` unchanged to the last decimal. The writing pay summary moved only 1.10x, INSIDE the floor, and that is the expected result: it writes three FLAG_* curves per well and the write is deliberately still serial. See `PERF-DASHBOARD-PARALLEL-2026-08-24.md`. |
 
 ---
 
@@ -404,3 +405,39 @@ not produce eight-fold reading, so **raising the capacity is not the lever** - t
 hypothesis that lazy minting was the fault, the bisect refuted that, and the perf rule that governs
 this whole ledger says unmeasured complexity does not ship. Removing it cost nothing to check,
 because this increment was being measured anyway.
+
+## §6 - the Field Dashboard's reads, in parallel (2026-08-24, pass 3 increment 14)
+
+§2 above refuted the obvious fix for this operation (`LIMIT 2` on the set-id scan) before any code
+was written, and `PERF-DASHBOARD-2026-08-23.md` §6 ruled the real fix - dropping that scan - OUT OF
+SCOPE for a performance change, because it would alter which wells appear in the summary. Neither
+verdict has moved. This attempt goes at the other 64%.
+
+**It works, and on real wells.** Paired in one session, AFTER arm first so the cache favoured BEFORE:
+
+```
+100 REAL wells                        before        after      ratio
+Field Dashboard (stats_only)        963.97 ms    219.57 ms     4.39x
+pay summary that WRITES flags        7.7189 s     7.0081 s     1.10x   <- inside the floor
+four-module chain                   30.2152 s    29.1945 s     1.03x   <- inside the floor
+
+synthetic probe                       before        after      ratio
+10 wells                             60.0 ms      10.9 ms      5.50x
+100 wells                           864.0 ms     164.8 ms      5.24x
+500 wells                          7680.6 ms    2393.1 ms      3.21x
+```
+
+**What this ledger entry is really here to record is an instrument mistake that was nearly made.**
+The only field-scale pay-summary timing in the repo runs `stats_only: false` - it writes three
+FLAG_* curves per well - and it moved 1.10x, inside the noise floor. Reported on its own that reads
+as "no measurable change on real data". It is not a null result, it is the WRONG INSTRUMENT: the
+dashboard never writes, and at 7 s against the dashboard's 219 ms no read-side change of any size
+could have surfaced in it. The `stats_only` timing was added to the same `#[ignore]`d test, ahead
+of the writing one so it runs on the colder cache.
+
+Anyone tempted to conclude "the pay summary is write-bound so reads do not matter" should read those
+two rows side by side: same code, same wells, same cut-offs, 32x apart.
+
+**Do not expect the same from raising the pool capacity** - `PERF-POOL-STAGE2-2026-08-23.md` §3
+measured ~3.3 effective concurrent readers against 8 handles and 32 rayon threads, and that ceiling
+is unchanged here. The win came from the reads no longer queueing, not from more of them.

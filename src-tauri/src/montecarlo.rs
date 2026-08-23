@@ -2760,6 +2760,7 @@ mod tests {
         }
         let chain_rows = crate::paysummary::run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &crate::paysummary::PaySummaryRequest {
                 // DEC-071: compared against the FORWARD MC fixture above.
                 discretisation: crate::paysummary::DiscretisationModel::Forward,

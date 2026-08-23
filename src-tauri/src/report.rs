@@ -380,6 +380,7 @@ fn fmt_num(v: f32, dec: usize) -> String {
 /// Builds every report page as DrawOps. Locks the connection only while reading.
 fn report_pages_with_degradations(
     db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &ReportSpec,
 ) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String, Vec<String>), String> {
     let (composite_pages, pw, ph, well_name, header, zones, zparams, logged, ml_prov, depth_unit) = {
@@ -414,6 +415,7 @@ fn report_pages_with_degradations(
     // curves it just produced (or reused), never the snapshot from one moment earlier.
     let pay_result = run_pay_summary(
         db,
+        pool,
         &PaySummaryRequest {
             // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
             discretisation: Default::default(),
@@ -722,15 +724,20 @@ fn report_pages_with_degradations(
 
 fn report_pages(
     db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &ReportSpec,
 ) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String), String> {
-    let (pages, pw, ph, well_name, _) = report_pages_with_degradations(db, spec)?;
+    let (pages, pw, ph, well_name, _) = report_pages_with_degradations(db, pool, spec)?;
     Ok((pages, pw, ph, well_name))
 }
 
 /// SVG preview of the whole report (one SVG per page, same shape as the composite result).
-pub fn render_report(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<CompositeResult, String> {
-    let (pages, pw, ph, well_name) = report_pages(db, spec)?;
+pub fn render_report(
+    db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
+    spec: &ReportSpec,
+) -> Result<CompositeResult, String> {
+    let (pages, pw, ph, well_name) = report_pages(db, pool, spec)?;
     let out = pages
         .iter()
         .enumerate()
@@ -754,15 +761,20 @@ pub fn render_report(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Compos
 }
 
 /// The full report as one multi-page PDF (bytes).
-pub fn render_report_pdf(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Vec<u8>, String> {
-    render_report_pdf_with_degradations(db, spec).map(|(bytes, _)| bytes)
+pub fn render_report_pdf(
+    db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
+    spec: &ReportSpec,
+) -> Result<Vec<u8>, String> {
+    render_report_pdf_with_degradations(db, pool, spec).map(|(bytes, _)| bytes)
 }
 
 fn render_report_pdf_with_degradations(
     db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &ReportSpec,
 ) -> Result<(Vec<u8>, Vec<String>), String> {
-    let (pages, pw, ph, _, degradations) = report_pages_with_degradations(db, spec)?;
+    let (pages, pw, ph, _, degradations) = report_pages_with_degradations(db, pool, spec)?;
     let streams: Vec<String> = pages.iter().map(|ops| composite::pdf_content(ops, pw, ph)).collect();
     // The report embeds the composite pages verbatim, so it inherits their image tracks —
     // collect the XObjects here too or a report would reference plates it never wrote.
@@ -775,6 +787,7 @@ fn render_report_pdf_with_degradations(
 /// Wells that fail (e.g. no curve data) are skipped with their error collected.
 pub fn export_report_batch(
     db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &ReportSpec,
     well_ids: &[String],
     dest_dir: &str,
@@ -800,7 +813,7 @@ pub fn export_report_batch(
         };
         let mut s = spec.clone();
         s.composite.well_id = wid.clone();
-        match render_report_pdf_with_degradations(db, &s) {
+        match render_report_pdf_with_degradations(db, pool, &s) {
             Ok((bytes, degradations)) => {
                 let path =
                     format!("{}/{}_report.pdf", dest_dir.trim_end_matches(['/', '\\']), unique_stem(&mut used, &name, wid));
@@ -1012,7 +1025,7 @@ mod tests {
 
         let dir = ScratchDir::new();
         let (written, errors) =
-            export_report_batch(&dbm, &batch_spec(), &[broken.clone(), a, b], &dir.path()).unwrap();
+            export_report_batch(&dbm, &crate::reader_pool::ReaderPool::new(), &batch_spec(), &[broken.clone(), a, b], &dir.path()).unwrap();
 
         assert_eq!(written.len(), 2, "both healthy wells must be written: {written:?}");
         assert_eq!(errors.len(), 1, "exactly one failure expected: {errors:?}");
@@ -1060,7 +1073,7 @@ mod tests {
         let dir = ScratchDir::new();
 
         let (written, errors) =
-            export_report_batch(&dbm, &batch_spec(), &[well_id], &dir.path()).unwrap();
+            export_report_batch(&dbm, &crate::reader_pool::ReaderPool::new(), &batch_spec(), &[well_id], &dir.path()).unwrap();
 
         assert_eq!(written.len(), 1, "the intact report sections must still be delivered");
         assert_eq!(dir.files(), vec!["PAY_SECTION_DEPENDENCY_MISSING_report.pdf"]);
@@ -1106,7 +1119,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let dir = ScratchDir::new();
-        let (written, errors) = export_report_batch(&dbm, &batch_spec(), &wells, &dir.path()).unwrap();
+        let (written, errors) = export_report_batch(&dbm, &crate::reader_pool::ReaderPool::new(), &batch_spec(), &wells, &dir.path()).unwrap();
 
         assert!(errors.is_empty(), "all four wells render: {errors:?}");
         assert_eq!(written.len(), 4, "four wells, four reports");
@@ -1171,7 +1184,7 @@ mod tests {
         spec.tables_only = true;
 
         let pay_text = |spec: &ReportSpec| -> String {
-            let (pages, _pw, _ph, _n) = report_pages(&dbm, spec).expect("render");
+            let (pages, _pw, _ph, _n) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), spec).expect("render");
             pages
                 .last()
                 .unwrap()
@@ -1252,7 +1265,7 @@ mod tests {
             let mut spec = batch_spec();
             spec.composite.well_id = w;
             spec.tables_only = true;
-            let (pages, _pw, _ph, _name) = report_pages(&dbm, &spec).expect("render");
+            let (pages, _pw, _ph, _name) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &spec).expect("render");
             pages
                 .iter()
                 .flatten()
@@ -1341,7 +1354,7 @@ mod tests {
         let mut spec = batch_spec();
         spec.composite.well_id = w.clone();
         spec.tables_only = true;
-        let (tables, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("tables-only render");
+        let (tables, _pw, _ph, _n) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &spec).expect("tables-only render");
         let t_texts: Vec<String> = tables.iter().map(text_of).collect();
 
         // Exactly the five sections, in order, with the complete ancestry table
@@ -1371,7 +1384,7 @@ mod tests {
         // table would pass every assertion above.
         let mut full = spec.clone();
         full.tables_only = false;
-        let (all, _pw, _ph, _n) = report_pages(&dbm, &full).expect("full render");
+        let (all, _pw, _ph, _n) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &full).expect("full render");
         assert!(all.len() > tables.len(), "the composite pages must actually be appended");
         for i in 0..4 {
             assert_eq!(text_of(&all[i]), t_texts[i], "page {i} differs between the two modes");
@@ -1432,7 +1445,7 @@ mod tests {
                 .join(" | ")
         };
 
-        let (pages, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("render");
+        let (pages, _pw, _ph, _n) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &spec).expect("render");
         let cover = joined(&pages[0]);
 
         assert!(
@@ -1450,7 +1463,7 @@ mod tests {
         // Same window, full render: the log pages exist, so the window is worth stating — beside
         // the interval, never instead of it.
         spec.tables_only = false;
-        let (full, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("full render");
+        let (full, _pw, _ph, _n) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &spec).expect("full render");
         let cover = joined(&full[0]);
         assert!(cover.contains("Interval: 1000.0 \u{2013} 1019.5 m"), "{cover}");
         assert!(
@@ -1462,7 +1475,7 @@ mod tests {
         // line would train the reader to skip it.
         spec.composite.depth_top = None;
         spec.composite.depth_bottom = None;
-        let (plain, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("unwindowed render");
+        let (plain, _pw, _ph, _n) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &spec).expect("unwindowed render");
         assert!(!joined(&plain[0]).contains("printed over"), "{}", joined(&plain[0]));
     }
 
@@ -1521,6 +1534,7 @@ mod tests {
         // --- the numbers, before asking what they look like on the page ---
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
             // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
             discretisation: Default::default(),
@@ -1563,7 +1577,7 @@ mod tests {
         }
 
         // --- and now the document ---
-        let (pages, _pw, _ph, well_name) = report_pages(&dbm, &spec).expect("render");
+        let (pages, _pw, _ph, well_name) = report_pages(&dbm, &crate::reader_pool::ReaderPool::new(), &spec).expect("render");
         assert_eq!(well_name, "SANDI-REP-06");
         let text_of = |ops: &Vec<DrawOp>| -> String {
             ops.iter()
@@ -1678,6 +1692,7 @@ mod tests {
             let dbm = Mutex::new(conn);
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
             // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
             discretisation: Default::default(),

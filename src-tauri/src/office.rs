@@ -758,6 +758,7 @@ fn summary_sheet(
 /// Builds the workbook and writes it to `dest`.
 pub fn export_workbook(
     db_lock: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &WorkbookSpec,
     dest: &str,
 ) -> Result<WorkbookResult, String> {
@@ -772,6 +773,7 @@ pub fn export_workbook(
     let pay_rows = if spec.include_pay || spec.include_field {
         run_pay_summary(
             db_lock,
+            pool,
             &PaySummaryRequest {
                 // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
                 discretisation: Default::default(),
@@ -1111,6 +1113,7 @@ fn report_zone_sheet(conn: &Connection, well_id: &str, unit: &str) -> Result<She
 /// the runner only draws it.
 pub fn build_report_blocks(
     db_lock: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &crate::report::ReportSpec,
 ) -> Result<(Vec<Block>, String), String> {
     let well_id = spec.composite.well_id.clone();
@@ -1120,6 +1123,7 @@ pub fn build_report_blocks(
     // behaviour and is left alone, but a NEW export has no business changing the project.)
     let pay_rows = run_pay_summary(
         db_lock,
+        pool,
         &PaySummaryRequest {
                 // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
                 discretisation: Default::default(),
@@ -1278,10 +1282,11 @@ pub fn build_report_blocks(
 /// Writes one well's editable Word report.
 pub fn export_report_docx(
     db_lock: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &crate::report::ReportSpec,
     dest: &str,
 ) -> Result<String, String> {
-    let (blocks, _name) = build_report_blocks(db_lock, spec)?;
+    let (blocks, _name) = build_report_blocks(db_lock, pool, spec)?;
     write_docx(&blocks, dest)?;
     Ok(dest.to_string())
 }
@@ -1291,6 +1296,7 @@ pub fn export_report_docx(
 /// 539 their documents.
 pub fn export_report_docx_batch(
     db_lock: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &crate::report::ReportSpec,
     well_ids: &[String],
     dest_dir: &str,
@@ -1300,7 +1306,7 @@ pub fn export_report_docx_batch(
     for id in well_ids {
         let mut one = spec.clone();
         one.composite.well_id = id.clone();
-        match build_report_blocks(db_lock, &one) {
+        match build_report_blocks(db_lock, pool, &one) {
             Ok((blocks, name)) => {
                 let safe: String =
                     name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
@@ -1891,6 +1897,7 @@ pub fn build_deck_slides(
 
 pub fn export_deck(
     db_lock: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
     spec: &DeckSpec,
     dest: &str,
 ) -> Result<DeckResult, String> {
@@ -1900,6 +1907,7 @@ pub fn export_deck(
     // stats_only, like every other export here: a deck must not change the project.
     let rows = run_pay_summary(
         db_lock,
+        pool,
         &PaySummaryRequest {
                 // SB-CUT-001 (DEC-071): exports run the product-default model (CENTRED).
                 discretisation: Default::default(),
