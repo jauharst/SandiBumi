@@ -193,8 +193,8 @@ test('a_field_fixture_test_cannot_be_relabelled_as_optional_package_execution', 
   );
 });
 
-test('the_live_inventory_owns_31_warnings_and_43_ignored_tests_without_counting_them_as_passed', () => {
-  // CHARACTERIZATION — the live compiler/test inventory is 31 warnings and 43 ignored tests
+test('the_live_inventory_owns_31_warnings_and_44_ignored_tests_without_counting_them_as_passed', () => {
+  // CHARACTERIZATION — the live compiler/test inventory is 31 warnings and 44 ignored tests
   // (the 38th is SB-CORE-015 DLIS round-trip, ignored per rule 5: optional dlisio; the 39th is
   // SB-CORE-031's performance baseline harness, a MANUAL-ARTIFACT that prints a timing table and
   // asserts nothing, so the green gate must never wait on its multi-well chain; the 40th is
@@ -204,7 +204,9 @@ test('the_live_inventory_owns_31_warnings_and_43_ignored_tests_without_counting_
   // Dashboard across three project sizes, toward SB-CORE-030's measured half; the 43rd builds one
   // field twice - written and LAS-imported - and opens both, which is what showed that the
   // 540-well project-open observation SB-CORE-030's own text cites is timing a one-time
-  // conversion rather than an open)
+  // conversion rather than an open; the 44th bisects the module runner's input-resolution
+  // sequence on cloned connections and is what named #129 stage 2's blocker - a project-wide
+  // back-fill run from inside a read - after six hypotheses had been ruled out)
   // after SB-PLT-023 connected the chart record and backend validation to deliverable writes.
   // Owning remaining debt does not prove it passes.
   const warningInventory = JSON.parse(fs.readFileSync(
@@ -218,11 +220,11 @@ test('the_live_inventory_owns_31_warnings_and_43_ignored_tests_without_counting_
 
   assert.equal(warningInventory.expected_warning_count, 31);
   assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 21);
-  assert.equal(ignoredInventory.expected_ignored_test_count, 43);
+  assert.equal(ignoredInventory.expected_ignored_test_count, 44);
   assert.deepEqual(ignoredInventory.expected_category_counts, {
     'OPTIONAL-PACKAGE': 28,
     'CONTROLLED-CORPUS': 9,
-    'MANUAL-ARTIFACT': 6,
+    'MANUAL-ARTIFACT': 7,
   });
   const executionStates = [
     ...(ignoredInventory.tests ?? []).map((item) => item.execution_state),

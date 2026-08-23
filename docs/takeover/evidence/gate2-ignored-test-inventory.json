@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 43,
+ "expected_ignored_test_count": 44,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 6
+  "MANUAL-ARTIFACT": 7
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -481,6 +481,20 @@
    "tests": [
     {
      "key": "src/perf_baseline_test.rs|perf_cold_open_construction",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-030",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "Why #129's pooled reader connections broke 99 of 100 wells, answered by bisection rather than by reasoning. It runs the module runner's own input-resolution sequence on one cloned connection per well, concurrently, adding one statement group at a time, and prints how many wells each depth loses. Only the first group fails, and it fails because ancestry::try_resolve_ancestry_input calls db::migrate_standard_curves_to_generic_store - a project-wide back-fill WRITE - from inside a read whenever a curve is missing from the generic store. Three further arms make that a named cause rather than a guess: the same concurrent read is clean once the back-fill has been run up front, every statement group is then re-walked on the migrated project so a second lazy write further down would show, and the whole sequence run serially on the base connection is clean so the fixture is not what is broken. Evidence toward SB-CORE-030's MEASURED half only. It asserts nothing at all - it prints for a human to read - so no row here is evidence that its subject passes. Ignored because it builds two synthetic projects and runs rayon over both, which the green gate must not wait on.",
+   "tests": [
+    {
+     "key": "src/workflow.rs|the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill",
      "ignore_reason": null,
      "bare_ignore": true
     }

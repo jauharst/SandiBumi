@@ -11011,4 +11011,238 @@ mod tests")
             "the reserved-key refusal must be written in exactly one place"
         );
     }
+
+    /// #129 stage 2 named its blocker with this. `PERF-ATTEMPTS.md` §4: pooled reader
+    /// connections made 99 of 100 wells fail with a COMMIT error reported out of a READ, and six
+    /// hypotheses were ruled out before this bisect found the cause.
+    ///
+    /// **The module-input read path performs exactly one write, and it is a project-wide
+    /// migration.** `ancestry::try_resolve_ancestry_input` calls
+    /// `db::migrate_standard_curves_to_generic_store` whenever a curve is missing from the generic
+    /// store, then retries the resolution. Behind the one shared connection it runs once and is
+    /// invisible; on N connections, N rayon threads each run the whole back-fill and collide on a
+    /// primary key.
+    ///
+    /// Four arms, and each is needed:
+    ///
+    ///   - DEPTH walks the statement groups on a FRESH store, so the first one that fails names
+    ///     the culprit. Only depth 1 fails - and depths 2-5 look clean here for the wrong reason,
+    ///     because depth 1 already ran the back-fill.
+    ///   - CONFIRM runs the back-fill once up front and repeats the same concurrent read. Clean.
+    ///     That is the difference between naming a cause and guessing one.
+    ///   - CLEAN-STORE then re-walks every statement group on the migrated project, which is what
+    ///     DEPTH could not do honestly. All clean, so there is no SECOND lazy write further down.
+    ///   - CONTROL runs the whole sequence serially on the base connection. Clean, so the probe is
+    ///     measuring concurrency rather than a broken fixture.
+    ///
+    /// Kept rather than deleted because a future stage 2 needs exactly this to verify a fix, and
+    /// re-deriving it cost six experiments. `#[ignore]`d: it builds two projects and runs rayon
+    /// over them, which the green gate must not wait on. It asserts nothing - it PRINTS, for a
+    /// human to read - so it is never evidence that anything passes.
+    #[test]
+    #[ignore]
+    fn the_only_write_on_the_module_input_read_path_is_the_generic_store_back_fill() {
+        use rayon::prelude::*;
+
+        let dir = std::env::temp_dir().join("sandibumi_pool_bisect");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.duckdb");
+        let base = crate::db::init_db(path.to_str().unwrap()).unwrap();
+
+        let wells = 8usize;
+        let n = 200usize;
+        let mut ids = Vec::new();
+        for i in 0..wells {
+            let id = uuid::Uuid::new_v4();
+            crate::db::insert_well(&base, id, &format!("SANDI-{i}"), None, None, None).unwrap();
+            let depth: Vec<f32> = (0..n).map(|k| 1000.0 + k as f32).collect();
+            crate::db::insert_standard_curves(
+                &base, id, depth,
+                vec![40.0; n], vec![f32::NAN; n], vec![0.2; n],
+                vec![2.4; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            ids.push(id.to_string());
+        }
+
+        let spec = modules::list_modules().into_iter().find(|m| m.name == "vsh_gr").unwrap();
+        let no_logs: HashMap<String, String> = HashMap::new();
+        let params: HashMap<String, f64> =
+            HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]);
+
+        // depth==5 means "run everything"; lower numbers stop earlier, so the first depth that
+        // errors names the statement.
+        let names = [
+            "1 resolved_log_args_for_well",
+            "2 + validate_shale_clay_input_quantities",
+            "3 + validate_neutron_basis_input",
+            "4 + fetch_module_input_logs",
+            "5 + resolve_param_arrays_with_default_usage",
+        ];
+
+        for (index, label) in names.iter().enumerate() {
+            let depth_limit = index + 1;
+            // Fresh clones each round, one per well, each used by exactly one rayon thread.
+            let work: Vec<(String, Connection)> = ids
+                .iter()
+                .map(|id| (id.clone(), base.try_clone().expect("try_clone")))
+                .collect();
+
+            let errors: Vec<String> = work
+                .into_par_iter()
+                .filter_map(|(well_id, conn)| {
+                    let attempt = || -> Result<(), String> {
+                        let log_args = resolved_log_args_for_well(
+                            &conn, &well_id, &spec, &no_logs, None, None, &HashSet::new(),
+                        )?;
+                        if depth_limit == 1 {
+                            return Ok(());
+                        }
+                        validate_shale_clay_input_quantities(
+                            &conn, &well_id, &spec, &log_args, None, None,
+                        )?;
+                        if depth_limit == 2 {
+                            return Ok(());
+                        }
+                        validate_neutron_basis_input(&conn, &well_id, &spec, &log_args)?;
+                        if depth_limit == 3 {
+                            return Ok(());
+                        }
+                        let (depth, _logs, _units) = fetch_module_input_logs(
+                            &conn, &well_id, &spec, &log_args, None, None,
+                        )?;
+                        if depth_limit == 4 {
+                            return Ok(());
+                        }
+                        let _ = resolve_param_arrays_with_default_usage(
+                            &conn, &well_id, &spec, &params, &depth,
+                        )?;
+                        Ok(())
+                    };
+                    attempt().err()
+                })
+                .collect();
+
+            println!(
+                "DEPTH {label}: {} of {wells} failed{}",
+                errors.len(),
+                errors.first().map(|e| format!(" - first: {e}")).unwrap_or_default()
+            );
+        }
+
+        // CONFIRMATION: the suspect is the lazy back-fill that try_resolve_ancestry_input runs when
+        // a curve is missing from the generic store. Run it ONCE up front and the same concurrent
+        // read must be clean - which is the difference between naming a cause and guessing one.
+        {
+            let fresh = dir.join("q.duckdb");
+            let base2 = crate::db::init_db(fresh.to_str().unwrap()).unwrap();
+            let mut ids2 = Vec::new();
+            for i in 0..wells {
+                let id = uuid::Uuid::new_v4();
+                crate::db::insert_well(&base2, id, &format!("SANDI-B{i}"), None, None, None).unwrap();
+                let depth: Vec<f32> = (0..n).map(|k| 1000.0 + k as f32).collect();
+                crate::db::insert_standard_curves(
+                    &base2, id, depth,
+                    vec![40.0; n], vec![f32::NAN; n], vec![0.2; n],
+                    vec![2.4; n], vec![f32::NAN; n], vec![f32::NAN; n],
+                )
+                .unwrap();
+                ids2.push(id.to_string());
+            }
+            crate::db::migrate_standard_curves_to_generic_store(&base2).unwrap();
+            let work: Vec<(String, Connection)> = ids2
+                .iter()
+                .map(|id| (id.clone(), base2.try_clone().expect("try_clone")))
+                .collect();
+            let errors: Vec<String> = work
+                .into_par_iter()
+                .filter_map(|(well_id, conn)| {
+                    resolved_log_args_for_well(
+                        &conn, &well_id, &spec, &no_logs, None, None, &HashSet::new(),
+                    )
+                    .err()
+                })
+                .collect();
+            println!(
+                "CONFIRM back-fill run first, then the same concurrent read: {} of {wells} failed{}",
+                errors.len(),
+                errors.first().map(|e| format!(" - first: {e}")).unwrap_or_default()
+            );
+
+            // And every OTHER statement group, on the pre-migrated store. The first loop above
+            // could not test these honestly: its own round 1 ran the back-fill, so rounds 2-5 were
+            // measuring an already-migrated project. If a SECOND lazy write hides further down the
+            // path, this is where it shows.
+            for (index, label) in names.iter().enumerate() {
+                let depth_limit = index + 1;
+                let work: Vec<(String, Connection)> = ids2
+                    .iter()
+                    .map(|id| (id.clone(), base2.try_clone().expect("try_clone")))
+                    .collect();
+                let errors: Vec<String> = work
+                    .into_par_iter()
+                    .filter_map(|(well_id, conn)| {
+                        let attempt = || -> Result<(), String> {
+                            let log_args = resolved_log_args_for_well(
+                                &conn, &well_id, &spec, &no_logs, None, None, &HashSet::new(),
+                            )?;
+                            if depth_limit == 1 {
+                                return Ok(());
+                            }
+                            validate_shale_clay_input_quantities(
+                                &conn, &well_id, &spec, &log_args, None, None,
+                            )?;
+                            if depth_limit == 2 {
+                                return Ok(());
+                            }
+                            validate_neutron_basis_input(&conn, &well_id, &spec, &log_args)?;
+                            if depth_limit == 3 {
+                                return Ok(());
+                            }
+                            let (depth, _l, _u) = fetch_module_input_logs(
+                                &conn, &well_id, &spec, &log_args, None, None,
+                            )?;
+                            if depth_limit == 4 {
+                                return Ok(());
+                            }
+                            let _ = resolve_param_arrays_with_default_usage(
+                                &conn, &well_id, &spec, &params, &depth,
+                            )?;
+                            Ok(())
+                        };
+                        attempt().err()
+                    })
+                    .collect();
+                println!(
+                    "CLEAN-STORE {label}: {} of {wells} failed{}",
+                    errors.len(),
+                    errors.first().map(|e| format!(" - first: {e}")).unwrap_or_default()
+                );
+            }
+        }
+
+        // Control: the whole sequence on ONE connection, serially. Must be clean, or the probe is
+        // measuring a broken fixture rather than concurrency.
+        let mut serial_errors = 0usize;
+        for well_id in &ids {
+            let attempt = || -> Result<(), String> {
+                let log_args = resolved_log_args_for_well(
+                    &base, well_id, &spec, &no_logs, None, None, &HashSet::new(),
+                )?;
+                validate_shale_clay_input_quantities(&base, well_id, &spec, &log_args, None, None)?;
+                validate_neutron_basis_input(&base, well_id, &spec, &log_args)?;
+                let (depth, _l, _u) =
+                    fetch_module_input_logs(&base, well_id, &spec, &log_args, None, None)?;
+                let _ = resolve_param_arrays_with_default_usage(
+                    &base, well_id, &spec, &params, &depth,
+                )?;
+                Ok(())
+            };
+            if attempt().is_err() {
+                serial_errors += 1;
+            }
+        }
+        println!("CONTROL serial on the base connection: {serial_errors} of {wells} failed");
+    }
 }
