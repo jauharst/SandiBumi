@@ -391,6 +391,7 @@ fn perf_baseline() {
     derived.push(bench("field dashboard (pay summary)", 3, || {
         let result = run_pay_summary(
             &db,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 well_ids: well_ids.clone(),
                 vsh_max: Some(cutoff(0.5)),
@@ -436,7 +437,7 @@ fn perf_baseline() {
             perm_min: None,
             tables_only: false,
         };
-        match crate::report::render_report(&db, &spec) {
+        match crate::report::render_report(&db, &crate::reader_pool::ReaderPool::new(), &spec) {
             Ok(result) => format!("{} pages", result.pages.len()),
             Err(e) => format!("FAILED - {e}"),
         }
@@ -778,6 +779,7 @@ fn perf_dashboard_scale() {
         let dash = |db: &Mutex<Connection>| {
             run_pay_summary(
                 db,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     well_ids: well_ids.clone(),
                     vsh_max: Some(cutoff(0.5)),

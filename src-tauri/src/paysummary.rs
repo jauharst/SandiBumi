@@ -21,6 +21,7 @@ use crate::equations;
 use crate::modules;
 use crate::workflow::first_available_input_alias;
 use duckdb::Connection;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
@@ -1110,9 +1111,124 @@ pub(crate) fn floored_phie(raw: &[f32]) -> Vec<f32> {
     raw.iter().map(|&v| if v.is_nan() { v } else { v.max(modules::PHIE_FLOOR as f32) }).collect()
 }
 
+/// Everything one well's summation READS, fetched before any of it is summed.
+///
+/// #129: the four reads below were the Field Dashboard.
+/// `PERF-DASHBOARD-2026-08-23.md` measured them at **101.7% of the 500-well wall clock** - more
+/// than the whole operation, because the dashboard ran last and had the warmest cache - against an
+/// arithmetic cost too small for the instrument to separate from noise. And they ran ONE WELL AT A
+/// TIME, each taking the connection mutex, on a single thread.
+///
+/// So the fix is not a faster query, it is doing them at the same time. Splitting the reads out
+/// like this keeps every line of the summation itself exactly where it was: the cut-offs, the zone
+/// sweep and the row building are untouched and still run serially, in well order. Nothing about
+/// what a number MEANS is on this path.
+struct WellSummationInputs {
+    well_id: String,
+    well_name: String,
+    phie_curve: String,
+    quicklook_phie_excluded: bool,
+    depth: Vec<f32>,
+    columns: std::collections::HashMap<String, Vec<f32>>,
+    zones: Vec<db::ZoneEntry>,
+    /// The names the fetch above actually asked for. Carried rather than rebuilt at the write
+    /// site: it is recorded as the run's `inputs_json`, so a second construction of "the same"
+    /// list is a provenance record that can drift from what was read.
+    curve_names: Vec<String>,
+}
+
+/// Read one well's inputs. `None` means SKIP THIS WELL, and it is the same three skips the serial
+/// loop always made - an unresolvable PHIE ancestry, no curve frame, or an unreadable zone list.
+///
+/// A well is skipped rather than failing the run because a single bad well would otherwise zero
+/// the entire Field Dashboard. That was true before this was parallel and is unchanged; it is
+/// deliberately NOT the same thing as a read that could not be performed at all, which is an error
+/// and is propagated - see the caller.
+fn read_well_summation_inputs(
+    conn: &Connection,
+    well_id: &str,
+    req: &PaySummaryRequest,
+) -> Option<WellSummationInputs> {
+    let well_name: String = conn
+        .query_row(
+            "SELECT well_name FROM wells WHERE well_id = ?1",
+            duckdb::params![well_id],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| well_id.to_string());
+    // SB-POR-057 (DEC-070, RULED 2026-08-18): the candidate list is the ONE canonical
+    // name. The quick-look D-N limited curve is no longer a fallback - "quick look only
+    // shows pay summation as visual not pay curves" - superseding the DEC-042 two-name
+    // pair this list used to carry. Displays may overlay PHIE_DN_LIM; the summed
+    // numbers never read it.
+    let phie_candidates = vec!["PHIE".to_string()];
+    let (phie_curve, phie_resolved) = match first_available_input_alias(
+        conn,
+        well_id,
+        "PHIE",
+        &phie_candidates,
+        req.input_set.as_deref(),
+        None,
+        &HashSet::new(),
+    ) {
+        Ok(Some(curve)) => (curve, true),
+        Ok(None) => ("PHIE".to_string(), false),
+        Err(_) => return None,
+    };
+    // DEC-070's observable half: when the ONLY porosity here is the quick-look curve,
+    // the row says so - the zeros below mean "not interpreted for pay", never "wet".
+    // Deliberately NOT set when the well has no porosity at all: the flag means
+    // "present and excluded", and conflating it with absence would erase the reason
+    // the mark exists.
+    let quicklook_phie_excluded = !phie_resolved
+        && crate::ancestry::try_resolve_ancestry_input(
+            conn,
+            well_id,
+            "PHIE",
+            modules::PHIE_DN_LIMITED_DEFAULT,
+            req.input_set.as_deref(),
+            None,
+        )
+        .ok()
+        .flatten()
+        .is_some();
+    let curve_names: Vec<String> =
+        vec!["VSH".into(), phie_curve.clone(), "SWE".into(), "PERM".into()];
+
+    // Per-well isolation: a well with no curves - or a transient fetch/zone read error - is
+    // skipped, keeping every other well's rows, rather than `?`-aborting the whole batch (a
+    // single bad well would otherwise zero the entire Field Dashboard / summary response).
+    // The cutoffs decide net pay, so WHICH version of PHIE and SWE they read is part of the
+    // answer - a summary that cannot name its inputs' version cannot be reproduced.
+    let (depth, columns) = match equations::fetch_curve_frame_from_set(
+        conn, well_id, &curve_names, req.input_set.as_deref(), None,
+    ) {
+        Ok((d, c)) if !d.is_empty() => (d, c),
+        _ => return None,
+    };
+    let zones = match db::list_zones(conn, well_id) {
+        Ok(z) => z,
+        Err(_) => return None,
+    };
+    Some(WellSummationInputs {
+        well_id: well_id.to_string(),
+        well_name,
+        phie_curve,
+        quicklook_phie_excluded,
+        depth,
+        columns,
+        zones,
+        curve_names,
+    })
+}
+
 /// Computes the pay summary per well per zone and writes FLAG_SAND / FLAG_RESERVOIR /
 /// FLAG_PAY curves. Wells without zones get a single whole-well "ALL" zone.
-pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Result<Vec<PaySummaryRow>, String> {
+pub fn run_pay_summary(
+    db: &Mutex<Connection>,
+    pool: &crate::reader_pool::ReaderPool,
+    req: &PaySummaryRequest,
+) -> Result<Vec<PaySummaryRow>, String> {
     // SB-CUT-012: refuse a frame whose per-sample weights cannot be computed, before any work.
     // The per-sample weight is dz in MD and dz*cos(theta) in TVD, so a TVD summation is not a
     // rescaling of an MD one - it is a different set of weights - and serving MD numbers under a
@@ -1170,70 +1286,39 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     }
     let mut all_rows = Vec::new();
 
-    for well_id in &req.well_ids {
-        let conn = db.lock().unwrap();
-        let well_name: String = conn
-            .query_row(
-                "SELECT well_name FROM wells WHERE well_id = ?1",
-                duckdb::params![well_id],
-                |row| row.get(0),
-            )
-            .unwrap_or_else(|_| well_id.clone());
-        // SB-POR-057 (DEC-070, RULED 2026-08-18): the candidate list is the ONE canonical
-        // name. The quick-look D-N limited curve is no longer a fallback - "quick look only
-        // shows pay summation as visual not pay curves" - superseding the DEC-042 two-name
-        // pair this list used to carry. Displays may overlay PHIE_DN_LIM; the summed
-        // numbers never read it.
-        let phie_candidates = vec!["PHIE".to_string()];
-        let (phie_curve, phie_resolved) = match first_available_input_alias(
-            &conn,
+    // #129: every well's reads, at the same time, before any of them is summed. This used to be
+    // four queries per well on ONE connection on ONE thread, which
+    // `PERF-DASHBOARD-2026-08-23.md` measured as the whole of the Field Dashboard.
+    //
+    // A `None` here is a well the serial loop would have `continue`d past, and it stays a silent
+    // skip. An `Err` is something else entirely - the read could not be performed, because the
+    // project was replaced underneath it - and it FAILS THE RUN rather than being folded into the
+    // skip. Quietly dropping every well of a summary because the project moved would produce a
+    // field total that is simply too small, with nothing on screen to say so.
+    let prefetched: Vec<WellSummationInputs> = {
+        let read: Result<Vec<Option<WellSummationInputs>>, String> = req
+            .well_ids
+            .par_iter()
+            .map(|well_id| {
+                pool.read(db, |conn| Ok(read_well_summation_inputs(conn, well_id, req)))
+            })
+            .collect();
+        read?.into_iter().flatten().collect()
+    };
+    // The skipped wells are gone from this list, so the loop walks the inputs rather than the
+    // requested ids - a well and its inputs can never be paired wrongly, because they are one
+    // value.
+    for inputs in prefetched {
+        let WellSummationInputs {
             well_id,
-            "PHIE",
-            &phie_candidates,
-            req.input_set.as_deref(),
-            None,
-            &HashSet::new(),
-        ) {
-            Ok(Some(curve)) => (curve, true),
-            Ok(None) => ("PHIE".into(), false),
-            Err(_) => continue,
-        };
-        // DEC-070's observable half: when the ONLY porosity here is the quick-look curve,
-        // the row says so - the zeros below mean "not interpreted for pay", never "wet".
-        // Deliberately NOT set when the well has no porosity at all: the flag means
-        // "present and excluded", and conflating it with absence would erase the reason
-        // the mark exists.
-        let quicklook_phie_excluded = !phie_resolved
-            && crate::ancestry::try_resolve_ancestry_input(
-                &conn,
-                well_id,
-                "PHIE",
-                modules::PHIE_DN_LIMITED_DEFAULT,
-                req.input_set.as_deref(),
-                None,
-            )
-            .ok()
-            .flatten()
-            .is_some();
-        let curve_names: Vec<String> =
-            vec!["VSH".into(), phie_curve.clone(), "SWE".into(), "PERM".into()];
-
-        // Per-well isolation: a well with no curves — or a transient fetch/zone read error — is
-        // skipped, keeping every other well's rows, rather than `?`-aborting the whole batch (a
-        // single bad well would otherwise zero the entire Field Dashboard / summary response).
-        // The cutoffs decide net pay, so WHICH version of PHIE and SWE they read is part of the
-        // answer — a summary that cannot name its inputs' version cannot be reproduced.
-        let (depth, columns) = match equations::fetch_curve_frame_from_set(
-            &conn, well_id, &curve_names, req.input_set.as_deref(), None,
-        ) {
-            Ok((d, c)) if !d.is_empty() => (d, c),
-            _ => continue,
-        };
-        let mut zones = match db::list_zones(&conn, well_id) {
-            Ok(z) => z,
-            Err(_) => continue,
-        };
-        drop(conn);
+            well_name,
+            phie_curve,
+            quicklook_phie_excluded,
+            depth,
+            columns,
+            mut zones,
+            curve_names,
+        } = inputs;
 
         let had_declared_zones = !zones.is_empty();
         if zones.is_empty() {
@@ -1346,7 +1431,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     "FLAG_PAY".into(),
                 ];
                 let mut complete =
-                    crate::ancestry::complete_curve_run_spec(&conn, well_id, &spec.set_name,
+                    crate::ancestry::complete_curve_run_spec(&conn, &well_id, &spec.set_name,
                     &spec.module,
                     custody,
                     &inputs,
@@ -1364,18 +1449,18 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 // value/source, zone/source, operator, output, or implementation creates
                 // a new append-only version as usual.
                 let already_current = output_names.iter().all(|curve| {
-                    crate::ancestry::curve_ancestry(&conn, well_id, curve)
+                    crate::ancestry::curve_ancestry(&conn, &well_id, curve)
                         .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
                 });
                 if !already_current {
                     let (set_id, _) =
-                        crate::ancestry::create_complete_log_set(&conn, well_id, &complete)?;
+                        crate::ancestry::create_complete_log_set(&conn, &well_id, &complete)?;
                 let batch: Vec<(&str, &[f32])> = vec![
                     ("FLAG_SAND", flag_sand.as_slice()),
                     ("FLAG_RESERVOIR", flag_res.as_slice()),
                     ("FLAG_PAY", flag_pay.as_slice()),
                 ];
-                crate::ancestry::write_computed_curves_with_ancestry(&conn, well_id, &depth, &batch, &set_id)
+                crate::ancestry::write_computed_curves_with_ancestry(&conn, &well_id, &depth, &batch, &set_id)
                     ?;
             }
             }
@@ -2373,7 +2458,7 @@ mod tests").next().expect("a split always yields one piece");
             frame: Default::default(),
             weighting: Default::default(),
         };
-        let rows = run_pay_summary(&dbm, &req).expect("summary runs on an uninterpreted well");
+        let rows = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req).expect("summary runs on an uninterpreted well");
         assert!(!rows.is_empty(), "rows are still emitted — the well and its zone exist");
         for r in &rows {
             assert_eq!(
@@ -2428,6 +2513,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -2546,6 +2632,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -2676,6 +2763,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -2776,6 +2864,7 @@ mod tests").next().expect("a split always yields one piece");
 
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -2869,6 +2958,7 @@ mod tests").next().expect("a split always yields one piece");
         let run = |wells: Vec<String>, weighting: BTreeMap<String, AverageWeighting>| {
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -3004,6 +3094,7 @@ mod tests").next().expect("a split always yields one piece");
         let run = |weighting: BTreeMap<String, AverageWeighting>| {
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -3182,6 +3273,7 @@ mod tests").next().expect("a split always yields one piece");
         let run = |model: DiscretisationModel| -> PaySummaryRow {
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: model,
                     input_set: None,
@@ -3295,6 +3387,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -3433,6 +3526,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -3613,7 +3707,7 @@ mod tests").next().expect("a split always yields one piece");
 
         // A — every emitted row declares the frame AND where its weights came from. Both, because
         // "MD" alone does not say which depths were differenced.
-        let rows = run_pay_summary(&dbm, &req(SummationFrame::Md)).expect("an MD summation runs");
+        let rows = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req(SummationFrame::Md)).expect("an MD summation runs");
         assert!(!rows.is_empty());
         for r in &rows {
             assert_eq!(r.frame, SummationFrame::Md, "{} frame", r.flag);
@@ -3627,7 +3721,7 @@ mod tests").next().expect("a split always yields one piece");
         // B — the other three are REFUSED, by name, with the reason. Not returned empty, and above
         // all not returned as MD numbers wearing a different label.
         for frame in [SummationFrame::Tvd, SummationFrame::Tvdss, SummationFrame::Tst] {
-            let err = run_pay_summary(&dbm, &req(frame))
+            let err = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req(frame))
                 .expect_err("a frame whose weights cannot be computed must refuse");
             assert!(
                 err.contains(frame.as_str()),
@@ -3642,7 +3736,7 @@ mod tests").next().expect("a split always yields one piece");
         // C — and the refusal is a REFUSAL, not a fallback. If a TVD request ever starts returning
         // rows, this is the assertion that catches it before anybody quotes them.
         assert!(
-            run_pay_summary(&dbm, &req(SummationFrame::Tvd)).is_err(),
+            run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req(SummationFrame::Tvd)).is_err(),
             "a TVD result must never be an MD result relabelled"
         );
     }
@@ -3711,7 +3805,7 @@ mod tests").next().expect("a split always yields one piece");
         };
 
         // B — an SWE cut-off of 0.4 excludes the five deep samples, so PAY net is 5 of 10.
-        let filtered = run_pay_summary(&dbm, &req(Some(0.9), Some(0.05), Some(0.4), vec![]))
+        let filtered = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req(Some(0.9), Some(0.05), Some(0.4), vec![]))
             .expect("a fully specified summation runs");
         assert!((pay(&filtered).net - 5.0).abs() < 1e-6, "the SWE cut-off must bite");
         assert_eq!(
@@ -3723,7 +3817,7 @@ mod tests").next().expect("a split always yields one piece");
         // C — omitting it makes the summation UNFILTERED on SWE: all ten units count, AND the row
         // says so. Both halves matter - a number that quietly stopped being filtered, with nothing
         // on the result to say so, is the whole failure this clause exists to prevent.
-        let unfiltered = run_pay_summary(&dbm, &req(Some(0.9), Some(0.05), None, vec![]))
+        let unfiltered = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req(Some(0.9), Some(0.05), None, vec![]))
             .expect("an unfiltered summation is legitimate and runs");
         assert!(
             (pay(&unfiltered).net - 10.0).abs() < 1e-6,
@@ -3760,7 +3854,7 @@ mod tests").next().expect("a split always yields one piece");
         let shale = shale_id.to_string();
         let mut all_absent = req(None, None, None, vec![]);
         all_absent.well_ids = vec![shale.clone()];
-        let rows = run_pay_summary(&dbm, &all_absent).expect("an entirely unfiltered run is legitimate");
+        let rows = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &all_absent).expect("an entirely unfiltered run is legitimate");
         let r = rows.iter().find(|r| r.flag == "PAY").expect("a PAY row");
         assert!(
             (r.net - 10.0).abs() < 1e-6,
@@ -3777,7 +3871,7 @@ mod tests").next().expect("a split always yields one piece");
         // E — a cut-off the user switched on and left blank REFUSES. Distinct from C on purpose:
         // "I am not filtering on Sw" and "I meant to filter on Sw and have not said what" are
         // different statements, and only one of them may produce a number.
-        let err = run_pay_summary(&dbm, &req(Some(0.9), Some(0.05), None, vec!["SWE".into()]))
+        let err = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req(Some(0.9), Some(0.05), None, vec!["SWE".into()]))
             .expect_err("an enabled but unset cut-off must refuse");
         assert!(
             err.contains("SWE"),
@@ -3857,6 +3951,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let err = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -3973,6 +4068,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -4028,6 +4124,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let flagged = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -4163,6 +4260,7 @@ mod tests").next().expect("a split always yields one piece");
         let dbm = Mutex::new(conn);
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -4399,6 +4497,7 @@ mod tests").next().expect("a split always yields one piece");
         let summary = |vsh, phie, swe| {
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -4482,6 +4581,7 @@ mod tests").next().expect("a split always yields one piece");
         let run = |swe: Option<CutoffSpec>, use_at: Vec<(&str, CutoffUse)>| {
             let rows = run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -4537,6 +4637,7 @@ mod tests").next().expect("a split always yields one piece");
         let (_, reservoir_clay, _) = {
             let rows = run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -4635,6 +4736,7 @@ mod tests").next().expect("a split always yields one piece");
         let run = |use_at: Vec<(&str, CutoffUse)>| {
             let rows = run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -4726,6 +4828,7 @@ mod tests").next().expect("a split always yields one piece");
         let unfiltered = {
             let rows = run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -4894,6 +4997,7 @@ mod tests").next().expect("a split always yields one piece");
             .unwrap();
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -4959,6 +5063,7 @@ mod tests").next().expect("a split always yields one piece");
         let summary = |perm_min: Option<f64>| -> Vec<PaySummaryRow> {
             run_pay_summary(
                 &dbm,
+                &crate::reader_pool::ReaderPool::new(),
                 &PaySummaryRequest {
                     discretisation: DiscretisationModel::Forward,
                     input_set: None,
@@ -5042,6 +5147,7 @@ mod tests").next().expect("a split always yields one piece");
 
         let rows = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 input_set: None,
@@ -5306,7 +5412,7 @@ mod tests").next().expect("a split always yields one piece");
             frame: Default::default(),
             weighting: Default::default(),
         };
-        let rows = run_pay_summary(&dbm, &req).unwrap();
+        let rows = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req).unwrap();
         let sand = rows.iter().find(|r| r.zone == "Z1" && r.flag == "SAND").expect("SAND row");
 
         // Overlap clamp: net never exceeds gross (old forward-step gave net 2.0 > gross 1.5).

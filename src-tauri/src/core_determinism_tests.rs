@@ -301,6 +301,7 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
 
     let pay = crate::paysummary::run_pay_summary(
         &db,
+        &crate::reader_pool::ReaderPool::new(),
         &crate::paysummary::PaySummaryRequest {
             discretisation: crate::paysummary::DiscretisationModel::Forward,
             well_ids: ids.clone(),

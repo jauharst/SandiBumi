@@ -4078,6 +4078,7 @@ mod tests")
         }
         let refusal = run_pay_summary(
             &dbm,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest {
                 discretisation: DiscretisationModel::Forward,
                 well_ids: vec![skip_candidate.clone()],
@@ -7573,7 +7574,7 @@ mod tests")
             frame: Default::default(),
             weighting: Default::default(),
         };
-        run_pay_summary(&dbm, &req).unwrap();
+        run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req).unwrap();
         {
             let conn = dbm.lock().unwrap();
             let (module, params): (String, String) = conn
@@ -7619,7 +7620,7 @@ mod tests")
             weighting: Default::default(),
         };
         let refusal =
-            run_pay_summary(&dbm, &req_skip).expect_err("skip_version must not bypass ancestry");
+            run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &req_skip).expect_err("skip_version must not bypass ancestry");
         assert!(
             refusal.contains("ancestry-free"),
             "the refusal names the broken custody contract: {refusal}"
@@ -7698,7 +7699,7 @@ mod tests")
             frame: Default::default(),
             weighting: Default::default(),
         };
-        let rows_stats = run_pay_summary(&dbm, &base).unwrap();
+        let rows_stats = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &base).unwrap();
         assert!(!rows_stats.is_empty(), "stats_only must still return the summary rows");
 
         // Nothing was persisted: no FLAG_* curves, no PAYFLAG log set.
@@ -7726,7 +7727,7 @@ mod tests")
         // FLAG_* curves now exist — confirming stats_only changed persistence only, not math.
         let writing = PaySummaryRequest { stats_only: false, skip_version: false,
             custody: Some(test_run_custody()), ..base.clone() };
-        let rows_write = run_pay_summary(&dbm, &writing).unwrap();
+        let rows_write = run_pay_summary(&dbm, &crate::reader_pool::ReaderPool::new(), &writing).unwrap();
         assert_eq!(rows_stats.len(), rows_write.len(), "stats_only must not change the rows returned");
         let pay_a = rows_stats.iter().find(|r| r.flag == "PAY").expect("PAY row (stats)");
         let pay_b = rows_write.iter().find(|r| r.flag == "PAY").expect("PAY row (write)");
@@ -10256,6 +10257,7 @@ mod tests")
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
+            &crate::reader_pool::ReaderPool::new(),
             &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: Some(CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(CutoffEntry { value: 0.1, unit: "v/v".into() }.into()), swe_max: Some(CutoffEntry { value: 0.6, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
                 discretisation: DiscretisationModel::Forward,
             enabled_unset: Vec::new(),

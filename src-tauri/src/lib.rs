@@ -1025,8 +1025,10 @@ async fn render_report(
     spec: report::ReportSpec,
 ) -> Result<composite::CompositeResult, String> {
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "render report", move || {
-        report::render_report(&conn, &spec)
+        report::render_report(&conn, &pool, &spec)
     })
     .await
 }
@@ -1040,8 +1042,10 @@ async fn export_report_pdf(
     dest_path: String,
 ) -> Result<String, String> {
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "export PDF", move || {
-        let pdf = report::render_report_pdf(&conn, &spec)?;
+        let pdf = report::render_report_pdf(&conn, &pool, &spec)?;
         std::fs::write(&dest_path, pdf).map_err(|e| e.to_string())?;
         Ok(dest_path)
     })
@@ -1066,9 +1070,12 @@ async fn export_report_batch(
         return Err("PDF report batch: the backend-resolved well scope is empty".into());
     }
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     let label = format!("{} report(s)", well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
-        let (written, errors) = report::export_report_batch(&conn, &spec, &well_ids, &dest_dir)?;
+        let (written, errors) =
+            report::export_report_batch(&conn, &pool, &spec, &well_ids, &dest_dir)?;
         if !errors.is_empty() {
             return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
         }
@@ -1102,9 +1109,11 @@ async fn export_deck(
         return Err("PowerPoint deck: the backend-resolved well scope is empty".into());
     }
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     let label = format!("{} well(s)", spec.well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Deck", label, move || {
-        office::export_deck(&conn, &spec, &dest_path)
+        office::export_deck(&conn, &pool, &spec, &dest_path)
     })
     .await
 }
@@ -1120,8 +1129,10 @@ async fn export_report_docx(
     dest_path: String,
 ) -> Result<String, String> {
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "export Word", move || {
-        office::export_report_docx(&conn, &spec, &dest_path)
+        office::export_report_docx(&conn, &pool, &spec, &dest_path)
     })
     .await
 }
@@ -1143,9 +1154,12 @@ async fn export_report_docx_batch(
         return Err("Word report batch: the backend-resolved well scope is empty".into());
     }
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     let label = format!("{} Word report(s)", well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
-        let (written, errors) = office::export_report_docx_batch(&conn, &spec, &well_ids, &dest_dir)?;
+        let (written, errors) =
+            office::export_report_docx_batch(&conn, &pool, &spec, &well_ids, &dest_dir)?;
         if !errors.is_empty() {
             return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
         }
@@ -1172,9 +1186,11 @@ async fn export_workbook(
         return Err("Excel workbook: the backend-resolved well scope is empty".into());
     }
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too.
+    let pool = db.1.clone();
     let label = format!("{} well(s)", spec.well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Workbook", label, move || {
-        office::export_workbook(&conn, &spec, &dest_path)
+        office::export_workbook(&conn, &pool, &spec, &dest_path)
     })
     .await
 }
@@ -2526,6 +2542,9 @@ async fn run_pay_summary(
         return Err("pay summary: the backend-resolved well scope is empty".into());
     }
     let conn = db.0.clone();
+    // #129: the SESSION's pool, so a project swap invalidates these readers too (corruption mode
+    // M1). A pool of its own would never be invalidated.
+    let pool = db.1.clone();
     // A stats-only pay summary persists nothing (workflow.rs gates every FLAG_* write behind
     // !stats_only), so it is a pure read — run it silently off-thread rather than posting a
     // "Pay summary" job card the user never asked for. The Field Dashboard is the only stats-only
@@ -2533,12 +2552,12 @@ async fn run_pay_summary(
     // labelled "cutoffs & pay", misleading (nothing is written). A persisting pay summary — an
     // explicit Cutoffs & Summary run, or a report render — still shows a job.
     if req.stats_only {
-        return tauri::async_runtime::spawn_blocking(move || paysummary::run_pay_summary(&conn, &req))
+        return tauri::async_runtime::spawn_blocking(move || paysummary::run_pay_summary(&conn, &pool, &req))
             .await
             .map_err(|e| e.to_string())?;
     }
     jobs::run_simple_job(jobs_reg.inner().clone(), "Pay summary", "cutoffs & pay", move || {
-        paysummary::run_pay_summary(&conn, &req)
+        paysummary::run_pay_summary(&conn, &pool, &req)
     })
     .await
 }

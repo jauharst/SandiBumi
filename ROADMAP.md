@@ -1298,6 +1298,15 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       1.95×** — 13.7 s of serialized read thread-time became 92.7 s of concurrent read thread-time,
       so ~3.3 threads' worth, and raising the pool capacity is NOT the lever. The write is now the
       largest serialized cost and a writer pool stays recommended against.
+      **The Field Dashboard joined the pooled path 2026-08-24** (`PERF-DASHBOARD-PARALLEL-2026-08-24.md`):
+      `run_pay_summary`'s four per-well reads now run concurrently, the summation and its serial
+      write untouched. Paired on the real 100-well delivery, AFTER arm first: **963.97 ms ->
+      219.57 ms (4.39x)**; synthetic probe 5.50x / 5.24x / 3.21x at 10 / 100 / 500 wells; 300 pay
+      rows and every `pipeline_field_full_run` value identical in both arms. The pay summary that
+      WRITES flag curves moved 1.10x, inside the floor, which is the designed result - it is
+      write-bound, and that measurement is in the ledger as an instrument caution rather than a
+      null result. The 36% set-id scan `PERF-DASHBOARD` §4 named is untouched and still needs a
+      provenance ruling, not a performance decision.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

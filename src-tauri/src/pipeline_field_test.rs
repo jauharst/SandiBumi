@@ -383,7 +383,7 @@ fn pipeline_field_full_run() {
         frame: Default::default(),
         weighting: Default::default(),
     };
-    match run_pay_summary(&db, &pay_req) {
+    match run_pay_summary(&db, &crate::reader_pool::ReaderPool::new(), &pay_req) {
         Ok(rows) => {
             println!("  {} summary rows", rows.len());
             for r in rows.iter().filter(|r| r.flag == "PAY").take(12) {
@@ -418,7 +418,7 @@ fn pipeline_field_full_run() {
         perm_min: None,
         tables_only: false,
     };
-    match crate::report::render_report_pdf(&db, &spec) {
+    match crate::report::render_report_pdf(&db, &crate::reader_pool::ReaderPool::new(), &spec) {
         Ok(bytes) => {
             let out = std::env::temp_dir().join("sandibumi_field_report.pdf");
             std::fs::write(&out, &bytes).ok();
@@ -829,12 +829,43 @@ fn pipeline_field_100well_stress() {
         total_samples / grand.as_secs_f64() / 1e3
     );
 
-    // Pay summary across all 100 wells.
+    // The FIELD DASHBOARD's own mode, on real wells - #129, 2026-08-24.
+    //
+    // The summary below it runs `stats_only: false` and WRITES three FLAG_* curves per well, so it
+    // is dominated by the serial write and cannot show what a read change is worth. The dashboard
+    // never writes. Without this line the only field-scale evidence for it was the synthetic probe,
+    // and `2c` is explicit that a synthetic project proves scaling and not what a real delivery
+    // feels like.
+    //
+    // It runs FIRST, on the colder cache, so the number it reports is the pessimistic one.
+    let t = Instant::now();
+    let dash = run_pay_summary(
+        &db,
+        &crate::reader_pool::ReaderPool::new(),
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::paysummary::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: true,
+        enabled_unset: Vec::new(),
+            discretisation: crate::paysummary::DiscretisationModel::Forward,
+        cutoff_use: Default::default(),
+            custody: Some(crate::workflow::test_run_custody()),
+            frame: Default::default(),
+            weighting: Default::default(),
+        },
+    );
+    let dash_elapsed = t.elapsed();
+    let dash = dash.expect("field dashboard over the stress field");
+    println!("  dashboard(100 wells, stats_only) {dash_elapsed:?} -> {} rows", dash.len());
+    assert!(
+        !dash.is_empty(),
+        "the field dashboard produced no rows over {N_WELLS} interpreted wells"
+    );
+
+    // Pay summary across all 100 wells - the WRITING variant.
     let t = Instant::now();
     // `.unwrap_or(0)` used to turn an Err into the string "0 rows", which reads as an empty
     // field rather than as a failed summary.
     let pay = run_pay_summary(
         &db,
+        &crate::reader_pool::ReaderPool::new(),
         &PaySummaryRequest { well_ids: ids.clone(), vsh_max: Some(crate::paysummary::CutoffEntry { value: 0.5, unit: "v/v".into() }.into()), phie_min: Some(crate::paysummary::CutoffEntry { value: 0.10, unit: "v/v".into() }.into()), swe_max: Some(crate::paysummary::CutoffEntry { value: 0.60, unit: "v/v".into() }.into()), perm_min: None, input_set: None, skip_version: false, stats_only: false,
         enabled_unset: Vec::new(),
             discretisation: crate::paysummary::DiscretisationModel::Forward,
