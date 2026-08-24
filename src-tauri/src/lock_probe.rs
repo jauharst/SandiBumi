@@ -46,6 +46,27 @@ pub(crate) static READ_NS: AtomicU64 = AtomicU64::new(0);
 /// design, so this phase is serial no matter what happens to connection semantics — it is the
 /// floor under any pooling win.
 pub(crate) static WRITE_NS: AtomicU64 = AtomicU64::new(0);
+/// The five parts of WRITE_NS, so 62% of a real chain stops being one opaque number.
+///
+/// They are SUBDIVISIONS, not additions: each is inside the WRITE scope, so they must sum to no
+/// more than WRITE_NS, and the shortfall is the sixth part - the transaction commit plus the
+/// per-well class-curve declaration - derived rather than timed, the same way COMPUTE is.
+///
+/// Per-well checks before the transaction opens: depth-uniqueness validation over every curve,
+/// and the set write discipline. CPU and small reads, no rows written.
+pub(crate) static W_VALIDATE_NS: AtomicU64 = AtomicU64::new(0);
+/// Phase 1 - the grouped DELETE that makes the write idempotent. This is the cost of the PK-less
+/// write discipline: nothing prevents a duplicate except removing the prior rows first.
+pub(crate) static W_DELETE_NS: AtomicU64 = AtomicU64::new(0);
+/// Phase 2 - appending every sample to `computed_curves`, the readable interpretation.
+pub(crate) static W_CURRENT_NS: AtomicU64 = AtomicU64::new(0);
+/// Phase 3 - appending every sample AGAIN to `computed_curves_archive`. Every row is written
+/// twice by design, which is what makes a re-run non-destructive; this counter is what says
+/// whether that design costs half the write or a tenth of it.
+pub(crate) static W_ARCHIVE_NS: AtomicU64 = AtomicU64::new(0);
+/// Phase 4 - the degradation records that classify the run, in the same transaction as the rows.
+pub(crate) static W_DEGRADE_NS: AtomicU64 = AtomicU64::new(0);
+
 /// Whole per-well work, from the top of the runner's per-well closure to its end. COMPUTE is this
 /// minus the read scopes inside it — derived rather than timed directly, because the arithmetic is
 /// scattered through the closure and bracketing it would need far more call sites than the answer
@@ -78,6 +99,26 @@ pub(crate) fn well() -> Phase {
     Phase(&WELL_NS, Instant::now())
 }
 
+pub(crate) fn w_validate() -> Phase {
+    Phase(&W_VALIDATE_NS, Instant::now())
+}
+
+pub(crate) fn w_delete() -> Phase {
+    Phase(&W_DELETE_NS, Instant::now())
+}
+
+pub(crate) fn w_current() -> Phase {
+    Phase(&W_CURRENT_NS, Instant::now())
+}
+
+pub(crate) fn w_archive() -> Phase {
+    Phase(&W_ARCHIVE_NS, Instant::now())
+}
+
+pub(crate) fn w_degrade() -> Phase {
+    Phase(&W_DEGRADE_NS, Instant::now())
+}
+
 /// Zeroes every counter. A caller measuring one module must call this first, or it reads the
 /// previous module's total as well as its own.
 pub(crate) fn reset() {
@@ -85,6 +126,24 @@ pub(crate) fn reset() {
     READ_NS.store(0, Ordering::Relaxed);
     WRITE_NS.store(0, Ordering::Relaxed);
     WELL_NS.store(0, Ordering::Relaxed);
+    W_VALIDATE_NS.store(0, Ordering::Relaxed);
+    W_DELETE_NS.store(0, Ordering::Relaxed);
+    W_CURRENT_NS.store(0, Ordering::Relaxed);
+    W_ARCHIVE_NS.store(0, Ordering::Relaxed);
+    W_DEGRADE_NS.store(0, Ordering::Relaxed);
+}
+
+/// `(validate, delete, current, archive, degrade)` in nanoseconds - the five timed parts of the
+/// write. The sixth, commit plus class declaration, is `WRITE_NS` minus their sum; it is reported
+/// as a remainder so it can never be mistaken for something that was measured.
+pub(crate) fn write_split() -> (u64, u64, u64, u64, u64) {
+    (
+        W_VALIDATE_NS.load(Ordering::Relaxed),
+        W_DELETE_NS.load(Ordering::Relaxed),
+        W_CURRENT_NS.load(Ordering::Relaxed),
+        W_ARCHIVE_NS.load(Ordering::Relaxed),
+        W_DEGRADE_NS.load(Ordering::Relaxed),
+    )
 }
 
 /// `(wait, read, write, per-well total)` in nanoseconds.

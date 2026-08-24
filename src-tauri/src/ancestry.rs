@@ -2545,6 +2545,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
     if wells.iter().all(|w| w.curves.is_empty()) {
         return Ok(());
     }
+    #[cfg(test)]
+    let _phase_validate = crate::lock_probe::w_validate();
     for well in wells {
         load_set_write_discipline(conn, &well.set_id)?;
         match (&well.degradation_module, &well.degradations) {
@@ -2575,6 +2577,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             .collect::<Vec<_>>();
         validate_continuous_depth_uniqueness(&well.depth, &curves)?;
     }
+    #[cfg(test)]
+    drop(_phase_validate);
     crate::db::with_txn(conn, |conn| {
         // Phase 1: group wells by identical curve-set, then one DELETE per group.
         use std::collections::BTreeMap;
@@ -2588,6 +2592,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             names.dedup();
             groups.entry(names).or_default().push(w.well_id.as_str());
         }
+        #[cfg(test)]
+        let _phase_delete = crate::lock_probe::w_delete();
         for (curves, well_ids) in &groups {
             let wph = std::iter::repeat("?").take(well_ids.len()).collect::<Vec<_>>().join(", ");
             let cph = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
@@ -2599,9 +2605,13 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             p.extend(curves.iter().map(|c| c.to_uppercase()));
             conn.execute(&sql, params_from_iter(p))?;
         }
+        #[cfg(test)]
+        drop(_phase_delete);
 
         // Phase 2: one appender for the CURRENT store across every well.
         {
+            #[cfg(test)]
+            let _phase_current = crate::lock_probe::w_current();
             let mut current = conn.appender("computed_curves")?;
             for w in wells {
                 for (name, values) in &w.curves {
@@ -2617,6 +2627,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
 
         // Phase 3: one appender for the append-only ARCHIVE across every well.
         {
+            #[cfg(test)]
+            let _phase_archive = crate::lock_probe::w_archive();
             let mut archive = conn.appender("computed_curves_archive")?;
             for w in wells {
                 for (name, values) in &w.curves {
@@ -2633,6 +2645,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
         // current + archive rows. A curve can therefore never commit while the warning that
         // qualifies it is lost. Workflow steps reuse one set_id, so new events append after prior
         // positions and a later clean step never erases an earlier DEGRADED state.
+        #[cfg(test)]
+        let _phase_degrade = crate::lock_probe::w_degrade();
         let mut pending_degradations: Vec<(String, i64, String, &str, String, i64)> = Vec::new();
         let mut next_position: HashMap<String, i64> = HashMap::new();
         for well in wells {
@@ -2758,6 +2772,8 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
                 ))
             })?;
         }
+        #[cfg(test)]
+        drop(_phase_degrade);
         Ok::<(), duckdb::Error>(())
     })
     .map_err(|error| error.to_string())

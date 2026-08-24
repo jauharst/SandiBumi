@@ -1324,6 +1324,18 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       read and the instrument error was the webview thread all along. A zone-scoped overlay
       still asks each well for its tops one at a time (`list_zones`, one of the 155 sync
       commands that take the connection lock) and is deliberately untouched.
+      **What is left is the WRITE, and it was split on 2026-08-24**
+      (`PERF-WRITE-SPLIT-2026-08-24.md`, instrument only, no behaviour change): it is **58% of
+      a real 100-well chain**, and **83.7% of it is appending rows** - 42.2% to
+      `computed_curves` and 41.4% to `computed_curves_archive`, because every sample is written
+      twice by design. The DELETE that upholds uniqueness on the PK-less table is **0.2%**; the
+      per-well depth validation is **1.1%**. **There is no overhead to remove.** The only lever
+      is writing fewer rows, and the only removable rows belong to the archive - which is what
+      makes a re-run non-destructive and what a log-set restore reads, so that is a
+      data-integrity decision for Jauhar rather than a performance one. The hypothesis that
+      ~93% of the write was non-append work is **REFUTED** and recorded as ledger row 13: it
+      counted half the rows, and divided by a probe that reports 972,945 rows/s in one run and
+      2,874,000 in the next.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

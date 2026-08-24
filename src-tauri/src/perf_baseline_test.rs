@@ -657,6 +657,18 @@ fn perf_read_write_split() {
             "{:<18} {:>8.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms  {}",
             module, wall, queue, read, compute, write, produced
         );
+
+        // The WRITE column, split into the five parts that make it up. `rest` is a REMAINDER -
+        // the transaction commit plus the per-well class-curve declaration - derived rather than
+        // timed, and labelled so it can never be quoted as a measurement. Same reasoning as
+        // COMPUTE above it.
+        let (v, d, c, a, g) = crate::lock_probe::write_split();
+        let p = |ns: u64| ns as f64 / 1e6;
+        let rest = write - (p(v) + p(d) + p(c) + p(a) + p(g));
+        println!(
+            "  write split:  check {:>7.1}ms  delete {:>7.1}ms  current {:>7.1}ms  archive {:>7.1}ms  degrade {:>7.1}ms  rest {:>7.1}ms",
+            p(v), p(d), p(c), p(a), p(g), rest
+        );
         totals.0 += wall;
         totals.1 += queue;
         totals.2 += read;
