@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-24 — The user guide exists now: outline plus one finished chapter, for a voice check
+
+- [ ] **What this is.** `docs/guide/first-hour.md` — the start of the guide a petrophysicist who
+      has never seen SandiBumi follows from a fresh install to one finished interpretation. This
+      first delivery is the chapter list plus ONE fully written chapter ("Run your first module",
+      the vsh_gr walkthrough), so you can judge the voice before the rest is written in it.
+- [ ] **Every screenshot is the real app doing the real flow** — a fresh sandboxed project,
+      the three SANDI example wells imported through the actual import dialog, endpoints picked
+      off the actual histogram (its own P5/P95 chips), the run refused twice by the custody
+      checks and then completed, VSH drawn beside GR at 1:500. Nothing is mocked and no number
+      in the text is invented: 44 and 112 are this dataset's own P5/P95 rounded, and the
+      46-samples-clamped count is what the Processing panel actually reported.
+- [ ] **What to check: the voice.** Read the one chapter as the petrophysicist it is written
+      for. Does it explain the mechanics you cannot guess (no shipped endpoints, the two custody
+      refusals, "degraded" = clamped tails, versions instead of undo) without explaining things
+      you already know? If the voice is right, say "go ahead" and chapters 1–5 and 7–9 get
+      written the same way; if not, redirect now while it is one chapter.
+- [ ] **One thing found while photographing, for your awareness, not fixed here:** the Wells-pane
+      ▸ twisty lists a well's imported sets (RAW with its 8 curves) but computed INTERP curves
+      appear only in the Curve Catalog — the guide states it as designed behaviour, since the
+      twisty is the generic-store browser. If you'd rather the twisty also show computed sets,
+      that is a feature decision, not a guide fix.
+
 ## 2026-08-23 — The safety catch before the speed: SandiBumi can now open a second door on your project
 
 - [ ] **Nothing is faster yet, and that is deliberate.** This is stage 1 of the connection pool you
