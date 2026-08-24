@@ -30,17 +30,168 @@ interpreter and the pip command — never the application.
    every panel shows; the ▸ twisty lists each well's deliveries curve by curve.
 5. **Reading the log view** — layouts, depth scale, tracks, the neutron-density
    crossover, and adding a track of your own.
-6. **Run your first module** — *written below.*
+6. **Run your first module** — shale volume from gamma ray, and the four mechanics
+   every later run reuses.
 7. **Where results live** — the Curve Catalog, log-set versions, Ancestry, the
-   Processing History — and why a module run is re-run, never undone.
-8. **Export something** — Export LAS from the Data tab; a print-scale composite PDF
-   from the Plot tab.
+   History — and why a module run is re-run, never undone.
+8. **Export something** — a LAS file that reports what it wrote, and a print-scale
+   composite page.
 9. **Where to go next** — the Advance tab methods, per-panel Help, and the deeper
    documents in `docs/`.
 
-Chapters 1–5 and 7–9 follow after the voice of chapter 6 is agreed.
-
 ---
+
+## 1. Before you start
+
+SandiBumi is a desktop application for petrophysical log analysis, built to hold a
+whole field — the well count it is engineered for is in the thousands — while staying
+responsive on an ordinary field laptop. One **project is one file** (a `.duckdb`
+database): your wells, curves, tops, core data, computed results and their full history
+travel together, and backing a study up means copying one file.
+
+This guide works on the example dataset in `dataset for test/examples/`. Its
+`README.md` is worth opening beside this guide: it describes each file, the ribbon path
+that imports it, and what to expect — and the same three wells are what the project's
+own automated tests parse, so if the app accepts a file there, it accepts your real
+file of the same shape. The wells are synthetic but internally consistent (the core
+porosities derive from the same density profile the LAS carries), so QC cross-checks
+behave like a clean real delivery rather than random noise.
+
+If you are unsure what optional capabilities your machine has, the **Project** tab's
+**Prerequisites** button reports what the app found. *(Named gap: that dialog is not
+photographed in this guide.)*
+
+## 2. First launch and your project
+
+There is no setup wizard. SandiBumi opens straight into a workspace: ribbon on top,
+Wells and Tops panes on the left, a log view and Inspector in the middle, status bar at
+the bottom. On the very first launch it opens (creating if necessary) a default
+`project.duckdb`; from then on it reopens whatever project you used last. Your window
+arrangement comes back too — closing the app and reopening it lands you where you
+stopped.
+
+![The Project tab, with the current project named under its buttons](img/guide-project-tab.png)
+
+The **Project** ribbon tab owns the project's lifecycle:
+
+- **New Project… / Open Project… / Recent ▾** — switch projects; the group's caption
+  shows which project is open now (here *SANDI-Field*). Start this guide by pressing
+  **New Project…** and naming the file — ours is `SANDI-Field.duckdb`.
+- **Save Project As…** — a full copy of the project file to a new location. Note what
+  this is *not*: day-to-day saving. Imports, module runs and edits are written into the
+  project as they happen; there is no "save your data" step to forget.
+- **Save Session… / Open Session…** — a session is a named snapshot of the *workspace*
+  (which panels are open, where, showing what), separate from the data. The red dot
+  that appears on the Project tab marks unsaved session state — the arrangement, not
+  your curves.
+- **Undo / Redo** — for data and UI edits. Chapter 7 explains why module runs are
+  deliberately not on this list.
+- **Monitor group** (History / Processing / Performance / Diagnostics) — the
+  application's own record of what it has done. You will meet History and Processing in
+  chapters 6–7.
+- **Theme** and **Language** — the appearance and UI language selects live here too.
+  Technical terms stay in English in every language, by design.
+
+## 3. Import your first wells
+
+Imports live in the **Data** tab: **Import Logs ▾** (LAS, DLIS) and **Import Data ▾**
+(core, SCAL, tops, pictures, deviation surveys, well locations). Choose **Import
+LAS…**, multi-select the three example files `SANDI-01.las`, `SANDI-02.las`,
+`SANDI-03.las`, and the curve-set dialog opens:
+
+![The Import LAS curve-set dialog](img/guide-import-dialog.png)
+
+Four things happen here, and each is a statement about your data that SandiBumi
+refuses to guess:
+
+- **Which well is this?** The file rail at the top shows how each file identified
+  itself — here the LAS header's own well name (*"container identity: SANDI-01;
+  filename not used"*). File names are never trusted as well names.
+- **Set name.** A delivery lands as a named curve set — leave it blank for **RAW**, the
+  primary set. Re-importing never overwrites: a name already used on a well is suffixed
+  (`FPROOH` → `FPROOH_1`), so an import can never eat an earlier delivery.
+- **Attach to existing wells** (on by default) — a file whose well already exists in
+  the project lands as a new set on that well record, instead of creating a duplicate
+  well.
+- **Sampling style is declared, never sniffed.** You state whether this delivery is
+  continuous-regular or continuous-irregular; for regular, you also state the tolerance
+  within which the step must verify. The dialog's own words: SandiBumi *"stores both
+  the declaration and its verified effective style; it never infers regularity from the
+  samples."* The example wells are exactly regular (0.1524 m step), so declare
+  **Continuous regular** with any small tolerance — we used 0.001 m. On a real delivery
+  the tolerance is your statement of how much step wobble still counts as regular.
+
+Press **Import**. The **Processing** panel (bottom left) reports 3/3 done — with
+warnings, and the warnings are worth reading once because they show the import's
+honesty policy. On these files: *ILD* was recognised as the deep resistivity and
+aliased to the RES_DEEP family, and several curves were **left in their declared
+units** (SP in MV, ILD in OHMM, DT in US/F) because no reviewed conversion rule
+applies — stated per curve rather than silently converted.
+
+Then import the tops the same way: **Import Data ▾ → Import Tops…**,
+`tops_multiwell.csv`. The file carries a WELL column, so its 9 tops route to all three
+wells by name in one import — no well selection needed, and the result says exactly
+where every row went.
+
+Two details you would only notice later, surfaced now: each example well carries a
+deliberate 1-metre gap in NPHI and PEF (a simulated washout) — you can see it in the
+Curve Catalog as 388 of 395 valid samples — and the remaining example files (core,
+SCAL, deviation, XRD…) follow the same probe-confirm-commit pattern; the dataset
+README's table walks the full order when you want the complete little project.
+
+## 4. The Wells & Tops pane runs the workspace
+
+The Wells pane is not a list — it is the steering wheel. **Clicking a well loads it
+everywhere at once**: the log view retitles to it, plots rebuild on it, and every
+module pane's *Selection* scope means it. Click **SANDI-01** and the status bar
+confirms *"Loaded well SANDI-01"*.
+
+![TOP_SAND_A selected: the Tops pane highlights it and every panel windows to the interval](img/guide-top-selected.png)
+
+The **Tops** pane below does the same for depth. Click **TOP_SAND_A** and the status
+bar states the mechanic in one line: *"Windowed to top TOP_SAND_A (1520.0–1535.0) —
+plots and log views follow."* The interval runs from the clicked top down to the next
+one; log views scroll to it, and plots gain an auto-selected zone option for it. This
+is how you ask a histogram or crossplot about *one sand* instead of the whole well —
+select the top, and the plots follow.
+
+Three smaller controls on the Wells pane, for later:
+
+- The **▸ twisty** on each well expands to its deliveries: each curve set, and inside
+  it each curve with its unit (SANDI-01 ▸ RAW (8) ▸ GR [GAPI]…). This is the browser
+  for *imported* data; *computed* results appear in the Curve Catalog (chapter 7).
+- The **☆ star** pins wells into your working set — module panes can run on exactly
+  the starred wells (the *Pinned* scope you will see in chapter 6).
+- The **📌 button** on the group bar locks the active well, so a stray click in the
+  tree cannot switch every panel while you are mid-interpretation.
+- The **well-group select** ("All wells") filters the whole application to a named
+  group of wells once you have one — useful from the tens of wells upward, ignorable
+  today.
+
+## 5. Reading the log view
+
+![The workspace after selection: log view with tops and crossover, Tops pane, Inspector](img/guide-workspace.png)
+
+The log view's header states what you are looking at — well, field, depth coverage —
+and its toolbar owns the vertical presentation: the **depth scale** select (1:2000 down
+to 1:200; the status bar confirms each change), depth-unit display, and track-width
+controls. **Ctrl + scroll wheel zooms at the cursor; plain scroll pans.** The view
+follows the selected well and the selected top, as chapter 4 showed.
+
+What the default **Standard Layout** draws is deliberately conventional: GR with a
+shading fill, deep resistivity on a log scale, and NPHI/RHOB together on compatible
+scales with **crossover shading** — the yellow fill between the curves where they
+cross is the classic gas-effect display, and you can see it light up inside SAND-A on
+these wells.
+
+A layout is a named thing, chosen in the **Plot** tab's *Layout* select, and edited
+through **Plot → Properties…**: tracks are added, reordered and removed there, and
+each track holds its curves with their scales, colours and fills. Chapter 6 ends by
+adding a VSH track this way. One behaviour worth knowing before you invest effort:
+**Properties… edits live in that panel** — press **Save Layout…** to keep an
+arrangement as a named layout, or it stays with the panel it was made in (ours
+vanished when we restarted the app without saving, which is exactly what unsaved
+means).
 
 ## 6. Run your first module
 
@@ -187,3 +338,102 @@ every module in SandiBumi is meant to be worked.
 One more habit worth forming now: click any pane and press the **? Help** button (in
 the pane header, or Project → Help for the active panel). A module pane's help is the
 module's own documentation, the same text its manifest carries.
+
+## 7. Where results live
+
+Everything the project holds about a curve is on display in one table: the Inspector's
+**Curve Catalog** (also a button on the Data tab).
+
+![The Curve Catalog: imported RAW curves and the computed INTERP set together](img/guide-curve-catalog.png)
+
+Each row carries the mnemonic, unit, family, **which set and version** it belongs to,
+**which module or import produced it and when**, how many samples are valid out of how
+many, and min / max / mean. Two different kinds of row are visible after chapter 6:
+the RAW v1 rows from the LAS import, and the INTERP v1 rows stamped `vsh_gr` with
+their run timestamp. A computed curve's **Ancestry** action holds the recorded account
+of how it was made — module, inputs, parameters, and the reference you typed at run
+time.
+
+Below the table, the log-sets line makes the storage promise explicit: **"every run is
+kept as a version — nothing is overwritten."** Each re-run of a module writes the next
+version of its output set; earlier versions stay, listed and restorable. This is the
+half of the mental model that replaces "undo": **Undo / Redo** (Project tab) reverses
+*edits* — a curve you hand-edited, a top you moved, a value you changed in the
+Database Inspector — while a module run you disagree with is not reversed but
+*re-run*, and the versions sit side by side for comparison.
+
+Two panels complete the record:
+
+- **Processing** (Project → Monitor) shows live and recent jobs with per-well ✓/⚠/✗
+  outcomes — this is where chapter 6's degraded report lived.
+- **History** is the permanent operations log, kept in the project itself: imports,
+  module runs ("Ran VSH from Gamma Ray on 3 wells"), project events, session saves —
+  with an Export… button when you need the record outside the app.
+
+And when something goes wrong on a machine far from you, **Project → Diagnostics**
+builds a single plain-text file a user can read in full and then send — timings and
+operation records, no well names, no paths, no curve values.
+
+## 8. Export something
+
+An interpretation that cannot leave the application is not finished. Two exports cover
+the first hour; both live one click from the work.
+
+**Export LAS** (Data tab, with a well selected) writes the well back out as LAS 2.0 —
+standard curves and computed results together — and then tells you exactly what it
+did. Exporting our SANDI-01 reports: 395 rows; 12 of 17 held curves written, the other
+5 named individually with the reason (they were the RAW set's copies of curves already
+written from the standard set — deduplicated, not lost); a precision statement (727
+values reduced going from f32 storage to fixed-decimal LAS text); and a self-check in
+which SandiBumi re-reads its own output before calling the export good. If a curve is
+missing from an export, the report says so by name — silence is not an option it has.
+
+**Composite Log** (Plot tab → Composite…) is the print deliverable: a log plot laid
+out at a true printed scale, not a screenshot of the screen.
+
+![The Composite Log pane: 1:500 on A4, rendered page preview, Save SVG / Save PDF](img/guide-composite.png)
+
+Pick the layout, the print scale (1:500 here), the page size and optionally a depth
+window, then **Render** — the pane shows the paginated result ("SANDI-01: 1 page(s) at
+1:500") with the title block carrying the well, layout, scale and interval. **Save
+SVG…** writes vector graphics; **Save PDF…** writes a multi-page PDF with no external
+dependencies. At 1:500 on A4, a metre of section is two millimetres on paper — the
+scale means what it says.
+
+The Plot tab's Deliverables group goes further — **Report…** (the full PDF study
+document), **Workbook…** (Excel), **Deck…** (PowerPoint) — but those belong to a later
+session; the office formats need their optional Python packages (chapter 1), and the
+native PDF/SVG paths shown here never do.
+
+## 9. Where to go next
+
+The first hour ran one module on one log. The application widens from here in three
+directions, and you have already learned the mechanics each one reuses.
+
+**More of the same, deeper.** Every group in the Petrophysics tab — porosity,
+lithology, saturation, permeability, facies, rock typing, cutoffs and summaries —
+works exactly like chapter 6: a manifest-generated pane, cited parameters, custody,
+versioned output. The example dataset's README lists the import order for core, SCAL,
+deviation and the rest; with those loaded, the saturation-height tools and the
+QC crossplots have real input. Zones (Petrophysics → Zones…) is where per-interval
+parameters live — the green callout from chapter 6, made concrete.
+
+**The Advance tab** holds the flagship in-house methods, promoted out of the generic
+dropdowns: the **SSC / SSPW** sand-silt-clay methods, **RtC** and **IMTS**
+low-resistivity saturation with their **Calibrate…** tools, **Thin Beds**, the
+**SandiMin** multi-mineral solver, the **ML Models** suite, and the core-imaging and
+petrography workbenches (core photos and photo logs, plate conditioning, pore-area
+measurement, the mineral classifier, plug QC). Each is documented by its own pane's
+**? Help**; the method mathematics is banked in `docs/` (`method_ssc_sspw.md`,
+`method_lrlc_rtc_imts.md`, and the `record_*.md` build records).
+
+**Many wells at once.** Everything you did on three wells was already multi-well — the
+RUN ON pill, the tops that routed by well name. When the well count grows, the same
+pattern scales through the Petrophysics → Batch tools: workflow chains (an ordered
+module pipeline across the field), Monte Carlo uncertainty on top of a chain, and the
+Field Dashboard that rolls the pay summary up per zone across every well. Those
+deserve their own guide; the mechanics will already feel familiar.
+
+Wherever you are in the application: click the pane, press **? Help**. And when the
+answer is not there, the `docs/` folder of this repository is the deeper record — this
+guide is the front door, not the whole house.

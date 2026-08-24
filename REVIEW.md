@@ -22,6 +22,19 @@
       appear only in the Curve Catalog — the guide states it as designed behaviour, since the
       twisty is the generic-store browser. If you'd rather the twisty also show computed sets,
       that is a feature decision, not a guide fix.
+- [ ] **Step 2 (same PR, after your "go ahead"): the remaining eight chapters are written**, in
+      the same voice, with six more screenshots captured the same sandboxed way. New live-verified
+      material in them: the top-click status line ("Windowed to top TOP_SAND_A — plots and log
+      views follow"), the composite pane rendering one A4 page at 1:500 with its title block, and
+      a real LAS export whose report is quoted verbatim (12 of 17 curves written, the 5 RAW
+      duplicates named with reasons, 727 values precision-reduced, self-check passed).
+- [ ] **Two honest observations written into the guide rather than smoothed over:** a track added
+      through Plot → Properties… without Save Layout… did not survive an app restart (chapter 5
+      teaches that as what unsaved means), and chapter 1 carries a named gap for the
+      Prerequisites dialog, which is pointed at but not photographed.
+- [ ] **Read chapters 1–5 and 7–9 for click-through truth** — every control claim was either
+      driven live during the shoot or read from the source; if any sentence disagrees with what
+      your own click does, that sentence is wrong and I want to know which one.
 
 ## 2026-08-23 — The safety catch before the speed: SandiBumi can now open a second door on your project
 
