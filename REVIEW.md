@@ -19112,3 +19112,41 @@ Two things I want you to know rather than discover:
       must still be there.
 - [ ] **Check the Field Dashboard and a report still agree with each other** and with the summary
       numbers on screen.
+
+## The pay summary asks the project 700 questions; now it asks them all at once (2026-08-24)
+
+Follow-on from the entry above. After the flag curves stopped being stored well by well, what was
+left was **reading**: for every well, the pay summary looks up which version of each input curve it
+used (so the provenance record is truthful), then checks whether an identical run already exists (so
+previewing a report and then exporting it doesn't create two indistinguishable versions).
+
+That is about **700 separate questions** for a hundred wells, and they were being asked one after
+another while holding the database.
+
+They now all go at once, the same way this function already reads its curve data. Version numbering
+stays strictly one-at-a-time — two wells allocating a version simultaneously is how they end up
+claiming the same one.
+
+**Pay summary over 100 wells: 3.7 s → 2.6 s.** 468,600 flag samples written, identical to before.
+
+**One thing I want to flag rather than let you find out later.** This makes the answer arrive sooner
+but it does not make the work smaller — it uses about eight times as much of your processor to do it,
+because eight threads all reading the same tables get in each other's way. On this machine that is a
+clear win. On a tired field laptop it will be less of one.
+
+The proper fix is to stop asking 700 questions and ask **two** — one for all the wells' input
+versions, one for all their current curve records. That would be both faster and cheaper, but it
+touches the provenance machinery, where a mistake means a curve claiming it came from the wrong
+version rather than an obvious crash. So I have written it down as the next job rather than rushing
+it in beside this one.
+
+- [ ] **Run a pay summary over a good number of wells.** Faster again, same numbers.
+- [ ] **Check a FLAG curve's provenance** in the curve catalog — it should still name the exact input
+      versions it used, per well, not a shared or wrong one.
+- [ ] **Preview a report, then export it, without changing cut-offs.** That must still not create a
+      second identical PAYFLAG version.
+- [ ] **Watch the machine while it runs** if you can — this is the change that uses more of your
+      processor at once. If it makes your laptop unpleasant, tell me and I will do the proper fix
+      first instead of second.
+- [ ] **Run it on a well that has no curves** alongside good wells. It should skip that one and still
+      flag all the others.

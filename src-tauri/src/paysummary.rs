@@ -1305,10 +1305,21 @@ pub fn run_pay_summary(
             .collect();
         read?.into_iter().flatten().collect()
     };
-    // Every well's FLAG curves, written ONCE after the loop rather than well by well. See the
-    // push site for why; the short version is that the rows were never the cost, the hundred
-    // transaction commits were.
-    let mut pending_flag_writes: Vec<crate::ancestry::CompleteWellWrite> = Vec::new();
+    /// One well's FLAG-curve run, collected during the summation loop and resolved afterwards.
+    ///
+    /// It carries only what the resolution needs, so the summation loop stays free of the project:
+    /// the rows to write, and the three things the provenance record is built from.
+    struct PendingFlagRun {
+        well_id: String,
+        depth: Vec<f32>,
+        flags: Vec<(String, Vec<f32>)>,
+        spec: crate::ancestry::LogSetSpec,
+        inputs: Vec<(String, String, String)>,
+        zone_scope: crate::ancestry::AncestryZoneScope,
+    }
+    // Every well's FLAG work, resolved ONCE after the loop rather than well by well. The rows were
+    // never the cost and neither is the arithmetic; it was a hundred round trips to the project.
+    let mut pending_flag_runs: Vec<PendingFlagRun> = Vec::new();
     // The skipped wells are gone from this list, so the loop walks the inputs rather than the
     // requested ids - a well and its inputs can never be paired wrongly, because they are one
     // value.
@@ -1376,11 +1387,8 @@ pub fn run_pay_summary(
         }
 
         if !req.stats_only {
-            #[cfg(test)]
-            let _ps_lock = crate::lock_probe::ps_lock();
-            let conn = db.lock().unwrap();
-            #[cfg(test)]
-            drop(_ps_lock);
+            // No connection is taken here any more. Everything below is CPU: the reads this well
+            // needs are collected and performed together, after the loop, through the pool.
             if req.skip_version {
                 // Refused, never served: an in-place FLAG_* write leaves a pay flag that cannot
                 // say which cutoffs produced it. `stats_only` is the supported way to want no
@@ -1433,71 +1441,24 @@ pub fn run_pay_summary(
                 } else {
                     crate::ancestry::AncestryZoneScope::WholeWell
                 };
-                let output_names = vec![
-                    "FLAG_SAND".into(),
-                    "FLAG_RESERVOIR".into(),
-                    "FLAG_PAY".into(),
-                ];
-                #[cfg(test)]
-                let _ps_spec = crate::lock_probe::ps_spec();
-                let mut complete =
-                    crate::ancestry::complete_curve_run_spec(&conn, &well_id, &spec.set_name,
-                    &spec.module,
-                    custody,
-                    &inputs,
-                    req.input_set.as_deref(),
-                    serde_json::from_str(&spec.params_json).map_err(|error| {
-                        format!("cannot record pay-summary parameters: {error}")
-                    })?,
-                    zone_scope,
-                    &output_names,
-                )?;
-                complete.record_parameter_decisions(crate::param_sources::PAY_PARAMETER_TOPICS)?;
-                #[cfg(test)]
-                drop(_ps_spec);
-                // Previewing and then exporting the same report must not create two
-                // indistinguishable PAYFLAG versions. Reuse is allowed only when every
-                // material part of the live record matches; a changed input version,
-                // value/source, zone/source, operator, output, or implementation creates
-                // a new append-only version as usual.
-                #[cfg(test)]
-                let _ps_ancestry = crate::lock_probe::ps_ancestry();
-                let already_current = output_names.iter().all(|curve| {
-                    crate::ancestry::curve_ancestry(&conn, &well_id, curve)
-                        .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
-                });
-                #[cfg(test)]
-                drop(_ps_ancestry);
-                if !already_current {
-                    #[cfg(test)]
-                    let _ps_set = crate::lock_probe::ps_set();
-                    let (set_id, _) =
-                        crate::ancestry::create_complete_log_set(&conn, &well_id, &complete)?;
-                    #[cfg(test)]
-                    drop(_ps_set);
-                // Deferred to ONE batched write after the loop, not written here. Per well this
-                // was its own `with_txn`, so a hundred wells paid a hundred transaction commits
-                // to store three flag curves each - measured at 30.3 ms per well against roughly
-                // 2.3 ms of actual row-writing, so nine-tenths of it was the commit rather than
-                // the data. It also meant a hundred separate archive copies, each scanning
-                // `computed_curves`, which is exactly the caller shape
-                // `PERF-ARCHIVE-COPY-2026-08-24.md` warns turns that win into a loss.
-                pending_flag_writes.push(crate::ancestry::CompleteWellWrite {
+                // Collected, not resolved here. Building this well's provenance record reads the
+                // project (one `resolve_ancestry_input` per input curve) and so does the
+                // already-current check (one `curve_ancestry` per output), and doing them inside
+                // this loop meant ~700 small reads taken one after another - which is the same
+                // shape `PERF-DASHBOARD-2026-08-23.md` found in the Field Dashboard, in the same
+                // function that already prefetches its INPUTS through the pool.
+                pending_flag_runs.push(PendingFlagRun {
                     well_id: well_id.clone(),
                     depth: depth.clone(),
-                    curves: vec![
+                    flags: vec![
                         ("FLAG_SAND".to_string(), flag_sand.clone()),
                         ("FLAG_RESERVOIR".to_string(), flag_res.clone()),
                         ("FLAG_PAY".to_string(), flag_pay.clone()),
                     ],
-                    set_id,
-                    // The pay summary has no degradation vocabulary and the single-well write it
-                    // replaces never classified a PAYFLAG version. Passing None keeps that exactly
-                    // true, so batching does not quietly start marking these runs CLEAN.
-                    degradation_module: None,
-                    degradations: None,
+                    spec,
+                    inputs,
+                    zone_scope,
                 });
-            }
             }
         }
 
@@ -1665,26 +1626,113 @@ pub fn run_pay_summary(
         }
     }
 
-    // One transaction for the whole field's FLAG curves, the same shape a chain step already uses.
-    //
-    // This is the one place the batched form differs from the per-well one it replaces, and it is
-    // stated rather than buried: the write is now ALL-OR-NOTHING. Before, a failure at well 50
-    // left wells 1-49 carrying committed flags and the run still returned an error, so a field
-    // could be left half-flagged by a summary that reported failure. Now nothing commits unless
-    // every well's rows do. A partially flagged field is the worse of the two outcomes - it looks
-    // complete to every reader downstream - so this is the direction to fail in, and it matches
-    // what a chain step has always done.
-    if !pending_flag_writes.is_empty() {
+    // The FLAG curves, in three passes: read the whole field at once, then allocate versions, then
+    // write the rows once. Nothing here is per-well round-tripping any more.
+    if !pending_flag_runs.is_empty() {
+        let custody = req.custody.as_ref().ok_or_else(|| {
+            "pay-summary write refused: explicit run custody is required".to_string()
+        })?;
+        let output_names: Vec<String> =
+            vec!["FLAG_SAND".into(), "FLAG_RESERVOIR".into(), "FLAG_PAY".into()];
+
+        // Pass 1 - every well's provenance record and already-current check, at the same time,
+        // through the pool. These are READS, and they were the majority of what was left once the
+        // write stopped being per-well.
+        //
+        // An error here FAILS THE RUN and is never folded into a skip, for the same reason the
+        // input prefetch above states: quietly dropping a well would silently produce a field that
+        // is simply missing flags, with nothing on screen to say so. The prefetch can treat a
+        // `None` as a skip because that is a well with no curves; there is no equivalent here -
+        // every well in this list has already been summed.
+        let resolved: Vec<Option<(String, Vec<f32>, Vec<(String, Vec<f32>)>, crate::ancestry::CompleteLogSetSpec)>> =
+            pending_flag_runs
+                .into_par_iter()
+                .map(|job| {
+                    let output_names = &output_names;
+                    pool.read(db, move |conn| {
+                        let PendingFlagRun { well_id, depth, flags, spec, inputs, zone_scope } = job;
+                        #[cfg(test)]
+                        let _ps_spec = crate::lock_probe::ps_spec();
+                        let mut complete = crate::ancestry::complete_curve_run_spec(
+                            conn,
+                            &well_id,
+                            &spec.set_name,
+                            &spec.module,
+                            custody,
+                            &inputs,
+                            req.input_set.as_deref(),
+                            serde_json::from_str(&spec.params_json).map_err(|error| {
+                                format!("cannot record pay-summary parameters: {error}")
+                            })?,
+                            zone_scope,
+                            output_names,
+                        )?;
+                        complete
+                            .record_parameter_decisions(crate::param_sources::PAY_PARAMETER_TOPICS)?;
+                        #[cfg(test)]
+                        drop(_ps_spec);
+                        // Previewing and then exporting the same report must not create two
+                        // indistinguishable PAYFLAG versions. Reuse is allowed only when every
+                        // material part of the live record matches; a changed input version,
+                        // value/source, zone/source, operator, output, or implementation creates
+                        // a new append-only version as usual.
+                        #[cfg(test)]
+                        let _ps_ancestry = crate::lock_probe::ps_ancestry();
+                        let already_current = output_names.iter().all(|curve| {
+                            crate::ancestry::curve_ancestry(conn, &well_id, curve)
+                                .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
+                        });
+                        #[cfg(test)]
+                        drop(_ps_ancestry);
+                        Ok((!already_current).then_some((well_id, depth, flags, complete)))
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+
+        // Pass 2 - allocating a log-set version is a WRITE, so it stays serial under the one
+        // connection, exactly as it always was. Only the reads above were parallelised.
         #[cfg(test)]
         let _ps_lock = crate::lock_probe::ps_lock();
         let conn = db.lock().unwrap();
         #[cfg(test)]
         drop(_ps_lock);
-        #[cfg(test)]
-        let _ps_rows = crate::lock_probe::ps_rows();
-        crate::ancestry::write_computed_curves_with_ancestry_batch(&conn, &pending_flag_writes)?;
-        #[cfg(test)]
-        drop(_ps_rows);
+        let mut writes: Vec<crate::ancestry::CompleteWellWrite> = Vec::new();
+        for (well_id, depth, flags, complete) in resolved.into_iter().flatten() {
+            #[cfg(test)]
+            let _ps_set = crate::lock_probe::ps_set();
+            let (set_id, _) = crate::ancestry::create_complete_log_set(&conn, &well_id, &complete)?;
+            #[cfg(test)]
+            drop(_ps_set);
+            writes.push(crate::ancestry::CompleteWellWrite {
+                well_id,
+                depth,
+                curves: flags,
+                set_id,
+                // The pay summary has no degradation vocabulary and the single-well write this
+                // replaced never classified a PAYFLAG version. Passing None keeps that exactly
+                // true, so batching does not quietly start marking these runs CLEAN.
+                degradation_module: None,
+                degradations: None,
+            });
+        }
+
+        // Pass 3 - one transaction for the whole field's FLAG curves, the same shape a chain step
+        // already uses.
+        //
+        // This is the one place the batched form differs from the per-well one it replaces, and it
+        // is stated rather than buried: the write is ALL-OR-NOTHING. Before, a failure at well 50
+        // left wells 1-49 carrying committed flags and the run still returned an error, so a field
+        // could be left half-flagged by a summary that reported failure. Now nothing commits unless
+        // every well's rows do. A partially flagged field is the worse of the two outcomes - it
+        // looks complete to every reader downstream - so this is the direction to fail in, and it
+        // matches what a chain step has always done.
+        if !writes.is_empty() {
+            #[cfg(test)]
+            let _ps_rows = crate::lock_probe::ps_rows();
+            crate::ancestry::write_computed_curves_with_ancestry_batch(&conn, &writes)?;
+            #[cfg(test)]
+            drop(_ps_rows);
+        }
     }
 
     Ok(all_rows)
