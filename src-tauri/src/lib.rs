@@ -2120,17 +2120,43 @@ fn get_track_data(
 
 /// Fetches full-resolution curve data for parameter-selection plots (histogram,
 /// crossplot, Pickett), optionally windowed to a depth interval.
+///
+/// **`async` and pooled, and neither half works without the other.**
+///
+/// The plot panels fetch their context wells through `plotCommon.ts::fetchContextLayers`, which
+/// runs `context_fetch_concurrency` = 8 of these at once. A default `#[tauri::command]` on a sync
+/// fn expands to `tauri-macros`' `body_blocking`, which runs the body INLINE in the IPC handler -
+/// so those eight were handled one after another on the webview thread, with the window unable to
+/// paint between them, and the frontend's concurrency limit described nothing. `async` +
+/// `spawn_blocking` gets them onto the blocking pool; reading through the SESSION pool (`db.1`)
+/// stops them queueing on the connection mutex the moment they do overlap.
+///
+/// Measured on a REAL 100-well delivery (`pipeline_field_test::pipeline_field_100well_stress`):
+/// serial 1002.4 ms, async-without-the-pool 1035.0 ms (inside the 1.16x variance floor, so that
+/// half alone is worth nothing), both 358.5 ms - **2.89x**. The synthetic probe
+/// (`perf_plot_overlay_shape`) reads 5.4-6.6x at the same well count, so it OVERSTATES this by
+/// about two and the real figure is the claim. Reasoning in
+/// `docs/PERF-PLOT-OVERLAY-2026-08-24.md`.
+///
+/// A read whose project was replaced mid-flight returns an ERROR rather than the old project's
+/// curves - the pool's generation stamp - which is the same trade the Field Dashboard takes.
 #[tauri::command]
-fn get_curve_data(
-    db: tauri::State<DbState>,
+async fn get_curve_data(
+    db: tauri::State<'_, DbState>,
     well_id: String,
     curve_names: Vec<String>,
     depth_min: Option<f32>,
     depth_max: Option<f32>,
 ) -> Result<tauri::ipc::Response, String> {
-    let conn = db.0.lock().unwrap();
-    let series = equations::fetch_curve_data(&conn, &well_id, &curve_names, depth_min, depth_max)
-        .map_err(|e| e.to_string())?;
+    let owned = db.share();
+    let series = tauri::async_runtime::spawn_blocking(move || {
+        owned.1.read(&owned.0, |conn| {
+            equations::fetch_curve_data(conn, &well_id, &curve_names, depth_min, depth_max)
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(tauri::ipc::Response::new(equations::pack_curve_series(&series)))
 }
 

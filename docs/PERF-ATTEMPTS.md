@@ -17,6 +17,8 @@ Read this before proposing a performance change.
 | 7 | Take that back-fill off the read path, so #129 stage 2 can be re-attempted - Jauhar's call of *run it at the open*, which the open was already doing | 8 wells on cloned connections: un-backfilled project **7 of 8 failed -> 0 failed**, `curve_meta` rows written by the reads **8 racing threads -> 0**, opened project **8 of 8 resolved** | **KEPT** | Buys no speed by itself and was not meant to - it unblocks the 1.95x. The lazy repair was unreachable in production (the open runs the back-fill; the LAS import marks its own wells done), so no number moved: the 83 fixtures that relied on it now call the same function explicitly through `db::insert_standard_curves_as_opened_project`. See §4. |
 | 8 | #129 **stage 2, second attempt** - the same pooled reader connections, now that the write on the read path is gone | real 100-well chain, paired, AFTER arm run FIRST so the cache favoured BEFORE: **38.57 s -> 27.72 s (1.39x)**; lock contention **357,347 ms -> 116 ms**; 0 errors of 100 on all four steps in both arms | **KEPT** | Every row count identical at every step, and every value `pipeline_field_full_run` prints on real wells is unchanged (0 rows differing). The model said 1.95x and the machine says 1.39x, because reading is not free once it overlaps - 13.7 s of serialized read thread-time became 92.7 s of concurrent read thread-time. See `PERF-POOL-STAGE2-2026-08-23.md`. |
 | 9 | Run the Field Dashboard's four per-well reads at the same time, through the #129 pool - `PERF-DASHBOARD` measured them as 101.7% of the operation | real 100-well delivery, paired, AFTER arm run FIRST: **963.97 ms -> 219.57 ms (4.39x)**; synthetic probe 5.50x / 5.24x / 3.21x at 10 / 100 / 500 wells | **KEPT** | The summation itself is untouched - same cut-offs, same zone sweep, same serial write under `db.lock()`. 300 pay rows in both arms, `pipeline_field_full_run` unchanged to the last decimal. The writing pay summary moved only 1.10x, INSIDE the floor, and that is the expected result: it writes three FLAG_* curves per well and the write is deliberately still serial. See `PERF-DASHBOARD-PARALLEL-2026-08-24.md`. |
+| 10 | Make the multi-well plot overlay's per-well curve fetch **async AND pooled** - a sync `#[tauri::command]` runs inline in the IPC handler, so `context_fetch_concurrency` = 8 described nothing | **real 100-well delivery: 1035.0 ms -> 358.5 ms (2.89x)**, pooled arm run first. Synthetic sweep, two independent sessions: 100 wells 5.35x and 6.55x, 500 wells 6.56x, 10 wells 3.0-3.4x - so the generated fixture OVERSTATES this by about two, and 2.89x is the claim | **KEPT** | Neither half alone is worth anything and that is measured, not argued - the `N locks` arm IS the async-only shape and lands inside the floor of what it would replace, on both fixtures (1.03x real, 0.93x synthetic). See `PERF-PLOT-OVERLAY-2026-08-24.md`. |
+| 11 | That the committed `plot data: ALL wells` row was an OPTIMISTIC instrument because it takes one lock where production takes one per well | same probe, five paired measurements: **1.13x, 1.06x, 1.07x, 0.93x, 0.98x** - two of them below 1.0 | **REFUTED BY THE SAME PROBE** | Lock granularity costs nothing here, in either direction. The committed row is a fair measure of the read however the lock is taken, and the instrument error was somewhere else entirely - the webview thread. See section 7. |
 
 ---
 
@@ -441,3 +443,80 @@ two rows side by side: same code, same wells, same cut-offs, 32x apart.
 **Do not expect the same from raising the pool capacity** - `PERF-POOL-STAGE2-2026-08-23.md` §3
 measured ~3.3 effective concurrent readers against 8 handles and 32 rayon threads, and that ceiling
 is unchanged here. The win came from the reads no longer queueing, not from more of them.
+
+## §7 - the multi-well plot overlay, async AND pooled (2026-08-24, pass 3 increment 15)
+
+`plot data: ALL wells` was the last scaling row in `PERF-SCALING-2026-08-22.md` §2 that nothing
+had been done to. Two hypotheses about why it is slow were written down BEFORE the probe, and the
+probe was built with an arm for each. **One of them died, which is the reason this section is
+worth reading.**
+
+### The one that died: lock granularity
+
+`perf_baseline`'s committed row takes ONE lock and loops every well inside it. Production takes one
+per well - `plotCommon.ts::fetchContextLayers` runs `context_fetch_concurrency` = 8 concurrent
+`get_curve_data` calls and each took `db.0.lock()` afresh. So the committed row looked like an
+optimistic instrument, the same class of error as timing the pay summary that WRITES when the
+question was about the one that does not (§6 above).
+
+Five paired measurements across two sessions, one lock against one-per-well on 8 threads:
+
+```
+   10 wells    1.13x     1.07x
+  100 wells    1.06x     0.93x
+  500 wells              0.98x
+```
+
+**Two of them below 1.0.** Against a 1.16x floor that is not a small effect, it is no effect in
+either direction. Lock granularity costs nothing here, the committed row is a fair measure of the
+read, and the hypothesis is withdrawn rather than quietly dropped.
+
+### The one that held: a sync command runs on the webview thread
+
+Read off `tauri-macros-2.6.3/src/command/wrapper.rs`: a default `#[tauri::command]` on a sync fn
+compiles through `body_blocking`, which runs the body INLINE in the IPC handler. Only `body_async`
+reaches `respond_async_serialized`. So those eight concurrent invokes were handled one after
+another on the thread that repaints the window, and `context_fetch_concurrency` = 8 was a product
+limit with no effect whatsoever.
+
+**This half is argued from source, not measured** - the IPC leg is not reachable from a unit test,
+which `perf_baseline_test`'s own header says of every number in it. What IS measured is that the
+fix needs both halves.
+
+### Why it is one change and not two
+
+The probe's `N locks` arm is exactly the async-only shape: 8 real threads, every one queueing on
+the connection mutex. It measured **292.4 ms against the 315.9 ms it would replace** - inside the
+floor. And pooling alone changes nothing while the eight never overlap.
+
+```
+100 wells        serial    async-only     both
+REAL           1002.4ms      1035.0ms  358.5ms   -> 2.89x   <- the claim
+synthetic A     131.5ms       139.2ms   26.0ms   -> 5.35x
+synthetic B     315.9ms       292.4ms   44.6ms   -> 6.55x
+```
+
+**The synthetic field overstates this by about two**, which is why the real arm exists: `2c` says a
+synthetic project proves scaling and not what a delivery feels like, and attempt 5 above measured
+the divergence running the other way (1.37x generated, 3.89x real). Reading a real well is simply
+more expensive - 1002 ms serial against 316 ms for the same well count - and concurrency makes a
+read simultaneous, never cheaper, so the larger the unavoidable bytes-off-disk share, the less a
+pool can remove.
+
+**The absolutes do not travel** - 131.5 ms and 315.9 ms are the same code in two sessions, 2.4x
+apart, exactly as §8 of `PERF-DASHBOARD-2026-08-23.md` recorded for the same probe family. The
+ratio is the result.
+
+### What this rules out for anyone who tries again
+
+- **Do not expect a win from changing how a read takes the connection mutex.** Once per well and
+  once per loop measure the same. If a read path is slow it is not the lock acquisition.
+- **Do not read `context_fetch_concurrency`, or any frontend concurrency limit, as evidence that
+  work overlaps.** Check whether the command behind it is `async`. A sync one makes the limit
+  decorative.
+- **Do not convert the remaining 154 sync lock-taking commands as a sweep.** `lib.rs` declares 259
+  commands - 89 async, 155 sync-with-lock, 15 sync-without - and most of the 155 are small
+  metadata reads where the webview thread cannot matter. No measurement justifies the diff.
+- **`grep -c '#\[tauri::command\]' src/lib.rs` overcounts.** It returns 262 against a real 259,
+  because three doc comments quote the literal - one of them added by this very change. Count with
+  the attribute required to START the line, and assert the parts sum to the total.

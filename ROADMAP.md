@@ -1307,6 +1307,23 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       write-bound, and that measurement is in the ledger as an instrument caution rather than a
       null result. The 36% set-id scan `PERF-DASHBOARD` §4 named is untouched and still needs a
       provenance ruling, not a performance decision.
+      **And the interactive plot overlay joined it the same day**
+      (`PERF-PLOT-OVERLAY-2026-08-24.md`): `get_curve_data` is now `async` + pooled, so the
+      eight concurrent context fetches `plotCommon.ts::fetchContextLayers` already asks for
+      actually overlap instead of being handled one after another INLINE in the IPC handler.
+      Real 100-well delivery: **1035.0 ms -> 358.5 ms (2.89x)**. The synthetic sweep reads
+      5.35x / 6.55x at 100 wells and 6.56x at 500, so it **overstates this by about two** and the
+      real figure is the claim - the same divergence `2c` warns about and attempt 5 measured in
+      the opposite direction.
+      **Neither half of the change is worth anything alone, and that is measured** - the
+      probe's middle arm IS the async-only shape and lands inside the variance floor of the
+      serial figure it would replace. **One hypothesis was refuted by the same probe**: that
+      the committed `plot data: ALL wells` row was optimistic because it takes one lock where
+      production takes one per well. Lock granularity measured 0.93x-1.13x across five pairs,
+      twice BELOW 1.0 - no effect in either direction - so that row is a fair measure of the
+      read and the instrument error was the webview thread all along. A zone-scoped overlay
+      still asks each well for its tops one at a time (`list_zones`, one of the 155 sync
+      commands that take the connection lock) and is deliberately untouched.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer
