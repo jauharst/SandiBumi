@@ -4,11 +4,11 @@
  "capture_command": "cargo test -- --list plus exact source attribute scan",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
- "expected_ignored_test_count": 44,
+ "expected_ignored_test_count": 45,
  "expected_category_counts": {
   "OPTIONAL-PACKAGE": 28,
   "CONTROLLED-CORPUS": 9,
-  "MANUAL-ARTIFACT": 7
+  "MANUAL-ARTIFACT": 8
  },
  "known_failing_tests": [
   "src/pipeline_field_test.rs|pipeline_field_full_run",
@@ -481,6 +481,20 @@
    "tests": [
     {
      "key": "src/perf_baseline_test.rs|perf_cold_open_construction",
+     "ignore_reason": null,
+     "bare_ignore": true
+    }
+   ]
+  },
+  {
+   "category": "MANUAL-ARTIFACT",
+   "owner_requirement": "SB-CORE-032",
+   "owner_gate": "G4",
+   "execution_state": "MANUAL-ONLY",
+   "rationale": "What the multi-well plot overlay costs in the three shapes it can be asked for, because the frontend already requests eight context wells at once and SB-CORE-032 is about whether work that scales with well count holds the global mutex while it runs. It builds 10-, 100- and 500-well projects and reads the same two curves from every well three ways: one lock around a serial loop (what perf_baseline's committed row measures), one lock per well across eight threads (which is also exactly what the app would cost if get_curve_data were made async and nothing else), and one pooled reader per well across eight threads. Evidence ABOUT SB-CORE-032, not a pass/fail on it - it prints three timings and a ratio for a human to compare, and asserts nothing about a budget, because the declared-target half of the perf brief is SB-CORE-030 and blocked on Jauhar. What it does assert is that all three arms returned the SAME total point count, so the fastest arm can never be fastest at reading less. It needs no probe inside any production file: every function it times is reachable from this crate. Ignored because it builds three synthetic projects and reads every well of each, which the green gate must not wait on.",
+   "tests": [
+    {
+     "key": "src/perf_baseline_test.rs|perf_plot_overlay_shape",
      "ignore_reason": null,
      "bare_ignore": true
     }

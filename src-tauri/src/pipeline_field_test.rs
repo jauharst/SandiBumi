@@ -829,6 +829,57 @@ fn pipeline_field_100well_stress() {
         total_samples / grand.as_secs_f64() / 1e3
     );
 
+    // The MULTI-WELL PLOT OVERLAY's three shapes, on real wells - #129, 2026-08-24.
+    //
+    // `perf_plot_overlay_shape` measures the same three arms on a synthetic field, and `2c` is
+    // explicit that a synthetic project proves SCALING and not what a real delivery feels like.
+    // This repo has already measured the two disagreeing badly about one change: PERF-ATTEMPTS
+    // attempt 5 gained 1.37x on the generated fixture and 3.89x on real wells.
+    //
+    // The three helpers are `perf_baseline_test`'s own, SHARED rather than copied - deliberately
+    // unlike `chain_params`, because the question here is whether the IDENTICAL operation behaves
+    // differently on real data, and a second copy that could drift would defeat that.
+    //
+    // It runs FIRST of the read measurements, on the colder cache, so it reports pessimistically.
+    {
+        use crate::perf_baseline_test::{overlay_on_workers, overlay_points, OVERLAY_WORKERS};
+        let pool = crate::reader_pool::ReaderPool::new();
+
+        let t = Instant::now();
+        let pooled_points = overlay_on_workers(&ids, |id| {
+            pool.read(&db, |c| Ok(overlay_points(c, id))).expect("pooled overlay read")
+        });
+        let pooled = t.elapsed();
+
+        let t = Instant::now();
+        let many_points = overlay_on_workers(&ids, |id| {
+            let conn = db.lock().unwrap();
+            overlay_points(&conn, id)
+        });
+        let many_locks = t.elapsed();
+
+        let t = Instant::now();
+        let one_points: usize = {
+            let conn = db.lock().unwrap();
+            ids.iter().map(|id| overlay_points(&conn, id)).sum()
+        };
+        let one_lock = t.elapsed();
+
+        // Three shapes of one question must return one answer, or whichever is fastest is fastest
+        // at reading less. On a real delivery this also catches a well carrying neither curve.
+        assert_eq!(one_points, many_points, "the N-lock arm read a different total");
+        assert_eq!(one_points, pooled_points, "the pooled arm read a different total");
+        assert!(
+            one_points > 0,
+            "no real well carried NPHI or RHOB, so the overlay timing measures nothing"
+        );
+
+        println!("  overlay({N_WELLS} wells, {OVERLAY_WORKERS} workers) -> {one_points} values");
+        println!("    1 lock  {one_lock:?}");
+        println!("    N locks {many_locks:?}");
+        println!("    pooled  {pooled:?}");
+    }
+
     // The FIELD DASHBOARD's own mode, on real wells - #129, 2026-08-24.
     //
     // The summary below it runs `stats_only: false` and WRITES three FLAG_* curves per well, so it

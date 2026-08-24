@@ -1048,3 +1048,148 @@ fn perf_cold_open_construction() {
     std::fs::remove_file(&written_path).ok();
     std::fs::remove_file(&imported_path).ok();
 }
+
+// ---------------------------------------------------------------------------------------------
+// The multi-well plot overlay, measured in the shape production actually uses.
+// ---------------------------------------------------------------------------------------------
+
+/// `context_fetch_concurrency` from `src/ui/plotLimits.ts` - the number of concurrent fetches
+/// `plotCommon.ts::fetchContextLayers` runs. Duplicated rather than shared because a harness that
+/// silently follows a product limit stops measuring the limit it thinks it is measuring.
+pub(crate) const OVERLAY_WORKERS: usize = 8;
+
+/// Runs `each` over every well on exactly `OVERLAY_WORKERS` threads, so the probe's concurrency is
+/// the frontend's and not rayon's global default.
+pub(crate) fn overlay_on_workers<F>(well_ids: &[String], each: F) -> usize
+where
+    F: Fn(&str) -> usize + Send + Sync,
+{
+    use rayon::prelude::*;
+    let workers = rayon::ThreadPoolBuilder::new()
+        .num_threads(OVERLAY_WORKERS)
+        .build()
+        .expect("rayon pool");
+    workers.install(|| well_ids.par_iter().map(|id| each(id)).sum())
+}
+
+pub(crate) fn overlay_points(conn: &Connection, well_id: &str) -> usize {
+    let curves = ["NPHI".to_string(), "RHOB".to_string()];
+    crate::equations::fetch_curve_data(conn, well_id, &curves, None, None)
+        .expect("curve data")
+        .iter()
+        .map(|s| s.point_count)
+        .sum()
+}
+
+/// **What the multi-well plot overlay costs, in the shape the app really asks for it.**
+///
+/// `perf_baseline`'s `plot data: ALL wells` row takes ONE lock and loops every well inside it,
+/// where `plotCommon.ts::fetchContextLayers` runs `context_fetch_concurrency` = 8 concurrent
+/// `get_curve_data` calls, each taking `db.0.lock()` afresh. This was built expecting the lock
+/// COUNT to be the difference, and **it measured 1.13x at 10 wells and 1.06x at 100 - inside the
+/// 1.16x floor, so it is not.** Lock granularity costs nothing here and the committed row is a
+/// fair measure of the read.
+///
+/// The arms answer a more useful question than the one they were written for:
+///
+/// - `1 lock` - what `perf_baseline` measures, and the serial cost today.
+/// - `N locks` - what the app would cost if this command were made async and NOTHING else:
+///   8 real threads, every one of them queueing on the connection mutex.
+/// - `pooled` - async AND reading through the pool.
+///
+/// So each half alone lands inside the floor of the other, and only both together move anything.
+///
+/// ```text
+/// cargo test --release --lib perf_baseline_test::perf_plot_overlay_shape -- --exact --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn perf_plot_overlay_shape() {
+    let n_samples = env_usize("SANDIBUMI_PERF_SAMPLES", DEFAULT_SAMPLES);
+    let sizes: Vec<usize> = std::env::var("SANDIBUMI_PERF_OVERLAY_SIZES")
+        .unwrap_or_else(|_| "10,100,500".into())
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    assert!(!sizes.is_empty(), "SANDIBUMI_PERF_OVERLAY_SIZES parsed to nothing");
+
+    println!("
+============ MULTI-WELL PLOT OVERLAY: THREE SHAPES ============");
+    println!("sizes {sizes:?} x {n_samples} samples per well, {OVERLAY_WORKERS} workers");
+    println!("build: {}", if cfg!(debug_assertions) { "DEBUG (unoptimised)" } else { "release" });
+    println!(
+        "
+{:<7} {:>11} {:>11} {:>11} {:>9} {:>9}  {}",
+        "WELLS", "1 lock", "N locks", "pooled", "N/1", "pool/N", "POINTS"
+    );
+
+    for &n_wells in &sizes {
+        let db_path = std::env::temp_dir()
+            .join(format!("sandibumi_overlay_{n_wells}w_{n_samples}s.duckdb"));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+
+        let (well_ids, _) = build_project(&db_path, n_wells, n_samples);
+        let conn = crate::project::open_and_migrate(db_path.to_str().unwrap()).expect("open");
+        let db = Mutex::new(conn);
+        let pool = crate::reader_pool::ReaderPool::new();
+
+        // Warm the file once before any arm is timed, so the first arm measured is not also
+        // paying for the first read of every column.
+        let _ = overlay_on_workers(&well_ids, |id| {
+            let conn = db.lock().unwrap();
+            overlay_points(&conn, id)
+        });
+
+        // POOLED FIRST, so the disk cache favours the arms it is being compared against.
+        let t = Instant::now();
+        let pooled_points =
+            overlay_on_workers(&well_ids, |id| pool.read(&db, |c| Ok(overlay_points(c, id))).expect("pooled read"));
+        let pooled = t.elapsed();
+
+        let t = Instant::now();
+        let many_points = overlay_on_workers(&well_ids, |id| {
+            let conn = db.lock().unwrap();
+            overlay_points(&conn, id)
+        });
+        let many_locks = t.elapsed();
+
+        let t = Instant::now();
+        let one_points: usize = {
+            let conn = db.lock().unwrap();
+            well_ids.iter().map(|id| overlay_points(&conn, id)).sum()
+        };
+        let one_lock = t.elapsed();
+
+        // The correctness half. Three shapes of the same question must return the same answer, or
+        // whichever is fastest is fastest at something else.
+        assert_eq!(one_points, many_points, "{n_wells} wells: N-lock arm read a different total");
+        assert_eq!(one_points, pooled_points, "{n_wells} wells: pooled arm read a different total");
+
+        println!(
+            "{:<7} {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>8.2}x {:>8.2}x  {} values",
+            n_wells,
+            ms(one_lock),
+            ms(many_locks),
+            ms(pooled),
+            ms(many_locks) / ms(one_lock),
+            ms(many_locks) / ms(pooled),
+            one_points
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+    }
+
+    println!(
+        "
+N/1 is lock GRANULARITY alone - measured inside the 1.16x floor, so the committed
+         `plot data: ALL wells` row is a fair measure of the read however the lock is taken.
+         pool/N is the win, and it needs the command to be async too or those 8 workers never
+         exist. Floor: PERF-VARIANCE-2026-08-23.md.
+         NOT IN THESE NUMBERS: the IPC hop, and the webview-thread serialization a sync command
+         imposes (tauri-macros `body_blocking` runs the body inline in the handler). Both make
+         production slower than every arm here, so pool/N is a LOWER BOUND on the real win."
+    );
+}

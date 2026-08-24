@@ -18987,3 +18987,35 @@ Worth checking, on real wells:
 - [ ] **Open a different project while a dashboard is building.** Worst case it should fail and say
       so - it must never show you a summary built from two projects.
 
+## Multi-well context on a crossplot stopped waiting in line (2026-08-24)
+
+When you show the rest of the field behind your selected well on a **crossplot, histogram or
+Pickett plot**, the app fetches every context well's curves. It was already asking for eight wells
+at a time — but all eight had to queue at the same door, and that door was the same thread that
+redraws the window. So "eight at a time" was a setting that did nothing, and the window could not
+repaint while the wells came in.
+
+Both of those are fixed. On a real 100-well delivery the fetch went **1.00 s to 0.36 s
+(2.89x)**, and the window is no longer held while it happens. On a synthetic field it reads
+5.4-6.6x, so the generated wells flatter it by about two - the real number is the one I am
+claiming.
+
+**Nothing about the cloud changed** — the same wells, the same curves, the same point budget, the
+same decimation. Only the waiting.
+
+One thing I expected to be part of this and measured as NOT being part of it, so you know the
+shape of the claim: I thought taking the database lock once per well instead of once per loop was
+costing something. It measured 1.06x over 100 wells, inside this machine's noise. It was the
+window-redraw thread all along, not the lock.
+
+- [ ] **Turn on multi-well context on a crossplot** with a zone selected. The context wells should
+      fill in noticeably faster than you remember.
+- [ ] **Watch the window while they load.** It should stay responsive — you should be able to
+      scroll a log view beside it. It used to freeze.
+- [ ] **Check the cloud is the same.** Same wells present, same spread, same colours per well. If a
+      well appears or disappears, that is exactly what I did not change and I want to know.
+- [ ] **Try it with "all depths" as well as a zone.** Both should work. All depths gets the bigger
+      improvement, because a zone-scoped overlay still asks each well for its tops one at a time —
+      that part I left alone and it is written up.
+- [ ] **Open a different project while an overlay is still loading.** Worst case it should fail and
+      say so. It must never draw a cloud mixing two projects.
