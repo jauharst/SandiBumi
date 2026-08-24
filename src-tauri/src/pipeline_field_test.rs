@@ -923,6 +923,13 @@ fn pipeline_field_100well_stress() {
     );
 
     // Pay summary across all 100 wells - the WRITING variant.
+    //
+    // The stats_only call above did the same reads and the same summation, so the gap between the
+    // two is the write. That gap is a SUBTRACTION across two calls with different cache states,
+    // which names the block and not the part - so the counters are reset here and the parts
+    // reported below, and the fix is chosen from those rather than from this run's resemblance to
+    // a per-well pattern already fixed twice elsewhere.
+    crate::lock_probe::reset();
     let t = Instant::now();
     // `.unwrap_or(0)` used to turn an Err into the string "0 rows", which reads as an empty
     // field rather than as a failed summary.
@@ -941,6 +948,40 @@ fn pipeline_field_100well_stress() {
     let pay_elapsed = t.elapsed();
     let pay = pay.expect("pay summary over the stress field");
     println!("  pay_summary(100 wells) {pay_elapsed:?} → {} rows", pay.len());
+    {
+        let ms = |ns: u64| ns as f64 / 1e6;
+        let (l_ns, sp_ns, an_ns, st_ns, rw_ns) = crate::lock_probe::pay_summary_split();
+        let total = pay_elapsed.as_secs_f64() * 1000.0;
+        let rest = total - (ms(l_ns) + ms(sp_ns) + ms(an_ns) + ms(st_ns) + ms(rw_ns));
+        println!(
+            "                     pay split: lock {:.0}ms  provenance {:.0}ms  ancestry-check {:.0}ms  log-set {:.0}ms  flag rows {:.0}ms  rest {:.0}ms",
+            ms(l_ns), ms(sp_ns), ms(an_ns), ms(st_ns), ms(rw_ns), rest
+        );
+        println!(
+            "                     per well: {} wells, so each pays lock {:.1}ms  provenance {:.1}ms  ancestry-check {:.1}ms  log-set {:.1}ms  flag rows {:.1}ms",
+            N_WELLS,
+            ms(l_ns) / N_WELLS as f64, ms(sp_ns) / N_WELLS as f64, ms(an_ns) / N_WELLS as f64,
+            ms(st_ns) / N_WELLS as f64, ms(rw_ns) / N_WELLS as f64
+        );
+        // A duration with no row count beside it cannot say whether the write got faster or
+        // simply wrote less - the rule this file already applies to the chain's own timings. It
+        // matters more here than usual: batching moved the write OUT of the per-well loop, and a
+        // batch that silently dropped wells would look exactly like a speed-up.
+        let conn = db.lock().unwrap();
+        let (flag_rows, flag_wells): (i64, i64) = conn
+            .query_row(
+                "SELECT count(*), count(DISTINCT well_id) FROM computed_curves
+                 WHERE upper(curve_name) IN ('FLAG_SAND', 'FLAG_RESERVOIR', 'FLAG_PAY')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((-1, -1));
+        println!("                     wrote {flag_rows} FLAG rows across {flag_wells} wells");
+        assert_eq!(
+            flag_wells, N_WELLS as i64,
+            "the pay summary wrote FLAG curves for {flag_wells} of {N_WELLS} wells"
+        );
+    }
     assert!(
         !pay.is_empty(),
         "the pay summary produced no rows over {N_WELLS} interpreted wells"

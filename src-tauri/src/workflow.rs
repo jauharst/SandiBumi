@@ -3316,8 +3316,8 @@ pub fn run_workflow_module_into(
                     depth: depth.clone(),
                     curves: outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
                     set_id: set_id.clone(),
-                    degradation_module: req.module.clone(),
-                    degradations: degradations.clone(),
+                    degradation_module: Some(req.module.clone()),
+                    degradations: Some(degradations.clone()),
                 });
                 // SB-POR-047 / DEC-039: the hole-quality custody line goes on THIS version's
                 // comment. A failure to record it degrades the run's record, not the run.

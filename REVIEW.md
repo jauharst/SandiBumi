@@ -19062,3 +19062,53 @@ not a speed one, and it is still open — there is no "keep the last N versions"
       blank, not zero, in both the current curve and a restored older version.
 - [ ] **Watch the project file size** across a few re-runs. It should grow exactly as it did before —
       this change was about time, not space. If it grows differently, I want to know.
+
+## The pay summary was writing to the project a hundred separate times (2026-08-24)
+
+When a pay summary runs it does two things: it works out net, N/G, PHIE, SWE and HPV for every zone,
+and it stores three FLAG curves per well — SAND, RESERVOIR and PAY — so you can see on a log view
+which samples passed your cut-offs.
+
+Over 100 wells that took **5.6 seconds**, and I had never measured where it went. So I measured
+before touching anything:
+
+| | |
+|---|---|
+| storing the FLAG curves | 54% |
+| creating the log-set version | 22% |
+| recording where the numbers came from | 13% |
+| checking whether an identical run already exists | 8% |
+| **all of the petrophysics** | **3%** |
+| waiting for the database | 0% |
+
+The arithmetic — every sample tested against your four cut-offs, every zone summed — is **3%**. It
+was never the cost. Storing the answer was.
+
+And storing it was slow for a reason worth knowing: it opened and closed the project file **once per
+well**, a hundred times, to save three curves each time. Writing the actual numbers was about 2 ms
+of each 30 — the other 28 was the opening and closing. It now collects all hundred wells and stores
+them in one go, the same way a batch chain run already did.
+
+**Over 100 wells: 5.6 s → 3.7 s.** Every number identical; 468,600 flag samples written, exactly as
+before, and the test now counts them so a version that quietly skipped wells could not pass as fast.
+
+Two things I want you to know rather than discover:
+
+- **A PAYFLAG version still shows no run status in the catalog**, same as it always has. The batch
+  method normally stamps one, and I deliberately kept it off — that would have been a change to what
+  the catalog shows, arriving inside a speed change. If you'd like pay-flag runs to carry a status
+  like module runs do, say so and I'll do it as its own change.
+- **If the write fails, nothing is stored now.** Before, a failure part-way through left the earlier
+  wells flagged while telling you it had failed — a field half-flagged looks finished to everything
+  downstream. Now it either all lands or none of it does.
+
+- [ ] **Run a pay summary over a decent number of wells.** It should finish noticeably sooner, and
+      the net / N-G / PHIE / SWE / HPV numbers must be the ones you got before.
+- [ ] **Open a log view and check the FLAG curves are there** — SAND, RESERVOIR, PAY — on wells
+      across the field, not just the first few.
+- [ ] **Run it twice with the same cut-offs.** The second run should not create a second identical
+      version — that check is still in place.
+- [ ] **Run it twice with DIFFERENT cut-offs.** That one must create a new version, and the old one
+      must still be there.
+- [ ] **Check the Field Dashboard and a report still agree with each other** and with the summary
+      numbers on screen.

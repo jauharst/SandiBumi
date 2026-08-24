@@ -67,6 +67,34 @@ pub(crate) static W_ARCHIVE_NS: AtomicU64 = AtomicU64::new(0);
 /// Phase 4 - the degradation records that classify the run, in the same transaction as the rows.
 pub(crate) static W_DEGRADE_NS: AtomicU64 = AtomicU64::new(0);
 
+/// The five parts of the pay summary's FLAG-curve write, which happens INSIDE its per-well loop
+/// rather than once for the run.
+///
+/// The harness already reports the same summation twice - `stats_only` (no write) at ~170 ms over
+/// 100 wells, and the writing variant at ~5.7 s - so the write is almost all of it. That is a
+/// SUBTRACTION between two calls with different cache states, though, so it names the block and
+/// not the part. These counters time the parts, so the fix is chosen by measurement rather than by
+/// the resemblance to a per-well pattern already fixed twice elsewhere.
+///
+/// They are subdivisions of the per-well write block, so they sum to no more than it.
+///
+/// Waiting for the connection mutex, per well. The summation loop is serial, so this should be
+/// near zero - and if it is NOT, something else holds the connection while a summary runs.
+pub(crate) static PS_LOCK_NS: AtomicU64 = AtomicU64::new(0);
+/// `complete_curve_run_spec` plus `record_parameter_decisions`: building the provenance record for
+/// this well's run. Reads, per well.
+pub(crate) static PS_SPEC_NS: AtomicU64 = AtomicU64::new(0);
+/// The three `curve_ancestry` lookups that ask whether an identical computation is already current,
+/// so previewing and then exporting a report does not create two indistinguishable versions. Three
+/// queries per well, and the only part whose cost is paid even when nothing is written.
+pub(crate) static PS_ANCESTRY_NS: AtomicU64 = AtomicU64::new(0);
+/// `create_complete_log_set`: allocating the PAYFLAG version and its parameter rows, per well.
+pub(crate) static PS_SET_NS: AtomicU64 = AtomicU64::new(0);
+/// `write_computed_curves_with_ancestry`: the three FLAG curves themselves. This is ONE
+/// transaction per well, where a chain step writes every well in one - which is the hypothesis
+/// this counter exists to confirm or refute.
+pub(crate) static PS_ROWS_NS: AtomicU64 = AtomicU64::new(0);
+
 /// Whole per-well work, from the top of the runner's per-well closure to its end. COMPUTE is this
 /// minus the read scopes inside it — derived rather than timed directly, because the arithmetic is
 /// scattered through the closure and bracketing it would need far more call sites than the answer
@@ -119,6 +147,26 @@ pub(crate) fn w_degrade() -> Phase {
     Phase(&W_DEGRADE_NS, Instant::now())
 }
 
+pub(crate) fn ps_lock() -> Phase {
+    Phase(&PS_LOCK_NS, Instant::now())
+}
+
+pub(crate) fn ps_spec() -> Phase {
+    Phase(&PS_SPEC_NS, Instant::now())
+}
+
+pub(crate) fn ps_ancestry() -> Phase {
+    Phase(&PS_ANCESTRY_NS, Instant::now())
+}
+
+pub(crate) fn ps_set() -> Phase {
+    Phase(&PS_SET_NS, Instant::now())
+}
+
+pub(crate) fn ps_rows() -> Phase {
+    Phase(&PS_ROWS_NS, Instant::now())
+}
+
 /// Zeroes every counter. A caller measuring one module must call this first, or it reads the
 /// previous module's total as well as its own.
 pub(crate) fn reset() {
@@ -131,6 +179,25 @@ pub(crate) fn reset() {
     W_CURRENT_NS.store(0, Ordering::Relaxed);
     W_ARCHIVE_NS.store(0, Ordering::Relaxed);
     W_DEGRADE_NS.store(0, Ordering::Relaxed);
+    PS_LOCK_NS.store(0, Ordering::Relaxed);
+    PS_SPEC_NS.store(0, Ordering::Relaxed);
+    PS_ANCESTRY_NS.store(0, Ordering::Relaxed);
+    PS_SET_NS.store(0, Ordering::Relaxed);
+    PS_ROWS_NS.store(0, Ordering::Relaxed);
+}
+
+/// `(lock, spec, ancestry, set, rows)` in nanoseconds - the five timed parts of the pay summary's
+/// per-well FLAG write. Whatever the caller's own elapsed time is minus their sum is the summation
+/// arithmetic plus the reads, and it is a REMAINDER, derived rather than timed, exactly as the
+/// write split's sixth part is.
+pub(crate) fn pay_summary_split() -> (u64, u64, u64, u64, u64) {
+    (
+        PS_LOCK_NS.load(Ordering::Relaxed),
+        PS_SPEC_NS.load(Ordering::Relaxed),
+        PS_ANCESTRY_NS.load(Ordering::Relaxed),
+        PS_SET_NS.load(Ordering::Relaxed),
+        PS_ROWS_NS.load(Ordering::Relaxed),
+    )
 }
 
 /// `(validate, delete, current, archive, degrade)` in nanoseconds - the five timed parts of the
