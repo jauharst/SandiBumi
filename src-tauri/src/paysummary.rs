@@ -1305,6 +1305,10 @@ pub fn run_pay_summary(
             .collect();
         read?.into_iter().flatten().collect()
     };
+    // Every well's FLAG curves, written ONCE after the loop rather than well by well. See the
+    // push site for why; the short version is that the rows were never the cost, the hundred
+    // transaction commits were.
+    let mut pending_flag_writes: Vec<crate::ancestry::CompleteWellWrite> = Vec::new();
     // The skipped wells are gone from this list, so the loop walks the inputs rather than the
     // requested ids - a well and its inputs can never be paired wrongly, because they are one
     // value.
@@ -1372,7 +1376,11 @@ pub fn run_pay_summary(
         }
 
         if !req.stats_only {
+            #[cfg(test)]
+            let _ps_lock = crate::lock_probe::ps_lock();
             let conn = db.lock().unwrap();
+            #[cfg(test)]
+            drop(_ps_lock);
             if req.skip_version {
                 // Refused, never served: an in-place FLAG_* write leaves a pay flag that cannot
                 // say which cutoffs produced it. `stats_only` is the supported way to want no
@@ -1430,6 +1438,8 @@ pub fn run_pay_summary(
                     "FLAG_RESERVOIR".into(),
                     "FLAG_PAY".into(),
                 ];
+                #[cfg(test)]
+                let _ps_spec = crate::lock_probe::ps_spec();
                 let mut complete =
                     crate::ancestry::complete_curve_run_spec(&conn, &well_id, &spec.set_name,
                     &spec.module,
@@ -1443,25 +1453,50 @@ pub fn run_pay_summary(
                     &output_names,
                 )?;
                 complete.record_parameter_decisions(crate::param_sources::PAY_PARAMETER_TOPICS)?;
+                #[cfg(test)]
+                drop(_ps_spec);
                 // Previewing and then exporting the same report must not create two
                 // indistinguishable PAYFLAG versions. Reuse is allowed only when every
                 // material part of the live record matches; a changed input version,
                 // value/source, zone/source, operator, output, or implementation creates
                 // a new append-only version as usual.
+                #[cfg(test)]
+                let _ps_ancestry = crate::lock_probe::ps_ancestry();
                 let already_current = output_names.iter().all(|curve| {
                     crate::ancestry::curve_ancestry(&conn, &well_id, curve)
                         .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
                 });
+                #[cfg(test)]
+                drop(_ps_ancestry);
                 if !already_current {
+                    #[cfg(test)]
+                    let _ps_set = crate::lock_probe::ps_set();
                     let (set_id, _) =
                         crate::ancestry::create_complete_log_set(&conn, &well_id, &complete)?;
-                let batch: Vec<(&str, &[f32])> = vec![
-                    ("FLAG_SAND", flag_sand.as_slice()),
-                    ("FLAG_RESERVOIR", flag_res.as_slice()),
-                    ("FLAG_PAY", flag_pay.as_slice()),
-                ];
-                crate::ancestry::write_computed_curves_with_ancestry(&conn, &well_id, &depth, &batch, &set_id)
-                    ?;
+                    #[cfg(test)]
+                    drop(_ps_set);
+                // Deferred to ONE batched write after the loop, not written here. Per well this
+                // was its own `with_txn`, so a hundred wells paid a hundred transaction commits
+                // to store three flag curves each - measured at 30.3 ms per well against roughly
+                // 2.3 ms of actual row-writing, so nine-tenths of it was the commit rather than
+                // the data. It also meant a hundred separate archive copies, each scanning
+                // `computed_curves`, which is exactly the caller shape
+                // `PERF-ARCHIVE-COPY-2026-08-24.md` warns turns that win into a loss.
+                pending_flag_writes.push(crate::ancestry::CompleteWellWrite {
+                    well_id: well_id.clone(),
+                    depth: depth.clone(),
+                    curves: vec![
+                        ("FLAG_SAND".to_string(), flag_sand.clone()),
+                        ("FLAG_RESERVOIR".to_string(), flag_res.clone()),
+                        ("FLAG_PAY".to_string(), flag_pay.clone()),
+                    ],
+                    set_id,
+                    // The pay summary has no degradation vocabulary and the single-well write it
+                    // replaces never classified a PAYFLAG version. Passing None keeps that exactly
+                    // true, so batching does not quietly start marking these runs CLEAN.
+                    degradation_module: None,
+                    degradations: None,
+                });
             }
             }
         }
@@ -1628,6 +1663,28 @@ pub fn run_pay_summary(
                 });
             }
         }
+    }
+
+    // One transaction for the whole field's FLAG curves, the same shape a chain step already uses.
+    //
+    // This is the one place the batched form differs from the per-well one it replaces, and it is
+    // stated rather than buried: the write is now ALL-OR-NOTHING. Before, a failure at well 50
+    // left wells 1-49 carrying committed flags and the run still returned an error, so a field
+    // could be left half-flagged by a summary that reported failure. Now nothing commits unless
+    // every well's rows do. A partially flagged field is the worse of the two outcomes - it looks
+    // complete to every reader downstream - so this is the direction to fail in, and it matches
+    // what a chain step has always done.
+    if !pending_flag_writes.is_empty() {
+        #[cfg(test)]
+        let _ps_lock = crate::lock_probe::ps_lock();
+        let conn = db.lock().unwrap();
+        #[cfg(test)]
+        drop(_ps_lock);
+        #[cfg(test)]
+        let _ps_rows = crate::lock_probe::ps_rows();
+        crate::ancestry::write_computed_curves_with_ancestry_batch(&conn, &pending_flag_writes)?;
+        #[cfg(test)]
+        drop(_ps_rows);
     }
 
     Ok(all_rows)

@@ -1354,6 +1354,24 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       name and says so. The scan is affordable only because the batch write is called once per
       chain step with every well in it; a caller that batched one well at a time would turn this
       win into a loss.
+      **And the pay summary was exactly such a caller** (`PERF-PAYSUMMARY-2026-08-24.md`, ledger
+      rows 15-16, both KEPT). `run_pay_summary` over 100 wells was **5.6 s** and had never been
+      instrumented; five new `lock_probe` counters over its per-well FLAG write found rows 54.2%,
+      log-set 22.1%, provenance 12.9%, ancestry lookups 7.9%, reads+summation 3.1%, **lock 0.0%**.
+      So it was never contention, and the petrophysics is 3%. The 54% is misleading alone: 30.3 ms
+      per well writes 4,686 rows at ~155k rows/s against ~2,000k for the same table, so ~2.3 ms was
+      rows and the rest was the COMMIT, paid a hundred times for three curves at a time - plus a
+      hundred archive scans. Collecting every well and writing ONCE after the loop, the shape a
+      chain step already uses, takes it to **3.7 s (1.50x)**; 468,600 FLAG rows across 100 wells,
+      now asserted, because a batch that dropped wells would look like a speed-up. The log-set step
+      got 1.9x faster **untouched** and that is recorded as UNEXPLAINED rather than claimed. Two
+      behaviour notes: `CompleteWellWrite`'s degradation fields became `Option` so a PAYFLAG version
+      stays unclassified exactly as the per-well path left it - batching naively would have started
+      marking them CLEAN, a catalog change inside a speed change - and the write is now
+      **all-or-nothing on failure**, where before a failure at well 50 left wells 1-49 flagged and
+      still reported failure. What is left is provenance + the three ancestry lookups, **33% of the
+      remainder**, both READS done one well at a time under the write lock while this same function
+      already reads its inputs through the parallel pool.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

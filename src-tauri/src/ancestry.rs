@@ -1228,8 +1228,15 @@ pub(crate) struct CompleteWellWrite {
     pub set_id: CompleteSetId,
     /// The module step that produced these events. A chain's log-set module names the whole
     /// workflow, so this field preserves which individual step degraded the well.
-    pub degradation_module: String,
-    pub degradations: Vec<crate::modules::RunDegradation>,
+    ///
+    /// `None` means this caller does not classify its runs, and Phase 4 leaves `outcome_state`
+    /// alone. It is not an oversight to be tidied into `Some(String::new())`: the pay summary has
+    /// no degradation vocabulary and its single-well write has never classified a PAYFLAG version,
+    /// so batching it had to keep that true or the speed-up would have quietly started marking
+    /// those versions CLEAN in the catalog. A run that HAS a degradation vocabulary passes `Some`
+    /// and is classified exactly as before.
+    pub degradation_module: Option<String>,
+    pub degradations: Option<Vec<crate::modules::RunDegradation>>,
 }
 
 /// One version row of `log_sets`, named field by field.
@@ -2813,8 +2820,8 @@ pub(crate) fn write_computed_curves_with_ancestry_batch(
             depth: well.depth.clone(),
             curves: well.curves.clone(),
             set_id: well.set_id.value.clone(),
-            degradation_module: Some(well.degradation_module.clone()),
-            degradations: Some(well.degradations.clone()),
+            degradation_module: well.degradation_module.clone(),
+            degradations: well.degradations.clone(),
         });
     }
     write_versioned_rows_batch_raw(conn, &raw)
