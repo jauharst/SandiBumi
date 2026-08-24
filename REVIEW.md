@@ -19019,3 +19019,46 @@ window-redraw thread all along, not the lock.
       that part I left alone and it is written up.
 - [ ] **Open a different project while an overlay is still loading.** Worst case it should fail and
       say so. It must never draw a cloud mixing two projects.
+
+## A chain run got faster by writing the same data a cheaper way (2026-08-24)
+
+Every curve a module produces is written **twice**: once to the readable interpretation you plot,
+and once to an append-only archive. That archive is what makes re-running a module non-destructive,
+what a log-set restore reads back, and what answers a question like "PHIE from the FINAL set". It is
+not a spare copy — it earns its keep.
+
+Measuring the write showed the archive was **41% of it**, about a quarter of a whole chain. I told
+you the only way to get that back was to give up the archive, and that I was not making that trade
+on my own. **That was too narrow, and I was wrong about it.** Writing fewer rows was not the only
+lever — writing the same rows a cheaper way was one neither of us had costed.
+
+The rows the archive needs are already in the database by the time it gets written. So instead of
+handing DuckDB two million values a second time from our side, it now copies them from one table to
+the other internally, in the same transaction. Same rows, same archive, same guarantees.
+
+On your 100-well four-module chain, measured twice before and twice after in one sitting:
+
+| | before | after |
+|---|---|---|
+| writing the archive | 5.7 s | **0.64 s** |
+| the whole write | 13.6 s | **9.4 s** |
+| the whole chain | 23.3 s | **19.4 s** |
+
+Nothing about what gets stored changed. Every row count, every degradation count and every per-well
+sample count came out identical across the four runs, and the full test suite passed — including the
+test that restores an old version out of the archive and checks the earlier ones are untouched.
+
+**What this does not fix: the file still grows the same way.** Every sample is still stored twice,
+and the archive still gains a full copy of the output every time you run. That is a disk question,
+not a speed one, and it is still open — there is no "keep the last N versions" setting yet.
+
+- [ ] **Run a chain you have run before** over a decent number of wells. It should finish noticeably
+      sooner. The numbers it produces must be the same ones.
+- [ ] **Re-run a module on a well, then restore the previous version** (log set history). The older
+      version must still be there and must read back exactly as before.
+- [ ] **Run a module against a named input set** rather than the current curves — pick a set by name
+      in the run dialog. It must find the values, as it always did.
+- [ ] **Check a curve with gaps.** Where a module could not compute a sample, it must still come back
+      blank, not zero, in both the current curve and a restored older version.
+- [ ] **Watch the project file size** across a few re-runs. It should grow exactly as it did before —
+      this change was about time, not space. If it grows differently, I want to know.

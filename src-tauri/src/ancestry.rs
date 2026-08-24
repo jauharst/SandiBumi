@@ -2625,20 +2625,29 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             current.flush()?;
         }
 
-        // Phase 3: one appender for the append-only ARCHIVE across every well.
+        // Phase 3: the append-only ARCHIVE, copied table-to-table by the engine rather than pushed
+        // through a second appender. Every row it needs was just written to the current store by
+        // Phase 2, so re-serializing the same values out of Rust memory is work already done once.
+        // The WHERE is Phase 1's own grouping: that DELETE removed exactly these (well, curve)
+        // pairs and Phase 2 refilled them, so this selects the rows THIS call wrote and nothing
+        // else - carrying each row's own set_id, which is what the appender wrote per well. A
+        // missing sample is SQL NULL in both stores, so it copies across as NULL untouched.
         {
             #[cfg(test)]
             let _phase_archive = crate::lock_probe::w_archive();
-            let mut archive = conn.appender("computed_curves_archive")?;
-            for w in wells {
-                for (name, values) in &w.curves {
-                    for (d, v) in w.depth.iter().zip(values.iter()) {
-                        let stored: Option<f32> = (!v.is_nan()).then(|| *v);
-                        archive.append_row(params![w.set_id, w.well_id, d, name, stored])?;
-                    }
-                }
+            for (curves, well_ids) in &groups {
+                let wph = std::iter::repeat("?").take(well_ids.len()).collect::<Vec<_>>().join(", ");
+                let cph = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
+                let sql = format!(
+                    "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
+                     SELECT set_id, well_id, depth, curve_name, value FROM computed_curves
+                     WHERE well_id IN ({wph}) AND upper(curve_name) IN ({cph})"
+                );
+                let mut p: Vec<String> = Vec::with_capacity(well_ids.len() + curves.len());
+                p.extend(well_ids.iter().map(|w| w.to_string()));
+                p.extend(curves.iter().map(|c| c.to_uppercase()));
+                conn.execute(&sql, params_from_iter(p))?;
             }
-            archive.flush()?;
         }
 
         // Phase 4: classify the run and append its structured reasons in the SAME transaction as
