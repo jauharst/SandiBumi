@@ -110,3 +110,82 @@ about a shape, which is exactly the kind of thing that gets instrumented before 
 
 **One ledger, in `docs/PERF-ATTEMPTS.md`.** This is attempt 15 (the instrument, KEPT) and attempt 16
 (the batching, KEPT).
+
+---
+
+# Part 2: the provenance reads were an N+1, and pooling them treats the symptom
+
+Attempt 17. Section 6 above named provenance (741 ms) and the three ancestry lookups (502 ms) as
+33% of what remained, both READS taken one well at a time under the write lock, in a function that
+already prefetches its INPUTS through the pool. That is what this does.
+
+## 8. The change
+
+`run_pay_summary` now works in four stages instead of one loop:
+
+1. the summation loop, which no longer touches the project at all - it collects a `PendingFlagRun`
+   per well carrying the rows to write and the three things a provenance record is built from;
+2. **every well's provenance record and already-current check at once, through the pool** - reads;
+3. log-set version allocation, still serial under the one connection, because it is a WRITE and
+   allocating versions concurrently is how two wells claim the same one;
+4. the single batched row write from part 1.
+
+```
+PART                              part 1    part 2
+provenance (summed over threads)     741      6260
+ancestry-check (summed)              502      3543
+  -> those two, WALL-CLOCK          1243      ~305
+creating the log-set version         656       574
+writing the FLAG rows               1639      1484
+TOTAL ELAPSED                       3730      2557   = 1.46x
+```
+
+468,600 FLAG rows across 100 wells in both runs. Diffed against part 1's harness output ignoring
+timings, the only differences are the row-count line this work added and the WRITE-COST probe's own
+unstable ratio (ledger row 13).
+
+**`PS_SPEC_NS` and `PS_ANCESTRY_NS` are now summed across pool threads**, so they exceed elapsed and
+push the derived `rest` remainder NEGATIVE. That is the signature of successful overlap, not a bug,
+and the harness says so on its own line - it must never be compared against elapsed, only against
+its own previous SUM.
+
+## 9. The part to be honest about: this spreads the work, it does not reduce it
+
+Provenance went from **741 ms of serial work to 6,260 ms of thread time** to produce ~305 ms of
+wall-clock. Eight threads each running far slower than one thread did alone - they contend, most
+likely on DuckDB's buffer manager, since they all scan the same tables at once. Roughly **8x the
+total work for 4x the wall-clock**.
+
+The wall-clock is what a user waits for and it is measured twice, so this is kept. But the reason it
+is inefficient is the reason a better fix exists and has not been done:
+
+**These are N+1 queries.** One `resolve_ancestry_input` per input curve per well, plus one
+`curve_ancestry` per output per well: roughly 700 separate questions for a 100-well field.
+Parallelising N+1 queries makes them finish sooner without making them FEWER. The right fix is to
+ask **two** questions - one returning every well's input versions, one returning every well's
+current curve ancestry - which would cut the work rather than spread it, and would very likely beat
+2.56 s on a single core.
+
+That change lives inside `ancestry.rs`, where a wrong answer is a misattributed provenance record
+rather than a compile error, so it is a separate and more careful increment. It is recorded here so
+the cheaper win cannot be mistaken for the area being finished.
+
+## 10. Boundaries this had to respect
+
+- **The pool gets reads only.** `create_complete_log_set` allocates a version and stays serial under
+  the connection mutex - the same boundary `reader_pool.rs` draws for the chain, and the reason the
+  write path is deliberately not pooled.
+- **An error in the parallel pass FAILS THE RUN and is never folded into a skip.** The input
+  prefetch a few lines above may treat a `None` as a silent skip because that is a well with no
+  curves; there is no equivalent here, because every well in this list has already been summed and
+  is expecting flags. A field quietly missing FLAG curves looks exactly like a field where nothing
+  passed the cut-offs.
+- **A run of spaces inside a message is indistinguishable from a dropped line continuation.**
+  `source_hygiene_tests::a_message_an_operator_reads_never_carries_a_dropped_line_continuation`
+  failed the first gate on this work's own harness print, where three spaces were deliberate column
+  alignment. The legend moved to its own line rather than the rule gaining an exception - a rule with
+  an "I meant it" clause is one somebody has to adjudicate every time.
+
+## 11. The attempt ledger
+
+Attempt 17, KEPT - with the N+1 collapse recorded as the better fix still outstanding.

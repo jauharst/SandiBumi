@@ -1372,6 +1372,22 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       still reported failure. What is left is provenance + the three ancestry lookups, **33% of the
       remainder**, both READS done one well at a time under the write lock while this same function
       already reads its inputs through the parallel pool.
+      **Those two then went through the pool as well** (ledger row 17, KEPT with a caveat):
+      `run_pay_summary` is now four stages - a summation loop that touches the project not at all,
+      every well's provenance record and already-current check AT ONCE through the pool, serial
+      log-set allocation (a WRITE, and allocating versions concurrently is how two wells claim the
+      same one), then the one batched row write. **3,730 -> 2,557 ms (1.46x)**, those two phases
+      1,243 ms serial -> ~305 ms wall-clock, 468,600 FLAG rows unchanged. **But it spreads the work
+      rather than reducing it**: provenance went 741 ms serial to **6,260 ms summed across threads**,
+      so ~8x the total work bought 4x the wall-clock, the threads contending on DuckDB's buffer
+      manager. These are **N+1 queries**, ~700 of them for 100 wells, and parallelising N+1 makes
+      them finish sooner without making them FEWER. **The better fix is outstanding and named**:
+      collapse them to TWO queries - one for every well's input versions, one for every well's
+      current curve ancestry - which cuts the work instead of spreading it and would very likely
+      beat 2.56 s on a single core. That lives in `ancestry.rs`, where a wrong answer is a
+      misattributed provenance record rather than a compile error, so it is its own careful
+      increment. `PS_SPEC_NS`/`PS_ANCESTRY_NS` are now SUMMED ACROSS THREADS and push the derived
+      remainder negative - the signature of overlap, not a bug; never compare them against elapsed.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer
