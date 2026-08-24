@@ -77,6 +77,16 @@ decision. The archive is what makes a re-run non-destructive and what a log-set 
 removing or deferring it trades a data-integrity guarantee for speed. It goes to Jauhar as a
 question or not at all.
 
+> **Superseded the same day — and the framing above was too narrow.** "Writing fewer rows" was not
+> the only lever; **writing the same rows a cheaper way** was one nobody had costed. The archive's
+> rows were already in `computed_curves` when Phase 3 started, so the engine can copy them
+> table-to-table instead of a second appender re-crossing the Rust boundary 2 million times. That
+> took the archive phase from **5,724 ms to 640 ms (8.9x)** and the chain from 23.29 s to 19.37 s,
+> with every guarantee intact and no number moved. **The 41.4% quoted above is now about 6.8%** —
+> read `PERF-ARCHIVE-COPY-2026-08-24.md` before quoting any figure from this section. The open
+> question that remains is the DISK cost, which is unchanged: every sample is still stored twice
+> and there is still no retention policy.
+
 ## 5. The variance note, because it is the lesson
 
 This run measured the chain at **24.8 s**; the run an hour earlier measured the same code at

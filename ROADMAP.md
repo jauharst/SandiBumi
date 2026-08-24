@@ -1336,6 +1336,24 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       ~93% of the write was non-append work is **REFUTED** and recorded as ledger row 13: it
       counted half the rows, and divided by a probe that reports 972,945 rows/s in one run and
       2,874,000 in the next.
+      **Then "no overhead to remove" turned out to be too narrow, the same day**
+      (`PERF-ARCHIVE-COPY-2026-08-24.md`, ledger row 14, KEPT). Writing fewer rows was not the
+      only lever - writing the same rows a cheaper way was one nobody had costed. Phase 1 DELETEs
+      exactly the (well, curve) pairs being written and Phase 2 refills them, so when Phase 3
+      began, every row the archive needed was ALREADY in `computed_curves` carrying its own
+      `set_id`. It now copies them table-to-table inside the same transaction instead of a second
+      appender re-crossing the Rust-to-engine boundary 2 million times. Paired, two runs each
+      side, one session: archive phase **5,724 -> 640 ms (8.9x)**, write **13,630 -> 9,387 ms
+      (1.45x)**, chain **23.29 -> 19.37 s (1.20x)**, before and after ranges disjoint. Every row
+      count, degradation count and per-well sample count identical; GATE GREEN 1,244 passed.
+      About 890 ms of the win is paid back by the current-store phase, because the copy forces
+      rows to materialize that were previously buffered - stated because the parts must sum to
+      the whole, and they do. **The archive is now ~6.8% of the write, not 41.4%.** What this
+      does NOT change is DISK: every sample is still stored twice, the archive still grows by a
+      full copy per run, and there is still no retention policy - `delete_log_set` refuses by
+      name and says so. The scan is affordable only because the batch write is called once per
+      chain step with every well in it; a caller that batched one well at a time would turn this
+      win into a loss.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer
