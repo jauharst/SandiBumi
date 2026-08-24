@@ -1635,69 +1635,77 @@ pub fn run_pay_summary(
         let output_names: Vec<String> =
             vec!["FLAG_SAND".into(), "FLAG_RESERVOIR".into(), "FLAG_PAY".into()];
 
-        // Pass 1 - every well's provenance record and already-current check, at the same time,
-        // through the pool. These are READS, and they were the majority of what was left once the
-        // write stopped being per-well.
+        // ONE connection and TWO queries for the whole field, then no round trips at all.
         //
-        // An error here FAILS THE RUN and is never folded into a skip, for the same reason the
-        // input prefetch above states: quietly dropping a well would silently produce a field that
-        // is simply missing flags, with nothing on screen to say so. The prefetch can treat a
-        // `None` as a skip because that is a well with no curves; there is no equivalent here -
-        // every well in this list has already been summed.
-        let resolved: Vec<Option<(String, Vec<f32>, Vec<(String, Vec<f32>)>, crate::ancestry::CompleteLogSetSpec)>> =
-            pending_flag_runs
-                .into_par_iter()
-                .map(|job| {
-                    let output_names = &output_names;
-                    pool.read(db, move |conn| {
-                        let PendingFlagRun { well_id, depth, flags, spec, inputs, zone_scope } = job;
-                        #[cfg(test)]
-                        let _ps_spec = crate::lock_probe::ps_spec();
-                        let mut complete = crate::ancestry::complete_curve_run_spec(
-                            conn,
-                            &well_id,
-                            &spec.set_name,
-                            &spec.module,
-                            custody,
-                            &inputs,
-                            req.input_set.as_deref(),
-                            serde_json::from_str(&spec.params_json).map_err(|error| {
-                                format!("cannot record pay-summary parameters: {error}")
-                            })?,
-                            zone_scope,
-                            output_names,
-                        )?;
-                        complete
-                            .record_parameter_decisions(crate::param_sources::PAY_PARAMETER_TOPICS)?;
-                        #[cfg(test)]
-                        drop(_ps_spec);
-                        // Previewing and then exporting the same report must not create two
-                        // indistinguishable PAYFLAG versions. Reuse is allowed only when every
-                        // material part of the live record matches; a changed input version,
-                        // value/source, zone/source, operator, output, or implementation creates
-                        // a new append-only version as usual.
-                        #[cfg(test)]
-                        let _ps_ancestry = crate::lock_probe::ps_ancestry();
-                        let already_current = output_names.iter().all(|curve| {
-                            crate::ancestry::curve_ancestry(conn, &well_id, curve)
-                                .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
-                        });
-                        #[cfg(test)]
-                        drop(_ps_ancestry);
-                        Ok((!already_current).then_some((well_id, depth, flags, complete)))
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-
-        // Pass 2 - allocating a log-set version is a WRITE, so it stays serial under the one
-        // connection, exactly as it always was. Only the reads above were parallelised.
+        // This replaced a pooled parallel pass. That pass was 1.46x faster than doing the reads one
+        // at a time, but it bought the time by spreading ~700 small queries over eight threads
+        // rather than by asking fewer of them - 8x the total work for 4x the wall-clock, the
+        // threads contending on DuckDB's buffer manager. Parallelising an N+1 makes it finish
+        // sooner without making it FEWER. So the queries collapsed instead, and the parallelism is
+        // gone: this runs on one thread again.
         #[cfg(test)]
         let _ps_lock = crate::lock_probe::ps_lock();
         let conn = db.lock().unwrap();
         #[cfg(test)]
         drop(_ps_lock);
+
+        // Query 1 - every input of every well, in one go. Order is preserved element for element,
+        // which is what lets each well take its own slice back out below.
+        #[cfg(test)]
+        let _ps_spec = crate::lock_probe::ps_spec();
+        let requests: Vec<(String, String, String)> =
+            pending_flag_runs.iter().flat_map(|job| job.inputs.iter().cloned()).collect();
+        let resolved_inputs = crate::ancestry::resolve_ancestry_inputs_batch(
+            &conn,
+            &requests,
+            req.input_set.as_deref(),
+        )?;
+        #[cfg(test)]
+        drop(_ps_spec);
+
+        // Query 2 - every well's live ancestry for the three outputs. Previewing and then exporting
+        // the same report must not create two indistinguishable PAYFLAG versions; reuse is allowed
+        // only when every material part of the live record matches, and a pair MISSING from this
+        // map is exactly the case where asking one at a time returned an error, which was never a
+        // match either.
+        #[cfg(test)]
+        let _ps_ancestry = crate::lock_probe::ps_ancestry();
+        let well_ids: Vec<String> =
+            pending_flag_runs.iter().map(|job| job.well_id.clone()).collect();
+        let live = crate::ancestry::curve_ancestry_batch(&conn, &well_ids, &output_names)?;
+        #[cfg(test)]
+        drop(_ps_ancestry);
+
         let mut writes: Vec<crate::ancestry::CompleteWellWrite> = Vec::new();
-        for (well_id, depth, flags, complete) in resolved.into_iter().flatten() {
+        let mut cursor = 0usize;
+        for job in pending_flag_runs {
+            let PendingFlagRun { well_id, depth, flags, spec, inputs, zone_scope } = job;
+            let taken = &resolved_inputs[cursor..cursor + inputs.len()];
+            cursor += inputs.len();
+            let legacy_input_curves: Vec<String> =
+                inputs.iter().map(|(_, _, curve)| curve.clone()).collect();
+            let mut complete = crate::ancestry::complete_curve_run_spec_resolved(
+                &well_id,
+                &spec.set_name,
+                &spec.module,
+                custody,
+                taken.to_vec(),
+                &legacy_input_curves,
+                serde_json::from_str(&spec.params_json).map_err(|error| {
+                    format!("cannot record pay-summary parameters: {error}")
+                })?,
+                zone_scope,
+                &output_names,
+            )?;
+            complete.record_parameter_decisions(crate::param_sources::PAY_PARAMETER_TOPICS)?;
+            let already_current = output_names.iter().all(|curve| {
+                live.get(&(well_id.clone(), curve.to_uppercase()))
+                    .is_some_and(|existing| existing.same_computation(complete.ancestry()))
+            });
+            if already_current {
+                continue;
+            }
+            // Allocating a log-set version is a WRITE and stays serial, exactly as it always was.
             #[cfg(test)]
             let _ps_set = crate::lock_probe::ps_set();
             let (set_id, _) = crate::ancestry::create_complete_log_set(&conn, &well_id, &complete)?;

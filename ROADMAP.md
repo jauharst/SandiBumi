@@ -1388,6 +1388,23 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       misattributed provenance record rather than a compile error, so it is its own careful
       increment. `PS_SPEC_NS`/`PS_ANCESTRY_NS` are now SUMMED ACROSS THREADS and push the derived
       remainder negative - the signature of overlap, not a bug; never compare them against elapsed.
+      **Then the N+1 itself was collapsed** (ledger row 18, KEPT, superseding row 17):
+      `curve_ancestry_batch` is a faithful two-query replacement, and
+      `resolve_ancestry_inputs_batch` is deliberately NOT one - `try_resolve_ancestry_input` has
+      four resolution paths and reproducing all four would be four chances to write a provenance
+      record naming the wrong version, so it collapses only the chain-fed path and hands the rest
+      to the original function, keeping identical behaviour AND identical error text. Those two
+      phases went **~305 ms wall / ~9,800 ms thread-time -> 77 ms on one thread**, about 127x less
+      work. **Elapsed did NOT improve**: 2,557 -> 2,871 ms, 1.12x slower than row 17 and inside the
+      floor, but consistent over four samples - **the part-2 prediction that it would beat 2.56 s on
+      one core was wrong**. Against the pre-row-17 baseline it is **3,730 -> 2,871 (1.30x) on ONE
+      core instead of eight**. The ground was lost in the FLAG-row write, 1,484 -> 1,909 ms on
+      byte-identical code: row 17's eight threads had been accidentally warming the buffer cache for
+      the archive copy's unindexed full scan - a HYPOTHESIS with a named next experiment, not a
+      measurement, and the archive scan's cold cost is paid by the chain too. `curve_ancestry` lost
+      its last production caller and is now `#[cfg(test)]` as the SPECIFICATION the batch is pinned
+      against, because deleting it would pin the batch against nothing and making the batch its own
+      reference is the circularity to avoid in a provenance path.
 - [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
       **done + committed 2026-07-21.** The three curve-data commands
       (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer

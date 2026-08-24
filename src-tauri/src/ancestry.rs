@@ -930,6 +930,140 @@ pub(crate) fn try_resolve_ancestry_input(
     }))
 }
 
+/// [`resolve_ancestry_input`] for many requests at once, as a BATCH FAST PATH over the single
+/// dominant case, with the per-call function itself as the fallback for everything else.
+///
+/// It is deliberately not a re-implementation. `try_resolve_ancestry_input` has four resolution
+/// paths in priority order - a working set, a named input set, an explicitly named computed curve,
+/// and the generic store - and a batch that reproduced all four from scratch would be four chances
+/// to diverge in a PROVENANCE record, which is the kind of wrong answer that computes, plots and
+/// ships. So this collapses only the third, which is the one a chain-fed run takes, and hands
+/// anything else to the original function unchanged.
+///
+/// The fast path fires ONLY when all of these hold, and each is the condition under which the
+/// per-call function is known to return exactly this value:
+///
+/// - no `input_set` is in force, so the higher-priority paths cannot apply (the working-set path
+///   needs an `own_set_id`, which this entry point does not take at all);
+/// - the pair resolves to EXACTLY ONE non-NULL `set_id` in `computed_curves`;
+/// - that set's `log_sets` row exists.
+///
+/// Zero set ids means the generic-store path, more than one (or a NULL one) means the per-call
+/// function raises a named error, and a missing `log_sets` row means it raises a different one.
+/// All three fall back rather than being reproduced, so the messages stay identical too.
+///
+/// Order is preserved: the returned vector matches `requests` element for element.
+///
+/// Pinned against the per-call function by
+/// `the_batched_input_resolution_answers_exactly_what_asking_one_at_a_time_answers`.
+pub(crate) fn resolve_ancestry_inputs_batch(
+    conn: &Connection,
+    requests: &[(String, String, String)],
+    input_set: Option<&str>,
+) -> Result<Vec<AncestryInput>, String> {
+    let named_set = input_set.map(str::trim).filter(|value| !value.is_empty());
+    if requests.is_empty() || named_set.is_some() {
+        // A named input set outranks everything this batches, so there is nothing to collapse.
+        return requests
+            .iter()
+            .map(|(well_id, argument, curve)| {
+                resolve_ancestry_input(conn, well_id, argument, curve, input_set, None)
+            })
+            .collect();
+    }
+
+    let mut wells: Vec<String> = requests.iter().map(|(well, _, _)| well.clone()).collect();
+    wells.sort_unstable();
+    wells.dedup();
+    let mut curves: Vec<String> =
+        requests.iter().map(|(_, _, curve)| curve.trim().to_uppercase()).collect();
+    curves.sort_unstable();
+    curves.dedup();
+
+    // The per-call form's third path asks `WHERE well_id = ? AND upper(curve_name) = ?`, so
+    // grouping by `upper(curve_name)` here is what it already does - unlike `curve_ancestry_batch`
+    // above, which must group by the RAW name to keep a mixed-case well a refusal.
+    let mut set_ids: HashMap<(String, String), Vec<Option<String>>> = HashMap::new();
+    {
+        let wph = std::iter::repeat("?").take(wells.len()).collect::<Vec<_>>().join(", ");
+        let cph = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
+        let mut binds: Vec<String> = Vec::with_capacity(wells.len() + curves.len());
+        binds.extend(wells.iter().cloned());
+        binds.extend(curves.iter().cloned());
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT well_id, upper(curve_name), CAST(set_id AS VARCHAR) FROM computed_curves
+                 WHERE well_id IN ({wph}) AND upper(curve_name) IN ({cph})
+                 GROUP BY well_id, upper(curve_name), set_id"
+            ))
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params_from_iter(binds), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (well_id, curve, set_id) = row.map_err(|error| error.to_string())?;
+            set_ids.entry((well_id, curve)).or_default().push(set_id);
+        }
+    }
+
+    let mut records: HashMap<String, (String, i64)> = HashMap::new();
+    let wanted: Vec<String> = set_ids
+        .values()
+        .filter(|found| found.len() == 1)
+        .filter_map(|found| found[0].clone())
+        .collect();
+    if !wanted.is_empty() {
+        let sph = std::iter::repeat("?").take(wanted.len()).collect::<Vec<_>>().join(", ");
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT CAST(set_id AS VARCHAR), set_name, version FROM log_sets
+                 WHERE CAST(set_id AS VARCHAR) IN ({sph})"
+            ))
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params_from_iter(wanted), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (set_id, set_name, version) = row.map_err(|error| error.to_string())?;
+            records.insert(set_id, (set_name, version));
+        }
+    }
+
+    requests
+        .iter()
+        .map(|(well_id, argument, curve)| {
+            let upper = curve.trim().to_uppercase();
+            let found = set_ids.get(&(well_id.clone(), upper.clone()));
+            let fast = found
+                .filter(|found| found.len() == 1)
+                .and_then(|found| found[0].as_deref())
+                .and_then(|set_id| records.get(set_id).map(|record| (set_id, record)));
+            match fast {
+                Some((set_id, (set_name, version))) => Ok(AncestryInput {
+                    well_id: well_id.clone(),
+                    argument: argument.clone(),
+                    curve: upper.clone(),
+                    log_set: set_name.clone(),
+                    set_version: Some(*version),
+                    set_id: set_id.to_string(),
+                    chosen_curve_id: Some(format!("computed:{set_id}:{upper}")),
+                    rule: Some(CurveResolutionRule::ExplicitName),
+                    rejected_candidates: Vec::new(),
+                }),
+                None => resolve_ancestry_input(conn, well_id, argument, curve, input_set, None),
+            }
+        })
+        .collect()
+}
+
 /// Strict ancestry resolution for a curve that materially participated in a computation.
 /// Optional module inputs use [`try_resolve_ancestry_input`] so a declared-but-absent input is
 /// not falsely recorded as project data; a present curve with malformed ancestry still errors.
@@ -1140,6 +1274,44 @@ pub(crate) fn complete_curve_run_spec(
             resolve_ancestry_input(conn, well_id, argument, curve, input_set, None)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let legacy_input_curves: Vec<String> =
+        inputs.iter().map(|(_, _, curve)| curve.clone()).collect();
+    complete_curve_run_spec_resolved(
+        output_well_id,
+        set_name,
+        module,
+        custody,
+        resolved_inputs,
+        &legacy_input_curves,
+        legacy_parameters,
+        zone_scope,
+        outputs,
+    )
+}
+
+/// [`complete_curve_run_spec`] with its inputs ALREADY resolved, so a caller that resolved a whole
+/// field's worth in one batch does not resolve them a second time one at a time.
+///
+/// This is the same body, not a second copy of it - `complete_curve_run_spec` resolves and then
+/// delegates here, so there is exactly one place that builds a `CurveAncestry` from inputs. It
+/// re-validates custody and the output well identity rather than trusting the caller: the wrapper
+/// checks them BEFORE resolving so that an invalid custody still reports itself first, and a direct
+/// caller must not be able to skip the check by taking the shorter door.
+pub(crate) fn complete_curve_run_spec_resolved(
+    output_well_id: &str,
+    set_name: &str,
+    module: &str,
+    custody: &RunCustody,
+    resolved_inputs: Vec<AncestryInput>,
+    legacy_input_curves: &[String],
+    legacy_parameters: serde_json::Value,
+    zone_scope: AncestryZoneScope,
+    outputs: &[String],
+) -> Result<CompleteLogSetSpec, String> {
+    custody.validate()?;
+    if output_well_id.trim().is_empty() {
+        return Err("complete curve ancestry is missing its output well identity".into());
+    }
     let parameters = match &legacy_parameters {
         serde_json::Value::Object(values) => values
             .iter()
@@ -1196,7 +1368,7 @@ pub(crate) fn complete_curve_run_spec(
         physics_attributes: Vec::new(),
     };
     let legacy_inputs =
-        serde_json::to_string(&inputs.iter().map(|(_, _, curve)| curve).collect::<Vec<_>>())
+        serde_json::to_string(&legacy_input_curves.iter().collect::<Vec<_>>())
             .map_err(|error| format!("cannot record run inputs: {error}"))?;
     CompleteLogSetSpec::try_new_with_legacy(set_name, ancestry, legacy_parameters, &legacy_inputs)
 }
@@ -2021,6 +2193,16 @@ pub(crate) fn computed_provenance_groups(
 
 /// Resolves the one live record attached to a computed curve. Multiple or NULL set identities are
 /// refused rather than selecting whichever row DuckDB happens to return first.
+///
+/// **`#[cfg(test)]` because it is now the SPECIFICATION rather than a caller's route.**
+/// `curve_ancestry_batch` replaced its last production caller, and the gate correctly flagged it as
+/// dead. It is kept - and kept exactly as it was - because the batch is a fast path whose only
+/// safety argument is that it agrees with this function, including where this function refuses;
+/// `the_batched_ancestry_lookup_answers_exactly_what_asking_one_at_a_time_answers` runs both over
+/// the same fixture and compares them. Deleting it would leave the batch pinned against nothing,
+/// and rewriting the batch to be its own reference is precisely the circularity to avoid in a
+/// provenance path. It costs nothing in a shipped build.
+#[cfg(test)]
 pub(crate) fn curve_ancestry(
     conn: &Connection,
     well_id: &str,
@@ -2046,6 +2228,115 @@ pub(crate) fn curve_ancestry(
             format!("computed curve '{curve_name}' cites a missing ancestry record: {error}")
         })?;
     parse_curve_ancestry(params_json.as_deref().unwrap_or_default())
+}
+
+/// `curve_ancestry` for many (well, curve) pairs in TWO queries instead of one pair at a time.
+///
+/// The per-call form runs `computed_provenance_groups`, which is a WHOLE-WELL `GROUP BY`, and then
+/// throws away every group but one - so asking three curves about one well ran that same whole-well
+/// query three times. Over a 100-well pay summary that was 300 whole-well scans plus 300 `log_sets`
+/// lookups. This asks once for every well's groups and once for every set's parameters.
+///
+/// **A pair is ABSENT from the map exactly where `curve_ancestry` returns `Err`**, and the three
+/// ways that happens are reproduced deliberately rather than approximated:
+///
+/// - the pair has no single live group - note the SQL groups by the RAW `curve_name`, not
+///   `upper(curve_name)`, because a well carrying both `PHIE` and `phie` is two groups to the
+///   per-call form and must stay two here; folding them in SQL would turn a refusal into an answer;
+/// - the one group it has is `LegacyUnrecorded`;
+/// - the cited `log_sets` row is missing, or its parameters do not parse as an ancestry record.
+///
+/// Pinned against the per-call function by
+/// `the_batched_ancestry_lookup_answers_exactly_what_asking_one_at_a_time_answers`.
+pub(crate) fn curve_ancestry_batch(
+    conn: &Connection,
+    well_ids: &[String],
+    curve_names: &[String],
+) -> Result<HashMap<(String, String), CurveAncestry>, String> {
+    if well_ids.is_empty() || curve_names.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let wph = std::iter::repeat("?").take(well_ids.len()).collect::<Vec<_>>().join(", ");
+    let cph = std::iter::repeat("?").take(curve_names.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT cc.well_id, cc.curve_name, CAST(s.set_id AS VARCHAR), s.set_id IS NOT NULL
+         FROM computed_curves cc
+         LEFT JOIN log_sets s ON s.set_id = cc.set_id
+         WHERE cc.well_id IN ({wph}) AND upper(cc.curve_name) IN ({cph})
+         GROUP BY cc.well_id, cc.curve_name, s.set_id"
+    );
+    let mut binds: Vec<String> = Vec::with_capacity(well_ids.len() + curve_names.len());
+    binds.extend(well_ids.iter().cloned());
+    binds.extend(curve_names.iter().map(|curve| curve.trim().to_uppercase()));
+
+    // (well, UPPER curve) -> every group it has. More than one, or one that is unrecorded, is the
+    // per-call function's refusal and must stay a refusal.
+    let mut groups: HashMap<(String, String), Vec<Option<String>>> = HashMap::new();
+    {
+        let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params_from_iter(binds), |row| {
+                let recorded = row.get::<_, bool>(3)?;
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    if recorded { row.get::<_, Option<String>>(2)? } else { None },
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (well_id, curve_name, set_id) = row.map_err(|error| error.to_string())?;
+            groups
+                .entry((well_id, curve_name.trim().to_uppercase()))
+                .or_default()
+                .push(set_id);
+        }
+    }
+
+    let wanted: Vec<String> = groups
+        .values()
+        .filter(|found| found.len() == 1)
+        .filter_map(|found| found[0].clone())
+        .collect();
+    if wanted.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut parameters: HashMap<String, Option<String>> = HashMap::new();
+    {
+        let sph = std::iter::repeat("?").take(wanted.len()).collect::<Vec<_>>().join(", ");
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT CAST(set_id AS VARCHAR), params_json FROM log_sets WHERE CAST(set_id AS VARCHAR) IN ({sph})"
+            ))
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params_from_iter(wanted), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (set_id, params_json) = row.map_err(|error| error.to_string())?;
+            parameters.insert(set_id, params_json);
+        }
+    }
+
+    let mut resolved = HashMap::new();
+    for (key, found) in groups {
+        if found.len() != 1 {
+            continue;
+        }
+        let Some(set_id) = found[0].as_deref() else {
+            continue;
+        };
+        // A cited-but-missing record is the per-call function's error, so it stays absent here.
+        let Some(params_json) = parameters.get(set_id) else {
+            continue;
+        };
+        if let Ok(ancestry) = parse_curve_ancestry(params_json.as_deref().unwrap_or_default()) {
+            resolved.insert(key, ancestry);
+        }
+    }
+    Ok(resolved)
 }
 
 /// One complete, human-readable ancestry record ready for a catalog or number-carrying
@@ -3773,6 +4064,199 @@ mod tests").next().expect("a split always yields one piece");
     /// pre-computation that took ONE number for the whole batch would give a freshly added well
     /// its neighbours' version. Its history would then start at 7, and every earlier version of
     /// it would appear to exist and be missing.
+    /// The batch is a FAST PATH, so the only thing that makes it safe is that it agrees with the
+    /// function it replaces - including where that function REFUSES.
+    ///
+    /// Pinned from both sides deliberately. A batch that returned an empty map would satisfy
+    /// "never disagrees" perfectly and be useless, so the well that does have a record is asserted
+    /// present and equal; and a batch that answered everything would hide the refusals, so the
+    /// mixed-spelling well and the unrecorded well are asserted absent from both.
+    #[test]
+    fn the_batched_ancestry_lookup_answers_exactly_what_asking_one_at_a_time_answers() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wells = [
+            "aaaaaaaa-0000-0000-0000-000000000001",
+            "aaaaaaaa-0000-0000-0000-000000000002",
+            "aaaaaaaa-0000-0000-0000-000000000003",
+        ];
+        for (i, well) in wells.iter().enumerate() {
+            conn.execute_batch(&format!(
+                "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'SANDI-A{}');",
+                i + 1
+            ))
+            .unwrap();
+        }
+        let spec = || {
+            CompleteLogSetSpec::try_new(
+                "PAYFLAG",
+                CurveAncestry {
+                    schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+                    method_derivation: None,
+                    module: "TEST_FIXTURE".into(),
+                    module_version: env!("CARGO_PKG_VERSION").into(),
+                    inputs: Vec::new(),
+                    parameters: Vec::new(),
+                    parameter_state: Some(ProvenanceAbsentState::NotApplicable),
+                    zone_scope: AncestryZoneScope::WholeWell,
+                    actor: AncestryActor {
+                        kind: AncestryActorKind::Automated,
+                        identity: "rust-test-fixture".into(),
+                    },
+                    timestamp_utc_ms: ancestry_timestamp_utc_ms().expect("fixture timestamp"),
+                    outputs: vec![AncestryOutput {
+                        curve: "FLAG_PAY".into(),
+                        derivation: "test_fixture:FLAG_PAY".into(),
+                    }],
+                    depth_frame: None,
+                    zone_set: None,
+                    stochastic: None,
+                    applied_model: None,
+                    physics_attributes: Vec::new(),
+                },
+            )
+            .expect("complete fixture ancestry")
+        };
+
+        // Wells 1 and 2: an ordinary recorded FLAG_PAY.
+        for well in &wells[..2] {
+            let (set_id, _) = create_complete_log_set(&conn, well, &spec()).unwrap();
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+                 VALUES (?1, 1000.0, 'FLAG_PAY', 1.0, ?2)",
+                params![well, set_id.value],
+            )
+            .unwrap();
+        }
+        // Well 2 ALSO carries the same curve spelled differently under a second set. That is two
+        // groups to the per-call form and must stay two here - folding the spellings in SQL would
+        // turn a refusal into an answer.
+        let (other, _) = create_complete_log_set(&conn, wells[1], &spec()).unwrap();
+        conn.execute(
+            "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+             VALUES (?1, 1001.0, 'flag_pay', 1.0, ?2)",
+            params![wells[1], other.value],
+        )
+        .unwrap();
+        // Well 3: rows with no log set at all - legacy, unrecorded.
+        conn.execute(
+            "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+             VALUES (?1, 1000.0, 'FLAG_PAY', 1.0, NULL)",
+            params![wells[2]],
+        )
+        .unwrap();
+
+        let well_ids: Vec<String> = wells.iter().map(|well| well.to_string()).collect();
+        let curves = vec!["FLAG_PAY".to_string()];
+        let batched = curve_ancestry_batch(&conn, &well_ids, &curves).expect("batch resolves");
+
+        let mut agreed = 0;
+        for well in &well_ids {
+            let one_at_a_time = curve_ancestry(&conn, well, "FLAG_PAY");
+            match (one_at_a_time, batched.get(&(well.clone(), "FLAG_PAY".to_string()))) {
+                (Ok(single), Some(many)) => {
+                    assert_eq!(&single, many, "batch and per-call disagree for {well}");
+                    agreed += 1;
+                }
+                (Err(_), None) => {}
+                (single, many) => panic!(
+                    "batch and per-call disagree about whether {well} HAS a record: {} vs {}",
+                    single.is_ok(),
+                    many.is_some()
+                ),
+            }
+        }
+        assert_eq!(agreed, 1, "exactly the one ordinary well must resolve, or this proves nothing");
+        assert!(
+            !batched.contains_key(&(wells[1].to_string(), "FLAG_PAY".to_string())),
+            "two spellings under two sets is a refusal, not an answer"
+        );
+        assert!(
+            !batched.contains_key(&(wells[2].to_string(), "FLAG_PAY".to_string())),
+            "an unrecorded curve has no ancestry to report"
+        );
+    }
+
+    /// Same argument for the input side: the fast path must produce what the per-call resolver
+    /// produces, and must hand back anything it does not cover rather than guessing at it.
+    #[test]
+    fn the_batched_input_resolution_answers_exactly_what_asking_one_at_a_time_answers() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wells = [
+            "bbbbbbbb-0000-0000-0000-000000000001",
+            "bbbbbbbb-0000-0000-0000-000000000002",
+        ];
+        for (i, well) in wells.iter().enumerate() {
+            conn.execute_batch(&format!(
+                "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'SANDI-B{}');",
+                i + 1
+            ))
+            .unwrap();
+        }
+        let spec = CompleteLogSetSpec::try_new(
+            "INTERP",
+            CurveAncestry {
+                schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+                method_derivation: None,
+                module: "TEST_FIXTURE".into(),
+                module_version: env!("CARGO_PKG_VERSION").into(),
+                inputs: Vec::new(),
+                parameters: Vec::new(),
+                parameter_state: Some(ProvenanceAbsentState::NotApplicable),
+                zone_scope: AncestryZoneScope::WholeWell,
+                actor: AncestryActor {
+                    kind: AncestryActorKind::Automated,
+                    identity: "rust-test-fixture".into(),
+                },
+                timestamp_utc_ms: ancestry_timestamp_utc_ms().expect("fixture timestamp"),
+                outputs: vec![AncestryOutput {
+                    curve: "PHIE".into(),
+                    derivation: "test_fixture:PHIE".into(),
+                }],
+                depth_frame: None,
+                zone_set: None,
+                stochastic: None,
+                applied_model: None,
+                physics_attributes: Vec::new(),
+            },
+        )
+        .expect("complete fixture ancestry");
+
+        for well in &wells {
+            let (set_id, _) = create_complete_log_set(&conn, well, &spec).unwrap();
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+                 VALUES (?1, 1000.0, 'PHIE', 0.2, ?2)",
+                params![well, set_id.value],
+            )
+            .unwrap();
+        }
+
+        let requests: Vec<(String, String, String)> = wells
+            .iter()
+            .map(|well| (well.to_string(), "PHIE".to_string(), "PHIE".to_string()))
+            .collect();
+        let batched =
+            resolve_ancestry_inputs_batch(&conn, &requests, None).expect("batch resolves");
+        assert_eq!(batched.len(), requests.len(), "order and length are the contract");
+        for (i, (well, argument, curve)) in requests.iter().enumerate() {
+            let one_at_a_time =
+                resolve_ancestry_input(&conn, well, argument, curve, None, None).expect("resolves");
+            assert_eq!(batched[i], one_at_a_time, "batch and per-call disagree for {well}");
+        }
+
+        // A curve the fast path cannot cover falls back to the per-call resolver, which reports the
+        // absence BY NAME rather than the batch inventing an identity for it.
+        let missing = vec![(wells[0].to_string(), "SWE".to_string(), "SWE".to_string())];
+        let refusal = resolve_ancestry_inputs_batch(&conn, &missing, None)
+            .expect_err("an unresolvable input is refused, not guessed");
+        assert!(
+            refusal.contains("no resolvable log-set identity"),
+            "the fallback must carry the per-call refusal: {refusal}"
+        );
+    }
+
     #[test]
     fn re_running_a_module_bumps_the_set_version_and_keeps_every_earlier_run() {
         let conn = Connection::open_in_memory().unwrap();

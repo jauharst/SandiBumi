@@ -953,16 +953,13 @@ fn pipeline_field_100well_stress() {
         let (l_ns, sp_ns, an_ns, st_ns, rw_ns) = crate::lock_probe::pay_summary_split();
         let total = pay_elapsed.as_secs_f64() * 1000.0;
         let rest = total - (ms(l_ns) + ms(sp_ns) + ms(an_ns) + ms(st_ns) + ms(rw_ns));
-        // `provenance` and `ancestry-check` are now SUMMED ACROSS THREADS, because those reads go
-        // through the pool - so they can exceed the elapsed time and the `rest` remainder can go
-        // NEGATIVE, which is the tell that they overlapped rather than the tell of a bug. The
-        // three serial parts still read as wall-clock. Compare the two parallel ones against their
-        // own previous SUM, never against elapsed.
+        // Every part is wall-clock again. The pooled parallel pass that made `provenance` and
+        // `ancestry-check` sum across threads is gone: the queries they ran collapsed from ~700 to
+        // two, so there is nothing left to spread over threads and this runs on one again.
         println!(
-            "                     pay split: lock {:.0}ms  provenance {:.0}ms*  ancestry-check {:.0}ms*  log-set {:.0}ms  flag rows {:.0}ms  rest {:.0}ms",
+            "                     pay split: lock {:.0}ms  provenance {:.0}ms  ancestry-check {:.0}ms  log-set {:.0}ms  flag rows {:.0}ms  rest {:.0}ms",
             ms(l_ns), ms(sp_ns), ms(an_ns), ms(st_ns), ms(rw_ns), rest
         );
-        println!("                     * summed across pool threads, so it can exceed elapsed and push rest negative");
         println!(
             "                     per well: {} wells, so each pays lock {:.1}ms  provenance {:.1}ms  ancestry-check {:.1}ms  log-set {:.1}ms  flag rows {:.1}ms",
             N_WELLS,

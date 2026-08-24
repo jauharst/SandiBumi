@@ -19150,3 +19150,39 @@ it in beside this one.
       first instead of second.
 - [ ] **Run it on a well that has no curves** alongside good wells. It should skip that one and still
       flag all the others.
+
+## The pay summary now asks four questions instead of seven hundred (2026-08-24)
+
+Follow-on from the entry above, and it replaces it rather than adding to it.
+
+Last time I made those 700 lookups finish sooner by running them eight at a time. I told you that
+was the wrong kind of fix — it spread the work instead of shrinking it, and used eight times the
+processor to do it. This is the right kind: the lookups are now **four database questions for the
+whole field**, done on one core.
+
+**What that bought, and what it did not.** The lookups themselves went from about a third of a
+second down to **77 milliseconds** — and from roughly ten seconds of total processor time down to
+those same 77. That part worked exactly as intended.
+
+But **the whole operation did not get faster**. It is 2.9 s where the eight-thread version was 2.6 s.
+I predicted it would beat it and I was wrong. Compared with where this started — before either fix —
+it is **3.7 s → 2.9 s on a single core instead of eight**, which is the comparison I think matters,
+but you should know the eight-thread version is still 0.3 s quicker on this machine.
+
+Why it lost that ground is a guess, and I have written it down as a guess: the eight threads were
+probably warming up the database's memory cache for the write that came straight after them. Nobody
+designed that, and it is not something to rely on.
+
+**Nothing about the provenance changed, and that was the hard part.** The old one-at-a-time lookup is
+still in the code, kept deliberately, and there is now a test that runs both the old and the new way
+over the same wells and fails if they ever disagree — including disagreeing about when to refuse.
+
+- [ ] **Run a pay summary over a good number of wells** and confirm the numbers are unchanged.
+- [ ] **Check a FLAG curve's provenance** in the curve catalog on several wells across the field. It
+      must still name the exact input curve versions that well used — not a shared one, not a wrong
+      one. This is the check that matters most in this change.
+- [ ] **Preview a report, then export it, without changing cut-offs.** Still must not create a second
+      identical PAYFLAG version.
+- [ ] **Change one cut-off and re-run.** That must create a new version, and the old must survive.
+- [ ] **See whether your machine is happier** than it was with the previous version — this one should
+      use far less of it. If it feels the same or worse, tell me.
