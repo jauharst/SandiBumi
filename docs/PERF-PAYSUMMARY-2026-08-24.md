@@ -189,3 +189,92 @@ the cheaper win cannot be mistaken for the area being finished.
 ## 11. The attempt ledger
 
 Attempt 17, KEPT - with the N+1 collapse recorded as the better fix still outstanding.
+
+---
+
+# Part 3: asking four questions instead of seven hundred
+
+Attempt 18. Part 2 named the N+1 as the better fix and left it outstanding. This is it.
+
+## 12. What replaced what
+
+`resolve_ancestry_input` was called once per input curve per well, and `curve_ancestry` once per
+output per well - roughly 700 reads for a 100-well field. `curve_ancestry` is worse than it looks:
+it runs `computed_provenance_groups`, a WHOLE-WELL `GROUP BY`, and then discards every group but
+one, so three outputs per well re-ran the same whole-well query three times.
+
+Two new functions, and the design of each is the point:
+
+- **`curve_ancestry_batch`** is a faithful full replacement in two queries. A pair is ABSENT from
+  its map exactly where the per-call form returns `Err`, and all three ways that happens are
+  reproduced rather than approximated.
+- **`resolve_ancestry_inputs_batch`** is deliberately NOT a re-implementation.
+  `try_resolve_ancestry_input` has four resolution paths in priority order, and a batch reproducing
+  all four would be four chances to write a PROVENANCE record naming the wrong version - a wrong
+  answer that computes, plots and ships. So it collapses only the third path, the one a chain-fed
+  run takes, and hands everything else to the original function unchanged. The fast path fires only
+  on exactly one non-NULL `set_id` whose `log_sets` row exists; zero, several, or missing all fall
+  back, so the unusual cases keep identical behaviour AND identical error text by construction.
+
+`complete_curve_run_spec` gained a `_resolved` sibling that takes inputs already resolved. It is the
+same body, not a copy: the original resolves and delegates, so exactly one place builds a
+`CurveAncestry` from inputs.
+
+**One subtlety that looks like an inconsistency and is not.** `curve_ancestry_batch` groups by the
+RAW `curve_name`; `resolve_ancestry_inputs_batch` groups by `upper(curve_name)`. The per-call forms
+differ the same way: a well carrying both `PHIE` and `phie` is TWO groups to `curve_ancestry`, which
+makes it a refusal, and folding the spellings in SQL would silently turn that refusal into an
+answer. The fixture carries such a well purely to hold that line.
+
+## 13. The result, including the part that did not work
+
+Real 100-well delivery. Four samples of the collapsed arm, two of the pooled one it replaces:
+
+```
+PART                       serial (pre-p2)   pooled (part 2)   collapsed
+provenance                      741            6260 summed         41
+ancestry-check                  502            3543 summed         36
+  -> those two, WALL-CLOCK     1243              ~305              77
+creating the log-set version    656               574             727
+writing the FLAG rows          1639              1484            1909
+TOTAL ELAPSED                  3730              2557            2871
+CORES USED                        1                 8               1
+QUERIES                        ~700              ~700              ~4
+```
+
+**The phase it targeted collapsed exactly as intended**: ~305 ms of wall-clock across eight threads
+became 77 ms on one, and about 9,800 ms of thread time became 77 ms - roughly 127x less total work.
+
+**The end-to-end elapsed did not improve, and the prediction in part 2 was wrong.** That section
+said the collapse "would very likely beat 2.56 s on a single core". It does not; it lands at 2.87 s,
+about 1.12x slower than the pooled version - inside the 1.16x variance floor, but consistent across
+four samples against two, so it is not being written off as noise.
+
+Against the baseline that matters - what was there BEFORE the pooling - it is **3,730 -> 2,871 ms,
+1.30x, on one core instead of eight**, which is outside the floor.
+
+## 14. Where it lost the ground, as a hypothesis
+
+The flag-row write went **1,484 -> 1,909 ms on byte-identical code**. The plausible reading: that
+write ends with the engine-side archive copy, which is an unindexed full scan of `computed_curves`
+(`PERF-ARCHIVE-COPY-2026-08-24.md` section 6). In the pooled version eight threads had just read
+across every well, pulling much of that table into DuckDB's buffer cache, so the scan ran warm; two
+small targeted queries leave it cold.
+
+If that is right, part 2's parallelism was partly buying its own speed-up by **accidentally
+prefetching for the write that followed it** - not a mechanism anyone designed, and not one to rely
+on. It also means the archive scan has a real cold cost that the chain pays too. **This is a
+hypothesis with a named next experiment, not a measurement**, and nothing should be built on the
+explanation until someone tests it.
+
+## 15. What the gate caught
+
+`curve_ancestry` had no production caller left, and gate-2 hygiene refused the unclassified
+dead-code warning. It is now `#[cfg(test)]` and documented as the SPECIFICATION rather than deleted:
+the batch is a fast path whose entire safety argument is that it agrees with this function,
+including where it refuses, so deleting it would leave the batch pinned against nothing, and making
+the batch its own reference is exactly the circularity to avoid in a provenance path.
+
+## 16. The attempt ledger
+
+Attempt 18, KEPT - superseding attempt 17's pooling in the same function.
