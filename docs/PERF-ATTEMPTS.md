@@ -19,6 +19,8 @@ Read this before proposing a performance change.
 | 9 | Run the Field Dashboard's four per-well reads at the same time, through the #129 pool - `PERF-DASHBOARD` measured them as 101.7% of the operation | real 100-well delivery, paired, AFTER arm run FIRST: **963.97 ms -> 219.57 ms (4.39x)**; synthetic probe 5.50x / 5.24x / 3.21x at 10 / 100 / 500 wells | **KEPT** | The summation itself is untouched - same cut-offs, same zone sweep, same serial write under `db.lock()`. 300 pay rows in both arms, `pipeline_field_full_run` unchanged to the last decimal. The writing pay summary moved only 1.10x, INSIDE the floor, and that is the expected result: it writes three FLAG_* curves per well and the write is deliberately still serial. See `PERF-DASHBOARD-PARALLEL-2026-08-24.md`. |
 | 10 | Make the multi-well plot overlay's per-well curve fetch **async AND pooled** - a sync `#[tauri::command]` runs inline in the IPC handler, so `context_fetch_concurrency` = 8 described nothing | **real 100-well delivery: 1035.0 ms -> 358.5 ms (2.89x)**, pooled arm run first. Synthetic sweep, two independent sessions: 100 wells 5.35x and 6.55x, 500 wells 6.56x, 10 wells 3.0-3.4x - so the generated fixture OVERSTATES this by about two, and 2.89x is the claim | **KEPT** | Neither half alone is worth anything and that is measured, not argued - the `N locks` arm IS the async-only shape and lands inside the floor of what it would replace, on both fixtures (1.03x real, 0.93x synthetic). See `PERF-PLOT-OVERLAY-2026-08-24.md`. |
 | 11 | That the committed `plot data: ALL wells` row was an OPTIMISTIC instrument because it takes one lock where production takes one per well | same probe, five paired measurements: **1.13x, 1.06x, 1.07x, 0.93x, 0.98x** - two of them below 1.0 | **REFUTED BY THE SAME PROBE** | Lock granularity costs nothing here, in either direction. The committed row is a fair measure of the read however the lock is taken, and the instrument error was somewhere else entirely - the webview thread. See section 7. |
+| 12 | Split the chain's WRITE phase, which is now 58% of a real run, to find the overhead worth removing | real 100-well chain: appending rows is **83.7%** of the write (current 42.2%, archive 41.4%); the DELETE is **0.2%**, the pre-transaction checks **1.1%** | **NOTHING TO REMOVE** | The instrument is KEPT and the fix it was meant to find does not exist. Every part is work something depends on. The only removable rows are the archive's, and that is a data-integrity decision. See section 8. |
+| 13 | That about 93% of the write was something other than putting rows in the table - my own hypothesis, formed before the instrument existed | it counted HALF the rows (the archive gets every row too), and it was a ratio against a probe that reports **972,945 rows/s in one run and 2,874,000 in the next** | **REFUTED BY THE INSTRUMENT BUILT TO TEST IT** | A ratio against a number that moves 3x between runs cannot support a claim smaller than that. Check an instrument's stability before quoting a ratio against it - the rule `PERF-VARIANCE-2026-08-23.md` exists for. |
 
 ---
 
@@ -520,3 +522,54 @@ ratio is the result.
 - **`grep -c '#\[tauri::command\]' src/lib.rs` overcounts.** It returns 262 against a real 259,
   because three doc comments quote the literal - one of them added by this very change. Count with
   the attribute required to START the line, and assert the parts sum to the total.
+
+## §8 - what is inside the chain's write (2026-08-24, pass 3 increment 16)
+
+Instrument only. After the pooled reads and the degradation batching, the write is the majority of
+a real chain and nothing could say what was in it. Five counters now subdivide `WRITE_NS` where the
+phases happen, with a sixth reported as a derived REMAINDER.
+
+```
+PART                                       ms    share
+appending to computed_curves             6101    42.2%
+appending to computed_curves_archive     5983    41.4%
+commit + class declaration (remainder)   1376     9.5%
+degradation records                       794     5.5%
+pre-transaction checks                    154     1.1%
+the DELETE that keeps a re-run idempotent  36     0.2%
+WRITE                                   14444   100.0%     <- 58% of a 24.8 s chain
+```
+
+### The fix this was looking for does not exist
+
+Every part is work something depends on. The DELETE that was the leading suspect is **0.2%**. The
+per-well depth validation that looked worth moving out of the writer's lock is **1.1%**. The two
+appends are the data, and they are 84%.
+
+**The only lever is writing fewer rows, and the only removable rows are the archive's** - 41.4% of
+the write, ~24% of the chain. Every sample is written twice by design: once readable, once to the
+append-only archive that makes a re-run non-destructive and that a log-set restore reads. Trading
+that for speed is a data-integrity decision and goes to Jauhar as a question or not at all.
+
+### How the hypothesis got formed wrong, which is the part worth keeping
+
+It counted the rows in `computed_curves` and ignored the archive, so it credited the write with
+half the work it does. Then it divided by the WRITE-COST probe's rate from the same run.
+
+**That probe is not stable enough to divide by.** Same code, two runs: **972,945 rows/s** and
+**2,874,000 rows/s**. A 3x-unstable denominator cannot support a claim about a 7x or 15x gap. The
+repo already has the rule - `PERF-VARIANCE-2026-08-23.md` measures the instrument before trusting
+it, and `PERF-DASHBOARD-2026-08-23.md` section 8 records the same probe family swinging 2.5x - and
+this broke it.
+
+The direct split needed no comparison at all.
+
+### What this rules out for anyone who tries again
+
+- **Do not look for overhead in the chain's write.** It was measured part by part and there is
+  none: 84% is appending rows and the largest non-append part is the commit.
+- **Do not propose removing the DELETE** to speed up writes. It is 0.2% and it is the only thing
+  upholding uniqueness on a deliberately PK-less table.
+- **Do not move the per-well validation out of the write lock** expecting a win. It is 1.1%.
+- **Do not divide by the WRITE-COST probe.** It varies 3x run to run. It is a sanity check that the
+  PK-less table beats the PK'd one, which it does in both runs, and nothing finer.

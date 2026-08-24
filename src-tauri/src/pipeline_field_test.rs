@@ -750,6 +750,18 @@ fn pipeline_field_100well_stress() {
             ms(read_ns),
             ms(write_ns)
         );
+        // The WRITE phase, split. It is the majority of a chain now that the reads overlap, and
+        // 130,627 rows/s against the raw appender probe's 972,945 in this same run says most of it
+        // is not appending rows. `rest` is a REMAINDER - the transaction commit plus the per-well
+        // class-curve declaration - derived, not timed, and labelled so it cannot be quoted as a
+        // measurement.
+        let (v_ns, d_ns, c_ns, a_ns, g_ns) = crate::lock_probe::write_split();
+        let rest = ms(write_ns).max(0.0)
+            - (ms(v_ns) + ms(d_ns) + ms(c_ns) + ms(a_ns) + ms(g_ns));
+        println!(
+            "                     write split: check {:.0}ms  delete {:.0}ms  current {:.0}ms  archive {:.0}ms  degrade {:.0}ms  rest {:.0}ms",
+            ms(v_ns), ms(d_ns), ms(c_ns), ms(a_ns), ms(g_ns), rest
+        );
         // What that write actually wrote. A duration with no row count beside it cannot say
         // whether a module is slow or simply writing more - the same rule this file already
         // applies to timings with no output count.
