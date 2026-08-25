@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bed Detect — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Frame</div>
+<h1>Bed Detect</h1>
+<p class="modmeta">Module id <code>bed_detect</code> · category <b>Frame</b></p>
+<p>Finds bed boundaries from a curve's own steps and writes the bed number each sample falls in - the same segmentation Block's AUTO mode uses, exposed on its own so the beds can be looked at on a log before anything is averaged over them.</p>
+<pre class="equations">a new bed opens where |x − bed mean| &gt; SENS·noise and the bed already spans MIN_BED
+noise = robust spread of the curve's first differences / √2  - the curve's noise, not its variability across the well</pre>
+<!-- Authored walkthrough for the bed_detect guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: finding the beds before averaging over them</h2>
+
+<p>Bed Detect writes the bed number each sample falls in, found from the
+curve's own steps — the same segmentation Block's AUTO mode uses, exposed on
+its own so the beds can be <i>looked at</i> before anything is averaged over
+them. That order is the point: over-segmentation is what a step-finder gets
+wrong when it gets anything wrong, and a blocked curve computed from beds
+nobody checked looks perfectly reasonable.</p>
+
+<h3>First, the refusal</h3>
+
+<blockquote><i>"MIN_BED must be set — Thinnest bed worth calling a bed"</i></blockquote>
+
+<p>No default, same reasoning as the despike window: the thinnest thing worth
+calling a bed is a property of the tool and the rock.</p>
+
+<h3>The picks</h3>
+
+<p><b>MIN_BED 1&nbsp;m</b> — the thinnest bed worth keeping at this dataset's
+0.1524&nbsp;m sampling (the despike-window argument again), and <b>SENS 2</b>,
+the shipped two-noise-units convention. The noise scale is measured from the
+curve's own sample-to-sample differences divided by √2 — the curve's
+<i>noise</i>, not how much it varies across the well, so a strongly layered
+section does not desensitize its own boundary detection.</p>
+
+<figure>
+  <img src="../img/guide-beddetect-pane.png"
+       alt="The Bed Detect pane on GR with a 1 m minimum bed" />
+  <figcaption>SandiBumi's own segmentation heuristic — the module doc is the
+    derivation.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, finding <b>18–19 beds per well</b> over the
+~60&nbsp;m sections. Before running Block against it, put GR_BED in a track as
+class blocks and judge the boundaries against the log — then Block with
+OPT_BEDS&nbsp;=&nbsp;CLASS pointing at the curve you have actually
+inspected.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Writes the bed number each sample falls in, found from the curve's own steps — the same segmentation Block's AUTO mode uses, exposed on its own so the beds can be LOOKED AT on a log before anything is averaged over them.
+
+That order matters: over-segmentation is what a step-finder gets wrong when it gets anything wrong, and a blocked curve computed from beds nobody checked looks perfectly reasonable. Put the bed curve in a track as class blocks, judge it against the log, then run Block with OPT_BEDS = CLASS pointing at it.
+
+A sample opens a new bed when it sits further from the running bed mean than SENS times the curve's own noise AND the bed already spans MIN_BED. The noise is measured from the curve's own sample-to-sample differences, so it is the curve's noise rather than how much it varies across the well.
+
+MIN_BED has no default: the thinnest thing worth calling a bed is a property of the tool and the rock.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to segment</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>MIN_BED <span class="src">(depth)</span></h3>
+<p>Thinnest bed worth calling a bed</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 10000 depth</li></ul>
+<h3>SENS</h3>
+<p>How far off the bed's mean is a new bed, in noise units</p>
+<ul><li><b>Default:</b> 2 <span class="src">— source: Two-noise-units convention for change detection (same family as the Hampel K in condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0.5 to 20</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Bed index</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

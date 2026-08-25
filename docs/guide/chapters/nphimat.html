@@ -1,0 +1,37 @@
+<!-- Authored walkthrough for the nphimat guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: one neutron log, three matrix conventions</h2>
+
+<p>Neutron Matrix Conversion takes a neutron log recorded in one matrix
+convention and writes all three — NPHI_LS, NPHI_SS, NPHI_DOL — through the
+chartbook porosity-equivalence curves: Por-5 for the CNL thermal family, Por-4
+for the epithermal APS and the sidewall SNP. Limestone units are the chart's
+own apparent-limestone axis, on which calcite is the identity; any other input
+convention is first inverted back onto that axis, then read out along each
+matrix curve.</p>
+
+<h3>The picks</h3>
+
+<p><b>TNPH chart family, FRESH salinity, LS input</b> — the dataset's CNL-style
+neutron is recorded in limestone units. Apply environmental corrections before
+converting on a real study: the charts assume corrected logs. SALINITY =
+INTERPOLATE exists for the TNPH family only, evaluating the fresh and 250-kppm
+charts completely and interpolating the finished answers.</p>
+
+<figure>
+  <img src="../img/guide-nphimat-pane.png"
+       alt="The Neutron Matrix Conversion pane, TNPH / FRESH / LS" />
+  <figcaption>The input convention passes through unchanged; the other two are
+    chart reads.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, 1164 samples out. The number worth staring
+at: the median <b>NPHI_SS − NPHI_LS offset is +0.0456</b> — four and a half
+porosity units, purely from the matrix convention. That is almost exactly the
+~0.04 offset the conditioning-flags documentation warns about: a limestone-unit
+neutron judged against a sandstone matrix density reads about 4&nbsp;pu low in
+clean water sand, right at the gas-crossover threshold. Convert the neutron
+first; then a crossover means gas, not bookkeeping.</p>

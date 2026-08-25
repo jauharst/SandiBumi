@@ -1,0 +1,118 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Density Hole-Size Correction — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Density Hole-Size Correction</h1>
+<p class="modmeta">Module id <code>rhob_hole_corr</code> · category <b>Prep</b></p>
+<p>Restores the density log in oversize holes, where the pad reads too much mud: a linear correction in the hole enlargement beyond a reference diameter, using supplied tool-specific chart values.</p>
+<pre class="equations">RHOB_EC = RHOB + K_RHO·(CALI − HD_REF)  for CALI &gt; HD_REF; unchanged within gauge</pre>
+<!-- Authored walkthrough for the rhob_hole_corr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: density in an oversize hole</h2>
+
+<p>In a washout the density pad loses contact and reads too much mud, so the log
+reads light — the same direction as gas, which is why an uncorrected washout
+fakes a gas show. The correction restores density upward, linearly in the
+enlargement beyond a reference diameter:
+RHOB_EC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;K_RHO·(CALI&nbsp;−&nbsp;HD_REF) for CALI
+beyond HD_REF; within gauge the log passes through unchanged.</p>
+
+<h3>The picks</h3>
+
+<p><b>K_RHO 0.004</b> and <b>HD_REF 10&nbsp;in</b> — shipped, tool-generic
+starting values; on a real study both come from the density tool's own
+correction chart. Like the GR correction, the run refuses if CALI is missing at
+any finite RHOB sample. And the standing caveat: <b>beyond a few inches of
+washout no correction is trustworthy</b> — that rock belongs to the BADHOLE
+mask, not to a bigger coefficient.</p>
+
+<figure>
+  <img src="../img/guide-rhobhole-pane.png"
+       alt="The Density Hole-Size Correction pane" />
+  <figcaption>The correction only engages beyond the 10-in reference
+    diameter.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. The washout intervals here reach ~11&nbsp;in
+plus, so the correction engages exactly there and nowhere else — in-gauge hole
+passes through untouched, and the correction-extent companions record which
+samples got the full correction, a partial one, or none.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>RHOB_EC = RHOB + K_RHO*(CALI - HD_REF) for CALI beyond HD_REF: in oversize holes the pad reads too much mud, so density is restored upward using supplied, tool-specific chart values. Within gauge RHOB may remain unchanged; the public runner refuses if CALI is missing at any finite RHOB sample. Use with the BADHOLE flag — beyond a few inches of washout no correction is trustworthy.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Density log</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>CALI</td><td>Caliper log</td><td><code>CALI</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>K_RHO <span class="src">(g/cc/in)</span></h3>
+<p>Correction per inch beyond reference</p>
+<ul><li><b>Default:</b> 0.004 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 0.05 g/cc/in</li></ul>
+<h3>HD_REF <span class="src">(in)</span></h3>
+<p>Hole diameter where correction starts</p>
+<ul><li><b>Default:</b> 10 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 10 in multi-basin starting value per DEC-059 - the vendor reference diameter is PER-TOOL and stated on each chart (Halliburton Chart 2-1: 6.5 in for the 4.75-in DGR; SB-ENV-013 records it as a property of tool and bit), so no universal number is adoptable; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 4 to 20 in</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>RHOB_EC</td><td>Environmentally corrected density</td></tr>
+<tr><td>RHOB_EC_FULL</td><td>Correction applied in full at this sample (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>RHOB_EC_PARTIAL</td><td>Correction applied in part at this sample (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>RHOB_EC_NONE</td><td>Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>RHOB_EC_REFUSED</td><td>Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

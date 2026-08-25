@@ -1,0 +1,168 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Block (Upscale) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Frame</div>
+<h1>Block (Upscale)</h1>
+<p class="modmeta">Module id <code>block</code> · category <b>Frame</b></p>
+<p>Replaces a curve with one value per bed, held across the bed, with the bed definition and the averaging statistic both declared. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled.</p>
+<pre class="equations">beds: INTERVAL slices, CLASS runs of a constant value, ZONES marker intervals, or AUTO from the curve itself
+MEAN - right for porosity and every volume fraction, because those add
+GEOMETRIC: k = (k1·k2·…·kn)^(1/n)  - the standard permeability estimate in randomly heterogeneous rock
+HARMONIC: k = n / Σ(1/ki)  - permeability across layers in series
+MODE - the commonest value, and the only upscale for a class curve</pre>
+<!-- Authored walkthrough for the block guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: one value per bed</h2>
+
+<p>Block replaces a curve with one value per bed, held across the bed — the
+upscale a simulation model or a zone table consumes. The curve stays on the
+well's own depth frame, so nothing downstream has to know it was upscaled. Two
+declarations define the run: what a bed <i>is</i> (INTERVAL slices, CLASS runs
+of a constant value, ZONES marker intervals, or AUTO from the curve's own
+steps), and what statistic a bed's value takes — and the statistic is a
+petrophysical choice, not a formatting one.</p>
+
+<h3>The picks</h3>
+
+<p><b>PHIE_DEN, CLASS beds from RT_LOG, MEAN</b> — the rock-typing shelf's
+cutoff ladder supplies the bed boundaries (boundaries are where the rock
+changes, which is what a model wants), and MEAN because porosity adds.
+GEOMETRIC is the standard permeability estimate in randomly heterogeneous rock,
+HARMONIC the series-flow answer a vertical barrier deserves, and <b>MODE is the
+only upscale for a class curve</b>: a class code is a name written as a number
+— the mean of facies 1 and facies 4 is 2.5, which is not a facies — and the
+module refuses every averaging statistic on a declared class curve for exactly
+that reason.</p>
+
+<figure>
+  <img src="../img/guide-block-pane.png"
+       alt="The Block pane, PHIE_DEN over RT_LOG class beds with MEAN" />
+  <figcaption>Bed definition and statistic are both explicit declarations.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, producing <b>49–53 blocks per well</b> from
+the RT_LOG class runs. Set the blocked curve's draw style to <b>Step</b> in the
+curve editor — a line style would draw a gradient between two block values that
+the data never measured.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Replaces a curve with one value per bed, held across the bed. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled — set its draw style to Step in the curve editor, or the log view draws a gradient between two block values that the data never measured.
+
+OPT_BEDS — what a bed is:
+• INTERVAL — equal slices of INTERVAL thickness. Reproducible, and it ignores the rock: a contact falling mid-slice is averaged across.
+• CLASS — each run of a constant value in the BEDS curve (FACIES, a rock type, a flag). Boundaries are where the rock changes; this is what a simulation model wants.
+• ZONES — one value per marker interval. The coarsest, and what a zone-parameter table or a volumetrics summary consumes.
+• AUTO — boundaries found from the curve itself, needing no other curve. They are INFERRED, and the run says so.
+
+OPT_STAT — how a bed's value is taken. **This is a petrophysical choice, not a formatting one.**
+• MEAN — right for porosity and for every volume fraction, because those add.
+• GEOMETRIC — the standard estimate for PERMEABILITY in randomly heterogeneous rock.
+• HARMONIC — permeability across layers in SERIES (flow perpendicular to lamination); the lowest of the three and the one a vertical barrier deserves.
+• MEDIAN / MIN / MAX — order statistics, for a flag or a worst-case screen.
+• MODE — the bed's commonest value, and the ONLY upscale for a class curve (FACIES, a lithology code). A class code is a name written as a number: the mean of facies 1 and facies 4 is 2.5, which is not a facies, and nothing downstream can tell. A curve declared as a class refuses every averaging statistic here for that reason.
+
+An arithmetic upscale of a laminated sand-shale gives a permeability the rock does not have, and it is always the HIGHEST of the three, so the error never looks like a problem: 1000 mD sand with 0.01 mD shale in equal parts is 500 mD arithmetically, 0.3 mD geometrically and 0.02 mD harmonically.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to upscale</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
+<tr><td>BEDS</td><td>Class curve defining the beds (OPT_BEDS = CLASS)</td><td><code>FACIES</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>INTERVAL <span class="src">(depth)</span></h3>
+<p>Block thickness (OPT_BEDS = INTERVAL)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 10000 depth</li>
+<li><b>Checked before the run:</b> <code>interval.required_when_interval</code> — INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters</div></li></ul>
+<h3>MIN_BED <span class="src">(depth)</span></h3>
+<p>Thinnest bed worth calling a bed (OPT_BEDS = AUTO)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 10000 depth</li>
+<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code> — MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters</div></li></ul>
+<h3>SENS</h3>
+<p>AUTO: how far off the bed's mean is a new bed, in noise units</p>
+<ul><li><b>Default:</b> 2 <span class="src">— source: Two-noise-units convention for change detection (same family as the Hampel K in condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0.5 to 20</li></ul>
+<h2>Options</h2>
+<h3>OPT_BEDS</h3>
+<p>What counts as one bed</p>
+<ul><li><b>Choices:</b><ul><li><code>INTERVAL</code> — equal slices of INTERVAL thickness</li>
+<li><code>CLASS</code> — each run of a constant value in the BEDS curve</li>
+<li><code>ZONES</code> — one value per marker interval</li>
+<li><code>AUTO</code> — boundaries found from the curve itself (inferred)</li></ul></li>
+<li><b>Default:</b> <code>INTERVAL</code></li></ul>
+<h3>OPT_STAT</h3>
+<p>How a bed's value is taken</p>
+<ul><li><b>Choices:</b><ul><li><code>MEAN</code> — arithmetic; right for porosity and volume fractions</li>
+<li><code>GEOMETRIC</code> — the usual estimate for permeability</li>
+<li><code>HARMONIC</code> — permeability across layers in series</li>
+<li><code>MEDIAN</code> — the middle sample of the bed</li>
+<li><code>MIN</code> — the lowest sample of the bed</li>
+<li><code>MAX</code> — the highest sample of the bed</li>
+<li><code>MODE</code> — the bed's commonest value; the only upscale for a class curve</li></ul></li>
+<li><b>Default:</b> <code>MEAN</code></li></ul>
+<h3>OPT_FLAG</h3>
+<p>Write the bed number each sample fell in</p>
+<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the bed-index curve</li>
+<li><code>NO</code> — the blocked curve only</li></ul></li>
+<li><b>Default:</b> <code>YES</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Blocked curve</td></tr>
+<tr><td>OUT_BED</td><td>Bed index</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

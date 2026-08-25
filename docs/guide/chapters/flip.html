@@ -1,0 +1,32 @@
+<!-- Authored walkthrough for the flip guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: flipping a curve about a pivot</h2>
+
+<p>Flip mirrors a curve: OUT&nbsp;=&nbsp;2·pivot&nbsp;−&nbsp;CURVE. The use
+case is an SP delivered with the wrong sign convention, or any reading that
+arrived inverted. The whole decision is the pivot.</p>
+
+<h3>The picks</h3>
+
+<p><b>VALUE, pivot −19&nbsp;mV</b> — the P95 of the three wells' pooled SP,
+read from the data as the shale baseline (P95 rather than the single maximum,
+so one stray sample cannot set the reference). VALUE is the only reproducible
+choice: MIDRANGE and MEAN are computed <i>per well</i>, so the same run gives
+each well a different pivot and two wells' flipped curves are no longer on a
+common scale — fine for a quick look, never for anything feeding a
+correlation. The run records whichever pivot it used in the companion curve,
+so even the per-well modes stay recoverable.</p>
+
+<figure>
+  <img src="../img/guide-flip-pane.png"
+       alt="The Flip Polarity pane, VALUE pivot at the shale baseline" />
+  <figcaption>One physical pivot for every well.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b> — and the mirror is exact: checked sample by
+sample against 2·(−19)&nbsp;−&nbsp;SP, <b>zero mismatches</b> across all 1185
+samples. The sand deflections that read −75&nbsp;mV now read +37 on the other
+side of the baseline; shale stays at the pivot.</p>

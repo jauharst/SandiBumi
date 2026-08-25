@@ -1,0 +1,36 @@
+<!-- Authored walkthrough for the smooth guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: smoothing after despiking, never instead of it</h2>
+
+<p>Smooth averages a curve over a thickness window: MEAN, MEDIAN (which keeps a
+step edge where a mean would ramp across it), or SAVGOL — a local quadratic
+least-squares fit evaluated at each sample, fitted on the real (depth, value)
+pairs rather than the textbook fixed coefficients, which assume even sampling
+and are wrong on an irregular frame.</p>
+
+<h3>The order rule</h3>
+
+<p><b>Despike first.</b> A least-squares smoother fits whatever is in the
+window, so over an un-despiked curve it fits the spike — the spike is not
+removed, it is spread over the window and made to look like rock. This run
+therefore takes the despiked <b>GR_C</b> as its input, not raw GR.</p>
+
+<h3>The picks</h3>
+
+<p><b>SAVGOL over the same 1&nbsp;m window</b> as the despike step, output
+renamed <b>GR_SM</b> — distinct conditioning steps get distinct names, so the
+provenance chain (GR → GR_C → GR_SM) reads in the Curve Catalog.</p>
+
+<figure>
+  <img src="../img/guide-smooth-pane.png"
+       alt="The Smooth pane, Savitzky-Golay on the despiked curve" />
+  <figcaption>Input GR_C, output GR_SM — the chain stays legible.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, 1185 samples out. One more contract worth
+knowing: a MISSING sample stays MISSING and no window bridges a gap — smoothing
+never fills, because a filled sample is a claim about rock nobody logged. Fill
+Gaps does that job, and flags what it invents.</p>

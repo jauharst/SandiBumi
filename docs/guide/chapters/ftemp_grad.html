@@ -1,0 +1,32 @@
+<!-- Authored walkthrough for the ftemp_grad guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: a formation-temperature trend</h2>
+
+<p>The simplest member of the prep shelf, and the one several others depend on:
+a linear temperature trend with depth. GRADIENT mode takes a surface temperature
+plus a constant gradient; BHT mode interpolates from the surface temperature to a
+measured bottom-hole temperature. Nearly every temperature-sensitive step
+downstream — the neutron environmental correction, gas correction through the
+precalc chain — reads the FTEMP curve this writes.</p>
+
+<h3>The picks</h3>
+
+<p>This run keeps the shipped metric starting values: <b>TSURF 26.7&nbsp;°C</b>
+and <b>TGRAD 0.0474&nbsp;°C/m</b>. They are starting values, not a calibration —
+refit them from your own BHT or DST data per basin. On a metric well the gradient
+must be per metre; a feet-based gradient entered unconverted runs ~3.3× hot.</p>
+
+<figure>
+  <img src="../img/guide-ftemp-pane.png"
+       alt="The Formation Temperature pane in GRADIENT mode" />
+  <figcaption>GRADIENT mode; BHT and TD_BHT stay empty unless BHT mode is
+    chosen.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. FTEMP runs 97.6–101.1&nbsp;°C across the
+1495–1570&nbsp;m logged interval — exactly the linear arithmetic, which is the
+point: the module states a trend, and whether that trend is right is a question
+for your own temperature data.</p>

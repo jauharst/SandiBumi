@@ -1,0 +1,42 @@
+<!-- Authored walkthrough for the precalc guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: reservoir-condition inputs in one pass</h2>
+
+<p>Pre-Calculation writes the curves the saturation and SandiMin work will keep
+asking for: formation temperature (always in °C, whatever unit you entered the
+trend in — plus FTEMP_F for SandiMin's fluid-property entry), formation pressure,
+mud-filtrate resistivity Arps-converted to formation temperature, and the QC
+conductivities CT and CXO.</p>
+
+<h3>The picks, each with its defence</h3>
+
+<ul>
+  <li><b>OPT_TU degC, 26.7 + 0.0474&nbsp;°C/m</b> — the metric restatement of the
+    shipped feet-based trend (and exactly ftemp_grad's metric starting values).
+    The shipped 77&nbsp;°F / 0.026&nbsp;°F/ft pair is feet-based; entering it
+    unconverted on a metric well is the recorded 66&nbsp;°C mistake.</li>
+  <li><b>PSURF 14.7 + PGRAD 1.42&nbsp;psi/m</b> — atmospheric surface pressure
+    plus the freshwater hydrostatic gradient (0.433&nbsp;psi/ft restated per
+    metre). A physical constant as a starting point, not a field fit; a measured
+    pressure gradient replaces it the moment you have one.</li>
+  <li><b>ARPS, Rmf 0.2&nbsp;ohmm at 25&nbsp;°C</b> — the module's own worked
+    example, standing in for the mud report this synthetic delivery does not
+    have.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-precalc-pane.png"
+       alt="The Pre-Calculation pane with metric entries" />
+  <figcaption>Temperatures entered in the declared OPT_TU unit; FTEMP is written
+    in °C regardless.</figcaption>
+</figure>
+
+<h3>Run and read: degraded is a statement, not a failure</h3>
+
+<p>On these wells: <b>0 clean · 3 degraded</b> — and the degradation is the
+module being precise about what it could not do. This delivery carries no RXO
+curve, so CXO has <b>zero finite samples</b> (1185 rows, all missing) while
+FTEMP, FPRESS, RMF_FT and CT are complete. A missing input degrades exactly the
+outputs that need it and says so per well in Processing → details; it never
+fails the run or invents a flushed-zone conductivity.</p>

@@ -1,0 +1,131 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bad-Hole QC Flag — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Bad-Hole QC Flag</h1>
+<p class="modmeta">Module id <code>badhole</code> · category <b>Prep</b></p>
+<p>Flags samples where the borehole departs from gauge or the density correction is too large to trust the porosity logs. The flag is 1 in bad hole, 0 in good hole, and MISSING where no criterion could be evaluated; companion curves record which criterion fired and which were evaluable at all.</p>
+<pre class="equations">BADHOLE = 1 where |DRHO| &gt; DRHO_MAX or |CALI − BS| &gt; DCAL_MAX
+BS from the BS curve where present, else the interpreter's BS_INPUT; no value is substituted when both are absent</pre>
+<!-- Authored walkthrough for the badhole guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: the bad-hole flag</h2>
+
+<p>BADHOLE is the QC gate the rest of the interpretation masks on: 1 where the
+borehole departs from gauge or the density correction is too large to trust the
+porosity logs, 0 in good hole, MISSING where no criterion could be evaluated at
+all. The companion curves are the part worth learning: the <code>_EVALUATED</code>
+pair records which criteria were even checkable, and the cause flags record which
+one fired.</p>
+
+<h3>The picks</h3>
+
+<p><b>DCAL_MAX 1&nbsp;in</b> (shipped) and <b>BS_INPUT 8.5&nbsp;in</b> — this
+delivery has no BS curve, and its in-gauge caliper reads ~8.6&nbsp;in, the
+standard 8½-in bit. No DRHO was delivered either, which sets up the honest
+half of this chapter.</p>
+
+<figure>
+  <img src="../img/guide-badhole-pane.png"
+       alt="The Bad-Hole QC pane with the bit size entered" />
+  <figcaption>DRHO, CALI and BS are all optional inputs — the flag evaluates
+    whatever the delivery actually carries.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, with <b>612 of 1185 samples flagged</b> — the
+dataset's designed washout intervals, where CALI jumps ~2.5&nbsp;in over bit.
+And the evaluated companions tell the full story:
+<b>BADHOLE_DRHO_EVALUATED&nbsp;=&nbsp;0 everywhere</b> (no DRHO was delivered, so
+the density-correction criterion was never checked) while CALI_EVALUATED&nbsp;=&nbsp;1.
+A reader of the flag alone would not know half the QC never ran; the companions
+exist so that fact is a curve, not a memory. Feed BADHOLE as the Mask on any
+later run.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>BADHOLE = 1 where the borehole departs from gauge or the density correction is large enough to distrust the porosity logs: |DRHO| &gt; DRHO_MAX, or |CALI - bit size| &gt; DCAL_MAX. Bit size comes from the BS curve where present, or the interpreter's optional BS_INPUT; no value is substituted when both are absent, so only DRHO can be evaluated. The flag is 0 in good hole and MISSING where no QC criterion can be evaluated. The two BADHOLE_*_EVALUATED companions record criterion availability with 1 = evaluated and 0 = unavailable; the BADHOLE_CALI / BADHOLE_DRHO_POS / BADHOLE_DRHO_NEG cause flags record which criterion fired, with the DRHO sign carried natively (DEC-060). Feed BADHOLE to any module run as a mask so flagged intervals go missing instead of polluting results.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>DRHO</td><td>Density correction log</td><td><code>DRHO</code></td><td>no</td><td>—</td></tr>
+<tr><td>CALI</td><td>Caliper log</td><td><code>CALI</code></td><td>no</td><td>—</td></tr>
+<tr><td>BS</td><td>Bit size log</td><td><code>BS</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>DRHO_MAX</h3>
+<p>Max acceptable density correction (starting value in g/cc)</p>
+<ul><li><b>Default:</b> 0.05 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 0.5</li></ul>
+<h3>DCAL_MAX <span class="src">(in)</span></h3>
+<p>Max acceptable absolute caliper departure from bit size</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 12 in</li></ul>
+<h3>BS_INPUT <span class="src">(in)</span></h3>
+<p>Optional explicit bit size when the BS curve is absent — blank means unavailable</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li></ul>
+<h2>Options</h2>
+<h3>DRHO_MAX_UNIT</h3>
+<p>Unit of the density-correction threshold; required when DRHO is present</p>
+<ul><li><b>Choices:</b><ul><li><code>g/cc</code> — g/cc</li>
+<li><code>kg/m3</code> — kg/m3</li></ul></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>BADHOLE</td><td>Bad-hole flag (1 = bad, 0 = good) <span class="src">(flag: EXCLUSION_MASK)</span></td></tr>
+<tr><td>BADHOLE_CALI</td><td>Caliper departure fired (DEC-060 bad-hole cause group; MISSING where the criterion was not evaluable) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>BADHOLE_DRHO_POS</td><td>Density correction fired with positive sign (DEC-060 bad-hole cause group; MISSING where DRHO was not evaluable) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>BADHOLE_DRHO_NEG</td><td>Density correction fired with negative sign (DEC-060 bad-hole cause group; MISSING where DRHO was not evaluable) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>BADHOLE_CALI_EVALUATED</td><td>Caliper criterion availability (1 = evaluated, 0 = unavailable) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>BADHOLE_DRHO_EVALUATED</td><td>Density-correction criterion availability (1 = evaluated, 0 = unavailable) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

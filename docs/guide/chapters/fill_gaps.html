@@ -1,0 +1,37 @@
+<!-- Authored walkthrough for the fill_gaps guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: filling gaps, and confessing to every one</h2>
+
+<p>Fill Gaps interpolates across holes no wider than MAX_GAP — LINEAR between
+the bounding live samples, or HOLD carrying the last value down (the honest
+choice for a blocky curve, where a ramp would draw a transition the rock does
+not have). The defining feature is the flag: <b>every invented sample is marked
+in the <code>_FILL</code> companion</b>, because a filled value is not a
+measurement, and without the flag nothing downstream could tell them apart.</p>
+
+<h3>The picks</h3>
+
+<p><b>LINEAR, MAX_GAP 2&nbsp;m, on GR_CLP</b> — the gaps the clip
+demonstration just made. This generated delivery carries no native gaps of its
+own (every standard curve is complete — checked before choosing this input),
+so the clip step exists precisely to give this one something real to do.
+MAX_GAP has no default: how far interpolation is defensible depends on why the
+data is missing, and no single value is right twice.</p>
+
+<figure>
+  <img src="../img/guide-fillgaps-pane.png"
+       alt="The Fill Gaps pane, LINEAR with a 2 m cap on the clipped curve" />
+  <figcaption>Output GR_FIL, with GR_FIL_FILL flagging every invented
+    sample.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. Of the 184 blanked samples, <b>181 were
+refilled and flagged; 3 stayed MISSING</b> — a hole wider than the 2&nbsp;m cap,
+or open at one end. That remainder is the two refusal rules working: a gap
+wider than declared is not bridged, and <b>a gap open at one end is never
+filled</b>, because filling it would extrapolate past where the tool stopped.
+On a real study, mask on the <code>_FILL</code> flag to take the invented
+samples back out of any run that must see only measurements.</p>

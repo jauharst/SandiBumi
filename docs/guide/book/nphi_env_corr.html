@@ -1,0 +1,125 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Neutron Environmental Correction — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Neutron Environmental Correction</h1>
+<p class="modmeta">Module id <code>nphi_env_corr</code> · category <b>Prep</b></p>
+<p>Linearized environmental correction for the neutron log: a formation-temperature term about a reference temperature and a formation-salinity term. Requires formation temperature from the Formation Temperature module; without it only the salinity term applies.</p>
+<pre class="equations">NPHI_EC = NPHI + K_TEMP·(FTEMP − T_REF) + K_SAL·(SALW/100000)</pre>
+<!-- Authored walkthrough for the nphi_env_corr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: neutron environmental terms</h2>
+
+<p>A linearized environmental correction for the neutron log:
+NPHI_EC&nbsp;=&nbsp;NPHI&nbsp;+&nbsp;K_TEMP·(FTEMP&nbsp;−&nbsp;T_REF)&nbsp;+&nbsp;K_SAL·(SALW/100000).
+Two terms, both about the difference between the chart reference conditions the
+tool was characterized at and the formation the log was actually run in.</p>
+
+<h3>The picks</h3>
+
+<p>The shipped coefficients are <b>practitioner starting values</b> — replace
+them with values read from the applicable CNL chart for the tool in hand where
+one is available. <b>SALW stays 0</b>, the chart reference condition itself
+(fresh): until the study declares its formation salinity the salinity term is
+deliberately inert, rather than defaulted to somebody else's brine. Run
+Formation Temperature first — without FTEMP only the salinity term can apply.</p>
+
+<figure>
+  <img src="../img/guide-nphienv-pane.png"
+       alt="The Neutron Environmental Correction pane at its starting values" />
+  <figcaption>K_TEMP about T_REF 21.1 °C; the salinity term waits for a declared
+    SALW.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. With FTEMP running ~98–101&nbsp;°C against
+T_REF 21.1, the temperature term applies a small uniform shift; the salinity
+term contributes nothing at SALW&nbsp;=&nbsp;0, by construction. Order matters
+across this shelf: environmental corrections come <i>before</i> the matrix
+conversion, because the equivalence charts assume corrected logs.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>NPHI_EC = NPHI + K_TEMP*(FTEMP - T_REF) + K_SAL*(SALW/100000): linearized formation-temperature and formation-salinity terms. The coefficients ship as DEC-077 practitioner starting values - replace them with values read from the applicable CNL chart for the tool in hand where one is available. Requires FTEMP (run Formation Temperature first) for the temperature term; without it only the salinity term applies. SALW defaults to the chart reference condition itself (fresh, zero), so the salinity term is inert until the study declares its formation salinity.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>NPHI</td><td>Neutron porosity log</td><td><code>NPHI</code></td><td>yes</td><td>—</td></tr>
+<tr><td>FTEMP</td><td>Formation temperature (precalc)</td><td><code>FTEMP</code></td><td>no</td><td>resolved from computed curves only, never the RAW import store</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>K_TEMP <span class="src">(v/v per degC)</span></h3>
+<p>Temperature coefficient</p>
+<ul><li><b>Default:</b> 0.0001 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> -0.01 to 0.01 v/v per degC</li></ul>
+<h3>T_REF <span class="src">(degC)</span></h3>
+<p>Chart reference temperature</p>
+<ul><li><b>Default:</b> 21.1 <span class="src">— source: Halliburton LWD Log Interpretation Charts (Sperry Drilling, 2018) book pp. 268/270: 'The reference temperature is 70 F' / fresh water at atmospheric pressure and 70 F (21.1 C); adopted by Jauhar adjudication DEC-077 (2026-08-19), replacing the uncited 24.0; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 100 degC</li></ul>
+<h3>K_SAL <span class="src">(v/v)</span></h3>
+<p>Salinity coefficient per 100 kppm</p>
+<ul><li><b>Default:</b> -0.002 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> -0.05 to 0.05 v/v</li></ul>
+<h3>SALW <span class="src">(ppm)</span></h3>
+<p>Formation water salinity</p>
+<ul><li><b>Default:</b> 0 <span class="src">— source: Fresh-water reference condition (concentration zero) - the three-vendor agreement: GE CNL panel ships 0 kppm (IP 2025 F_qc section 3), the SLB panel value is a unit artifact that is effectively fresh, and Halliburton's chart axes are kppm Cl- referenced to fresh water (book pp. 268-269); adopted by Jauhar adjudication DEC-077 (2026-08-19) - the correction is inert until the study declares its salinity; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 300000 ppm</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>NPHI_EC</td><td>Environmentally corrected neutron porosity</td></tr>
+<tr><td>NPHI_EC_FULL</td><td>Correction applied in full at this sample (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>NPHI_EC_PARTIAL</td><td>Correction applied in part at this sample (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>NPHI_EC_NONE</td><td>Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>NPHI_EC_REFUSED</td><td>Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

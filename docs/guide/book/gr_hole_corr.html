@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GR Hole-Size Correction — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>GR Hole-Size Correction</h1>
+<p class="modmeta">Module id <code>gr_hole_corr</code> · category <b>Prep</b></p>
+<p>Linear borehole-enlargement correction for the gamma-ray log: counts attenuated by the extra mud annulus in an oversize hole are restored in proportion to the enlargement.</p>
+<pre class="equations">GR_EC = GR·(1 + K_GR·(CALI − BS))
+BS from the BS curve where present, else BS_DEF</pre>
+<!-- Authored walkthrough for the gr_hole_corr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: restoring gamma counts in an oversize hole</h2>
+
+<p>Gamma rays crossing an extra annulus of mud are attenuated, so a washed-out
+hole reads GR low — and a low GR in a washout looks like sand. The correction is
+linear in the enlargement: GR_EC&nbsp;=&nbsp;GR·(1&nbsp;+&nbsp;K_GR·(CALI&nbsp;−&nbsp;BS)).</p>
+
+<h3>The picks</h3>
+
+<p><b>K_GR 0.0075</b> (shipped) and <b>BS_DEF 8.5&nbsp;in</b> — no BS curve in
+this delivery, the same bit-size argument as the bad-hole run. One contract to
+know: the run <b>refuses if CALI is missing at any finite GR sample</b> — it will
+never write an unmarked, uncorrected copy under the corrected name, because a
+GR_EC that is secretly raw GR is unfalsifiable downstream.</p>
+
+<figure>
+  <img src="../img/guide-grhole-pane.png"
+       alt="The GR Hole-Size Correction pane" />
+  <figcaption>Correction-extent companion curves record where the correction
+    applied in full, in part, or not at all.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. <b>615 samples corrected upward</b> — the
+washout intervals — by <b>+1.46&nbsp;gAPI on average, +1.8 at most</b>. Small
+numbers, deliberately: a linear starting coefficient on a two-and-a-half-inch
+washout. The shape is what matters — the sand that a washout was dressing as
+cleaner than it is gets its shale back.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>GR_EC = GR * (1 + K_GR*(CALI - BS)): linear borehole-enlargement correction — gamma rays attenuated by the extra mud annulus are restored. Bit size from the BS curve where present, else BS_DEF. The public runner refuses if CALI is missing at any finite GR sample; it never writes an unmarked uncorrected GR_EC copy.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray log</td><td><code>GR</code></td><td>yes</td><td>—</td></tr>
+<tr><td>CALI</td><td>Caliper log</td><td><code>CALI</code></td><td>no</td><td>—</td></tr>
+<tr><td>BS</td><td>Bit size log</td><td><code>BS</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>K_GR <span class="src">(1/in)</span></h3>
+<p>Correction per inch of enlargement</p>
+<ul><li><b>Default:</b> 0.0075 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 0.05 1/in</li></ul>
+<h3>BS_DEF <span class="src">(in)</span></h3>
+<p>Bit size when BS curve is absent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 3 to 30 in</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>GR_EC</td><td>Environmentally corrected gamma ray</td></tr>
+<tr><td>GR_EC_FULL</td><td>Correction applied in full at this sample (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>GR_EC_PARTIAL</td><td>Correction applied in part at this sample (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>GR_EC_NONE</td><td>Correction not applied at this sample - the raw value passed through under the corrected name (DEC-060 ENVCORR one-hot group) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>GR_EC_REFUSED</td><td>Refused on a precondition at this sample (DEC-060 ENVCORR one-hot group; refusals today are whole-run and carry no outputs, so 0 wherever sampled) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

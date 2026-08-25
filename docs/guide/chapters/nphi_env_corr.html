@@ -1,0 +1,33 @@
+<!-- Authored walkthrough for the nphi_env_corr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: neutron environmental terms</h2>
+
+<p>A linearized environmental correction for the neutron log:
+NPHI_EC&nbsp;=&nbsp;NPHI&nbsp;+&nbsp;K_TEMP·(FTEMP&nbsp;−&nbsp;T_REF)&nbsp;+&nbsp;K_SAL·(SALW/100000).
+Two terms, both about the difference between the chart reference conditions the
+tool was characterized at and the formation the log was actually run in.</p>
+
+<h3>The picks</h3>
+
+<p>The shipped coefficients are <b>practitioner starting values</b> — replace
+them with values read from the applicable CNL chart for the tool in hand where
+one is available. <b>SALW stays 0</b>, the chart reference condition itself
+(fresh): until the study declares its formation salinity the salinity term is
+deliberately inert, rather than defaulted to somebody else's brine. Run
+Formation Temperature first — without FTEMP only the salinity term can apply.</p>
+
+<figure>
+  <img src="../img/guide-nphienv-pane.png"
+       alt="The Neutron Environmental Correction pane at its starting values" />
+  <figcaption>K_TEMP about T_REF 21.1 °C; the salinity term waits for a declared
+    SALW.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. With FTEMP running ~98–101&nbsp;°C against
+T_REF 21.1, the temperature term applies a small uniform shift; the salinity
+term contributes nothing at SALW&nbsp;=&nbsp;0, by construction. Order matters
+across this shelf: environmental corrections come <i>before</i> the matrix
+conversion, because the equivalence charts assume corrected logs.</p>

@@ -1,0 +1,132 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Formation Temperature — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Formation Temperature</h1>
+<p class="modmeta">Module id <code>ftemp_grad</code> · category <b>Prep</b></p>
+<p>Formation temperature from a linear trend. GRADIENT mode takes a surface temperature plus a constant gradient with depth; BHT mode interpolates linearly from the surface temperature to a bottom-hole temperature at its measured depth.</p>
+<pre class="equations">GRADIENT: FTEMP = TSURF + TGRAD·depth
+BHT: FTEMP = TSURF + (BHT − TSURF)·depth/TD_BHT</pre>
+<!-- Authored walkthrough for the ftemp_grad guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: a formation-temperature trend</h2>
+
+<p>The simplest member of the prep shelf, and the one several others depend on:
+a linear temperature trend with depth. GRADIENT mode takes a surface temperature
+plus a constant gradient; BHT mode interpolates from the surface temperature to a
+measured bottom-hole temperature. Nearly every temperature-sensitive step
+downstream — the neutron environmental correction, gas correction through the
+precalc chain — reads the FTEMP curve this writes.</p>
+
+<h3>The picks</h3>
+
+<p>This run keeps the shipped metric starting values: <b>TSURF 26.7&nbsp;°C</b>
+and <b>TGRAD 0.0474&nbsp;°C/m</b>. They are starting values, not a calibration —
+refit them from your own BHT or DST data per basin. On a metric well the gradient
+must be per metre; a feet-based gradient entered unconverted runs ~3.3× hot.</p>
+
+<figure>
+  <img src="../img/guide-ftemp-pane.png"
+       alt="The Formation Temperature pane in GRADIENT mode" />
+  <figcaption>GRADIENT mode; BHT and TD_BHT stay empty unless BHT mode is
+    chosen.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. FTEMP runs 97.6–101.1&nbsp;°C across the
+1495–1570&nbsp;m logged interval — exactly the linear arithmetic, which is the
+point: the module states a trend, and whether that trend is right is a question
+for your own temperature data.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>GRADIENT: FTEMP = TSURF + TGRAD*depth. BHT: linear interpolation from surface temperature to bottom-hole temperature at TD_BHT.</p>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>TSURF <span class="src">(degC)</span></h3>
+<p>Surface temperature (whole well)</p>
+<ul><li><b>Default:</b> 26.7 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 50 degC</li>
+<li><b>One value per well</b> — a named-zone override of this parameter is refused.</li></ul>
+<h3>TGRAD <span class="src">(degC/m)</span></h3>
+<p>Temperature gradient (whole well)</p>
+<ul><li><b>Default:</b> 0.0474 <span class="src">— source: Jauhar ruling DEC-085 R-3 (2026-08-20): the house default gradient is 0.026 degF/ft - this is that value in this parameter's degC/m unit (0.026 x (5/9) / 0.3048 = 0.04739, rounded 0.0474), ending the 58 percent disagreement with precalc.TEMP_GRAD that AUDIT-2026-08-20 finding 30 measured (~33 degC apart at 2000 m, ~25 percent in Rw). Supersedes the 0.03 degC/m DEC-077 carried; starting value, refit per basin as ever; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0.005 to 0.1 degC/m</li>
+<li><b>One value per well</b> — a named-zone override of this parameter is refused.</li></ul>
+<h3>BHT <span class="src">(degC)</span></h3>
+<p>Bottom hole temperature (whole well)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 30 to 250 degC</li>
+<li><b>One value per well</b> — a named-zone override of this parameter is refused.</li>
+<li><b>Checked before the run:</b> <code>bht.required_when_bht</code> — BHT is required when OPT_FT = BHT. Applies when: [object Object].
+    <div class="src">Source: Absent by Jauhar adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md</div></li></ul>
+<h3>TD_BHT <span class="src">(m)</span></h3>
+<p>Depth of BHT measurement (whole well)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 100 to 10000 m</li>
+<li><b>One value per well</b> — a named-zone override of this parameter is refused.</li>
+<li><b>Checked before the run:</b> <code>td_bht.required_when_bht</code> — TD_BHT is required when OPT_FT = BHT. Applies when: [object Object].
+    <div class="src">Source: Absent by Jauhar adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_FT</h3>
+<p>Temperature model</p>
+<ul><li><b>Choices:</b><ul><li><code>GRADIENT</code></li>
+<li><code>BHT</code></li></ul></li>
+<li><b>Default:</b> <code>GRADIENT</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>FTEMP</td><td>Formation temperature</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>
