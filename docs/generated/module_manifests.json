@@ -12837,10 +12837,10 @@
         "SKELT: SWH = 1 − SH_A·exp(−(SH_B/(h + SH_D))^SH_C)  (h in metres)"
       ],
       "references": [
-        "Leverett - the J-function",
-        "Skelt-Harrison - the height-saturation law"
+        "Leverett, M.C. (1941), Transactions AIME 142 - the J-function",
+        "Skelt, C. & Harrison, B. (1995), SPWLA - the height-saturation law"
       ],
-      "note": "Model-family names as this project's records hold them; the full primary citations are pending verification."
+      "note": ""
     }
   },
   {
