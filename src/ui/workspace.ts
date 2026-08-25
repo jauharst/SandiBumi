@@ -1523,7 +1523,8 @@ export class Workspace {
     cutoff: "Cutoff Sensitivity — sweep net pay against VSH/PHIE/SW cutoffs and read them off DST-highlighted crossplots.",
     ml: "Machine Learning — supervised prediction (regression/classification) and unsupervised clustering/reduction via scikit-learn.",
     montecarlo: "Monte Carlo — propagate input uncertainty through the interpretation to P10/P50/P90 volumes.",
-    multimin: "SandiMin — the simultaneous probabilistic multi-mineral solver. (Full guide is being written.)",
+    multimin:
+      "SandiMin — the simultaneous probabilistic multi-mineral solver: pick components from the library, edit endpoints, zone the fluids, and solve. The solver specs live in the project's docs; the retired fixed-component Multimin's guidebook page explains the succession.",
     zones: "Zones — define depth zones and per-zone parameters that override the whole-well defaults used by modules.",
     autocorr: "Autocorrelate Tops — propagate a top from one well to others by matching a log's shape.",
     composite: "Composite Log — lay out a print-scale (1:200/500/1000) log plot and export it to SVG or PDF.",

@@ -1,0 +1,152 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brittleness index (elastic / mineralogical) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Unconventional</div>
+<h1>Brittleness index (elastic / mineralogical)</h1>
+<p class="modmeta">Module id <code>brittleness</code> · category <b>Unconventional</b></p>
+<p>Brittleness index, 0 ductile to 1 brittle, two ways: elastic - dynamic Young's modulus and Poisson's ratio from the sonic pair and density, normalized and averaged per Rickman - or mineralogical, from a mineral solve's volume fractions.</p>
+<pre class="equations">G = ρ·Vs²;  K = ρ·(Vp² − 4/3·Vs²);  ν = (3K − 2G)/(2(3K + G));  E = 9KG/(3K + G)
+Rickman: BI = (E_norm + ν_norm)/2, E over E_LO..E_HI (Mpsi), ν over NU_LO..NU_HI
+Jarvie: BI = Qz/(Qz + carbonate + clay)
+Wang-Gale: BI = (Qz + Dol)/(Qz + Dol + calcite + clay + organic)</pre>
+<h2>References</h2>
+<ul><li>Rickman, Mullen, Petre, Grieser &amp; Kundert (2008), SPE 115258</li>
+<li>Jarvie et al. (2007), AAPG Bulletin 91</li>
+<li>Wang &amp; Gale (2009), GCAGS Transactions 59</li></ul>
+<p class="note">The shipped normalization endpoints (1-8 Mpsi, 0.40-0.15) are Rickman's own Barnett calibration on dynamic log values - recalibrate per basin, and apply any static correction after this index, not before. Mineral volumes come from a SandiMin run; a missing mineral counts as absent.</p>
+<!-- Authored walkthrough for the brittleness guidebook chapter. Outcomes captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: brittleness, and what it refuses without</h2>
+
+<p>Brittleness index, 0 ductile to 1 brittle, two ways. <b>Elastic</b>: dynamic
+Young's modulus and Poisson's ratio from the sonic pair and density, each
+normalized and averaged per Rickman. <b>Mineralogical</b>: Jarvie's
+quartz-over-total or Wang-Gale's quartz-plus-dolomite variant, consuming a
+SandiMin run's volume fractions.</p>
+
+<h3>What this delivery cannot answer — and how the app says so</h3>
+
+<p>Both routes were run, and both report <b>0 clean · 3 failed</b> — correctly.
+The elastic route needs a shear sonic, and this delivery carries none: no
+sample can produce a modulus, so the run reports failure rather than versioning
+an all-missing interpretation (the same <i>answered</i> contract every module
+follows). The mineral routes need a SandiMin volume solve, which this project
+has not run. A failed run that says why beats a zero that computes.</p>
+
+<figure>
+  <img src="../img/guide-brittleness-pane.png"
+       alt="The Brittleness pane in elastic mode" />
+  <figcaption>DT/DTS/RHOB feed the elastic route; the V-slots map whatever your
+    SandiMin run produced.</figcaption>
+</figure>
+
+<h3>When you have the inputs</h3>
+
+<ul>
+  <li>The shipped normalization endpoints (E 1–8&nbsp;Mpsi, ν 0.40–0.15) are
+    Rickman's own Barnett calibration <i>on dynamic log values</i> — recalibrate
+    per basin, and apply any static correction after this index for frac work,
+    never before it.</li>
+  <li>The V-slots take whatever tokens your SandiMin run produced — there is no
+    hard-coded mineral dependence. A missing mineral counts as absent, so map
+    every phase you solved for or the index quietly re-weights.</li>
+  <li>Between Jarvie and Wang-Gale the difference is dolomite: Wang-Gale counts
+    it brittle. On a dolomitic section the two disagree by construction — pick
+    per your fracture data, not per taste.</li>
+</ul>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Brittleness index (0 ductile .. 1 brittle) two ways. METHOD=elastic: dynamic Young's modulus and Poisson's ratio from DT, DTS, RHOB (G=ρ·Vs², K=ρ·(Vp²−4/3·Vs²), ν=(3K−2G)/(2(3K+G)), E=9KG/(3K+G), with Vp,Vs in km/s = 304.8/slowness, moduli in GPa, E→Mpsi), then Rickman et al. 2008 BI=(E_norm+ν_norm)/2 with E normalized over E_LO..E_HI Mpsi and ν over NU_LO..NU_HI (Barnett defaults 1..8 and 0.4..0.15 — recalibrate per basin). METHOD=mineral_jarvie: Jarvie 2007 BI=Qz/(Qz+carbonate+clay). METHOD=mineral_wanggale: Wang &amp; Gale 2009 BI=(Qz+Dol)/(Qz+Dol+calcite+clay+organic) — dolomite counts brittle. Mineral volumes come from a SandiMin run (VOL_*); a missing mineral is treated as absent. Elastic E,ν are DYNAMIC (apply a static correlation before geomechanics). Cite: Rickman et al. 2008 (SPE 115258); Jarvie et al. 2007; Wang &amp; Gale 2009. See docs/ref_unconventional.md §4.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>DT</td><td>Compressional Δt (elastic)</td><td><code>DT</code></td><td>no</td><td>—</td></tr>
+<tr><td>DTS</td><td>Shear Δt (elastic)</td><td><code>DTS</code></td><td>no</td><td>—</td></tr>
+<tr><td>RHOB</td><td>Bulk density (elastic)</td><td><code>RHOB</code></td><td>no</td><td>—</td></tr>
+<tr><td>VQTZ</td><td>Quartz volume (mineral)</td><td><code>VOL_QUARTZ</code></td><td>no</td><td>—</td></tr>
+<tr><td>VCARB</td><td>Calcite volume (mineral)</td><td><code>VOL_CALCITE</code></td><td>no</td><td>—</td></tr>
+<tr><td>VDOL</td><td>Dolomite volume (mineral)</td><td><code>VOL_DOLOMITE</code></td><td>no</td><td>—</td></tr>
+<tr><td>VCLAY</td><td>Clay volume (mineral)</td><td><code>VCL</code></td><td>no</td><td>accepts quantity kind: VCL</td></tr>
+<tr><td>VORG</td><td>Organic / kerogen volume (Wang-Gale)</td><td><code>VKER</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>E_LO <span class="src">(Mpsi)</span></h3>
+<p>Young's modulus at BI=0 (ductile)</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: IP equation and cited publication; docs/PRD_v2/19_toc-unconventional.md §5</span></li>
+<li><b>Accepted range:</b> 0 to 20 Mpsi</li></ul>
+<h3>E_HI <span class="src">(Mpsi)</span></h3>
+<p>Young's modulus at BI=1 (brittle)</p>
+<ul><li><b>Default:</b> 8 <span class="src">— source: IP equation and Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md §5</span></li>
+<li><b>Accepted range:</b> 0 to 20 Mpsi</li></ul>
+<h3>NU_LO <span class="src">(-)</span></h3>
+<p>Poisson's ratio at BI=0 (ductile)</p>
+<ul><li><b>Default:</b> 0.4 <span class="src">— source: IP equation and Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md §5</span></li>
+<li><b>Accepted range:</b> 0 to 0.5 -</li></ul>
+<h3>NU_HI <span class="src">(-)</span></h3>
+<p>Poisson's ratio at BI=1 (brittle)</p>
+<ul><li><b>Default:</b> 0.15 <span class="src">— source: IP equation and Rickman et al. SPE 115258; docs/PRD_v2/19_toc-unconventional.md §5</span></li>
+<li><b>Accepted range:</b> 0 to 0.5 -</li></ul>
+<h2>Options</h2>
+<h3>METHOD</h3>
+<p>Brittleness basis</p>
+<ul><li><b>Choices:</b><ul><li><code>elastic</code></li>
+<li><code>mineral_jarvie</code></li>
+<li><code>mineral_wanggale</code></li></ul></li>
+<li><b>Default:</b> <code>elastic</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>BI</td><td>Brittleness index (0 ductile .. 1 brittle)</td></tr>
+<tr><td>YME</td><td>Dynamic Young's modulus (elastic)</td></tr>
+<tr><td>PR</td><td>Dynamic Poisson's ratio (elastic)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

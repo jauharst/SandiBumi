@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Electrofacies (K-means) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Facies</div>
+<h1>Electrofacies (K-means)</h1>
+<p class="modmeta">Module id <code>electrofacies</code> · category <b>Facies</b></p>
+<p>Unsupervised electrofacies by k-means: this well's samples are clustered in the space of the supplied curves (z-scored by default, so mixed units are comparable) into K classes. Labels are ordered by the mean of the first supplied curve - usually GR - so FACIES 0 is the cleanest class and the numbering is monotone in shaliness.</p>
+<pre class="equations">assign each sample to the nearest of K centroids in z-scored curve space
+centroids re-estimated as class means, iterated to convergence (k-means++ seeding, best of several starts)
+labels reordered by ascending mean of the first curve</pre>
+<!-- Authored walkthrough for the electrofacies guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: unsupervised facies by k-means</h2>
+
+<p>Electrofacies clusters each well's samples in the space of the supplied curves
+— z-scored by default so mixed units are comparable — into K classes. The
+convention worth knowing: labels are ordered by the mean of the <i>first</i>
+supplied curve, usually GR, so FACIES 0 is the cleanest class and the numbering
+is monotone in shaliness. Clustering is per well and deterministic for a given
+seed.</p>
+
+<h3>The picks</h3>
+
+<p>Shipped defaults throughout: <b>K&nbsp;5, seed 42</b>, z-scored
+GR/RHOB/NPHI/DT/SP. K is the interpretation decision here — start near the number
+of lithologies you expect and judge the result on a log, not on a statistic. Any
+curve slot with no data is dropped; a sample missing any present curve gets
+FACIES&nbsp;=&nbsp;MISSING.</p>
+
+<figure>
+  <img src="../img/guide-electrofacies-pane.png"
+       alt="The Electrofacies pane with the default five curves" />
+  <figcaption>GR first, so class numbering tracks shaliness.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. The pooled census over 1164 classified
+samples: 267 / 297 / 15 / 198 / 387 across facies 0–4. Class 2's 15 samples are
+the number to interrogate — a class that thin is either a real thin lithology or
+K set one too high. Put FACIES in a track as class blocks (the Facies layout
+ships with the block style) and judge it against the log before anything
+consumes it.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Unsupervised electrofacies: k-means clusters the samples of THIS well in the space of the supplied curves (each feature z-scored by default, so mixed units are comparable) into K facies. Any curve slot with no data is dropped; a sample missing any present curve gets FACIES = MISSING. Cluster labels are ordered by the mean of the first supplied curve (usually GR), so FACIES 0 is the cleanest class and the numbering is monotone in shaliness. Clustering is per well and deterministic for a given seed. Output: FACIES (integer 0..K-1).</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE1</td><td>Curve 1 (also orders the facies)</td><td><code>GR</code></td><td>yes</td><td>—</td></tr>
+<tr><td>CURVE2</td><td>Curve 2 (optional)</td><td><code>RHOB</code></td><td>no</td><td>—</td></tr>
+<tr><td>CURVE3</td><td>Curve 3 (optional)</td><td><code>NPHI</code></td><td>no</td><td>—</td></tr>
+<tr><td>CURVE4</td><td>Curve 4 (optional)</td><td><code>DT</code></td><td>no</td><td>—</td></tr>
+<tr><td>CURVE5</td><td>Curve 5 (optional)</td><td><code>SP</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>K</h3>
+<p>Number of facies (clusters)</p>
+<ul><li><b>Default:</b> 5 <span class="src">— source: SandiBumi facies.rs native K default 5, corroborated by two Techlog modules; docs/PRD_v2/24_ml-advanced.md §5</span></li>
+<li><b>Accepted range:</b> 2 to 12</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>cluster_count</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>SEED</h3>
+<p>Random seed (reproducibility)</p>
+<ul><li><b>Default:</b> 42 <span class="src">— source: SandiBumi shared ML seed decision at ml.rs:64 and facies.rs SEED_DEFAULT; docs/PRD_v2/24_ml-advanced.md §5</span></li>
+<li><b>Accepted range:</b> 0 to 1000000000</li></ul>
+<h2>Options</h2>
+<h3>OPT_STANDARDIZE</h3>
+<p>Feature scaling</p>
+<ul><li><b>Choices:</b><ul><li><code>ZSCORE</code></li>
+<li><code>NONE</code></li></ul></li>
+<li><b>Default:</b> <code>ZSCORE</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>FACIES</td><td>Electrofacies cluster index (0..K-1)</td></tr>
+<tr><td>FACIES_SIL</td><td>Silhouette per sample: +1 fits its cluster well, 0 on a boundary, NEGATIVE means it sits closer to another cluster than its own</td></tr>
+<tr><td>FACIES_CRI</td><td>Cluster randomness index of the facies at this depth: 1.0 is indistinguishable from a random arrangement, 3.0 means its beds are three times thicker than chance</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

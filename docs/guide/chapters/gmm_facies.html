@@ -1,0 +1,33 @@
+<!-- Authored walkthrough for the gmm_facies guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: soft facies, with a confidence per sample</h2>
+
+<p>The Gaussian-mixture variant of electrofacies: every sample gets a membership
+probability per class instead of a hard assignment. FPROB is the winning class's
+posterior — 1.0 is unambiguous, about 1/K is a boundary or mixed sample — so
+transitional beds are visible instead of being forced into a class. Initialized
+from k-means, labels ordered by the first curve's mean, deterministic for a
+given seed.</p>
+
+<h3>The picks</h3>
+
+<p>Same curves and seed as the k-means run, so the two classifications are
+directly comparable — which is the QC this chapter demonstrates.</p>
+
+<figure>
+  <img src="../img/guide-gmmfacies-pane.png"
+       alt="The GMM electrofacies pane" />
+  <figcaption>Outputs FACIES_GMM and FPROB, the per-sample posterior.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b> — and an instructive pair of numbers. The two
+classifiers agree on <b>1122 of 1164 samples (96%)</b>, yet FPROB is
+essentially <b>1.0 everywhere</b> (not one sample below 0.8). Generated data
+separates this cleanly; the 42 disagreements are boundary samples where the
+mixture's ellipsoidal classes draw the line differently from k-means'
+spherical ones — each model certain of its own answer. On real rock, expect the
+opposite signature: FPROB sagging toward 1/K exactly where facies interfinger,
+which is the map of where the hard classification should not be trusted.</p>
