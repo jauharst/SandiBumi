@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-25 — Help now answers with the equation and the paper, and links the guidebook (exemplar: vsh_gr)
+
+- [ ] **What this is.** Increment 1 of `docs/guidebook_prompt.md`: press **? Help** on the VSH
+      from Gamma Ray pane and the card is exactly four things — what the method is in three
+      sentences, THE EQUATIONS in plain text (the index, LINEAR, the three Stieber forms, both
+      Larionov forms with their exact-normalised and published-decimal variants, Clavier), the
+      published references, and a **See complete guidebook** button that opens the module's full
+      HTML chapter in your browser. Every other module still shows its manifest doc unchanged —
+      cards are added per module, and this one is the exemplar for your voice-and-mechanics check.
+- [ ] **The references are honest about what we hold.** The card cites Larionov (1969),
+      Stieber (1970/71) and Clavier et al. (1971) — the author-year leads exactly as
+      `docs/PRD_v2/10_clay-volume.md` records them, with a note that full primary citations are
+      pending verification. That chapter's escalation E4 records that no vendor cites a primary
+      source for these transforms and that IP2018's reported citations are fabricated, so the
+      card refuses to invent titles and venues. **Open question for you (E4):** commission the
+      three papers, or ship the leads as they stand?
+- [ ] **The chapter** — `docs/guide/book/vsh_gr.html` (plus `index.html` listing all 52 modules).
+      The method card at the top, then the first-hour walkthrough with its four real screenshots,
+      then everything the application enforces (inputs, both endpoint parameters with their
+      sources and pre-run checks, all ten OPT_GR choices, the three outputs) — generated from the
+      same manifest dump as the reference pages, drift-gated by the same `check:module-reference`
+      gate. Offline and self-contained: no CDN, no web fonts, images relative.
+- [ ] **It ships in the installer.** `docs/guide/` is now a Tauri bundle resource, so the Help
+      link works on a field machine that never saw the repo; a dev checkout falls back to the
+      repo path. A module whose chapter is not written yet simply hides the link — never a 404.
+- [ ] **What to check:** open the vsh_gr pane, press ? Help, read the card as the petrophysicist
+      it is written for, click through to the chapter, and say whether this is the card and
+      chapter shape the other 51 modules should get.
+
 ## 2026-08-25 — The module reference writes itself from the manifests, so it can never lie about the app
 
 - [ ] **What this is.** `docs/guide/reference/` — one page per module (52 modules + an index,

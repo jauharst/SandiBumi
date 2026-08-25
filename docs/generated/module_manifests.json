@@ -215,7 +215,24 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Shale volume from the gamma-ray log. A gamma-ray index is taken between a clean-sand endpoint (GR_MA) and a shale endpoint (GR_SH), then optionally passed through a published non-linear transform - Stieber, Larionov or Clavier. VSH is the result limited to 0-1; VSH_GR keeps the unlimited value beside it.",
+      "equations": [
+        "IGR = (GR − GR_MA) / (GR_SH − GR_MA)",
+        "LINEAR: VSH = IGR",
+        "Stieber: VSH = IGR / (3 − 2·IGR)   [variants: IGR / (2 − IGR), IGR / (4 − 3·IGR)]",
+        "Larionov, Mesozoic and older: VSH = (2^(2·IGR) − 1) / (2² − 1)   [published decimal: 0.33·(2^(2·IGR) − 1)]",
+        "Larionov, Tertiary / unconsolidated: VSH = (2^(3.7·IGR) − 1) / (2^3.7 − 1)   [published decimal: 0.083·(2^(3.7·IGR) − 1)]",
+        "Clavier: VSH = 1.7 − √(3.38 − (IGR + 0.7)²)"
+      ],
+      "references": [
+        "Larionov (1969) - the Mesozoic-and-older and Tertiary transforms",
+        "Stieber (1970/71) - the three ratio forms",
+        "Clavier et al. (1971)"
+      ],
+      "note": "Author and year as this project's method ledger records them; the full primary citations are pending verification."
+    }
   },
   {
     "name": "vsh_dn",

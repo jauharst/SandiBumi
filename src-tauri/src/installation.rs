@@ -1842,15 +1842,25 @@ mod tests {
             tauri_config["bundle"]["longDescription"].as_str(),
             Some(installer_long_description().as_str())
         );
-        assert!(tauri_config["bundle"]["resources"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|item| {
-                item.as_str() == Some("resources/install/capability-prerequisites.txt")
-            })));
+        assert!(bundled_resource_declared(
+            &tauri_config,
+            "resources/install/capability-prerequisites.txt"
+        ));
 
         let support_ui = include_str!("../../src/ui/installationSupportDialog.ts");
         assert!(support_ui.contains("installationSupport()"));
         assert!(include_str!("../../index.html").contains("installation-support-btn"));
+    }
+
+    /// Whether tauri.conf.json declares this source path as a bundle resource. Tauri
+    /// accepts both the array form and the source→target map form (the map form is what
+    /// lets the guidebook ship as `guide/`), and this check must survive either shape.
+    fn bundled_resource_declared(config: &serde_json::Value, source: &str) -> bool {
+        match &config["bundle"]["resources"] {
+            serde_json::Value::Array(items) => items.iter().any(|i| i.as_str() == Some(source)),
+            serde_json::Value::Object(map) => map.contains_key(source),
+            _ => false,
+        }
     }
 
     /// SB-INS-010 / SB-INS-T12. The immutable-template/user-copy split and provenance fields
@@ -1915,11 +1925,10 @@ mod tests {
 
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert!(config["bundle"]["resources"]
-            .as_array()
-            .is_some_and(|resources| resources.iter().any(|resource| {
-                resource.as_str() == Some("resources/install/settings-template.json")
-            })));
+        assert!(bundled_resource_declared(
+            &config,
+            "resources/install/settings-template.json"
+        ));
 
         std::fs::remove_dir_all(&temp).expect("remove isolated settings fixture");
     }

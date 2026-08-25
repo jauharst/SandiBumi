@@ -1,0 +1,285 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VSH from Gamma Ray — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · VSH</div>
+<h1>VSH from Gamma Ray</h1>
+<p class="modmeta">Module id <code>vsh_gr</code> · category <b>VSH</b></p>
+<p>Shale volume from the gamma-ray log. A gamma-ray index is taken between a clean-sand endpoint (GR_MA) and a shale endpoint (GR_SH), then optionally passed through a published non-linear transform - Stieber, Larionov or Clavier. VSH is the result limited to 0-1; VSH_GR keeps the unlimited value beside it.</p>
+<pre class="equations">IGR = (GR − GR_MA) / (GR_SH − GR_MA)
+LINEAR: VSH = IGR
+Stieber: VSH = IGR / (3 − 2·IGR)   [variants: IGR / (2 − IGR), IGR / (4 − 3·IGR)]
+Larionov, Mesozoic and older: VSH = (2^(2·IGR) − 1) / (2² − 1)   [published decimal: 0.33·(2^(2·IGR) − 1)]
+Larionov, Tertiary / unconsolidated: VSH = (2^(3.7·IGR) − 1) / (2^3.7 − 1)   [published decimal: 0.083·(2^(3.7·IGR) − 1)]
+Clavier: VSH = 1.7 − √(3.38 − (IGR + 0.7)²)</pre>
+<h2>References</h2>
+<ul><li>Larionov (1969) - the Mesozoic-and-older and Tertiary transforms</li>
+<li>Stieber (1970/71) - the three ratio forms</li>
+<li>Clavier et al. (1971)</li></ul>
+<p class="note">Author and year as this project's method ledger records them; the full primary citations are pending verification.</p>
+<!-- Authored walkthrough for the vsh_gr guidebook chapter. Adapted from
+     docs/guide/first-hour.md chapter 6 (voice approved 2026-08); screenshots are the
+     first-hour set, captured from the real app driven through the real flow on
+     SANDI-* wells. This fragment is HAND-WRITTEN and folded into the generated
+     chapter by tools/gen-guidebook.mjs — the factual skeleton (equations, references,
+     parameters, checks) is generated from the manifests and does NOT belong here. -->
+
+<h2>Step by step: a shale volume on three wells</h2>
+
+<p>This walkthrough assumes the first-hour setup: three SANDI-* wells with GR,
+resistivity, neutron and density imported, and tops splitting them into a shale cap,
+two sands and a base seal. On the way it meets the four mechanics every later module
+run reuses — where parameters come from, who the run says it was run by, what
+"degraded" means, and where the output went.</p>
+
+<h3>Open the module</h3>
+
+<p>Modules live in the <b>Petrophysics</b> ribbon tab, grouped the way you would group
+them yourself. Click <b>VSH ▾ → VSH from Gamma Ray</b>.</p>
+
+<p>It opens as a working pane docked beside your log view — not a popup — because you
+will tune it while looking at the log. Every module pane in SandiBumi is built the
+same way, generated from the module's own manifest, so once you can read this one you
+can read all of them.</p>
+
+<figure>
+  <img src="../img/guide-module-pane.png"
+       alt="The VSH from Gamma Ray pane, with the GR endpoints entered" />
+  <figcaption>The VSH from Gamma Ray pane, with the GR endpoints entered.</figcaption>
+</figure>
+
+<p>Reading the pane top to bottom:</p>
+
+<ul>
+  <li><b>RUN ON</b> — who gets computed. It opens on <b>All</b> (every well in the
+    project, here 3). <b>Selection</b> is the well you clicked in the Wells pane;
+    <b>Pinned</b> is the wells you starred; <b>Custom…</b> is an explicit list. One
+    run, many wells — that is the normal way to work, not a batch afterthought.</li>
+  <li><b>OPT_GR</b> — the GR-index transform (LINEAR here; the dropdown holds the
+    non-linear forms listed above). Every choice and every range check in this pane
+    cites where it came from — the app telling you its defaults are sourced, not
+    invented.</li>
+  <li><b>GR_MA and GR_SH have no default.</b> The clean-sand and shale endpoints are a
+    property of <i>your</i> basin, and a number that ships pre-filled would be somebody
+    else's calibration silently applied to your field. The link under each field shows
+    where other installed tools carry values — precisely so you can see they disagree.
+    You supply these two numbers yourself, next.</li>
+  <li><b>GR</b> input — "Auto — GR_COR → GR_EC → GR" is the preference order: a
+    corrected gamma ray is used where it exists, otherwise the raw curve. You can pin
+    a specific mnemonic instead.</li>
+  <li><b>MASK</b> — optionally name a flag curve (a bad-hole flag, say) and every
+    flagged sample becomes missing in the output.</li>
+  <li><b>INPUT / OUTPUT LOG SET</b> — the run reads "(current values)" and writes into
+    a named output set, <b>INTERP</b> by default.</li>
+  <li>The green callout: values here are the whole-well defaults — per-zone parameters
+    from the Zones pane take precedence inside their zones.</li>
+</ul>
+
+<h3>Pick the endpoints from your own data</h3>
+
+<p>Where do GR_MA and GR_SH come from? From the histogram — the same place you would
+pick them in any interpretation. Open <b>Plot → Histogram</b>; it builds for the
+selected well and opens on GR.</p>
+
+<figure>
+  <img src="../img/guide-histogram-picks.png"
+       alt="The GR histogram of SANDI-01, with P5 / P50 / P95 marked" />
+  <figcaption>The GR histogram of SANDI-01, with the percentile chips doing the
+    reading.</figcaption>
+</figure>
+
+<p>SANDI-01's gamma ray is cleanly bimodal — sands on the left, shales on the right —
+and the stat chips above the plot do the reading for you: <b>P5&nbsp;=&nbsp;43.5,
+P95&nbsp;=&nbsp;111.8&nbsp;gAPI</b>, drawn as dashed lines on the plot. We round to
+<b>GR_MA&nbsp;=&nbsp;44</b> and <b>GR_SH&nbsp;=&nbsp;112</b> and type them into the
+pane. Percentile endpoints (rather than min/max) are a deliberate choice with a
+visible consequence you will meet in a moment.</p>
+
+<p>These numbers are picks from <i>this</i> dataset, made the way the guide shows so
+you can repeat the method on your own field. They are not recommended values for
+anywhere.</p>
+
+<h3>The run wants to know who and why</h3>
+
+<p>Press <b>Run VSH from Gamma Ray</b>. The first time, it refuses — in the pane, by
+name:</p>
+
+<blockquote>Enter the session operator identity before computing.</blockquote>
+
+<p>Every run in SandiBumi is recorded with who ran it. Type your name or initials
+into <b>Session operator</b>. Run again and it refuses once more:</p>
+
+<blockquote>Enter the source/reference covering this run's explicit values.</blockquote>
+
+<p>You typed explicit numbers (44 and 112), so the run demands the reference that
+covers them — the same discipline a reviewed study applies to every parameter. The
+honest citation is simply where the picks came from:
+<code>GR histogram P5/P95 picks, SANDI-01 (43.5 / 111.8 gAPI, rounded)</code>. This
+text is stored with the run and follows the output curves; when someone asks in two
+years where 44 came from, the answer is attached to the curve, not lost in a
+notebook.</p>
+
+<h3>Read the outcome — "degraded" is the app being honest</h3>
+
+<p>Run again. The pane reports into the <b>Processing</b> panel and summarises:</p>
+
+<blockquote>0 clean · 3 degraded · 0 failed. Open Processing → details for the
+per-well report.</blockquote>
+
+<figure>
+  <img src="../img/guide-run-outcome.png"
+       alt="The Processing panel's per-well report after the run" />
+  <figcaption>The Processing panel's per-well report after the run.</figcaption>
+</figure>
+
+<p>Expand <b>details</b>. Each well says the same thing:</p>
+
+<blockquote>degraded result - CLAMPED: calculated value was clamped to the existing
+range [0, 1] (46 occurrences)</blockquote>
+
+<p>This is the consequence of the P5/P95 pick, reported instead of hidden. SANDI-01's
+GR actually spans 41.5–115.2 gAPI; every sample cleaner than 44 or shalier than 112
+computes a GR index below 0 or above 1, and the limited output clamps it — about 46 of
+395 samples, the tails the percentile pick deliberately excluded. "Degraded" never
+means the run half-worked; it means the result carries a warning you should read once
+and then either accept (as here — clamping at the endpoints is exactly what percentile
+picks imply) or fix by re-running with different picks. A well that actually failed
+says <b>failed</b>, and writes nothing.</p>
+
+<h3>Where the answer went</h3>
+
+<p>The run wrote three curves per well into the <b>INTERP</b> output set — open the
+Inspector's <b>Curve Catalog</b> tab to see them listed beside the RAW curves:</p>
+
+<ul>
+  <li><b>VSH</b> — the limited volume of shale, 0 to 1. This is the interpretation.</li>
+  <li><b>VSH_GR</b> — the <i>unlimited</i> GR index (here −0.04 to 1.05). The apparent
+    answer and the corrected answer get different names on purpose, so a report can
+    never quote one as the other.</li>
+  <li><b>VSH_PROV</b> — a per-sample flag saying <i>why</i> each sample is what it is
+    (computed, input missing, masked, endpoint invalid). Categorical — a reason, never
+    a mask.</li>
+</ul>
+
+<p>The catalog's log-set line states the storage rule in one breath: every run is kept
+as a version — nothing is overwritten. Re-running with better endpoints writes INTERP
+v2; v1 stays. That is why a module run is <i>re-runnable, not undoable</i>: undo is
+for edits, while a run you disagree with is simply run again, and both versions remain
+comparable.</p>
+
+<h3>Put VSH on the log</h3>
+
+<p>Seeing the number beside the rock is the point. With the log view active, open
+<b>Plot → Properties…</b>, press <b>＋</b> to add a track, name it VSH, set its single
+curve's mnemonic to <code>VSH</code> with a 0–1 scale, and OK.</p>
+
+<figure>
+  <img src="../img/guide-vsh-logview.png"
+       alt="SANDI-01 at 1:500 with the computed VSH beside GR" />
+  <figcaption>SANDI-01 at 1:500 with the computed VSH beside the gamma ray it came
+    from.</figcaption>
+</figure>
+
+<p>At 1:500 the interpretation reads at a glance: VSH near zero through both sands,
+near one in the shale cap and below TOP_SHALE_2, tracking the gamma ray. If anything
+looks wrong, the pane you ran from is still open — change a number and run again.
+That loop — pane, run, look, adjust — is how every module in SandiBumi is meant to be
+worked.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>VSH_GR = (GR - GR_MA) / (GR_SH - GR_MA), with optional non-linear corrections (Stieber, Larionov, Clavier). VSH is the result limited to 0–1. The three Stieber forms and Clavier bound the gamma-ray INDEX just short of their own singularity (a pole, or a negative radicand) before transforming it, because past that point they return a negative shale volume or nothing at all; the run reports which branch bounded it. Larionov and the linear form have no singularity and bound nothing. VSH_GR itself stays unlimited either way.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray log</td><td><code>GR_COR</code> → <code>GR_EC</code> → <code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>GR_MA <span class="src">(gAPI)</span></h3>
+<p>Gamma ray matrix (clean)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 200 gAPI</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>gr_clean_endpoint</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md</div></li>
+<li><b>Checked before the run:</b> <code>vsh_gr.gr_ma_range</code> — The clean gamma-ray endpoint must remain inside the source manifest range. Range: 0–200 gAPI.
+    <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49</div></li>
+<li><b>Checked before the run:</b> <code>vsh_gr.endpoint_order</code> — The clean gamma-ray endpoint must be strictly below the shale endpoint. Must be strictly below <code>GR_SH</code>.
+    <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.3 and SB-CLY-001; Geolog vsh_gr.lls L99-L102</div></li></ul>
+<h3>GR_SH <span class="src">(gAPI)</span></h3>
+<p>Gamma ray shale</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1000 gAPI</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>gr_shale_endpoint</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md</div></li>
+<li><b>Checked before the run:</b> <code>vsh_gr.gr_sh_range</code> — The shale gamma-ray endpoint must remain inside the source manifest range. Range: 0–1000 gAPI.
+    <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_GR</h3>
+<p>VSH from gamma ray method</p>
+<ul><li><b>Choices:</b><ul><li><code>LINEAR</code> — VSH = IGR</li>
+<li><code>STIEBER1</code> — Stieber, IGR/(3−2·IGR)</li>
+<li><code>STIEBER2</code> — Stieber, IGR/(2−IGR)</li>
+<li><code>STIEBER3</code> — Stieber, IGR/(4−3·IGR)</li>
+<li><code>LARINOV1_NORM</code> — Larionov, Mesozoic and older (exact, reaches 1.0)</li>
+<li><code>LARINOV2_NORM</code> — Larionov, Tertiary / unconsolidated (exact, reaches 1.0)</li>
+<li><code>LARINOV1</code> — Larionov, Mesozoic and older (published 0.33 — parity only, 0.990 at IGR 1)</li>
+<li><code>LARINOV2</code> — Larionov, Tertiary / unconsolidated (published 0.083 — parity only, 0.996 at IGR 1)</li>
+<li><code>LARINOV3</code> — 0.127·(3.15^(2·IGR) − 1)</li>
+<li><code>CLAVIER</code> — Clavier et al.</li></ul></li>
+<li><b>Default:</b> <code>LINEAR</code></li>
+<li><b>Checked before the run:</b> <code>vsh_gr.method_id</code> — The selected GR transform must be one of the method ids declared by the manifest.
+    <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.lls L109-L139</div></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>VSH_GR</td><td>VSH from gamma ray (unlimited)</td></tr>
+<tr><td>VSH</td><td>Limited volume of shale</td></tr>
+<tr><td>VSH_PROV</td><td>CLY provenance registry v1 (SB-CLY-001, DEC-036): 0 COMPUTED, 1 MISSING_INPUT, 2 MASKED_INPUT, 3 ENDPOINT_INVALID, 4 COAL (reserved for the SB-CLY-036 coal branch); MISSING outside the run. Categorical - the reason, never a mask.</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

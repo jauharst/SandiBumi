@@ -2767,6 +2767,31 @@ textarea {
   font-style: italic;
   margin: 0;
 }
+/* The module Help card: equations in plain Unicode (never rendered math — offline,
+   instant), references under them, and the guidebook link as an ordinary button. */
+.help-equations {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.help-refs {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.help-refs > div {
+  padding: 1px 0;
+}
+.help-guide-link {
+  margin-top: 10px;
+}
 
 .form-row {
   display: flex;

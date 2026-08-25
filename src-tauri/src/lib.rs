@@ -31,6 +31,7 @@ mod field_fixtures;
 mod frame;
 mod geo;
 mod health;
+mod help_registry;
 mod hfu;
 mod images;
 mod ingest;
@@ -2211,6 +2212,31 @@ fn finalize_plot_write_provenance(
 #[tauri::command]
 fn list_modules() -> Vec<modules::ModuleSpec> {
     modules::list_modules()
+}
+
+/// The brief Help-card content for one module — method statement, equations, published
+/// references (help_registry). `None` means the module has no card yet and the pane
+/// falls back to the manifest doc.
+#[tauri::command]
+fn get_module_help(module: String) -> Option<help_registry::ModuleHelp> {
+    help_registry::module_help(&module)
+}
+
+/// Whether this module's guidebook chapter exists — the card hides its
+/// "See complete guidebook" link rather than 404ing when it does not.
+#[tauri::command]
+fn module_guide_status(app: tauri::AppHandle, module: String) -> bool {
+    use tauri::Manager as _;
+    help_registry::guide_chapter_path(app.path().resource_dir().ok(), &module).is_some()
+}
+
+/// Opens this module's guidebook chapter in the OS default browser.
+#[tauri::command]
+fn open_module_guide(app: tauri::AppHandle, module: String) -> Result<(), String> {
+    use tauri::Manager as _;
+    let path = help_registry::guide_chapter_path(app.path().resource_dir().ok(), &module)
+        .ok_or_else(|| format!("No guidebook chapter for {module} yet."))?;
+    help_registry::open_in_default_browser(&path)
 }
 
 /// well_id → (well_id, well_name) pairs for a job's item list, so the Processing panel shows
@@ -4654,6 +4680,9 @@ pub fn run() {
             resolve_plot_bindings,
             finalize_plot_write_provenance,
             list_modules,
+            get_module_help,
+            module_guide_status,
+            open_module_guide,
             parameter_pack::get_parameter_module_schema,
             parameter_pack::load_parameter_pack,
             run_workflow_module,
