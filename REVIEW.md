@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-25 — The module reference writes itself from the manifests, so it can never lie about the app
+
+- [ ] **What this is.** `docs/guide/reference/` — one page per module (52 modules + an index,
+      53 files), generated from the very manifests the app builds its parameter panes from.
+      Every description, default, source citation, accepted range and pre-run check on these
+      pages is the same data the running application enforces — 276 numeric parameters across
+      the fleet, of which 184 deliberately ship no default, each page saying so in words.
+- [ ] **Why generated instead of written.** AGENTS.md drifted 383 lines by being a copy; a
+      hand-written reference would do the same the first time a manifest changed. Two gates now
+      refuse the drift: a Rust test fails when `docs/generated/module_manifests.json` no longer
+      matches `list_modules()`, and `check:module-reference` (now a step in `tools\check.ps1`)
+      fails when a page no longer matches the dump — including a page for a module that no
+      longer exists. Regeneration is two commands, printed by every failure message.
+- [ ] **Hand-written prose is not locked out** — it goes in `docs/guide/reference/notes/<module>.md`
+      and the generator folds it in under a "Working notes" heading, so workflow context can be
+      added per module without ever hand-editing a generated file. No notes are written yet.
+- [ ] **What to check: open two or three pages you know cold** — `vsh_gr.md`, `sw_arch.md`, an
+      Advance-tab method — and read them against your own knowledge of what the pane does. The
+      words are the manifests' own; if a page reads wrong, the fix belongs in `modules.rs`, and
+      the reference will follow it automatically on the next regeneration.
+- [ ] The first-hour guide's chapter 9 now links the reference index.
+
 ## 2026-08-24 — The user guide exists now: outline plus one finished chapter, for a voice check
 
 - [ ] **What this is.** `docs/guide/first-hour.md` — the start of the guide a petrophysicist who

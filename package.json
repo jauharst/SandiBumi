@@ -22,6 +22,7 @@
     "test:generated-artifact": "node --test tools/generated-artifact.test.mjs",
     "test:perf-variance": "node --test tools/perf-variance.test.mjs",
     "check:chart-derivation": "node tools/gen-derived-overlays.mjs --check",
+    "check:module-reference": "node tools/gen-module-reference.mjs --check",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:e2e": "node e2e/run.mjs"
