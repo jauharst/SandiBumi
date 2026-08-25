@@ -1,0 +1,120 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Permeability — Coates — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Permeability</div>
+<h1>Permeability — Coates</h1>
+<p class="modmeta">Module id <code>perm_coates</code> · category <b>Permeability</b></p>
+<p>The Coates free-fluid permeability: porosity squared times the free-to-bound water ratio, squared again. This is the Coates &amp; Denoo producibility form - deliberately not Coates &amp; Dumanoir (1974), a different and much heavier model this module does not implement.</p>
+<pre class="equations">PERM = (C · PHIE² · (1 − SWE_IRR)/SWE_IRR)²  (mD)</pre>
+<h2>References</h2>
+<ul><li>Coates, G.R. &amp; Denoo, S.A. (1981), The Producibility Answer Product, Schlumberger Technical Review 29(2)</li></ul>
+<p class="note">The constant C is scale-dependent and published values are not interchangeable between the fractional, percent and NMR forms - check which convention a quoted C belongs to before entering it.</p>
+<!-- Authored walkthrough for the perm_coates guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: Coates, and which C you are actually holding</h2>
+
+<p>The Coates free-fluid form: porosity squared times the free-to-bound water ratio,
+squared again. Two things the pane's documentation pins down before you type
+anything: this is the Coates &amp; Denoo 1981 producibility form, <b>not</b> the
+heavier Coates &amp; Dumanoir 1974 model — and the constant C is scale-dependent, so
+published values are not interchangeable: 100 in this fractional form is the same
+rock as 10 in the percent-porosity NMR form, and Schlumberger's K-4 chart states 70.
+A quoted C without its convention is a trap.</p>
+
+<h3>The picks</h3>
+
+<ul>
+  <li><b>CONST_COATES 70</b> — the Schlumberger K-4 chart value, exactly as the
+    module's own documentation records it for this fractional form.</li>
+  <li><b>SWE_IRR 0.16</b> — the SSC-derived irreducible pick, consistent across the
+    whole walkthrough.</li>
+  <li><b>PHIE</b> pinned to PHIE_DEN.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-permcoates-pane.png"
+       alt="The Coates pane with the K-4 constant and the irreducible pick entered" />
+  <figcaption>C 70 with its convention stated in the reference field.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, median 65 mD in the sands — close to Wyllie-Rose's
+73, an order of magnitude above the core-calibrated 2.8. The three-way spread across
+this shelf is the honest summary of log-derived permeability: the model chooses the
+answer, so the model must be named, calibrated where core allows, and cross-checked
+where it does not.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>PERM = (C * PHIE^2 * (1 - SWE_IRR)/SWE_IRR)^2, mD. This free-fluid form is Coates &amp; Denoo (1981), The Producibility Answer Product, Schlumberger Technical Review 29(2). It is NOT Coates &amp; Dumanoir (1974, The Log Analyst 15(1), 17-31; SPWLA 14th, Paper R), which replaces both m and n with a common exponent driven by porosity, resistivity at Swirr, hydrocarbon density and rock class - a different and much heavier model this module does not implement. CONST_COATES IS SCALE-DEPENDENT AND PUBLISHED VALUES ARE NOT INTERCHANGEABLE: 100 in this fractional form is the same rock as 10 in the NMR Timur-Coates (phi/C)^4 form with porosity in percent, and Schlumberger's K-4 chart states 70. Those are unit conventions, not disagreements about rock - check which one a quoted C belongs to before entering it.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHIE</td><td>Limited effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>CONST_COATES</h3>
+<p>Coates constant</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 1000</li></ul>
+<h3>SWE_IRR <span class="src">(v/v)</span></h3>
+<p>Irreducible effective water saturation</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.01 to 0.8 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>irreducible_swe</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>PERM_COATES</td><td>Permeability from Coates</td></tr>
+<tr><td>PERM</td><td>Working permeability</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

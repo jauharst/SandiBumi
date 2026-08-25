@@ -1,0 +1,110 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lucia Rock-Fabric Number (carbonate) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Rock Typing</div>
+<h1>Lucia Rock-Fabric Number (carbonate)</h1>
+<p class="modmeta">Module id <code>lucia_rfn</code> · category <b>Rock Typing</b></p>
+<p>Carbonate rock typing by Lucia rock-fabric number: the global porosity-permeability transform is inverted analytically for RFN, then binned into the three Lucia classes. The porosity should be INTERPARTICLE porosity; on clastic-dominated fields this applies to carbonate stringers only.</p>
+<pre class="equations">log₁₀k = (A − B·log₁₀RFN) + (C − D·log₁₀RFN)·log₁₀φip, inverted for RFN
+RFN 0.5-1.5 = Class 1 (grainstone), 1.5-2.5 = Class 2, 2.5-4 = Class 3</pre>
+<h2>References</h2>
+<ul><li>Lucia (1995); Jennings &amp; Lucia (2003), SPE 78740</li></ul>
+<!-- Authored walkthrough for the lucia_rfn guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: the Lucia rock-fabric number</h2>
+
+<p>Carbonate rock typing: the Jennings &amp; Lucia global porosity-permeability
+transform is inverted analytically for the rock-fabric number, which is then binned
+into the three Lucia classes (grainstone to mud-dominated). Two things the pane's
+documentation asks you to respect: the porosity should be <b>interparticle</b>
+porosity — subtract separate-vug porosity where you have it — and on a
+clastic-dominated field this module is for the carbonate stringers, not the
+sands.</p>
+
+<h3>The run</h3>
+
+<p>No parameters: the global transform's constants ship as transcribed from the
+paper, with the documentation's own instruction to verify first. Inputs are
+PHIE_DEN and <b>PERM_XFM selected by name</b> (see the
+<a href="rocktyping.html">rock-typing chapter</a> for why the generic PERM slot is
+never the right choice).</p>
+
+<figure>
+  <img src="../img/guide-lucia-pane.png"
+       alt="The Lucia rock-fabric pane with inputs selected" />
+  <figcaption>No parameters to pick — the decisions here are the inputs.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b> — and only <b>49% of samples classified</b>, which
+is the module being honest rather than incomplete: RT_LUCIA is written only where
+the computed RFN lands inside the 0.5–4 band the classes are defined over, and a
+clastic section computed through a carbonate transform spends half its samples
+outside it. On a real carbonate — or a stringer within this section — the
+classified fraction is the first QC number to read: a low fraction means the
+transform and the rock disagree about what family the samples belong to.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Carbonate rock typing by Lucia rock-fabric number (Jennings &amp; Lucia 2003). Inverts the global transform log10 k = (A − B·log10 RFN) + (C − D·log10 RFN)·log10 φip analytically for RFN, then bins: RFN 0.5–1.5 = Class 1 (grainstone), 1.5–2.5 = Class 2, 2.5–4 = Class 3 (mud-dominated). PHI should be INTERPARTICLE porosity (subtract vuggy/separate-vug porosity if available); k in mD. Writes RFN and RT_LUCIA (1–3; MISSING outside the 0.5–4 band). Clastic-dominated fields use this only for carbonate stringers. Constants transcribed from the paper — verify first.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHI</td><td>Interparticle porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PERM</td><td>Permeability</td><td><code>PERM</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>RFN</td><td>Lucia rock-fabric number</td></tr>
+<tr><td>RT_LUCIA</td><td>Lucia class (1–3)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

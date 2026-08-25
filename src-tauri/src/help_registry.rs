@@ -343,6 +343,174 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             ],
             note: "",
         }),
+        // Equations and citations copied from modules::perm_wyllie_rose's manifest doc,
+        // which carries the full attribution record including the two mislabels.
+        "perm_wyllie_rose" => Some(ModuleHelp {
+            summary: "The Wyllie-Rose permeability family: permeability from porosity \
+                      and irreducible water saturation, offered as four named constant \
+                      sets. Wyllie & Rose replaced Carman-Kozeny's specific-surface term \
+                      with irreducible saturation and warned the result carries \
+                      order-of-magnitude significance only - a warning every constant \
+                      set below inherits.",
+            equations: &[
+                "PERM = (C · PHIE^D / SWE_IRR^E)²  (mD)",
+                "TIMUR: C=100 D=2.25 E=1   MORRIS_BIGGS_OIL: C=250 D=3 E=1",
+                "MORRIS_BIGGS_GAS: C=79 D=3 E=1   TIXIER: C=250 D=3 E=1",
+            ],
+            references: &[
+                "Wyllie, M.R.J. & Rose, W.D. (1950), Transactions AIME 189, 105-118",
+                "Balan, Mohaghegh & Ameri (1995), SPE 30978 - the lineage review",
+            ],
+            note: "Two of the four constant sets carry a name their author never \
+                   attached to them: TIMUR here is the Schlumberger Chart K-3 curve, \
+                   not Timur (1968), and TIXIER is a post-1950 Wyllie-Rose \
+                   simplification, not Tixier (1949). The MORRIS_BIGGS attribution is \
+                   disputed. The card keeps the trade names because that is what every \
+                   vendor calls them; the chapter carries the full record.",
+        }),
+        // Equations and citation copied from modules::perm_coates' manifest doc.
+        "perm_coates" => Some(ModuleHelp {
+            summary: "The Coates free-fluid permeability: porosity squared times the \
+                      free-to-bound water ratio, squared again. This is the Coates & \
+                      Denoo producibility form - deliberately not Coates & Dumanoir \
+                      (1974), a different and much heavier model this module does not \
+                      implement.",
+            equations: &[
+                "PERM = (C · PHIE² · (1 − SWE_IRR)/SWE_IRR)²  (mD)",
+            ],
+            references: &[
+                "Coates, G.R. & Denoo, S.A. (1981), The Producibility Answer Product, \
+                 Schlumberger Technical Review 29(2)",
+            ],
+            note: "The constant C is scale-dependent and published values are not \
+                   interchangeable between the fractional, percent and NMR forms - \
+                   check which convention a quoted C belongs to before entering it.",
+        }),
+        // A utility transform: the coefficients ARE the user's own core calibration,
+        // so there is deliberately nothing to cite.
+        "perm_transform" => Some(ModuleHelp {
+            summary: "The core-calibrated por-perm transform: a straight line in \
+                      log-permeability against porosity, with both coefficients fitted \
+                      by you against your own core data. The module ships no \
+                      coefficients - a por-perm law is a property of the rock family it \
+                      was regressed on.",
+            equations: &["log10(PERM) = PT_A·PHIE + PT_B"],
+            references: &[],
+            note: "PT_A and PT_B are the user's own RCAL regression - fit them against \
+                   the core porosity-permeability pairs of the field being worked.",
+        }),
+        // Equations copied from lithology.rs's manifest doc; the chart identities are
+        // the module's own recorded derivation (Lith-6, Por-11).
+        "midplot" => Some(ModuleHelp {
+            summary: "Apparent matrix density and apparent matrix volumetric \
+                      photoelectric factor - the two axes of the MID plot. The fluid is \
+                      removed from the density and from the photoelectric absorption at \
+                      an apparent porosity read the way you would by hand off the \
+                      density-neutron chart; crossplot UMAA against RHOMAA and switch \
+                      on the MID-plot chart overlay to read lithology.",
+            equations: &[
+                "U = PEF · ρe,  ρe = (RHOB + 0.1883)/1.0704",
+                "RHOMAA = (RHOB − φa·RHO_FL)/(1 − φa)",
+                "UMAA = (U − φa·U_FL)/(1 − φa)",
+            ],
+            references: &[
+                "Schlumberger Log Interpretation Charts - Lith-6 (Umaa-Rhomaa MID \
+                 plot) and Por-11 (the apparent-porosity read)",
+            ],
+            note: "",
+        }),
+        // Equations and citations copied from rocktyping.rs's manifest doc.
+        "rocktyping" => Some(ModuleHelp {
+            summary: "Per-sample rock-typing indicators from porosity and permeability: \
+                      the FZI family, the Winland R35 pore-throat radius, and the \
+                      Permadi-Susilo geometric/structural pair. The rock-type class \
+                      comes from the chosen method's own binning, and the class-grouped \
+                      permeability estimate uses each class's geometric-mean FZI.",
+            equations: &[
+                "RQI = 0.0314·√(k/φ),  PHIZ = φ/(1−φ),  FZI = RQI/PHIZ",
+                "R35 = 10^(0.732 + 0.588·log₁₀k − 0.864·log₁₀φ%)",
+                "PGEOM = √(k/φ),  PSTRUC = k/φ^PS_EXP",
+                "PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²",
+            ],
+            references: &[
+                "Amaefule et al. (1993) - RQI/FZI",
+                "Kolodzie (1980) - Winland R35",
+                "Corbett & Potter (2004) - the GHE bin series",
+            ],
+            note: "Author-year as this project's records hold them; the constants were \
+                   re-verified against the records on 2026-07-22.",
+        }),
+        // Equations and citation copied from rocktyping.rs's lucia_rfn manifest doc.
+        "lucia_rfn" => Some(ModuleHelp {
+            summary: "Carbonate rock typing by Lucia rock-fabric number: the global \
+                      porosity-permeability transform is inverted analytically for RFN, \
+                      then binned into the three Lucia classes. The porosity should be \
+                      INTERPARTICLE porosity; on clastic-dominated fields this applies \
+                      to carbonate stringers only.",
+            equations: &[
+                "log₁₀k = (A − B·log₁₀RFN) + (C − D·log₁₀RFN)·log₁₀φip, inverted for RFN",
+                "RFN 0.5-1.5 = Class 1 (grainstone), 1.5-2.5 = Class 2, 2.5-4 = Class 3",
+            ],
+            references: &[
+                "Lucia (1995); Jennings & Lucia (2003), SPE 78740",
+            ],
+            note: "",
+        }),
+        // Equations and citation copied from rocktyping.rs's pittman_rx manifest doc,
+        // including the paper's own two cautions.
+        "pittman_rx" => Some(ModuleHelp {
+            summary: "Pittman's pore-throat aperture family: the pore-throat radius at \
+                      each mercury-saturation level from 10 to 75 percent, from \
+                      porosity and permeability. The apex radius is the one that best \
+                      correlates with permeability for the rock family, and its \
+                      Hartmann-Beaumont port class is written beside it.",
+            equations: &[
+                "log₁₀ rX = C0 + C1·log₁₀k + C2·log₁₀φ%  (k mD, φ percent, r µm)",
+                "Port classes: nano < 0.1 < micro < 0.5 < meso < 2.5 < macro < 10 ≤ mega (µm)",
+            ],
+            references: &[
+                "Pittman, E.D. (1992), AAPG Bulletin v76 no.2, 191-198 - Table 1 in \
+                 full, verified against the paper",
+            ],
+            note: "The paper's own cautions ride along: correlation falls with \
+                   saturation (0.926 at r20 to 0.820 at r75), and the family is \
+                   non-monotone below ~11% porosity - that is the published \
+                   arithmetic, not an implementation artifact.",
+        }),
+        // The cutoff ladder is the user's own declaration; nothing to cite.
+        "rt_cutoff" => Some(ModuleHelp {
+            summary: "A log-domain rock-type class from a declared Vsh + PHIE cutoff \
+                      ladder - the electrofacies half of the rock-typing tie-in. Class \
+                      1 is the best rock, class 3 is non-net; validate the ladder \
+                      against a core-derived rock type with the confusion-matrix QC \
+                      before attaching per-class laws.",
+            equations: &[
+                "RT_LOG = 1 if Vsh ≤ VSH1 and PHIE ≥ PHI1",
+                "RT_LOG = 2 if Vsh ≤ VSH2 and PHIE ≥ PHI2  (requires VSH1 ≤ VSH2, PHI1 ≥ PHI2)",
+                "else RT_LOG = 3",
+            ],
+            references: &[],
+            note: "The cutoffs are the interpreter's own declaration for the field \
+                   being worked - they ship absent, and the chapter shows one way to \
+                   derive a starting ladder from the data itself.",
+        }),
+        // Equations copied from modules.rs's thin_bed_ts manifest doc; the citation is
+        // the derivation record's.
+        "thin_bed_ts" => Some(ModuleHelp {
+            summary: "Thomas-Stieber decomposition of bulk shale into laminar and \
+                      dispersed fractions, by placing the measured (VSH, PHIT) point \
+                      against the pure-laminated and pure-dispersed mixing lines. \
+                      Laminar shale reduces net sand; dispersed shale stays within the \
+                      sand fraction. Structural shale is not modeled.",
+            equations: &[
+                "Pure laminated: PHIT = PHI_SD_MAX·(1−VSH) + PHI_SH·VSH",
+                "Pure dispersed: PHIT = PHI_SD_MAX − VSH·(1−PHI_SH)",
+                "VSAND = 1 − VLAM;  PHIE_LAM = laminar-corrected porosity of the net sand",
+            ],
+            references: &["Thomas, E.C. & Stieber, S.J. (1975)"],
+            note: "Author-year as this project's method record holds it; the full \
+                   primary citation is pending verification.",
+        }),
         _ => None,
     }
 }
@@ -394,6 +562,8 @@ mod tests {
     const MODULES_WITH_HELP: &[&str] = &[
         "vsh_gr", "vsh_dn", "phi_den", "phi_dn", "phi_dnbk", "phi_son", "phimax", "ssc",
         "sspw", "sw_arch", "sw_indo", "sw_sim", "sw_rtc", "sw_imts", "sw_height",
+        "perm_wyllie_rose", "perm_coates", "perm_transform", "midplot", "rocktyping",
+        "lucia_rfn", "pittman_rx", "rt_cutoff", "thin_bed_ts",
     ];
 
     /// Pins the card's own rule from both sides: every registered id is a real module

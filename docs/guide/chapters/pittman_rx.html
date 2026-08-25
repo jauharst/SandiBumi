@@ -1,0 +1,35 @@
+<!-- Authored walkthrough for the pittman_rx guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: Pittman's pore-throat radii</h2>
+
+<p>Pittman regressed pore-throat radius against porosity and permeability at every
+mercury-saturation level from 10 to 75 percent; this module writes the whole family
+(PR10..PR75), plus the radius at your chosen APEX saturation and its
+Hartmann-Beaumont port class. The coefficients are Pittman's Table 1 in full,
+verified against the paper — including the parts of the paper most implementations
+quietly drop.</p>
+
+<h3>The one choice: APEX</h3>
+
+<p><b>r35</b>, the shipped default, matches the Winland concept and suits coarser
+rock; finer families apex nearer r50–r75. The honest way to choose is the paper's
+own: pick the rX that best correlates with permeability for <i>your</i> rock family.
+Inputs are PHIE_DEN and PERM_XFM by name, as across this shelf.</p>
+
+<figure>
+  <img src="../img/guide-pittman-pane.png"
+       alt="The Pittman pane with APEX r35 and inputs selected" />
+  <figcaption>APEX r35; the coefficients are the published table and are not
+    editable.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>; the sand-interval median RAPEX is 0.79 µm — a
+<i>meso</i> port class. Two cautions ride with every output, and both are the
+paper's own arithmetic rather than this implementation's: the correlation weakens as
+saturation rises (0.926 at r20 down to 0.820 at r75), and the family is non-monotone
+below about 11% porosity. The module does not "correct" either, because a published
+table quietly reshaped stops being citable — the caution belongs in the reading, not
+in the coefficients.</p>

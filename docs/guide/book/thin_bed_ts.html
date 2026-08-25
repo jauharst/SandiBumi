@@ -1,0 +1,127 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Thin Beds — Thomas-Stieber — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · ThinBeds</div>
+<h1>Thin Beds — Thomas-Stieber</h1>
+<p class="modmeta">Module id <code>thin_bed_ts</code> · category <b>ThinBeds</b></p>
+<p>Thomas-Stieber decomposition of bulk shale into laminar and dispersed fractions, by placing the measured (VSH, PHIT) point against the pure-laminated and pure-dispersed mixing lines. Laminar shale reduces net sand; dispersed shale stays within the sand fraction. Structural shale is not modeled.</p>
+<pre class="equations">Pure laminated: PHIT = PHI_SD_MAX·(1−VSH) + PHI_SH·VSH
+Pure dispersed: PHIT = PHI_SD_MAX − VSH·(1−PHI_SH)
+VSAND = 1 − VLAM;  PHIE_LAM = laminar-corrected porosity of the net sand</pre>
+<h2>References</h2>
+<ul><li>Thomas, E.C. &amp; Stieber, S.J. (1975)</li></ul>
+<p class="note">Author-year as this project's method record holds it; the full primary citation is pending verification.</p>
+<!-- Authored walkthrough for the thin_bed_ts guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: Thomas-Stieber</h2>
+
+<p>Thomas-Stieber places each measured (VSH, PHIT) point inside the mixing triangle
+between clean sand, pure laminated shale and pure dispersed shale, and reads off how
+much of the bulk shale is laminar (reducing net sand) and how much is dispersed
+(sitting inside the sand's pores). Structural shale is deliberately not modeled.</p>
+
+<h3>The two endpoints are field statements</h3>
+
+<ul>
+  <li><b>PHI_SD_MAX 0.27</b> — the clean-sand maximum porosity: the same P99-of-PHIE
+    pick the porosity-ceiling chapter derived from this dataset.</li>
+  <li><b>PHI_SH 0.147</b> — the shale total porosity: the median PHIT_DEN over the
+    samples at GR&nbsp;≥&nbsp;112 gAPI, this dataset's own shale point.</li>
+  <li><b>Inputs</b> — PHIT_DEN and VSH, so the triangle is built from the same
+    porosity family the endpoints were picked from. Mixing porosity provenances here
+    moves points around the triangle for reasons that have nothing to do with
+    shale.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-thinbed-pane.png"
+       alt="The Thomas-Stieber pane with the two endpoint picks entered" />
+  <figcaption>Two endpoints, both from this dataset's own statistics.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>0 clean · 3 degraded</b> — about 120 samples per well clamped
+to [0, 1] (a measured point falling outside the mixing triangle cannot yield a
+fraction beyond it, so the decomposition is held at the triangle's edge) and a
+handful held at the PHI_SD_MAX ceiling. In the transitional interval
+(GR 60–100) the median laminar fraction reads 0.635 — this synthetic section's
+shale transitions read as predominantly laminated, which fits zone-blended logs.
+On real thin-bedded rock, VLAM against a high-resolution image log is the
+validation this decomposition wants before VSAND = 1−VLAM revises any net.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Decomposes bulk VSH into laminar and dispersed shale by comparing the measured (VSH, PHIT) point against the pure-laminated line PHIT = PHI_SD_MAX*(1-VSH) + PHI_SH*VSH and the pure-dispersed line PHIT = PHI_SD_MAX - VSH*(1-PHI_SH). VLAM reduces net sand (VSAND = 1-VLAM); VDISP stays within the sand fraction. PHIE_LAM is the laminar-shale-corrected porosity of the net sand. Structural shale is not modeled.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHIT</td><td>Total porosity log</td><td><code>PHIT</code></td><td>yes</td><td>—</td></tr>
+<tr><td>VSH</td><td>Total (bulk) volume of shale log</td><td><code>VSH</code></td><td>yes</td><td>accepts quantity kind: VSH</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>PHI_SD_MAX <span class="src">(v/v)</span></h3>
+<p>Clean sand porosity (endpoint)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.05 to 0.45 v/v</li></ul>
+<h3>PHI_SH <span class="src">(v/v)</span></h3>
+<p>Shale porosity (endpoint)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.45 v/v</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>VLAM</td><td>Laminar shale volume fraction</td></tr>
+<tr><td>VDISP</td><td>Dispersed shale volume fraction</td></tr>
+<tr><td>VSAND</td><td>Net sand (non-laminar) fraction</td></tr>
+<tr><td>PHIE_LAM</td><td>Laminar-shale-corrected sand porosity</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **183** of 715,
+Review sections counted toward no capability: **183** of 716,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -34,9 +34,9 @@ this table, so every figure above reads low by whatever those sections cover.
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 78 | — | 15 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 119 | — | 29 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 215 | 2026-08-13 | 51 |
-| `permeability` | Permeability interpretation | Not exercised | 0 / 40 | — | 6 |
-| `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 15 | — | 3 |
-| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 33 | — | 7 |
+| `permeability` | Permeability interpretation | Not exercised | 0 / 45 | — | 7 |
+| `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 20 | — | 4 |
+| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 38 | — | 8 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 47 | — | 22 |
