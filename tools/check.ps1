@@ -68,6 +68,7 @@ $stage1Gates = @(
     @{ Name = "unit registry (check)";        Run = { & npm run check:unit-registry } },
     @{ Name = "chart derivation (tests)";     Run = { & npm run test:chart-derivation } },
     @{ Name = "chart derivation (check)";     Run = { & npm run check:chart-derivation } },
+    @{ Name = "module reference (check)";     Run = { & npm run check:module-reference } },
     @{ Name = "release inventory";            Run = { & npm run test:release-inventory } },
     @{ Name = "generated artifacts";          Run = { & npm run test:generated-artifact } },
     @{ Name = "perf variance report";         Run = { & npm run test:perf-variance } },

@@ -59,6 +59,8 @@ mod petrography;
 #[cfg(test)]
 mod lock_probe;
 #[cfg(test)]
+mod manifest_reference_test;
+#[cfg(test)]
 mod perf_baseline_test;
 #[cfg(test)]
 mod pipeline_field_test;

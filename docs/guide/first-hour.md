@@ -413,7 +413,10 @@ directions, and you have already learned the mechanics each one reuses.
 **More of the same, deeper.** Every group in the Petrophysics tab — porosity,
 lithology, saturation, permeability, facies, rock typing, cutoffs and summaries —
 works exactly like chapter 6: a manifest-generated pane, cited parameters, custody,
-versioned output. The example dataset's README lists the import order for core, SCAL,
+versioned output. The **[module reference](reference/README.md)** has one page per
+module — generated from the same manifests the panes are built from, so its
+descriptions, defaults, sources and pre-run checks are exactly what the application
+enforces. The example dataset's README lists the import order for core, SCAL,
 deviation and the rest; with those loaded, the saturation-height tools and the
 QC crossplots have real input. Zones (Petrophysics → Zones…) is where per-interval
 parameters live — the green callout from chapter 6, made concrete.
