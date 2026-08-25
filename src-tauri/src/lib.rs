@@ -1708,6 +1708,41 @@ async fn purge_log_set_versions(
     .map_err(|e| e.to_string())?
 }
 
+/// Renames one delivery set (core/scal/survey/aux/image/curve), moving every row that
+/// carries the name in one transaction, audited under the session operator. Core riders
+/// travel with the core; the refusals live in `db::rename_delivery_set`.
+#[tauri::command]
+async fn rename_delivery_set(
+    db: tauri::State<'_, DbState>,
+    kind: String,
+    well_id: String,
+    dataset: Option<String>,
+    old_name: String,
+    new_name: String,
+    operator: String,
+    operator_kind: String,
+    view: String,
+) -> Result<db::SetRenameReceipt, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        db::rename_delivery_set(
+            &conn,
+            &kind,
+            &well_id,
+            dataset.as_deref(),
+            &old_name,
+            &new_name,
+            &operator,
+            &operator_kind,
+            &view,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// P1-c: per-well catalog of current computed curves with provenance (set/version/module/
 /// when) and basic statistics (n/min/max/mean) for the searchable catalog.
 #[tauri::command]
@@ -4680,6 +4715,7 @@ pub fn run() {
             delete_log_set,
             preview_version_purge,
             purge_log_set_versions,
+            rename_delivery_set,
             list_computed_catalog,
             list_generic_curve_catalog,
             list_generic_curve_inventory,

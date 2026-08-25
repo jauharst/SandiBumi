@@ -124,9 +124,9 @@ pub fn dead_space(conn: &Connection) -> DbResult<(u64, u64)> {
 }
 
 /// The dead fraction past which an open mentions Compact Project. Geolog repacks a well
-/// file automatically when it drops below 75% full — its WELL_FULL default (T2:
-/// docs/research_2026-08/cross_tool/database-model.md, citing
-/// database_03_database_format_hc.3.3.html) — so a quarter dead is the level a field tool
+/// file automatically when it drops below 75% full — its WELL_FULL default (T2 ingest of
+/// database_03_database_format_hc.3.3.html; banked in docs/PRD_v2/22_database-model.md,
+/// the tracked home) — so a quarter dead is the level a field tool
 /// already treats as worth acting on. SandiBumi never repacks on its own (compaction
 /// rewrites the whole file and parks the original, which is the user's call to make), so
 /// the same threshold drives a NOTE instead.
@@ -2675,6 +2675,192 @@ pub fn delete_core_set(conn: &Connection, well_id: &str, set_name: &str) -> DbRe
         }
     }
     Ok(removed)
+}
+
+/// What one delivery-set rename moved, table by table, so the receipt can be checked
+/// against the delivery rather than taken on faith.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetRenameReceipt {
+    pub rows_moved: usize,
+    /// Core only: same-named aux rows (extras and other riders) that travelled with the
+    /// core set. Zero for every other kind.
+    pub rider_rows_moved: usize,
+}
+
+/// Renames one delivery set, moving EVERY row that carries the name in one transaction —
+/// a name left behind in any table is a delivery silently split in two. Kinds: core /
+/// scal / survey / aux / image / curve (`dataset` names the aux or image dataset and is
+/// ignored elsewhere). The rename is audited (mode RENAME) under the session operator,
+/// validated BEFORE anything moves — the purge engine's DEC-020 posture.
+///
+/// Three refusals carry the data-integrity reasoning:
+/// - **Curve set RAW is never renamed, in either direction.** RAW has absolute priority
+///   in curve resolution and the frame declarations are keyed to it; renaming it (or
+///   renaming another set TO it) silently re-decides which delivery answers every
+///   mnemonic.
+/// - **A rename never merges.** A target name already naming a delivery of the same kind
+///   on the well is refused — the same rule that makes an import auto-suffix instead of
+///   overwrite.
+/// - **A core set's riders follow the core, never travel alone.** Aux rows sharing a
+///   core set's name ARE that core's extras (the active-core-set reader correlates on
+///   the bare name), so renaming the core moves them too, and renaming an aux delivery
+///   that shares a core set's name is refused by name — rename the core set instead.
+pub fn rename_delivery_set(
+    conn: &Connection,
+    kind: &str,
+    well_id: &str,
+    dataset: Option<&str>,
+    old: &str,
+    new: &str,
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+) -> DbResult<SetRenameReceipt> {
+    let new = new.trim();
+    if new.is_empty() || new == old {
+        return Err(DbError::Invalid(
+            "rename refused: the new name is empty or unchanged - type a different name in Data Sets".into(),
+        ));
+    }
+    if operator.trim().is_empty() {
+        return Err(DbError::Invalid(
+            "rename refused: enter the session operator identity - every rename is audited and the operator is never inferred (DEC-020)".into(),
+        ));
+    }
+    let exists = |table: &str, name_col: &str, name: &str| -> DbResult<bool> {
+        let sql = match dataset {
+            Some(_) if matches!(kind, "aux" | "image") => format!(
+                "SELECT COUNT(*) FROM {table} WHERE well_id = ?1 AND dataset = ?3 AND {name_col} = ?2"
+            ),
+            _ => format!("SELECT COUNT(*) FROM {table} WHERE well_id = ?1 AND {name_col} = ?2"),
+        };
+        let n: i64 = match dataset {
+            Some(ds) if matches!(kind, "aux" | "image") => {
+                conn.query_row(&sql, params![well_id, name, ds], |r| r.get(0))?
+            }
+            _ => conn.query_row(&sql, params![well_id, name], |r| r.get(0))?,
+        };
+        Ok(n > 0)
+    };
+    // (registry table, name column, [data tables sharing that name column])
+    let (registry, name_col, data_tables): (&str, &str, &[&str]) = match kind {
+        "core" => ("core_sets", "set_name", &["core_data", "core_registrations"]),
+        "scal" => ("scal_sets", "set_name", &["scal_pc"]),
+        "survey" => ("well_surveys", "survey_name", &["well_path"]),
+        "aux" => ("aux_sets", "set_name", &["aux_data", "aux_duplicate_depth_resolutions"]),
+        "image" => ("image_sets", "set_name", &["well_images"]),
+        "curve" => ("curve_meta", "set_name", &["import_sets", "array_logs"]),
+        other => {
+            return Err(DbError::Invalid(format!(
+                "rename refused: '{other}' is not a delivery kind (core/scal/survey/aux/image/curve)"
+            )))
+        }
+    };
+    if matches!(kind, "aux" | "image") && dataset.is_none() {
+        return Err(DbError::Invalid(
+            "rename refused: an aux or image delivery is named per dataset - pass the dataset it belongs to".into(),
+        ));
+    }
+    if kind == "curve" && (old == "RAW" || new == "RAW") {
+        return Err(DbError::Invalid(
+            "rename refused: curve set RAW cannot be renamed or taken - RAW has absolute priority in curve resolution and the frame declarations are keyed to it. Import under the name you want instead (Import LAS, set dialog)".into(),
+        ));
+    }
+    if !exists(registry, name_col, old)? {
+        return Err(DbError::Invalid(format!(
+            "rename refused: no {kind} delivery named '{old}' on this well - refresh Data Sets and pick from the list"
+        )));
+    }
+    if exists(registry, name_col, new)? {
+        return Err(DbError::Invalid(format!(
+            "rename refused: '{new}' already names a {kind} delivery on this well - an import never overwrites and a rename never merges. Pick an unused name"
+        )));
+    }
+    // The rider coupling is by BARE NAME across registries (see ACTIVE_CORE_SET's aux
+    // reader), so it is checked across registries too.
+    let core_named = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM core_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if kind == "aux" {
+        if core_named(old)? {
+            return Err(DbError::Invalid(format!(
+                "rename refused: '{old}' rides the core delivery of the same name (its rows follow the active core set) - rename the CORE set in Data Sets and the riders move with it"
+            )));
+        }
+        if core_named(new)? {
+            return Err(DbError::Invalid(format!(
+                "rename refused: '{new}' names a core delivery on this well, and an aux set under a core set's name becomes its rider - pick a name no core set carries"
+            )));
+        }
+    }
+    if kind == "core" {
+        let aux_taken: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM aux_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, new],
+            |r| r.get(0),
+        )?;
+        if aux_taken > 0 {
+            return Err(DbError::Invalid(format!(
+                "rename refused: '{new}' already names a point-data delivery on this well, and the core set's riders would merge into it - pick an unused name"
+            )));
+        }
+    }
+    // One transaction: the registry, every data table, and — for a core set — the aux
+    // riders that share its name. All of it or none of it.
+    let (rows_moved, rider_rows_moved) = with_txn(conn, |conn| {
+        let mut rows = 0usize;
+        let mut riders = 0usize;
+        let rename_in = |conn: &Connection, table: &str, col: &str| -> Result<usize, duckdb::Error> {
+            match dataset {
+                Some(ds) if matches!(kind, "aux" | "image") => conn.execute(
+                    &format!("UPDATE {table} SET {col} = ?3 WHERE well_id = ?1 AND dataset = ?4 AND {col} = ?2"),
+                    params![well_id, old, new, ds],
+                ),
+                _ => conn.execute(
+                    &format!("UPDATE {table} SET {col} = ?3 WHERE well_id = ?1 AND {col} = ?2"),
+                    params![well_id, old, new],
+                ),
+            }
+        };
+        rows += rename_in(conn, registry, name_col)?;
+        for table in data_tables {
+            rows += rename_in(conn, table, name_col)?;
+        }
+        if kind == "core" {
+            for table in ["aux_sets", "aux_data", "aux_duplicate_depth_resolutions"] {
+                riders += conn.execute(
+                    &format!("UPDATE {table} SET set_name = ?3 WHERE well_id = ?1 AND set_name = ?2"),
+                    params![well_id, old, new],
+                )?;
+            }
+        }
+        Ok::<_, duckdb::Error>((rows, riders))
+    })?;
+    // Mutate-then-audit, the house order (`set_zone_param_audited`); '.' is replaced in the
+    // audited names because the dotted-name rule reserves it for attribute changes.
+    record_audit_entry(
+        conn,
+        Some(well_id),
+        operator,
+        operator_kind,
+        view,
+        "rename_delivery_set",
+        None,
+        None,
+        &[AuditDetail {
+            location: "SET".into(),
+            mode: "RENAME".into(),
+            unit: None,
+            name: old.replace('.', "_"),
+            value: Some(format!("{kind} -> {}", new.replace('.', "_"))),
+        }],
+    )?;
+    Ok(SetRenameReceipt { rows_moved, rider_rows_moved })
 }
 
 /// Bulk-inserts one core DELIVERY for a well under `set_name`, replacing only that set's
@@ -6333,6 +6519,175 @@ mod inspector_tests {
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}.wal"));
+    }
+
+    /// A core delivery's name is a cross-reference: the plugs, the registration events and
+    /// the same-named aux riders (extras) all correlate on it. Renaming moves ALL of them in
+    /// one transaction — a name left behind in any table is a delivery silently split in two
+    /// — and is audited under mode RENAME. The other side: a taken target name refuses BY
+    /// NAME and moves NOTHING, so a lazier rename that updates only the registry, or one
+    /// that merges into an existing delivery, would fail one half or the other.
+    #[test]
+    fn renaming_a_core_delivery_moves_plugs_riders_and_registrations_or_nothing() {
+        let conn = mem_db();
+        let wid_uuid = Uuid::new_v4();
+        insert_well(&conn, wid_uuid, "SANDI-REN", None, None, None).unwrap();
+        let wid = wid_uuid.to_string();
+        let d = [2000.0f32, 2001.0, 2002.0];
+        let nan = [f32::NAN; 3];
+        insert_core_data(&conn, &wid, "RAW", None, &d, &[0.2, 0.21, 0.19], &nan, &nan, &nan).unwrap();
+        conn.execute(
+            "INSERT INTO core_registrations (well_id, set_name, seq, kind, delta) VALUES (?1, 'RAW', 0, 'manual', 1.5)",
+            params![wid],
+        )
+        .unwrap();
+        insert_aux_data(
+            &conn,
+            &wid,
+            "CORE",
+            "RAW",
+            None,
+            &[AuxRow {
+                dataset: "CORE".into(),
+                depth_top: 2000.0,
+                depth_base: None,
+                item: "LITH".into(),
+                value_num: None,
+                value_text: Some("ss".into()),
+            }],
+        )
+        .unwrap();
+
+        let receipt =
+            rename_delivery_set(&conn, "core", &wid, None, "RAW", "CORE2024", "QC Lead", "HUMAN", "Data Sets")
+                .unwrap();
+        // 1 registry row + 3 plugs + 1 registration; riders = 1 aux_sets + 1 aux_data.
+        assert_eq!(receipt.rows_moved, 5, "registry, plugs and registrations all move");
+        assert_eq!(receipt.rider_rows_moved, 2, "the extras ride the core's name");
+        let count = |sql: &str, name: &str| -> i64 {
+            conn.query_row(sql, params![wid, name], |r| r.get(0)).unwrap()
+        };
+        for table in ["core_sets", "core_data", "core_registrations", "aux_sets", "aux_data"] {
+            let sql = format!("SELECT COUNT(*) FROM {table} WHERE well_id = ?1 AND set_name = ?2");
+            assert_eq!(count(&sql, "RAW"), 0, "{table} must hold nothing under the old name");
+            assert!(count(&sql, "CORE2024") > 0, "{table} must hold the delivery under the new name");
+        }
+        // The delivery is still the ACTIVE one under its new name, so every core reader
+        // (which follows the active set) sees the same plugs it saw before the rename.
+        let active: String = conn
+            .query_row(
+                "SELECT set_name FROM core_sets WHERE well_id = ?1 AND active = 1",
+                params![wid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, "CORE2024");
+        let audited: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_detail WHERE mode = 'RENAME' AND name = 'RAW'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(audited, 1, "the rename is on the audit trail");
+
+        // The other side: a taken name refuses and NOTHING moves.
+        insert_core_data(&conn, &wid, "OTHER", None, &d[..1], &[0.2], &nan[..1], &nan[..1], &nan[..1])
+            .unwrap();
+        let err = rename_delivery_set(&conn, "core", &wid, None, "CORE2024", "OTHER", "QC Lead", "HUMAN", "Data Sets")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("never merges"), "the collision refusal names the rule: {err}");
+        assert_eq!(
+            count("SELECT COUNT(*) FROM core_data WHERE well_id = ?1 AND set_name = ?2", "CORE2024"),
+            3,
+            "a refused rename changes nothing"
+        );
+        let err = rename_delivery_set(&conn, "core", &wid, None, "GONE", "X", "QC Lead", "HUMAN", "Data Sets")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no core delivery named"), "a missing source refuses by name: {err}");
+        let err = rename_delivery_set(&conn, "core", &wid, None, "CORE2024", "Y", "", "HUMAN", "Data Sets")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("operator"), "a rename without an operator is refused before anything moves: {err}");
+    }
+
+    /// The two refusals that carry the resolution contracts, pinned by their naming phrases,
+    /// and the curve-set success path beside them: curve set RAW is never renamed in either
+    /// direction (RAW's absolute priority in curve resolution would silently re-decide which
+    /// delivery answers every mnemonic), an aux delivery sharing a core set's name is that
+    /// core's rider and never travels alone — and a non-RAW curve set rename moves
+    /// curve_meta, its frame declaration in import_sets and its array curves together.
+    #[test]
+    fn curve_raw_is_never_renamed_and_an_aux_rider_names_its_core() {
+        let conn = mem_db();
+        let wid_uuid = Uuid::new_v4();
+        insert_well(&conn, wid_uuid, "SANDI-REN2", None, None, None).unwrap();
+        let wid = wid_uuid.to_string();
+        let nan = [f32::NAN; 1];
+        insert_core_data(&conn, &wid, "FPROOH", None, &[2000.0], &[0.2], &nan, &nan, &nan).unwrap();
+
+        let err = rename_delivery_set(&conn, "curve", &wid, None, "RAW", "EDIT1", "QC", "HUMAN", "Data Sets")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("absolute priority"), "renaming RAW away is refused: {err}");
+        let err = rename_delivery_set(&conn, "curve", &wid, None, "EDIT1", "RAW", "QC", "HUMAN", "Data Sets")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("absolute priority"), "renaming onto RAW is refused: {err}");
+
+        insert_aux_data(
+            &conn,
+            &wid,
+            "CORE",
+            "FPROOH",
+            None,
+            &[AuxRow {
+                dataset: "CORE".into(),
+                depth_top: 2000.0,
+                depth_base: None,
+                item: "SO".into(),
+                value_num: Some(1.0),
+                value_text: None,
+            }],
+        )
+        .unwrap();
+        let err = rename_delivery_set(
+            &conn, "aux", &wid, Some("CORE"), "FPROOH", "SOLO", "QC", "HUMAN", "Data Sets",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("rides the core delivery"), "a rider never travels alone: {err}");
+
+        // Success path for a curve set: meta, frame declaration and array curves move together.
+        let cid = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic) VALUES (?1, ?2, 'NMR22', 'GR')",
+            params![cid, wid],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO import_sets (well_id, set_name, declared_sampling_style, effective_sampling_style, sampling_verified)
+             VALUES (?1, 'NMR22', 'CONTINUOUS_REGULAR', 'CONTINUOUS_REGULAR', TRUE)",
+            params![wid],
+        )
+        .unwrap();
+        write_array_log(&conn, &wid, "NMR22", "T2DIST", &[2000.0], &[vec![0.5, 0.4]], None).unwrap();
+        let receipt =
+            rename_delivery_set(&conn, "curve", &wid, None, "NMR22", "NMR22_QC", "QC", "HUMAN", "Data Sets")
+                .unwrap();
+        assert_eq!(receipt.rows_moved, 3, "curve_meta + import_sets + array_logs all move");
+        for table in ["curve_meta", "import_sets", "array_logs"] {
+            let n: i64 = conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE well_id = ?1 AND set_name = 'NMR22'"),
+                    params![wid],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 0, "{table} must not keep the old name");
+        }
     }
 
     #[test]

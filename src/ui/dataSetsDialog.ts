@@ -20,9 +20,11 @@ import {
   type ScalSetInfo,
   type SurveyInfo,
 } from "../ipc";
+import { renameDeliverySet } from "../ipc";
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { openModal } from "./modal";
+import { ensureSessionOperator } from "./runCustody";
 
 /** Data-set manager: core, surveys and every point dataset (T-IMP-08 / T-IMP-12).
  *
@@ -67,6 +69,8 @@ function buildSection<T>(opts: {
   load: () => Promise<T[]>;
   activate: (name: string, group?: string) => Promise<void>;
   remove: (name: string, group?: string) => Promise<void>;
+  /** Present = the rows offer Rename (every section does; the callback carries its kind). */
+  rename?: (oldName: string, newName: string, group?: string) => Promise<void>;
 }): { root: HTMLElement; refresh: () => Promise<void> } {
   const root = document.createElement("div");
   const h = document.createElement("p");
@@ -160,6 +164,22 @@ function buildSection<T>(opts: {
         });
         actions.appendChild(use);
       }
+      if (opts.rename) {
+        const ren = document.createElement("button");
+        ren.className = "btn";
+        ren.textContent = "Rename";
+        ren.title = "Renames the delivery everywhere its name is read - audited";
+        ren.addEventListener("click", () => {
+          const entered = window.prompt(`Rename ${name} to:`, name);
+          const newName = entered?.trim();
+          if (!newName || newName === name) return;
+          void opts
+            .rename!(name, newName, group)
+            .then(() => refresh())
+            .catch((err) => setStatus(String(err)));
+        });
+        actions.appendChild(ren);
+      }
       const del = document.createElement("button");
       del.className = "btn";
       del.textContent = "Delete";
@@ -193,6 +213,31 @@ export function openDataSetsDialog(
 ): void {
   const wrap = document.createElement("div");
 
+  // One rename routine for every section: custody first (a rename is audited, so the
+  // operator is demanded before anything moves), then the backend moves every row that
+  // carries the name — riders included — or refuses by name.
+  const renameSet =
+    (kind: string, label: string) =>
+    async (oldName: string, newName: string, group?: string): Promise<void> => {
+      const operator = await ensureSessionOperator("Rename delivery set");
+      if (!operator) return;
+      const receipt = await renameDeliverySet(
+        kind,
+        well.well_id,
+        group ?? null,
+        oldName,
+        newName,
+        operator.identity,
+        operator.kind,
+        "Data Sets",
+      );
+      const rider =
+        receipt.rider_rows_moved > 0 ? ` (+${receipt.rider_rows_moved} rider row(s) moved with it)` : "";
+      setStatus(`Renamed ${label} ${oldName} → ${newName} (${receipt.rows_moved} row(s))${rider} — audited.`);
+      recordProcess("Edit", `Renamed ${label} set ${oldName} → ${newName}`, well.well_name);
+      onChanged();
+    };
+
   const doc = document.createElement("p");
   doc.className = "modal-doc";
   doc.textContent =
@@ -210,6 +255,7 @@ export function openDataSetsDialog(
     sourceOf: (r) => r.source,
     dateOf: (r) => r.imported_at,
     load: () => listCoreSets(well.well_id),
+    rename: renameSet("core", "core"),
     activate: async (name) => {
       await setActiveCoreSet(well.well_id, name);
       setStatus(`Core set ${name} is now active for ${well.well_name}.`);
@@ -234,6 +280,7 @@ export function openDataSetsDialog(
     sourceOf: (r) => r.source,
     dateOf: (r) => r.imported_at,
     load: () => listScalSets(well.well_id),
+    rename: renameSet("scal", "SCAL"),
     activate: async (name) => {
       await setActiveScalSet(well.well_id, name);
       setStatus(`SCAL set ${name} is now active for ${well.well_name}.`);
@@ -259,6 +306,7 @@ export function openDataSetsDialog(
     dateOf: (r) => r.imported_at,
     extra: (r) => (r.datum === null ? "" : `  (datum ${r.datum})`),
     load: () => listSurveys(well.well_id),
+    rename: renameSet("survey", "survey"),
     activate: async (name) => {
       const samples = await setActiveSurvey(well.well_id, name);
       setStatus(`Survey ${name} is now active; TVD/TVDSS rebuilt (${samples} sample(s)).`);
@@ -286,6 +334,7 @@ export function openDataSetsDialog(
     dateOf: (r) => r.imported_at,
     groupOf: (r) => r.dataset,
     load: () => listAuxSets(well.well_id),
+    rename: renameSet("aux", "point-data"),
     activate: async (name, group) => {
       await setActiveAuxSet(well.well_id, group ?? "", name);
       setStatus(`${group}: set ${name} is now active for ${well.well_name}.`);
@@ -313,6 +362,7 @@ export function openDataSetsDialog(
     dateOf: (r) => r.imported_at,
     groupOf: (r) => r.dataset,
     load: () => listImageSets(well.well_id),
+    rename: renameSet("image", "image"),
     activate: async (name, group) => {
       await setActiveImageSet(well.well_id, group ?? "", name);
       setStatus(`${group}: image set ${name} is now active for ${well.well_name}.`);
