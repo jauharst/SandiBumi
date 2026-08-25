@@ -13,15 +13,13 @@ import "dockview-core/dist/styles/dockview.css";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { WORKSPACE_DIRTY, clearDirty, isDirty, markDirty, subscribeDirty } from "../dirty";
 import {
-  getModuleHelp,
   listModules,
-  moduleGuideStatus,
-  openModuleGuide,
   type Layout,
   type ModuleSpec,
   type PersistedPlotState,
   type WellSummary,
 } from "../ipc";
+import { buildModuleHelpCard } from "./helpCard";
 import { recordProcess } from "../processLog";
 import { LogViewPanel } from "./logViewPanel";
 import { ObjectTree } from "./objectTree";
@@ -1561,45 +1559,15 @@ export class Workspace {
       content.appendChild(p);
     };
     if (panel.id.startsWith("module:")) {
-      // The module Help card (docs/guidebook_prompt.md): what it is, THE EQUATION,
-      // the published reference, and the link into the module's guidebook chapter.
-      // Modules without a card yet fall back to the manifest doc.
+      // The module Help card (docs/guidebook_prompt.md) — built by the ONE shared
+      // builder the pane's own "? Help" button also uses (helpCard.ts), so the two
+      // help entry points can never show different content. (The old inline copy
+      // also dropped a card's note whenever it had no reference lines.)
       const name = panel.id.slice("module:".length);
-      const help = await getModuleHelp(name).catch(() => null);
-      if (help) {
-        para("help-body", help.summary);
-        const eq = document.createElement("pre");
-        eq.className = "help-equations";
-        eq.textContent = help.equations.join("\n");
-        content.appendChild(eq);
-        if (help.references.length) {
-          const refs = document.createElement("div");
-          refs.className = "help-refs";
-          for (const r of help.references) {
-            const line = document.createElement("div");
-            line.textContent = r;
-            refs.appendChild(line);
-          }
-          content.appendChild(refs);
-          if (help.note) para("help-note", help.note);
-        }
-      } else {
-        const spec = await listModules()
-          .then((all) => all.find((s) => s.name === name))
-          .catch(() => undefined);
-        para("help-body", spec?.doc ?? "Documentation for this module is unavailable.");
-      }
-      if (await moduleGuideStatus(name).catch(() => false)) {
-        const link = document.createElement("button");
-        link.className = "btn help-guide-link";
-        link.textContent = "See complete guidebook";
-        link.addEventListener("click", () => {
-          openModuleGuide(name).catch((e) => setStatus(String(e)));
-        });
-        content.appendChild(link);
-      } else if (!help) {
-        para("help-note", "Illustrated help for each panel will open here in a later release.");
-      }
+      const fallbackDoc = await listModules()
+        .then((all) => all.find((s) => s.name === name)?.doc)
+        .catch(() => undefined);
+      content.appendChild(await buildModuleHelpCard(name, fallbackDoc));
     } else {
       const kind = panel.id.split("-")[0];
       para("help-body", Workspace.PANEL_HELP[kind] ?? "Documentation for this panel is coming soon.");

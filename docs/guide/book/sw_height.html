@@ -1,0 +1,205 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SW — Saturation-Height — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Saturation</div>
+<h1>SW — Saturation-Height</h1>
+<p class="modmeta">Module id <code>sw_height</code> · category <b>Saturation</b></p>
+<p>Water saturation from height above the free-water level, through a fitted capillary-pressure model: the Leverett J-function (fit SWH_A/SWH_B from core Pc data via Import SCAL) or the Skelt-Harrison law. Below the FWL the result is 1; above it the result is limited to [SWT_IRR, 1]. Height is measured from TVD when a TVD curve is supplied, so deviated wells are not overstated.</p>
+<pre class="equations">Pc = 0.433·(RHO_W − RHO_HC)·h_ft  (psi; 0.433 psi/ft per unit sp. gravity)
+J = 0.21645·Pc/IFT_RES·√(PERM/PHIE),  SWH = SWH_A·J^SWH_B
+SKELT: SWH = 1 − SH_A·exp(−(SH_B/(h + SH_D))^SH_C)  (h in metres)</pre>
+<h2>References</h2>
+<ul><li>Leverett, M.C. (1941), Transactions AIME 142 - the J-function</li>
+<li>Skelt, C. &amp; Harrison, B. (1995), SPWLA - the height-saturation law</li></ul>
+<!-- Authored walkthrough for the sw_height guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: saturation from height, with the fit chain shown</h2>
+
+<p>sw_height writes a saturation-versus-height curve from a fitted capillary-pressure
+model — the Leverett J-function here, with Skelt-Harrison one dropdown away. Its
+inputs are the end of a chain, and this walkthrough runs the whole chain on SANDI-01
+so every number arrives with its origin attached.</p>
+
+<h3>Link one: a permeability log from the core calibration</h3>
+
+<p>The J-function needs a PERM curve and none existed. The por-perm transform module
+is built for exactly this: <b>PT_A 17.92 / PT_B −2.203</b> are the ordinary
+least-squares fit of log₁₀(CPERM) on CPOR (as a fraction) over the 15 plugs of the
+SANDI-01 core delivery — R² 0.981 — and the module writes PERM from PHIE_DEN on all
+three wells (<b>3 clean</b>). The regression is the user's own calibration by
+design; the transform ships no coefficients.</p>
+
+<h3>Link two: the Leverett fit from the SCAL import</h3>
+
+<p>Importing the delivery's long-format Pc table (24 points, air-brine, lab σ·cosθ
+72 dyn/cm — the recorded laboratory seed) makes the import itself report the J-fit:
+<b>SWH_A 0.511, SWH_B −0.210, R² 0.586</b>. Note that R² — it will matter below.</p>
+
+<h3>Link three: the run</h3>
+
+<ul>
+  <li><b>FWL 1535 m MD</b> — the gas-water contact read off the resistivity collapse
+    between the two sands. SANDI-01 is vertical so MD = TVD; the pane measures height
+    from a TVD curve when one exists, and this well carries none, so the
+    measured-depth fallback applies — which is only legitimate because the well is
+    vertical.</li>
+  <li><b>RHO_W 1.0</b> (the cited default) and <b>RHO_HC 0.7 g/cc · IFT_RES 26
+    dyn/cm</b> — the recorded vendor seeds for the reservoir fluid pair. On a real
+    study these come from PVT and lab IFT; for the gas leg of a real field you would
+    use the water-gas pair instead. Seeds are seeds, and the reference field says
+    so.</li>
+  <li><b>SWH_A/SWH_B</b> from the import's fit; <b>SWT_IRR 0.16</b> as in the other
+    saturation chapters.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-swheight-pane.png"
+       alt="The saturation-height pane with the fitted Leverett coefficients entered" />
+  <figcaption>The chain's numbers entered: core-fit PERM behind the PHIE/PERM inputs,
+    the SCAL import's J-fit as SWH_A/SWH_B.</figcaption>
+</figure>
+
+<h3>Run and read — including the disagreement</h3>
+
+<p>On SANDI-01: <b>1 clean</b>. Below the FWL the curve is 1 by definition; above it
+HAFWL rises to 35 m at the top of the log and the J-curve pulls saturation down. Now
+the honest part: in the gas leg the height model reads a median <b>SWT_HGT 0.53</b>
+where the resistivity methods read ~0.16 at their floor. That gap is the R² 0.586
+talking — a J-fit through 24 scattered synthetic Pc points is a weak law, and the
+height curve inherits every bit of that weakness. On a real study this comparison —
+height-model saturation against resistivity saturation, on one track — is the QC that
+decides whether the Pc data, the contacts or the resistivity picks need another
+look before anything ships.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>SWH from height above the free-water level. LEVERETT: Pc = 0.433*(RHO_W-RHO_HC)*h_ft, J = 0.21645*Pc/IFT_RES*sqrt(PERM/PHIE), SWH = SWH_A * J^SWH_B (fit SWH_A/SWH_B from core Pc data via Import SCAL — the fit is reported there). SKELT (Skelt-Harrison): SWH = 1 - SH_A*exp(-(SH_B/(h+SH_D))^SH_C), h in metres (SH_B and SH_D are metres by the published form, so the height is converted for that branch alone — the HAFWL curve itself is written in the project's own depth unit). Below the FWL (h &lt;= 0) SWH = 1. Result limited to [SWT_IRR, 1]. FWL is zone-overridable for stacked reservoirs with different contacts. Height is measured from the TVD input when a TVD curve is supplied (else measured depth) so deviated wells are not over-stated — MD height overstates true height by ~1/cos(inc); enter FWL on the SAME reference (a negative value for a sub-sea TVDSS FWL).</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHIE</td><td>Limited effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PERM</td><td>Working permeability (LEVERETT only)</td><td><code>PERM</code></td><td>no</td><td>—</td></tr>
+<tr><td>TVD</td><td>True vertical (sub-sea) depth for height; defaults to measured depth</td><td><code>TVD</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>FWL <span class="src">(depth)</span></h3>
+<p>Free-water level (same reference as the vertical-depth input; negative = subsea TVDSS)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -10000 to 20000 depth</li></ul>
+<h3>RHO_W <span class="src">(g/cc)</span></h3>
+<p>Water density</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: docs/ref_shf.md:56 and Techlog sand-summary water-density default; docs/PRD_v2/15_sat-height-rocktyping.md §5.1</span></li>
+<li><b>Accepted range:</b> 0.8 to 1.3 g/cc</li></ul>
+<h3>RHO_HC <span class="src">(g/cc)</span></h3>
+<p>Hydrocarbon density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.05 to 1.1 g/cc</li></ul>
+<h3>IFT_RES <span class="src">(dyn/cm)</span></h3>
+<p>Reservoir sigma*cos(theta)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 500 dyn/cm</li>
+<li><b>Checked before the run:</b> <code>ift_res.required_when_leverett</code> — IFT_RES is required when OPT_SWH = LEVERETT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett parameters</div></li></ul>
+<h3>SWH_A</h3>
+<p>Leverett coefficient A (from J-fit)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 100</li>
+<li><b>Checked before the run:</b> <code>swh_a.required_when_leverett</code> — SWH_A is required when OPT_SWH = LEVERETT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett parameters</div></li></ul>
+<h3>SWH_B</h3>
+<p>Leverett exponent B (from J-fit, usually negative)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -5 to 0</li>
+<li><b>Checked before the run:</b> <code>swh_b.required_when_leverett</code> — SWH_B is required when OPT_SWH = LEVERETT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett parameters</div></li></ul>
+<h3>SH_A</h3>
+<p>Skelt-Harrison A</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1</li>
+<li><b>Checked before the run:</b> <code>sh_a.required_when_skelt</code> — SH_A is required when OPT_SWH = SKELT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters</div></li></ul>
+<h3>SH_B <span class="src">(m)</span></h3>
+<p>Skelt-Harrison B</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 5000 m</li>
+<li><b>Checked before the run:</b> <code>sh_b.required_when_skelt</code> — SH_B is required when OPT_SWH = SKELT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters</div></li></ul>
+<h3>SH_C</h3>
+<p>Skelt-Harrison C</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 10</li>
+<li><b>Checked before the run:</b> <code>sh_c.required_when_skelt</code> — SH_C is required when OPT_SWH = SKELT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters</div></li></ul>
+<h3>SH_D <span class="src">(m)</span></h3>
+<p>Skelt-Harrison D</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -100 to 1000 m</li>
+<li><b>Checked before the run:</b> <code>sh_d.required_when_skelt</code> — SH_D is required when OPT_SWH = SKELT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters</div></li></ul>
+<h3>SWT_IRR <span class="src">(v/v)</span></h3>
+<p>Irreducible water saturation (lower clamp)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.8 v/v</li></ul>
+<h2>Options</h2>
+<h3>OPT_SWH</h3>
+<p>Saturation-height model</p>
+<ul><li><b>Choices:</b><ul><li><code>LEVERETT</code></li>
+<li><code>SKELT</code></li></ul></li>
+<li><b>Default:</b> <code>LEVERETT</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>SWT_HGT</td><td>SWT from height function (unlimited)</td></tr>
+<tr><td>SWT</td><td>Limited total water saturation</td></tr>
+<tr><td>SW_METHOD</td><td>Producing saturation equation (categorical method code)</td></tr>
+<tr><td>HAFWL</td><td>Height above free-water level</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

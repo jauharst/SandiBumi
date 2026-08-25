@@ -1,0 +1,189 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SW — Indonesia (Poupon-Leveaux) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Saturation</div>
+<h1>SW — Indonesia (Poupon-Leveaux)</h1>
+<p class="modmeta">Module id <code>sw_indo</code> · category <b>Saturation</b></p>
+<p>The Poupon-Leveaux Indonesia equation for shaly sands: total conductivity is a clay term, a clean-sand Archie term and a geometric cross-term between them, so the clay contribution needs no separate clay-water resistivity model. Three published forms of the shale exponent are offered by name.</p>
+<pre class="equations">1/RT = (v/RT_SH + PHIE^M/(A·Rw) + 2·√(v·PHIE^M/(A·Rw·RT_SH))) · SW^N
+v = VSH^(2−VSH)  (FULL),  VSH²  (SIMPLE),  VSH^(2−2·VSH)  (TAR_SAND)</pre>
+<h2>References</h2>
+<ul><li>Poupon, A. &amp; Leveaux, J. (1971), SPWLA 12th Annual Logging Symposium, Paper O</li></ul>
+<!-- Authored walkthrough for the sw_indo guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: the Indonesia equation</h2>
+
+<p>Poupon-Leveaux's Indonesia equation writes total conductivity as a clay term, a
+clean-sand Archie term and a geometric cross-term between them — built for shaly sands
+where a separate clay-water model is more parameters than the data can support. The
+pane offers the three published shale-exponent forms by name; this run uses
+<b>FULL</b> (v&nbsp;=&nbsp;VSH^(2−VSH)), the default.</p>
+
+<h3>The picks</h3>
+
+<p>Same convention and water pick as the <a href="sw_arch.html">Archie chapter</a>,
+plus the one parameter Indonesia adds — the shale resistivity:</p>
+
+<ul>
+  <li><b>A 1 · M 2 · N 2</b> — the dossier's reference-case convention, declared.</li>
+  <li><b>RW 0.058 ohm·m</b> — median wet-sand Rwa, as before.</li>
+  <li><b>RT_SH 2.5 ohm·m</b> — the median RES_DEEP over the 55 samples at
+    GR&nbsp;≥&nbsp;112 gAPI: this dataset's own shale resistivity.</li>
+  <li><b>SWE_IRR 0.16</b> — the SSC-derived irreducible floor, as before.</li>
+  <li><b>VSH input</b> — the VSH curve from the gamma-ray run; PHIE pinned to
+    PHIE_DEN so the porosity's provenance is one method, not a mixture.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-swindo-pane.png"
+       alt="The SW — Indonesia pane with the FULL form and the picks entered" />
+  <figcaption>FULL form; RT_SH is the only new pick over the Archie run.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>0 clean · 3 degraded</b>, and the report is worth reading
+closely. The clamp count drops to ~93 per well — against Archie's 372 — because the
+clay term now absorbs the shale conductivity that Archie could only explain as water.
+One sample per well reports <i>"VSH&nbsp;≥&nbsp;1 leaves no effective porosity, so the
+saturation is degenerate rather than measured"</i> — the equation refusing to
+manufacture a number where the rock model says there is no reservoir.</p>
+
+<p>The comparison that teaches the method: in the clean gas sand the median
+<code>SWE_INDO</code> is 0.084 — identical to Archie's, because at VSH&nbsp;→&nbsp;0
+the Indonesia equation <i>is</i> Archie. The two separate only where VSH grows, which
+is exactly the interval a shaly-sand equation exists for. Put SWE_ARCH and SWE_INDO on
+one track and the divergence maps the shale.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>1/RT = (v/RT_SH + PHIE^M/(A*Rw) + 2*sqrt(v*PHIE^M/(A*Rw*RT_SH))) * SW^N, v = VSH^(2-VSH) (FULL), VSH^2 (SIMPLE), VSH^(2-2*VSH) (TAR_SAND). Poupon &amp; Leveaux (1971).</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>FTEMP</td><td>Formation temperature (precalc, for MEASURED/SALINITY)</td><td><code>FTEMP</code></td><td>no</td><td>resolved from computed curves only, never the RAW import store</td></tr>
+<tr><td>RT</td><td>True formation resistivity</td><td><code>RES_DEEP</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PHIE</td><td>Limited effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
+<tr><td>VSH</td><td>Limited volume of shale</td><td><code>VSH</code></td><td>yes</td><td>accepts quantity kind: VSH</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>A</h3>
+<p>Tortuosity constant</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 5</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_a</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>M</h3>
+<p>Cementation exponent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_m</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>N</h3>
+<p>Saturation exponent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_n</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RT_SH <span class="src">(ohmm)</span></h3>
+<p>Shale resistivity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 500 ohmm</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_resistivity</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>SWE_IRR <span class="src">(v/v)</span></h3>
+<p>Irreducible effective water saturation</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.6 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>irreducible_swe</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RW <span class="src">(ohmm)</span></h3>
+<p>Rw at formation temperature (CONSTANT)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_resistivity</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Checked before the run:</b> <code>rw.required_when_constant</code> — RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>RWS <span class="src">(ohmm)</span></h3>
+<p>Measured water sample resistivity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
+<li><b>Checked before the run:</b> <code>rws.required_when_measured</code> — RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>RWT <span class="src">(degC)</span></h3>
+<p>Temperature of RWS measurement</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 150 degC</li>
+<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code> — RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>SALW <span class="src">(ppm)</span></h3>
+<p>Formation water salinity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 100 to 300000 ppm</li>
+<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code> — SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_INDO</h3>
+<p>Indonesia VSH exponent variant</p>
+<ul><li><b>Choices:</b><ul><li><code>FULL</code></li>
+<li><code>SIMPLE</code></li>
+<li><code>TAR_SAND</code></li></ul></li>
+<li><b>Default:</b> <code>FULL</code></li></ul>
+<h3>OPT_RW</h3>
+<p>Formation water resistivity source</p>
+<ul><li><b>Choices:</b><ul><li><code>CONSTANT</code></li>
+<li><code>MEASURED</code></li>
+<li><code>SALINITY</code></li></ul></li>
+<li><b>Default:</b> <code>CONSTANT</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>SWE_INDO</td><td>SWE from Indonesia (unlimited)</td></tr>
+<tr><td>SWE</td><td>Limited effective water saturation</td></tr>
+<tr><td>VOL_UWAT</td><td>Volume of water (unflushed)</td></tr>
+<tr><td>SW_METHOD</td><td>Producing saturation equation (categorical method code)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

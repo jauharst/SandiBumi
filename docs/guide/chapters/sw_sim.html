@@ -1,0 +1,39 @@
+<!-- Authored walkthrough for the sw_sim guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: Simandoux, typed</h2>
+
+<p>Every vendor ships a different arithmetic under the name "Simandoux". This pane
+refuses to take part in that: each persisted id names exactly one published equation,
+and the run records which one it used. This walkthrough runs
+<b>simandoux_bardon_pied</b> — the Bardon &amp; Pied form, the default — with the
+modified-SLB form (its VSH^C exponent and (1−VSH) divisor) one dropdown away.</p>
+
+<h3>The picks</h3>
+
+<p>Identical to the <a href="sw_indo.html">Indonesia run</a> on purpose — same a, m,
+n, same RW 0.058, same RT_SH 2.5, same SWE_IRR 0.16, same PHIE_DEN and VSH inputs —
+so that any difference between the two output curves is the <i>equation</i>, never the
+picks. C stays at its cited default of 1 (it only participates in the modified form).</p>
+
+<figure>
+  <img src="../img/guide-swsim-pane.png"
+       alt="The typed Simandoux pane with the Bardon-Pied form selected" />
+  <figcaption>Same picks as Indonesia, so the curves compare equation against
+    equation.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>0 clean · 3 degraded</b> — around 100 range-clamped samples per
+well, the same family as Indonesia's report. The pane solves the equation numerically
+for SWE (there is no closed form once the clay term and the exponent N share the
+unknown), which is invisible in the output and worth knowing only when a sample
+refuses: a refusal names the input that made the solve impossible rather than
+returning a half-converged number.</p>
+
+<p>The three-way comparison completes here: in the clean gas sand
+<code>SWE_SIM</code>'s median is 0.084 — Archie, Indonesia and Simandoux agree to the
+third decimal, because with VSH near zero both shaly-sand equations collapse to the
+clean-sand law they extend. The whole difference between the three methods lives in
+the shaly intervals, and a track carrying all three SWE curves shows it directly.</p>
