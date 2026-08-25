@@ -1663,11 +1663,49 @@ fn restore_log_set(
 }
 
 /// Retained as an explicit refusal for stale frontends: ordinary deletion is not an authorized
-/// archive-retention policy and cannot mutate immutable version history.
+/// archive-retention policy and cannot mutate immutable version history. Retention goes through
+/// `preview_version_purge` / `purge_log_set_versions` below.
 #[tauri::command]
 fn delete_log_set(db: tauri::State<DbState>, set_id: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
     crate::ancestry::delete_log_set(&conn, &set_id)
+}
+
+/// Version retention, phase 1 of 2: resolve a selection (explicit versions, or keep-latest-N per
+/// lineage) into the concrete list of purgeable versions plus every refusal, VISIBLY. Async: a
+/// keep-N sweep over a 2000-well project is a real scan and must not hold the event loop.
+#[tauri::command]
+async fn preview_version_purge(
+    db: tauri::State<'_, DbState>,
+    selection: crate::ancestry::VersionPurgeSelection,
+) -> Result<crate::ancestry::VersionPurgePreview, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        crate::ancestry::preview_version_purge(&conn, &selection)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Version retention, phase 2 of 2: purge exactly the previewed set ids. Refuses whole if any id
+/// is protected or missing, deletes in one transaction, writes the audit trail (DEC-020 operator
+/// required), and answers with counted numbers.
+#[tauri::command]
+async fn purge_log_set_versions(
+    db: tauri::State<'_, DbState>,
+    set_ids: Vec<String>,
+    operator: String,
+    operator_kind: String,
+    view: String,
+) -> Result<crate::ancestry::VersionPurgeReceipt, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        crate::ancestry::purge_log_set_versions(&conn, &set_ids, &operator, &operator_kind, &view)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// P1-c: per-well catalog of current computed curves with provenance (set/version/module/
@@ -4640,6 +4678,8 @@ pub fn run() {
             list_log_set_names,
             restore_log_set,
             delete_log_set,
+            preview_version_purge,
+            purge_log_set_versions,
             list_computed_catalog,
             list_generic_curve_catalog,
             list_generic_curve_inventory,

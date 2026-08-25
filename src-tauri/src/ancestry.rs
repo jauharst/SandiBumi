@@ -3393,12 +3393,358 @@ pub(crate) fn restore_log_set(
 }
 
 /// Ordinary version deletion is not a retention policy. Keep this explicit refusal behind the
-/// command so a stale frontend or saved UI cannot revive the former destructive path.
+/// command so a stale frontend or saved UI cannot revive the former destructive path. Retention
+/// EXISTS, but only as the explicit route below: previewed first, the live version protected,
+/// every removal written to the audit trail.
 pub(crate) fn delete_log_set(_conn: &Connection, _set_id: &str) -> Result<(), String> {
     Err(
-        "computed curve history is append-only; deleting a log-set version is refused. No explicit, user-visible and logged version-retention policy is configured"
+        "computed curve history is append-only; deleting a log-set version here is refused. Superseded versions are removed only through Purge Versions - the explicit, previewed and audited retention command"
             .into(),
     )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Version retention: the ONE authorized route by which a superseded version leaves the archive.
+//
+// Geolog's precedent (PRD ch.22 §8.3 items 11/27, T2): versions are deletable, but every delete
+// is audited and reserved objects are protected. This route is stricter on two counts. The
+// version the live interpretation reads is untouchable by every path - in Geolog, deleting the
+// latest `GR_4` silently promotes `GR_3`, so a bare reference changes meaning with nothing
+// recomputed; here that cannot happen. And destruction only happens to a list that was PREVIEWED:
+// `purge_log_set_versions` takes explicit set ids, refuses the WHOLE request if any one of them
+// is protected or missing, and writes the audit trail before reporting counts. There is no
+// standing retention daemon on purpose - nothing is deleted unless the user asked that day.
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VersionPurgeCandidate {
+    pub set_id: String,
+    pub well_id: String,
+    pub set_name: String,
+    pub version: i64,
+    pub module: String,
+    pub created_at: String,
+    pub archived_rows: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VersionPurgeRefusal {
+    pub set_id: String,
+    pub set_name: String,
+    pub version: i64,
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct VersionPurgePreview {
+    pub candidates: Vec<VersionPurgeCandidate>,
+    pub refused: Vec<VersionPurgeRefusal>,
+    pub total_archived_rows: i64,
+}
+
+/// What to purge. Exactly ONE selection mode: explicit `set_ids` (the pick-one-version case), or
+/// `keep_latest` = N (every lineage keeps its newest N versions). `well_ids` and `set_name`
+/// narrow the keep-N sweep; counts are per (well, set_name) lineage either way.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct VersionPurgeSelection {
+    #[serde(default)]
+    pub set_ids: Vec<String>,
+    #[serde(default)]
+    pub keep_latest: Option<i64>,
+    #[serde(default)]
+    pub well_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub set_name: Option<String>,
+}
+
+/// Counts are COUNTED at the delete statements, never estimated - and deliberately no byte
+/// figure: purging marks space dead, only Compact Project reclaims it, and the frontend states
+/// that rather than this receipt guessing at megabytes.
+#[derive(Debug, serde::Serialize)]
+pub struct VersionPurgeReceipt {
+    pub versions_removed: usize,
+    pub archive_rows_removed: usize,
+    pub parameter_rows_removed: usize,
+    pub degradation_rows_removed: usize,
+    pub wells_touched: usize,
+    pub purged: Vec<VersionPurgeCandidate>,
+}
+
+/// The columns every purge decision needs, selected identically by the single-id fetch and the
+/// keep-N sweep so the two paths can never judge a version by different evidence. The last two
+/// booleans are the protections: is this the lineage's latest, and does the live store still
+/// reference it (the same EXISTS `list_log_sets` reports as `is_current`).
+const PURGE_CANDIDATE_COLUMNS: &str = "CAST(s.set_id AS VARCHAR), CAST(s.well_id AS VARCHAR), s.set_name, s.version, s.module,
+     strftime(s.created_at, '%Y-%m-%d %H:%M'),
+     (SELECT COUNT(*) FROM computed_curves_archive a WHERE a.set_id = s.set_id),
+     s.version = (SELECT MAX(l.version) FROM log_sets l
+                  WHERE l.well_id = s.well_id AND l.set_name = s.set_name),
+     EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = s.set_id)";
+
+fn purge_candidate_from_row(
+    row: &duckdb::Row,
+) -> duckdb::Result<(VersionPurgeCandidate, bool, bool)> {
+    Ok((
+        VersionPurgeCandidate {
+            set_id: row.get(0)?,
+            well_id: row.get(1)?,
+            set_name: row.get(2)?,
+            version: row.get(3)?,
+            module: row.get(4)?,
+            created_at: row.get(5)?,
+            archived_rows: row.get(6)?,
+        },
+        row.get(7)?,
+        row.get(8)?,
+    ))
+}
+
+fn fetch_purge_candidate(
+    conn: &Connection,
+    set_id: &str,
+) -> Result<Option<(VersionPurgeCandidate, bool, bool)>, String> {
+    // format! over a typed `&'static str` column list only - the shape the security review
+    // records as safe; no user text reaches the SQL.
+    let sql = format!("SELECT {PURGE_CANDIDATE_COLUMNS} FROM log_sets s WHERE s.set_id = ?1");
+    match conn.query_row(&sql, params![set_id], |row| purge_candidate_from_row(row)) {
+        Ok(found) => Ok(Some(found)),
+        Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// The two protections, each refusing by name with the reason stated. Latest is checked first:
+/// a version that is both latest and live gets the simpler statement.
+fn purge_protection(
+    candidate: &VersionPurgeCandidate,
+    is_latest: bool,
+    is_live: bool,
+) -> Option<String> {
+    if is_latest {
+        return Some(format!(
+            "{}_{} is the latest version of {} - the latest version is never purged, so a bare reference can never silently change meaning",
+            candidate.set_name, candidate.version, candidate.set_name
+        ));
+    }
+    if is_live {
+        return Some(format!(
+            "the live interpretation still reads {}_{} - a curve in the current store references this version, so purging it would orphan that curve's provenance",
+            candidate.set_name, candidate.version
+        ));
+    }
+    None
+}
+
+pub(crate) fn preview_version_purge(
+    conn: &Connection,
+    selection: &VersionPurgeSelection,
+) -> Result<VersionPurgePreview, String> {
+    let explicit = !selection.set_ids.is_empty();
+    match (explicit, selection.keep_latest) {
+        (true, Some(_)) => {
+            return Err(
+                "choose ONE selection: explicit versions or keep-latest-N, not both - a purge must mean exactly one thing".into(),
+            )
+        }
+        (false, None) => {
+            return Err("nothing selected: name the versions to purge, or set keep-latest-N".into())
+        }
+        _ => {}
+    }
+    let mut candidates = Vec::new();
+    let mut refused = Vec::new();
+    if explicit {
+        for set_id in &selection.set_ids {
+            match fetch_purge_candidate(conn, set_id)? {
+                None => refused.push(VersionPurgeRefusal {
+                    set_id: set_id.clone(),
+                    set_name: String::new(),
+                    version: 0,
+                    reason: "no such log-set version".into(),
+                }),
+                Some((candidate, is_latest, is_live)) => {
+                    match purge_protection(&candidate, is_latest, is_live) {
+                        Some(reason) => refused.push(VersionPurgeRefusal {
+                            set_id: candidate.set_id,
+                            set_name: candidate.set_name,
+                            version: candidate.version,
+                            reason,
+                        }),
+                        None => candidates.push(candidate),
+                    }
+                }
+            }
+        }
+    } else {
+        let keep = selection.keep_latest.unwrap_or(1);
+        if keep < 1 {
+            return Err(
+                "keep-latest must be at least 1: the latest version is never purged".into(),
+            );
+        }
+        let sql = format!(
+            "SELECT {PURGE_CANDIDATE_COLUMNS} FROM log_sets s
+             WHERE (SELECT COUNT(*) FROM log_sets l
+                    WHERE l.well_id = s.well_id AND l.set_name = s.set_name
+                      AND l.version > s.version) >= ?1
+             ORDER BY CAST(s.well_id AS VARCHAR), s.set_name, s.version"
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params![keep], |row| purge_candidate_from_row(row))
+            .map_err(|error| error.to_string())?;
+        let wanted_wells: Option<std::collections::HashSet<&str>> = selection
+            .well_ids
+            .as_ref()
+            .map(|ids| ids.iter().map(String::as_str).collect());
+        for row in rows {
+            let (candidate, is_latest, is_live) = row.map_err(|error| error.to_string())?;
+            if let Some(wells) = &wanted_wells {
+                if !wells.contains(candidate.well_id.as_str()) {
+                    continue;
+                }
+            }
+            if let Some(name) = &selection.set_name {
+                if &candidate.set_name != name {
+                    continue;
+                }
+            }
+            match purge_protection(&candidate, is_latest, is_live) {
+                Some(reason) => refused.push(VersionPurgeRefusal {
+                    set_id: candidate.set_id,
+                    set_name: candidate.set_name,
+                    version: candidate.version,
+                    reason,
+                }),
+                None => candidates.push(candidate),
+            }
+        }
+    }
+    let total_archived_rows = candidates.iter().map(|candidate| candidate.archived_rows).sum();
+    Ok(VersionPurgePreview { candidates, refused, total_archived_rows })
+}
+
+pub(crate) fn purge_log_set_versions(
+    conn: &Connection,
+    set_ids: &[String],
+    operator: &str,
+    operator_kind: &str,
+    view: &str,
+) -> Result<VersionPurgeReceipt, String> {
+    // The audit prerequisites are checked BEFORE anything is deleted - a purge that cannot be
+    // audited does not happen at all. Same DEC-020 posture as `record_audit_entry`, moved ahead
+    // of the destruction instead of after it.
+    if operator.trim().is_empty() {
+        return Err(
+            "version purge refused: enter the session operator identity - every purge is audited and the operator is never inferred (DEC-020)".into(),
+        );
+    }
+    if !matches!(operator_kind, "HUMAN" | "AUTOMATED") {
+        return Err(format!(
+            "version purge refused: operator kind '{operator_kind}' is not in the controlled set HUMAN/AUTOMATED (DEC-020)"
+        ));
+    }
+    if set_ids.is_empty() {
+        return Err(
+            "version purge refused: no versions named - run the preview and pass its candidate list".into(),
+        );
+    }
+    // Re-resolve every id at commit time. ANY protected or missing id refuses the WHOLE request:
+    // a purge must delete exactly what its preview showed, and a project that drifted since the
+    // preview means the preview is re-run, not partially honoured.
+    let mut resolved = Vec::with_capacity(set_ids.len());
+    let mut refusals = Vec::new();
+    for set_id in set_ids {
+        match fetch_purge_candidate(conn, set_id)? {
+            None => refusals.push(format!("{set_id}: no such log-set version")),
+            Some((candidate, is_latest, is_live)) => {
+                match purge_protection(&candidate, is_latest, is_live) {
+                    Some(reason) => {
+                        refusals.push(format!("{}_{}: {}", candidate.set_name, candidate.version, reason))
+                    }
+                    None => resolved.push(candidate),
+                }
+            }
+        }
+    }
+    if !refusals.is_empty() {
+        return Err(format!(
+            "version purge refused - {} of {} named versions cannot be purged and nothing was deleted. Re-run the preview. First: {}",
+            refusals.len(),
+            set_ids.len(),
+            refusals.iter().take(3).cloned().collect::<Vec<_>>().join(" | ")
+        ));
+    }
+    // One transaction for the whole deletion: all of it or none of it. Counts come from the
+    // DELETE statements themselves.
+    let (archive_rows_removed, parameter_rows_removed, degradation_rows_removed) =
+        crate::db::with_txn(conn, |conn| {
+            let mut archive = 0usize;
+            let mut parameters = 0usize;
+            let mut degradations = 0usize;
+            for candidate in &resolved {
+                archive += conn.execute(
+                    "DELETE FROM computed_curves_archive WHERE set_id = ?1",
+                    params![candidate.set_id],
+                )?;
+                parameters += conn.execute(
+                    "DELETE FROM run_parameters WHERE set_id = ?1",
+                    params![candidate.set_id],
+                )?;
+                degradations += conn.execute(
+                    "DELETE FROM run_degradations WHERE set_id = ?1",
+                    params![candidate.set_id],
+                )?;
+                conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![candidate.set_id])?;
+            }
+            Ok::<_, duckdb::Error>((archive, parameters, degradations))
+        })
+        .map_err(|error| error.to_string())?;
+    // One audit entry per well, one detail row per purged version - the same mutate-then-audit
+    // order every audited surface uses (`db::set_zone_param_audited`). The name is the
+    // Geolog-style `<set>_<version>`; '.' is replaced because the dotted-name rule reserves it
+    // for attribute changes.
+    let mut by_well: std::collections::BTreeMap<&str, Vec<&VersionPurgeCandidate>> =
+        std::collections::BTreeMap::new();
+    for candidate in &resolved {
+        by_well.entry(candidate.well_id.as_str()).or_default().push(candidate);
+    }
+    let wells_touched = by_well.len();
+    for (well_id, versions) in &by_well {
+        let details: Vec<crate::db::AuditDetail> = versions
+            .iter()
+            .map(|candidate| crate::db::AuditDetail {
+                location: "SET".into(),
+                mode: "DELETE".into(),
+                unit: None,
+                name: format!("{}_{}", candidate.set_name.replace('.', "_"), candidate.version),
+                value: Some(format!(
+                    "module {}; {} archived rows",
+                    candidate.module, candidate.archived_rows
+                )),
+            })
+            .collect();
+        crate::db::record_audit_entry(
+            conn,
+            Some(well_id),
+            operator,
+            operator_kind,
+            view,
+            "purge_log_set_versions",
+            None,
+            None,
+            &details,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(VersionPurgeReceipt {
+        versions_removed: resolved.len(),
+        archive_rows_removed,
+        parameter_rows_removed,
+        degradation_rows_removed,
+        wells_touched,
+        purged: resolved,
+    })
 }
 
 #[cfg(test)]
@@ -4923,5 +5269,266 @@ mod tests").next().expect("a split always yields one piece");
             before,
             "the module-input read path must never write - the back-fill belongs to the open"
         );
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use crate::db;
+    use duckdb::Connection;
+
+    fn project_with_well(name: &str) -> (Connection, String) {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_id, name, None, None, Some(0.0)).unwrap();
+        (conn, well_id.to_string())
+    }
+
+    fn spec(set_name: &str) -> LogSetSpec {
+        LogSetSpec {
+            set_name: set_name.into(),
+            module: "retention fixture".into(),
+            params_json: "{\"fixture\":\"retention\"}".into(),
+            inputs_json: "[]".into(),
+        }
+    }
+
+    fn archived_rows(conn: &Connection, set_id: &str) -> Vec<(f32, String, f32)> {
+        let mut statement = conn
+            .prepare(
+                "SELECT depth, curve_name, value FROM computed_curves_archive
+                 WHERE set_id = ?1 ORDER BY depth, curve_name",
+            )
+            .unwrap();
+        statement
+            .query_map(duckdb::params![set_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    fn count(conn: &Connection, sql: &str, set_id: &str) -> i64 {
+        conn.query_row(sql, duckdb::params![set_id], |row| row.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_purge_removes_exactly_the_named_versions_and_numbering_never_reuses_them() {
+        let (conn, well_id) = project_with_well("RETENTION-EXACT");
+        let depth = [1000.0_f32, 1000.5];
+        let generations = [[0.1_f32, 0.2], [0.4, 0.5], [0.7, 0.8]];
+        let mut set_ids = Vec::new();
+        for values in &generations {
+            let (set_id, _) = create_log_set(&conn, &well_id, &spec("HISTORY")).unwrap();
+            write_computed_curves_versioned(&conn, &well_id, &depth, &[("RET_CODE", values)], &set_id)
+                .unwrap();
+            set_ids.push(set_id);
+        }
+        // Version 1 also carries a run parameter and a degradation: a purged version leaves
+        // NOTHING of itself behind, not just its archive rows.
+        conn.execute(
+            "INSERT INTO run_parameters (set_id, position, name, value_json, source)
+             VALUES (?1, 0, 'GR_CLEAN', '65', 'fixture')",
+            duckdb::params![set_ids[0]],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO run_degradations (set_id, position, module, kind, detail, occurrences)
+             VALUES (?1, 0, 'retention fixture', 'CLAMPED', 'fixture detail', 3)",
+            duckdb::params![set_ids[0]],
+        )
+        .unwrap();
+        let survivors_before: Vec<_> = set_ids[1..].iter().map(|id| archived_rows(&conn, id)).collect();
+
+        let selection = VersionPurgeSelection {
+            set_ids: vec![set_ids[0].clone()],
+            ..Default::default()
+        };
+        let preview = preview_version_purge(&conn, &selection).unwrap();
+        assert_eq!(preview.candidates.len(), 1, "version 1 is superseded and unreferenced");
+        assert_eq!(preview.refused.len(), 0, "{:?}", preview.refused);
+        assert_eq!(preview.total_archived_rows, 2);
+
+        let receipt =
+            purge_log_set_versions(&conn, &[set_ids[0].clone()], "OP-1", "HUMAN", "test").unwrap();
+        assert_eq!(receipt.versions_removed, 1);
+        assert_eq!(receipt.archive_rows_removed, 2);
+        assert_eq!(receipt.parameter_rows_removed, 1);
+        assert_eq!(receipt.degradation_rows_removed, 1);
+        assert_eq!(receipt.wells_touched, 1);
+
+        assert!(archived_rows(&conn, &set_ids[0]).is_empty(), "the purged archive is gone");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM log_sets WHERE set_id = ?1", &set_ids[0]), 0);
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM run_parameters WHERE set_id = ?1", &set_ids[0]),
+            0
+        );
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM run_degradations WHERE set_id = ?1", &set_ids[0]),
+            0
+        );
+        let survivors_after: Vec<_> = set_ids[1..].iter().map(|id| archived_rows(&conn, id)).collect();
+        assert_eq!(survivors_after, survivors_before, "untouched versions stay byte-identical");
+
+        // Version numbers are never reused: the lineage's MAX survives every purge (the latest
+        // is untouchable), so the next run continues from it.
+        let (_, next_version) = create_log_set(&conn, &well_id, &spec("HISTORY")).unwrap();
+        assert_eq!(next_version, 4, "purging version 1 must not recycle its number");
+
+        // The audit trail carries the deletion: Mode DELETE on the Geolog-style versioned name.
+        let entries = db::list_audit_entries(&conn, 5).unwrap();
+        let entry = entries.first().expect("a purge writes an audit entry");
+        let detail = entry.details.first().expect("one detail per purged version");
+        assert_eq!(detail.mode, "DELETE");
+        assert_eq!(detail.name, "HISTORY_1");
+    }
+
+    #[test]
+    fn the_latest_version_and_a_live_referenced_version_are_never_purged() {
+        let (conn, well_id) = project_with_well("RETENTION-GUARD");
+        let depth = [1000.0_f32, 1000.5];
+        // Version 1 writes TWO curves; version 2 rewrites only one of them. RET_B's live rows
+        // still reference version 1 - the changed-output-list case a MAX-only guard misses.
+        let (v1, _) = create_log_set(&conn, &well_id, &spec("HISTORY")).unwrap();
+        write_computed_curves_versioned(
+            &conn,
+            &well_id,
+            &depth,
+            &[("RET_A", &[0.1, 0.2]), ("RET_B", &[0.3, 0.4])],
+            &v1,
+        )
+        .unwrap();
+        let (v2, _) = create_log_set(&conn, &well_id, &spec("HISTORY")).unwrap();
+        write_computed_curves_versioned(&conn, &well_id, &depth, &[("RET_A", &[0.5, 0.6])], &v2)
+            .unwrap();
+
+        // The live-referenced old version refuses - and refuses the WHOLE request.
+        let error = purge_log_set_versions(&conn, &[v1.clone()], "OP-1", "HUMAN", "test")
+            .expect_err("a live-referenced version must refuse");
+        assert!(error.contains("live interpretation"), "names the live guard: {error}");
+        assert!(error.contains("nothing was deleted"), "states that nothing happened: {error}");
+        assert_eq!(archived_rows(&conn, &v1).len(), 4, "refusal must leave the archive intact");
+
+        // The latest version refuses by the other guard.
+        let error = purge_log_set_versions(&conn, &[v2.clone()], "OP-1", "HUMAN", "test")
+            .expect_err("the latest version must refuse");
+        assert!(error.contains("latest version"), "names the latest guard: {error}");
+        assert_eq!(archived_rows(&conn, &v2).len(), 2);
+
+        // keep-N sees the same two guards: nothing qualifies, and the refusal is VISIBLE in the
+        // preview rather than silently skipped.
+        let preview = preview_version_purge(
+            &conn,
+            &VersionPurgeSelection { keep_latest: Some(1), ..Default::default() },
+        )
+        .unwrap();
+        assert!(preview.candidates.is_empty(), "{:?}", preview.candidates);
+        assert_eq!(preview.refused.len(), 1, "{:?}", preview.refused);
+        assert!(preview.refused[0].reason.contains("live interpretation"));
+    }
+
+    #[test]
+    fn a_purge_that_cannot_be_audited_deletes_nothing() {
+        let (conn, well_id) = project_with_well("RETENTION-AUDIT");
+        let depth = [1000.0_f32, 1000.5];
+        let (v1, _) = create_log_set(&conn, &well_id, &spec("HISTORY")).unwrap();
+        write_computed_curves_versioned(&conn, &well_id, &depth, &[("RET_CODE", &[0.1, 0.2])], &v1)
+            .unwrap();
+        let (v2, _) = create_log_set(&conn, &well_id, &spec("HISTORY")).unwrap();
+        write_computed_curves_versioned(&conn, &well_id, &depth, &[("RET_CODE", &[0.3, 0.4])], &v2)
+            .unwrap();
+
+        let error = purge_log_set_versions(&conn, &[v1.clone()], "  ", "HUMAN", "test")
+            .expect_err("a blank operator must refuse before deleting");
+        assert!(error.contains("operator identity"), "{error}");
+        assert_eq!(archived_rows(&conn, &v1).len(), 2, "nothing deleted on operator refusal");
+
+        let error = purge_log_set_versions(&conn, &[v1.clone()], "OP-1", "ROBOT", "test")
+            .expect_err("an unknown operator kind must refuse before deleting");
+        assert!(error.contains("HUMAN/AUTOMATED"), "{error}");
+        assert_eq!(archived_rows(&conn, &v1).len(), 2, "nothing deleted on kind refusal");
+
+        // With the prerequisites met the same request succeeds and IS audited.
+        purge_log_set_versions(&conn, &[v1.clone()], "OP-1", "HUMAN", "test").unwrap();
+        assert!(archived_rows(&conn, &v1).is_empty());
+        let entries = db::list_audit_entries(&conn, 5).unwrap();
+        assert_eq!(entries.first().unwrap().details.first().unwrap().mode, "DELETE");
+    }
+
+    #[test]
+    fn keep_latest_n_selects_every_lineage_beyond_its_newest_n() {
+        let (conn, well_a) = project_with_well("RETENTION-KEEP-A");
+        let well_b = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_b, "RETENTION-KEEP-B", None, None, Some(0.0)).unwrap();
+        let well_b = well_b.to_string();
+        let depth = [1000.0_f32, 1000.5];
+        // Well A: HISTORY v1..v3, same curve each run so old versions are unreferenced.
+        for (index, values) in [[0.1_f32, 0.2], [0.3, 0.4], [0.5, 0.6]].iter().enumerate() {
+            let (set_id, version) = create_log_set(&conn, &well_a, &spec("HISTORY")).unwrap();
+            assert_eq!(version, index as i64 + 1);
+            write_computed_curves_versioned(&conn, &well_a, &depth, &[("RET_A", values)], &set_id)
+                .unwrap();
+        }
+        // Well B: OTHER v1..v2.
+        for values in &[[0.7_f32, 0.8], [0.9, 1.0]] {
+            let (set_id, _) = create_log_set(&conn, &well_b, &spec("OTHER")).unwrap();
+            write_computed_curves_versioned(&conn, &well_b, &depth, &[("RET_B", values)], &set_id)
+                .unwrap();
+        }
+
+        let keep = |keep_latest: i64, well_ids: Option<Vec<String>>, set_name: Option<String>| {
+            preview_version_purge(
+                &conn,
+                &VersionPurgeSelection {
+                    keep_latest: Some(keep_latest),
+                    well_ids,
+                    set_name,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+
+        let all = keep(1, None, None);
+        assert_eq!(all.refused.len(), 0, "{:?}", all.refused);
+        // Sorted before comparing: the sweep orders by well UUID text, and which random UUID
+        // sorts first is not part of the contract being pinned.
+        let mut named: Vec<(String, i64)> = all
+            .candidates
+            .iter()
+            .map(|candidate| (candidate.set_name.clone(), candidate.version))
+            .collect();
+        named.sort();
+        assert_eq!(
+            named,
+            vec![
+                ("HISTORY".to_string(), 1),
+                ("HISTORY".to_string(), 2),
+                ("OTHER".to_string(), 1)
+            ],
+            "keep 1 selects everything below each lineage's newest"
+        );
+
+        let deeper = keep(2, None, None);
+        assert_eq!(deeper.candidates.len(), 1);
+        assert_eq!(deeper.candidates[0].version, 1, "keep 2 spares HISTORY_2");
+
+        let scoped = keep(1, Some(vec![well_a.clone()]), None);
+        assert_eq!(scoped.candidates.len(), 2, "the well filter drops well B's lineage");
+
+        let by_name = keep(1, None, Some("OTHER".into()));
+        assert_eq!(by_name.candidates.len(), 1);
+        assert_eq!(by_name.candidates[0].set_name, "OTHER");
+
+        // keep 0 would purge the latest - refused outright, with the rule named.
+        let error = preview_version_purge(
+            &conn,
+            &VersionPurgeSelection { keep_latest: Some(0), ..Default::default() },
+        )
+        .expect_err("keep 0 must refuse");
+        assert!(error.contains("at least 1"), "{error}");
     }
 }
