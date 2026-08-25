@@ -31,10 +31,11 @@
     "targets": [
       "msi"
     ],
-    "resources": [
-      "resources/install/capability-prerequisites.txt",
-      "resources/install/settings-template.json"
-    ],
+    "resources": {
+      "resources/install/capability-prerequisites.txt": "resources/install/capability-prerequisites.txt",
+      "resources/install/settings-template.json": "resources/install/settings-template.json",
+      "../docs/guide/": "guide/"
+    },
     "windows": {
       "digestAlgorithm": "sha256",
       "webviewInstallMode": {

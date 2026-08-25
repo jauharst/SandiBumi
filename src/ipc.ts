@@ -1190,6 +1190,27 @@ export async function listModules(): Promise<ModuleSpec[]> {
   return invoke<ModuleSpec[]>("list_modules");
 }
 
+/** The brief Help-card content for a module (help_registry.rs): method statement,
+ *  plain-Unicode equations, published references. Null when no card exists yet. */
+export interface ModuleHelp {
+  summary: string;
+  equations: string[];
+  references: string[];
+  note: string;
+}
+
+export async function getModuleHelp(module: string): Promise<ModuleHelp | null> {
+  return invoke<ModuleHelp | null>("get_module_help", { module });
+}
+
+export async function moduleGuideStatus(module: string): Promise<boolean> {
+  return invoke<boolean>("module_guide_status", { module });
+}
+
+export async function openModuleGuide(module: string): Promise<void> {
+  return invoke<void>("open_module_guide", { module });
+}
+
 export interface ParameterSchemaEntry {
   semantic_id: string;
   ordinal: number;

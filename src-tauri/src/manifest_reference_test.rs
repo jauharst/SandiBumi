@@ -39,7 +39,23 @@ fn the_committed_manifest_dump_is_what_list_modules_answers() {
         "list_modules() answered {} specs — the dump would be an empty reference",
         specs.len()
     );
-    let fresh = serde_json::to_string_pretty(&specs).expect("manifests serialize") + "\n";
+    // The Help-card registry (help_registry.rs) rides the same dump under a `help` key,
+    // so the in-app card and the HTML guidebook render one recorded card, drift-gated
+    // together. Merged here rather than as a ModuleSpec field so the manifests the app
+    // serves over IPC stay exactly what the panes need. A flatten wrapper, not
+    // serde_json::Value — Value alphabetizes keys and would rewrite all 8,700 lines.
+    #[derive(serde::Serialize)]
+    struct SpecWithHelp<'a> {
+        #[serde(flatten)]
+        spec: &'a modules::ModuleSpec,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        help: Option<crate::help_registry::ModuleHelp>,
+    }
+    let merged: Vec<SpecWithHelp> = specs
+        .iter()
+        .map(|s| SpecWithHelp { spec: s, help: crate::help_registry::module_help(&s.name) })
+        .collect();
+    let fresh = serde_json::to_string_pretty(&merged).expect("manifests serialize") + "\n";
 
     let path = dump_path();
     if std::env::var("SANDIBUMI_WRITE_MANIFEST_DUMP").is_ok() {
