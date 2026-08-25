@@ -92,9 +92,9 @@ fn vsh_from_gr(method: &str, mut v: f64) -> f64 {
 pub fn ssc_spec() -> ModuleSpec {
     ModuleSpec {
         name: "ssc".into(),
-        title: "SSC — Sand-Silt-Clay (Kuttan/LQR)".into(),
+        title: "SSC — Sand-Silt-Clay (Kuttan)".into(),
         category: "Porosity".into(),
-        doc: "Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, GAP 2023 LQR \
+        doc: "Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, SandiBumi \
               edit). Data points are projected from the fluid point onto the dry rock line \
               (matrix→dry clay); sand/silt/clay fractions come from the projection position, \
               matrix density from the fraction mix, PHIT from density. Bound water is split \

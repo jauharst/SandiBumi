@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SSC — Sand-Silt-Clay (Kuttan/LQR) — SandiBumi Guidebook</title>
+<title>SSC — Sand-Silt-Clay (Kuttan) — SandiBumi Guidebook</title>
 <style>
   :root {
     --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
@@ -52,7 +52,7 @@
 <body>
 <div class="page"><div class="card">
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
-<h1>SSC — Sand-Silt-Clay (Kuttan/LQR)</h1>
+<h1>SSC — Sand-Silt-Clay (Kuttan)</h1>
 <p class="modmeta">Module id <code>ssc</code> · category <b>Porosity</b></p>
 <p>Sand-Silt-Clay model on the neutron-density crossplot: gas-conditions the (RHOB, NPHI) pair, projects it onto the dry line of a six-point framework, splits the rock into sand, silt and clay fractions, and carries the split through porosity, bound-water and irreducible-saturation arithmetic.</p>
 <pre class="equations">Gas conditioning (Δ = |PHIDI² − NPHI²|, c = GAS_C):
@@ -62,14 +62,14 @@ PHIE = PHIT − VWCL·PHIT_CL,  PHIFF = PHIT − CBW − CWSH
 SWIRR_T = BW/PHIT,  SWIRR_EFF = 1 − PHIT·(1 − SWIRR_T)/PHIE</pre>
 <h2>References</h2>
 <ul><li>Kuttan et al., Log Interpretation in the Malay Basin, 21st SPWLA Annual Logging Symposium</li></ul>
-<p class="note">The LQR/GAP-2023 modification and the two tight-rock conditioning rules are the interpreter's own additions to the published model.</p>
+<p class="note">The modification and the two tight-rock conditioning rules are SandiBumi's own additions to the published model.</p>
 <!-- Authored walkthrough for the ssc guidebook chapter. Screenshots and numbers
      captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
 
 <h2>Step by step: the Sand-Silt-Clay split</h2>
 
 <p>SSC is one of this application's flagship methods — the Kuttan Malay Basin model
-with the interpreter's own LQR/GAP-2023 modification, splitting the rock into sand,
+with SandiBumi's own modification, splitting the rock into sand,
 silt and clay on the neutron-density crossplot and carrying the split all the way to
 bound water and irreducible saturation. It lives on the <b>Advance</b> tab, not in the
 Petrophysics dropdowns.</p>
@@ -109,7 +109,7 @@ the method's own note, plus the data picks, all recorded in the reference field:
   <img src="../img/guide-ssc-pane.png"
        alt="The SSC pane with the six-point framework and gas coefficient entered" />
   <figcaption>The framework entered; GAS_C 1.6 and PHIT_TIGHT 0.05 are the shipped,
-    cited defaults of the interpreter's own conditioning rules.</figcaption>
+    cited defaults of SandiBumi's own conditioning rules.</figcaption>
 </figure>
 
 <h3>Run and read</h3>
@@ -121,7 +121,7 @@ what the RtC saturation method consumes as its CAPBW input — this module is th
 half of the LRLC workflow.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, GAP 2023 LQR edit). Data points are projected from the fluid point onto the dry rock line (matrix→dry clay); sand/silt/clay fractions come from the projection position, matrix density from the fraction mix, PHIT from density. Bound water is split into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints ship absent and must be supplied from the active interpretation.</p>
+<p>Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, SandiBumi edit). Data points are projected from the fluid point onto the dry rock line (matrix→dry clay); sand/silt/clay fractions come from the projection position, matrix density from the fraction mix, PHIT from density. Bound water is split into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints ship absent and must be supplied from the active interpretation.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray (normalized)</td><td><code>GRN</code></td><td>yes</td><td>—</td></tr>
 <tr><td>RHOB</td><td>Bulk density (corrected)</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>

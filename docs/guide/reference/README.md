@@ -52,7 +52,7 @@ One page per petrophysics module, generated from the same manifests the applicat
 | [`phi_dnbk`](phi_dnbk.md) | Porosity from Bateman-Konen N-D Crossplot | The chart-free ANALYTIC neutron-density crossplot (Bateman & Konen 1977, Appendix B), solved as a two-pseudo-mineral system rather than looked up in a transcribed chart. |
 | [`phi_son`](phi_son.md) | Porosity from Sonic | Sonic porosity, three transforms each named for what it computes (SB-POR-014). |
 | [`phimax`](phimax.md) | Porosity Ceiling (φmax) | Caps an input porosity at a maximum ceiling — the field's compaction-controlled upper limit (the crossplot 'max core porosity' line). |
-| [`ssc`](ssc.md) | SSC — Sand-Silt-Clay (Kuttan/LQR) | Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, GAP 2023 LQR edit). |
+| [`ssc`](ssc.md) | SSC — Sand-Silt-Clay (Kuttan) | Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, SandiBumi edit). |
 | [`sspw`](sspw.md) | SSPW — Sandstone Petrophysical Workflow | Three-component sandstone workflow (quartz + shale + water). |
 
 ## Prep

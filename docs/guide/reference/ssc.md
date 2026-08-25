@@ -1,10 +1,10 @@
 <!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-module-reference.mjs` (source: `docs/generated/module_manifests.json`, kept fresh by `manifest_reference_test.rs`). Hand-written prose belongs in `notes/<module>.md`. -->
 
-# SSC — Sand-Silt-Clay (Kuttan/LQR)
+# SSC — Sand-Silt-Clay (Kuttan)
 
 Module id `ssc` · category **Porosity** · [reference index](README.md)
 
-Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, GAP 2023 LQR edit). Data points are projected from the fluid point onto the dry rock line (matrix→dry clay); sand/silt/clay fractions come from the projection position, matrix density from the fraction mix, PHIT from density. Bound water is split into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints ship absent and must be supplied from the active interpretation.
+Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, SandiBumi edit). Data points are projected from the fluid point onto the dry rock line (matrix→dry clay); sand/silt/clay fractions come from the projection position, matrix density from the fraction mix, PHIT from density. Bound water is split into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints ship absent and must be supplied from the active interpretation.
 
 ## Input curves
 
