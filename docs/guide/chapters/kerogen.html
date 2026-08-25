@@ -1,0 +1,34 @@
+<!-- Authored walkthrough for the kerogen guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: from TOC weight to kerogen volume</h2>
+
+<p>TOC is a weight percent; kerogen occupies a volume disproportionate to its
+weight because it is light — and that volume inflates the density log's
+apparent porosity. This module makes both corrections explicit: TOM converts
+TOC to an organic-matter weight fraction (the K_TOC2OM factor covers the
+H/O/N/S the carbon measurement misses), VKER converts that to a volume
+fraction of the bulk rock, and PHIT_OMC removes it from total porosity.</p>
+
+<h3>The picks</h3>
+
+<p><b>TOC from the Passey run; RHO_KERO 1.10&nbsp;g/cc and K_TOC2OM 1.2 as
+shipped.</b> The 1.10 kerogen density is deliberate: it matches the SandiMin
+Kerogen mineral, so VKER is directly comparable to a SandiMin VOL_KEROGEN
+solve. Another vendor tradition seeds 1.25 — override if your workflow follows
+it, but keep one convention per study.</p>
+
+<figure>
+  <img src="../img/guide-kerogen-pane.png"
+       alt="The Kerogen volume pane" />
+  <figcaption>PHIT from the density-porosity run feeds the OM correction.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. VKER's median is 0 — most of this section
+carries no computed TOC, as the Passey chapter explains — with a maximum of
+0.045 v/v where the gas-zone false-positive TOC leaks through. That chain is
+worth noticing: a spurious TOC becomes a spurious kerogen volume becomes a
+porosity correction, which is why the Passey chapter's reservoir-interval
+caution matters two modules downstream.</p>

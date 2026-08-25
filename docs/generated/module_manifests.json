@@ -14501,7 +14501,17 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Unsupervised electrofacies by k-means: this well's samples are clustered in the space of the supplied curves (z-scored by default, so mixed units are comparable) into K classes. Labels are ordered by the mean of the first supplied curve - usually GR - so FACIES 0 is the cleanest class and the numbering is monotone in shaliness.",
+      "equations": [
+        "assign each sample to the nearest of K centroids in z-scored curve space",
+        "centroids re-estimated as class means, iterated to convergence (k-means++ seeding, best of several starts)",
+        "labels reordered by ascending mean of the first curve"
+      ],
+      "references": [],
+      "note": "Standard k-means - no primary citation is recorded in this project's method ledger; the label-ordering and z-scoring conventions are SandiBumi's own. Deterministic for a given seed."
+    }
   },
   {
     "name": "gmm_facies",
@@ -14740,7 +14750,17 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Soft electrofacies by Gaussian mixture: every sample gets a membership probability per class rather than a hard assignment. FPROB is the winning class's posterior - 1.0 is unambiguous, about 1/K is a boundary or mixed sample - so transitional beds are visible instead of being forced into a class.",
+      "equations": [
+        "diagonal-covariance Gaussian mixture fitted by EM, initialized from k-means",
+        "FACIES_GMM = the class with the highest posterior;  FPROB = that posterior (0-1)",
+        "labels reordered by ascending mean of the first curve"
+      ],
+      "references": [],
+      "note": "Standard Gaussian mixture - no primary citation is recorded in this project's method ledger; conventions as the k-means module. Deterministic for a given seed."
+    }
   },
   {
     "name": "toc_passey",
@@ -15001,7 +15021,21 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Total organic carbon from the Passey ΔlogR overlay - the separation between deep resistivity and a baselined porosity curve, converted to TOC with a maturity term - plus the Schmoker-Hester density TOC as an independent cross-check whenever a density log is present.",
+      "equations": [
+        "sonic overlay: ΔlogR = log10(R/R_BASE) + 0.02·(DT − DT_BASE)",
+        "density overlay: ΔlogR = log10(R/R_BASE) − 2.5·(RHOB − RHOB_BASE)",
+        "TOC = ΔlogR·10^(2.297 − 0.1688·LOM) + TOC_BG  [wt%; ΔlogR < 0 floors to the background]",
+        "cross-check: TOC_SCHMOKER = 154.497/RHOB − 57.261"
+      ],
+      "references": [
+        "Passey, Creaney, Kulla, Moretti & Stroud (1990), \"A practical model for organic richness from porosity and resistivity logs,\" AAPG Bulletin 74(12): 1777-1794",
+        "Schmoker & Hester (1983), \"Organic carbon in Bakken Formation,\" AAPG Bulletin 67(12): 2165-2174"
+      ],
+      "note": "Baselines are picked on a non-source, clay-rich interval where the two curves overlie, and TOC is very sensitive to them. LOM 6-12 (Hood-Gutjahr-Heacock scale); the conversion is calibrated to LOM <= 12. The Schmoker fit is Bakken-specific - a cross-check, not a substitute."
+    }
   },
   {
     "name": "kerogen",
@@ -15161,7 +15195,20 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Converts TOC (a weight percent) to kerogen volume and corrects total porosity for the organic matter that low-density kerogen inflates on the density log. Kerogen occupies a volume disproportionate to its weight because it is light.",
+      "equations": [
+        "TOM = K_TOC2OM·TOC/100  [organic-matter weight fraction; the factor covers H/O/N/S beyond carbon]",
+        "VKER = TOM·RHOB/RHO_KERO  [kerogen volume fraction of the bulk rock]",
+        "PHIT_OMC = PHIT − VKER"
+      ],
+      "references": [
+        "Passey et al. (2010), SPE 131350",
+        "Vernik & Nur (1992)"
+      ],
+      "note": "Author-year as this project's method record holds them. The default kerogen density 1.10 g/cc matches the SandiMin Kerogen mineral, so VKER reconciles with VOL_KEROGEN; a 1.25 seed from another vendor tradition is available as an override."
+    }
   },
   {
     "name": "gip",
@@ -15528,7 +15575,22 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Per-sample gas-in-place as gas content (scf per ton of rock), so it composites like any curve: free gas from porosity and saturation through the gas formation-volume factor, adsorbed gas through the Langmuir isotherm, and their total. A CBM mode adds the dry-ash-free correction and the critical desorption pressure.",
+      "equations": [
+        "GIP_ADS = VL·P/(PL + P)",
+        "GIP_FREE = 32.0368·φ·(1 − Sw)/(RHOB·Bg),  Bg = 0.02827·z·T/P  [T in Rankine]",
+        "GIP_TOTAL = GIP_FREE + GIP_ADS",
+        "cbm: GIP_ADS·(1 − F_ASH − F_MOIST);  PCD = PL·GC/(VL − GC)"
+      ],
+      "references": [
+        "Langmuir (1918), J. Am. Chem. Soc. 40(9): 1361-1403",
+        "Mavor & Nelson (1996) - the GRI petro-application of the isotherm",
+        "Ambrose et al. (2010), SPE 131772"
+      ],
+      "note": "The Langmuir pair VL/PL ships absent and requires matching core desorption or isotherm data - an isotherm from another basin is the wrong isotherm. The Ambrose pore-volume correction is deferred, so high-TOC high-pressure free gas reads slightly high."
+    }
   },
   {
     "name": "brittleness",
@@ -15847,6 +15909,21 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Brittleness index, 0 ductile to 1 brittle, two ways: elastic - dynamic Young's modulus and Poisson's ratio from the sonic pair and density, normalized and averaged per Rickman - or mineralogical, from a mineral solve's volume fractions.",
+      "equations": [
+        "G = ρ·Vs²;  K = ρ·(Vp² − 4/3·Vs²);  ν = (3K − 2G)/(2(3K + G));  E = 9KG/(3K + G)",
+        "Rickman: BI = (E_norm + ν_norm)/2, E over E_LO..E_HI (Mpsi), ν over NU_LO..NU_HI",
+        "Jarvie: BI = Qz/(Qz + carbonate + clay)",
+        "Wang-Gale: BI = (Qz + Dol)/(Qz + Dol + calcite + clay + organic)"
+      ],
+      "references": [
+        "Rickman, Mullen, Petre, Grieser & Kundert (2008), SPE 115258",
+        "Jarvie et al. (2007), AAPG Bulletin 91",
+        "Wang & Gale (2009), GCAGS Transactions 59"
+      ],
+      "note": "The shipped normalization endpoints (1-8 Mpsi, 0.40-0.15) are Rickman's own Barnett calibration on dynamic log values - recalibrate per basin, and apply any static correction after this index, not before. Mineral volumes come from a SandiMin run; a missing mineral counts as absent."
+    }
   }
 ]

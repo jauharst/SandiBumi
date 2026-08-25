@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Guidebook increment 6: Facies + Unconventional — THE GUIDEBOOK IS COMPLETE (52 of 52)
+
+- [ ] **What this is.** The last six modules — electrofacies, gmm_facies, toc_passey, kerogen, gip,
+      brittleness — cards plus chapters, all driven live. Every chapter now exists: 52 of 52, 53
+      book pages with the index. Citations copied from ref_unconventional.md exactly as recorded:
+      Passey et al. 1990 AAPG Bull. 74(12):1777-1794, Schmoker & Hester 1983 AAPG Bull.
+      67(12):2165-2174, Passey et al. 2010 SPE 131350, Vernik & Nur 1992, Langmuir 1918 JACS
+      40(9), Mavor & Nelson 1996, Ambrose et al. 2010 SPE 131772, Rickman et al. 2008 SPE 115258,
+      Jarvie et al. 2007, Wang & Gale 2009. The two facies modules say plainly that no primary
+      citation is recorded (standard k-means/GMM; the conventions are the product's own).
+- [ ] **Two textbook lessons found by running**: Passey's ΔlogR is negative at 574 of 590 samples
+      (a water/gas clastic saying it is not a source rock) and the 16 positives sit exactly in the
+      gas sand — the classic hydrocarbon-resistivity false positive, taught in the chapter; the
+      Schmoker cross-check reads a median 7.4 wt% on this 2.3 g/cc clastic, which the chapter uses
+      to teach why a Bakken-specific fit is a cross-check and never a substitute.
+- [ ] **Refusals and failures kept honest**: toc_passey's R_BASE refusal and gip's VL refusal
+      captured verbatim; brittleness runs BOTH routes to 0 clean · 3 failed (no shear sonic
+      delivered; no SandiMin volume solve in the project) and the chapter frames that as the
+      answered contract — a failed run that says why beats a zero that computes.
+- [ ] **Every pick sourced**: Passey baselines = this dataset's own shale medians (R 2.5 ohmm,
+      DT 117.9 us/ft at GR >= 112); LOM 10.6 = the recorded Tier-A vendor seed; Langmuir VL/PL
+      100/1000 = the method record's shale seeds; GIP's P/T from the precalc trends at 1530 m and
+      Z 0.9 from the gascorr Papay solve; kerogen density 1.10 = the SandiMin Kerogen mineral.
+- [ ] **GMM vs k-means as QC**: 96% agreement, FPROB 1.0 everywhere — the chapter explains why
+      generated data does that and what FPROB sagging toward 1/K means on real rock.
+- [ ] **Close-out**: the SandiMin PANEL_HELP blurb's "(Full guide is being written.)" promise line
+      is gone per the spec, replaced with what the pane does and where the succession is recorded.
+- [ ] **What to check:** the toc_passey chapter's gas-false-positive framing, the brittleness
+      double-refusal chapter (is teaching failure acceptable as a chapter?), and the facies
+      chapters' K-and-thin-class guidance.
+
 ## 2026-08-26 — Guidebook increment 5: the Data Prep / Condition / Frame shelf (46 of 52)
 
 - [ ] **What this is.** All 21 utility and prep modules get the two-tier help: ftemp_grad, precalc,

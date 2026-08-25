@@ -1,0 +1,123 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kerogen volume + OM-corrected porosity — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Unconventional</div>
+<h1>Kerogen volume + OM-corrected porosity</h1>
+<p class="modmeta">Module id <code>kerogen</code> · category <b>Unconventional</b></p>
+<p>Converts TOC (a weight percent) to kerogen volume and corrects total porosity for the organic matter that low-density kerogen inflates on the density log. Kerogen occupies a volume disproportionate to its weight because it is light.</p>
+<pre class="equations">TOM = K_TOC2OM·TOC/100  [organic-matter weight fraction; the factor covers H/O/N/S beyond carbon]
+VKER = TOM·RHOB/RHO_KERO  [kerogen volume fraction of the bulk rock]
+PHIT_OMC = PHIT − VKER</pre>
+<h2>References</h2>
+<ul><li>Passey et al. (2010), SPE 131350</li>
+<li>Vernik &amp; Nur (1992)</li></ul>
+<p class="note">Author-year as this project's method record holds them. The default kerogen density 1.10 g/cc matches the SandiMin Kerogen mineral, so VKER reconciles with VOL_KEROGEN; a 1.25 seed from another vendor tradition is available as an override.</p>
+<!-- Authored walkthrough for the kerogen guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: from TOC weight to kerogen volume</h2>
+
+<p>TOC is a weight percent; kerogen occupies a volume disproportionate to its
+weight because it is light — and that volume inflates the density log's
+apparent porosity. This module makes both corrections explicit: TOM converts
+TOC to an organic-matter weight fraction (the K_TOC2OM factor covers the
+H/O/N/S the carbon measurement misses), VKER converts that to a volume
+fraction of the bulk rock, and PHIT_OMC removes it from total porosity.</p>
+
+<h3>The picks</h3>
+
+<p><b>TOC from the Passey run; RHO_KERO 1.10&nbsp;g/cc and K_TOC2OM 1.2 as
+shipped.</b> The 1.10 kerogen density is deliberate: it matches the SandiMin
+Kerogen mineral, so VKER is directly comparable to a SandiMin VOL_KEROGEN
+solve. Another vendor tradition seeds 1.25 — override if your workflow follows
+it, but keep one convention per study.</p>
+
+<figure>
+  <img src="../img/guide-kerogen-pane.png"
+       alt="The Kerogen volume pane" />
+  <figcaption>PHIT from the density-porosity run feeds the OM correction.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. VKER's median is 0 — most of this section
+carries no computed TOC, as the Passey chapter explains — with a maximum of
+0.045 v/v where the gas-zone false-positive TOC leaks through. That chain is
+worth noticing: a spurious TOC becomes a spurious kerogen volume becomes a
+porosity correction, which is why the Passey chapter's reservoir-interval
+caution matters two modules downstream.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Converts TOC (weight %) to kerogen VOLUME and corrects total porosity for the organic matter that low-density kerogen inflates on the density log. TOM = k_toc2om·TOC/100 (organic-matter weight fraction; k_toc2om≈1.2 accounts for the H/O/N/S beyond carbon), then VKER = TOM·RHOB/ρ_kero (kerogen volume fraction of the BULK rock — the Passey/Vernik bulk-density conversion, directly comparable to SandiMin VOL_KEROGEN). PHIT_OMC = PHIT − VKER removes kerogen's apparent-porosity contribution (ρ_kero≈ρ_fluid, first order). ρ_kero default 1.10 g/cc matches the SandiMin Kerogen mineral (sandimin.rs), so VKER reconciles with VOL_KEROGEN (IP's RHOTOC seed is 1.25 — override if you prefer it). Cite: Passey et al. 2010 (SPE 131350); Vernik &amp; Nur 1992. See docs/ref_unconventional.md §2.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>TOC</td><td>Total organic carbon</td><td><code>TOC</code></td><td>yes</td><td>—</td></tr>
+<tr><td>RHOB</td><td>Bulk density</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PHIT</td><td>Total porosity to OM-correct (optional)</td><td><code>PHIT</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHO_KERO <span class="src">(g/cc)</span></h3>
+<p>Kerogen (organic-matter) grain density</p>
+<ul><li><b>Default:</b> 1.1 <span class="src">— source: Like-for-like IP endpoint and matching shipped mineral endpoint; docs/PRD_v2/19_toc-unconventional.md §5</span></li>
+<li><b>Accepted range:</b> 0.9 to 1.6 g/cc</li></ul>
+<h3>K_TOC2OM <span class="src">(-)</span></h3>
+<p>TOC→organic-matter factor (1.2 immature .. 1.35 mature)</p>
+<ul><li><b>Default:</b> 1.2 <span class="src">— source: Techlog and two Geolog modules; docs/PRD_v2/19_toc-unconventional.md §5</span></li>
+<li><b>Accepted range:</b> 1 to 1.6 -</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>TOM</td><td>Organic-matter weight fraction</td></tr>
+<tr><td>VKER</td><td>Kerogen volume fraction (bulk)</td></tr>
+<tr><td>PHIT_OMC</td><td>OM-corrected total porosity</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>
