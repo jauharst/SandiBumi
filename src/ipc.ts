@@ -1613,6 +1613,35 @@ export function purgeLogSetVersions(
   });
 }
 
+export interface SetRenameReceipt {
+  rows_moved: number;
+  rider_rows_moved: number;
+}
+
+/** Renames one delivery set (core/scal/survey/aux/image/curve) — every row carrying the
+ *  name moves in one transaction, core riders included, audited under the operator. */
+export function renameDeliverySet(
+  kind: string,
+  wellId: string,
+  dataset: string | null,
+  oldName: string,
+  newName: string,
+  operator: string,
+  operatorKind: string,
+  view: string,
+): Promise<SetRenameReceipt> {
+  return invoke<SetRenameReceipt>("rename_delivery_set", {
+    kind,
+    wellId,
+    dataset,
+    oldName,
+    newName,
+    operator,
+    operatorKind,
+    view,
+  });
+}
+
 /** Current computed curves of a well with provenance + basic statistics. */
 export interface ComputedCatalogEntry {
   curve_name: string;

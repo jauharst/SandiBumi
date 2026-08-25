@@ -48,6 +48,9 @@ export async function buildVersionsContent(
   /** set_id -> checked, surviving reloads within one pane lifetime. */
   const checked = new Set<string>();
   let entries: LogSetEntry[] = [];
+  /** A failed history fetch, shown in place of the table. An error must never render as
+   *  the "no versions yet" empty state - that would read as a fact about the well. */
+  let loadError: string | null = null;
 
   const cellText = (text: string): HTMLTableCellElement => {
     const td = document.createElement("td");
@@ -62,6 +65,13 @@ export async function buildVersionsContent(
       empty.className = "modal-hint";
       empty.textContent = "Select a well in the Wells pane to see its version history.";
       tableHost.appendChild(empty);
+      return;
+    }
+    if (loadError) {
+      const failed = document.createElement("p");
+      failed.className = "modal-hint";
+      failed.textContent = `Version history could not be read: ${loadError}`;
+      tableHost.appendChild(failed);
       return;
     }
     if (entries.length === 0) {
@@ -99,12 +109,18 @@ export async function buildVersionsContent(
       const pick = document.createElement("input");
       pick.type = "checkbox";
       pick.checked = checked.has(entry.set_id);
+      pick.setAttribute("aria-label", `Purge ${entry.set_name}_${entry.version}`);
       const latest = newestIds.has(entry.set_id);
       if (latest || entry.is_current) {
         pick.disabled = true;
-        pick.title = latest
+        const reason = latest
           ? "The latest version of a lineage is never purged"
           : "The live interpretation still reads this version";
+        pick.title = reason;
+        // A disabled control is unfocusable, so the hover tooltip is its only voice; the
+        // reason also reaches keyboard and screen-reader users through the preview's
+        // refusal list, which the backend re-states regardless of this pre-disable.
+        pick.setAttribute("aria-label", `${entry.set_name}_${entry.version}: ${reason}`);
       }
       pick.addEventListener("change", () => {
         if (pick.checked) checked.add(entry.set_id);
@@ -135,7 +151,8 @@ export async function buildVersionsContent(
       labelInput.className = "form-control";
       labelInput.style.minWidth = "10em";
       labelInput.value = entry.comment ?? "";
-      labelInput.placeholder = "label…";
+      labelInput.placeholder = "label (Enter saves)";
+      labelInput.setAttribute("aria-label", `Label for ${entry.set_name}_${entry.version}`);
       labelInput.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         const text = labelInput.value.trim();
@@ -184,7 +201,15 @@ export async function buildVersionsContent(
   const reload = async (): Promise<void> => {
     const well = appState.selectedWell.get();
     wellTitle.textContent = well ? `Version history — ${well.well_name}` : "Version history";
-    entries = well ? await listLogSets(well.well_id).catch(() => [] as LogSetEntry[]) : [];
+    loadError = null;
+    entries = [];
+    if (well) {
+      try {
+        entries = await listLogSets(well.well_id);
+      } catch (error) {
+        loadError = String(error);
+      }
+    }
     const known = new Set(entries.map((entry) => entry.set_id));
     for (const id of Array.from(checked)) if (!known.has(id)) checked.delete(id);
     renderTable();
@@ -340,9 +365,10 @@ export async function buildVersionsContent(
       purgeBtn.textContent = `Purge ${preview.candidates.length} version(s)`;
       purgeBtn.addEventListener("click", () => {
         void (async () => {
-          const operator = await ensureSessionOperator("Purge versions");
-          if (!operator) return;
+          purgeBtn.disabled = true;
           try {
+            const operator = await ensureSessionOperator("Purge versions");
+            if (!operator) return;
             const receipt = await purgeLogSetVersions(
               previewedIds,
               operator.identity,
@@ -353,12 +379,23 @@ export async function buildVersionsContent(
               `Purged ${receipt.versions_removed} version(s), ${receipt.archive_rows_removed} archived rows, ` +
               `across ${receipt.wells_touched} well(s) — audited. Disk space is reclaimed by Compact Project (Data ribbon).`;
             setStatus(summary);
-            recordProcess("Versions", summary, appState.selectedWell.get()?.well_name);
+            // Checked versions and keep-N scoped to this well are the selected well's
+            // history; an all-wells keep-N belongs to no single well, so it is recorded
+            // unattributed rather than pinned on whichever well happened to be selected.
+            recordProcess(
+              "Versions",
+              summary,
+              mode === "checked" || keepScope === "well"
+                ? appState.selectedWell.get()?.well_name
+                : undefined,
+            );
             checked.clear();
             clearPreview();
             void reload();
           } catch (error) {
             setStatus(String(error));
+          } finally {
+            purgeBtn.disabled = false;
           }
         })();
       });
@@ -378,6 +415,12 @@ export async function buildVersionsContent(
           renderPreview(await previewVersionPurge({ set_ids: Array.from(checked) }));
         } else {
           const keep = Math.floor(Number(keepInput.value));
+          if (!Number.isFinite(keep) || keep < 1) {
+            setStatus(
+              "Keep newest needs a whole number of 1 or more - 1 keeps only the latest of each lineage.",
+            );
+            return;
+          }
           const wellIds =
             keepScope === "well"
               ? [appState.selectedWell.get()?.well_id ?? ""].filter(Boolean)
@@ -408,7 +451,13 @@ export async function buildVersionsContent(
     clearPreview();
     void reload();
   });
-  const unsubscribeData = appState.dataVersion.subscribe(() => void reload());
+  // A data change may add versions or flip which one is live, so a preview computed
+  // before it is stale - drop it rather than leave a Purge button over yesterday's list
+  // (the backend re-checks its guards regardless; this keeps the SCREEN honest).
+  const unsubscribeData = appState.dataVersion.subscribe(() => {
+    clearPreview();
+    void reload();
+  });
 
   return {
     el: content,
