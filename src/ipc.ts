@@ -1520,6 +1520,8 @@ export interface LogSetEntry {
   /** Null only for a pre-contract run that cannot honestly be classified after the fact. */
   outcome_state: "CLEAN" | "DEGRADED" | null;
   degradations: Array<RunDegradation & { module: string }>;
+  /** The per-version free-text label (DEC-045); null when never labelled. */
+  comment: string | null;
 }
 
 /** A well's version history, newest first per set. */
@@ -1543,6 +1545,72 @@ export interface RestoreLogSetResult {
 /** Restores an archived version as a new append-only version and returns its source link. */
 export function restoreLogSet(setId: string): Promise<RestoreLogSetResult> {
   return invoke<RestoreLogSetResult>("restore_log_set", { setId });
+}
+
+/** Writes the per-version label. The backend refuses a blank label and an unknown version. */
+export function setLogSetComment(setId: string, comment: string): Promise<void> {
+  return invoke<void>("set_log_set_comment", { setId, comment });
+}
+
+export interface VersionPurgeCandidate {
+  set_id: string;
+  well_id: string;
+  set_name: string;
+  version: number;
+  module: string;
+  created_at: string;
+  archived_rows: number;
+}
+
+export interface VersionPurgeRefusal {
+  set_id: string;
+  set_name: string;
+  version: number;
+  reason: string;
+}
+
+export interface VersionPurgePreview {
+  candidates: VersionPurgeCandidate[];
+  refused: VersionPurgeRefusal[];
+  total_archived_rows: number;
+}
+
+/** Exactly ONE selection mode: explicit `set_ids`, or `keep_latest` N per (well, set) lineage
+ *  (optionally narrowed by `well_ids` / `set_name`). Field names cross serde verbatim. */
+export interface VersionPurgeSelection {
+  set_ids?: string[];
+  keep_latest?: number;
+  well_ids?: string[];
+  set_name?: string;
+}
+
+export interface VersionPurgeReceipt {
+  versions_removed: number;
+  archive_rows_removed: number;
+  parameter_rows_removed: number;
+  degradation_rows_removed: number;
+  wells_touched: number;
+  purged: VersionPurgeCandidate[];
+}
+
+/** Version retention phase 1: resolve a selection into purgeable versions + visible refusals. */
+export function previewVersionPurge(selection: VersionPurgeSelection): Promise<VersionPurgePreview> {
+  return invoke<VersionPurgePreview>("preview_version_purge", { selection });
+}
+
+/** Version retention phase 2: purge exactly the previewed ids — audited, all-or-nothing. */
+export function purgeLogSetVersions(
+  setIds: string[],
+  operator: string,
+  operatorKind: string,
+  view: string,
+): Promise<VersionPurgeReceipt> {
+  return invoke<VersionPurgeReceipt>("purge_log_set_versions", {
+    setIds,
+    operator,
+    operatorKind,
+    view,
+  });
 }
 
 /** Current computed curves of a well with provenance + basic statistics. */

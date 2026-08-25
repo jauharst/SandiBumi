@@ -350,6 +350,7 @@ export class Ribbon {
     );
     q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
     q<HTMLButtonElement>("#data-sets-btn")?.addEventListener("click", () => this.handleDataSets());
+    q<HTMLButtonElement>("#versions-btn")?.addEventListener("click", () => workspace.openVersions());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#sandimin-btn")?.addEventListener("click", () => workspace.openSandimin());
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => workspace.openRtcFit());

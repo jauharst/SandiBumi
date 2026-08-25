@@ -1256,6 +1256,7 @@ textarea {
 .dock-statistics,
 .dock-intake,
 .dock-reframe,
+.dock-versions,
 .dock-sfactor-fit {
   padding: 10px 12px;
 }
@@ -7233,8 +7234,29 @@ input[type="number"].num-editing:focus {
 .dock-mineral-class .module-pane,
 /* A fixed-width report is a picture, not a form: its columns are laid out in monospace and a
  * 620px column would wrap every operation row. */
-.dock-diagnostics .module-pane {
+.dock-diagnostics .module-pane,
+/* The version-history table carries seven columns; squeezed to a form column it wraps every row. */
+.dock-versions .module-pane {
   max-width: none;
+}
+
+/* The Versions pane's lineage table: dense data styling, chrome stays Organic. */
+.versions-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.versions-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+.versions-table td {
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
 }
 
 /* The diagnostic report, shown in full so it is READ before it is sent. Monospace because the
