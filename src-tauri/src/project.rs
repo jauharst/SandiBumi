@@ -287,6 +287,17 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
             total.as_secs()
         ));
     }
+
+    // The dead-space meter: DuckDB never shrinks a file on DELETE, so a long-lived project
+    // quietly drags (BLSO reached ~4x its live size before anyone noticed). Measured from
+    // the engine's own block accounting at the one moment every project passes through.
+    // Never fatal - a project that opens without the note is strictly better than one that
+    // refuses to open over a meter reading.
+    if let Ok((total_bytes, free_bytes)) = db::dead_space(&conn) {
+        if let Some(note) = db::compact_suggestion(total_bytes, free_bytes) {
+            db::boot_note(note);
+        }
+    }
     Ok(conn)
 }
 

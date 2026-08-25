@@ -101,6 +101,73 @@ fn parse_mem_bytes(s: &str) -> Option<f64> {
     Some(num * mult)
 }
 
+/// The file's own block accounting: (total_bytes, free_bytes), from DuckDB's
+/// `pragma_database_size()`. Free blocks are space the file holds but no live row uses —
+/// what DELETE leaves behind, since a DuckDB file never shrinks in place. Columns are
+/// selected BY NAME so a future pragma reordering fails loudly instead of swapping the
+/// two counts.
+pub fn dead_space(conn: &Connection) -> DbResult<(u64, u64)> {
+    conn.query_row(
+        "SELECT block_size, total_blocks, free_blocks FROM pragma_database_size()",
+        [],
+        |r| {
+            let block: i64 = r.get(0)?;
+            let total: i64 = r.get(1)?;
+            let free: i64 = r.get(2)?;
+            Ok((
+                (block.max(0) as u64) * (total.max(0) as u64),
+                (block.max(0) as u64) * (free.max(0) as u64),
+            ))
+        },
+    )
+    .map_err(Into::into)
+}
+
+/// The dead fraction past which an open mentions Compact Project. Geolog repacks a well
+/// file automatically when it drops below 75% full — its WELL_FULL default (T2:
+/// docs/research_2026-08/cross_tool/database-model.md, citing
+/// database_03_database_format_hc.3.3.html) — so a quarter dead is the level a field tool
+/// already treats as worth acting on. SandiBumi never repacks on its own (compaction
+/// rewrites the whole file and parks the original, which is the user's call to make), so
+/// the same threshold drives a NOTE instead.
+pub const COMPACT_NOTE_DEAD_FRACTION: f64 = 0.25;
+
+/// Below this much reclaimable space the note stays quiet regardless of fraction: a 40 MB
+/// project that is half dead would win back 20 MB, and a boot notice about 20 MB is noise.
+/// An engineering floor, chosen not cited.
+pub const COMPACT_NOTE_MIN_DEAD_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The Compact Project suggestion, or None while the file is lean. Pure arithmetic on the
+/// two counts `dead_space` returns, so the threshold is testable without a bloated file.
+pub fn compact_suggestion(total_bytes: u64, free_bytes: u64) -> Option<String> {
+    if total_bytes == 0 || free_bytes < COMPACT_NOTE_MIN_DEAD_BYTES {
+        return None;
+    }
+    let frac = free_bytes as f64 / total_bytes as f64;
+    if frac < COMPACT_NOTE_DEAD_FRACTION {
+        return None;
+    }
+    Some(format!(
+        "This project file holds {} of dead space ({}% of {}) left behind by re-runs and purges - a DuckDB file never shrinks in place. Compact Project (Data ribbon, Tools menu) rewrites it at its live size",
+        fmt_bytes(free_bytes),
+        (frac * 100.0).round() as u64,
+        fmt_bytes(total_bytes)
+    ))
+}
+
+/// Human-readable byte counts for the boot notes (1 decimal past MiB, whole numbers below).
+fn fmt_bytes(b: u64) -> String {
+    const MIB: f64 = 1024.0 * 1024.0;
+    let b = b as f64;
+    if b >= 1024.0 * MIB {
+        format!("{:.1} GiB", b / (1024.0 * MIB))
+    } else if b >= MIB {
+        format!("{:.0} MiB", b / MIB)
+    } else {
+        format!("{:.0} KiB", b / 1024.0)
+    }
+}
+
 /// Boot/maintenance notices the USER should see (one-time migration backups, memory caps,
 /// compaction results). `eprintln!` alone is invisible in a built exe
 /// (`windows_subsystem = "windows"` has no console), which is exactly how a 15-minute
@@ -6215,6 +6282,54 @@ mod inspector_tests {
         const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
         assert!(bytes <= 4.0 * GIB * 1.01, "cap must be at most 4 GiB, got {lim}");
         assert!(bytes >= 0.9 * GIB, "cap must be at least ~1 GiB, got {lim}");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}.wal"));
+    }
+
+    /// Both sides of the compact note, so neither a meter that always nags nor one that
+    /// never speaks would pass: it FIRES at exactly the quarter-dead threshold (Geolog's
+    /// own WELL_FULL default, see COMPACT_NOTE_DEAD_FRACTION) naming Compact Project, and
+    /// stays QUIET one byte under the fraction, and quiet again when the reclaimable
+    /// amount is under the 64 MiB floor however dead the fraction looks.
+    #[test]
+    fn the_compact_note_fires_at_a_quarter_dead_and_stays_quiet_below_either_floor() {
+        const MIB: u64 = 1024 * 1024;
+        // Exactly 25% of 1 GiB dead: at the boundary, the note fires.
+        let total = 1024 * MIB;
+        let note = compact_suggestion(total, total / 4)
+            .expect("a file exactly a quarter dead must earn the note");
+        assert!(note.contains("Compact Project"), "the note must name the fix: {note}");
+        assert!(note.contains("25%"), "the note states the measured fraction: {note}");
+        // One step under the fraction: quiet.
+        assert!(
+            compact_suggestion(total, total / 4 - 1).is_none(),
+            "just under a quarter dead must stay quiet"
+        );
+        // 90% dead but only 36 MiB reclaimable: under the byte floor, quiet.
+        assert!(
+            compact_suggestion(40 * MIB, 36 * MIB).is_none(),
+            "a small file must stay quiet however dead its fraction"
+        );
+        // An empty accounting can never divide by zero into a note.
+        assert!(compact_suggestion(0, 0).is_none());
+    }
+
+    /// Pins the pragma contract itself: `pragma_database_size()` on a real file-backed
+    /// project still carries block_size / total_blocks / free_blocks under those names,
+    /// and the derived byte counts are coherent (a file has size; free never exceeds
+    /// total). If DuckDB renames or drops a column, this fails here rather than as a
+    /// silently absent boot note.
+    #[test]
+    fn dead_space_reads_duckdbs_own_block_accounting_from_a_real_file() {
+        let path = tmp_db("deadspace");
+        let conn = init_db(&path).unwrap();
+        // A brand-new schema still lives in the WAL; the accounting counts checkpointed
+        // blocks only. A real open has already replayed its WAL by the time the meter runs.
+        conn.execute_batch("CHECKPOINT").unwrap();
+        let (total, free) = dead_space(&conn).expect("the pragma must answer on a file-backed db");
+        assert!(total > 0, "a file-backed project occupies at least one block");
+        assert!(free <= total, "free blocks are a subset of the file's blocks");
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}.wal"));
