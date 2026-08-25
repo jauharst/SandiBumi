@@ -12,6 +12,7 @@ project forever — *could a software engineer I hire be productive here in week
 | `engineering_review_prompt.md` | whole-app *behaviour* sweep, tiers F1–F5 | occasional, produces findings |
 | `qc_audit_prompt_template.md` | one tool, end to end, physics correctness | per tool |
 | `product_definition_prompt.md` | what the *product* is: PRD, target architecture, v1.0 gate | once, then before each major release |
+| `guidebook_prompt.md` | the two-tier help system: in-app Help cards (equation + publication) and the offline HTML guidebook | once to build, then per new module |
 | **this file** | whole-repo *structure*, decisions, onboarding | quarterly, plus once before any hire |
 
 A separate family, deliberately outside this table: the one-shot vendor-intelligence prompts
