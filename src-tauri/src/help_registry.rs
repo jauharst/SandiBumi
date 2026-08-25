@@ -196,8 +196,8 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "Kuttan et al., Log Interpretation in the Malay Basin, 21st SPWLA Annual \
                  Logging Symposium",
             ],
-            note: "The LQR/GAP-2023 modification and the two tight-rock conditioning rules \
-                   are the interpreter's own additions to the published model.",
+            note: "The modification and the two tight-rock conditioning rules are \
+                   SandiBumi's own additions to the published model.",
         }),
         // Equations copied from docs/method_ssc_sspw.md. SSPW is the interpreter's own
         // bound-water workflow, reconstructed from its specification - no publication.
@@ -211,8 +211,9 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "PHIFF = PHIT − CBW − CAPBW",
                 "Gas conditioning corrects the density leg only (same c parameter as SSC)",
             ],
-            references: &["SandiBumi method - the interpreter's own bound-water workflow"],
-            note: "Reconstructed from the method specification; validation against the \
+            references: &[],
+            note: "SandiBumi's own bound-water workflow - no published primary reference. \
+                   Reconstructed from the method specification; validation against the \
                    reference-suite exports is an open review item.",
         }),
         _ => None,
