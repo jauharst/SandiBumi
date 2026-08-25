@@ -370,6 +370,7 @@ export class Workspace {
       ["Unconventional (ΔlogR + Langmuir)", () => this.openUnconventional(group)],
       ["Results QC (Sw spread)", () => this.openResultsQc(group)],
       ["Plug QC (core vs petrography)", () => this.openPlugQc(group)],
+      ["Versions (labels + purge)", () => this.openVersions(group)],
       ["Mineral Classifier (point counts)", () => this.openMineralClass(group)],
       ["Pore Area (thin sections)", () => this.openPoreArea(group)],
       ["SandiMin Solver", () => this.openSandimin(group)],
@@ -578,6 +579,12 @@ export class Workspace {
           "dock-plug-qc",
           () => import("./plugQcPanel").then((m) => m.buildPlugQcContent(setStatus)),
           "plug QC",
+        );
+      case "versions":
+        return this.asyncPane(
+          "dock-versions",
+          () => import("./versionsPanel").then((m) => m.buildVersionsContent(setStatus)),
+          "versions",
         );
       case "mineralClass":
         return this.asyncPane(
@@ -1655,6 +1662,10 @@ export class Workspace {
 
   openPlugQc(group?: DockviewGroupPanel): void {
     this.openSingleton("plugQc", "plugQc", "Plug QC (core vs petrography)", group);
+  }
+
+  openVersions(group?: DockviewGroupPanel): void {
+    this.openSingleton("versions", "versions", "Versions", group);
   }
 
   openMineralClass(group?: DockviewGroupPanel): void {

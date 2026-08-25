@@ -4,10 +4,10 @@
  "capture_command": "node tools/frontend-exports.mjs --list",
  "evidence_class": "CHARACTERIZATION",
  "evidence_note": "Unreferenced means nothing in src/, tools/, e2e/ or index.html names it. No row here is evidence that its subject works; a BACKEND-ROUTE-PENDING row is evidence only that the command behind it is still registered.",
- "expected_unreferenced_export_count": 38,
+ "expected_unreferenced_export_count": 37,
  "expected_category_counts": {
   "BACKEND-ROUTE-PENDING": 20,
-  "SUPERSEDED-BY-SIBLING": 10,
+  "SUPERSEDED-BY-SIBLING": 9,
   "ROUTE-PENDING": 1,
   "HELPER-UNADOPTED": 7
  },
@@ -167,11 +167,6 @@
      "key": "src/ui/axisRange.ts|bindingAuditedFamilyDisplayRange",
      "superseded_by": "bindingAuditedFamilyDisplayDecision",
      "rationale": "The multi-well binding twin, superseded for the same reason: its refusal says the represented curves do not share one audited range, and the range-only accessor discards that sentence."
-    },
-    {
-     "key": "src/state.ts|activeGroupWellIds",
-     "superseded_by": "filterByActiveGroup",
-     "rationale": "Its own doc says batch dialogs default their selection to it; they filter a well list through the active group instead, which is the same rule applied where the list already exists."
     },
     {
      "key": "src/state.ts|defaultRunWellIds",
