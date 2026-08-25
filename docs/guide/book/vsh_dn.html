@@ -1,0 +1,188 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VSH from Density-Neutron — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · VSH</div>
+<h1>VSH from Density-Neutron</h1>
+<p class="modmeta">Module id <code>vsh_dn</code> · category <b>VSH</b></p>
+<p>Shale volume from the density-neutron crossplot: the (RHOB, NPHI) point's position between the clean matrix line and the shale point. The neutron shale endpoint is clay-type sensitive, so an optional GR comparison raises VSH_DN_FLAG where the two indicators diverge or the point falls off the matrix-shale-fluid triangle. VSH is the result limited to 0-1; VSH_DN keeps the unlimited value.</p>
+<pre class="equations">VSH_DN = (A − B) / (C − D), where on the (NPHI, RHOB) crossplot:
+A = (RHO_MA − RHO_FL)·(NPHI_FL − NPHI)
+B = (RHOB − RHO_FL)·(NPHI_FL − NPHI_MA)
+C = (RHO_MA − RHO_FL)·(NPHI_FL − NPHI_SH)
+D = (RHO_SH − RHO_FL)·(NPHI_FL − NPHI_MA)
+VSH = VSH_DN limited to 0–1</pre>
+<!-- Authored walkthrough for the vsh_dn guidebook chapter. Screenshots and every number
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+
+<h2>Step by step: the second opinion on shale volume</h2>
+
+<p>This walkthrough assumes the first-hour setup and the
+<a href="vsh_gr.html">VSH from Gamma Ray</a> chapter — the four mechanics every module
+run reuses (parameters, custody, "degraded", output sets) are taught there and not
+repeated here.</p>
+
+<h3>Get the neutron into matrix units first</h3>
+
+<p>The crossplot endpoints only mean something in one matrix convention. The SANDI
+wells deliver NPHI in limestone units; run <b>Data Prep → Neutron Matrix Conversion</b>
+once (it ran clean on all three wells here) and you get <code>NPHI_SS</code> — the same
+log in quartz-sandstone units, where the clean-sand matrix point sits at 0.</p>
+
+<h3>Enter the triangle</h3>
+
+<p>Open <b>Petrophysics → VSH → VSH from Density-Neutron</b> and pin the NPHI input to
+<code>NPHI_SS</code>. The six endpoints entered for this run, with where each came
+from — the same text that went into the run's reference field:</p>
+
+<ul>
+  <li><b>RHO_MA 2.65 / NPHI_MA 0</b> — the sandstone matrix point, from the pane's own
+    shipped-values list (three installed tools agree on 2.65; the matrix neutron in
+    sandstone units is 0).</li>
+  <li><b>RHO_SH 2.45 / NPHI_SH 0.42</b> — medians of SANDI-01's samples at
+    GR ≥ 112 gAPI (the shale population the first-hour GR_SH pick defined), NPHI read
+    in sandstone units.</li>
+  <li><b>GR_MA 44 / GR_SH 112</b> — the first-hour histogram picks, reused for the
+    GR comparison flag.</li>
+</ul>
+
+<p>These are picks from <i>this</i> dataset, shown so you can repeat the method; they
+are not recommended values for anywhere.</p>
+
+<figure>
+  <img src="../img/guide-vshdn-pane.png"
+       alt="The VSH from Density-Neutron pane with the six endpoints entered" />
+  <figcaption>The pane with the crossplot triangle entered and NPHI pinned to the
+    sandstone-units curve.</figcaption>
+</figure>
+
+<h3>Run, and read the flag</h3>
+
+<p>On these wells the run reported <b>0 clean · 3 degraded · 0 failed</b>; SANDI-01's
+report says the limited VSH clamped to [0, 1] at 203 of 395 samples. That is the
+crossplot being honest: a point that falls off the matrix–shale–fluid triangle (gas,
+bad hole, or a shale whose neutron response disagrees with the single NPHI_SH
+endpoint) computes an index outside 0–1, and the limited curve clips it while
+<code>VSH_DN</code> keeps the raw value.</p>
+
+<p>This is why the module wants GR too: <code>VSH_DN_FLAG</code> goes to 1 wherever
+the N-D answer is off-model or diverges from the clay-type-insensitive GR VSH by more
+than FLAG_TOL. Read the flag before trusting VSH_DN in a gas leg or an unusual clay —
+the neutron shale endpoint is hydroxyl-driven, and one number cannot represent both a
+kaolinite and an illite shale.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Two-log crossplot VSH: the (RHOB, NPHI) point's position between the clean matrix line and the shale point. Density in g/cc. CAUTION: the neutron shale response is hydroxyl-driven, so a single NPHI_SH endpoint is clay-type sensitive — a 4-OH clay (illite/smectite) gives ~12 p.u. N-D separation vs ~35 p.u. for an 8-OH clay (kaolinite/chlorite). Supply GR to raise VSH_DN_FLAG where the N-D VSH diverges from the clay-type-insensitive GR VSH (clay-type or gas ambiguity), or falls off the matrix–shale–fluid triangle.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Density log</td><td><code>RHO_COR</code> → <code>RHOB_EC</code> → <code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>NPHI</td><td>Neutron porosity log</td><td><code>NPHI_COR</code> → <code>NPHI_EC</code> → <code>NPHI</code></td><td>yes</td><td>—</td></tr>
+<tr><td>GR</td><td>Gamma ray (optional clay-type cross-check)</td><td><code>GR_COR</code> → <code>GR_EC</code> → <code>GR</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHO_MA <span class="src">(g/cc)</span></h3>
+<p>Matrix density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_density</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page</div></li></ul>
+<h3>RHO_SH <span class="src">(g/cc)</span></h3>
+<p>Shale density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1.5 to 3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_density</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page</div></li></ul>
+<h3>RHO_FL <span class="src">(g/cc)</span></h3>
+<p>Fluid density</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog vsh_dn.info RHO_FL DEFAULT 1000 k/m3; Techlog petrophysics-vsh-from-neutrondensity.html RHO fluid 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5</span></li>
+<li><b>Accepted range:</b> 0.5 to 1.5 g/cc</li>
+<li><b>Guidance:</b> IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page</div></li></ul>
+<h3>NPHI_MA <span class="src">(v/v)</span></h3>
+<p>Matrix neutron porosity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -0.15 to 0.5 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_neutron_endpoint</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page</div></li></ul>
+<h3>NPHI_SH <span class="src">(v/v)</span></h3>
+<p>Shale neutron porosity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.8 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_neutron_endpoint</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page</div></li></ul>
+<h3>NPHI_FL <span class="src">(v/v)</span></h3>
+<p>Fluid neutron porosity</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog vsh_dn.info NPHI_FL 1 v/v; Techlog petrophysics-vsh-from-neutrondensity.html NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5</span></li>
+<li><b>Accepted range:</b> 0.5 to 1.2 v/v</li>
+<li><b>Guidance:</b> IP constructs the clean line from two interpreter-picked points; Geolog and Techlog constrain it through matrix and fluid points. Pick the shale point off the clean line and retain the chosen construction with the interpretation. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F15; IP clayequationsandmethodology.htm; Geolog vsh_dn.lls; Techlog VSH neutron-density page</div></li></ul>
+<h3>GR_MA <span class="src">(gAPI)</span></h3>
+<p>Clean GR (clay-type cross-check)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 150 gAPI</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>gr_clean_endpoint</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md</div></li></ul>
+<h3>GR_SH <span class="src">(gAPI)</span></h3>
+<p>Shale GR (clay-type cross-check)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 40 to 400 gAPI</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>gr_shale_endpoint</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Guidance:</b> IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md</div></li></ul>
+<h3>FLAG_TOL <span class="src">(v/v)</span></h3>
+<p>Flag |VSH(N-D) − VSH(GR)| above this</p>
+<ul><li><b>Default:</b> 0.25 <span class="src">— source: docs/PRD_v2/10_clay-volume.md §5.1 — SandiBumi diagnostic threshold</span></li>
+<li><b>Accepted range:</b> 0.05 to 1 v/v</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>VSH_DN</td><td>VSH from density-neutron (unlimited)</td></tr>
+<tr><td>VSH</td><td>Limited volume of shale</td></tr>
+<tr><td>VSH_DN_FLAG</td><td>1 where N-D VSH is unreliable (off-model, or diverges from GR VSH)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

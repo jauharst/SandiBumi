@@ -1,0 +1,146 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Porosity Ceiling (φmax) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
+<h1>Porosity Ceiling (φmax)</h1>
+<p class="modmeta">Module id <code>phimax</code> · category <b>Porosity</b></p>
+<p>Caps an input porosity at the field's compaction-controlled ceiling: a constant, a linear TVDSS trend, or an Athy exponential trend. Writes the capped curve and the ceiling curve for QC; the input porosity is never modified.</p>
+<pre class="equations">constant: φmax = PHIMAX0
+linear: φmax = PHIMAX0 − PHIMAX_GRAD·(TVDSS − TVDSS_REF)/1000
+athy: φmax = PHIMAX0·exp(−ATHY_K·(TVDSS − TVDSS_REF)/1000)
+&lt;PHI&gt;_CAP = min(PHI, φmax)</pre>
+<h2>References</h2>
+<ul><li>Athy (1930) - the exponential compaction trend</li></ul>
+<p class="note">Author and year as this project's records hold them; the full primary citation is pending verification.</p>
+<!-- Authored walkthrough for the phimax guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+
+<h2>Step by step: capping porosity at what the rock allows</h2>
+
+<p>A computed porosity can drift above what compaction allows — bad hole, a light
+mineral, an optimistic parameter. This module writes the capped copy and the ceiling
+itself, and never modifies the input curve.</p>
+
+<h3>Pick a ceiling from your own data</h3>
+
+<p>Open <b>Petrophysics → Porosity → Porosity Ceiling (φmax)</b>. For a first look the
+<b>constant</b> mode is enough (the linear and Athy TVDSS trends are for fields with a
+real compaction profile and a deviation survey loaded). Entered here:</p>
+
+<ul>
+  <li><b>MODE constant</b>, <b>PHI input pinned to PHIE</b> (the Porosity from Density
+    run's output).</li>
+  <li><b>PHIMAX0 0.27</b> — the P99 of that PHIE on SANDI-01: a ceiling read off this
+    dataset's own distribution, recorded as exactly that in the reference field. It is
+    a demonstration pick, not a recommended value; on a real field the ceiling is the
+    crossplot "max core porosity" line.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-phimax-pane.png"
+       alt="The Porosity Ceiling pane in constant mode with PHIMAX0 entered" />
+  <figcaption>Constant mode: one ceiling, one input curve.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. Two curves come back: <code>PHIE_CAP</code> =
+min(PHIE, φmax) with MISSING preserved, and <code>PHIE_MAX</code>, the ceiling itself,
+which you drop onto the log view as a QC overlay — wherever the porosity curve rides
+the ceiling, the cap is doing work and you should ask why.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Caps an input porosity at a maximum ceiling — the field's compaction-controlled upper limit (the crossplot 'max core porosity' line). The ceiling is CONSTANT (PHIMAX0, per-zone overridable), or a TVDSS compaction TREND: LINEAR (φmax = PHIMAX0 − PHIMAX_GRAD·(TVDSS − TVDSS_REF)/1000) or ATHY exponential (φmax = PHIMAX0·exp(−ATHY_K·(TVDSS − TVDSS_REF)/1000)). TVDSS is a POSITIVE-downward depth-below-datum curve (same convention as precalc), so DEEPER = larger TVDSS = lower ceiling; all four params are per-zone overridable. No TVDSS curve → measured DEPTH is used instead (fine for near-vertical wells; the trend then reads against MD). Writes &lt;PHI&gt;_CAP = min(PHI, φmax) preserving MISSING, and the ceiling curve &lt;PHI&gt;_MAX for QC overlay; the input porosity is never modified. Constant mode ignores TVDSS.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHI</td><td>Porosity to cap</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
+<tr><td>TVDSS</td><td>True vertical depth subsea (trend modes)</td><td><code>TVDSS</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>PHIMAX0 <span class="src">(v/v)</span></h3>
+<p>φmax at TVDSS_REF (also the CONSTANT cap value)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>TVDSS_REF <span class="src">(depth)</span></h3>
+<p>Reference TVDSS where φmax = PHIMAX0</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -30000 to 30000 depth</li>
+<li><b>Checked before the run:</b> <code>tvdss_ref.required_when_linear</code> — TVDSS_REF is required when MODE = linear. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li>
+<li><b>Checked before the run:</b> <code>tvdss_ref.required_when_athy</code> — TVDSS_REF is required when MODE = athy. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li></ul>
+<h3>PHIMAX_GRAD <span class="src">(v/v per 1000)</span></h3>
+<p>LINEAR: φmax lost per 1000 TVDSS units deeper</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1 to 1 v/v per 1000</li>
+<li><b>Checked before the run:</b> <code>phimax_grad.required_when_linear</code> — PHIMAX_GRAD is required when MODE = linear. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li></ul>
+<h3>ATHY_K <span class="src">(1/1000)</span></h3>
+<p>ATHY: compaction coefficient per 1000 TVDSS units</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 5 1/1000</li>
+<li><b>Checked before the run:</b> <code>athy_k.required_when_athy</code> — ATHY_K is required when MODE = athy. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li></ul>
+<h2>Options</h2>
+<h3>MODE</h3>
+<p>Ceiling model</p>
+<ul><li><b>Choices:</b><ul><li><code>constant</code></li>
+<li><code>linear</code></li>
+<li><code>athy</code></li></ul></li>
+<li><b>Default:</b> <code>linear</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>PHI_CAP</td><td>Capped porosity</td></tr>
+<tr><td>PHI_MAX</td><td>φmax ceiling curve</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

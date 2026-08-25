@@ -1,0 +1,47 @@
+<!-- Authored walkthrough for the sspw guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+
+<h2>Step by step: the bound-water split</h2>
+
+<p>SSPW is the interpreter's own bound-water workflow, and its message is one
+sentence: <b>effective porosity loses only the clay-bound water; the capillary-bound
+water stays inside PHIE, and what flows is PHIFF = PHIT − CBW − CAPBW.</b> It lives on
+the <b>Advance</b> tab beside SSC.</p>
+
+<h3>Sandstone units are a requirement of the spec</h3>
+
+<p>The specification states NPHI must be in sandstone units — so pin the NPHI input to
+<code>NPHI_SS</code> (from Neutron Matrix Conversion), exactly as the
+<a href="ssc.html">SSC chapter</a> does.</p>
+
+<h3>Enter the spec parameters and the shale point</h3>
+
+<p>All entered values and their origins, as recorded in the run's reference field:</p>
+
+<ul>
+  <li><b>NPHI_MAT 0 · RHOB_DSH 2.71 · VOL_CBW_SH 0.1 · SWIRR_MIN 0</b> — the values
+    the SSPW specification itself records.</li>
+  <li><b>RHOB_SH 2.45 / NPHI_SH 0.42</b> (sandstone units) — medians of SANDI-01's
+    samples at GR ≥ 112 gAPI: this dataset's own shale point, preferred over the
+    spec's example values because it is measurable here.</li>
+  <li><b>GAS_C 1.6</b> — the shipped, cited default; SSPW corrects the density leg
+    only, so the leg-crossing behaviour SSC shows above c = 1 has no counterpart here.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-sspw-pane.png"
+       alt="The SSPW pane with the spec parameters and the shale point entered" />
+  <figcaption>Spec values plus this dataset's own shale point.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. Outputs: PHIT/PHIE/PHIFF_SSPW, the three bound-water
+volumes (clay-bound, capillary-bound, total) and SWIRR_SSPW. Put PHIT, PHIE and
+PHIFF_SSPW on one track: the gap between PHIT and PHIE is the clay-bound water, and
+the gap between PHIE and PHIFF is the capillary-bound water the method exists to
+separate.</p>
+
+<p>One honesty note the pane's help also carries: SSPW was reconstructed from its
+specification, and validation against the reference-suite exports is still an open
+review item.</p>

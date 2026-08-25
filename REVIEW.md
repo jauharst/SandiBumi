@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-25 — Guidebook increment 2: the whole VSH + Porosity shelf, cards and chapters (9 of 52)
+
+- [ ] **What this is.** Eight more modules now have the full two-tier help: vsh_dn, phi_den,
+      phi_dn, phi_dnbk, phi_son, phimax, and the Advance-tab ssc and sspw. Each gets the four-part
+      Help card (method, equations copied from the code, published references as the repo records
+      them, guidebook link) and a full HTML chapter — walkthrough with a real screenshot of the
+      filled pane, the picks and their citations spelled out, the run outcome as it actually
+      reported, then everything the manifest enforces.
+- [ ] **Every number on camera is real.** All eight modules were RUN on the three SANDI wells in a
+      sandboxed app: endpoints picked from the data (shale medians at GR≥112: RHOB 2.45, NPHI 0.38
+      LS / 0.42 SS, DT 118), cited defaults left alone, framework values from the SSC method note,
+      every pick written into the run's reference field. The chapters quote the actual outcomes —
+      including phi_dn/phi_dnbk first REFUSING because the neutron's matrix basis was undeclared
+      (DEC-025), which the chapters now teach as the flow: declare the basis or convert with
+      nphimat. ssc's GRN preference is taught the same way.
+- [ ] **Citations, as recorded and never invented:** Bateman & Konen SPWLA 1977 Appendix B (full,
+      from the constants' own comment); Raymer-Hunt-Gardner SPWLA 1980 paper P (full,
+      paper-verified per DEC-079); Wyllie 1956/1958 and Athy 1930 as author-year leads with a
+      pending-verification note; Kuttan et al. as ssc.rs records it; vsh_dn/phi_den/phi_dn carry
+      NO reference line plus an honest note, because the ledger records no primary publication for
+      those transforms — **question for you:** should those three stay bare, or do you want their
+      primary sources chased?
+- [ ] **What to check:** press ? Help on ssc and phi_son (read the equations against your own
+      knowledge), click through to the chapters, and read the ssc chapter's framework table — the
+      PHIT_CL 0.24 line states its arithmetic openly. If the shape holds, increment 3 does the
+      Saturation shelf the same way.
+
 ## 2026-08-25 — Help now answers with the equation and the paper, and links the guidebook (exemplar: vsh_gr)
 
 - [ ] **What this is.** Increment 1 of `docs/guidebook_prompt.md`: press **? Help** on the VSH

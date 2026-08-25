@@ -1,0 +1,176 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SSPW — Sandstone Petrophysical Workflow — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
+<h1>SSPW — Sandstone Petrophysical Workflow</h1>
+<p class="modmeta">Module id <code>sspw</code> · category <b>Porosity</b></p>
+<p>Bound-water porosity split: effective porosity is total porosity minus clay-bound water only, capillary-bound water stays inside PHIE, and PHIFF is the porosity that flows. Outputs the bound-water volumes and irreducible saturation.</p>
+<pre class="equations">PHIE = PHIT − CBW  (clay-bound water only)
+PHIFF = PHIT − CBW − CAPBW
+Gas conditioning corrects the density leg only (same c parameter as SSC)</pre>
+<h2>References</h2>
+<ul><li>SandiBumi method - the interpreter's own bound-water workflow</li></ul>
+<p class="note">Reconstructed from the method specification; validation against the reference-suite exports is an open review item.</p>
+<!-- Authored walkthrough for the sspw guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+
+<h2>Step by step: the bound-water split</h2>
+
+<p>SSPW is the interpreter's own bound-water workflow, and its message is one
+sentence: <b>effective porosity loses only the clay-bound water; the capillary-bound
+water stays inside PHIE, and what flows is PHIFF = PHIT − CBW − CAPBW.</b> It lives on
+the <b>Advance</b> tab beside SSC.</p>
+
+<h3>Sandstone units are a requirement of the spec</h3>
+
+<p>The specification states NPHI must be in sandstone units — so pin the NPHI input to
+<code>NPHI_SS</code> (from Neutron Matrix Conversion), exactly as the
+<a href="ssc.html">SSC chapter</a> does.</p>
+
+<h3>Enter the spec parameters and the shale point</h3>
+
+<p>All entered values and their origins, as recorded in the run's reference field:</p>
+
+<ul>
+  <li><b>NPHI_MAT 0 · RHOB_DSH 2.71 · VOL_CBW_SH 0.1 · SWIRR_MIN 0</b> — the values
+    the SSPW specification itself records.</li>
+  <li><b>RHOB_SH 2.45 / NPHI_SH 0.42</b> (sandstone units) — medians of SANDI-01's
+    samples at GR ≥ 112 gAPI: this dataset's own shale point, preferred over the
+    spec's example values because it is measurable here.</li>
+  <li><b>GAS_C 1.6</b> — the shipped, cited default; SSPW corrects the density leg
+    only, so the leg-crossing behaviour SSC shows above c = 1 has no counterpart here.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-sspw-pane.png"
+       alt="The SSPW pane with the spec parameters and the shale point entered" />
+  <figcaption>Spec values plus this dataset's own shale point.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. Outputs: PHIT/PHIE/PHIFF_SSPW, the three bound-water
+volumes (clay-bound, capillary-bound, total) and SWIRR_SSPW. Put PHIT, PHIE and
+PHIFF_SSPW on one track: the gap between PHIT and PHIE is the clay-bound water, and
+the gap between PHIE and PHIFF is the capillary-bound water the method exists to
+separate.</p>
+
+<p>One honesty note the pane's help also carries: SSPW was reconstructed from its
+specification, and validation against the reference-suite exports is still an open
+review item.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Three-component sandstone workflow (quartz + shale + water). PHIT from density with a VSH-mixed dry matrix (RHOB_MAT / RHOB_DSH); shale total porosity PHIT_SH = (RHOB_DSH − RHOB_SH)/(RHOB_DSH − RHOB_FL); CBW = VSH·VOL_CBW_SH; CAPBW = VSH·(PHIT_SH − VOL_CBW_SH). Key message: PHIE = PHIT − CBW (clay bound only); PHIFF = PHIT − CBW − CAPBW is the movable-fluid porosity; SWIRR = (CBW+CAPBW)/PHIT floored at SWIRR_MIN. NPHI must be sandstone units. Exec arithmetic reconstructed from the reference spec — check against the reference PHIT/PHIE LAS output.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Bulk density</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>NPHI</td><td>Neutron porosity (sandstone units)</td><td><code>NPHI</code></td><td>no</td><td>—</td></tr>
+<tr><td>VSH</td><td>Shale volume</td><td><code>VSH</code></td><td>yes</td><td>accepts quantity kind: VSH</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHOB_MAT <span class="src">(g/cc)</span></h3>
+<p>Bulk density of matrix point</p>
+<ul><li><b>Default:</b> 2.65 <span class="src">— source: IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 2 to 3 g/cc</li></ul>
+<h3>NPHI_MAT <span class="src">(v/v)</span></h3>
+<p>Neutron of matrix point</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -0.1 to 0.2 v/v</li></ul>
+<h3>RHOB_SH <span class="src">(g/cc)</span></h3>
+<p>Bulk density of measured (wet) shale</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1.5 to 3.5 g/cc</li></ul>
+<h3>NPHI_SH <span class="src">(v/v)</span></h3>
+<p>Neutron of measured shale</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>RHOB_DSH <span class="src">(g/cc)</span></h3>
+<p>Dry shale grain density (0 p.u. shale)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 2 to 3 g/cc</li></ul>
+<h3>VOL_CBW_SH <span class="src">(v/v)</span></h3>
+<p>Clay-bound water volume in wet shale</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>SWIRR_MIN <span class="src">(v/v)</span></h3>
+<p>Minimum irreducible water saturation</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>GAS_C</h3>
+<p>Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)</p>
+<ul><li><b>Default:</b> 1.6 <span class="src">— source: porosity_sspw.lls (2022) gas branch c = 1.6; RULED by Jauhar DEC-086 on field observation that the even split still reads optimistic</span></li>
+<li><b>Accepted range:</b> 0 to 2</li></ul>
+<h3>RHO_W <span class="src">(g/cc)</span></h3>
+<p>Formation water density</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 0.8 to 1.3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHOB_FL <span class="src">(g/cc)</span></h3>
+<p>Density of invaded-zone fluid</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4</span></li>
+<li><b>Accepted range:</b> 0.5 to 1.5 g/cc</li></ul>
+<h3>NPHI_FL <span class="src">(v/v)</span></h3>
+<p>Neutron response of flushed-zone fluid</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5</span></li>
+<li><b>Accepted range:</b> 0.5 to 1.2 v/v</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>PHIT_SSPW</td><td>Total porosity</td></tr>
+<tr><td>PHIE_SSPW</td><td>Effective porosity (PHIT − CBW)</td></tr>
+<tr><td>PHIFF_SSPW</td><td>Free fluid porosity</td></tr>
+<tr><td>CBW_SSPW</td><td>Clay-bound water volume</td></tr>
+<tr><td>CAPBW_SSPW</td><td>Capillary-bound water volume</td></tr>
+<tr><td>BW_SSPW</td><td>Total bound water volume</td></tr>
+<tr><td>SWIRR_SSPW</td><td>Irreducible water saturation</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>
