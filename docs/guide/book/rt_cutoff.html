@@ -1,0 +1,137 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rock Type from Cutoffs (electrofacies) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Rock Typing</div>
+<h1>Rock Type from Cutoffs (electrofacies)</h1>
+<p class="modmeta">Module id <code>rt_cutoff</code> · category <b>Rock Typing</b></p>
+<p>A log-domain rock-type class from a declared Vsh + PHIE cutoff ladder - the electrofacies half of the rock-typing tie-in. Class 1 is the best rock, class 3 is non-net; validate the ladder against a core-derived rock type with the confusion-matrix QC before attaching per-class laws.</p>
+<pre class="equations">RT_LOG = 1 if Vsh ≤ VSH1 and PHIE ≥ PHI1
+RT_LOG = 2 if Vsh ≤ VSH2 and PHIE ≥ PHI2  (requires VSH1 ≤ VSH2, PHI1 ≥ PHI2)
+else RT_LOG = 3</pre>
+<!-- Authored walkthrough for the rt_cutoff guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: a rock-type ladder you can defend</h2>
+
+<p>The simplest rock typing there is: a declared Vsh + PHIE cutoff ladder, three
+classes, best to non-net. The ladder ships absent because a cutoff is an
+interpretation, not a constant — and the module's whole design assumes you will
+validate the ladder against a core-derived rock type with the confusion-matrix QC
+before attaching per-class laws to it.</p>
+
+<h3>Deriving a starting ladder from the data itself</h3>
+
+<p>Rather than typing folklore numbers, this walkthrough reads the ladder off the
+dataset's own sand population (samples at GR&nbsp;&lt;&nbsp;60):</p>
+
+<ul>
+  <li><b>VSH1 0.458 / VSH2 0.467</b> — the P90 and P95 of VSH within the sands: the
+    sand population's own upper edge, and a slightly forgiving variant of it.</li>
+  <li><b>PHI1 0.148 / PHI2 0.134</b> — the P50 and P25 of PHIE_DEN within the sands:
+    median sand quality, and the lower quartile.</li>
+  <li>The pane enforces VSH1 ≤ VSH2 and PHI1 ≥ PHI2, so a ladder that ranks
+    backwards is refused before it classifies anything.</li>
+</ul>
+
+<p>A percentile ladder is a <i>starting point with a defence</i> — every number has
+a command behind it — not a validated rock type. The validation is the tie-in.</p>
+
+<figure>
+  <img src="../img/guide-rtcutoff-pane.png"
+       alt="The cutoff ladder pane with the percentile-derived values" />
+  <figcaption>Every ladder value is a stated percentile of this dataset's own sand
+    population.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. The class census over the classified samples:
+284 in class 1, 147 in class 2, 733 in class 3 — most of the section is non-net,
+which is what a section that is two-thirds shale should say. Next stop on a real
+study: Rock Typing ▸ Facies Tie-in, where this RT_LOG meets the core-derived rock
+type in a confusion matrix, and the ladder gets adjusted for the misclassifications
+that matter rather than the ones that don't.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Log-domain rock-type class from a Vsh + PHIE cutoff ladder — the electrofacies half of the rock-typing tie-in. RT_LOG = 1 (best: Vsh ≤ VSH1 and PHIE ≥ PHI1), 2 (moderate: Vsh ≤ VSH2 and PHIE ≥ PHI2), else 3 (non-net). Requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2. Feed the result to the confusion-matrix QC (Rock Typing ▸ Facies Tie-in) to validate it against a core-derived RT curve, then attach per-class phi-k / SHF laws. Samples with missing Vsh or PHIE stay MISSING.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>VSH</td><td>Shale volume</td><td><code>VSH</code></td><td>yes</td><td>accepts quantity kind: VSH</td></tr>
+<tr><td>PHIE</td><td>Effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>VSH1 <span class="src">(v/v)</span></h3>
+<p>Vsh cutoff for RT1 (best)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li>
+<li><b>Checked before the run:</b> <code>rt_cutoff.vsh_ladder_order</code> — The best class's shale cutoff must not exceed the moderate class's — equal is allowed, and separates the two on porosity alone.
+    <div class="src">Source: docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based electrofacies tie-in, which writes the middle class as v1 &lt;= Vsh &lt; v2</div></li></ul>
+<h3>PHI1 <span class="src">(v/v)</span></h3>
+<p>PHIE cutoff for RT1 (best)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>VSH2 <span class="src">(v/v)</span></h3>
+<p>Vsh cutoff for RT2 (moderate)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>PHI2 <span class="src">(v/v)</span></h3>
+<p>PHIE cutoff for RT2 (moderate)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li>
+<li><b>Checked before the run:</b> <code>rt_cutoff.phi_ladder_order</code> — The moderate class's porosity floor must not exceed the best class's — equal is allowed, and separates the two on shale volume alone.
+    <div class="src">Source: docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based electrofacies tie-in, which writes the middle class as p2 &lt;= PHIE &lt; p1</div></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>RT_LOG</td><td>Cutoff rock-type class (1/2/3)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

@@ -1,5 +1,35 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Guidebook increment 4: Permeability, Rock Typing, Thin Beds, Lithology (25 of 52)
+
+- [ ] **What this is.** Nine modules: perm_wyllie_rose, perm_coates, perm_transform, midplot,
+      rocktyping, lucia_rfn, pittman_rx, rt_cutoff, thin_bed_ts — cards plus chapters, every run
+      live on the SANDI wells. Citations copied from the modules' own docs, which are unusually
+      rich here: Wyllie & Rose 1950 Trans. AIME 189 with the mislabeled-constants record (TIMUR =
+      Chart K-3, not Timur 1968; TIXIER = a post-1950 simplification), Coates & Denoo 1981 with
+      the C-convention warning, Pittman 1992 AAPG v76 Table 1 with the paper's own two cautions,
+      Amaefule 1993 / Kolodzie 1980 / Corbett-Potter 2004, Jennings & Lucia 2003 SPE 78740,
+      Thomas & Stieber 1975, chartbook Lith-6/Por-11.
+- [ ] **The permeability shelf tells one story with three numbers**: same sands, TIMUR 73 mD,
+      Coates(K-4 C=70) 65 mD, your-own-core transform (OLS on the RCAL delivery, PT_A 17.92 /
+      PT_B −2.203, R² 0.981, n=15) 2.8 mD. The chapters read the spread as the lesson: the model
+      owns the answer, so name it and calibrate it.
+- [ ] **A real gotcha found by running, now taught**: every perm module also writes the generic
+      PERM, so the LAST one run owns that name — the first rock-typing pass silently consumed the
+      Coates estimate and FZI moved 3.8 → 0.8 when the input was corrected to PERM_XFM by name.
+      The rocktyping chapter tells that story on itself; all three rock-typing runs select
+      PERM_XFM explicitly.
+- [ ] **Data-derived picks, stated**: Thomas-Stieber endpoints PHI_SD_MAX 0.27 (the phimax P99
+      pick) and PHI_SH 0.147 (median shale PHIT_DEN); the rt_cutoff starting ladder as sand-
+      population percentiles (VSH P90/P95 = 0.458/0.467, PHIE P50/P25 = 0.148/0.134) with the
+      chapter saying a percentile ladder is a defensible start, not a validated rock type. The
+      midplot refusals are taught (dolomite line 2.85 from the SandiMin library, PHIA_MAX 0.5 from
+      the module's own recorded rationale), and its chapter states plainly that synthetic wells do
+      not ride the vendor chart, so the clusters land off the quartz point on purpose.
+- [ ] **What to check:** ? Help on Wyllie-Rose (is the mislabeled-names note worded the way you
+      would say it to a client?), the rocktyping chapter's self-critical PERM story, and whether
+      Lucia's 49%-classified reading is the right framing.
+
 ## 2026-08-26 — Guidebook increment 3: the Saturation shelf, run live to its honest outcomes (16 of 52)
 
 - [ ] **What this is.** Six saturation methods get the two-tier help — sw_arch, sw_indo, sw_sim,

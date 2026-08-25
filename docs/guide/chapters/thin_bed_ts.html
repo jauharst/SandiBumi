@@ -1,0 +1,39 @@
+<!-- Authored walkthrough for the thin_bed_ts guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: Thomas-Stieber</h2>
+
+<p>Thomas-Stieber places each measured (VSH, PHIT) point inside the mixing triangle
+between clean sand, pure laminated shale and pure dispersed shale, and reads off how
+much of the bulk shale is laminar (reducing net sand) and how much is dispersed
+(sitting inside the sand's pores). Structural shale is deliberately not modeled.</p>
+
+<h3>The two endpoints are field statements</h3>
+
+<ul>
+  <li><b>PHI_SD_MAX 0.27</b> — the clean-sand maximum porosity: the same P99-of-PHIE
+    pick the porosity-ceiling chapter derived from this dataset.</li>
+  <li><b>PHI_SH 0.147</b> — the shale total porosity: the median PHIT_DEN over the
+    samples at GR&nbsp;≥&nbsp;112 gAPI, this dataset's own shale point.</li>
+  <li><b>Inputs</b> — PHIT_DEN and VSH, so the triangle is built from the same
+    porosity family the endpoints were picked from. Mixing porosity provenances here
+    moves points around the triangle for reasons that have nothing to do with
+    shale.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-thinbed-pane.png"
+       alt="The Thomas-Stieber pane with the two endpoint picks entered" />
+  <figcaption>Two endpoints, both from this dataset's own statistics.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>0 clean · 3 degraded</b> — about 120 samples per well clamped
+to [0, 1] (a measured point falling outside the mixing triangle cannot yield a
+fraction beyond it, so the decomposition is held at the triangle's edge) and a
+handful held at the PHI_SD_MAX ceiling. In the transitional interval
+(GR 60–100) the median laminar fraction reads 0.635 — this synthetic section's
+shale transitions read as predominantly laminated, which fits zone-blended logs.
+On real thin-bedded rock, VLAM against a high-resolution image log is the
+validation this decomposition wants before VSAND = 1−VLAM revises any net.</p>
