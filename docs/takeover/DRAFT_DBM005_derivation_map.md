@@ -21,6 +21,35 @@ classes below are PROPOSED — CITED and NAMED GAP are DEC-073's words; UTILITY 
 engineering's proposed refinement, because forcing a depth-shift or a splice into NAMED GAP
 would manufacture gaps no source can ever fill.
 
+## Post-signature amendment — 2026-08-26, three source strings scrubbed of personal-work identifiers
+
+**Three rows were reworded after signature: `ssc`, `sw_rtc`, `sw_imts`.** They are the three the
+legend below used to call out as a class of their own, and they were the only rows in the 52
+carrying an identifier for Jauhar's own work (verified by token sweep over the whole map).
+
+**Why a signed row was touched at all.** This map is not an internal register.
+`modules::METHOD_DERIVATIONS` copies the source string into the run's ancestry at registration,
+and the LAS provenance sidecar embeds the whole ancestry, so **every string here reaches a
+client verbatim**.
+The `ssc` row named a study programme, a study identifier and the source Loglan filename; the two
+LRLC rows named a study title and the two institutions it ran under. Under the standing rule that
+nothing client-bound cites his own work, those cannot travel.
+
+**What did NOT change, deliberately.** No status class moved — each row still traces to the same
+`docs/` method note it always did, which is what CITED means here. No source of record changed.
+And **the attribution itself is not deleted anywhere it belongs**: `docs/method_ssc_sspw.md`,
+`docs/method_lrlc_rtc_imts.md` and the `ssc.rs` / `lrlc.rs` headers keep the full provenance,
+because attribution comes out only when the asset comes out. What changed is which of those two
+audiences the string is written for.
+
+**One thing the rewording had to add rather than only remove.** Dropping "GAP-2023 LQR edit" from
+`ssc` would have left a bare Kuttan et al. citation for a model the shipped code has modified — a
+cleaner-looking string that over-claims. The row now says the shipped form is modified and where
+that is written down.
+
+Engineering-initiated; not carrying a DEC number, and awaiting Jauhar's acknowledgement that the
+signed map now reads this way.
+
 ## Status legend (proposed)
 
 - **CITED** — the method derivation traces to a repo-recorded source (a `docs/` method note, a
@@ -31,8 +60,9 @@ would manufacture gaps no source can ever fill.
   statement is its own derivation; there is no physical method to source. Parameter defaults
   remain individually sourced via the `param_sources` gate.
 - **IN-HOUSE** — SandiBumi's own algorithm whose derivation IS the repo documentation (module
-  doc + method note). Distinct from CITED-to-his-study rows (sw_rtc/sw_imts/ssc), which trace
-  to a named external study document.
+  doc + method note). Distinct from `ssc`/`sw_rtc`/`sw_imts`, which are CITED because each
+  traces to a `docs/` method note of its own — and, for `ssc` and `sw_imts`, to published
+  papers besides.
 - **RETIRED** — kept in the catalog only so saved chains resolve; blocked at `run_module`.
 
 ## The map
@@ -53,7 +83,7 @@ would manufacture gaps no source can ever fill.
 | `phi_dnbk` | Neutron-density (bulk-corrected) | docs/PRD_v2/11_porosity.md; Geolog V14 phi_*.lls family; DEC-025 declared-matrix-basis contract | CITED |
 | `phi_son` | Sonic porosity | Wyllie time-average and Raymer-Hunt-Gardner forms stated in the module doc; Geolog phi_son.info DT_FL 620 µs/m and IP swparameters.htm sonic-fluid 189 (parameter sources); DT_MA < DT_SH validity per DEC-063 | CITED |
 | `phimax` | Porosity ceiling | docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters; Athy exponential trend named in the module doc | CITED |
-| `ssc` | Sand-Silt-Clay (Kuttan) | docs/method_ssc_sspw.md — Kuttan Malay Basin model, GAP-2023 LQR edit, port of `ssc_lqr_gap_edit_jau.lls` | CITED |
+| `ssc` | Sand-Silt-Clay (Kuttan) | docs/method_ssc_sspw.md — Sand-Silt-Clay on the N-D crossplot, after Kuttan et al., *Log Interpretation in the Malay Basin*, 21st SPWLA symposium; the shipped form carries SandiBumi modifications (gas conditioning, silt and dry-clay endpoint treatment) stated in the method note | CITED |
 | `sspw` | Sandstone workflow (quartz-shale-water) | docs/method_ssc_sspw.md (SSPW reconstructed from spec). Validation against the reference-suite LAS exports is still outstanding — a validation gap, not a derivation gap; open question 3 | CITED |
 
 ### Prep / QC / corrections
@@ -98,8 +128,8 @@ saturation model ships without its paper. Quoted verbatim from that table.
 | `sw_arch` | Archie | Archie 1942 Trans. AIME 146:54–62 (Geolog sw_arch.info References block; docs/PRD_v2/12_saturation.md:470) | CITED |
 | `sw_indo` | Indonesia | Poupon & Leveaux 1971 SPWLA 12th Paper O (Geolog sw_indo.info References block; docs/PRD_v2/12_saturation.md:472); Worthington type 4 per Geolog | CITED |
 | `sw_sim` | Simandoux (both branches) | Simandoux 1963 Revue de l'IFP (SPWLA 'Shaly Sand' Reprint Volume 1982 translation); Bardon & Pied 1969 SPWLA 10th Paper Z (Geolog sw_sim.info References block; docs/PRD_v2/12_saturation.md:470–471, :158); bisection substitution ruled in DEC-065 | CITED |
-| `sw_rtc` | RtC (LRLC) | SandiBumi LRLC research, 'Study of LRLC caused by High Clay Volume and Microporosity in Pertamina Fields' (PHE UI + LAPI ITB); docs/method_lrlc_rtc_imts.md RtC sections; lrlc.rs:1–13 | CITED |
-| `sw_imts` | IMTS (LRLC) | Same study; docs/method_lrlc_rtc_imts.md IMTS sections; Waxman & Smits 1968 SPEJ, Waxman & Thomas 1974 SPEJ, Juhasz 1979 SPWLA 20th Paper AA and 1981 SPWLA 22nd (docs/PRD_v2/12_saturation.md:473) | CITED |
+| `sw_rtc` | RtC (LRLC) | SandiBumi RtC excess-conductivity correction for low-resistivity low-contrast pay (clay-chemistry Qv path + capillary-bound-water path); docs/method_lrlc_rtc_imts.md RtC sections; lrlc.rs:1–13 | CITED |
+| `sw_imts` | IMTS (LRLC) | SandiBumi IMTS mineral-textural scaling of the Waxman-Smits family; docs/method_lrlc_rtc_imts.md IMTS sections; Waxman & Smits 1968 SPEJ, Waxman & Thomas 1974 SPEJ, Juhasz 1979 SPWLA 20th Paper AA and 1981 SPWLA 22nd (docs/PRD_v2/12_saturation.md:473) | CITED |
 | `multimin` | Multimin (retired) | multimin.rs:1–14 — superseded by SandiMin (`multimin2`, whose physics traces to docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); spec kept only so saved chains resolve; execution blocked at `run_module` | RETIRED |
 | `sw_height` | Saturation-height | docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett and Skelt-Harrison parameters; satheight.rs (scal_pc + Leverett-J fit + sw_height) | CITED |
 
