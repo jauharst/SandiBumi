@@ -1,0 +1,143 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Neutron Matrix Conversion — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Neutron Matrix Conversion</h1>
+<p class="modmeta">Module id <code>nphimat</code> · category <b>Prep</b></p>
+<p>Converts a neutron log recorded in one matrix convention into all three (limestone, sandstone, dolomite) using the chartbook porosity-equivalence curves - Por-5 for the CNL thermal tools, Por-4 for the epithermal APS and the sidewall SNP. Limestone units are the chart's apparent-limestone axis, on which calcite is the identity.</p>
+<pre class="equations">φa = the input matrix curve inverted back to the apparent-limestone axis
+NPHI_LS = φa;  NPHI_SS = C_SS(φa);  NPHI_DOL = C_DOL(φa)
+where C_SS and C_DOL are the chart's matrix curves; the input convention passes through unchanged</pre>
+<h2>References</h2>
+<ul><li>Schlumberger Log Interpretation Charts - Por-5 (CNL thermal neutron) and Por-4 (APS epithermal and SNP), the porosity-equivalence curve families</li></ul>
+<p class="note">Apply environmental corrections first - the charts assume corrected logs. SALINITY = INTERPOLATE evaluates the fresh and 250-kppm charts completely and interpolates the finished answers (TNPH family only).</p>
+<!-- Authored walkthrough for the nphimat guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: one neutron log, three matrix conventions</h2>
+
+<p>Neutron Matrix Conversion takes a neutron log recorded in one matrix
+convention and writes all three — NPHI_LS, NPHI_SS, NPHI_DOL — through the
+chartbook porosity-equivalence curves: Por-5 for the CNL thermal family, Por-4
+for the epithermal APS and the sidewall SNP. Limestone units are the chart's
+own apparent-limestone axis, on which calcite is the identity; any other input
+convention is first inverted back onto that axis, then read out along each
+matrix curve.</p>
+
+<h3>The picks</h3>
+
+<p><b>TNPH chart family, FRESH salinity, LS input</b> — the dataset's CNL-style
+neutron is recorded in limestone units. Apply environmental corrections before
+converting on a real study: the charts assume corrected logs. SALINITY =
+INTERPOLATE exists for the TNPH family only, evaluating the fresh and 250-kppm
+charts completely and interpolating the finished answers.</p>
+
+<figure>
+  <img src="../img/guide-nphimat-pane.png"
+       alt="The Neutron Matrix Conversion pane, TNPH / FRESH / LS" />
+  <figcaption>The input convention passes through unchanged; the other two are
+    chart reads.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, 1164 samples out. The number worth staring
+at: the median <b>NPHI_SS − NPHI_LS offset is +0.0456</b> — four and a half
+porosity units, purely from the matrix convention. That is almost exactly the
+~0.04 offset the conditioning-flags documentation warns about: a limestone-unit
+neutron judged against a sandstone matrix density reads about 4&nbsp;pu low in
+clean water sand, right at the gas-crossover threshold. Convert the neutron
+first; then a crossover means gas, not bookkeeping.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Converts a neutron porosity log recorded in one matrix convention into all three (NPHI_LS / NPHI_SS / NPHI_DOL), using the chartbook porosity-equivalence curves: Por-5 for the CNL thermal tools (NPHI ratio method; TNPH environmentally corrected, with 0 and 250,000 ppm salinity variants) and Por-4 for the epithermal tools — APLC and FPLC (APS) plus the legacy sidewall SNP. Limestone units ARE apparent limestone porosity — the chart's x-axis, on which calcite is the identity — so an SS or DOL input is first inverted back to that axis, then read out along each matrix curve; the input convention passes through unchanged. Feed the output whose matrix matches your RHO_MA into density-neutron work (NPHI_SS with RHO_MA 2.65) — that removes the limestone-vs-sandstone convention offset before a sourced XOVER_MIN is applied. SALINITY picks the TNPH curve pair only; the other tools have a single chart curve. SALINITY = INTERPOLATE (SB-POR-025) evaluates the fresh and the 250-kppm chart COMPLETELY and interpolates the finished answers linearly on the declared RHO_FL, per Geolog's phi_dn two-call structure — TNPH only, since only that family carries both digitized curves. Apply environmental corrections (nphi_env_corr) before converting — the charts assume corrected logs. The limestone axis and dolomite curves are digitized to about -0.02..0.40; the sandstone curves leave the chart top at 40 pu true porosity (~0.32-0.36 apparent limestone), and beyond the data every curve is extended linearly on its end segment. Note NPHI_LS is also a common raw-log mnemonic: after a run, by-name lookups resolve the computed version first (the raw log keeps its provenance in the Curve Catalog).</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>NPHI</td><td>Neutron porosity log (v/v, in MATRIX_IN units)</td><td><code>NPHI</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHO_FL <span class="src">(g/cc)</span></h3>
+<p>Borehole fluid density resolving the fresh/salt two-call interpolation (INTERPOLATE only)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.8 to 1.3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>fluid_density</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Checked before the run:</b> <code>rho_fl.required_when_interpolate</code> — RHO_FL is required when SALINITY = INTERPOLATE. Applies when: [object Object].
+    <div class="src">Source: Geolog V14 phi_dn.lls SCH_TNPH branch: phix = ((RHO_FL-1000)*(phit_2-phit_1)/190)+phit_1 - the input is the well's own fluid density and Geolog ships no default; docs/PRD_v2/11_porosity.md SB-POR-025 + F13</div></li></ul>
+<h2>Options</h2>
+<h3>TOOL</h3>
+<p>Neutron measurement the log comes from (TNPH/NPHI: CNL thermal, Por-5; APLC/FPLC: APS epithermal and SNP: sidewall neutron, Por-4)</p>
+<ul><li><b>Choices:</b><ul><li><code>TNPH</code></li>
+<li><code>NPHI</code></li>
+<li><code>APLC</code></li>
+<li><code>FPLC</code></li>
+<li><code>SNP</code></li></ul></li>
+<li><b>Default:</b> <code>TNPH</code></li></ul>
+<h3>SALINITY</h3>
+<p>Formation salinity (TNPH curves only; SALT_250K = 250,000 ppm; INTERPOLATE = evaluate fresh and salt and interpolate on RHO_FL)</p>
+<ul><li><b>Choices:</b><ul><li><code>FRESH</code></li>
+<li><code>SALT_250K</code></li>
+<li><code>INTERPOLATE</code></li></ul></li>
+<li><b>Default:</b> <code>FRESH</code></li></ul>
+<h3>MATRIX_IN</h3>
+<p>Matrix convention the input log is recorded in</p>
+<ul><li><b>Choices:</b><ul><li><code>LS</code></li>
+<li><code>SS</code></li>
+<li><code>DOL</code></li></ul></li>
+<li><b>Default:</b> <code>LS</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>NPHI_LS</td><td>Neutron porosity, limestone units (apparent limestone)</td></tr>
+<tr><td>NPHI_SS</td><td>Neutron porosity, quartz sandstone units</td></tr>
+<tr><td>NPHI_DOL</td><td>Neutron porosity, dolomite units</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!-- Authored walkthrough for the gascorr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: taking the gas out of the density log</h2>
+
+<p>Gas makes the density log read light, which makes density porosity read high.
+This module removes the effect by iteration: solve porosity and Archie water
+saturation from the current density, replace the gas volume with liquid
+(RHOB_GC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;PHIT·(1−SWT)·(RHO_FL−GASDEN)), and repeat
+until porosity settles. The gas density itself is a real-gas calculation —
+Standing pseudo-criticals with a Papay z-factor — at the formation pressure and
+temperature the precalc step wrote.</p>
+
+<h3>The picks, each with its defence</h3>
+
+<ul>
+  <li><b>SG_GAS 0.65</b> — the module's own worked-example gas gravity (the
+    value its Standing/Papay check numbers are computed at).</li>
+  <li><b>a=1, m=n=2</b> — the reference-case Archie convention, as the
+    saturation shelf runs.</li>
+  <li><b>RW 0.127&nbsp;ohmm</b> — the RtC fit's water-zone Rw on total
+    porosity, derived in the saturation increment.</li>
+  <li><b>OPT_GATE FLAGGED</b> on condflag's XOVER_FLAG — the default, and the
+    safe one: EVERYWHERE lets high-resistivity low-density beds (coal, resistive
+    washouts) masquerade as gas and collect large spurious corrections.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-gascorr-pane.png"
+       alt="The Gas Correction pane with the Archie and gas-gravity entries" />
+  <figcaption>FTEMP, FPRESS and the crossover flag arrive from the precalc and
+    condflag steps.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. Exactly <b>265 samples were corrected — the
+XOVER_FLAG count to the sample</b>, which is the FLAGGED gate doing its job.
+GASDEN converged at ~0.102&nbsp;g/cc, and the largest single restoration put
+<b>+0.139&nbsp;g/cc</b> back onto the bulk density. Feed RHOB_GC to density
+porosity — not to a density-neutron combination, whose own gas handling assumes
+an uncorrected pair.</p>

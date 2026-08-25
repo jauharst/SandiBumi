@@ -1,0 +1,123 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Synthetic Log (KNN Predict) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Synthetic Log (KNN Predict)</h1>
+<p class="modmeta">Module id <code>log_predict</code> · category <b>Prep</b></p>
+<p>Synthetic log by distance-weighted K-nearest-neighbour regression: trains on this run's samples where the target and every predictor are present, then predicts the target wherever the predictors exist. Predictors are z-scored so no one curve's units dominate the distance.</p>
+<pre class="equations">prediction = Σ wi·yi / Σ wi over the K nearest training samples
+wi = 1/(di + 1e-6), di = Euclidean distance in z-scored predictor space
+MAX_RAW: OUT = max(raw, synthetic)  - the washout rule for RHOB, since bad hole only pushes RHOB down</pre>
+<!-- Authored walkthrough for the log_predict guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: a synthetic log by nearest neighbours</h2>
+
+<p>Synthetic Log trains on this run's own samples — wherever the target and
+every predictor are present — and predicts the target everywhere the predictors
+exist, by distance-weighted K-nearest-neighbour regression in z-scored predictor
+space. No model file, no training session: the well is its own training set.</p>
+
+<h3>The picks</h3>
+
+<ul>
+  <li><b>Target RHOB from GR / NPHI / DT, K&nbsp;10</b> — the shipped
+    defaults.</li>
+  <li><b>OPT_COMBINE MAX_RAW</b> — the washout rule: bad hole only pushes RHOB
+    <i>down</i>, so taking max(raw, synthetic) repairs washed-out density while
+    leaving every good sample exactly as logged.</li>
+  <li><b>Mask BADHOLE</b> — the rule the pane documentation states: washed-out
+    samples must never <i>train</i> the model, or the synthetic learns the
+    washout it exists to repair.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-logpredict-pane.png"
+       alt="The Synthetic Log pane, RHOB from GR/NPHI/DT with MAX_RAW" />
+  <figcaption>Masked on BADHOLE so the training set is good hole only.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, and MAX_RAW raised <b>567 samples</b> above
+the delivered density — the washout intervals, where the logged RHOB is
+mud-biased low and the synthetic (trained on good hole) reads the rock instead.
+RHOB_SYN beside RHOB in a track shows the repair exactly where the caliper
+says it should be, and nowhere else.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Facimage-style synthetic log: trains on the samples of THIS run where TARGET and every supplied predictor are present, then predicts TARGET everywhere the predictors exist by distance-weighted K-nearest-neighbour regression (predictors z-scored; training set decimated to ≤4000 points). OPT_COMBINE: SYNTHETIC writes the pure prediction; FILL_MISSING keeps the raw value where present; MAX_RAW takes max(raw, synthetic) — the washout rule for RHOB, since bad hole only pushes RHOB down. Output is named &lt;TARGET&gt;_SYN. Mask the run to good-hole intervals so bad samples never train the model.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>TARGET</td><td>Curve to predict</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>P1</td><td>Predictor 1</td><td><code>GR</code></td><td>yes</td><td>—</td></tr>
+<tr><td>P2</td><td>Predictor 2 (optional)</td><td><code>NPHI</code></td><td>no</td><td>—</td></tr>
+<tr><td>P3</td><td>Predictor 3 (optional)</td><td><code>DT</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>K</h3>
+<p>Number of neighbours</p>
+<ul><li><b>Default:</b> 10 <span class="src">— source: Geolog V14 facimage_05_using_hc.5.05.html Nearest Neighbors Default 10; docs/PRD_v2/24_ml-advanced.md §5</span></li>
+<li><b>Accepted range:</b> 1 to 50</li></ul>
+<h2>Options</h2>
+<h3>OPT_COMBINE</h3>
+<p>How to combine with the raw curve</p>
+<ul><li><b>Choices:</b><ul><li><code>SYNTHETIC</code></li>
+<li><code>FILL_MISSING</code></li>
+<li><code>MAX_RAW</code></li></ul></li>
+<li><b>Default:</b> <code>SYNTHETIC</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>SYN</td><td>Synthetic curve</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

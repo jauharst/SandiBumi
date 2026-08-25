@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flip Polarity — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Condition</div>
+<h1>Flip Polarity</h1>
+<p class="modmeta">Module id <code>flip</code> · category <b>Condition</b></p>
+<p>Mirrors a curve about a pivot - for an SP recorded with the wrong sign convention, or any reading delivered inverted.</p>
+<pre class="equations">OUT = 2·pivot − CURVE
+pivot: a given VALUE, or this well's own MIDRANGE or MEAN</pre>
+<!-- Authored walkthrough for the flip guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: flipping a curve about a pivot</h2>
+
+<p>Flip mirrors a curve: OUT&nbsp;=&nbsp;2·pivot&nbsp;−&nbsp;CURVE. The use
+case is an SP delivered with the wrong sign convention, or any reading that
+arrived inverted. The whole decision is the pivot.</p>
+
+<h3>The picks</h3>
+
+<p><b>VALUE, pivot −19&nbsp;mV</b> — the P95 of the three wells' pooled SP,
+read from the data as the shale baseline (P95 rather than the single maximum,
+so one stray sample cannot set the reference). VALUE is the only reproducible
+choice: MIDRANGE and MEAN are computed <i>per well</i>, so the same run gives
+each well a different pivot and two wells' flipped curves are no longer on a
+common scale — fine for a quick look, never for anything feeding a
+correlation. The run records whichever pivot it used in the companion curve,
+so even the per-well modes stay recoverable.</p>
+
+<figure>
+  <img src="../img/guide-flip-pane.png"
+       alt="The Flip Polarity pane, VALUE pivot at the shale baseline" />
+  <figcaption>One physical pivot for every well.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b> — and the mirror is exact: checked sample by
+sample against 2·(−19)&nbsp;−&nbsp;SP, <b>zero mismatches</b> across all 1185
+samples. The sand deflections that read −75&nbsp;mV now read +37 on the other
+side of the baseline; shale stays at the pivot.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Mirrors a curve about a pivot: OUT = 2 x pivot - CURVE. For an SP recorded with the wrong sign convention, or any reading delivered inverted.
+
+PIVOT_FROM:
+• VALUE — mirror about PIVOT, a number you give. The only reproducible choice, and the one to use when the pivot is a physical reference (an SP shale baseline).
+• MIDRANGE — mirror about (min + max) / 2 of this well's own curve.
+• MEAN — mirror about this well's own mean.
+
+MIDRANGE and MEAN are computed PER WELL, so the same run gives each well a different pivot and two wells' flipped curves are no longer on a common scale. That is often what is wanted for a quick look and is almost never what should go into a correlation — the run leaves the pivot it used in the flag curve so it is at least recoverable.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to flip</td><td><code>SP</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>PIVOT</h3>
+<p>Value to mirror about (PIVOT_FROM = VALUE)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1000000000 to 1000000000</li></ul>
+<h2>Options</h2>
+<h3>OPT_PIVOT</h3>
+<p>Where the mirror line sits</p>
+<ul><li><b>Choices:</b><ul><li><code>VALUE</code> — mirror about PIVOT</li>
+<li><code>MIDRANGE</code> — about (min + max) / 2 of this well's curve</li>
+<li><code>MEAN</code> — about this well's own mean</li></ul></li>
+<li><b>Default:</b> <code>VALUE</code></li></ul>
+<h3>OPT_FLAG</h3>
+<p>Write a curve carrying the pivot actually used</p>
+<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
+<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<li><b>Default:</b> <code>YES</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>
+<tr><td>OUT_FLAG</td><td>Pivot actually used</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

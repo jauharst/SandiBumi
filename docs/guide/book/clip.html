@@ -1,0 +1,136 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Clip — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Condition</div>
+<h1>Clip</h1>
+<p class="modmeta">Module id <code>clip</code> · category <b>Condition</b></p>
+<p>Holds a curve inside a declared range. An empty bound is a statement that the curve is unbounded on that side, not an omission.</p>
+<pre class="equations">BLANK: x outside [MIN, MAX] → MISSING
+CLAMP: x → min(max(x, MIN), MAX)</pre>
+<!-- Authored walkthrough for the clip guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: holding a curve inside a range</h2>
+
+<p>Clip holds a curve inside a declared range, with two very different actions.
+<b>BLANK</b> — the default — turns an out-of-range sample MISSING: the right
+answer when the range is a validity check, because a resistivity of 10⁶ is not
+a very resistive rock, it is a reading the tool could not make, and pinning it
+to the bound would leave a real-looking number where there is no measurement.
+<b>CLAMP</b> pulls the sample to the bound, defensible only for a small
+arithmetic overshoot of a known physical limit. An empty bound is a statement
+that the curve is unbounded on that side, not an omission.</p>
+
+<h3>Two runs, two lessons</h3>
+
+<p>At the physical bound <b>[0, 120]&nbsp;gAPI</b> this delivery blanked
+<b>nothing</b> — pooled GR tops out at 115.6, and a validity screen that finds
+nothing to do says 3 clean and changes nothing, which is itself the answer.</p>
+
+<p>So the shipping run is an explicitly labelled <b>machinery demonstration</b>:
+[0,&nbsp;110] — a bound deliberately below the pooled P97 of 112, chosen to
+blank the top shale readings so the Fill Gaps chapter has real gaps to work
+with. The run's reference field says exactly that; on a real study you never
+blank legitimate readings.</p>
+
+<figure>
+  <img src="../img/guide-clip-pane.png"
+       alt="The Clip pane with the demonstration bound and BLANK action" />
+  <figcaption>BLANK, with the flag and original-values companions on.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, with <b>184 samples blanked</b> into GR_CLP —
+the shale peaks above 110. The out-of-range flag marks each one and GR_CLP_ORIG
+keeps every original value, so even a demonstration is fully reversible.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Holds a curve inside a range. MIN and MAX are in the curve's own units and either may be left EMPTY, which is a statement that the curve is unbounded on that side rather than an omission.
+
+ACTION:
+• BLANK — a sample outside the range becomes MISSING. The right answer when the range is a validity check: a resistivity of 1e6 is not a very resistive rock, it is a reading the tool could not make, and pinning it to the bound would leave a real number where there is no measurement.
+• CLAMP — a sample outside the range is pulled to the bound. Only defensible when the excursion is a small arithmetic overshoot of a known physical limit, the way PHIE is floored at 0.001 rather than blanked.
+
+BLANK is the default because it is the one that cannot manufacture a measurement.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to clip</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>MIN</h3>
+<p>Lowest honest value — blank for no lower bound</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1000000000 to 1000000000</li></ul>
+<h3>MAX</h3>
+<p>Highest honest value — blank for no upper bound</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1000000000 to 1000000000</li></ul>
+<h2>Options</h2>
+<h3>OPT_ACTION</h3>
+<p>What happens to a sample outside the range</p>
+<ul><li><b>Choices:</b><ul><li><code>BLANK</code> — outside the range becomes MISSING</li>
+<li><code>CLAMP</code> — outside the range is pulled to the bound</li></ul></li>
+<li><b>Default:</b> <code>BLANK</code></li></ul>
+<h3>OPT_FLAG</h3>
+<p>Write a flag curve marking every sample outside the range</p>
+<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
+<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<li><b>Default:</b> <code>YES</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>
+<tr><td>OUT_FLAG</td><td>Out-of-range flag <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>OUT_ORIG</td><td>Original values at every changed sample</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

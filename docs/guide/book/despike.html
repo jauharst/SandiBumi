@@ -1,0 +1,165 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Despike — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Condition</div>
+<h1>Despike</h1>
+<p class="modmeta">Module id <code>despike</code> · category <b>Condition</b></p>
+<p>Replaces samples that stand off their neighbours with the local median, over a window stated as a thickness of rock rather than a sample count. Four tests are offered, from the robust Hampel deviation test to a simple rate-of-change limit.</p>
+<pre class="equations">HAMPEL: replace where |x − median| &gt; K·(c·MAD), c the Gaussian consistency constant  [zero-MAD windows fall back to the mean deviation]
+ABS: replace where |x − median| &gt; THRESH
+MEDIAN: every sample → window median (no test)
+RATE: replace where the change from the previous live sample exceeds MAX_RATE per depth unit</pre>
+<!-- Authored walkthrough for the despike guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: taking the spikes out — and only the spikes</h2>
+
+<p>Despike replaces samples that stand off their neighbours with the local
+median, over a window stated as a <i>thickness of rock</i> rather than a sample
+count, so the same window means the same thing at any sampling. Four methods:
+the robust HAMPEL deviation test (the default), a plain ABS threshold, an
+unconditional MEDIAN, and a RATE limit that catches steps a median window
+misses.</p>
+
+<h3>First, the refusal</h3>
+
+<p>Run it with no window and the module refuses, verbatim:</p>
+
+<blockquote><i>"WINDOW must be set — Filter window (thickness, centred)"</i></blockquote>
+
+<p>WINDOW has no default on purpose: what counts as a spike is a property of
+the tool, the sampling and the rock, and no one number is right in two
+basins.</p>
+
+<h3>The picks</h3>
+
+<p><b>HAMPEL, K&nbsp;3</b> (shipped) and <b>WINDOW 1&nbsp;m</b> — about 6.6
+samples at this dataset's 0.1524&nbsp;m step, above the five-sample floor the
+Hampel test needs, and narrower than the thinnest bed worth keeping. That last
+clause is the whole discipline: a bed no thicker than the window is
+indistinguishable from a spike, and will be flattened as one.</p>
+
+<figure>
+  <img src="../img/guide-despike-pane.png"
+       alt="The Despike pane, Hampel with a 1 m window" />
+  <figcaption>The replaced-sample flag and original-values curves ride along, so
+    nothing is lost.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, with <b>61 samples replaced</b> out of 1185
+— the flag curve GR_C_SPK says exactly which, and GR_C_ORIG keeps every
+original value. One K reads the same on GR, RHOB, NPHI and RT because the
+deviation is scaled by the Gaussian consistency constant × MAD — a mathematical
+estimator constant, not a calibration.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Replaces samples that stand off their neighbours with the local median. WINDOW is a THICKNESS, not a sample count, so it means the same amount of rock whatever the sampling.
+
+**Set WINDOW narrower than the thinnest bed you intend to keep.** A spike is a tool artefact and a thin bed is rock; the only thing separating them here is thickness against the window, so a bed no thicker than the window is indistinguishable from a spike and will be flattened. Even a bed comfortably wider than the window loses its top and bottom sample to the shoulder, where the window straddles the contact.
+
+METHOD:
+• HAMPEL — replace when the sample is more than K robust deviations from the window median (the deviation is the cited Gaussian consistency constant x MAD, so one K reads the same on GR, RHOB, NPHI and RT). Needs a WINDOW covering at least five samples, and the run refuses a narrower one: below that the spread being measured against is set by the very sample under test. Where more than half the window is identical — a quiet interval, a coarsely quantized curve, a tool on its rail — the MAD is zero and the mean deviation is used instead, so a lone spike in flat rock is still found.
+• ABS — replace when it is more than THRESH away, in the curve's own units.
+• MEDIAN — replace every sample with the window median, no test. Changes samples that were fine, which is why the flag curve is near-useless for this method.
+• RATE — replace when the change from the previous live sample exceeds MAX_RATE per depth unit. Catches the step (a stuck tool, a bad splice) that a median window can miss when several bad samples sit together.
+
+WINDOW has no default: what counts as a spike is a property of the tool, the sampling and the rock, and no one number is right in two basins.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to despike</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>WINDOW <span class="src">(depth)</span></h3>
+<p>Filter window (thickness, centred)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1000 depth</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>conditioning_window</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>K</h3>
+<p>HAMPEL: deviations from the median before a sample is a spike</p>
+<ul><li><b>Default:</b> 3 <span class="src">— source: Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0.5 to 20</li></ul>
+<h3>THRESH</h3>
+<p>ABS: distance from the median, in the curve's units</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1000000000</li>
+<li><b>Checked before the run:</b> <code>thresh.required_when_abs</code> — THRESH is required when OPT_METHOD = ABS. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 conditioning parameters</div></li></ul>
+<h3>MAX_RATE</h3>
+<p>RATE: largest honest change per depth unit</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1000000000</li>
+<li><b>Checked before the run:</b> <code>max_rate.required_when_rate</code> — MAX_RATE is required when OPT_METHOD = RATE. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 conditioning parameters</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_METHOD</h3>
+<p>How a spike is told from rock</p>
+<ul><li><b>Choices:</b><ul><li><code>HAMPEL</code> — off its neighbours vs the curve's own noise (K x MAD)</li>
+<li><code>ABS</code> — off the local median by more than THRESH</li>
+<li><code>MEDIAN</code> — plain median filter, every sample replaced</li>
+<li><code>RATE</code> — change per depth unit above MAX_RATE</li></ul></li>
+<li><b>Default:</b> <code>HAMPEL</code></li></ul>
+<h3>OPT_FLAG</h3>
+<p>Write a flag curve marking every replaced sample</p>
+<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
+<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<li><b>Default:</b> <code>YES</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>
+<tr><td>OUT_FLAG</td><td>Replaced-sample flag <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>OUT_ORIG</td><td>Original values at every changed sample</td></tr>
+<tr><td>OUT_FBSCALE</td><td>Hampel scale diagnostic: 1 = judged on the mean-deviation fallback scale (zero-MAD window), 0 = judged on the true MAD, MISSING where no judgement was made <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

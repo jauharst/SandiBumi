@@ -1,0 +1,179 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Normalize — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Condition</div>
+<h1>Normalize</h1>
+<p class="modmeta">Module id <code>normalize</code> · category <b>Condition</b></p>
+<p>Maps any curve onto a common reference frame so wells can be compared and pooled: a two-point percentile map, a min-max range map, or a z-score to a reference mean and spread, optionally in log10 space.</p>
+<pre class="equations">TWO_POINT: OUT = (x − P_LOW)·(REF_HIGH − REF_LOW)/(P_HIGH − P_LOW) + REF_LOW
+RANGE: the same map from the curve's own MIN and MAX
+MEAN_SD: OUT = (x − mean)/sd·REF_SD + REF_MEAN
+SPACE = LOG: mapped in log10 and inverted afterwards; non-positive samples become MISSING</pre>
+<!-- Authored walkthrough for the normalize guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: normalizing onto a field reference</h2>
+
+<p>Normalize maps any curve onto a common reference frame so wells can be
+compared and pooled: TWO_POINT (the workhorse — this run's P_LOW/P_HIGH
+percentiles mapped linearly onto a reference pair), RANGE (the same map from
+min/max — reproducible and spike-sensitive, for curves already despiked), or
+MEAN_SD (a z-score onto a reference mean and spread, when the distribution's
+shape matters more than its ends). SPACE&nbsp;=&nbsp;LOG works in log10 — the
+honest frame for a resistivity or permeability.</p>
+
+<h3>First, the refusal</h3>
+
+<p>Run TWO_POINT without a reference pair and every well refuses, verbatim:</p>
+
+<blockquote><i>"REF_LOW and REF_HIGH must both be set — the reference pair IS
+the normalization, and there is no value that is right in two fields. Take it
+from this field's own multi-well distribution, or from a reference well, and
+use the same pair for every well."</i></blockquote>
+
+<p>That refusal is the module's whole philosophy: normalized output looks
+plausible whatever pair you use, and nothing downstream can catch a wrong one —
+so the pair ships absent and the run stops until you own the choice.</p>
+
+<h3>The picks</h3>
+
+<p><b>TWO_POINT, P3/P97, reference pair 43&nbsp;/&nbsp;112&nbsp;gAPI</b> — the
+P3 and P97 of the three wells' pooled GR (43.18 / 112.37, computed from the
+delivery itself), rounded to integers as the field convention. Derived from
+this field's own distribution; the same pair for every well in the study.</p>
+
+<figure>
+  <img src="../img/guide-normalize-pane.png"
+       alt="The Normalize pane, TWO_POINT with the derived field pair" />
+  <figcaption>The reference pair is entered, never defaulted.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b> — and the map closes on itself: the pooled
+GR_N comes back with <b>P3&nbsp;=&nbsp;43.0 and P97&nbsp;=&nbsp;112.0
+exactly</b>. That coincidence-by-construction is also the QC for a real
+multi-well study: overlay the normalized histograms, and every well's P_LOW and
+P_HIGH should land on the reference pair.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Maps a curve onto a common reference frame so wells can be compared and pooled. Works on ANY curve — the arithmetic is not specific to gamma ray.
+
+METHOD:
+• TWO_POINT — the workhorse. Reads this run's P_LOW and P_HIGH of the curve and maps them linearly onto REF_LOW and REF_HIGH. Percentiles rather than min/max because a single spike sets a min or a max, and one bad sample would then re-scale the whole well.
+• RANGE — the same map from the curve's own MIN and MAX. Reproducible, and spike-sensitive by construction: use it on a curve you have already despiked.
+• MEAN_SD — z-score to REF_MEAN and REF_SD. The right choice when the distribution matters more than its ends (feeding a classifier, comparing shapes).
+
+SPACE: LOG works in log10 and inverts afterwards, which is the honest frame for a resistivity or a permeability — those are read on a log scale, and a linear map stretches the bottom decade out of all proportion to the top. Non-positive samples have no logarithm and become MISSING, and the run says how many.
+
+THE REFERENCE PAIR HAS NO DEFAULT, and that is the point of the module. A pair from one basin is the wrong pair in another; normalized output looks entirely plausible either way, and nothing downstream can catch it. Derive yours from the field's own multi-well distribution or from a reference well everyone agrees on, then use the SAME pair for every well in the study. QC by overlaying the normalized histograms — every well's P_LOW and P_HIGH should coincide.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to normalize</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>P_LOW <span class="src">(%)</span></h3>
+<p>TWO_POINT: low percentile</p>
+<ul><li><b>Default:</b> 3 <span class="src">— source: docs/workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3</span></li>
+<li><b>Accepted range:</b> 0 to 50 %</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>percentile_reference_low</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>P_HIGH <span class="src">(%)</span></h3>
+<p>TWO_POINT: high percentile</p>
+<ul><li><b>Default:</b> 97 <span class="src">— source: docs/workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3</span></li>
+<li><b>Accepted range:</b> 50 to 100 %</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>percentile_reference_high</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>REF_LOW</h3>
+<p>TWO_POINT / RANGE: reference value at the low end</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1000000000 to 1000000000</li>
+<li><b>Checked before the run:</b> <code>ref_low.required_when_two_point</code> — REF_LOW is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li>
+<li><b>Checked before the run:</b> <code>ref_low.required_when_range</code> — REF_LOW is required when OPT_METHOD = RANGE. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<h3>REF_HIGH</h3>
+<p>TWO_POINT / RANGE: reference value at the high end</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1000000000 to 1000000000</li>
+<li><b>Checked before the run:</b> <code>ref_high.required_when_two_point</code> — REF_HIGH is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li>
+<li><b>Checked before the run:</b> <code>ref_high.required_when_range</code> — REF_HIGH is required when OPT_METHOD = RANGE. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<h3>REF_MEAN</h3>
+<p>MEAN_SD: reference mean</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -1000000000 to 1000000000</li>
+<li><b>Checked before the run:</b> <code>ref_mean.required_when_mean_sd</code> — REF_MEAN is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<h3>REF_SD</h3>
+<p>MEAN_SD: reference standard deviation</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1e-9 to 1000000000</li>
+<li><b>Checked before the run:</b> <code>ref_sd.required_when_mean_sd</code> — REF_SD is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_METHOD</h3>
+<p>How the curve is mapped</p>
+<ul><li><b>Choices:</b><ul><li><code>TWO_POINT</code> — percentiles onto a reference pair</li>
+<li><code>RANGE</code> — min and max onto a reference pair</li>
+<li><code>MEAN_SD</code> — z-score onto a reference mean and spread</li></ul></li>
+<li><b>Default:</b> <code>TWO_POINT</code></li></ul>
+<h3>OPT_SPACE</h3>
+<p>Linear or logarithmic</p>
+<ul><li><b>Choices:</b><ul><li><code>LINEAR</code> — for GR, NPHI, RHOB, DT, a volume fraction</li>
+<li><code>LOG</code> — for RT, PERM, anything read on a log scale</li></ul></li>
+<li><b>Default:</b> <code>LINEAR</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Normalized curve</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

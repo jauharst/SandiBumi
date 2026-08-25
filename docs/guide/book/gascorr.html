@@ -1,0 +1,192 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gas Correction (density, iterated) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Gas Correction (density, iterated)</h1>
+<p class="modmeta">Module id <code>gascorr</code> · category <b>Prep</b></p>
+<p>Removes the gas effect from the density log by an iterated density-neutron loop: porosity and Archie water saturation are solved from the current density, the gas volume is replaced with liquid, and the loop repeats until porosity settles. Gas density comes from a real-gas calculation at formation pressure and temperature.</p>
+<pre class="equations">RHOB_GC = RHOB + PHIT·(1 − SWT)·(RHO_FL − GASDEN)
+iterated until |ΔPHIT| &lt; 1e-4 (max 20 passes; non-converging samples stay MISSING)
+GASDEN: real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criticals, Papay z-factor)</pre>
+<h2>References</h2>
+<ul><li>Standing - natural-gas pseudo-critical correlations</li>
+<li>Papay (1968) - z-factor correlation</li></ul>
+<p class="note">Correlation names as this project's method record holds them; the full primary citations are pending verification. Feed RHOB_GC to density porosity - not to a density-neutron combination, whose gas handling assumes an uncorrected pair.</p>
+<!-- Authored walkthrough for the gascorr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: taking the gas out of the density log</h2>
+
+<p>Gas makes the density log read light, which makes density porosity read high.
+This module removes the effect by iteration: solve porosity and Archie water
+saturation from the current density, replace the gas volume with liquid
+(RHOB_GC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;PHIT·(1−SWT)·(RHO_FL−GASDEN)), and repeat
+until porosity settles. The gas density itself is a real-gas calculation —
+Standing pseudo-criticals with a Papay z-factor — at the formation pressure and
+temperature the precalc step wrote.</p>
+
+<h3>The picks, each with its defence</h3>
+
+<ul>
+  <li><b>SG_GAS 0.65</b> — the module's own worked-example gas gravity (the
+    value its Standing/Papay check numbers are computed at).</li>
+  <li><b>a=1, m=n=2</b> — the reference-case Archie convention, as the
+    saturation shelf runs.</li>
+  <li><b>RW 0.127&nbsp;ohmm</b> — the RtC fit's water-zone Rw on total
+    porosity, derived in the saturation increment.</li>
+  <li><b>OPT_GATE FLAGGED</b> on condflag's XOVER_FLAG — the default, and the
+    safe one: EVERYWHERE lets high-resistivity low-density beds (coal, resistive
+    washouts) masquerade as gas and collect large spurious corrections.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-gascorr-pane.png"
+       alt="The Gas Correction pane with the Archie and gas-gravity entries" />
+  <figcaption>FTEMP, FPRESS and the crossover flag arrive from the precalc and
+    condflag steps.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. Exactly <b>265 samples were corrected — the
+XOVER_FLAG count to the sample</b>, which is the FLAGGED gate doing its job.
+GASDEN converged at ~0.102&nbsp;g/cc, and the largest single restoration put
+<b>+0.139&nbsp;g/cc</b> back onto the bulk density. Feed RHOB_GC to density
+porosity — not to a density-neutron combination, whose own gas handling assumes
+an uncorrected pair.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Removes the gas effect from RHOB (iterated density-neutron loop): density porosity and Archie SWT are solved from the current density, then RHOB_GC = RHOB + PHIT*(1-SWT)*(RHO_FL - GASDEN) replaces the gas volume with liquid, iterated until PHIT moves less than 1e-4 (max 20 passes; non-converging samples stay MISSING). GASDEN is the real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criticals + Papay z-factor) — run the precalc module first; samples without P/T, RT or Rw stay MISSING rather than passing through uncorrected. The default OPT_GATE = FLAGGED corrects only where GAS_FLAG &gt; 0.5 (chain condflag's XOVER_FLAG, which already excludes coal and washout) and errors if the flag curve has no data. OPT_GATE = EVERYWHERE corrects every sample — beware: high-resistivity low-density beds (coal, resistive washouts) read as gas to the Archie loop and get large spurious corrections. QC per slides 66-67: the detached high-porosity gas cloud on PHIE vs wet-clay collapses after correction. Feed RHOB_GC to phi_den (or use PHIT_GC directly) — NOT to phi_dn or a SandiMin solve that includes NPHI: their gas handling assumes an uncorrected density-neutron pair, so a corrected RHOB with a still-gas-affected NPHI biases porosity low.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Bulk density</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>RT</td><td>True formation resistivity</td><td><code>RES_DEEP</code></td><td>yes</td><td>—</td></tr>
+<tr><td>FTEMP</td><td>Formation temperature (precalc)</td><td><code>FTEMP</code></td><td>yes</td><td>resolved from computed curves only, never the RAW import store</td></tr>
+<tr><td>FPRESS</td><td>Formation pressure (precalc)</td><td><code>FPRESS</code></td><td>yes</td><td>resolved from computed curves only, never the RAW import store</td></tr>
+<tr><td>GAS_FLAG</td><td>Gas-zone flag for FLAGGED gating</td><td><code>XOVER_FLAG</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHO_MA <span class="src">(g/cc)</span></h3>
+<p>Matrix density</p>
+<ul><li><b>Default:</b> 2.65 <span class="src">— source: IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16.</span></li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHO_FL <span class="src">(g/cc)</span></h3>
+<p>Liquid (filtrate) density the correction restores</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4</span></li>
+<li><b>Accepted range:</b> 0.8 to 1.3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>fluid_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>SG_GAS</h3>
+<p>Gas specific gravity (air = 1)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.55 to 1.2</li></ul>
+<h3>A</h3>
+<p>Tortuosity constant</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 5</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_a</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>M</h3>
+<p>Cementation exponent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_m</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>N</h3>
+<p>Saturation exponent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_n</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RW <span class="src">(ohmm)</span></h3>
+<p>Rw at formation temperature (CONSTANT)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_resistivity</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Checked before the run:</b> <code>rw.required_when_constant</code> — RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>RWS <span class="src">(ohmm)</span></h3>
+<p>Measured water sample resistivity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
+<li><b>Checked before the run:</b> <code>rws.required_when_measured</code> — RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>RWT <span class="src">(degC)</span></h3>
+<p>Temperature of RWS measurement</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 150 degC</li>
+<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code> — RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>SALW <span class="src">(ppm)</span></h3>
+<p>Formation water salinity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 100 to 300000 ppm</li>
+<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code> — SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_GATE</h3>
+<p>Where to apply the correction</p>
+<ul><li><b>Choices:</b><ul><li><code>FLAGGED</code></li>
+<li><code>EVERYWHERE</code></li></ul></li>
+<li><b>Default:</b> <code>FLAGGED</code></li></ul>
+<h3>OPT_RW</h3>
+<p>Formation water resistivity source</p>
+<ul><li><b>Choices:</b><ul><li><code>CONSTANT</code></li>
+<li><code>MEASURED</code></li>
+<li><code>SALINITY</code></li></ul></li>
+<li><b>Default:</b> <code>CONSTANT</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>RHOB_GC</td><td>Gas-corrected bulk density</td></tr>
+<tr><td>PHIT_GC</td><td>Density porosity from the corrected RHOB (converged)</td></tr>
+<tr><td>SWT_GC</td><td>Archie SWT at convergence</td></tr>
+<tr><td>GASDEN</td><td>Gas density at reservoir P/T (QC)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

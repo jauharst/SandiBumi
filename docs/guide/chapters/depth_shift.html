@@ -1,0 +1,31 @@
+<!-- Authored walkthrough for the depth_shift guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: a block depth shift</h2>
+
+<p>Depth Shift moves a curve by a stated amount — positive is deeper — and
+resamples it back onto the well's own depth grid by linear interpolation. The
+input curve is never modified; the result is a new <code>_DS</code> curve
+beside it. SHIFT is zone-overridable, so different intervals can take different
+block shifts in one run.</p>
+
+<h3>The pick</h3>
+
+<p><b>SHIFT +2&nbsp;m on GR</b> — a demonstration the size of a typical
+core-to-log tie. (For actual core work, use the Core ▸ Register Depth tools,
+which correlate rather than assert; this module is the general-purpose block
+move for curves.)</p>
+
+<figure>
+  <img src="../img/guide-depthshift-pane.png"
+       alt="The Depth Shift pane with a 2 m shift" />
+  <figcaption>+2 m: every feature moves deeper by exactly that amount.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. GR_DS carries <b>1143 finite samples against
+the original 1185</b> — the shift walked ~14 samples (2&nbsp;m at the
+0.1524&nbsp;m step) off the end of each well, and those depths are MISSING
+rather than extrapolated: a shifted curve states nothing about rock the
+original never logged.</p>

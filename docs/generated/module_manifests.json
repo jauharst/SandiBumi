@@ -4670,7 +4670,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Formation temperature from a linear trend. GRADIENT mode takes a surface temperature plus a constant gradient with depth; BHT mode interpolates linearly from the surface temperature to a bottom-hole temperature at its measured depth.",
+      "equations": [
+        "GRADIENT: FTEMP = TSURF + TGRAD·depth",
+        "BHT: FTEMP = TSURF + (BHT − TSURF)·depth/TD_BHT"
+      ],
+      "references": [],
+      "note": ""
+    }
   },
   {
     "name": "precalc",
@@ -5089,7 +5098,18 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Reservoir-condition inputs for saturation and SandiMin work, from linear trend fits in true vertical depth: formation temperature and pressure, mud-filtrate resistivity at formation temperature, and the QC conductivities CT and CXO.",
+      "equations": [
+        "FTEMP = SURF_TEMP + TEMP_GRAD·TVDSS;  FPRESS = PSURF + PGRAD·TVDSS",
+        "ARPS: RMF@FTEMP = RMF·(T_meas + 6.77)/(FTEMP + 6.77)  [temperatures in °F]",
+        "TREND: RMF@FTEMP = RMF_A + RMF_B·log10(TVDSS)",
+        "CT = 1000/RT;  CXO = 1000/RXO  [mmho/m]"
+      ],
+      "references": [],
+      "note": "The Arps temperature conversion is carried by name as this project's method record holds it. The shipped trend starting values are feet-based starting points - refit per basin, and convert before a metric well."
+    }
   },
   {
     "name": "badhole",
@@ -5350,7 +5370,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Flags samples where the borehole departs from gauge or the density correction is too large to trust the porosity logs. The flag is 1 in bad hole, 0 in good hole, and MISSING where no criterion could be evaluated; companion curves record which criterion fired and which were evaluable at all.",
+      "equations": [
+        "BADHOLE = 1 where |DRHO| > DRHO_MAX or |CALI − BS| > DCAL_MAX",
+        "BS from the BS curve where present, else the interpreter's BS_INPUT; no value is substituted when both are absent"
+      ],
+      "references": [],
+      "note": "Feed BADHOLE as the Mask on later module runs so flagged intervals go missing instead of polluting results."
+    }
   },
   {
     "name": "condflag",
@@ -5722,7 +5751,19 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Flags samples whose density-neutron readings should not feed porosity or mineral solving: coal, tight rock, gas crossover, and the shoulder samples either side of a flagged bed, where the logs still average across the boundary. COND_FLAG combines them for use as a run mask.",
+      "equations": [
+        "COAL_FLAG: RHOB < COAL_RHOB and NPHI > COAL_NPHI (and DT > COAL_DT where a sonic exists); never in bad hole",
+        "TIGHT_FLAG: density porosity and NPHI both < TIGHT_PHI",
+        "XOVER_FLAG: (RHO_MA − RHOB)/(RHO_MA − RHO_FL) − NPHI > XOVER_MIN",
+        "beds thinner than MIN_THICK are dropped as spikes; SHOULDER_FLAG within SHOULDER of a flagged bed",
+        "COND_FLAG = coal + tight + bad hole + shoulder (+ crossover when OPT_XCOND = YES)"
+      ],
+      "references": [],
+      "note": "Convert the neutron to units consistent with RHO_MA before trusting the crossover flag, and leave the Mask empty on the condflag run itself. Run the Bad-Hole QC module first."
+    }
   },
   {
     "name": "nphimat",
@@ -5907,7 +5948,19 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Converts a neutron log recorded in one matrix convention into all three (limestone, sandstone, dolomite) using the chartbook porosity-equivalence curves - Por-5 for the CNL thermal tools, Por-4 for the epithermal APS and the sidewall SNP. Limestone units are the chart's apparent-limestone axis, on which calcite is the identity.",
+      "equations": [
+        "φa = the input matrix curve inverted back to the apparent-limestone axis",
+        "NPHI_LS = φa;  NPHI_SS = C_SS(φa);  NPHI_DOL = C_DOL(φa)",
+        "where C_SS and C_DOL are the chart's matrix curves; the input convention passes through unchanged"
+      ],
+      "references": [
+        "Schlumberger Log Interpretation Charts - Por-5 (CNL thermal neutron) and Por-4 (APS epithermal and SNP), the porosity-equivalence curve families"
+      ],
+      "note": "Apply environmental corrections first - the charts assume corrected logs. SALINITY = INTERPOLATE evaluates the fresh and 250-kppm charts completely and interpolates the finished answers (TNPH family only)."
+    }
   },
   {
     "name": "gascorr",
@@ -6365,7 +6418,20 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Removes the gas effect from the density log by an iterated density-neutron loop: porosity and Archie water saturation are solved from the current density, the gas volume is replaced with liquid, and the loop repeats until porosity settles. Gas density comes from a real-gas calculation at formation pressure and temperature.",
+      "equations": [
+        "RHOB_GC = RHOB + PHIT·(1 − SWT)·(RHO_FL − GASDEN)",
+        "iterated until |ΔPHIT| < 1e-4 (max 20 passes; non-converging samples stay MISSING)",
+        "GASDEN: real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criticals, Papay z-factor)"
+      ],
+      "references": [
+        "Standing - natural-gas pseudo-critical correlations",
+        "Papay (1968) - z-factor correlation"
+      ],
+      "note": "Correlation names as this project's method record holds them; the full primary citations are pending verification. Feed RHOB_GC to density porosity - not to a density-neutron combination, whose gas handling assumes an uncorrected pair."
+    }
   },
   {
     "name": "gr_hole_corr",
@@ -6574,7 +6640,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Linear borehole-enlargement correction for the gamma-ray log: counts attenuated by the extra mud annulus in an oversize hole are restored in proportion to the enlargement.",
+      "equations": [
+        "GR_EC = GR·(1 + K_GR·(CALI − BS))",
+        "BS from the BS curve where present, else BS_DEF"
+      ],
+      "references": [],
+      "note": "The run refuses if CALI is missing at any finite GR sample - it never writes an unmarked uncorrected copy under the corrected name."
+    }
   },
   {
     "name": "nphi_env_corr",
@@ -6791,7 +6866,15 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Linearized environmental correction for the neutron log: a formation-temperature term about a reference temperature and a formation-salinity term. Requires formation temperature from the Formation Temperature module; without it only the salinity term applies.",
+      "equations": [
+        "NPHI_EC = NPHI + K_TEMP·(FTEMP − T_REF) + K_SAL·(SALW/100000)"
+      ],
+      "references": [],
+      "note": "The shipped coefficients are practitioner starting values - replace them with values read from the applicable CNL chart for the tool in hand. SALW defaults to the chart reference condition (fresh), so the salinity term is inert until the study declares its formation salinity."
+    }
   },
   {
     "name": "rhob_hole_corr",
@@ -6981,7 +7064,15 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Restores the density log in oversize holes, where the pad reads too much mud: a linear correction in the hole enlargement beyond a reference diameter, using supplied tool-specific chart values.",
+      "equations": [
+        "RHOB_EC = RHOB + K_RHO·(CALI − HD_REF)  for CALI > HD_REF; unchanged within gauge"
+      ],
+      "references": [],
+      "note": "Use with the BADHOLE flag - beyond a few inches of washout no correction is trustworthy."
+    }
   },
   {
     "name": "gr_normalize",
@@ -7127,7 +7218,15 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Two-point percentile normalization of the gamma-ray log onto a field reference frame, so wells can be compared and pooled. The well's own percentiles are computed from this run's samples; the reference percentiles are parameters you must supply.",
+      "equations": [
+        "GRN = (GR − Plow,well)·(Phigh,ref − Plow,ref)/(Phigh,well − Plow,well) + Plow,ref"
+      ],
+      "references": [],
+      "note": "The reference pair ships absent on purpose: a pair from one basin is the wrong reference in another. Derive it from the field's own multi-well GR distribution and use the SAME pair for every well in the study."
+    }
   },
   {
     "name": "log_predict",
@@ -7272,7 +7371,17 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Synthetic log by distance-weighted K-nearest-neighbour regression: trains on this run's samples where the target and every predictor are present, then predicts the target wherever the predictors exist. Predictors are z-scored so no one curve's units dominate the distance.",
+      "equations": [
+        "prediction = Σ wi·yi / Σ wi over the K nearest training samples",
+        "wi = 1/(di + 1e-6), di = Euclidean distance in z-scored predictor space",
+        "MAX_RAW: OUT = max(raw, synthetic)  - the washout rule for RHOB, since bad hole only pushes RHOB down"
+      ],
+      "references": [],
+      "note": "Mask the run to good-hole intervals so bad samples never train the model."
+    }
   },
   {
     "name": "sw_arch",
@@ -10237,7 +10346,15 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Shifts a curve by a block amount in depth and resamples it back onto the well's own grid by linear interpolation. Positive shift moves the feature deeper; the input curve is never modified.",
+      "equations": [
+        "OUT(z) = CURVE(z − SHIFT), resampled onto the well's depth grid  (+SHIFT = deeper)"
+      ],
+      "references": [],
+      "note": "SHIFT is zone-overridable, so different intervals can take different block shifts."
+    }
   },
   {
     "name": "splice",
@@ -10321,7 +10438,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "The classic run-to-run splice: one curve above the splice depth, the other at and below it. Inputs are never modified.",
+      "equations": [
+        "SPLICED(z) = TOP_CURVE(z)  for z < SPLICE_DEPTH",
+        "SPLICED(z) = BOT_CURVE(z)  for z ≥ SPLICE_DEPTH"
+      ],
+      "references": [],
+      "note": ""
+    }
   },
   {
     "name": "despike",
@@ -10576,7 +10702,18 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Replaces samples that stand off their neighbours with the local median, over a window stated as a thickness of rock rather than a sample count. Four tests are offered, from the robust Hampel deviation test to a simple rate-of-change limit.",
+      "equations": [
+        "HAMPEL: replace where |x − median| > K·(c·MAD), c the Gaussian consistency constant  [zero-MAD windows fall back to the mean deviation]",
+        "ABS: replace where |x − median| > THRESH",
+        "MEDIAN: every sample → window median (no test)",
+        "RATE: replace where the change from the previous live sample exceeds MAX_RATE per depth unit"
+      ],
+      "references": [],
+      "note": "Set WINDOW narrower than the thinnest bed you intend to keep - a bed no thicker than the window is indistinguishable from a spike. The Gaussian consistency constant (the reciprocal of the standard-normal 75th percentile) is a mathematical estimator constant, not a calibration."
+    }
   },
   {
     "name": "smooth",
@@ -10712,7 +10849,17 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Averages a curve over a window stated as a thickness. A missing sample stays missing and no gap is bridged - smoothing never fills, because a filled sample is a claim about rock nobody logged.",
+      "equations": [
+        "MEAN: arithmetic mean of the live samples in the window",
+        "MEDIAN: window median - keeps a step edge where a mean would ramp across it",
+        "SAVGOL: local quadratic least-squares fit on the real (depth, value) pairs, evaluated at the sample"
+      ],
+      "references": [],
+      "note": "Despike first: a least-squares smoother fits whatever is in the window, so over an un-despiked curve the spike is not removed but spread across the window and made to look like rock."
+    }
   },
   {
     "name": "clip",
@@ -10884,7 +11031,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Holds a curve inside a declared range. An empty bound is a statement that the curve is unbounded on that side, not an omission.",
+      "equations": [
+        "BLANK: x outside [MIN, MAX] → MISSING",
+        "CLAMP: x → min(max(x, MIN), MAX)"
+      ],
+      "references": [],
+      "note": "BLANK is the default because it is the one that cannot manufacture a measurement: a resistivity of 1e6 is not a very resistive rock, it is a reading the tool could not make."
+    }
   },
   {
     "name": "fill_gaps",
@@ -11037,7 +11193,17 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Fills holes no wider than a declared maximum and marks every sample it invented in a companion flag curve, so a filled value can always be told from a logged one. A gap open at one end is never filled - that would extrapolate past where the tool stopped.",
+      "equations": [
+        "LINEAR: a straight line between the live samples either side (gap ≤ MAX_GAP, bounded both ends)",
+        "HOLD: the last live value carried down",
+        "<OUT>_FILL = 1 on every invented sample"
+      ],
+      "references": [],
+      "note": "Mask on the flag curve to take invented samples back out of any later run. MAX_GAP has no default: how far interpolation is defensible depends on why the data is missing."
+    }
   },
   {
     "name": "flip",
@@ -11173,7 +11339,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Mirrors a curve about a pivot - for an SP recorded with the wrong sign convention, or any reading delivered inverted.",
+      "equations": [
+        "OUT = 2·pivot − CURVE",
+        "pivot: a given VALUE, or this well's own MIDRANGE or MEAN"
+      ],
+      "references": [],
+      "note": "MIDRANGE and MEAN are computed per well, so two wells' flipped curves are no longer on a common scale - use a VALUE pivot for anything that feeds a correlation."
+    }
   },
   {
     "name": "normalize",
@@ -11449,7 +11624,18 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Maps any curve onto a common reference frame so wells can be compared and pooled: a two-point percentile map, a min-max range map, or a z-score to a reference mean and spread, optionally in log10 space.",
+      "equations": [
+        "TWO_POINT: OUT = (x − P_LOW)·(REF_HIGH − REF_LOW)/(P_HIGH − P_LOW) + REF_LOW",
+        "RANGE: the same map from the curve's own MIN and MAX",
+        "MEAN_SD: OUT = (x − mean)/sd·REF_SD + REF_MEAN",
+        "SPACE = LOG: mapped in log10 and inverted afterwards; non-positive samples become MISSING"
+      ],
+      "references": [],
+      "note": "The reference pair has no default, and that is the point: a pair from one basin is the wrong pair in another, and normalized output looks plausible either way. Derive yours from the field's own distribution and use the same pair for every well."
+    }
   },
   {
     "name": "block",
@@ -11701,7 +11887,19 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Replaces a curve with one value per bed, held across the bed, with the bed definition and the averaging statistic both declared. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled.",
+      "equations": [
+        "beds: INTERVAL slices, CLASS runs of a constant value, ZONES marker intervals, or AUTO from the curve itself",
+        "MEAN - right for porosity and every volume fraction, because those add",
+        "GEOMETRIC: k = (k1·k2·…·kn)^(1/n)  - the standard permeability estimate in randomly heterogeneous rock",
+        "HARMONIC: k = n / Σ(1/ki)  - permeability across layers in series",
+        "MODE - the commonest value, and the only upscale for a class curve"
+      ],
+      "references": [],
+      "note": "Set the blocked curve's draw style to Step, or the log view draws a gradient between block values the data never measured. A class curve refuses every averaging statistic: the mean of facies 1 and facies 4 is 2.5, which is not a facies."
+    }
   },
   {
     "name": "bed_detect",
@@ -11785,7 +11983,16 @@
         "computed_only": false,
         "well_scope": false
       }
-    ]
+    ],
+    "help": {
+      "summary": "Finds bed boundaries from a curve's own steps and writes the bed number each sample falls in - the same segmentation Block's AUTO mode uses, exposed on its own so the beds can be looked at on a log before anything is averaged over them.",
+      "equations": [
+        "a new bed opens where |x − bed mean| > SENS·noise and the bed already spans MIN_BED",
+        "noise = robust spread of the curve's first differences / √2  - the curve's noise, not its variability across the well"
+      ],
+      "references": [],
+      "note": "SandiBumi's own segmentation heuristic. Over-segmentation is what a step-finder gets wrong when it gets anything wrong: put the bed curve in a track as class blocks and judge it against the log before running Block on it."
+    }
   },
   {
     "name": "multimin",

@@ -1,0 +1,37 @@
+<!-- Authored walkthrough for the block guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: one value per bed</h2>
+
+<p>Block replaces a curve with one value per bed, held across the bed — the
+upscale a simulation model or a zone table consumes. The curve stays on the
+well's own depth frame, so nothing downstream has to know it was upscaled. Two
+declarations define the run: what a bed <i>is</i> (INTERVAL slices, CLASS runs
+of a constant value, ZONES marker intervals, or AUTO from the curve's own
+steps), and what statistic a bed's value takes — and the statistic is a
+petrophysical choice, not a formatting one.</p>
+
+<h3>The picks</h3>
+
+<p><b>PHIE_DEN, CLASS beds from RT_LOG, MEAN</b> — the rock-typing shelf's
+cutoff ladder supplies the bed boundaries (boundaries are where the rock
+changes, which is what a model wants), and MEAN because porosity adds.
+GEOMETRIC is the standard permeability estimate in randomly heterogeneous rock,
+HARMONIC the series-flow answer a vertical barrier deserves, and <b>MODE is the
+only upscale for a class curve</b>: a class code is a name written as a number
+— the mean of facies 1 and facies 4 is 2.5, which is not a facies — and the
+module refuses every averaging statistic on a declared class curve for exactly
+that reason.</p>
+
+<figure>
+  <img src="../img/guide-block-pane.png"
+       alt="The Block pane, PHIE_DEN over RT_LOG class beds with MEAN" />
+  <figcaption>Bed definition and statistic are both explicit declarations.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, producing <b>49–53 blocks per well</b> from
+the RT_LOG class runs. Set the blocked curve's draw style to <b>Step</b> in the
+curve editor — a line style would draw a gradient between two block values that
+the data never measured.</p>

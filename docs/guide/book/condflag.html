@@ -1,0 +1,162 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data Conditioning Flags — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Prep</div>
+<h1>Data Conditioning Flags</h1>
+<p class="modmeta">Module id <code>condflag</code> · category <b>Prep</b></p>
+<p>Flags samples whose density-neutron readings should not feed porosity or mineral solving: coal, tight rock, gas crossover, and the shoulder samples either side of a flagged bed, where the logs still average across the boundary. COND_FLAG combines them for use as a run mask.</p>
+<pre class="equations">COAL_FLAG: RHOB &lt; COAL_RHOB and NPHI &gt; COAL_NPHI (and DT &gt; COAL_DT where a sonic exists); never in bad hole
+TIGHT_FLAG: density porosity and NPHI both &lt; TIGHT_PHI
+XOVER_FLAG: (RHO_MA − RHOB)/(RHO_MA − RHO_FL) − NPHI &gt; XOVER_MIN
+beds thinner than MIN_THICK are dropped as spikes; SHOULDER_FLAG within SHOULDER of a flagged bed
+COND_FLAG = coal + tight + bad hole + shoulder (+ crossover when OPT_XCOND = YES)</pre>
+<!-- Authored walkthrough for the condflag guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: conditioning flags for porosity work</h2>
+
+<p>Data Conditioning Flags marks the samples whose density-neutron readings
+should not feed porosity or mineral solving: coal, tight rock, gas crossover,
+and — the subtle one — the shoulder samples either side of a flagged bed, where
+the tools still average across the boundary. COND_FLAG combines them into the
+run mask the porosity work consumes.</p>
+
+<h3>The picks</h3>
+
+<p>Shipped starting thresholds throughout — the pane itself marks several
+"not settled", which is the honest label for numbers that want a per-field
+review. MIN_THICK and SHOULDER are metre-scale conventions and these wells are
+metric, so they stand. <b>OPT_XCOND stays NO</b>: the gas zones here will be
+<i>corrected</i> by the gas-correction step, not discarded, so the crossover
+flag must not join the exclusion mask. Run the Bad-Hole QC module first — its
+flag feeds this one.</p>
+
+<figure>
+  <img src="../img/guide-condflag-pane.png"
+       alt="The Data Conditioning Flags pane at its shipped thresholds" />
+  <figcaption>The "shipped values elsewhere" markers flag the thresholds still
+    awaiting a settled value.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. The census: <b>XOVER_FLAG 265</b> samples of
+gas crossover (the gas sand, as the saturation shelf found it), <b>SHOULDER_FLAG
+36</b>, no coal and no tight rock — a clastic gas-bearing section saying exactly
+what it should. <b>COND_FLAG totals 648</b>, dominated by the bad-hole term.
+One rule to keep: leave the Mask empty on the condflag run itself — masking this
+run with BADHOLE would blank COND_FLAG exactly where it must read 1.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Flags samples whose density/neutron readings should not feed porosity or mineral solving. COAL_FLAG: RHOB &lt; COAL_RHOB and NPHI &gt; COAL_NPHI, plus DT &gt; COAL_DT where a sonic exists; a washed-out hole mimics coal, so samples with BADHOLE = 1 are never called coal. TIGHT_FLAG: density porosity (from RHO_MA / RHO_FL — the same parameters, and zone overrides, as the density-porosity modules) and NPHI both below TIGHT_PHI. XOVER_FLAG: gas crossover, density porosity exceeding NPHI by more than XOVER_MIN — coal and bad hole are excluded because they fake the same light-density signature. NPHI must be in matrix units consistent with RHO_MA: limestone-unit neutron against a sandstone RHO_MA reads about 0.04 low in clean water sand, right at the XOVER_MIN threshold — convert the neutron first, then supply a sourced threshold for the declared neutron convention. Flagged beds thinner than MIN_THICK are dropped as spikes (missing samples inside a bed do not split it). SHOULDER_FLAG is the transition adjustment: logs average across bed boundaries, so samples within SHOULDER of a coal / tight bed — or a bad-hole interval at least MIN_THICK thick — still carry mixed readings; masking only the bed itself would leave those shoulder values in the conditioned data. COND_FLAG combines coal, tight, bad hole and shoulder (and crossover when OPT_XCOND = YES — leave NO when gas zones will be corrected rather than discarded); feed it as the Mask on later module runs, but leave the Mask empty on the condflag run itself — masking this run with BADHOLE would blank COND_FLAG exactly where it must read 1. MIN_THICK and SHOULDER are in the depth curve's declared unit; their DEC-077 starting values are metre-scale conventions - rescale for feet wells. Run the badhole module first so its flag is available here.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Density log</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>NPHI</td><td>Neutron porosity log (matrix units matching RHO_MA)</td><td><code>NPHI</code></td><td>yes</td><td>—</td></tr>
+<tr><td>DT</td><td>Sonic transit time log</td><td><code>DT</code></td><td>no</td><td>—</td></tr>
+<tr><td>BADHOLE</td><td>Bad-hole flag from the badhole module</td><td><code>BADHOLE</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHO_MA <span class="src">(g/cc)</span></h3>
+<p>Matrix density</p>
+<ul><li><b>Default:</b> 2.65 <span class="src">— source: IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog phi_den.info's shipped 2645 k/m3.</span></li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHO_FL <span class="src">(g/cc)</span></h3>
+<p>Fluid density</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 0.5 to 1.5 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>fluid_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>COAL_RHOB <span class="src">(g/cc)</span></h3>
+<p>Coal: density below</p>
+<ul><li><b>Default:</b> 1.9 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 1.2 to 2.4 g/cc</li></ul>
+<h3>COAL_NPHI <span class="src">(v/v)</span></h3>
+<p>Coal: neutron above</p>
+<ul><li><b>Default:</b> 0.35 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0.15 to 0.8 v/v</li></ul>
+<h3>COAL_DT <span class="src">(us/ft)</span></h3>
+<p>Coal: sonic above (when DT present)</p>
+<ul><li><b>Default:</b> 100 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 70 to 160 us/ft</li></ul>
+<h3>TIGHT_PHI <span class="src">(v/v)</span></h3>
+<p>Tight: both porosities below</p>
+<ul><li><b>Default:</b> 0.05 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 0.2 v/v</li></ul>
+<h3>XOVER_MIN <span class="src">(v/v)</span></h3>
+<p>Crossover: DPHI - NPHI above (~0.08 for limestone-unit NPHI)</p>
+<ul><li><b>Default:</b> 0.04 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.04 v/v multi-basin starting value per DEC-059, ruled with the chapter's own warning in view that 0.04 equals the matrix-scale error size (SB-ENV-012/029) - convert the neutron convention first; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 0.3 v/v</li></ul>
+<h3>MIN_THICK <span class="src">(depth)</span></h3>
+<p>Drop flagged beds thinner than</p>
+<ul><li><b>Default:</b> 0.25 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.25 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 10 depth</li></ul>
+<h3>SHOULDER <span class="src">(depth)</span></h3>
+<p>Shoulder width beyond bed edges</p>
+<ul><li><b>Default:</b> 0.5 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.5 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0 to 5 depth</li></ul>
+<h2>Options</h2>
+<h3>OPT_XCOND</h3>
+<p>Include gas crossover in COND_FLAG</p>
+<ul><li><b>Choices:</b><ul><li><code>NO</code></li>
+<li><code>YES</code></li></ul></li>
+<li><b>Default:</b> <code>NO</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>COAL_FLAG</td><td>Coal flag (1 = coal) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>TIGHT_FLAG</td><td>Tight-zone flag (1 = tight) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>XOVER_FLAG</td><td>Gas crossover flag (1 = crossover) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>SHOULDER_FLAG</td><td>Bed-transition shoulder flag (1 = shoulder) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
+<tr><td>COND_FLAG</td><td>Combined conditioning mask (1 = exclude) <span class="src">(flag: EXCLUSION_MASK)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

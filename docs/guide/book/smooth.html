@@ -1,0 +1,136 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Smooth — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Condition</div>
+<h1>Smooth</h1>
+<p class="modmeta">Module id <code>smooth</code> · category <b>Condition</b></p>
+<p>Averages a curve over a window stated as a thickness. A missing sample stays missing and no gap is bridged - smoothing never fills, because a filled sample is a claim about rock nobody logged.</p>
+<pre class="equations">MEAN: arithmetic mean of the live samples in the window
+MEDIAN: window median - keeps a step edge where a mean would ramp across it
+SAVGOL: local quadratic least-squares fit on the real (depth, value) pairs, evaluated at the sample</pre>
+<!-- Authored walkthrough for the smooth guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: smoothing after despiking, never instead of it</h2>
+
+<p>Smooth averages a curve over a thickness window: MEAN, MEDIAN (which keeps a
+step edge where a mean would ramp across it), or SAVGOL — a local quadratic
+least-squares fit evaluated at each sample, fitted on the real (depth, value)
+pairs rather than the textbook fixed coefficients, which assume even sampling
+and are wrong on an irregular frame.</p>
+
+<h3>The order rule</h3>
+
+<p><b>Despike first.</b> A least-squares smoother fits whatever is in the
+window, so over an un-despiked curve it fits the spike — the spike is not
+removed, it is spread over the window and made to look like rock. This run
+therefore takes the despiked <b>GR_C</b> as its input, not raw GR.</p>
+
+<h3>The picks</h3>
+
+<p><b>SAVGOL over the same 1&nbsp;m window</b> as the despike step, output
+renamed <b>GR_SM</b> — distinct conditioning steps get distinct names, so the
+provenance chain (GR → GR_C → GR_SM) reads in the Curve Catalog.</p>
+
+<figure>
+  <img src="../img/guide-smooth-pane.png"
+       alt="The Smooth pane, Savitzky-Golay on the despiked curve" />
+  <figcaption>Input GR_C, output GR_SM — the chain stays legible.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, 1185 samples out. One more contract worth
+knowing: a MISSING sample stays MISSING and no window bridges a gap — smoothing
+never fills, because a filled sample is a claim about rock nobody logged. Fill
+Gaps does that job, and flags what it invents.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Averages a curve over a WINDOW stated as a THICKNESS.
+
+**Despike first.** A least-squares smoother fits whatever is in the window, so over an un-despiked curve it fits the spike — the spike is not removed, it is spread over the window and made to look like rock.
+
+METHOD:
+• MEAN — arithmetic mean of the live samples in the window.
+• MEDIAN — window median; keeps a step edge where a mean would ramp across it.
+• SAVGOL — local quadratic least-squares fit evaluated at the sample. Fitted on the real (depth, value) pairs rather than with the textbook fixed coefficients, which assume even sampling and are wrong on an irregular frame.
+
+A MISSING sample stays MISSING and no window is bridged: smoothing does not fill gaps, because a filled sample is a claim about rock nobody logged. Use Fill Gaps, which marks what it invented.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to smooth</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>WINDOW <span class="src">(depth)</span></h3>
+<p>Smoothing window (thickness, centred)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1000 depth</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>conditioning_window</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h2>Options</h2>
+<h3>OPT_METHOD</h3>
+<p>How the window is averaged</p>
+<ul><li><b>Choices:</b><ul><li><code>MEAN</code> — arithmetic mean over the window</li>
+<li><code>MEDIAN</code> — window median, keeps step edges</li>
+<li><code>SAVGOL</code> — local quadratic fit (Savitzky-Golay)</li></ul></li>
+<li><b>Default:</b> <code>MEAN</code></li></ul>
+<h3>OPT_FLAG</h3>
+<p>Write a flag curve marking every sample the smoother changed</p>
+<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
+<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<li><b>Default:</b> <code>YES</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>
+<tr><td>OUT_FLAG</td><td>Changed-sample flag <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

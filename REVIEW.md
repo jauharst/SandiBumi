@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Guidebook increment 5: the Data Prep / Condition / Frame shelf (46 of 52)
+
+- [ ] **What this is.** All 21 utility and prep modules get the two-tier help: ftemp_grad, precalc,
+      badhole, condflag, nphimat, gascorr, gr_hole_corr, nphi_env_corr, rhob_hole_corr, log_predict,
+      depth_shift, splice, despike, smooth, clip, fill_gaps, flip, normalize, block, bed_detect —
+      plus a superseded-pointer chapter for gr_normalize (it is a preset of Condition ▸ Normalize
+      and hidden from pickers, so its chapter routes to normalize's). Most cards carry no published
+      reference by design (utilities are definitional); the exceptions are copied from the repo's
+      records: chartbook Por-4/Por-5 for nphimat, Standing + Papay (1968) leads for gascorr's
+      real-gas density.
+- [ ] **Every pick derived or record-sourced, stated in the reference field**: the normalize/
+      gr_normalize field pair 43/112 gAPI = P3/P97 of the three wells' pooled GR computed from the
+      delivery itself; flip's pivot −19 mV = pooled SP P95 (the shale baseline); bit size 8.5 in
+      read off the in-gauge caliper; precalc's metric trend = the shipped feet-based values
+      restated per metre; PGRAD 1.42 psi/m = freshwater hydrostatic restated; gascorr's SG 0.65 =
+      the module's own worked-example gravity, Rw 0.127 from the RtC fit.
+- [ ] **Three refusals captured verbatim and taught**: despike ("WINDOW must be set — Filter
+      window"), bed_detect ("MIN_BED must be set — Thinnest bed worth calling a bed"), and
+      normalize's full reference-pair refusal ("the reference pair IS the normalization…").
+- [ ] **Honest outcomes kept honest**: precalc reports 3 degraded because this delivery has no RXO
+      — CXO is all-MISSING and the chapter reads that as the module being precise, not broken.
+      badhole's DRHO_EVALUATED = 0 everywhere (no DRHO delivered) is the chapter's centrepiece.
+      clip at the physical bound [0,120] blanks nothing (GR max 115.6) — the shipping run is an
+      explicitly labelled machinery demonstration at [0,110] (184 blanked) so fill_gaps has real
+      gaps (181 refilled + flagged, 3 held back by the MAX_GAP/open-end rules). The splice depth
+      was first picked outside the logged range (1600 m vs TD 1570) and re-run at 1530 m — the
+      chapter warns about exactly that mistake.
+- [ ] **Numbers that close on themselves**: gascorr corrected exactly the 265 XOVER_FLAG samples
+      (the FLAGGED gate); GR_N came back with P3/P97 = 43.0/112.0 exactly; flip's mirror checked
+      sample-by-sample with zero mismatches; NPHI_SS−NPHI_LS median +0.0456 ≈ the 0.04 convention
+      offset the condflag doc warns about; MAX_RAW raised 567 washout density samples.
+- [ ] **What to check:** ? Help on despike (is the Gaussian-constant note pitched right?),
+      the clip/fill_gaps demonstration framing (deliberately blanking shale peaks, labelled as
+      such — acceptable in a guidebook?), and condflag's "not settled" thresholds language.
+
 ## 2026-08-26 — Guidebook increment 4: Permeability, Rock Typing, Thin Beds, Lithology (25 of 52)
 
 - [ ] **What this is.** Nine modules: perm_wyllie_rose, perm_coates, perm_transform, midplot,

@@ -1,0 +1,44 @@
+<!-- Authored walkthrough for the despike guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: taking the spikes out — and only the spikes</h2>
+
+<p>Despike replaces samples that stand off their neighbours with the local
+median, over a window stated as a <i>thickness of rock</i> rather than a sample
+count, so the same window means the same thing at any sampling. Four methods:
+the robust HAMPEL deviation test (the default), a plain ABS threshold, an
+unconditional MEDIAN, and a RATE limit that catches steps a median window
+misses.</p>
+
+<h3>First, the refusal</h3>
+
+<p>Run it with no window and the module refuses, verbatim:</p>
+
+<blockquote><i>"WINDOW must be set — Filter window (thickness, centred)"</i></blockquote>
+
+<p>WINDOW has no default on purpose: what counts as a spike is a property of
+the tool, the sampling and the rock, and no one number is right in two
+basins.</p>
+
+<h3>The picks</h3>
+
+<p><b>HAMPEL, K&nbsp;3</b> (shipped) and <b>WINDOW 1&nbsp;m</b> — about 6.6
+samples at this dataset's 0.1524&nbsp;m step, above the five-sample floor the
+Hampel test needs, and narrower than the thinnest bed worth keeping. That last
+clause is the whole discipline: a bed no thicker than the window is
+indistinguishable from a spike, and will be flattened as one.</p>
+
+<figure>
+  <img src="../img/guide-despike-pane.png"
+       alt="The Despike pane, Hampel with a 1 m window" />
+  <figcaption>The replaced-sample flag and original-values curves ride along, so
+    nothing is lost.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>, with <b>61 samples replaced</b> out of 1185
+— the flag curve GR_C_SPK says exactly which, and GR_C_ORIG keeps every
+original value. One K reads the same on GR, RHOB, NPHI and RT because the
+deviation is scaled by the Gaussian consistency constant × MAD — a mathematical
+estimator constant, not a calibration.</p>

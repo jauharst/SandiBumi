@@ -1,0 +1,34 @@
+<!-- Authored walkthrough for the rhob_hole_corr guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: density in an oversize hole</h2>
+
+<p>In a washout the density pad loses contact and reads too much mud, so the log
+reads light — the same direction as gas, which is why an uncorrected washout
+fakes a gas show. The correction restores density upward, linearly in the
+enlargement beyond a reference diameter:
+RHOB_EC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;K_RHO·(CALI&nbsp;−&nbsp;HD_REF) for CALI
+beyond HD_REF; within gauge the log passes through unchanged.</p>
+
+<h3>The picks</h3>
+
+<p><b>K_RHO 0.004</b> and <b>HD_REF 10&nbsp;in</b> — shipped, tool-generic
+starting values; on a real study both come from the density tool's own
+correction chart. Like the GR correction, the run refuses if CALI is missing at
+any finite RHOB sample. And the standing caveat: <b>beyond a few inches of
+washout no correction is trustworthy</b> — that rock belongs to the BADHOLE
+mask, not to a bigger coefficient.</p>
+
+<figure>
+  <img src="../img/guide-rhobhole-pane.png"
+       alt="The Density Hole-Size Correction pane" />
+  <figcaption>The correction only engages beyond the 10-in reference
+    diameter.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. The washout intervals here reach ~11&nbsp;in
+plus, so the correction engages exactly there and nowhere else — in-gauge hole
+passes through untouched, and the correction-extent companions record which
+samples got the full correction, a partial one, or none.</p>
