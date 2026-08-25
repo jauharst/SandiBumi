@@ -1,5 +1,37 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Guidebook increment 3: the Saturation shelf, run live to its honest outcomes (16 of 52)
+
+- [ ] **What this is.** Six saturation methods get the two-tier help — sw_arch, sw_indo, sw_sim,
+      the Advance-tab sw_rtc and sw_imts, and sw_height — plus a pointer chapter for the retired
+      multimin. Citations copied from the dossier's own References record (12_saturation.md §2.13)
+      and ref_shf.md: Archie 1942 Trans. AIME 146; Poupon & Leveaux 1971 SPWLA Paper O; Simandoux
+      1963 / Bardon & Pied 1969; Waxman-Smits 1968, Waxman-Thomas 1974, Juhász 1979/1981; Leverett
+      1941; Skelt & Harrison 1995. Per your rule, sw_rtc and the IMTS scaling are product-voice
+      with NO study citation, and the ssc/sspw cards and the SSC pane title were scrubbed the same
+      way (the pane is now "SSC — Sand-Silt-Clay (Kuttan)").
+- [ ] **The chapters teach the failures they met, verbatim.** The RtC chapter is the honest one:
+      the calibration first refused ("only 0 usable water-zone samples") because the Rw was derived
+      on effective porosity while the fit uses total; refit at Rw 0.127 (median RT·PHIT_SSC² over
+      the declared 1535–1550 water zone) it reported A_CAP −0.224 / B_QV 0.841 / C0 −1.446,
+      R² 0.990 on 54 samples with 45 excluded as carrying no excess — and then sw_rtc's own range
+      gate REFUSED the fitted C0 from both the argument and the zone override. On clean synthetic
+      sand the method correctly has nothing to fit; the chapter says exactly that. **Separately
+      flagged as a real defect:** the calibration can Apply a C0 the consumer refuses — chip filed.
+      sw_imts documents its refusal ladder (TEMP_C, then S_FACTOR_GW; the delivery has no BHT and
+      no lab CEC). sw_height runs the whole chain: por-perm OLS from your core file (PT_A 17.92 /
+      PT_B −2.203, R² 0.981, n=15) → SCAL import reports the J-fit (0.511/−0.210, R² 0.586) →
+      1 clean, and the chapter reads the height-vs-resistivity disagreement (0.53 vs 0.16 in the
+      gas leg) as the QC it is.
+- [ ] **One help, one content.** The pane's own "? Help" button used to show the raw manifest doc
+      while "Help for this panel…" showed the card — two buttons, two answers. Both now render the
+      same card through one shared builder (helpCard.ts); the old inline copy also silently dropped
+      a card's note when it had no reference lines, which is fixed by the same change.
+- [ ] **What to check:** ? Help on SW — Archie and SW — Saturation-Height (equations against your
+      own knowledge), the sw_rtc chapter end to end (is the honest-refusal framing right for a
+      client-facing guidebook?), and whether "a=1, m=n=2 (dossier reference-case convention)" is
+      how you want the walkthrough convention worded.
+
 ## 2026-08-25 — Guidebook increment 2: the whole VSH + Porosity shelf, cards and chapters (9 of 52)
 
 - [ ] **What this is.** Eight more modules now have the full two-tier help: vsh_dn, phi_den,

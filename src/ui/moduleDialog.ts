@@ -13,6 +13,7 @@ import {
 } from "../ipc";
 import { appState } from "../state";
 import { argumentUnitLabel } from "../depthUnitPref";
+import { buildModuleHelpCard } from "./helpCard";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
 import { withParamSources } from "./paramSources";
@@ -287,10 +288,10 @@ export async function buildModuleContent(
   helpBtn.className = "btn module-help";
   helpBtn.textContent = "? Help";
   helpBtn.addEventListener("click", () => {
-    const body = document.createElement("p");
-    body.className = "help-body";
-    body.textContent = spec.doc || "Documentation for this module is unavailable.";
-    openModal(`Help — ${spec.title}`, body, 480);
+    // Same card the workspace's "Help for this panel…" builds — one help, one content.
+    void buildModuleHelpCard(spec.name, spec.doc).then((body) => {
+      openModal(`Help — ${spec.title}`, body, 480);
+    });
   });
   head.append(chip, titleEl, helpBtn);
   content.appendChild(head);

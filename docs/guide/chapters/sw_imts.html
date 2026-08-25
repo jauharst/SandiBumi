@@ -1,0 +1,61 @@
+<!-- Authored walkthrough for the sw_imts guidebook chapter. Screenshots and refusal
+     texts captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: IMTS, and the two things it refuses to guess</h2>
+
+<p>IMTS is Waxman-Smits-family conductivity with the clay charge built from mineral
+volumes: kaolinite and illite volumes carry literature CEC constants, the resulting
+Qv is scaled to laboratory CEC by the S factor, referenced to the active water through
+Swirr, and the conductivity equation is iterated until the total saturation is stable.
+The mineral-textural scaling is SandiBumi's own extension of the published model.</p>
+
+<h3>What could be filled from a source, was</h3>
+
+<ul>
+  <li><b>RW 0.127 ohm·m</b> — the water-zone Rwa on PHIT_SSC, from the
+    <a href="sw_rtc.html">RtC calibration chapter</a>.</li>
+  <li><b>A 1 · M* 2 · N* 2</b> — the dossier's reference-case convention, declared as
+    such.</li>
+  <li><b>CEC_KAOL 8 · CEC_ILL 25 meq/100g</b> — the literature constants the module's
+    own documentation records (of dry rock, grain-weight basis).</li>
+  <li><b>RHOG 2.65</b> — the quartz grain density from SandiMin's endpoint
+    library.</li>
+  <li><b>Inputs</b> — PHIT_SSC, CBW and SWIRR_T resolve straight from the SSC run;
+    the kaolinite slot resolves VDCL. This chain is the point: SSC's bound-water split
+    is what IMTS references its clay charge against.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-swimts-pane.png"
+       alt="The IMTS pane with the citable constants entered and S left absent" />
+  <figcaption>Everything with a source is filled; the two parameters without one are
+    left empty on purpose.</figcaption>
+</figure>
+
+<h3>The refusal ladder — and why it is right</h3>
+
+<p>Run it like this and the pane refuses, in order:</p>
+
+<ul>
+  <li><i>"TEMP_C must be set — Formation temperature"</i>. The Juhász B coefficient
+    is a function of temperature, and this delivery records no BHT anywhere — no LAS
+    header entry, no test data. There is nothing to fill it from, so the run stops.
+    On a real dataset this comes from the header or from the formation-temperature
+    module's fitted trend.</li>
+  <li>Declare a temperature and the next rung fires: <i>"S_FACTOR_GW must be set —
+    CEC scaling factor S (lab/XRD), grain-weight basis"</i>. S is the ratio of
+    measured laboratory CEC to the XRD-theoretical CEC, so it is a property of the
+    rock <b>and of the clay curves it was fitted against</b>. This delivery carries
+    no lab CEC measurements, so S cannot be fitted — and the module will not invent
+    it, because S multiplies the whole clay-charge term and moves the saturation with
+    no outward sign of being wrong.</li>
+</ul>
+
+<p>The path forward on a real study: import the lab CEC table, then
+<b>Advance ▸ Calibrate S…</b> regresses S from those measurements against the very
+clay curves this run will use. With S fitted and a temperature declared, the run
+proceeds and writes SWT_IMTS, SWE_IMTS and the effective Qv curve for QC.</p>
+
+<p>A method whose missing inputs produce refusals that name the fix is doing its job:
+the alternative — a plausible saturation computed from an invented S — is the single
+most expensive failure mode in this work.</p>

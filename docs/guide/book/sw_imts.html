@@ -1,0 +1,201 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SW — IMTS (Mineral-Textural Scaling) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Saturation</div>
+<h1>SW — IMTS (Mineral-Textural Scaling)</h1>
+<p class="modmeta">Module id <code>sw_imts</code> · category <b>Saturation</b></p>
+<p>Waxman-Smits-family conductivity with the clay charge built from mineral volumes: Qv comes from kaolinite and illite volumes with literature CEC constants, is scaled to laboratory CEC by the S factor, referenced to the active water through Swirr, and the conductivity equation is iterated to a stable total saturation. The mineral-textural scaling is SandiBumi's own extension of the published model.</p>
+<pre class="equations">Qv_bulk = (V_kaol·ρ_kaol·CEC_kaol + V_ill·ρ_ill·CEC_ill) / (RHOG·(1−PHIT))
+Qv_eff = S · Qv_bulk / (1 − Swirr)
+Ct = SwT^N*/F* · (Cw + B·Qv_eff/SwT),  F* = A/PHIT^M*
+B = Juhász B(T, Rw);  iterate until SwT is stable;  SWE from CBW</pre>
+<h2>References</h2>
+<ul><li>Waxman, M.H. &amp; Smits, L.J.M. (1968), SPEJ</li>
+<li>Waxman, M.H. &amp; Thomas, E.C. (1974), SPEJ</li>
+<li>Juhász, I. (1979), SPWLA 20th Annual Logging Symposium, Paper AA; and (1981), SPWLA 22nd</li></ul>
+<p class="note">The S factor ships absent and is fitted to laboratory CEC with Calibrate S; it is a property of the rock and of the clay curves it was fitted against.</p>
+<!-- Authored walkthrough for the sw_imts guidebook chapter. Screenshots and refusal
+     texts captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: IMTS, and the two things it refuses to guess</h2>
+
+<p>IMTS is Waxman-Smits-family conductivity with the clay charge built from mineral
+volumes: kaolinite and illite volumes carry literature CEC constants, the resulting
+Qv is scaled to laboratory CEC by the S factor, referenced to the active water through
+Swirr, and the conductivity equation is iterated until the total saturation is stable.
+The mineral-textural scaling is SandiBumi's own extension of the published model.</p>
+
+<h3>What could be filled from a source, was</h3>
+
+<ul>
+  <li><b>RW 0.127 ohm·m</b> — the water-zone Rwa on PHIT_SSC, from the
+    <a href="sw_rtc.html">RtC calibration chapter</a>.</li>
+  <li><b>A 1 · M* 2 · N* 2</b> — the dossier's reference-case convention, declared as
+    such.</li>
+  <li><b>CEC_KAOL 8 · CEC_ILL 25 meq/100g</b> — the literature constants the module's
+    own documentation records (of dry rock, grain-weight basis).</li>
+  <li><b>RHOG 2.65</b> — the quartz grain density from SandiMin's endpoint
+    library.</li>
+  <li><b>Inputs</b> — PHIT_SSC, CBW and SWIRR_T resolve straight from the SSC run;
+    the kaolinite slot resolves VDCL. This chain is the point: SSC's bound-water split
+    is what IMTS references its clay charge against.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-swimts-pane.png"
+       alt="The IMTS pane with the citable constants entered and S left absent" />
+  <figcaption>Everything with a source is filled; the two parameters without one are
+    left empty on purpose.</figcaption>
+</figure>
+
+<h3>The refusal ladder — and why it is right</h3>
+
+<p>Run it like this and the pane refuses, in order:</p>
+
+<ul>
+  <li><i>"TEMP_C must be set — Formation temperature"</i>. The Juhász B coefficient
+    is a function of temperature, and this delivery records no BHT anywhere — no LAS
+    header entry, no test data. There is nothing to fill it from, so the run stops.
+    On a real dataset this comes from the header or from the formation-temperature
+    module's fitted trend.</li>
+  <li>Declare a temperature and the next rung fires: <i>"S_FACTOR_GW must be set —
+    CEC scaling factor S (lab/XRD), grain-weight basis"</i>. S is the ratio of
+    measured laboratory CEC to the XRD-theoretical CEC, so it is a property of the
+    rock <b>and of the clay curves it was fitted against</b>. This delivery carries
+    no lab CEC measurements, so S cannot be fitted — and the module will not invent
+    it, because S multiplies the whole clay-charge term and moves the saturation with
+    no outward sign of being wrong.</li>
+</ul>
+
+<p>The path forward on a real study: import the lab CEC table, then
+<b>Advance ▸ Calibrate S…</b> regresses S from those measurements against the very
+clay curves this run will use. With S fitted and a temperature declared, the run
+proceeds and writes SWT_IMTS, SWE_IMTS and the effective Qv curve for QC.</p>
+
+<p>A method whose missing inputs produce refusals that name the fix is doing its job:
+the alternative — a plausible saturation computed from an invented S — is the single
+most expensive failure mode in this work.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>LRLC IMTS model: Waxman-Smits-family conductivity with the clay charge referenced to the ACTIVE water — Qv_eff = Qv_bulk/(1−Swirr), where Qv_bulk is the clay MASS per unit dry-rock mass times literature CEC constants (kaolinite 8 / illite 25 meq/100g of DRY ROCK), i.e. (V_kaol*RHO_KAOL*CEC_KAOL + V_ill*RHO_ILL*CEC_ILL)/(RHOG*(1-PHIT)) - the clay's own grain density is what converts its volume to the mass the charge sits on. Calibrated to lab CEC by scaling factor S. Iterates Ct = SwT^N*/F*·(Cw + B·Qv_eff/SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) until SwT is stable. SWE from CBW. VKAOL/VILL resolve from the selected clay curves. S = measured lab CEC / XRD-theoretical CEC, so it is A PROPERTY OF THE ROCK AND OF THE CLAY CURVES IT IS PAIRED WITH and ships absent. S multiplies the whole clay-charge term, so getting it wrong scales Qv_eff directly and moves Sw with no outward sign. Fit your own with Advance ▸ Calibrate S…, which regresses S from lab CEC measurements against the clay content of the very curves this run will use. S is on the GRAIN-WEIGHT basis and is NAMED S_FACTOR_GW for that reason (DEC-094): a value fitted under the older bulk-volume denominator reads roughly a fifth high at ordinary porosity.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RT</td><td>Deep resistivity</td><td><code>RES_DEEP</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PHIT</td><td>Total porosity</td><td><code>PHIT_SSC</code></td><td>yes</td><td>—</td></tr>
+<tr><td>VKAOL</td><td>Kaolinite volume fraction</td><td><code>VDCL</code></td><td>no</td><td>—</td></tr>
+<tr><td>VILL</td><td>Illite volume fraction</td><td><code>VILL</code></td><td>no</td><td>—</td></tr>
+<tr><td>SWIRR</td><td>Irreducible Sw (for Qv_eff)</td><td><code>SWIRR_T</code></td><td>no</td><td>—</td></tr>
+<tr><td>CBW</td><td>Clay-bound water (for SWE), optional</td><td><code>CBW</code></td><td>no</td><td>—</td></tr>
+<tr><td>PHIT_SSPW</td><td>Total porosity — SSPW fallback (used where PHIT is absent)</td><td><code>PHIT_SSPW</code></td><td>no</td><td>—</td></tr>
+<tr><td>CBW_SSPW</td><td>Clay-bound water — SSPW fallback</td><td><code>CBW_SSPW</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RW <span class="src">(ohm.m)</span></h3>
+<p>Formation water resistivity at FT</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 100 ohm.m</li></ul>
+<h3>TEMP_C <span class="src">(degC)</span></h3>
+<p>Formation temperature</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 15 to 200 degC</li></ul>
+<h3>A</h3>
+<p>Tortuosity factor a</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.5 to 3</li></ul>
+<h3>MSTAR</h3>
+<p>Shaly-sand cementation exponent m*</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li></ul>
+<h3>NSTAR</h3>
+<p>Shaly-sand saturation exponent n*</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li></ul>
+<h3>S_FACTOR_GW</h3>
+<p>CEC scaling factor S (lab/XRD), grain-weight basis</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.01 to 2</li></ul>
+<h3>RHO_KAOL <span class="src">(g/cc)</span></h3>
+<p>Kaolinite grain density</p>
+<ul><li><b>Default:</b> 2.62 <span class="src">— source: SandiMin's own endpoint library carries this grain density (sandimin.rs LIB: clay Kaolinite RHOB 2.62, clay Illite RHOB 2.78), and docs/multimin_ref_spec.md:62 verifies the same pair against the reference-suite Multimin bound-water coefficients (Illite 0.1841, Kaolinite 0.0694). IP 2025 ships the matching un-expanded illite coefficient 0.185 (docs/research_2026-07/ip2025_chm_ingest/C_mineral_solver.md 3.4), so the two tools agree on this pair to three decimals</span></li>
+<li><b>Accepted range:</b> 1 to 4 g/cc</li></ul>
+<h3>RHO_ILL <span class="src">(g/cc)</span></h3>
+<p>Illite grain density</p>
+<ul><li><b>Default:</b> 2.78 <span class="src">— source: SandiMin's own endpoint library carries this grain density (sandimin.rs LIB: clay Kaolinite RHOB 2.62, clay Illite RHOB 2.78), and docs/multimin_ref_spec.md:62 verifies the same pair against the reference-suite Multimin bound-water coefficients (Illite 0.1841, Kaolinite 0.0694). IP 2025 ships the matching un-expanded illite coefficient 0.185 (docs/research_2026-07/ip2025_chm_ingest/C_mineral_solver.md 3.4), so the two tools agree on this pair to three decimals</span></li>
+<li><b>Accepted range:</b> 1 to 4 g/cc</li></ul>
+<h3>CEC_KAOL <span class="src">(meq/100g)</span></h3>
+<p>Kaolinite CEC constant</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 50 meq/100g</li></ul>
+<h3>CEC_ILL <span class="src">(meq/100g)</span></h3>
+<p>Illite CEC constant</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 100 meq/100g</li></ul>
+<h3>RHOG <span class="src">(g/cc)</span></h3>
+<p>Grain density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li></ul>
+<h3>SWIRR_DEF <span class="src">(v/v)</span></h3>
+<p>Swirr fallback when no SWIRR log</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.95 v/v</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>SWT_IMTS</td><td>SWT from IMTS (unlimited)</td></tr>
+<tr><td>SWE_IMTS</td><td>SWE from IMTS (unlimited)</td></tr>
+<tr><td>SWT</td><td>Limited total water saturation</td></tr>
+<tr><td>SWE</td><td>Limited effective water saturation</td></tr>
+<tr><td>VOL_UWAT</td><td>Volume of water (unflushed)</td></tr>
+<tr><td>SW_METHOD</td><td>Producing saturation equation (categorical method code)</td></tr>
+<tr><td>QVEFF</td><td>Effective Qv (meq/cm3)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

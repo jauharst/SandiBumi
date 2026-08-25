@@ -1,0 +1,60 @@
+<!-- Authored walkthrough for the sw_height guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: saturation from height, with the fit chain shown</h2>
+
+<p>sw_height writes a saturation-versus-height curve from a fitted capillary-pressure
+model — the Leverett J-function here, with Skelt-Harrison one dropdown away. Its
+inputs are the end of a chain, and this walkthrough runs the whole chain on SANDI-01
+so every number arrives with its origin attached.</p>
+
+<h3>Link one: a permeability log from the core calibration</h3>
+
+<p>The J-function needs a PERM curve and none existed. The por-perm transform module
+is built for exactly this: <b>PT_A 17.92 / PT_B −2.203</b> are the ordinary
+least-squares fit of log₁₀(CPERM) on CPOR (as a fraction) over the 15 plugs of the
+SANDI-01 core delivery — R² 0.981 — and the module writes PERM from PHIE_DEN on all
+three wells (<b>3 clean</b>). The regression is the user's own calibration by
+design; the transform ships no coefficients.</p>
+
+<h3>Link two: the Leverett fit from the SCAL import</h3>
+
+<p>Importing the delivery's long-format Pc table (24 points, air-brine, lab σ·cosθ
+72 dyn/cm — the recorded laboratory seed) makes the import itself report the J-fit:
+<b>SWH_A 0.511, SWH_B −0.210, R² 0.586</b>. Note that R² — it will matter below.</p>
+
+<h3>Link three: the run</h3>
+
+<ul>
+  <li><b>FWL 1535 m MD</b> — the gas-water contact read off the resistivity collapse
+    between the two sands. SANDI-01 is vertical so MD = TVD; the pane measures height
+    from a TVD curve when one exists, and this well carries none, so the
+    measured-depth fallback applies — which is only legitimate because the well is
+    vertical.</li>
+  <li><b>RHO_W 1.0</b> (the cited default) and <b>RHO_HC 0.7 g/cc · IFT_RES 26
+    dyn/cm</b> — the recorded vendor seeds for the reservoir fluid pair. On a real
+    study these come from PVT and lab IFT; for the gas leg of a real field you would
+    use the water-gas pair instead. Seeds are seeds, and the reference field says
+    so.</li>
+  <li><b>SWH_A/SWH_B</b> from the import's fit; <b>SWT_IRR 0.16</b> as in the other
+    saturation chapters.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-swheight-pane.png"
+       alt="The saturation-height pane with the fitted Leverett coefficients entered" />
+  <figcaption>The chain's numbers entered: core-fit PERM behind the PHIE/PERM inputs,
+    the SCAL import's J-fit as SWH_A/SWH_B.</figcaption>
+</figure>
+
+<h3>Run and read — including the disagreement</h3>
+
+<p>On SANDI-01: <b>1 clean</b>. Below the FWL the curve is 1 by definition; above it
+HAFWL rises to 35 m at the top of the log and the J-curve pulls saturation down. Now
+the honest part: in the gas leg the height model reads a median <b>SWT_HGT 0.53</b>
+where the resistivity methods read ~0.16 at their floor. That gap is the R² 0.586
+talking — a J-fit through 24 scattered synthetic Pc points is a weak law, and the
+height curve inherits every bit of that weakness. On a real study this comparison —
+height-model saturation against resistivity saturation, on one track — is the QC that
+decides whether the Pc data, the contacts or the resistivity picks need another
+look before anything ships.</p>

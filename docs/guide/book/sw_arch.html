@@ -1,0 +1,192 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SW — Archie — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Saturation</div>
+<h1>SW — Archie</h1>
+<p class="modmeta">Module id <code>sw_arch</code> · category <b>Saturation</b></p>
+<p>Archie's equation as two separately named methods, because the porosity identity changes the answer: archie_total solves on total porosity and backs effective saturation out through the bound-water fraction; archie_effective solves on effective porosity directly and lifts total saturation through the inverse. The identity is declared by name, never inferred.</p>
+<pre class="equations">archie_total: SWT = (A·Rw / (PHIT^M · RT))^(1/N)
+SWE = max((SWT − Swb)/(1 − Swb), 0),  Swb = 1 − PHIE/PHIT
+archie_effective: SWE = (A·Rw / (PHIE^M · RT))^(1/N)
+SWT = SWE·(1 − Swb) + Swb</pre>
+<h2>References</h2>
+<ul><li>Archie, G.E. (1942), Transactions AIME 146, 54-62</li></ul>
+<!-- Authored walkthrough for the sw_arch guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+
+<h2>Step by step: Archie, with the porosity identity declared</h2>
+
+<p>This pane is Archie's equation twice over, and the choice between the two is the
+first decision: <b>archie_total</b> solves on total porosity and backs the effective
+saturation out through the bound-water fraction; <b>archie_effective</b> solves on
+effective porosity directly. On shaly rock the two differ materially, which is why the
+identity is a named choice and never inferred. This run uses <b>archie_total</b>, the
+default.</p>
+
+<h3>Every parameter ships absent — here is where each pick came from</h3>
+
+<p>Nothing in this pane carries a default: a, m, n, Rw and the irreducible floor are
+basin statements. The picks, exactly as recorded in the run's reference field:</p>
+
+<ul>
+  <li><b>A 1 · M 2 · N 2</b> — the reference-case convention of this project's
+    saturation dossier, entered as a declared convention rather than a measured
+    exponent set. With core electrical measurements you would fit m and n instead.</li>
+  <li><b>RW 0.058 ohm·m</b> — the median apparent water resistivity
+    Rwa&nbsp;=&nbsp;RT·PHIE² over 277 wet-sand samples (GR&nbsp;&lt;&nbsp;60,
+    RT&nbsp;&lt;&nbsp;10) across all three wells; the per-well medians span
+    0.057–0.059, which is the consistency check.</li>
+  <li><b>SWT_IRR 0.16</b> — the median of SSC's own SWIRR_T over 271 gas-sand
+    samples: the irreducible floor read from this dataset's own bound-water
+    arithmetic.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-swarch-pane.png"
+       alt="The SW — Archie pane with the porosity identity, exponents and Rw entered" />
+  <figcaption>archie_total on PHIT_DEN/PHIE_DEN; every value's origin is in the
+    reference field.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>0 clean · 3 degraded</b> — and the degradation report is the
+method talking. The dominant clamp, <code>[0.16, 1]</code> at 372 samples per well, is
+Archie computing <i>more than 100% water</i> through the shale and the wet sand (at
+RT&nbsp;2.5 ohm·m and low porosity the arithmetic exceeds 1) and being held at the
+bounds. In the gas sand the unlimited <code>SWT_ARCH</code> reads a median 0.084 —
+under 10% water at 120 ohm·m. The limited <code>SWT</code>/<code>SWE</code> pair
+carries the floor and ceiling; the unlimited twins show what was clipped.</p>
+
+<p>One habit to keep: the two Archie identities disagree by whole saturation units on
+shaly rock, so a report that says "Archie" without naming which one is not
+reproducible. The output <code>SW_METHOD</code> curve records the identity per run for
+exactly that reason.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Archie (1942) as two separately named methods (SB-SAT-002). archie_total: SWT = (A*Rw/(PHIT^M*RT))^(1/N) on total porosity, SWE by the back-out max((SWT-Swb)/(1-Swb), 0) with Swb = 1-PHIE/PHIT. archie_effective: SWE = (A*Rw/(PHIE^M*RT))^(1/N) directly on effective porosity, SWT lifted through the inverse SwT = Sw*(1-Swb)+Swb. On the dossier reference case the two differ by 25.0 saturation units - both are Archie, so the identity must be declared, never inferred.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>FTEMP</td><td>Formation temperature (precalc, for MEASURED/SALINITY)</td><td><code>FTEMP</code></td><td>no</td><td>resolved from computed curves only, never the RAW import store</td></tr>
+<tr><td>RT</td><td>True formation resistivity</td><td><code>RES_DEEP</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PHIT</td><td>Limited total porosity</td><td><code>PHIT</code></td><td>yes</td><td>—</td></tr>
+<tr><td>PHIE</td><td>Limited effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>A</h3>
+<p>Tortuosity constant</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 5</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_a</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>M</h3>
+<p>Cementation exponent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_m</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>N</h3>
+<p>Saturation exponent</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>archie_n</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>SWT_IRR <span class="src">(v/v)</span></h3>
+<p>Irreducible total water saturation</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.6 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>irreducible_swt</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RW <span class="src">(ohmm)</span></h3>
+<p>Rw at formation temperature (CONSTANT)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_resistivity</code>); the pane lists them with sources at the point of choice.</li>
+<li><b>Checked before the run:</b> <code>rw.required_when_constant</code> — RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>RWS <span class="src">(ohmm)</span></h3>
+<p>Measured water sample resistivity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
+<li><b>Checked before the run:</b> <code>rws.required_when_measured</code> — RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>RWT <span class="src">(degC)</span></h3>
+<p>Temperature of RWS measurement</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 150 degC</li>
+<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code> — RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h3>SALW <span class="src">(ppm)</span></h3>
+<p>Formation water salinity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 100 to 300000 ppm</li>
+<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code> — SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
+    <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
+<h2>Options</h2>
+<h3>OPT_EQN</h3>
+<p>Archie porosity system (equation identity)</p>
+<ul><li><b>Choices:</b><ul><li><code>archie_total</code></li>
+<li><code>archie_effective</code></li></ul></li>
+<li><b>Default:</b> <code>archie_total</code></li></ul>
+<h3>OPT_RW</h3>
+<p>Formation water resistivity source</p>
+<ul><li><b>Choices:</b><ul><li><code>CONSTANT</code></li>
+<li><code>MEASURED</code></li>
+<li><code>SALINITY</code></li></ul></li>
+<li><b>Default:</b> <code>CONSTANT</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>SWT_ARCH</td><td>SWT from Archie (unlimited)</td></tr>
+<tr><td>SWE_ARCH</td><td>SWE from Archie (unlimited)</td></tr>
+<tr><td>SWT</td><td>Limited total water saturation</td></tr>
+<tr><td>SWE</td><td>Limited effective water saturation</td></tr>
+<tr><td>VOL_UWAT</td><td>Volume of water (unflushed)</td></tr>
+<tr><td>SW_METHOD</td><td>Producing saturation equation (categorical method code)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>
