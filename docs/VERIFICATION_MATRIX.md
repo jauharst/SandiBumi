@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **183** of 713,
+Review sections counted toward no capability: **183** of 714,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -31,8 +31,8 @@ this table, so every figure above reads low by whatever those sections cover.
 | `core-depth-registration` | Core-depth registration | Not exercised | 0 / 60 | — | 10 |
 | `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 114 | — | 19 |
-| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 74 | — | 14 |
-| `porosity` | Porosity interpretation | Not exercised | 0 / 115 | — | 28 |
+| `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 78 | — | 15 |
+| `porosity` | Porosity interpretation | Not exercised | 0 / 119 | — | 29 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 211 | 2026-08-13 | 50 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 40 | — | 6 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 15 | — | 3 |

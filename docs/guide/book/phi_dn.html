@@ -1,0 +1,218 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Porosity from Density-Neutron — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
+<h1>Porosity from Density-Neutron</h1>
+<p class="modmeta">Module id <code>phi_dn</code> · category <b>Porosity</b></p>
+<p>Quick-look density-neutron porosity: shale-reduces RHOB and NPHI, converts each to porosity, and combines them as the simple average or the gas RMS. A comparison shortcut only - deliberately not a crossplot porosity method; for the analytic crossplot use Porosity from Bateman-Konen.</p>
+<pre class="equations">AVERAGE: PHIX = (PHID + PHIN)/2
+GAS_RMS: PHIX = √((PHID² + PHIN²)/2)
+PHIE = PHIX·(1 − VSH)
+PHIT = PHIE + VSH·PHIT_SH</pre>
+<!-- Authored walkthrough for the phi_dn guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+
+<h2>Step by step: the quick-look pair</h2>
+
+<p>This module is a comparison shortcut, and its own manifest says so: the average and
+the gas-RMS of density and neutron porosity are field quick-looks, not a crossplot
+method. Use it to eyeball agreement between the two logs; for an actual analytic
+crossplot porosity go to <a href="phi_dnbk.html">Porosity from Bateman-Konen</a>.</p>
+
+<h3>The refusal you will meet first</h3>
+
+<p>Run it on a freshly imported well and it refuses, by name:</p>
+
+<blockquote>neutron curve 'NPHI' has no DECLARED matrix basis. A limestone-unit
+neutron read against a sandstone matrix is ~0.04 v/v low in clean water sand, and an
+undeclared basis cannot be checked - declare it (set_curve_neutron_basis) or convert
+with nphimat first.</blockquote>
+
+<p>That is this run happening on camera: the SANDI deliveries say "limestone" in the
+LAS header, but the application never infers a matrix basis — it must be DECLARED
+(Curve Catalog → the neutron curve's basis, citing the header), or the curve converted
+with <b>Neutron Matrix Conversion</b>. Here the basis was declared LIMESTONE with the
+header as its source, and the run proceeded.</p>
+
+<h3>Enter the shale point</h3>
+
+<ul>
+  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units, matching the declared curve)
+    — medians of SANDI-01's samples at GR ≥ 112 gAPI. Everything else is a cited
+    default, including the AVERAGE/GAS_RMS choice (AVERAGE).</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-phidn-pane.png"
+       alt="The Porosity from Density-Neutron pane with the shale point entered" />
+  <figcaption>The quick-look pane; the shale point is the only data-driven entry.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>1 clean · 2 degraded</b>. The degraded wells report two clamps —
+the shale-reduced neutron held to its [-0.015, 0.4] guard band at one sample, and the
+effective porosity held at the 0.001 floor at another. Single-sample clamps at guard
+rails are the normal texture of real logs; a well that failed outright would say
+<b>failed</b> and write nothing.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Shale-corrects RHOB and NPHI to 'shale reduced' values, then combines density porosity and neutron porosity: AVERAGE = (PHID+PHIN)/2, GAS_RMS = sqrt((PHID²+PHIN²)/2) for gas-bearing zones. QUICK-LOOK COMPARISON ONLY - neither combination is a crossplot porosity method: no vendor ships either as one, and IP says of the field shortcuts that they should not be used for anything other than this. The chart-free analytic neutron-density method is a separate contract (SB-POR-021). PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>BADHOLE</td><td>Bad-hole flag (flagged samples excluded, exclusion recorded)</td><td><code>BADHOLE</code></td><td>no</td><td>—</td></tr>
+<tr><td>GAS_FLAG</td><td>Gas-crossover flag from condflag (provenance record only - never a correction)</td><td><code>XOVER_FLAG</code></td><td>no</td><td>—</td></tr>
+<tr><td>COAL_FLAG</td><td>Coal flag from condflag (flagged samples blanked - coal apparent porosity is never rock porosity)</td><td><code>COAL_FLAG</code></td><td>no</td><td>—</td></tr>
+<tr><td>TIGHT_FLAG</td><td>Tight flag from condflag (indicator only - never alters an output)</td><td><code>TIGHT_FLAG</code></td><td>no</td><td>—</td></tr>
+<tr><td>COND_FLAG</td><td>Conditioning flag from condflag (indicator only - never alters an output)</td><td><code>COND_FLAG</code></td><td>no</td><td>—</td></tr>
+<tr><td>RHOB</td><td>Density log</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>NPHI</td><td>Neutron porosity log</td><td><code>NPHI</code></td><td>yes</td><td>—</td></tr>
+<tr><td>VSH</td><td>Limited volume of shale</td><td><code>VSH</code></td><td>yes</td><td>accepts quantity kind: VSH</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHO_MA <span class="src">(g/cc)</span></h3>
+<p>Matrix density</p>
+<ul><li><b>Default:</b> 2.65 <span class="src">— source: IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog phi_den.info's shipped 2645 k/m3.</span></li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHO_SH <span class="src">(g/cc)</span></h3>
+<p>Shale density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1.5 to 3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHO_FL <span class="src">(g/cc)</span></h3>
+<p>Fluid density</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 0.5 to 1.5 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>fluid_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>NPHI_SH <span class="src">(v/v)</span></h3>
+<p>Shale neutron porosity</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.8 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_neutron_endpoint</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHO_DSH <span class="src">(g/cc)</span></h3>
+<p>Dry shale density</p>
+<ul><li><b>Default:</b> 2.7 <span class="src">— source: Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>dry_shale_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHO_W <span class="src">(g/cc)</span></h3>
+<p>Formation water density</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 0.8 to 1.3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_density</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>PHIE_MAX <span class="src">(v/v)</span></h3>
+<p>Maximum allowed PHIE</p>
+<ul><li><b>Default:</b> 0.3 <span class="src">— source: Geolog V14 phi_dn.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3</span></li>
+<li><b>Accepted range:</b> 0.05 to 0.5 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>max_effective_porosity</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>PHIE_FLOOR <span class="src">(v/v)</span></h3>
+<p>Floor applied to limited PHIE where the limit binds</p>
+<ul><li><b>Default:</b> 0.001 <span class="src">— source: Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md</span></li>
+<li><b>Accepted range:</b> 0.001 to 0.01 v/v</li></ul>
+<h3>DPHIMAX <span class="src">(v/v)</span></h3>
+<p>Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li>
+<li><b>Checked before the run:</b> <code>dphimax.required_when_smooth_rolloff</code> — DPHIMAX is required when OPT_PHIEMAX = SMOOTH_ROLLOFF. Applies when: [object Object].
+    <div class="src">Source: IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)</div></li></ul>
+<h3>VCL_CUTOFF <span class="src">(v/v)</span></h3>
+<p>Smooth roll-off onset shale volume (IP VclCutoff)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li>
+<li><b>Checked before the run:</b> <code>vcl_cutoff.required_when_smooth_rolloff</code> — VCL_CUTOFF is required when OPT_PHIEMAX = SMOOTH_ROLLOFF. Applies when: [object Object].
+    <div class="src">Source: IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)</div></li></ul>
+<h3>VSH_SHALE <span class="src">(v/v)</span></h3>
+<p>High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)</p>
+<ul><li><b>Default:</b> 0.95 <span class="src">— source: Geolog V14 phi_*.lls hard-coded VSH &gt;= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source</span></li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>high_shale_branch_threshold</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHOSR_MIN <span class="src">(g/cc)</span></h3>
+<p>Shale-reduced density clamp, lower</p>
+<ul><li><b>Default:</b> 1.95 <span class="src">— source: Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1232</span></li>
+<li><b>Accepted range:</b> 1 to 3 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_reduction_clamp</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>RHOSR_MAX <span class="src">(g/cc)</span></h3>
+<p>Shale-reduced density clamp, upper</p>
+<ul><li><b>Default:</b> 3 <span class="src">— source: Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1232</span></li>
+<li><b>Accepted range:</b> 2 to 4 g/cc</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_reduction_clamp</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>NPHISR_MIN <span class="src">(v/v)</span></h3>
+<p>Shale-reduced neutron clamp, lower</p>
+<ul><li><b>Default:</b> -0.015 <span class="src">— source: Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1231</span></li>
+<li><b>Accepted range:</b> -0.1 to 0 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_reduction_clamp</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h3>NPHISR_MAX <span class="src">(v/v)</span></h3>
+<p>Shale-reduced neutron clamp, upper</p>
+<ul><li><b>Default:</b> 0.4 <span class="src">— source: Geolog V14 phi_dn.lls L292-295; docs/PRD_v2/11_porosity.md §5 line 1231</span></li>
+<li><b>Accepted range:</b> 0.1 to 1 v/v</li>
+<li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_reduction_clamp</code>); the pane lists them with sources at the point of choice.</li></ul>
+<h2>Options</h2>
+<h3>OPT_XPLOT</h3>
+<p>Crossplot combination method</p>
+<ul><li><b>Choices:</b><ul><li><code>AVERAGE</code></li>
+<li><code>GAS_RMS</code></li></ul></li>
+<li><b>Default:</b> <code>AVERAGE</code></li></ul>
+<h3>OPT_PHIEMAX</h3>
+<p>PHIE limiting method</p>
+<ul><li><b>Choices:</b><ul><li><code>SHALE_REDUCED</code></li>
+<li><code>MAXIMUM</code></li>
+<li><code>SMOOTH_ROLLOFF</code></li></ul></li>
+<li><b>Default:</b> <code>SHALE_REDUCED</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>PHIE_DN</td><td>PHIE from density-neutron (unlimited)</td></tr>
+<tr><td>PHIT_DN</td><td>PHIT from density-neutron (unlimited)</td></tr>
+<tr><td>PHIE</td><td>Limited effective porosity</td></tr>
+<tr><td>PHIT</td><td>Limited total porosity</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>

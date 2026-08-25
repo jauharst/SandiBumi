@@ -1,0 +1,230 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SSC — Sand-Silt-Clay (Kuttan/LQR) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
+<h1>SSC — Sand-Silt-Clay (Kuttan/LQR)</h1>
+<p class="modmeta">Module id <code>ssc</code> · category <b>Porosity</b></p>
+<p>Sand-Silt-Clay model on the neutron-density crossplot: gas-conditions the (RHOB, NPHI) pair, projects it onto the dry line of a six-point framework, splits the rock into sand, silt and clay fractions, and carries the split through porosity, bound-water and irreducible-saturation arithmetic.</p>
+<pre class="equations">Gas conditioning (Δ = |PHIDI² − NPHI²|, c = GAS_C):
+PHID = √(PHIDI² − c·Δ/2),  NPHI_COR = √(NPHI² + c·Δ/2)
+PHIT = (RHOMA − RHOB_COR)/(RHOMA − RHOB_FL),  RHOMA = Σ fraction·ρ over sand/silt/clay
+PHIE = PHIT − VWCL·PHIT_CL,  PHIFF = PHIT − CBW − CWSH
+SWIRR_T = BW/PHIT,  SWIRR_EFF = 1 − PHIT·(1 − SWIRR_T)/PHIE</pre>
+<h2>References</h2>
+<ul><li>Kuttan et al., Log Interpretation in the Malay Basin, 21st SPWLA Annual Logging Symposium</li></ul>
+<p class="note">The LQR/GAP-2023 modification and the two tight-rock conditioning rules are the interpreter's own additions to the published model.</p>
+<!-- Authored walkthrough for the ssc guidebook chapter. Screenshots and numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+
+<h2>Step by step: the Sand-Silt-Clay split</h2>
+
+<p>SSC is one of this application's flagship methods — the Kuttan Malay Basin model
+with the interpreter's own LQR/GAP-2023 modification, splitting the rock into sand,
+silt and clay on the neutron-density crossplot and carrying the split all the way to
+bound water and irreducible saturation. It lives on the <b>Advance</b> tab, not in the
+Petrophysics dropdowns.</p>
+
+<h3>Prepare the inputs</h3>
+
+<ul>
+  <li><b>NPHI in sandstone units</b> — the six-point framework is written with the
+    matrix at NPHI 0, so pin the NPHI input to <code>NPHI_SS</code> (from Neutron
+    Matrix Conversion).</li>
+  <li><b>GR</b> — the input prefers <code>GRN</code>, the normalized gamma ray,
+    because the method was built to run on field-normalized GR. This project carries
+    no GRN, so the input is pinned to the raw <code>GR</code> and the endpoints below
+    are picks from that raw curve. On a multi-field project, normalize first and let
+    the default resolution find GRN.</li>
+</ul>
+
+<h3>Enter the framework</h3>
+
+<p>Every framework point ships without a default — the six-point triangle is a basin
+statement, not software's to guess. This run entered the reference Loglan values from
+the method's own note, plus the data picks, all recorded in the reference field:</p>
+
+<ul>
+  <li><b>Wet clay (2.3, 0.6) · dry clay 2.71 · wet silt NPHI 0.3 · DCLF_SI 0.1</b> —
+    the reference Loglan's values.</li>
+  <li><b>GR_MA 44 / GR_SH 112</b> — the first-hour picks from this dataset's raw GR.</li>
+  <li><b>NPHI_MA 0</b> — the sandstone matrix point, consistent with NPHI_SS.</li>
+  <li><b>PHIT_CL 0.24</b> — the wet-clay porosity implied by the entered clay points:
+    (RHOB_DCL − RHOB_WCL)/(RHOB_DCL − RHOB_FL) = (2.71 − 2.3)/(2.71 − 1). Stated as
+    arithmetic in the reference field so the number's origin travels with the run.</li>
+  <li><b>SWIRR_MIN 0</b> — the reference value; the SWIRR conditioning rule stays off
+    unless a zone sets it.</li>
+</ul>
+
+<figure>
+  <img src="../img/guide-ssc-pane.png"
+       alt="The SSC pane with the six-point framework and gas coefficient entered" />
+  <figcaption>The framework entered; GAS_C 1.6 and PHIT_TIGHT 0.05 are the shipped,
+    cited defaults of the interpreter's own conditioning rules.</figcaption>
+</figure>
+
+<h3>Run and read</h3>
+
+<p>On these wells: <b>3 clean</b>. The outputs are the whole story of the method: the
+sand/silt/clay volumes (and their GR-rescaled twins), PHIT and PHIE, the clay-bound
+and capillary-bound water split (CBW, CWSH), and the irreducible saturations. CWSH is
+what the RtC saturation method consumes as its CAPBW input — this module is the front
+half of the LRLC workflow.</p>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, GAP 2023 LQR edit). Data points are projected from the fluid point onto the dry rock line (matrix→dry clay); sand/silt/clay fractions come from the projection position, matrix density from the fraction mix, PHIT from density. Bound water is split into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints ship absent and must be supplied from the active interpretation.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray (normalized)</td><td><code>GRN</code></td><td>yes</td><td>—</td></tr>
+<tr><td>RHOB</td><td>Bulk density (corrected)</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>
+<tr><td>NPHI</td><td>Neutron porosity (sandstone units)</td><td><code>NPHI</code></td><td>yes</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>GR_MA <span class="src">(gapi)</span></h3>
+<p>Gamma ray matrix (clean)</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 100 gapi</li></ul>
+<h3>GR_SH <span class="src">(gapi)</span></h3>
+<p>Gamma ray clay</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1000 gapi</li></ul>
+<h3>RHOB_MA <span class="src">(g/cc)</span></h3>
+<p>Density matrix</p>
+<ul><li><b>Default:</b> 2.65 <span class="src">— source: IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 1 to 4 g/cc</li></ul>
+<h3>NPHI_MA <span class="src">(v/v)</span></h3>
+<p>Neutron matrix</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -0.1 to 1.2 v/v</li></ul>
+<h3>RHOB_FL <span class="src">(g/cc)</span></h3>
+<p>Density fluid</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<li><b>Accepted range:</b> 0.5 to 4 g/cc</li></ul>
+<h3>NPHI_FL <span class="src">(v/v)</span></h3>
+<p>Neutron fluid</p>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5</span></li>
+<li><b>Accepted range:</b> -0.1 to 1.2 v/v</li></ul>
+<h3>RHOB_WCL <span class="src">(g/cc)</span></h3>
+<p>Bulk density wet clay</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4 g/cc</li></ul>
+<h3>NPHI_WCL <span class="src">(v/v)</span></h3>
+<p>Neutron porosity wet clay</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -0.1 to 1.2 v/v</li></ul>
+<h3>RHOB_DCL <span class="src">(g/cc)</span></h3>
+<p>Bulk density dry clay</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 4 g/cc</li></ul>
+<h3>NPHI_WSI <span class="src">(v/v)</span></h3>
+<p>Neutron porosity wet silt</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -0.1 to 1.2 v/v</li></ul>
+<h3>DCLF_SI <span class="src">(v/v)</span></h3>
+<p>Dry clay fraction at dry silt</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>PHIT_CL <span class="src">(v/v)</span></h3>
+<p>Total porosity of clay</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.8 v/v</li></ul>
+<h3>SWIRR_MIN <span class="src">(v/v)</span></h3>
+<p>Minimum total irreducible Sw</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
+<h3>PHIT_TIGHT <span class="src">(v/v)</span></h3>
+<p>Total porosity below which all non-clay-bound porosity is capillary-held</p>
+<ul><li><b>Default:</b> 0.05 <span class="src">— source: Jauhar's own SSC conditioning rule, not the Loglan's (2026-08-20: 'i add those 2 rules to avoid minus and non-reliable cwsh value, cwsh will always be exist even so small'; KEPT and parameterised 2026-08-22, DEC-093). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it</span></li>
+<li><b>Accepted range:</b> 0 to 0.5 v/v</li></ul>
+<h3>GAS_C</h3>
+<p>Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)</p>
+<ul><li><b>Default:</b> 1.6 <span class="src">— source: sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it: Jauhar rules 1.6 here too, extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately</span></li>
+<li><b>Accepted range:</b> 0 to 2</li></ul>
+<h2>Options</h2>
+<h3>OPT_VSHGR</h3>
+<p>VSH from gamma ray method</p>
+<ul><li><b>Choices:</b><ul><li><code>LINEAR</code></li>
+<li><code>STIEBER1</code></li>
+<li><code>STIEBER2</code></li>
+<li><code>STIEBER3</code></li>
+<li><code>LARINOV1</code></li>
+<li><code>LARINOV2</code></li>
+<li><code>LARINOV3</code></li>
+<li><code>CLAVIER</code></li></ul></li>
+<li><b>Default:</b> <code>LINEAR</code></li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>VSAND</td><td>Dry sand volume (bulk)</td></tr>
+<tr><td>VSILT</td><td>Dry silt volume (bulk)</td></tr>
+<tr><td>VDCL</td><td>Dry clay volume (bulk)</td></tr>
+<tr><td>VWCL</td><td>Wet clay volume</td></tr>
+<tr><td>VSH_SSC</td><td>Vshale equivalent (VWCL + VSILT)</td></tr>
+<tr><td>VSHGR</td><td>VSH from gamma ray</td></tr>
+<tr><td>VSHND</td><td>VSH from density-neutron</td></tr>
+<tr><td>PHIT_SSC</td><td>Total porosity</td></tr>
+<tr><td>PHIE_SSC</td><td>Effective porosity (PHIT − CBW)</td></tr>
+<tr><td>PHIFF_SSC</td><td>Free fluid porosity (PHIT − CBW − CWSH)</td></tr>
+<tr><td>CBW</td><td>Clay-bound water</td></tr>
+<tr><td>CWSH</td><td>Capillary-bound water in silt/shale</td></tr>
+<tr><td>BW</td><td>Total bound water</td></tr>
+<tr><td>SWIRR_T</td><td>Total irreducible water saturation</td></tr>
+<tr><td>SWIRR_EFF</td><td>Effective irreducible water saturation</td></tr>
+<tr><td>VSAND_GR</td><td>Sand volume, GR-equivalent</td></tr>
+<tr><td>VSILT_GR</td><td>Silt volume, GR-equivalent</td></tr>
+<tr><td>VDCL_GR</td><td>Dry clay volume, GR-equivalent</td></tr>
+<tr><td>CBW_GR</td><td>Clay-bound water, GR-equivalent</td></tr>
+<tr><td>CWSH_GR</td><td>Capillary water, GR-equivalent</td></tr>
+<tr><td>PHIFF_GR</td><td>Free fluid, GR-equivalent</td></tr>
+<tr><td>PHIE_GR</td><td>Effective porosity, GR-equivalent</td></tr>
+<tr><td>PHIT_GR</td><td>Total porosity, GR-equivalent</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>
