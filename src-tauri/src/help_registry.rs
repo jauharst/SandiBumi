@@ -216,6 +216,133 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                    Reconstructed from the method specification; validation against the \
                    reference-suite exports is an open review item.",
         }),
+        // Equations copied from modules::sw_arch (the two named identities); citation
+        // copied from docs/PRD_v2/12_saturation.md S2.13 (the recorded References block).
+        "sw_arch" => Some(ModuleHelp {
+            summary: "Archie's equation as two separately named methods, because the \
+                      porosity identity changes the answer: archie_total solves on total \
+                      porosity and backs effective saturation out through the bound-water \
+                      fraction; archie_effective solves on effective porosity directly and \
+                      lifts total saturation through the inverse. The identity is declared \
+                      by name, never inferred.",
+            equations: &[
+                "archie_total: SWT = (A·Rw / (PHIT^M · RT))^(1/N)",
+                "SWE = max((SWT − Swb)/(1 − Swb), 0),  Swb = 1 − PHIE/PHIT",
+                "archie_effective: SWE = (A·Rw / (PHIE^M · RT))^(1/N)",
+                "SWT = SWE·(1 − Swb) + Swb",
+            ],
+            references: &["Archie, G.E. (1942), Transactions AIME 146, 54-62"],
+            note: "",
+        }),
+        // Equations copied from modules::sw_indo's manifest doc; citation copied from
+        // docs/PRD_v2/12_saturation.md S2.13.
+        "sw_indo" => Some(ModuleHelp {
+            summary: "The Poupon-Leveaux Indonesia equation for shaly sands: total \
+                      conductivity is a clay term, a clean-sand Archie term and a \
+                      geometric cross-term between them, so the clay contribution needs \
+                      no separate clay-water resistivity model. Three published forms of \
+                      the shale exponent are offered by name.",
+            equations: &[
+                "1/RT = (v/RT_SH + PHIE^M/(A·Rw) + 2·√(v·PHIE^M/(A·Rw·RT_SH))) · SW^N",
+                "v = VSH^(2−VSH)  (FULL),  VSH²  (SIMPLE),  VSH^(2−2·VSH)  (TAR_SAND)",
+            ],
+            references: &[
+                "Poupon, A. & Leveaux, J. (1971), SPWLA 12th Annual Logging Symposium, \
+                 Paper O",
+            ],
+            note: "",
+        }),
+        // Equations copied from modules::sw_sim's manifest doc (each persisted id names
+        // one equation); citations copied from docs/PRD_v2/12_saturation.md S2.13.
+        "sw_sim" => Some(ModuleHelp {
+            summary: "The Simandoux family as typed equations: every vendor ships a \
+                      different arithmetic under the one name, so here each persisted id \
+                      names exactly one published form and the run records which was \
+                      used. Solved numerically for SWE.",
+            equations: &[
+                "simandoux_bardon_pied: 1/RT = PHIE^M·SWE^N/(A·Rw) + VSH·SWE/RT_SH",
+                "simandoux_modified_slb: 1/RT = PHIE^M·SWE^N/(A·Rw·(1−VSH)) + VSH^C·SWE/RT_SH",
+            ],
+            references: &[
+                "Simandoux, P. (1963), Revue de l'IFP (SPWLA Shaly Sand Reprint Volume \
+                 1982 translation)",
+                "Bardon, C. & Pied, B. (1969), SPWLA 10th Annual Logging Symposium, \
+                 Paper Z",
+            ],
+            note: "",
+        }),
+        // Equations copied from lrlc.rs's sw_rtc manifest doc. SandiBumi's own method
+        // for LRLC pay - no publication is cited, by the standing rule that user-facing
+        // text never cites the analyst's own studies.
+        "sw_rtc" => Some(ModuleHelp {
+            summary: "SandiBumi's own excess-conductivity method for low-resistivity \
+                      low-contrast pay: the conductivity added by clay chemistry and by \
+                      capillary-bound (micropore) water is estimated per sample, removed \
+                      from the measured conductivity, and Archie is applied to what \
+                      remains. The calibration coefficients never ship as defaults - \
+                      they are fitted to declared water zones with Calibrate RtC.",
+            equations: &[
+                "Cex = (A_CAP·CAPBW + B_QV·Qv + C0)·PHIT·RSF",
+                "Sw = [Rw·(1/Rt − Cex) / PHIT^M]^(1/N)",
+                "Qv = QV log when present, else CEC·RHOG·(1−PHIT)/(100·PHIT)",
+            ],
+            references: &[],
+            note: "SandiBumi's own method - no published primary reference. A \
+                   calibration is a property of the dataset it was fitted on and never \
+                   transfers between fields.",
+        }),
+        // Equations copied from lrlc.rs's sw_imts manifest doc; the published lineage
+        // citations copied from docs/PRD_v2/12_saturation.md S2.13. The scaling itself
+        // is SandiBumi's own and cites no study.
+        "sw_imts" => Some(ModuleHelp {
+            summary: "Waxman-Smits-family conductivity with the clay charge built from \
+                      mineral volumes: Qv comes from kaolinite and illite volumes with \
+                      literature CEC constants, is scaled to laboratory CEC by the S \
+                      factor, referenced to the active water through Swirr, and the \
+                      conductivity equation is iterated to a stable total saturation. \
+                      The mineral-textural scaling is SandiBumi's own extension of the \
+                      published model.",
+            equations: &[
+                "Qv_bulk = (V_kaol·ρ_kaol·CEC_kaol + V_ill·ρ_ill·CEC_ill) / (RHOG·(1−PHIT))",
+                "Qv_eff = S · Qv_bulk / (1 − Swirr)",
+                "Ct = SwT^N*/F* · (Cw + B·Qv_eff/SwT),  F* = A/PHIT^M*",
+                "B = Juhász B(T, Rw);  iterate until SwT is stable;  SWE from CBW",
+            ],
+            references: &[
+                "Waxman, M.H. & Smits, L.J.M. (1968), SPEJ",
+                "Waxman, M.H. & Thomas, E.C. (1974), SPEJ",
+                "Juhász, I. (1979), SPWLA 20th Annual Logging Symposium, Paper AA; and \
+                 (1981), SPWLA 22nd",
+            ],
+            note: "The S factor ships absent and is fitted to laboratory CEC with \
+                   Calibrate S; it is a property of the rock and of the clay curves it \
+                   was fitted against.",
+        }),
+        // multimin (retired) deliberately has NO card: its manifest doc already is the
+        // full retirement pointer to SandiMin, and a card must carry equations - a
+        // retired stub cannot honestly provide them. The guidebook chapter carries the
+        // pointer for the book.
+        // Equations copied from satheight.rs (module doc and file header, where the two
+        // published constants fix their units); citations copied from docs/ref_shf.md's
+        // model table (Leverett 1941 Trans. AIME 142; Skelt & Harrison 1995 SPWLA).
+        "sw_height" => Some(ModuleHelp {
+            summary: "Water saturation from height above the free-water level, through a \
+                      fitted capillary-pressure model: the Leverett J-function (fit \
+                      SWH_A/SWH_B from core Pc data via Import SCAL) or the \
+                      Skelt-Harrison law. Below the FWL the result is 1; above it the \
+                      result is limited to [SWT_IRR, 1]. Height is measured from TVD \
+                      when a TVD curve is supplied, so deviated wells are not overstated.",
+            equations: &[
+                "Pc = 0.433·(RHO_W − RHO_HC)·h_ft  (psi; 0.433 psi/ft per unit sp. gravity)",
+                "J = 0.21645·Pc/IFT_RES·√(PERM/PHIE),  SWH = SWH_A·J^SWH_B",
+                "SKELT: SWH = 1 − SH_A·exp(−(SH_B/(h + SH_D))^SH_C)  (h in metres)",
+            ],
+            references: &[
+                "Leverett, M.C. (1941), Transactions AIME 142 - the J-function",
+                "Skelt, C. & Harrison, B. (1995), SPWLA - the height-saturation law",
+            ],
+            note: "",
+        }),
         _ => None,
     }
 }
@@ -266,7 +393,7 @@ mod tests {
     /// Test-only on purpose: production reaches cards through `module_help` alone.
     const MODULES_WITH_HELP: &[&str] = &[
         "vsh_gr", "vsh_dn", "phi_den", "phi_dn", "phi_dnbk", "phi_son", "phimax", "ssc",
-        "sspw",
+        "sspw", "sw_arch", "sw_indo", "sw_sim", "sw_rtc", "sw_imts", "sw_height",
     ];
 
     /// Pins the card's own rule from both sides: every registered id is a real module

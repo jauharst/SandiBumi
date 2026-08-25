@@ -1,0 +1,193 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Multimin — Mineral Inversion (retired · use SandiMin) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --bg: #f5ead8; --panel: #ffffff; --panel-alt: #efe9dc;
+    --text: #2b2118; --dim: #6b5c4a; --brand: #c67139; --accent-text: #8c491a;
+    --sage: #7a8a5e; --border: #ded3c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 28px 32px; }
+  .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+  .crumb a { color: var(--accent-text); }
+  h1 { font-size: 30px; color: var(--brand); margin: 0 0 4px; }
+  .modmeta { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 20px; color: var(--accent-text); margin: 30px 0 10px;
+       border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  pre.equations { background: var(--panel-alt); border: 1px solid var(--border);
+                  border-radius: 5px; padding: 10px 14px; white-space: pre-wrap;
+                  overflow-x: auto; }
+  blockquote { border-left: 3px solid var(--sage); margin: 12px 0; padding: 4px 14px;
+               background: var(--panel-alt); border-radius: 0 5px 5px 0; }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+           vertical-align: top; }
+  th { background: var(--panel-alt); }
+  .wrap { overflow-x: auto; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--dim); }
+  .note { font-size: 13px; color: var(--dim); font-style: italic; }
+  .absent { font-weight: 600; }
+  .footer { font-size: 11px; color: var(--dim); margin-top: 26px; }
+  a { color: var(--accent-text); }
+  .toc td.missing { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page"><div class="card">
+<div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Saturation</div>
+<h1>Multimin — Mineral Inversion (retired · use SandiMin)</h1>
+<p class="modmeta">Module id <code>multimin</code> · category <b>Saturation</b></p>
+<!-- Authored chapter for the retired multimin module. No walkthrough: the module
+     no longer executes, and this page's whole job is the pointer. -->
+
+<h2>This module is retired — use SandiMin</h2>
+
+<p>Multimin was the original fixed four-component mineral solver (sand, clay, water,
+hydrocarbon from RHOB/NPHI/DT/PEF). It has been superseded by <b>SandiMin</b>
+(Advance ▸ Mineral Solver), a general component-library solver with editable
+endpoints, zoned fluids and the full constraint set. Running a multimin step now
+returns a message directing you to SandiMin instead of executing.</p>
+
+<h3>Why the entry still exists</h3>
+
+<p>Saved workflow chains reference their steps by module id. Deleting the manifest
+would break every chain saved before the retirement — the step would vanish from the
+chain editor along with its stored parameters. So the manifest is kept, the runner
+refuses, and this page exists to say where the capability went.</p>
+
+<h3>If you have an old chain with a multimin step</h3>
+
+<ul>
+  <li>The step still shows its stored parameters in the chain editor — nothing saved
+    is lost.</li>
+  <li>Rebuild the step with SandiMin: pick the equivalent components (a quartz
+    mineral, a clay, water and hydrocarbon fluids) and the same input logs. The old
+    solver's outputs (VOL_*, PHIT_MM, VSH_MM, SWT_MM, RECON_ERR) map to SandiMin's
+    VOL_&lt;component&gt; and SM_-prefixed result curves.</li>
+  <li>Projects that already carry MM_* curves keep them — a re-run writes new
+    SM_* curves beside them rather than overwriting history.</li>
+</ul>
+<h2>What the application enforces</h2>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>RETIRED — superseded by SandiMin (Advance ▸ Mineral Solver); running this step now returns a message directing you to SandiMin rather than executing the old fixed 4-component solver. The spec is kept only so a saved workflow chain that references it still resolves and shows its stored parameters. The former solver produced SAND/CLAY/WATER/HYDROCARBON volumes plus PHIT_MM/VSH_MM/SWT_MM and RECON_ERR from RHOB/NPHI/DT/PEF.</p>
+<h2>Input curves</h2>
+<div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Density log</td><td><code>RHOB</code></td><td>no</td><td>—</td></tr>
+<tr><td>NPHI</td><td>Neutron porosity log</td><td><code>NPHI</code></td><td>no</td><td>—</td></tr>
+<tr><td>DT</td><td>Sonic transit time log</td><td><code>DT</code></td><td>no</td><td>—</td></tr>
+<tr><td>PEF</td><td>Photoelectric factor log</td><td><code>PEF</code></td><td>no</td><td>—</td></tr></table></div>
+<h2>Parameters</h2>
+<p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
+<h3>RHOB_SAND <span class="src">(g/cc)</span></h3>
+<p>Sand grain density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li></ul>
+<h3>RHOB_CLAY <span class="src">(g/cc)</span></h3>
+<p>Clay density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 2 to 3.2 g/cc</li></ul>
+<h3>RHOB_WATER <span class="src">(g/cc)</span></h3>
+<p>Water density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.8 to 1.3 g/cc</li></ul>
+<h3>RHOB_HC <span class="src">(g/cc)</span></h3>
+<p>Hydrocarbon density</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.1 to 1.1 g/cc</li></ul>
+<h3>NPHI_SAND <span class="src">(v/v)</span></h3>
+<p>Sand neutron</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> -0.15 to 0.5 v/v</li></ul>
+<h3>NPHI_CLAY <span class="src">(v/v)</span></h3>
+<p>Clay neutron</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 0.8 v/v</li></ul>
+<h3>NPHI_WATER <span class="src">(v/v)</span></h3>
+<p>Water neutron</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.5 to 1.2 v/v</li></ul>
+<h3>NPHI_HC <span class="src">(v/v)</span></h3>
+<p>Hydrocarbon neutron</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 1.2 v/v</li></ul>
+<h3>DT_SAND <span class="src">(us/ft)</span></h3>
+<p>Sand transit time</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 40 to 70 us/ft</li></ul>
+<h3>DT_CLAY <span class="src">(us/ft)</span></h3>
+<p>Clay transit time</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 60 to 150 us/ft</li></ul>
+<h3>DT_WATER <span class="src">(us/ft)</span></h3>
+<p>Water transit time</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 150 to 220 us/ft</li></ul>
+<h3>DT_HC <span class="src">(us/ft)</span></h3>
+<p>Hydrocarbon transit time</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 150 to 260 us/ft</li></ul>
+<h3>PEF_SAND <span class="src">(b/e)</span></h3>
+<p>Sand photoelectric factor</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 6 b/e</li></ul>
+<h3>PEF_CLAY <span class="src">(b/e)</span></h3>
+<p>Clay photoelectric factor</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 6 b/e</li></ul>
+<h3>PEF_WATER <span class="src">(b/e)</span></h3>
+<p>Water photoelectric factor</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 2 b/e</li></ul>
+<h3>PEF_HC <span class="src">(b/e)</span></h3>
+<p>Hydrocarbon photoelectric factor</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0 to 2 b/e</li></ul>
+<h3>SIG_RHOB <span class="src">(g/cc)</span></h3>
+<p>RHOB uncertainty</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.005 to 0.5 g/cc</li></ul>
+<h3>SIG_NPHI <span class="src">(v/v)</span></h3>
+<p>NPHI uncertainty</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.005 to 0.5 v/v</li></ul>
+<h3>SIG_DT <span class="src">(us/ft)</span></h3>
+<p>DT uncertainty</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.5 to 50 us/ft</li></ul>
+<h3>SIG_PEF <span class="src">(b/e)</span></h3>
+<p>PEF uncertainty</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 0.02 to 3 b/e</li></ul>
+<h3>W_UNITY</h3>
+<p>Unity-constraint weight</p>
+<ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
+<li><b>Accepted range:</b> 1 to 1000000</li></ul>
+<h2>Output curves</h2>
+<div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>VOL_SAND</td><td>Sand (quartz) volume</td></tr>
+<tr><td>VOL_CLAY</td><td>Clay volume</td></tr>
+<tr><td>VOL_WATER</td><td>Water volume</td></tr>
+<tr><td>VOL_HC</td><td>Hydrocarbon volume</td></tr>
+<tr><td>PHIT_MM</td><td>Total porosity (water + hc)</td></tr>
+<tr><td>VSH_MM</td><td>Shale volume (= clay)</td></tr>
+<tr><td>SWT_MM</td><td>Total water saturation</td></tr>
+<tr><td>RECON_ERR</td><td>Reconstruction error (sigma units)</td></tr></table></div>
+<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
+</div></div>
+</body>
+</html>
