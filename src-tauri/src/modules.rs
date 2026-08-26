@@ -1657,8 +1657,16 @@ pub(crate) fn output_units(module: &str) -> Vec<(String, String)> {
         .map(|m| {
             m.args
                 .iter()
-                .filter(|a| a.kind == ArgKind::LogOut && !a.unit.trim().is_empty())
-                .map(|a| (a.name.clone(), a.unit.clone()))
+                .filter(|a| a.kind == ArgKind::LogOut)
+                // A manifest unit of "" or "-" is a statement, not an omission: the output is
+                // dimensionless (a class index, a silhouette, log10 cycles). Declaring it as
+                // "-" is what lets the plot resolvers tell "unitless by design" apart from
+                // "never declared" — skipping these rows left every class curve refusing to
+                // crossplot with "no declared source unit".
+                .map(|a| {
+                    let unit = a.unit.trim();
+                    (a.name.clone(), if unit.is_empty() { "-".to_string() } else { a.unit.clone() })
+                })
                 .collect()
         })
         .unwrap_or_default()

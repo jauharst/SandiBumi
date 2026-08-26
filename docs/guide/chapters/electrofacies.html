@@ -1,34 +1,115 @@
 <!-- Authored walkthrough for the electrofacies guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27),
+     second pass: quality curves, the K variant, the categorical crossplot. -->
 
-<h2>Step by step: unsupervised facies by k-means</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Electrofacies clusters each well's samples in the space of the supplied curves
-(z-scored by default so mixed units are comparable) into K classes. The
-convention worth knowing: labels are ordered by the mean of the <i>first</i>
-supplied curve, usually GR, so FACIES 0 is the cleanest class and the numbering
-is monotone in shaliness. Clustering is per well and deterministic for a given
-seed.</p>
+<p>Unsupervised electrofacies: k-means clusters each well's samples in the
+space of up to five curves into K classes, and writes the class curve FACIES
+plus two per-sample quality curves. Reach for it when the section needs a
+lithology framework and no core description exists to train one: the classes
+are a data-driven starting point that an interpreter then names, merges, or
+rejects against the log. It is a description of the measurements, never a
+lithology until someone says so.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>Shipped defaults throughout: <b>K&nbsp;5, seed 42</b>, z-scored
-GR/RHOB/NPHI/DT/SP. K is the interpretation decision here, so start near the number
-of lithologies you expect and judge the result on a log, not on a statistic. Any
-curve slot with no data is dropped; a sample missing any present curve gets
-FACIES&nbsp;=&nbsp;MISSING.</p>
+<p>Each sample becomes a point in curve space, z-scored per curve by default so
+a gAPI axis and a g/cc axis carry equal weight. K-means (k-means++ seeding,
+best of eight starts, deterministic for a given seed) partitions the points
+into K clusters, and the labels are then ordered by the mean of the
+<i>first</i> supplied curve, so with GR first, FACIES 0 is the cleanest class
+and numbering is monotone in shaliness. Two diagnostics ride along, in the
+manifest's own words:</p>
+
+<pre class="equations">FACIES_SIL  Silhouette per sample: +1 fits its cluster well, 0 on a
+            boundary, NEGATIVE means it sits closer to another cluster
+            than its own
+FACIES_CRI  Cluster randomness index of the facies at this depth: 1.0 is
+            indistinguishable from a random arrangement, 3.0 means its
+            beds are three times thicker than chance</pre>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>K 5, seed 42, ZSCORE</b>: the shipped defaults. K is the
+    interpretation decision, so start near the number of lithologies you
+    expect and judge the result on a log, not on a statistic. The seed only
+    pins reproducibility; it does not change what a good K looks like.</li>
+  <li><b>GR, RHOB, NPHI, DT, SP</b> in that order: GR first so the class
+    numbering tracks shaliness. Any curve slot with no data is dropped, and a
+    sample missing any present curve gets FACIES = MISSING.</li>
+</ul>
 
 <figure>
   <img src="../img/guide-electrofacies-pane.png"
-       alt="The Electrofacies pane with the default five curves" />
-  <figcaption>GR first, so class numbering tracks shaliness.</figcaption>
+       alt="The Electrofacies pane with the default five curves and K 5" />
+  <figcaption>GR first, so class numbering tracks shaliness; the two quality
+    curves are declared beside the class output.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>. The pooled census over 1164 classified
-samples: 267 / 297 / 15 / 198 / 387 across facies 0–4. Class 2's 15 samples are
-the number to interrogate: a class that thin is either a real thin lithology or
-K set one too high. Put FACIES in a track as class blocks (the Facies layout
-ships with the block style) and judge it against the log before anything
-consumes it.</p>
+<ol>
+  <li>Open <b>Petrophysics ▸ Facies ▸ Electrofacies (K-means)</b>, keep the
+    shipped curves and K, and press <b>Run</b>.</li>
+  <li>Put FACIES in a track as class blocks (the Facies layout ships with the
+    block style) and read it against GR before anything consumes it.</li>
+  <li>Color a crossplot by FACIES: discrete curves get categorical swatches
+    automatically, and the clusters should occupy separate regions of the
+    space they were cut in.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. The pooled census over 1164 classified samples:
+<b>267 / 297 / 15 / 198 / 387</b> across facies 0 through 4, and the class GR
+medians run 45.0 / 52.4 / 80.4 / 104.8 / 109.9 gAPI, monotone as the ordering
+convention promises. The per-well censuses are identical (89 / 99 / 5 / 66 /
+129 in each well), which on this example set is the tell that the three wells
+are statistical clones of one synthetic section. The quality curves: silhouette
+runs 0.09 / 0.75 / 0.93 at min / median / max with not one negative sample,
+and the randomness index medians 36.9, beds nearly forty times thicker than a
+random shuffle would draw. Re-running the same picks after an application
+rebuild reproduced the census to the sample: seeded means seeded.</p>
+
+<figure>
+  <img src="../img/guide-electrofacies-xplot.png"
+       alt="NPHI against RHOB colored by FACIES with categorical swatches" />
+  <figcaption>The clusters in the space they were cut in. The 15-sample class
+    F2 (red) sits scattered between the blue and teal clusters rather than
+    forming its own cloud.</figcaption>
+</figure>
+
+<p>Class 2's 15 samples are the number to interrogate, and the crossplot
+answers it: the red points are a boundary population, not a lithology. The
+variant makes the same point from the other side. <b>K 4</b> on identical
+curves and seed yields 267 / 304 / 206 / 387: the two extreme classes and
+their populations survive untouched, and the 15 thin-class samples dissolve
+into the two classes they always sat between. Restoring K 5 reproduces the
+five-class census exactly.</p>
+
+<figure>
+  <img src="../img/guide-electrofacies-result.png"
+       alt="The electrofacies run with the FACIES block track beside the input curves" />
+  <figcaption>Three clean wells; the block track is where a class earns or
+    loses its name.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>A thin class is either a real thin lithology or one K too many, and the
+    two look identical in a census. The crossplot coloring and the K-minus-one
+    variant are the five-minute tests that tell them apart.</li>
+  <li>The silhouette and the block track answer different questions: the
+    silhouette says whether the clusters are apart in curve space, the track
+    says whether the beds are geologically credible. Insist on both.</li>
+  <li>Clustering is per well. Two wells' FACIES 1 are not the same rock until
+    a correlation says so; for one field-wide clustering, use the ML suite's
+    clustering, which pools the wells by construction.</li>
+  <li>The diagnostics are named for the engine (FACIES_SIL beside FACIES), so
+    a later GMM run writes its own pair rather than silently overwriting the
+    k-means quality curves with numbers computed for a different
+    clustering.</li>
+</ul>

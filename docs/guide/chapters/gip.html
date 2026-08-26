@@ -1,47 +1,113 @@
-<!-- Authored walkthrough for the gip guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the gas-in-place guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-27), second pass: the VL refusal, the exact Langmuir arithmetic,
+     and the doubled-VL variant. -->
 
-<h2>Step by step: gas-in-place as a curve</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Gas-in-place per sample, as gas <i>content</i> (scf per ton of rock), so it
-composites like any other curve. Free gas comes from porosity and saturation
-through the gas formation-volume factor; adsorbed gas through the Langmuir
-isotherm; the total is their sum. CBM mode adds the dry-ash-free correction
-and, given a measured gas content, the critical desorption pressure.</p>
+<p>Per-sample gas-in-place as gas <i>content</i>, standard cubic feet per ton
+of rock, split into free gas in the pore space and gas adsorbed on organic
+matter, so the total composites like any other curve. Reach for it in shale
+gas or coalbed work where adsorbed gas is a material share of the resource;
+in conventional reservoir the adsorbed term is noise and ordinary volumetrics
+serve better.</p>
 
-<h3>First, the refusal</h3>
+<h2>The physics</h2>
 
-<blockquote><i>"VL must be set — Langmuir volume (max sorption)"</i></blockquote>
+<pre class="equations">Bg        = 0.02827 · z · T / P          (T in Rankine; rcf/scf)
+GIP_FREE  = 32.0368 · φ · (1 − Sw) / (RHOB · Bg)
+GIP_ADS   = VL · P / (PL + P)            (Langmuir 1918)
+GIP_TOTAL = GIP_FREE + GIP_ADS</pre>
 
-<p>The Langmuir pair ships absent because an isotherm from another basin is the
-wrong isotherm: VL/PL come from matched core desorption or isotherm
-measurements, or the adsorbed term is not computable.</p>
+<p>Free gas is pore volume times gas saturation, converted from reservoir to
+surface volume through Bg and normalized per ton through bulk density. The
+adsorbed term is the Langmuir isotherm: VL is the plateau, the most the rock
+can hold, and PL the pressure at half of it. CBM mode adds the dry-ash-free
+correction and, given a measured gas content, the critical desorption
+pressure (Ambrose et al. 2010; GRI, Mavor-Nelson 1996).</p>
 
-<h3>The picks, each with its defence</h3>
+<h2>The refusal, first</h2>
+
+<p>Langmuir constants come from a laboratory isotherm measured on this rock,
+so they ship absent, and a run without one stops:</p>
+
+<pre class="equations">VL must be set — Langmuir volume (max sorption)</pre>
+
+<figure>
+  <img src="../img/guide-gip-refused.png"
+       alt="The gas-in-place pane refusing to run without a Langmuir volume" />
+  <figcaption>An isotherm is measured, never defaulted.</figcaption>
+</figure>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>VL 100&nbsp;scf/ton / PL 1000&nbsp;psia</b>: the shale seeds this
-    project's method record documents, standing in for the matched isotherm a
-    synthetic delivery cannot have.</li>
-  <li><b>RES_P 2187&nbsp;psia, TEMP_F 210&nbsp;°F</b>: the precalc trends
-    evaluated at 1530&nbsp;m (hydrostatic pressure, the metric temperature
-    trend).</li>
-  <li><b>Z_FAC 0.9</b>: the gas-correction module's Papay solve at these same
-    conditions.</li>
+  <li><b>VL 100 scf/ton, PL 1000 psia</b>: this project's recorded seeds,
+    standing in for a matched isotherm. On a real study both come from core
+    desorption and isotherm measurement, and the source note says which
+    samples.</li>
+  <li><b>RES_P 2187 psia, TEMP_F 210 °F</b>: the project's pressure and
+    temperature trends evaluated at 1530 m, the middle of the section.</li>
+  <li><b>Z_FAC 0.9</b>: a Papay solve at those conditions.</li>
+  <li><b>PHI pinned to PHIE_DEN, SW to SWE, MODE shale</b>.</li>
 </ul>
 
 <figure>
   <img src="../img/guide-gip-pane.png"
-       alt="The Gas-in-place pane with the Langmuir seeds" />
-  <figcaption>PHI and SW from the interpretation; the Langmuir pair is
-    entered, never defaulted.</figcaption>
+       alt="The gas-in-place pane with reservoir conditions and Langmuir seeds" />
+  <figcaption>Every number here is a condition or a measurement, and each
+    carries its derivation in the source note.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>. The adsorbed term is a near-constant
-<b>~69&nbsp;scf/ton</b> (the isotherm at one pressure), while free gas is
-<b>0 over most of the section and ~405&nbsp;scf/ton across the gas sand</b>,
-the split telling you what kind of resource this section would be. One caveat
-rides along from the method record: the Ambrose pore-volume correction is
-deferred, so high-TOC, high-pressure free gas reads slightly high.</p>
+<ol>
+  <li>Establish reservoir pressure and temperature at the zone of interest,
+    and get VL and PL from the lab.</li>
+  <li>Open <b>Petrophysics ▸ Unconventional ▸ Gas-in-place (free + Langmuir
+    adsorbed)</b>, name the porosity and saturation inputs, and press
+    <b>Run</b>.</li>
+  <li>Read the free and adsorbed tracks separately before the total: they
+    respond to entirely different inputs.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. The arithmetic is checkable by hand and checks out: Bg
+stores 0.007791 rcf/scf, exactly 0.02827 · 0.9 · 669.67 / 2187, and GIP_ADS
+stores <b>68.62 scf/ton</b> at every sample, exactly 100 · 2187 / 3187. The
+adsorbed curve is flat because every input to it is a constant here; on a real
+study the pressure trend and a TOC-scaled VL give it structure. Free gas does
+vary: median 121, maximum 454 scf/ton across the 573 samples carrying porosity
+and saturation, peaking in the gas sand, and GIP_TOTAL tops out at 523
+scf/ton. PCD stays entirely MISSING, correctly, since it is a CBM-mode output
+and this run is shale mode.</p>
+
+<p>The variant is the isotherm's linearity on display: <b>VL 200</b> doubles
+GIP_ADS to 137.25 scf/ton at every sample, exactly ×2, with free gas
+untouched. An uncertain Langmuir volume passes straight through to the
+adsorbed resource, which is why it must be measured. Restoring VL 100
+reproduces 68.62.</p>
+
+<figure>
+  <img src="../img/guide-gip-result.png"
+       alt="The gas-in-place run with free, adsorbed, and total gas tracks" />
+  <figcaption>Three clean wells; free gas follows porosity and saturation
+    while the adsorbed term follows the isotherm.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Free and adsorbed gas fail differently. Free gas inherits every
+    porosity and saturation error; adsorbed gas inherits the isotherm and the
+    pressure. QC them against their own inputs, not each other.</li>
+  <li>A flat GIP_ADS is the signature of constant inputs, not of the rock.
+    Before quoting it, ask whether pressure should be a trend and whether VL
+    should scale with TOC.</li>
+  <li>Content units invite double counting: scf/ton already includes bulk
+    density, so a volumetric roll-up must not multiply by density again.</li>
+  <li>Where porosity or saturation is MISSING, free and total gas stay
+    MISSING rather than reading zero: absence of an answer, not absence of
+    gas.</li>
+</ul>

@@ -1,33 +1,98 @@
-<!-- Authored walkthrough for the gmm_facies guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the GMM electrofacies guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-27), second pass: the k-means comparison and the FPROB-versus-
+     silhouette lesson. -->
 
-<h2>Step by step: soft facies, with a confidence per sample</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>The Gaussian-mixture variant of electrofacies: every sample gets a membership
-probability per class instead of a hard assignment. FPROB is the winning class's
-posterior: 1.0 is unambiguous, about 1/K is a boundary or mixed sample, so
-transitional beds are visible instead of being forced into a class. Initialized
-from k-means, labels ordered by the first curve's mean, deterministic for a
-given seed.</p>
+<p>Soft electrofacies: a Gaussian mixture model fitted in the same z-scored
+curve space as the k-means module, writing a class curve FACIES_GMM, the
+posterior probability FPROB of the winning class at every sample, and the same
+silhouette and bed-randomness diagnostics under its own names. Reach for it
+when the boundaries matter: k-means assigns every sample outright, while the
+mixture says <i>how sure</i> it is, which is exactly the information a
+transitional interval needs.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>Same curves and seed as the k-means run, so the two classifications are
-directly comparable, which is the QC this chapter demonstrates.</p>
+<p>Where k-means cuts space into cells around K centroids, a GMM fits K
+Gaussian components, each with its own center and covariance, and assigns each
+sample the component with the highest posterior probability. FPROB is that
+winning posterior: 1.0 deep inside a component, approaching 1/K where
+components genuinely overlap. Labels are ordered by the first curve's mean,
+the same GR-tracks-shaliness convention as k-means, so the two class curves
+are comparable class by class.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>K 5, seed 42, ZSCORE, GR/RHOB/NPHI/DT/SP</b>: identical to the
+    k-means run on purpose. Same curves, same seed, same K is what makes the
+    two classifications directly comparable, and the comparison is the whole
+    reason to run both.</li>
+</ul>
 
 <figure>
   <img src="../img/guide-gmmfacies-pane.png"
-       alt="The GMM electrofacies pane" />
-  <figcaption>Outputs FACIES_GMM and FPROB, the per-sample posterior.</figcaption>
+       alt="The GMM electrofacies pane with the same curves and K as the k-means run" />
+  <figcaption>Same curves, same seed, same K as the k-means run, so the
+    disagreement census means something.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>, and an instructive pair of numbers. The two
-classifiers agree on <b>1122 of 1164 samples (96%)</b>, yet FPROB is
-essentially <b>1.0 everywhere</b> (not one sample below 0.8). Generated data
-separates this cleanly; the 42 disagreements are boundary samples where the
-mixture's ellipsoidal classes draw the line differently from k-means'
-spherical ones, each model certain of its own answer. On real rock, expect the
-opposite signature: FPROB sagging toward 1/K exactly where facies interfinger,
-which is the map of where the hard classification should not be trusted.</p>
+<ol>
+  <li>Run <a href="electrofacies.html">Electrofacies (K-means)</a> first with
+    the same picks.</li>
+  <li>Open <b>Petrophysics ▸ Facies ▸ Electrofacies (GMM, soft)</b> and run
+    with identical curves, K, and seed.</li>
+  <li>Put FACIES and FACIES_GMM side by side as block tracks with FPROB in the
+    next track, filled toward 1.0, and read where the two classifications part
+    company.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. The census over 1164 samples: 258 / 276 / 55 / 191 / 384
+against k-means' 267 / 297 / 15 / 198 / 387, and the class GR medians
+(44.9 / 52.3 / 67.9 / 105.0 / 109.9 gAPI) stay monotone. The two engines agree
+at <b>1122 of 1164</b> samples, 96 percent, and the entire disagreement is the
+boundary population: the mixture grows the thin middle class from 15 to 55
+samples by claiming the transitional points k-means split between its
+neighbours.</p>
+
+<p>Now the number this module exists to teach. FPROB is uniformly confident:
+minimum 0.974 across every classified sample, median 1.0, not one sample below
+0.8, and even at the 42 samples where the GMM disagrees with k-means its
+median confidence is 1.0. The silhouette tells the opposite story: 51 samples
+carry a <b>negative</b> silhouette (minimum &minus;0.86), and they
+concentrate in that same middle class. Both are right, because they answer
+different questions. FPROB says how confidently the fitted mixture assigns a
+sample to the component it won; the silhouette says whether the clusters are
+geometrically apart at all. A confidently fitted but badly separated mixture
+reports high FPROB and negative silhouettes at the same depths, which is
+precisely what a boundary facies looks like.</p>
+
+<figure>
+  <img src="../img/guide-gmmfacies-result.png"
+       alt="The GMM run with FACIES and FACIES_GMM block tracks and the FPROB track" />
+  <figcaption>Three clean wells; the two block tracks agree at 96 percent of
+    samples, and FPROB stays high even where they differ.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Never read FPROB as cluster quality. It is confidence in the mixture's
+    own fit, and it stays near 1.0 for clusters the silhouette says are not
+    apart. Read FACIES_GMM_SIL beside it, always.</li>
+  <li>The k-means and GMM class numbers align here because both order by GR
+    mean, but the populations differ: a class-by-class comparison is only
+    honest after checking the class GR medians line up.</li>
+  <li>Where the two engines disagree is the most informative interval in the
+    well: it is where the facies boundaries actually are. Treat the
+    disagreement census as a QC product, not a nuisance.</li>
+  <li>Like k-means, this is per well and unsupervised. It finds structure in
+    the measurements; only core, cuttings, or an interpreter make it
+    lithology.</li>
+</ul>

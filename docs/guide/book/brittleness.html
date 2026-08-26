@@ -396,46 +396,109 @@ Wang-Gale: BI = (Qz + Dol)/(Qz + Dol + calcite + clay + organic)</pre>
 <li>Jarvie et al. (2007), AAPG Bulletin 91</li>
 <li>Wang &amp; Gale (2009), GCAGS Transactions 59</li></ul>
 <p class="note">The shipped normalization endpoints (1-8 Mpsi, 0.40-0.15) are Rickman's own Barnett calibration on dynamic log values: recalibrate per basin, and apply any static correction after this index, not before. Mineral volumes come from a SandiMin run; a missing mineral counts as absent.</p>
-<!-- Authored walkthrough for the brittleness guidebook chapter. Outcomes captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the brittleness guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-27), second pass: both routes fail on this delivery by design,
+     and the chapter teaches what the module needs and what a failed run
+     does not do. -->
 
-<h2>Step by step: brittleness, and what it refuses without</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Brittleness index, 0 ductile to 1 brittle, two ways. <b>Elastic</b>: dynamic
-Young's modulus and Poisson's ratio from the sonic pair and density, each
-normalized and averaged per Rickman. <b>Mineralogical</b>: Jarvie's
-quartz-over-total or Wang-Gale's quartz-plus-dolomite variant, consuming a
-SandiMin run's volume fractions.</p>
+<p>A brittleness index from 0 (ductile) to 1 (brittle), computed two ways: an
+elastic route from sonic and density through dynamic moduli, and a
+mineralogical route from a mineral-solver's volumes. Reach for it when
+completion design needs to rank an unconventional section's frac candidates.
+This chapter is deliberately a demonstration of the module <i>refusing to
+answer</i>, because the example dataset carries neither of the inputs the two
+routes require, and what a run does when it cannot answer is worth a chapter
+of its own.</p>
 
-<h3>What this delivery cannot answer, and how the app says so</h3>
+<h2>The physics</h2>
 
-<p>Both routes were run, and both report <b>0 clean · 3 failed</b>, correctly.
-The elastic route needs a shear sonic, and this delivery carries none: no
-sample can produce a modulus, so the run reports failure rather than versioning
-an all-missing interpretation (the same <i>answered</i> contract every module
-follows). The mineral routes need a SandiMin volume solve, which this project
-has not run. A failed run that says why beats a zero that computes.</p>
+<pre class="equations">Vp, Vs = 304.8/DT, 304.8/DTS  [km/s]     G = ρ·Vs²    K = ρ·(Vp² − 4/3·Vs²)
+ν = (3K − 2G) / (2(3K + G))              E = 9KG / (3K + G)  → Mpsi
+BI = (E_norm + ν_norm) / 2               (Rickman et al. 2008)
+BI = Qz / (Qz + carbonate + clay)        (Jarvie et al. 2007)
+BI = (Qz + Dol) / (Qz + Dol + calcite + clay + organic)   (Wang-Gale 2009)</pre>
+
+<p>The elastic route normalizes Young's modulus over E_LO..E_HI and Poisson's
+ratio over NU_LO..NU_HI and averages the two: stiff and low-ν rock ranks
+brittle. The shipped windows (1..8 Mpsi, 0.40..0.15) are the Barnett
+calibration and must be re-anchored per basin. The mineral routes count
+brittle minerals as a fraction of the total, and they disagree with each other
+about dolomite on purpose: Wang-Gale counts it brittle, Jarvie's quartz-only
+numerator does not.</p>
+
+<h2>What this delivery cannot answer, on camera</h2>
+
+<p>The elastic route requires a shear sonic, and this delivery carries none.
+The run reports <b>0 clean · 0 degraded · 3 failed</b>, each well saying:</p>
+
+<pre class="equations">no finite output — every sample is missing (check inputs, e.g. precalc not run)</pre>
+
+<p>Switching to METHOD mineral_jarvie fails the same way, because no SandiMin
+run has produced VOL_QUARTZ, VOL_CALCITE, or their siblings in this project.
+And the part that matters: after both failed runs, the project holds
+<b>zero</b> BI, YME, or PR samples. A run that reports failure writes nothing
+and versions nothing; failure is a status, never a curve of zeros.</p>
 
 <figure>
   <img src="../img/guide-brittleness-pane.png"
-       alt="The Brittleness pane in elastic mode" />
-  <figcaption>DT/DTS/RHOB feed the elastic route; the V-slots map whatever your
-    SandiMin run produced.</figcaption>
+       alt="The brittleness pane with the elastic route selected" />
+  <figcaption>The elastic route's normalization windows, with the shipped
+    Barnett calibration visible and editable.</figcaption>
 </figure>
 
-<h3>When you have the inputs</h3>
+<figure>
+  <img src="../img/guide-brittleness-failed.png"
+       alt="The brittleness run reporting all three wells failed" />
+  <figcaption>Three failed wells, and nothing written: the honest outcome for
+    a module missing its inputs.</figcaption>
+</figure>
+
+<h2>The picks and why (for when the inputs exist)</h2>
 
 <ul>
-  <li>The shipped normalization endpoints (E 1–8&nbsp;Mpsi, ν 0.40–0.15) are
-    Rickman's own Barnett calibration <i>on dynamic log values</i>. Recalibrate
-    per basin, and apply any static correction after this index for frac work,
-    never before it.</li>
-  <li>The V-slots take whatever tokens your SandiMin run produced; there is no
-    hard-coded mineral dependence. A missing mineral counts as absent, so map
-    every phase you solved for or the index quietly re-weights.</li>
-  <li>Between Jarvie and Wang-Gale the difference is dolomite: Wang-Gale counts
-    it brittle. On a dolomitic section the two disagree by construction. Pick
-    per your fracture data, not per taste.</li>
+  <li><b>METHOD elastic</b> needs DT, DTS, and RHOB from acquisition. The
+    windows E_LO 1 / E_HI 8 Mpsi and NU_LO 0.40 / NU_HI 0.15 are the Rickman
+    Barnett anchors; recalibrate them to the local moduli range or every well
+    in a soft basin reads ductile.</li>
+  <li><b>METHOD mineral_jarvie or mineral_wanggale</b> needs a
+    <a href="multimin.html">SandiMin</a> run first; the volumes are read from
+    its VOL_* outputs, and a missing mineral is treated as absent. Choose
+    Wang-Gale where dolomite is a real brittle contributor.</li>
+  <li>The METHOD list is closed and checked before anything runs: asking for
+    a method id outside <i>elastic, mineral_jarvie, mineral_wanggale</i> is
+    refused as a precondition, by name.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Confirm the inputs exist: DTS in the delivery for the elastic route, or
+    a SandiMin interpretation for the mineral routes.</li>
+  <li>Open <b>Petrophysics ▸ Unconventional ▸ Brittleness index (elastic /
+    mineralogical)</b>, pick the METHOD the data supports, and press
+    <b>Run</b>.</li>
+  <li>Where both routes can run, run both: agreement between an elastic and a
+    mineralogical brittleness is the cheapest cross-validation this domain
+    offers.</li>
+</ol>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Elastic E and ν here are DYNAMIC. Apply a static correlation before any
+    geomechanical use; a dynamic modulus quoted as static overstates
+    stiffness.</li>
+  <li>The Rickman windows are a calibration, not physics. Check the actual E
+    and ν ranges of the section before trusting the 0-to-1 scale.</li>
+  <li>In the mineral routes a missing mineral counts as absent, which is
+    correct inside a solved model and dangerous outside one: feed them a
+    complete SandiMin answer, not a lone VCL.</li>
+  <li>A failed run writing nothing is a feature to rely on: if BI exists in
+    the project, some run actually answered. Never pre-create placeholder
+    outputs for a module that has not run.</li>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>

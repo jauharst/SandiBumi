@@ -1,5 +1,56 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 7: Facies and Unconventional, six chapters — and the RT shadowing defect caught live
+
+- [ ] **The six chapters** (electrofacies, gmm_facies, toc_passey, kerogen, gip, brittleness)
+      follow the addendum skeleton with 15 new composed-layout screenshots (six new Guide*
+      layouts saved in the sandbox for the re-shoot pass, beside increment 6's eight). Open
+      docs/guide/book/toc_passey.html first — it carries the increment's best story.
+- [ ] **A silent-wrongness defect caught by reading WHERE a curve was finite**: toc_passey's
+      resistivity input shipped default alias "RT", and the rock-typing module legitimately
+      writes a class curve named RT — so the canonical TOC run computed ΔlogR from rock-type
+      classes 4..7 as ohm.m: smooth, bounded, plausible, and NaN over the very shale that
+      defines the baseline (its finite footprint matched rock typing's 573 samples, not the
+      resistivity's 1185). Same bug family as the lrlc.rs RT→RES_DEEP fix after BLSO; the
+      default now names RES_DEEP (unconventional.rs; test
+      the_passey_resistivity_default_names_the_resistivity_curve_not_the_rock_type_class,
+      pinned from both sides — it also fails if rocktyping ever stops writing RT, so the rule
+      is re-judged rather than outliving its reason). The chapter teaches the footprint check
+      as a pitfall.
+- [ ] **Second defect: the whole dimensionless family was unplottable.** Increment 6's unit
+      declarations covered real units and skipped "" — so FACIES refused to crossplot with
+      "no declared source unit", and every "-" output (DLOGR, RT, BI, silhouettes) would have
+      failed the next check. A manifest unit of ""/"-" is a statement (dimensionless), not an
+      omission: the write path now declares "-" and the plot typing accepts it, while a
+      genuinely undeclared curve still refuses (modules.rs output_units + plotting.rs
+      quantity_name; test
+      a_dimensionless_output_declares_itself_and_plots_while_an_undeclared_curve_still_refuses).
+      The facies-colored crossplot figure only exists because of this fix.
+- [ ] **The facies pair teaches with one comparison**: k-means census 267/297/15/198/387
+      (class GR medians monotone 45→110 gAPI), GMM 258/276/55/191/384, agreement 1122/1164.
+      The 15-sample class is shown to be a boundary population three ways — the categorical
+      crossplot (red F2 scattered between clusters), the K 4 variant (it dissolves into its
+      neighbours, extremes untouched), and the GMM's negative silhouettes (51 samples, min
+      −0.86) at FPROB ≥ 0.974 — the chapter's lesson that posterior confidence and geometric
+      separation answer different questions. Censuses reproduced exactly across an app
+      rebuild (seeded determinism on camera).
+- [ ] **The TOC chapter is refusal-first and false-positive-honest**: "R_BASE must be set"
+      verbatim; baselines verify themselves (shale ΔlogR median 0.002); hot-zone TOC median
+      3.47 wt% — and 295 of those 312 samples are the gas sand, Passey's charged-reservoir
+      false positive demonstrated with a census; Schmoker reads 4.6–12.9 wt% everywhere
+      because it reads porosity as organics outside its calibration; LOM 8 variant lifts TOC
+      by exactly 10^(0.1688·2.6) = 2.75×.
+- [ ] **Kerogen and GIP reproduce their own arithmetic on camera**: VKER max 0.0921 =
+      1.2·0.0366·2.3/1.10 to the fourth decimal; the RHO_KERO 1.25 variant scales by exactly
+      1.10/1.25; Bg 0.007791 = 0.02827·0.9·669.67/2187; GIP_ADS 68.62 scf/ton =
+      100·2187/3187 at every sample (flat because the inputs are constants — the chapter says
+      why that is a warning, not a result); the VL 200 variant doubles it exactly. "VL must
+      be set" refused on camera.
+- [ ] **Brittleness is deliberately the failure chapter**: no DTS and no SandiMin volumes, so
+      both routes report 0 clean · 3 failed ("no finite output — every sample is missing")
+      and the project holds zero BI/YME/PR rows afterwards — a failed run writes nothing, on
+      camera. The closed METHOD list precondition is also quoted verbatim.
+
 ## 2026-08-27 — Second pass, increment 6: Permeability and Rock Typing, eight chapters — and every figure now composed for its own workflow
 
 - [ ] **The eight chapters** (perm_wyllie_rose, perm_coates, perm_transform, rocktyping,

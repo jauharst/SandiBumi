@@ -1,48 +1,129 @@
-<!-- Authored walkthrough for the toc_passey guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the Passey TOC guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27),
+     second pass: the refusal, the charged-reservoir false positive, the LOM
+     variant, and the input-shadowing pitfall found and fixed during this pass. -->
 
-<h2>Step by step: TOC from the ΔlogR overlay</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Passey's ΔlogR reads organic richness from the separation between deep
-resistivity and a baselined porosity curve (sonic here) converted to TOC with
-the maturity term 10^(2.297−0.1688·LOM). A Schmoker-Hester density TOC rides
-along as an independent cross-check whenever RHOB is present.</p>
+<p>Total organic carbon from the Passey ΔlogR overlay: the separation between
+deep resistivity and a baselined porosity curve, converted to weight-percent
+TOC through a maturity term, with the Schmoker-Hester density transform written
+alongside as an independent cross-check. Reach for it when a source-rock or
+shale-gas study needs a continuous TOC curve and core geochemistry exists only
+at points, or not at all yet.</p>
 
-<h3>First, the refusal</h3>
+<h2>The physics</h2>
 
-<blockquote><i>"R_BASE must be set — Baseline resistivity (non-source
-interval)"</i></blockquote>
+<pre class="equations">ΔlogR = log10(R / R_base) + 0.02·(DT − DT_base)      [sonic overlay]
+ΔlogR = log10(R / R_base) − 2.5·(RHOB − RHOB_base)   [density overlay]
+TOC   = ΔlogR · 10^(2.297 − 0.1688·LOM) + TOC_BG     (Passey et al. 1990)
+TOC_SCHMOKER = 154.497/RHOB − 57.261                 (Schmoker-Hester 1983)</pre>
 
-<p>Baselines ship absent because TOC is very sensitive to them, and a baseline
-belongs to <i>your</i> section, not to a default.</p>
+<p>The baselines are picked on a non-source, clay-rich interval where the two
+curves overlie. Organic matter moves both curves the same direction, more
+resistive and more porous-looking, so their separation grows with organic
+content, and the LOM term converts separation to TOC because a mature source
+rock produces more separation per unit TOC than an immature one. Where
+ΔlogR &lt; 0 the rock is non-source and TOC floors to the background value.</p>
 
-<h3>The picks, each with its defence</h3>
+<h2>The refusal, first</h2>
+
+<p>The baseline is the calibration, so the module refuses to invent one. With
+every other pick in place and the baseline resistivity left empty, the run
+stops:</p>
+
+<pre class="equations">R_BASE must be set — Baseline resistivity (non-source interval)</pre>
+
+<figure>
+  <img src="../img/guide-toc-refused.png"
+       alt="The TOC pane refusing to run without a baseline resistivity" />
+  <figcaption>A baseline is a picked value with a source, never a default.</figcaption>
+</figure>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>R_BASE 2.5&nbsp;ohmm / DT_BASE 117.9&nbsp;µs/ft</b>: the medians of
-    RES_DEEP and DT over this dataset's shale (GR&nbsp;≥&nbsp;112), the
-    clay-rich, non-source interval where the two curves overlie, which is
-    exactly where the method says to pick them.</li>
-  <li><b>LOM 10.6</b>: the recorded vendor seed (a Tier-A, per-well-overridable
-    starting value in this project's method record). On a real study LOM comes
-    from measured Ro or Tmax, or is iterated to match core TOC.</li>
+  <li><b>R_BASE 2.5 ohm.m, DT_BASE 117.9 µs/ft</b>: the medians of RES_DEEP
+    and DT over this section's shale (GR ≥ 112 gAPI), the non-source
+    clay-rich interval the method asks for. Picking baselines off the
+    section's own shale is the standard move; on a real study, confirm the
+    interval is genuinely lean before it anchors everything.</li>
+  <li><b>LOM 10.6</b>: this project's recorded seed. On a real study LOM
+    comes from vitrinite reflectance or Tmax, and Passey is calibrated for
+    LOM up to about 12.</li>
   <li><b>TOC_BG 0</b>: a barren baseline rock.</li>
+  <li><b>RES pinned to RES_DEEP; OVERLAY sonic</b>.</li>
 </ul>
 
 <figure>
-  <img src="../img/guide-tocpassey-pane.png"
-       alt="The TOC Passey pane with the derived baselines" />
-  <figcaption>Sonic overlay; the density overlay is one option away.</figcaption>
+  <img src="../img/guide-toc-pane.png"
+       alt="The TOC pane with baselines, LOM, and the resistivity input named" />
+  <figcaption>Both baselines carry their derivation in the run's source note.</figcaption>
 </figure>
 
-<h3>Run and read: a non-source section says so</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>, and honest numbers. ΔlogR is <b>negative at
-574 of 590 samples</b>: a water-and-gas-bearing clastic section is not a source
-rock, and the overlay says exactly that (TOC floors to the background). The
-<b>16 positive samples sit in the gas sand</b>, hydrocarbon resistivity, not
-organics, faking a small separation: the classic gas-zone false positive
-Passey's own paper warns about, worth knowing before quoting any TOC from a
-reservoir interval. And the Schmoker cross-check reads a median <b>7.4 wt%</b>
-here, absurd on a 2.3&nbsp;g/cc clastic, because that fit is Bakken-specific:
-it is a cross-check on a real source-rock section, never a substitute.</p>
+<ol>
+  <li>Pick the baseline interval on the log, read the two medians over it,
+    and enter them with the interval recorded in the source note.</li>
+  <li>Open <b>Petrophysics ▸ Unconventional ▸ TOC — Passey ΔlogR +
+    Schmoker</b>, set LOM from maturity data, and press <b>Run</b>.</li>
+  <li>Read DLOGR over the baseline interval first: it should sit at zero
+    there, or the baselines are wrong.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. The baseline verifies itself: over the shale, DLOGR medians
+0.002 with nine-tenths of samples inside ±0.024, as close to zero as the
+curves' own noise allows. Across all 1185 samples DLOGR spans &minus;0.39 to
++1.14 with 321 samples above 0.1, and in the hot zone (ΔlogR &gt; 0.5) TOC
+reads a median of <b>3.47 wt%</b>, maximum 3.66.</p>
+
+<p>Now the honest part: 295 of those 312 hot-zone samples are this section's
+gas sand, clean and resistive. A hydrocarbon-charged reservoir moves both
+overlay curves exactly the way organic-rich shale does, and Passey cannot tell
+the two apart; the analyst does, with GR and context. On this section the
+positive ΔlogR is pay, not source rock, and a TOC curve computed here would be
+quoted only after cutting the reservoir out.</p>
+
+<p>The Schmoker cross-check makes the same point louder. It reads 4.6 to
+12.9 wt% across the <i>entire</i> section, shale and sand alike, because the
+density transform was calibrated where low density means organics; here low
+density means porosity. A cross-check is only a check inside the rock it was
+calibrated for.</p>
+
+<p>The variant isolates the maturity term: <b>LOM 8</b> on identical baselines
+lifts the hot-zone median from 3.47 to 9.55 wt%, a factor of 2.75, exactly
+10^(0.1688·2.6). An immature reading of the same separation nearly triples the
+TOC, which is why LOM must trace to measured maturity and never to a guess.
+Restoring LOM 10.6 reproduces the 3.47 median to the third decimal.</p>
+
+<figure>
+  <img src="../img/guide-toc-result.png"
+       alt="The TOC run with resistivity, DLOGR, and TOC tracks" />
+  <figcaption>Three clean wells. DLOGR sits on zero in the shale and lights up
+    in the gas sand, the false positive this chapter warns about.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Read DLOGR over the baseline interval before reading TOC anywhere. A
+    baseline that does not zero its own interval poisons every number
+    downstream.</li>
+  <li>Charged reservoirs are Passey's classic false positive. High ΔlogR plus
+    low GR is pay until proven otherwise; TOC belongs in the fine-grained
+    intervals.</li>
+  <li>Check <i>where</i> the output is finite, not only its values. During
+    this pass, the module's resistivity input defaulted to the mnemonic RT,
+    and a rock-typing run had legitimately written a class curve named RT, so
+    ΔlogR was silently computed from class indices 4 through 7: smooth,
+    bounded, plausible, and wrong, with the giveaway that DLOGR was MISSING
+    over the very shale that defines the baseline. The default now names
+    RES_DEEP, and the lesson stands: when an output's footprint matches some
+    other curve's footprint instead of its inputs', the resolution went
+    somewhere it should not have.</li>
+  <li>Trust the Schmoker column only in organic-rich mudrock; in porous
+    reservoir it reads porosity as organics.</li>
+</ul>

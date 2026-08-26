@@ -51,7 +51,11 @@ pub fn toc_passey_spec() -> ModuleSpec {
             ),
             param_open("LOM", "Level of organic maturity (Hood scale, 6..12)", "-", 6.0, 12.0, true),
             param_open("TOC_BG", "Background TOC of the baseline rock", "wt%", 0.0, 10.0, true),
-            log_in("RES", "Deep resistivity", "ohm.m", "RT", true),
+            // Default alias RES_DEEP, never "RT": the rock-typing module writes a class curve
+            // literally named RT, and computed-curve lookup resolves it first — a run with the
+            // shipped default would read rock-type classes 4..7 as ohm.m and compute a smooth,
+            // plausible, wrong ΔlogR. Same fix as lrlc.rs's sw_rtc/sw_imts RT→RES_DEEP.
+            log_in("RES", "Deep resistivity", "ohm.m", "RES_DEEP", true),
             log_in("DT", "Sonic Δt (sonic overlay)", "us/ft", "DT", false),
             log_in("RHOB", "Bulk density (density overlay + Schmoker)", "g/cc", "RHOB", false),
             log_out("DLOGR", "Passey resistivity–porosity separation (log10 cycles)", "-"),
@@ -865,5 +869,21 @@ mod tests {
         let sch = 154.497 / 2.40 - 57.261; // 7.113 wt%
         assert!((out["TOC_SCHMOKER"][0] as f64 - sch).abs() < 2e-3,
                 "Schmoker runs from RHOB: {} vs {}", out["TOC_SCHMOKER"][0], sch);
+    }
+
+    #[test]
+    fn the_passey_resistivity_default_names_the_resistivity_curve_not_the_rock_type_class() {
+        // Pinned from both sides. The rock-typing module writes a class curve literally named
+        // RT, and computed-curve lookup resolves that name before any family fallback — so a
+        // default alias of "RT" here fed rock-type classes 4..7 into ΔlogR as ohm.m, smoothly
+        // and silently. If rocktyping ever stops emitting "RT", the first assertion fails and
+        // this rule gets re-judged rather than outliving its reason.
+        let rt_out = crate::rocktyping::rocktyping_spec().args.into_iter()
+            .any(|a| matches!(a.kind, crate::modules::ArgKind::LogOut) && a.name == "RT");
+        assert!(rt_out, "the collision this test guards against has moved: rocktyping no longer writes RT");
+        let res = toc_passey_spec().args.into_iter()
+            .find(|a| a.name == "RES").expect("toc_passey declares a RES input");
+        assert_eq!(res.default, "RES_DEEP",
+                   "the Passey RES default must resolve to resistivity, not the RT class curve");
     }
 }

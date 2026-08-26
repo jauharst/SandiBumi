@@ -1476,7 +1476,15 @@ fn quantity_name(unit: &str, mnemonic_or_family: &str) -> Option<String> {
             crate::curves::family_for(mnemonic_or_family)
                 .and_then(|family| crate::curves::resolve_unit_token(family.canonical_unit))
                 .map(|entry| entry.quantity_kind)
-        })?;
+        });
+    // "-" is the manifests' declared dimensionless unit (class indices, silhouettes, ΔlogR
+    // cycles, brittleness). It is a statement, not a gap: no token resolves it and no family
+    // outranks it, so it plots as-is with identity conversion rather than refusing.
+    let kind = match kind {
+        Some(kind) => kind,
+        None if unit.trim() == "-" => return Some("dimensionless".into()),
+        None => return None,
+    };
     let name = match kind {
         crate::curves::QuantityKind::GammaRay => "gamma_ray",
         crate::curves::QuantityKind::ElectricPotential => "electric_potential",
@@ -1688,6 +1696,27 @@ pub fn resolve_plot_bindings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pinned from both sides. A class curve's manifest unit is "" and a ΔlogR-style output's
+    /// is "-": both are declarations of dimensionlessness, not omissions, so the write path
+    /// declares "-" and the plot typing accepts it — while a curve that truly never declared
+    /// anything still refuses, which is the half a lazier fix (dropping the check) would lose.
+    #[test]
+    fn a_dimensionless_output_declares_itself_and_plots_while_an_undeclared_curve_still_refuses() {
+        let units = crate::modules::output_units("electrofacies");
+        let facies = units.iter().find(|(k, _)| k == "FACIES").expect("FACIES unit declared");
+        assert_eq!(facies.1, "-", "an empty manifest unit is declared as the dimensionless mark");
+        assert_eq!(
+            quantity_name("-", "FACIES").as_deref(),
+            Some("dimensionless"),
+            "the declared dimensionless mark types rather than refusing"
+        );
+        assert_eq!(
+            quantity_name("furlongs", "NO_SUCH_FAMILY"),
+            None,
+            "an unrecognized unit on an unknown family still refuses to guess"
+        );
+    }
 
     /// SB-DIO-034 (DEC-030): the plot surface's family selection is a TYPED semantic request
     /// whose answer NAMES the concrete curve it chose - a GR track showing the well's GRN says
