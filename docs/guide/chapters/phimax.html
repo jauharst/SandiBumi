@@ -1,36 +1,110 @@
-<!-- Authored walkthrough for the phimax guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the phimax guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the linear-default refusal on record, canonical re-established. -->
 
-<h2>Step by step: capping porosity at what the rock allows</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>A computed porosity can drift above what compaction allows: bad hole, a light
-mineral, an optimistic parameter. This module writes the capped copy and the ceiling
-itself, and never modifies the input curve.</p>
+<p>A porosity ceiling: caps an interpreted porosity at the field's
+compaction-controlled upper limit, the "max core porosity" line a crossplot
+against depth shows. This is a different job from the per-module PHIE
+limiting inside each porosity pane: that limiting is arithmetic hygiene on
+one module's output, while this module states a field-level geological
+ceiling and applies it to whichever porosity you point it at, writing the
+capped curve and the ceiling itself as outputs.</p>
 
-<h3>Pick a ceiling from your own data</h3>
+<h2>The physics</h2>
 
-<p>Open <b>Petrophysics → Porosity → Porosity Ceiling (φmax)</b>. For a first look the
-<b>constant</b> mode is enough (the linear and Athy TVDSS trends are for fields with a
-real compaction profile and a deviation survey loaded). Entered here:</p>
+<p>Three ceiling shapes: CONSTANT (one number, per-zone overridable), LINEAR
+(φmax falls by PHIMAX_GRAD per 1000 TVDSS units below TVDSS_REF), and ATHY
+(exponential decline). The trend modes are statements about compaction, so
+they run on true vertical depth, and a well with no survey gets measured
+depth substituted, recorded per well rather than silently.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>The pane ships in LINEAR mode with no gradient and no reference depth, so
+running it with only a ceiling value entered is refused, all three wells,
+before anything computes, demonstrated live and quoted from the per-well
+report:</p>
+
+<pre class="equations">TVDSS_REF is required when MODE = linear.</pre>
+
+<p>A compaction trend without its reference and gradient is not a ceiling,
+and the module refuses to guess either. For a single-number ceiling, MODE
+must say CONSTANT explicitly, which is the demonstration's canonical
+run.</p>
+
+<figure>
+  <img src="../img/guide-phimax-refused.png"
+       alt="The Porosity Ceiling run refused in linear mode without its gradient" />
+  <figcaption>The shipped mode is a trend, and a trend without its reference
+    is refused by name, not defaulted.</figcaption>
+</figure>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>MODE constant</b>, <b>PHI input pinned to PHIE</b> (the Porosity from Density
-    run's output).</li>
-  <li><b>PHIMAX0 0.27</b>, the P99 of that PHIE on SANDI-01: a ceiling read off this
-    dataset's own distribution, recorded as exactly that in the reference field. It is
-    a demonstration pick, not a recommended value; on a real field the ceiling is the
-    crossplot "max core porosity" line.</li>
+  <li><b>MODE CONSTANT</b>, set explicitly.</li>
+  <li><b>PHIMAX0 0.27</b>: the P99 of PHIE from the density-porosity run on
+    SANDI-01, a ceiling read from this dataset for the demonstration, not a
+    recommended value. On a real study the ceiling comes from core: the
+    upper envelope of core porosity against depth.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run the porosity you intend to cap (PHI resolves PHIE by
+    default).</li>
+  <li>Open <b>Petrophysics ▸ Porosity ▸ Porosity Ceiling (φmax)</b>, set
+    MODE, and enter the ceiling with its derivation in the custody
+    line.</li>
+  <li>Press <b>Run Porosity Ceiling (φmax)</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-phimax-pane.png"
-       alt="The Porosity Ceiling pane in constant mode with PHIMAX0 entered" />
-  <figcaption>Constant mode: one ceiling, one input curve.</figcaption>
+       alt="The Porosity Ceiling pane in constant mode with the ceiling entered" />
+  <figcaption>One mode and one number, once the mode actually says
+    constant.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. Two curves come back: <code>PHIE_CAP</code> =
-min(PHIE, φmax) with MISSING preserved, and <code>PHIE_MAX</code>, the ceiling itself,
-which you drop onto the log view as a QC overlay. Wherever the porosity curve rides
-the ceiling, the cap is doing work and you should ask why.</p>
+<p><b>3 clean</b>. Run live: <b>12 of 1185 samples capped</b>, and the
+written ceiling curve PHIE_MAX reads exactly 0.27 everywhere:</p>
+
+<pre class="equations">SELECT COUNT(*) FILTER (WHERE c.value &lt; p.value - 1e-6)
+FROM computed_curves c JOIN computed_curves p
+  ON c.well_id = p.well_id AND c.depth = p.depth AND p.curve_name = 'PHIE'
+WHERE c.curve_name = 'PHIE_CAP' AND NOT isnan(c.value) AND NOT isnan(p.value)</pre>
+
+<p>Twelve samples is what a P99-derived cap should touch: a ceiling is
+meant to shave outliers, and one capping a large share of the section is
+either the wrong ceiling or the wrong porosity. The trend variant, run
+live: LINEAR with the ceiling falling 0.1 v/v per km from 1400 m makes the
+ceiling a depth trend reading 0.253–0.2605 across the section and caps 17
+samples, and because these wells carry no deviation survey, each well's
+report records that measured depth stood in for TVDSS. That substitution
+note is the module telling you the trend's depth frame honestly.</p>
+
+<figure>
+  <img src="../img/guide-phimax-result.png"
+       alt="The Porosity Ceiling run reporting three clean wells" />
+  <figcaption>A ceiling that binds on twelve outliers, with the ceiling
+    curve itself written beside the capped porosity.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Plot the capped and uncapped curves together with the ceiling: the
+    difference track is exactly what the cap removed, and it should look
+    like outlier-shaving, not interpretation.</li>
+  <li>A trend mode on unsurveyed wells runs on measured depth and says so
+    per well; on deviated wells import the survey first or the trend's
+    depths are wrong in proportion to deviation.</li>
+  <li>Keep the ceiling's derivation in the custody line. A cap is easy to
+    forget downstream, and a reader of the capped curve needs to know both
+    that it exists and where the number came from.</li>
+</ul>

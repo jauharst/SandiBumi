@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Second pass, increment 4: VSH and Porosity, seven chapters with two refusals on camera
+
+- [ ] **The seven chapters** (vsh_gr, vsh_dn, phi_den, phi_dn, phi_dnbk, phi_son, phimax) follow
+      the addendum skeleton with 15 new light-theme screenshots (pane + result each, plus the
+      φmax refusal capture). Open docs/guide/book/vsh_gr.html and read down the shelf.
+- [ ] **The degraded verdict is decoded, not glossed.** vsh_gr and vsh_dn report 0 clean ·
+      3 degraded, and the chapters explain it from the per-well degradation records: degraded
+      means clamped-and-counted (vsh_gr: 72/75/83 samples per well outside [0,1] from P5/P95
+      endpoints, 230 in all on the unlimited curve; vsh_dn: 90 per well). Not an error, and
+      the book now says exactly what it is.
+- [ ] **Two refusals quoted verbatim from the per-well report**: φmax ships in LINEAR mode, so
+      a run entering only PHIMAX0 is refused ("TVDSS_REF is required when MODE = linear") —
+      that also explains the first-pass 0-clean-3-failed mystery; and Porosity from Sonic
+      refuses RHG80 without its suspension-segment matrix density ("RHO_MA is required when
+      OPT_SON = RHG80"). Both runs then completed clean with the requirement supplied.
+- [ ] **Every dial measured live and restored**: Larionov Tertiary (exact form) halves the
+      linear VSH median 0.5415→0.2509 with the outside-range count unchanged at 230; NPHI_SH
+      0.42→0.30 pushes unlimited VSH_DN to median 1.1856 and the divergence flag from 277 to
+      1145 of 1185 samples (the flag catching a wrong clay endpoint); RHO_MA 2.65→2.68 lifts
+      density porosity ~1 p.u. (0.1627→0.1731); GAS_RMS leaves the whole-well median at 0.1642
+      and moves the gas-crossover zones 0.2004→0.2092 (measured where the effect lives);
+      the B-K crossplot reads +0.0124 above the quick-look and its RHOMAA_BK (2.6892) shifts
+      to 2.7132 under the wrong shale point; RHG80 vs Wyllie is 0.187 vs 0.178 PHIE; the
+      constant 0.27 ceiling caps 12 of 1185 samples, and the linear variant (0.1 v/v per km
+      from 1400 m) writes a 0.253–0.2605 trend, 17 capped, with measured depth substituting
+      for absent TVDSS, recorded per well.
+
 ## 2026-08-26 — Guidebook: the documentation-tree shell and light screenshots
 
 - [ ] **The book now wears your canvas design** (SandiBumi Guidebook.dc.html, turn 6). Open

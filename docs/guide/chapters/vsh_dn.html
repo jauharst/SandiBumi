@@ -1,58 +1,97 @@
-<!-- Authored walkthrough for the vsh_dn guidebook chapter. Screenshots and every number
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the vsh_dn guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the clay-type sensitivity demonstrated and caught by the flag. -->
 
-<h2>Step by step: the second opinion on shale volume</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>This walkthrough assumes the first-hour setup and the
-<a href="vsh_gr.html">VSH from Gamma Ray</a> chapter. The four mechanics every module
-run reuses (parameters, custody, "degraded", output sets) are taught there and not
-repeated here.</p>
+<p>Shale volume from the density-neutron crossplot: the (RHOB, NPHI) point's
+position between the clean matrix line and the shale point. Reach for it
+where the gamma ray is untrustworthy (hot clean sands rich in feldspar or
+mica, uranium-bearing intervals), or as the independent second indicator that
+keeps the GR estimate honest. The two logs see shale through a different
+physics (hydrogen and density rather than radioactivity), which is precisely
+what makes the comparison informative.</p>
 
-<h3>Get the neutron into matrix units first</h3>
+<h2>The physics</h2>
 
-<p>The crossplot endpoints only mean something in one matrix convention. The SANDI
-wells deliver NPHI in limestone units; run <b>Data Prep → Neutron Matrix Conversion</b>
-once (it ran clean on all three wells here) and you get <code>NPHI_SS</code>, the same
-log in quartz-sandstone units, where the clean-sand matrix point sits at 0.</p>
+<p>The crossplot solves the point's normalized distance between the matrix
+line and the shale point (the determinant form in the equations above). The
+load-bearing caution is the neutron shale endpoint: <b>the neutron's shale
+response is hydroxyl-driven, so NPHI_SH is clay-type sensitive</b>. A 4-OH
+clay (illite, smectite) separates density and neutron by roughly 12 porosity
+units; a 2-OH clay (kaolinite family) by roughly 3. One number stands in for
+that whole range, so the module carries its own alarm: where the crossplot
+VSH and the gamma-ray VSH disagree by more than FLAG_TOL, the sample is
+flagged in VSH_DN_FLAG.</p>
 
-<h3>Enter the triangle</h3>
-
-<p>Open <b>Petrophysics → VSH → VSH from Density-Neutron</b> and pin the NPHI input to
-<code>NPHI_SS</code>. The six endpoints entered for this run, with where each came
-from, the same text that went into the run's reference field:</p>
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>RHO_MA 2.65 / NPHI_MA 0</b>: the sandstone matrix point, from the pane's own
-    shipped-values list (three installed tools agree on 2.65; the matrix neutron in
-    sandstone units is 0).</li>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.42</b>: medians of SANDI-01's samples at
-    GR ≥ 112 gAPI (the shale population the first-hour GR_SH pick defined), NPHI read
-    in sandstone units.</li>
-  <li><b>GR_MA 44 / GR_SH 112</b>: the first-hour histogram picks, reused for the
-    GR comparison flag.</li>
+  <li><b>RHO_SH 2.45 g/cc, NPHI_SH 0.42 v/v</b>: the medians of SANDI-01's
+    shale population (samples at GR ≥ 112, in the curve's limestone units):
+    the shale point read from this dataset's own shale, which is always the
+    first choice over a book value.</li>
+  <li><b>NPHI_MA 0.0</b>: a clean quartz line in the recorded convention of
+    this dataset's neutron.</li>
+  <li><b>GR_MA 44 / GR_SH 112</b>: the same endpoints as the gamma-ray
+    chapter, powering the divergence flag; <b>FLAG_TOL 0.25</b> shipped.</li>
 </ul>
 
-<p>These are picks from <i>this</i> dataset, shown so you can repeat the method; they
-are not recommended values for anywhere.</p>
+<h2>Step by step</h2>
+
+<ol>
+  <li>Read the shale point off a density-neutron crossplot colored by GR, or
+    take medians of the GR-defined shale population in the Inspector.</li>
+  <li>Open <b>Petrophysics ▸ VSH ▸ VSH from Density-Neutron</b>, enter the
+    matrix and shale points, and keep the GR endpoints filled so the flag can
+    work.</li>
+  <li>Fill the custody line and press <b>Run VSH from Density-Neutron</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-vshdn-pane.png"
-       alt="The VSH from Density-Neutron pane with the six endpoints entered" />
-  <figcaption>The pane with the crossplot triangle entered and NPHI pinned to the
-    sandstone-units curve.</figcaption>
+       alt="The VSH from Density-Neutron pane with the shale point entered" />
+  <figcaption>The shale point carries the run. The GR endpoints below it feed
+    the divergence flag, not the answer.</figcaption>
 </figure>
 
-<h3>Run, and read the flag</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells the run reported <b>0 clean · 3 degraded · 0 failed</b>; SANDI-01's
-report says the limited VSH clamped to [0, 1] at 203 of 395 samples. That is the
-crossplot being honest: a point that falls off the matrix–shale–fluid triangle (gas,
-bad hole, or a shale whose neutron response disagrees with the single NPHI_SH
-endpoint) computes an index outside 0–1, and the limited curve clips it while
-<code>VSH_DN</code> keeps the raw value.</p>
+<p><b>0 clean · 3 degraded</b>. As in the gamma-ray chapter, degraded means
+clamped-and-counted: 90 samples per well computed outside [0, 1] and were
+limited. Median VSH_DN <b>0.7094</b>, reading above the gamma ray's 0.5415:
+the crossplot sees bound water and hydroxyl the GR index does not. <b>277
+samples flagged</b> where the two indicators disagree by more than 0.25:</p>
 
-<p>This is why the module wants GR too: <code>VSH_DN_FLAG</code> goes to 1 wherever
-the N-D answer is off-model or diverges from the clay-type-insensitive GR VSH by more
-than FLAG_TOL. Read the flag before trusting VSH_DN in a gas leg or an unusual clay:
-the neutron shale endpoint is hydroxyl-driven, and one number cannot represent both a
-kaolinite and an illite shale.</p>
+<pre class="equations">SELECT COUNT(*) FILTER (WHERE value = 1)
+FROM computed_curves WHERE curve_name = 'VSH_DN_FLAG'</pre>
+
+<p>Then the clay-type dial, demonstrated live: NPHI_SH moved from 0.42 to
+0.30 (toward the low-hydroxyl end of the clay range) pushes the unlimited
+VSH_DN median to <b>1.1856</b> (over half the section now computes more
+than 100% shale), and the flag count explodes from 277 to <b>1145</b> of the
+1185 samples. That is the flag doing its job: a shale point inconsistent with
+the rock makes the crossplot diverge from the GR almost everywhere, and the
+module says so per sample rather than shipping a plausible-looking wrong
+curve. Restored to 0.42, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-vshdn-result.png"
+       alt="The VSH from Density-Neutron run reporting three degraded wells" />
+  <figcaption>The canonical run: 277 flagged samples are the honest level of
+    disagreement between two independent shale indicators here.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Read the flag count first. A few hundred flagged samples on 1185 is two
+    indicators with different physics disagreeing in transition rock; a flag
+    count near the sample count means an endpoint is wrong; start with
+    NPHI_SH and the clay type.</li>
+  <li>Gas breaks this method: it drops both the neutron and the density, and
+    the crossplot reads the excursion as clean rock. Mask gas-flagged
+    intervals or lean on the GR estimate there.</li>
+  <li>Bad hole hits density first. Run the corrections and the bad-hole flag
+    (Prep book) before trusting crossplot VSH in rugose intervals.</li>
+</ul>
