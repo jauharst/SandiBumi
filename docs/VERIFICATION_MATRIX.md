@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **186** of 728,
+Review sections counted toward no capability: **186** of 729,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -17,12 +17,12 @@ this table, so every figure above reads low by whatever those sections cover.
 |---|---|---|---:|---|---:|
 | `las-import` | LAS import | Not exercised | 0 / 145 | — | 46 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
-| `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 31 | 2026-08-05 | 4 |
+| `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 35 | 2026-08-05 | 5 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 71 | — | 13 |
-| `delivery-sets` | Delivery and log sets | Not exercised | 0 / 45 | — | 7 |
-| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
+| `delivery-sets` | Delivery and log sets | Not exercised | 0 / 49 | — | 8 |
+| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 43 | — | 11 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 246 | 2026-08-13 | 77 |
-| `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 58 | 2026-08-13 | 10 |
+| `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 62 | 2026-08-13 | 11 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 114 | 2026-08-13 | 25 |
 | `formation-temperature` | Formation-temperature curves | Not exercised | 0 / 5 | — | 2 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
@@ -63,7 +63,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 182 | — | 32 |
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
-| `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 9 | — | 3 |
+| `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 13 | — | 4 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |

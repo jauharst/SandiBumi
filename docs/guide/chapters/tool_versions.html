@@ -1,0 +1,70 @@
+<!-- Authored walkthrough for the Versions tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Versions pane is the run history of a well's interpretation. Its
+contract is stated at the top of the pane, in full:</p>
+
+<pre class="equations">Every run is kept as a version - nothing is overwritten. Label versions so
+a report can cite them, restore an older one (as a NEW version - history
+never rewinds), or purge superseded ones. A purge previews first, never
+touches the latest or live version, and is written to the audit trail. Disk
+space is reclaimed afterwards by Compact Project (Data ribbon).</pre>
+
+<p>Reach for it to answer "what did this curve look like before that
+re-run", to label the version a report cites, or to reclaim space from a
+long parameter-tuning session.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-versions.png"
+       alt="The Versions pane showing the run history with modules, states and curve lists" />
+  <figcaption>The example well's history: every module run is a numbered
+    INTERP version with its module, timestamp, outcome state and the curves
+    it wrote; the label field is where a citable name goes.</figcaption>
+</figure>
+
+<ul>
+  <li>Each row is one run: version number, the module that produced it, when,
+    its outcome state (CLEAN on every row here; a degraded run is marked),
+    and the curve names it wrote.</li>
+  <li><b>Restore is append-only.</b> Restoring an older version writes it as
+    a new version at the top of the history; nothing rewinds, so the
+    sequence of what happened is never editable after the fact.</li>
+  <li><b>Labels are for citation.</b> A report that says "final deliverable,
+    version FINAL-2026Q3" names a labelled version, and the label survives
+    later runs.</li>
+  <li><b>Purge has guard rails</b>: it previews what would go, refuses the
+    latest and the live version, and writes itself to the audit trail. The
+    file only shrinks after Compact Project, because the database never
+    shrinks on delete alone.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Data ▸ Versions</b> with the well selected.</li>
+  <li>Label the version a deliverable will cite; restore an older version
+    when a re-run needs to be undone (remembering the restore is itself a
+    new version).</li>
+  <li>After a heavy tuning session, select the superseded versions, review
+    the purge preview, confirm, then run Compact Project from the Data
+    ribbon to reclaim the space.</li>
+</ol>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Version numbers are evidence.</b> The Curve Catalog shows which
+    version each curve's current values came from; if a plotted curve cites
+    v158 and the history's newest is v311, the plot is reading an older
+    surviving answer, which may be exactly right or worth a look.</li>
+  <li><b>Purge is not undo.</b> Restore is the undo; purge permanently
+    discards superseded runs. The preview exists so the difference is seen
+    before it matters.</li>
+  <li><b>Module re-runs are re-runnable, not undoable.</b> The Edit-menu
+    undo covers data and UI edits; interpretation history lives here, as
+    versions.</li>
+</ul>

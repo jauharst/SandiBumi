@@ -1,0 +1,75 @@
+<!-- Authored walkthrough for the Data Sets tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Data Sets is the register of deliveries for one well. Its own opening
+line says it best:</p>
+
+<pre class="equations">Every delivery ever imported for this well — core, SCAL, deviation surveys
+and point data (XRD, CEC, oil show, …). One of each is ACTIVE (●) — that is
+what log overlays, φ-k plots, Pc/J-fits, calibration, TVD/TVDSS and the
+data panels read. The rest are kept, not lost.</pre>
+
+<p>Reach for it whenever two deliveries of the same measurement exist and
+you need to know, or decide, which one the project is actually using.</p>
+
+<h2>The dialog</h2>
+
+<figure>
+  <img src="../img/guide-datasets.png"
+       alt="The Data Sets dialog listing core, SCAL, survey and point-data deliveries" />
+  <figcaption>SANDI-01's register: two core deliveries with only one active,
+    the SCAL delivery, no survey (the well is treated as vertical), and the
+    point-data deliveries including one just pasted through Intake.</figcaption>
+</figure>
+
+<ul>
+  <li><b>One active per kind.</b> Curve sets are read together (RAW priority,
+    others fill gaps), but core, SCAL, surveys and point data are different:
+    two such deliveries measure the same plugs or samples, so exactly one
+    core set, one SCAL set, one survey and one set per point dataset is
+    active, and every reader in the app follows that choice.</li>
+  <li><b>Nothing is overwritten by arrival order.</b> The example well holds
+    RCAL_1 (active, 15 plugs, from the single-well file) beside RCAL
+    (10 plugs, from the multi-well file): the second delivery auto-suffixed
+    instead of replacing the first, and <b>Use</b> is how you switch.</li>
+  <li><b>No survey means vertical, and the dialog says so</b>: "No deviation
+    survey imported — the well is treated as vertical (TVD = MD)" (shown
+    here as the dialog prints it).</li>
+  <li>Every row records its source file and import time, so a number in a
+    plot can be traced to the delivery it came from.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Data ▸ Data Sets…</b> with the well selected (the same
+    register is browsable per well under the Wells-pane ▸ twisty, where
+    double-click switches the active set).</li>
+  <li>To change what the project reads, press <b>Use</b> on the delivery
+    that should be live; Rename and Delete manage the rest.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>Switching is immediate and consequential: activating a different survey
+recomputes TVD and TVDSS straight away, so height calculations never keep
+the old geometry, and deleting the active delivery hands over to the next
+newest rather than leaving the kind empty. Switching a core set also
+switches the extras that were delivered with it, because they were written
+under the core set's own name.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Check the ● before comparing to a plot.</b> A φ-k cloud that
+    changed since last week usually means someone activated a different
+    core delivery, not that the data moved.</li>
+  <li><b>Keep superseded deliveries, do not delete them.</b> The register
+    is the audit trail for "which lab file is this number from"; disk space
+    is not the constraint here.</li>
+  <li><b>A vertical well is a statement, not a default to forget.</b> If a
+    deviated well shows "treated as vertical", the survey delivery is
+    missing and every TVD-dependent result is provisional.</li>
+</ul>
