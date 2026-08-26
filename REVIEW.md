@@ -17375,6 +17375,33 @@ accepted. It is 95 KB now — a third of the size — and nothing was deleted.
       `record_data_tools.md`, `record_fixes.md`. Open one and check a section you remember —
       the text is byte-identical to what CLAUDE.md carried, moved by script rather than retyped,
       and verified line by line against the original.
+
+### The rock-type class curve is named RT_CLASS now — Rock Typing
+
+Your call of 2026-08-27, after the collision bit for real during the guidebook pass: the class
+curve was named RT, which is also the universal mnemonic for deep resistivity, and a computed
+curve wins name lookup — so after one rock-typing run, anything reading "RT" got classes 1..10
+served as ohm.m. Passey ΔlogR computed from classes 4..7, smoothly and plausibly, before its
+default was fixed. The class curve is RT_CLASS from this build on.
+
+- [ ] Run **Petrophysics ▸ Rock Typing ▸ Rock Typing (FZI / R35 / PGS)** on a well. The class
+      curve arrives in the catalog as **RT_CLASS**; RQI, FZI, R35, PGEOM, PSTRUC and PERM_RT are
+      unchanged.
+- [ ] Type `RT` as an input or in an equation on that same well. It now reads your delivered
+      deep resistivity (or nothing, if the well carries none) — never the classes. This is the
+      whole point of the rename.
+- [ ] The Facies Tie-in and saturation-height dialogs preselect **RT_CLASS** for their rock-type
+      curve now. They deliberately no longer prefer a curve named bare RT — on a well carrying a
+      delivered RT resistivity log, that preference would have picked resistivity as the rock
+      type, the same collision from the other side.
+- [ ] **Existing projects keep their old RT class curves** — nothing is migrated, per your call.
+      A re-run writes RT_CLASS beside the old RT rows; delete the old curve from the Database
+      Inspector when you no longer want it, because until then the shadowing still applies to
+      that well. Say the word if you want a one-time migration instead (ancestry knows which RT
+      rows rock typing wrote, so it is doable safely).
+- [ ] Pinned from both sides in `rocktyping.rs`
+      (`the_rock_type_class_output_shadows_no_curve_family_alias`): the class output must exist
+      as RT_CLASS, and no rock-typing output may ever reappear in a curve-family alias list.
 - [ ] The section headed **Current state (2026-07-20)** is now **Shipped capability, and the
       conventions it set**. It had been describing Phase 9 as "STARTED" for work the same file
       later recorded as finished, and a section labelled current that is not is its own hazard.

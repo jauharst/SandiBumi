@@ -51,10 +51,13 @@ pub fn toc_passey_spec() -> ModuleSpec {
             ),
             param_open("LOM", "Level of organic maturity (Hood scale, 6..12)", "-", 6.0, 12.0, true),
             param_open("TOC_BG", "Background TOC of the baseline rock", "wt%", 0.0, 10.0, true),
-            // Default alias RES_DEEP, never "RT": the rock-typing module writes a class curve
-            // literally named RT, and computed-curve lookup resolves it first — a run with the
-            // shipped default would read rock-type classes 4..7 as ohm.m and compute a smooth,
-            // plausible, wrong ΔlogR. Same fix as lrlc.rs's sw_rtc/sw_imts RT→RES_DEEP.
+            // Default alias RES_DEEP, never "RT": before 2026-08-27 the rock-typing module
+            // wrote a class curve literally named RT, and computed-curve lookup resolves an
+            // exact name first — a run with that default read rock-type classes 4..7 as ohm.m
+            // and computed a smooth, plausible, wrong ΔlogR. The class curve is RT_CLASS now
+            // (pinned in rocktyping.rs), but the default stays the canonical family name: a
+            // default should name the family it means, not an alias that once meant something
+            // else. Same fix as lrlc.rs's sw_rtc/sw_imts RT→RES_DEEP.
             log_in("RES", "Deep resistivity", "ohm.m", "RES_DEEP", true),
             log_in("DT", "Sonic Δt (sonic overlay)", "us/ft", "DT", false),
             log_in("RHOB", "Bulk density (density overlay + Schmoker)", "g/cc", "RHOB", false),
@@ -873,14 +876,12 @@ mod tests {
 
     #[test]
     fn the_passey_resistivity_default_names_the_resistivity_curve_not_the_rock_type_class() {
-        // Pinned from both sides. The rock-typing module writes a class curve literally named
-        // RT, and computed-curve lookup resolves that name before any family fallback — so a
-        // default alias of "RT" here fed rock-type classes 4..7 into ΔlogR as ohm.m, smoothly
-        // and silently. If rocktyping ever stops emitting "RT", the first assertion fails and
-        // this rule gets re-judged rather than outliving its reason.
-        let rt_out = crate::rocktyping::rocktyping_spec().args.into_iter()
-            .any(|a| matches!(a.kind, crate::modules::ArgKind::LogOut) && a.name == "RT");
-        assert!(rt_out, "the collision this test guards against has moved: rocktyping no longer writes RT");
+        // The rock-typing class curve used to be named RT, and computed-curve lookup resolves
+        // that name before any family fallback — so a default alias of "RT" here fed rock-type
+        // classes 4..7 into ΔlogR as ohm.m, smoothly and silently. The collision itself is now
+        // structural history: the class curve was renamed RT_CLASS (2026-08-27), and
+        // rocktyping.rs pins that no rocktyping output shadows a curve-family alias. What stays
+        // pinned HERE is the default itself — the canonical family name, RES_DEEP.
         let res = toc_passey_spec().args.into_iter()
             .find(|a| a.name == "RES").expect("toc_passey declares a RES input");
         assert_eq!(res.default, "RES_DEEP",

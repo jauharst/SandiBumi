@@ -22,7 +22,7 @@ pub struct FaciesConfusionRequest {
     pub well_ids: Vec<String>,
     /// Predicted (log-domain) rock-type curve, e.g. RT_LOG.
     pub pred_curve: String,
-    /// Reference rock-type curve, e.g. a core-derived RT or a rock-typing RT.
+    /// Reference rock-type curve, e.g. a core-derived rock type or a rocktyping RT_CLASS.
     pub ref_curve: String,
     /// Dominant-class purity at or above which the mapping is ACCEPTED, as a fraction 0..1.
     ///

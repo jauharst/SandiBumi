@@ -50,10 +50,10 @@ pub fn rocktyping_spec() -> ModuleSpec {
         doc: "Per-sample rock-typing indicators from porosity and permeability. Writes \
               RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland \
               R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the \
-              Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT is the rock-type \
-              class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland \
-              port classes (nano..mega). PERM_RT is the class-grouped permeability estimate \
-              k = 1014.24·FZI_mean(RT)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this \
+              Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT_CLASS is the \
+              rock-type class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or \
+              Winland port classes (nano..mega). PERM_RT is the class-grouped permeability estimate \
+              k = 1014.24·FZI_mean(RT_CLASS)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this \
               well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow \
               the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22)."
             .into(),
@@ -71,7 +71,10 @@ pub fn rocktyping_spec() -> ModuleSpec {
             log_out("R35", "Winland R35 pore-throat radius", "um"),
             log_out("PGEOM", "PGS pore geometry √(k/φ)", "-"),
             log_out("PSTRUC", "PGS pore structure k/φ^PS_EXP", "-"),
-            log_out("RT", "Rock-type class (GHE 1..10 or port 1..5)", "-"),
+            // RT_CLASS, deliberately not RT: RT is the universal deep-resistivity alias, and a
+            // computed curve wins exact-name resolution before any family fallback — a class
+            // curve named RT silently became ohm.m for every later "RT" read (toc_passey, live).
+            log_out("RT_CLASS", "Rock-type class (GHE 1..10 or port 1..5)", "-"),
             log_out("PERM_RT", "Class-grouped permeability estimate", "mD"),
         ],
     }
@@ -147,7 +150,7 @@ pub fn rocktyping(ctx: &ModuleContext) -> ModuleOutputs {
         ("R35".into(), r35),
         ("PGEOM".into(), pgeom),
         ("PSTRUC".into(), pstruc),
-        ("RT".into(), rt),
+        ("RT_CLASS".into(), rt),
         ("PERM_RT".into(), perm_rt),
     ])
 }
@@ -848,7 +851,7 @@ mod tests {
         assert!((rqi - 0.0314 * 500f64.sqrt()).abs() < 1e-4, "rqi={rqi}");
         assert!((fzi - rqi / 0.25).abs() < 1e-4, "fzi={fzi}");
         // FZI ≈ 2.808 → between GHE bounds 1.5 and 3 (Corbett-Potter ×2 series) → GHE class 6.
-        assert_eq!(out["RT"][0], 6.0, "fzi={fzi}");
+        assert_eq!(out["RT_CLASS"][0], 6.0, "fzi={fzi}");
     }
 
     #[test]
@@ -859,7 +862,7 @@ mod tests {
         let expect = 10f64.powf(0.732 + 0.588 * 100f64.log10() - 0.864 * 20f64.log10());
         assert!((out["R35"][0] as f64 - expect).abs() < 1e-3, "r35={}", out["R35"][0]);
         // R35 ≈ 6.5 µm → macro (2.5–10) → port class 4.
-        assert_eq!(out["RT"][0], 4.0);
+        assert_eq!(out["RT_CLASS"][0], 4.0);
     }
 
     #[test]
@@ -881,7 +884,39 @@ mod tests {
         let out = rocktyping(&c);
         for i in 0..4 {
             assert!(!out["FZI"][i].is_finite(), "sample {i} should be MISSING");
-            assert!(!out["RT"][i].is_finite());
+            assert!(!out["RT_CLASS"][i].is_finite());
+        }
+    }
+
+    /// 2026-08-27, Jauhar's call. The class curve was named RT — also the universal
+    /// deep-resistivity alias — and computed-curve lookup resolves an exact name before any
+    /// family fallback, so one rocktyping run silently turned every later "RT" read into class
+    /// indices: toc_passey's ΔlogR was computed from classes 4..7 as ohm.m, live, smoothly and
+    /// plausibly. Pinned from BOTH sides: the class output must exist under its new name (so
+    /// deleting the output cannot pass the collision half vacuously), and no rocktyping output
+    /// may reappear in ANY curve-family alias list — the module writes indicators and classes,
+    /// never a measurement a family lookup should find.
+    #[test]
+    fn the_rock_type_class_output_shadows_no_curve_family_alias() {
+        let outs: Vec<String> = rocktyping_spec()
+            .args
+            .into_iter()
+            .filter(|a| matches!(a.kind, crate::modules::ArgKind::LogOut))
+            .map(|a| a.name)
+            .collect();
+        assert!(
+            outs.iter().any(|n| n == "RT_CLASS"),
+            "the rock-type class output is declared as RT_CLASS"
+        );
+        for family in crate::curves::FAMILIES {
+            for alias in family.aliases {
+                assert!(
+                    !outs.iter().any(|n| n.eq_ignore_ascii_case(alias)),
+                    "rocktyping output {alias} collides with a {} alias - a computed curve by \
+                     that name shadows the measured curve in every module input and equation",
+                    family.family
+                );
+            }
         }
     }
 

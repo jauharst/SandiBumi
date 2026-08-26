@@ -6,7 +6,7 @@
 
 <p>Per-sample rock-typing indicators from porosity and permeability: the
 hydraulic-unit family (RQI, PHIZ, FZI), the Winland R35 pore-throat radius,
-the Permadi-Susilo PGS pair, and a class curve RT cut from whichever
+the Permadi-Susilo PGS pair, and a class curve RT_CLASS cut from whichever
 indicator the METHOD chooses. Rock typing is where a porosity-permeability
 cloud becomes a small set of classes that carry their own laws, and this
 module writes both the indicators and the classes so the choice of binning
@@ -68,7 +68,7 @@ is where a productive clastic section should sit, and the four-class spread
 is the cloud's real width, not noise.</p>
 
 <pre class="equations">SELECT value::INT rt, COUNT(*) FROM computed_curves
-WHERE curve_name = 'RT' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
+WHERE curve_name = 'RT_CLASS' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
 
 <p>The round-trip check: PERM_RT against the input PERM_XFM over all 573
 samples reads a geometric ratio of <b>1.00</b> with a spread of 1.2. The
