@@ -165,7 +165,11 @@ pub fn sw_rtc_spec() -> ModuleSpec {
                 true,
             ),
             param_open("B_QV", "Qv coefficient", "", -1.0, 1.0, true),
-            param_open("C0", "Regression intercept", "", -1.0, 1.0, true),
+            // C0's box must admit what Calibrate RtC itself produces: the fit is never
+            // bounded (a bounded fit is a different fit, docs/record_calibration.md), and a
+            // live fit returned C0 = -1.4458, which the old [-1, 1] box refused at the pane.
+            // C0 enters the same conductivity sum as A_CAP*CAPBW, so it takes A_CAP's bracket.
+            param_open("C0", "Regression intercept", "", -10.0, 10.0, true),
             param_open("RSF", "Resistivity scaling factor", "", 0.0, 20.0, true),
             param_open(
                 "CEC",
@@ -2256,6 +2260,40 @@ mod tests {
         assert!((r.c0 - truth.2).abs() < 1e-6, "C0 {} vs {}", r.c0, truth.2);
         assert!(r.r2 > 0.999, "a noiseless fit must be near-perfect, got R2 {}", r.r2);
         assert_eq!(r.rsf_used, rsf);
+    }
+
+    /// A fitted intercept must be typable into the module that consumes it. A live fit on
+    /// the example wells returned C0 = -1.4458 and the pane refused it against the old
+    /// [-1, 1] box: a calibration the user could produce but not enter. The fit itself is
+    /// never bounded (docs/record_calibration.md), so the declared range is the side that
+    /// moves. Pinned end to end: rock generated with such an intercept is recovered by the
+    /// fit, and the result passes the manifest's own box.
+    #[test]
+    fn the_module_admits_the_intercept_its_own_calibration_fits() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let (rw, m, rsf) = (1.0, 2.0, 2.25);
+        // A large capillary coefficient beside a strongly negative intercept: samples where
+        // the modelled excess goes non-positive are dropped by the fit's own guards, the
+        // surviving leg still pins the plane, and the intercept extrapolates below it.
+        let truth = (8.0, 0.0057, -1.4458);
+        let w = synth_well(&conn, "WET-NEG-C0", truth, rw, m, rsf, 120, |_| 1.0);
+        let db = Mutex::new(conn);
+        let mut req = fit_req(vec![w], rw, m, rsf);
+        req.depth_min = Some(0.0); // declare the whole well wet — it is
+        let r = run_rtc_fit(&db, &req);
+        assert!(r.error.is_none(), "fit failed: {:?}", r.error);
+        assert!(r.n_points > 30, "expected a fittable surviving leg, got {}", r.n_points);
+        assert!((r.a_cap - truth.0).abs() < 1e-6, "A_CAP {} vs {}", r.a_cap, truth.0);
+        assert!((r.c0 - truth.2).abs() < 1e-6, "C0 {} vs {}", r.c0, truth.2);
+        let spec = sw_rtc_spec();
+        let arg = spec.args.iter().find(|a| a.name == "C0").expect("sw_rtc declares C0");
+        let (lo, hi) = (arg.min.expect("C0 has a min"), arg.max.expect("C0 has a max"));
+        assert!(
+            lo <= r.c0 && r.c0 <= hi,
+            "the declared C0 box [{lo}, {hi}] refuses the calibration's own {}",
+            r.c0
+        );
     }
 
     /// Fitting over hydrocarbon-bearing rock is the failure mode this feature exists to

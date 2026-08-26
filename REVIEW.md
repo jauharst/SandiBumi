@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Two queued defect fixes: the RtC C0 box and the neutron-basis vocabulary
+
+- [ ] **Calibrate RtC → sw_rtc now round-trips.** The fit on the SANDI wells returned
+      C0 = -1.4458 and the sw_rtc pane refused it against the declared [-1, 1] box, so a
+      calibration you could produce could not be typed in. The fit is never bounded (a bounded
+      fit is a different fit, per the calibration record), so the box is what moved: C0 now
+      declares [-10, 10], the same bracket as A_CAP, because both enter the same conductivity
+      sum. To verify: run Calibrate RtC on the example project, press Copy A_CAP / B_QV / C0,
+      and type the values into the sw_rtc pane — no refusal.
+- [ ] **A neutron-basis declaration is now a closed vocabulary.** Declaring a basis of "LS"
+      used to be stored verbatim, and the module boundary compares against "LIMESTONE", so a
+      short form or typo became metadata no check could ever match ("entered in LIMESTONE
+      units, but neutron curve declares basis LS"). The declaration now accepts
+      LIMESTONE/LS, SANDSTONE/SS, DOLOMITE/DOL (any case), stores the canonical full word,
+      and refuses anything else naming the vocabulary. Existing declarations made through the
+      import path were already full words, so nothing stored changes meaning.
+
 ## 2026-08-26 — Guidebook increment 6: Facies + Unconventional — THE GUIDEBOOK IS COMPLETE (52 of 52)
 
 - [ ] **What this is.** The last six modules — electrofacies, gmm_facies, toc_passey, kerogen, gip,
