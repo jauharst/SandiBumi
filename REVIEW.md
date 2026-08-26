@@ -1,5 +1,43 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 10: the Batch & Field tool book — Workflow Builder, Monte Carlo, Cutoffs & Pay Summary, Cutoff Sensitivity, Field Dashboard, Field Map and Results QC, one chain driven end to end
+
+- [ ] **Seven Batch & Field chapters written** (tool_workflow_builder, tool_monte_carlo,
+      tool_pay_summary, tool_cutoff_sensitivity, tool_field_dashboard, tool_field_map,
+      tool_results_qc) with nine composed-layout figures — every figure now shows the
+      SANDI-01 log view (1:500, NPHI/RHOB crossover visible) beside the tool, not a leftover
+      crossplot. One saved chain (GUIDE10: VSH from GR → Porosity from Density →
+      SW-Indonesia) threads the whole book: the builder runs it ("Done: 3 steps, 33 curves
+      across 3 wells" — 11 curves × 3 wells), Monte Carlo perturbs it, the pay summary
+      persists its flags, the dashboard rolls it up, and Results QC cross-examines it.
+- [ ] **The open-parameter catalogue is taught from the builder's own step editor**: the
+      figure shows the tortuosity factor a with one product stating NO factory value (T2)
+      beside two shipping 1 (T1/T3), and the pane's closing line quoted verbatim. The
+      precondition refusal is quoted too ("precondition 'A' failed before sw_indo ran…"):
+      an unset open parameter refuses the well by name, never runs as zero.
+- [ ] **Monte Carlo numbers are seeded and reproduced**: 200 realizations, seed 42, GR_MA
+      normal 44±10 and RHO_MA 2.65±0.03 (both prefilled from the chain), completed in
+      382 ms; the rerun reproduced the first pass to the last digit (net 14.5 m, band
+      14.3–14.5; HPV P50 3.00, band 2.73–3.24). The results figure carries the tornado
+      (RHO_MA swings HPV 2.81–3.28 around base 3.06, ρ +0.79; GR_MA +0.55) and the
+      impossible-physics warning verbatim ("Sw>1 … reported, not excluded").
+- [ ] **The three-tier pay table and its cross-checks reconcile on camera**: SAND
+      29.9–30.0 m at N/G 0.50, RESERVOIR 28.8 m, PAY 14.5 m at N/G 0.24 (Avg SWE 0.16,
+      HPV 3.06 m — the deterministic twin of the MC P50); the dashboard's grid shows the
+      same 14.5 beside Not net 14.6 and Unknown 30.9 with BOTH N/G conventions (0.24 vs
+      0.50 excl. Unknown), its stats-only line quoted verbatim; the cutoff sweep's readout
+      names 14.48 m per well at the 0.500 pick, on the plateau; Results QC's cutoff check
+      compresses the same finding to "NET 14.5 m @ PHIE≥0.10 · ±0.02φ → ±0% net".
+- [ ] **Results QC taught as a check battery, not a verdict**: Sw-method spread ✓ (mean
+      0.024, worst 0.387 @ 1550 m, 2% divergent — the base of the gas sand, where
+      shaly-sand methods should leave Archie), Buckles ✗ (BVW 0.099, CV 59%, n=191 — mixed
+      zones, so evidence not verdict), and two checks honestly grey until their
+      prerequisite runs exist (SandiMin recon, MC persist).
+- [ ] **Field Map's count is the reconciliation**: "3 located · UTM 50S" after the
+      locations import; polygon → well group is the selection workflow. The demo chain,
+      its flags (PAYFLAG set) and the GUIDE10 workflow document live in the sandbox
+      project only — nothing in the repo.
+
 ## 2026-08-27 — Second pass, increment 9: the Data & Sets tool book — Intake, Statistics, Reframe, Data Sets, Versions, Curve Catalog, DB Inspector and SQL, every count reconciled live
 
 - [ ] **Eight Data & Sets chapters written** (tool_intake, tool_statistics, tool_reframe,

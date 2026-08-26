@@ -1,0 +1,77 @@
+<!-- Authored walkthrough for the Cutoff Sensitivity tool chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Cutoff Sensitivity answers the question every cutoff invites: how much
+does the answer move if the number moves? It sweeps one cutoff across a
+range while holding the others fixed, and plots net (or HPV, or N:G)
+against the swept value per well. Reach for it before committing a cutoff
+to the pay summary: a pick on a plateau is robust, a pick on a cliff
+is a coin toss dressed as a decision.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-cutoffsens.png"
+       alt="The Cutoff Sensitivity pane with a VSH sweep across three wells" />
+  <figcaption>A VSH sweep from 0 to 1 in 60 steps, net metric, each well
+    normalised to its own peak: all three curves plateau well before the
+    0.500 pick line, and the readout confirms 14.48&nbsp;m of net in each
+    well at that cutoff.</figcaption>
+</figure>
+
+<ul>
+  <li><b>The base cutoffs</b> are the same three fields as the pay summary,
+    with the same "Shipped values elsewhere" catalogues; the swept one
+    varies, the others hold.</li>
+  <li><b>Sweep</b> picks the axis (VSH, PHIE or SWE), the range and the
+    step count; <b>Metric</b> picks what is counted (Net, HPV, N:G);
+    <b>Normalise each well to its own peak</b> makes wells of different
+    thickness comparable on one plot.</li>
+  <li><b>DST Crossplot</b> is the second method: instead of sweeping, it
+    plots the flagged samples against a point dataset (a DST or
+    perforation set) so a cutoff can be judged against what actually
+    flowed.</li>
+  <li>Hovering the chart moves the readout; <b>Use pick as VSH cutoff</b>
+    adopts the hovered value, and <b>Save as pay-summary default</b> hands
+    it to the summary pane.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics &#9656; Cutoff Sensitivity&hellip;</b>, set the
+    base cutoffs, pick the parameter to sweep and press
+    <b>Compute</b>.</li>
+  <li>Read the shape before the number: where the curve is flat, the
+    cutoff is safe; where it dives, small disagreements about the cutoff
+    are large disagreements about net.</li>
+  <li>Repeat for the other two cutoffs; each sweep is one
+    Compute.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>On the example wells the VSH sweep rises steeply below 0.2 and is flat
+from about 0.3 onward: the section is bimodal, clean sand against real
+shale, with almost nothing in between. The 0.5 pick sits on the plateau, so
+the exact value is inconsequential here: the readout's
+14.48&nbsp;m per well is the same answer anywhere on the flat. That is a
+statement worth writing into the report, and it is also the same statement
+the Results QC pane compresses into its one-line cutoff check
+("&plusmn;0.02&phi; &rarr; &plusmn;0% net" for the porosity cutoff).</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>A plateau in one field is not a plateau in the next.</b> The
+    sweep is per project; re-run it when the geology changes rather than
+    carrying the conclusion.</li>
+  <li><b>Sweep with the other cutoffs at their real values.</b> The curves
+    interact: a porosity sweep with no saturation cutoff set
+    measures reservoir, not pay.</li>
+  <li><b>Normalisation hides absolute differences on purpose.</b> Turn it
+    off when the question is which well carries the most net, not where
+    the cliff is.</li>
+</ul>

@@ -1,0 +1,79 @@
+<!-- Authored walkthrough for the Cutoffs & Pay Summary tool chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Cutoffs &amp; Pay Summary applies the cutoff set to the interpreted
+curves, writes the flag curves, and tabulates net, N/G and averages per well
+and zone at three nested levels: SAND (shale cutoff only), RESERVOIR (shale
+and porosity), and PAY (shale, porosity and saturation). It is the pane that
+turns an interpretation into the table a report quotes, and the flags it
+writes are what the composite plot, the workbook and the deck all read.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-paysummary.png"
+       alt="The Cutoffs and Pay Summary pane with the three-tier table across three wells" />
+  <figcaption>The cited cutoffs (VSH &le; 0.5, PHIE &ge; 0.10,
+    SWE &le; 0.5) applied to all three wells: SAND 29.9&ndash;30.0&nbsp;m at
+    N/G 0.50, RESERVOIR 28.8&nbsp;m, PAY 14.5&nbsp;m at N/G 0.24 with PAY
+    rows highlighted.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Each cutoff field carries its catalogue</b> ("Shipped values
+    elsewhere"; the shale cutoff's rows include a 0.5 quoted from another
+    product's report defaults), and no cutoff is prefilled: the number is
+    a study decision, recorded with the run.</li>
+  <li><b>PERM &ge; is optional but never ignorable</b>: once set, a sample
+    with no measured permeability fails the cutoff and is flagged as
+    absence of evidence, not treated as exempt.</li>
+  <li><b>Input log set</b> chooses which interpretation is being
+    summarised; the write goes through the run custody dialog because flag
+    curves are outputs like any other.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics &#9656; Cutoffs &amp; Summary&hellip;</b>, set
+    the well scope and the three cutoffs (add permeability only if the
+    study uses it).</li>
+  <li>Press <b>Compute Summary</b> and complete the custody dialog
+    ("Run custody"); the details travel with the flag curves.</li>
+  <li>Read the table shallow to deep: one row per well, zone and flag
+    level, with top, bottom, gross, net, N/G and the net-weighted
+    averages.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The three tiers answer three different questions and the example shows
+why they must not be merged: half the section is sand (N/G 0.50), almost all
+of that sand holds reservoir-quality porosity (28.8&nbsp;m of 29.9), but
+only half of the reservoir is hydrocarbon-bearing (PAY 14.5&nbsp;m,
+N/G 0.24, average SWE 0.16). Quoting the sand ratio where the pay ratio is
+meant is a factor-of-two reserves error, which is why the flag column names
+the tier on every row.</p>
+
+<p>The averages are computed over the flagged intervals only: PAY
+rows average PHIE 0.253 and VSH 0.03, cleaner and more porous than the SAND
+rows' 0.213 and 0.08, because the saturation cutoff preferentially keeps the
+best rock. The PAY HPV of 3.06&nbsp;m per well is the deterministic twin of
+the Monte Carlo P50 (3.00) from the same chain and cutoffs; the two panes
+agreeing is a cross-check worth doing on purpose.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Keep one cutoff set per study.</b> The dashboard, the sensitivity
+    sweep and this pane all take the same three numbers; a table computed
+    at one set and a plot at another disagree quietly.</li>
+  <li><b>Check the flags on the log before quoting the table.</b> Add the
+    flag curve to a layout and read where the pay actually sits; a
+    plausible total can still be one interval of impossible rock.</li>
+  <li><b>Net is not gross minus shale.</b> A sample missing any input curve
+    evaluates to unknown, not to net; the Field Dashboard's Unknown column
+    makes that visible per well.</li>
+</ul>

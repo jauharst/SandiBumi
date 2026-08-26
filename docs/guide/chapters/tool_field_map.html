@@ -1,0 +1,70 @@
+<!-- Authored walkthrough for the Field Map tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Field Map plots the wells at their surface locations and turns
+position into selection: draw a polygon around a fault block and the wells
+inside become a well group, which then filters every batch tool in the
+application. Reach for it when "which wells" is a question about geography
+(a compartment, a platform, a lease line) rather than a list of
+names.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-fieldmap.png"
+       alt="The Field Map with three located wells and a scale bar" />
+  <figcaption>The three example wells located from an imported coordinates
+    file, "3 located &middot; UTM 50S", with the 500&nbsp;m scale bar and
+    the polygon tools in the header.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Locations come from an import</b> (Data &#9656; a well-locations
+    table with well name, easting and northing); the header counts how many
+    wells are located and names the coordinate system, so an unlocated well
+    is a visible gap, not a silent absence.</li>
+  <li><b>Draw polygon &rarr; Assign to group&hellip;</b> is the selection
+    workflow: the polygon's wells become a named well group, and at most
+    one group is active at a time.</li>
+  <li><b>Fit</b> frames the located wells; wheel zooms, drag pans, and the
+    scale bar keeps distances honest at any zoom.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Import the coordinates once, then open
+    <b>Petrophysics &#9656; Batch &#9656; Field Map&hellip;</b> and press
+    <b>Fit</b>.</li>
+  <li>To work a subset, <b>Draw polygon</b> around it and
+    <b>Assign to group&hellip;</b> under a name that says what it is (a
+    block, not "selection 3").</li>
+  <li>Activate the group and every batch dialog's well list, the Wells
+    pane, and the dashboard follow it until it is cleared.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The map is deliberately a working surface, not a basemap: no imagery, no
+contours, just located wells on a true-scale grid in the delivery's own
+coordinate system. The count in the header is the reconciliation:
+"3 located" against three wells in the project means every well found its
+coordinates; a shortfall names the wells still riding on defaults before
+any polygon is trusted.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>The coordinate system is part of the data.</b> Eastings from one
+    UTM zone plotted in another put wells kilometres off; the header names
+    the zone so a mismatched delivery is caught by reading, not by
+    surveying.</li>
+  <li><b>A polygon selects what it contains today.</b> Wells imported
+    later are not retroactively added to the group; redraw when the well
+    stock changes.</li>
+  <li><b>An active group is a global filter.</b> If a batch run seems to
+    be missing wells, check the map's group before suspecting the
+    data.</li>
+</ul>
