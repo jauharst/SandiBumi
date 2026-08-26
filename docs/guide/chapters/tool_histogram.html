@@ -1,0 +1,78 @@
+<!-- Authored walkthrough for the Histogram tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The histogram answers "what values does this curve actually take, and how
+many of them": the first look at any curve after import, the tool that picks
+normalisation endpoints and clay/sand reference points, and the honest way to
+compare a curve across wells before trusting a crossplot of it. On the example
+GR it shows the section's story in one frame, a clean-sand mode and a shale
+mode with almost nothing between.</p>
+
+<h2>The pane</h2>
+
+<p>The toolbar picks the curve, the zone (a top selected in the Tops pane
+auto-inserts an <i>@top</i> interval), and the well scope: the
+<b>Wells:</b> pill cycles Active / Pinned / Selection / All / Custom, so the
+same panel reads one well or the whole field. Under it sit the statistic
+chips; press one and it stays lit with its value in the chip, so the numbers
+you are working from are always on screen.</p>
+
+<figure>
+  <img src="../img/guide-histogram-gr.png"
+       alt="GR histogram with cumulative overlay, box plot strip and percentile markers" />
+  <figcaption>GR on the active well: bimodal, sand mode near 50 gAPI and shale
+    mode near 110. The chips hold P5 43.51, P50 80.38, P95 111.8 over n=395;
+    the cumulative curve and the box strip restate the same population.</figcaption>
+</figure>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Plot ▸ New Histogram</b> (or the workspace ＋ menu), pick the
+    curve, zone and well scope.</li>
+  <li>Toggle the statistic chips you need; open <b>⚙ Properties</b> for the
+    display furniture: bins, normalise to %, <b>Cumulative % overlay</b>,
+    <b>Box plot (P5–P25–P50–P75–P95)</b>, percentile markers, and a validity
+    range that restricts n and the statistics, not just the picture.</li>
+  <li>For parameter work, enable the <b>Pick A/B</b> pickers: drag a pick line
+    onto the mode you are calling clean or shale and write it to a zone
+    parameter from the pane, the same mechanism the crossplot uses.</li>
+  <li><b>★ Save template</b> stores the display setup by name; templates
+    recall per plot kind, separate from named log-view layouts.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>Every count on the panel is accounted for. The audit line under the plot
+reconciles the input population to the displayed one, and the statistics
+custody block states exactly what the numbers were computed from, in the
+panel's own words:</p>
+
+<pre class="equations">statistics[value:GR]: active well · interval=all · selection=all eligible
+(applied=false) · finite pairs=395 · exclusions input=395, non-finite=0,
+log-domain=0, validity=0, selection=0, unpaired/unclassified=0,
+display-hidden=0 · percentile=linear index (n-1) · std=sample (n-1)</pre>
+
+<p>Two conventions matter when comparing against other software: percentiles
+use the linear-index rule (the NumPy/Excel default), and the standard
+deviation is the sample form (n&minus;1). Out-of-range values are dropped from
+the bins, never piled into the edge bar, so a spike at the axis limit is real
+data, not an artefact.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Read the exclusions, not just n.</b> A curve that looks well-behaved
+    at n=395 with zero exclusions is a different statement from one where half
+    the input fell to non-finite; the custody line separates the two where a
+    bare mean would not.</li>
+  <li><b>Bimodal means two populations, not one mean.</b> The GR above has a
+    mean near 80 that describes almost no actual sample; pick endpoints on
+    the modes, never on the mean.</li>
+  <li><b>Validity is a filter on the statistics.</b> With "apply validity" on,
+    the chips and n change with the range; leave it off when the question is
+    "what is in the data", turn it on when the question is "what will a run
+    that masks bad hole actually see".</li>
+</ul>

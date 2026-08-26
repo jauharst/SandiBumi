@@ -1,0 +1,86 @@
+<!-- Authored walkthrough for the Crossplot tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The crossplot is where two curves argue: lithology from NPHI&ndash;RHOB,
+matrix from PEF, clay typing from Th&ndash;K, cementation from porosity
+against resistivity. It is also a working tool rather than a picture, because
+its parameter pickers write zone parameters directly: the point you drag to on
+the shale cluster becomes NPHI_SH and RHO_SH for every module that reads
+them.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-crossplot-matrix.png"
+       alt="NPHI-RHOB crossplot coloured by GR with quartz, calcite and dolomite matrix points" />
+  <figcaption>NPHI&ndash;RHOB coloured by GR. The clean gas sand pulls left of
+    the quartz point, the shale cluster sits low-right, and the GR colouring
+    separates them without any curve doing double duty on an axis.</figcaption>
+</figure>
+
+<p>X, Y and Colour each take any resolvable curve. The audit line under the
+plot reconciles the population (n, non-finite, log-domain, validity,
+display-hidden, colour-clamped), and a statistics custody block states the
+basis per axis, e.g. for the Y axis here:</p>
+
+<pre class="equations">statistics[y:RHOB]: active well · interval=all · selection=all eligible
+(applied=false) · finite pairs=388 · exclusions input=395, non-finite=7,
+log-domain=0, validity=0, selection=0, unpaired/unclassified=0,
+display-hidden=0 · percentile=linear index (n-1) · std=sample (n-1)</pre>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Plot ▸ New Crossplot</b>, set X, Y and (optionally) Colour. A
+    discrete colour curve (FACIES) switches to categorical swatches with a
+    legend automatically.</li>
+  <li>Open <b>⚙ Properties</b> for the rest: log axes, ranges, validity
+    filters, marginal histograms, the colormap, and a regression line with
+    the model (linear, exponential, power) and the fit direction stated,
+    Y on X, X on Y, or reduced major axis, because the three answer different
+    questions and give different slopes on the same cloud.</li>
+  <li>Overlays live in the same dialog: <b>Core data (diamonds)</b>,
+    the <b>T-S triangle</b>, <b>Matrix points (Qtz/Cal/Dol on NPHI-RHOB)</b>
+    as in the figure above, and a <b>Rock-type grid</b> offering
+    Winland R35 (Kolodzie 1980) and Pittman r25/r35/r50 (1992) iso-pore-throat
+    lines on a porosity&ndash;permeability plot.</li>
+  <li>To write parameters, enable the pickers and drag the ringed handle onto
+    the cluster; the X pick / Y pick rows under the plot (NPHI_SH, RHO_SH on
+    the shipped pairing) each get a <b>Set</b> button that writes the zone
+    parameter. A net cutoff quadrant can be declared the same way.</li>
+</ol>
+
+<figure>
+  <img src="../img/guide-crossplot-props.png"
+       alt="The Crossplot Properties dialog beside the live plot" />
+  <figcaption>The Properties dialog is non-blocking: the plot stays live
+    beside it, and Apply repaints without closing, so a threshold is tuned
+    against the picture rather than from memory.</figcaption>
+</figure>
+
+<h2>Reading the result</h2>
+
+<p>Trust the audit line before the shape. On this pairing, 7 of 395 samples
+fell to non-finite (the RHOB gap over the washout), and the colour range
+clamps rather than drops: clamped points are edge-marked and counted, so a
+colour that saturates at the scale end is visible as a statement, not hidden
+as a lie.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Vendor chart overlays are provenance-gated.</b> The chart list names
+    each chart and its state; every entry currently reads
+    "BLOCKED: source provenance absent" and the plot refuses to draw it. That
+    is deliberate: a digitised vendor chart may only ship once its source and
+    derivation path are recorded, so a blocked chart is a licensing fact, not
+    a bug to work around.</li>
+  <li><b>A regression is a model choice.</b> Y-on-X minimises vertical misfit
+    and is not the inverse of X-on-Y; RMA treats both axes as uncertain. Say
+    which one a quoted slope came from.</li>
+  <li><b>Dragged picks write parameters.</b> Releasing the handle writes zone
+    parameters that downstream runs consume, and the edit is undoable; check
+    the zone scope before dragging on a multi-zone well.</li>
+</ul>

@@ -1954,7 +1954,7 @@ test("every_plot_uses_one_change_only_invalidation_contract_and_a_theme_change_r
   for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /brushSet\s*=\s*next/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /cancelContextReload\(\)/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("pickettPanel.ts"), pattern, `Pickett's handler is not a no-op: ${pattern}`);
   }
-  for (const pattern of [/applyBrush\(selection\)/, /repaint\(\)/, /loadCurveNames\(\)/, /render\(\)/, /applySelectedInterval/, /const resized = current/, /beginPlotAsyncGeneration\("vega-resize"/, /resized\.view\.resize\(\)/, /current === resized/, /gen\+\+/, /cancelAnimationFrame/]) {
+  for (const pattern of [/applyBrush\(selection\)/, /repaint\(\)/, /loadCurveNames\(\)/, /render\(\)/, /applySelectedInterval/, /const resized = current/, /beginPlotAsyncGeneration\("vega-resize"/, /fitContainer\(resized\)/, /current === resized/, /gen\+\+/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("vegaPanel.ts"), pattern, `Vega's handler is not a no-op: ${pattern}`);
   }
   for (const pattern of [/theme:\s*\(\)\s*=>\s*draw\(\)/, /refreshWells\(\)/, /reload\(\)/, /selectedInterval\s*=\s*interval/, /brushSelection\s*=\s*selection/, /size:\s*\(\)\s*=>\s*draw\(\)/, /reloadGen\+\+/, /clearTimeout\(fitTimer\)/, /removeWellsMenu\(\)/]) {
