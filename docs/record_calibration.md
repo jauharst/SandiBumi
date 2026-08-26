@@ -41,6 +41,25 @@ the result says so. An unfittable term (constant Qv) is reported as 0 with a not
 guessed, and every excluded sample is counted and named. The dialog offers **Copy**, not
 auto-apply — a calibration is a judgement made after reading R² and the exclusions.
 
+**The fit is never bounded, so `sw_rtc`'s manifest box is what moves when they disagree
+(2026-08-26).** The regression is ordinary least squares with no constraint — a bounded fit is a
+different fit, and clamping a coefficient at a box edge would ship a calibration that no longer
+inverts the module's own equation. This fired twice in one day on the example project: the fit
+returned C0 = −1.4458 and then B_QV = 1.4529 (Qv built from a guessed CEC of 8 meq/100g), and
+the pane refused both against declared [−1, 1] boxes while Apply had already written them to
+`zone_params` — a calibration the user produced but could not type, running on the fitted well
+only. The equation consumes the products a·CAPBW, b·Qv, c: each coefficient rides the scale of
+the input it multiplies (b absorbs the Qv scale exactly the way the bracket absorbs RSF), so a
+per-coefficient box tighter than the conductivity sum's own bracket has no physics behind it.
+Both boxes now take A_CAP's [−10, 10], and the ruling is pinned per coefficient by
+`the_module_admits_the_intercept_its_own_calibration_fits` and
+`the_module_admits_the_qv_coefficient_its_own_calibration_fits` (`lrlc.rs`), each of which also
+asserts the box stays finite — the other lazy way out. The alternative considered and rejected:
+a fit-side or Apply-side gate against the manifest range, which would have refused the
+legitimate C0 above and elevates a typing box into a physics judgement. The study's published
+coefficients (b = 0.0057, `method_lrlc_rtc_imts.md`) belong to the study's own Qv scale and are
+not bounds.
+
 ## IMTS S-factor calibration (2026-07-31)
 
 `sw_imts`'s S is the RtC problem again: it is *defined* as a measurement — S = lab CEC / XRD-

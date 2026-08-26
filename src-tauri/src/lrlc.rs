@@ -164,7 +164,15 @@ pub fn sw_rtc_spec() -> ModuleSpec {
                 10.0,
                 true,
             ),
-            param_open("B_QV", "Qv coefficient", "", -1.0, 1.0, true),
+            // B_QV's box takes A_CAP's bracket for the same reason C0's did (below): the box
+            // must admit what Calibrate RtC itself produces. A live fit on the example wells
+            // returned B_QV = 1.4529 (Qv built from a guessed CEC of 8 meq/100g) — the old
+            // [-1, 1] box refused it at the pane while Apply had already written it to
+            // zone_params, so the fitted well ran a calibration nobody could type in. The
+            // equation only ever consumes b*Qv, so b's magnitude rides the Qv scale it was
+            // fitted with and carries no physics of its own; the study's 0.0057 belongs to
+            // the study's Qv scale (docs/method_lrlc_rtc_imts.md), it is not a bound.
+            param_open("B_QV", "Qv coefficient", "", -10.0, 10.0, true),
             // C0's box must admit what Calibrate RtC itself produces: the fit is never
             // bounded (a bounded fit is a different fit, docs/record_calibration.md), and a
             // live fit returned C0 = -1.4458, which the old [-1, 1] box refused at the pane.
@@ -2293,6 +2301,40 @@ mod tests {
             lo <= r.c0 && r.c0 <= hi,
             "the declared C0 box [{lo}, {hi}] refuses the calibration's own {}",
             r.c0
+        );
+    }
+
+    /// A fitted Qv coefficient must be typable into the module that consumes it — the same
+    /// contract the intercept test above pins, hit the same way one increment later: a live
+    /// fit on the example wells returned B_QV = 1.4529 (Qv built from a guessed CEC of
+    /// 8 meq/100g) and the pane refused it against the old [-1, 1] box while Apply had
+    /// already written it to zone_params, so the fitted well ran a calibration nobody could
+    /// enter anywhere else. The equation only ever consumes b*Qv, so b rides the Qv scale it
+    /// was fitted with and its magnitude alone bounds nothing. Pinned from both sides: the
+    /// manifest's own box admits what the fit recovers, and the box stays finite on both
+    /// sides, so deleting the bounds cannot satisfy this test either.
+    #[test]
+    fn the_module_admits_the_qv_coefficient_its_own_calibration_fits() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let (rw, m, rsf) = (1.0, 2.0, 2.25);
+        let truth = (0.45, 1.4529, -0.0071); // the live fit's own b, on the sandbox Qv scale
+        let w = synth_well(&conn, "WET-BIG-B", truth, rw, m, rsf, 120, |_| 1.0);
+        let db = Mutex::new(conn);
+        let mut req = fit_req(vec![w], rw, m, rsf);
+        req.depth_min = Some(0.0); // declare the whole well wet — it is
+        let r = run_rtc_fit(&db, &req);
+        assert!(r.error.is_none(), "fit failed: {:?}", r.error);
+        assert!(r.n_points > 100, "expected the whole wet leg, got {}", r.n_points);
+        assert!((r.b_qv - truth.1).abs() < 1e-6, "B_QV {} vs {}", r.b_qv, truth.1);
+        let spec = sw_rtc_spec();
+        let arg = spec.args.iter().find(|a| a.name == "B_QV").expect("sw_rtc declares B_QV");
+        let (lo, hi) = (arg.min.expect("B_QV has a min"), arg.max.expect("B_QV has a max"));
+        assert!(lo.is_finite() && hi.is_finite(), "the B_QV box must stay a real box");
+        assert!(
+            lo <= r.b_qv && r.b_qv <= hi,
+            "the declared B_QV box [{lo}, {hi}] refuses the calibration's own {}",
+            r.b_qv
         );
     }
 

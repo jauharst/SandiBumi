@@ -767,6 +767,10 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
   the S fit takes clay from the curves the RUN will use, not from the XRD table.
 - **A term that is not jointly identifiable is held fixed and echoed, never fitted** — RSF beside
   (a, b, c), the literature CECs beside S.
+- **The fit is never bounded; when a fitted coefficient exceeds `sw_rtc`'s manifest box, the BOX
+  is what moves** (C0 −1.4458, then B_QV 1.4529 — both now on A_CAP's bracket). Each coefficient
+  rides the scale of the input it multiplies, so a tighter per-coefficient box has no physics
+  behind it — never add a fit-side or Apply-side gate against the manifest range instead.
 - **Accepting a calibration is ONE transaction and one undo** (`db::set_zone_param_batch`), the
   held-fixed constants go in the same batch or not at all, and **a `None` DELETEs the row rather
   than writing zero** — a parameter silently pinned to 0 keeps computing.
