@@ -390,53 +390,114 @@
 <pre class="equations">PHIE = PHIT − CBW  (clay-bound water only)
 PHIFF = PHIT − CBW − CAPBW
 Gas conditioning corrects the density leg only (same c parameter as SSC)</pre>
-<!-- Authored walkthrough for the sspw guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the sspw guidebook chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the bound-water split demonstrated by moving VOL_CBW_SH while
+     SWIRR stands still. -->
 
-<h2>Step by step: the bound-water split</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>SSPW is SandiBumi's own bound-water workflow, and its message is one
-sentence: <b>effective porosity loses only the clay-bound water; the capillary-bound
-water stays inside PHIE, and what flows is PHIFF = PHIT − CBW − CAPBW.</b> It lives on
-the <b>Advance</b> tab beside SSC.</p>
+<p>The Sandstone Petrophysical Workflow: a three-component model (quartz,
+shale, water) that computes total porosity from the density log with a
+shale-mixed matrix, then splits the shale's water into clay-bound and
+capillary-bound parts. It is the simpler sibling of the SSC chapter: where
+SSC resolves sand, silt and clay from the crossplot itself, SSPW takes the
+shale volume you already computed and applies the split to it. Reach for it
+on ordinary shaly sandstone where a VSH curve exists and the deliverable
+needs the free-fluid porosity and irreducible saturation that a plain
+density porosity does not give.</p>
 
-<h3>Sandstone units are a requirement of the spec</h3>
+<h2>The physics</h2>
 
-<p>The specification states NPHI must be in sandstone units, so pin the NPHI input to
-<code>NPHI_SS</code> (from Neutron Matrix Conversion), exactly as the
-<a href="ssc.html">SSC chapter</a> does.</p>
-
-<h3>Enter the spec parameters and the shale point</h3>
-
-<p>All entered values and their origins, as recorded in the run's reference field:</p>
+<p>PHIT comes from the density log read against a matrix that mixes the
+clean grain density with the dry-shale grain density in proportion to VSH.
+The shale's own total porosity is fixed by its wet and dry densities,
+PHIT_SH = (RHOB_DSH − RHOB_SH)/(RHOB_DSH − RHOB_FL), and that porosity is
+then divided by declaration: VOL_CBW_SH of it is clay-bound, the remainder
+capillary-bound. Per sample:</p>
 
 <ul>
-  <li><b>NPHI_MAT 0 · RHOB_DSH 2.71 · VOL_CBW_SH 0.1 · SWIRR_MIN 0</b>: the values
-    the SSPW specification itself records.</li>
-  <li><b>RHOB_SH 2.45 / NPHI_SH 0.42</b> (sandstone units): medians of SANDI-01's
-    samples at GR ≥ 112 gAPI, this dataset's own shale point, preferred over the
-    spec's example values because it is measurable here.</li>
-  <li><b>GAS_C 1.6</b>: the shipped, cited default; SSPW corrects the density leg
-    only, so the leg-crossing behaviour SSC shows above c = 1 has no counterpart here.</li>
+  <li><b>CBW = VSH · VOL_CBW_SH</b> and
+    <b>CAPBW = VSH · (PHIT_SH − VOL_CBW_SH)</b>.</li>
+  <li><b>PHIE = PHIT − CBW</b>: the key convention of this model, effective
+    porosity removes clay-bound water only, so capillary-bound water is
+    still inside PHIE.</li>
+  <li><b>PHIFF = PHIT − CBW − CAPBW</b> is what can flow, and
+    <b>SWIRR = (CBW + CAPBW)/PHIT</b>, floored at SWIRR_MIN.</li>
 </ul>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>RHOB_SH 2.45 / NPHI_SH 0.42 (sandstone units)</b>: medians of
+    SANDI-01's shale population (GR ≥ 112), read on the converted neutron
+    because the whole model is entered in sandstone units.</li>
+  <li><b>RHOB_DSH 2.71, VOL_CBW_SH 0.1, NPHI_MAT 0, SWIRR_MIN 0</b>: the
+    spec values the method note records for this workflow.</li>
+  <li><b>NPHI input on NPHI_SS</b>: the sandstone-units conversion from the
+    Prep book, matching NPHI_MAT 0.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run a VSH module first (the split multiplies it), and Neutron Matrix
+    Conversion so NPHI_SS exists.</li>
+  <li>Open <b>Advance ▸ SSPW</b>, point NPHI at NPHI_SS, enter the shale
+    points and the split with their sources in the custody line.</li>
+  <li>Press <b>Run SSPW</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-sspw-pane.png"
-       alt="The SSPW pane with the spec parameters and the shale point entered" />
-  <figcaption>Spec values plus this dataset's own shale point.</figcaption>
+       alt="The SSPW pane with the shale points and bound-water split entered" />
+  <figcaption>Two measured shale points, one dry-shale density, and one
+    declared split: the whole model.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. Outputs: PHIT/PHIE/PHIFF_SSPW, the three bound-water
-volumes (clay-bound, capillary-bound, total) and SWIRR_SSPW. Put PHIT, PHIE and
-PHIFF_SSPW on one track: the gap between PHIT and PHIE is the clay-bound water, and
-the gap between PHIE and PHIFF is the capillary-bound water the method exists to
-separate.</p>
+<p><b>3 clean</b>. Whole-section medians: PHIT_SSPW <b>0.1702</b>, PHIE_SSPW
+<b>0.1169</b>, PHIFF_SSPW <b>0.0846</b>, SWIRR_SSPW <b>0.4678</b>, with the
+bound water split as CBW <b>0.0541</b> and CAPBW <b>0.0282</b>. In the
+sands (GR &lt; 60) PHIE and PHIFF nearly coincide, <b>0.1959</b> against
+<b>0.1938</b>, and SWIRR drops to <b>0.0547</b>: clean rock carries almost
+no bound water, which is the model behaving.</p>
 
-<p>One honesty note the pane's help also carries: SSPW was reconstructed from its
-specification, and validation against the reference-suite exports is still an open
-review item.</p>
+<pre class="equations">SELECT round(median(value), 4) FROM computed_curves
+WHERE curve_name = 'PHIFF_SSPW' AND NOT isnan(value)</pre>
+
+<p>The instructive measurement is what the split parameter does and does
+not move. VOL_CBW_SH raised from 0.10 to 0.15 drops the PHIE_SSPW median
+from 0.1169 to <b>0.0856</b> and collapses CAPBW to <b>0.0002</b>, while
+SWIRR_SSPW stays exactly <b>0.4678</b>. The parameter reallocates water
+between the clay-bound and capillary-bound bins without changing their sum,
+so the porosity that is defined against CBW alone moves and the saturation
+that is defined against the sum does not. That is the model's key
+convention, demonstrated in two numbers. Restored to 0.10, every value
+returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-sspw-result.png"
+       alt="The SSPW run reporting three clean wells" />
+  <figcaption>Three clean wells; PHIE and PHIFF bracket the capillary-bound
+    water between them.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>PHIE here is not the PHIE of the density chapter: this one removes
+    clay-bound water only. Comparing the two curves shows the capillary
+    term; quoting one as the other misstates producible porosity.</li>
+  <li>The split is a declaration, not a measurement. Where core NMR or
+    capillary pressure data exists, check VOL_CBW_SH against it; where it
+    does not, say so in the custody line and treat PHIFF with matching
+    caution.</li>
+  <li>The sandstone-units rule is absolute, exactly as in the crossplot
+    chapters: a limestone-units neutron fed in raw shifts the shale point
+    and every split after it.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Three-component sandstone workflow (quartz + shale + water). PHIT from density with a VSH-mixed dry matrix (RHOB_MAT / RHOB_DSH); shale total porosity PHIT_SH = (RHOB_DSH − RHOB_SH)/(RHOB_DSH − RHOB_FL); CBW = VSH·VOL_CBW_SH; CAPBW = VSH·(PHIT_SH − VOL_CBW_SH). Key message: PHIE = PHIT − CBW (clay bound only); PHIFF = PHIT − CBW − CAPBW is the movable-fluid porosity; SWIRR = (CBW+CAPBW)/PHIT floored at SWIRR_MIN. NPHI must be sandstone units. Exec arithmetic reconstructed from the reference spec — check against the reference PHIT/PHIE LAS output.</p>

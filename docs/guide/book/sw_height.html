@@ -393,66 +393,121 @@ SKELT: SWH = 1 − SH_A·exp(−(SH_B/(h + SH_D))^SH_C)  (h in metres)</pre>
 <h2>References</h2>
 <ul><li>Leverett, M.C. (1941), Transactions AIME 142: the J-function</li>
 <li>Skelt, C. &amp; Harrison, B. (1995), SPWLA: the height-saturation law</li></ul>
-<!-- Authored walkthrough for the sw_height guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the sw_height guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the FWL sensitivity measured, the above-contact population
+     read separately. -->
 
-<h2>Step by step: saturation from height, with the fit chain shown</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>sw_height writes a saturation-versus-height curve from a fitted capillary-pressure
-model, the Leverett J-function here, with Skelt-Harrison one dropdown away. Its
-inputs are the end of a chain, and this walkthrough runs the whole chain on SANDI-01
-so every number arrives with its origin attached.</p>
+<p>Saturation from height above the free-water level: the capillary-pressure
+route to Sw, fitted to core data and driven by nothing but depth, porosity
+and permeability. It is the one saturation in this book that never reads a
+resistivity log, which is exactly its value: run beside the resistivity
+methods it is an independent witness, and in volumetrics it is the model
+that extends Sw away from the wells, because a geomodel has structure and
+rock properties everywhere but resistivity only along wellbores.</p>
 
-<h3>Link one: a permeability log from the core calibration</h3>
+<h2>The physics</h2>
 
-<p>The J-function needs a PERM curve and none existed. The por-perm transform module
-is built for exactly this: <b>PT_A 17.92 / PT_B −2.203</b> are the ordinary
-least-squares fit of log₁₀(CPERM) on CPOR (as a fraction) over the 15 plugs of the
-SANDI-01 core delivery (R² 0.981), and the module writes PERM from PHIE_DEN on all
-three wells (<b>3 clean</b>). The regression is the user's own calibration by
-design; the transform ships no coefficients.</p>
+<p>Height above the contact sets capillary pressure through the density
+contrast, Pc = 0.433·(RHO_W − RHO_HC)·h with h in feet; the Leverett
+transform makes it dimensionless against the rock's own pore geometry:</p>
 
-<h3>Link two: the Leverett fit from the SCAL import</h3>
+<pre class="equations">J = 0.21645 · Pc / IFT_RES · sqrt(PERM / PHIE)
+SWH = SWH_A · J^SWH_B          (below the FWL, h ≤ 0: SWH = 1)</pre>
 
-<p>Importing the delivery's long-format Pc table (24 points, air-brine, lab σ·cosθ
-72 dyn/cm, the recorded laboratory seed) makes the import itself report the J-fit:
-<b>SWH_A 0.511, SWH_B −0.210, R² 0.586</b>. Note that R²: it will matter below.</p>
+<p>SWH_A and SWH_B come from fitting J against core capillary-pressure
+measurements (the SCAL import performs and reports that fit); the result is
+limited to [SWT_IRR, 1]. Height is measured on the TVD curve when one
+exists and on measured depth otherwise, and the FWL must be entered on the
+same reference. A Skelt-Harrison alternative is available where a J
+function fits the core poorly.</p>
 
-<h3>Link three: the run</h3>
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>FWL 1535 m MD</b>: the gas-water contact read off the resistivity collapse
-    between the two sands. SANDI-01 is vertical so MD = TVD; the pane measures height
-    from a TVD curve when one exists, and this well carries none, so the
-    measured-depth fallback applies, which is only legitimate because the well is
-    vertical.</li>
-  <li><b>RHO_W 1.0</b> (the cited default) and <b>RHO_HC 0.7 g/cc · IFT_RES 26
-    dyn/cm</b>: the recorded vendor seeds for the reservoir fluid pair. On a real
-    study these come from PVT and lab IFT; for the gas leg of a real field you would
-    use the water-gas pair instead. Seeds are seeds, and the reference field says
-    so.</li>
-  <li><b>SWH_A/SWH_B</b> from the import's fit; <b>SWT_IRR 0.16</b> as in the other
-    saturation chapters.</li>
+  <li><b>FWL 1535 m MD</b>: the resistivity collapse at the contact between
+    the two sands, read on measured depth because these wells are vertical
+    (MD = TVD).</li>
+  <li><b>SWH_A 0.511 / SWH_B −0.210</b>: the Leverett J fit the SCAL import
+    reported on this project's core capillary-pressure delivery
+    (R² 0.586, n = 24, measured air-brine at 72 dyn/cm).</li>
+  <li><b>RHO_W 1.0 (shipped), RHO_HC 0.7, IFT_RES 26</b>: the recorded
+    reservoir seed values for a light hydrocarbon and reservoir
+    gas-brine interfacial tension.</li>
+  <li><b>SWT_IRR 0.16</b>: the same irreducible floor the resistivity
+    chapters use, so the two families clamp alike.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Import SCAL capillary-pressure data and note the J-fit coefficients
+    the import reports.</li>
+  <li>Pick the FWL from the pressure or resistivity evidence, on the same
+    depth reference the height will use.</li>
+  <li>Open the Saturation-Height pane from <b>Petrophysics ▸
+    Saturation</b>, enter the picks with their sources, and press Run.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-swheight-pane.png"
-       alt="The saturation-height pane with the fitted Leverett coefficients entered" />
-  <figcaption>The chain's numbers entered: core-fit PERM behind the PHIE/PERM inputs,
-    the SCAL import's J-fit as SWH_A/SWH_B.</figcaption>
+       alt="The saturation-height pane with the J-fit coefficients entered" />
+  <figcaption>Everything here traces: the contact to a log response, the
+    coefficients to the reported core fit.</figcaption>
 </figure>
 
-<h3>Run and read, including the disagreement</h3>
+<h2>Reading the result</h2>
 
-<p>On SANDI-01: <b>1 clean</b>. Below the FWL the curve is 1 by definition; above it
-HAFWL rises to 35 m at the top of the log and the J-curve pulls saturation down. Now
-the honest part: in the gas leg the height model reads a median <b>SWT_HGT 0.53</b>
-where the resistivity methods read ~0.16 at their floor. That gap is the R² 0.586
-talking: a J-fit through 24 scattered synthetic Pc points is a weak law, and the
-height curve inherits every bit of that weakness. On a real study this comparison
-(height-model saturation against resistivity saturation, on one track) is the QC that
-decides whether the Pc data, the contacts or the resistivity picks need another
-look before anything ships.</p>
+<p><b>3 clean</b>. The HAFWL output spans <b>−25.1 to +19.9 m</b>: the
+contact sits mid-section, so half of every well is below it and reads
+SWH = 1 by definition, which is why the whole-section median is exactly
+<b>1</b> and means nothing about pay. Above the contact the median is
+<b>0.4872</b> over 248 samples:</p>
+
+<pre class="equations">SELECT round(median(a.value), 4) FROM computed_curves a
+JOIN computed_curves h ON a.well_id = h.well_id AND a.depth = h.depth
+ AND h.curve_name = 'HAFWL' AND h.value &gt; 0
+WHERE a.curve_name = 'SWT_HGT' AND NOT isnan(a.value)</pre>
+
+<p>That 0.49 median against the resistivity methods' 0.09 to 0.16 in the
+same gas sand is not a bug in either: with barely 20 m of column above the
+contact, this Pc model keeps the whole gas leg in transition, while
+resistivity sees it far drier. An R² of 0.586 on 24 plugs rides into every
+one of these numbers, and reconciling the two families against production
+evidence is precisely the calibration conversation this module exists to
+start.</p>
+
+<p>The FWL dial, measured: the contact moved 25 m deeper (1560) puts the
+whole section above it, and the median jumps from 1 to <b>0.4538</b>. The
+transition zone travels bodily with the contact, so no parameter in this
+module deserves more scrutiny than the FWL, and it is zone-overridable
+for stacked reservoirs with different contacts. Restored to 1535, every
+number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-swheight-result.png"
+       alt="The saturation-height run reporting three clean wells" />
+  <figcaption>Three clean wells; the median of 1 is the below-contact half
+    of the section, not an interpretation.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Enter the FWL on the reference the height uses: with a TVD curve the
+    height is true vertical, and a subsea TVDSS contact is entered
+    negative. On a deviated well an MD contact overstates height by about
+    1/cos(inclination).</li>
+  <li>Read the fit quality before the saturations. R² 0.586 on 24 plugs is
+    a real fit with real scatter; a J function fitted that loosely is a
+    trend, not a law, and the Skelt option exists for rocks it fits
+    worse.</li>
+  <li>Below the FWL the curve is 1 by definition, not by measurement; keep
+    those samples out of any comparison statistics against the resistivity
+    methods.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>SWH from height above the free-water level. LEVERETT: Pc = 0.433*(RHO_W-RHO_HC)*h_ft, J = 0.21645*Pc/IFT_RES*sqrt(PERM/PHIE), SWH = SWH_A * J^SWH_B (fit SWH_A/SWH_B from core Pc data via Import SCAL — the fit is reported there). SKELT (Skelt-Harrison): SWH = 1 - SH_A*exp(-(SH_B/(h+SH_D))^SH_C), h in metres (SH_B and SH_D are metres by the published form, so the height is converted for that branch alone — the HAFWL curve itself is written in the project's own depth unit). Below the FWL (h &lt;= 0) SWH = 1. Result limited to [SWT_IRR, 1]. FWL is zone-overridable for stacked reservoirs with different contacts. Height is measured from the TVD input when a TVD curve is supplied (else measured depth) so deviated wells are not over-stated — MD height overstates true height by ~1/cos(inc); enter FWL on the SAME reference (a negative value for a sub-sea TVDSS FWL).</p>

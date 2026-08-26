@@ -391,52 +391,107 @@
 v = VSH^(2−VSH)  (FULL),  VSH²  (SIMPLE),  VSH^(2−2·VSH)  (TAR_SAND)</pre>
 <h2>References</h2>
 <ul><li>Poupon, A. &amp; Leveaux, J. (1971), SPWLA 12th Annual Logging Symposium, Paper O</li></ul>
-<!-- Authored walkthrough for the sw_indo guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the sw_indo guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the exponent variant measured, the wet-sand check applied. -->
 
-<h2>Step by step: the Indonesia equation</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Poupon-Leveaux's Indonesia equation writes total conductivity as a clay term, a
-clean-sand Archie term and a geometric cross-term between them, built for shaly sands
-where a separate clay-water model is more parameters than the data can support. The
-pane offers the three published shale-exponent forms by name; this run uses
-<b>FULL</b> (v&nbsp;=&nbsp;VSH^(2−VSH)), the default.</p>
+<p>The Indonesia equation (Poupon and Leveaux, 1971): the field-standard
+shaly-sand saturation for fresh formation waters, built for exactly the
+kind of section this dataset imitates. It adds a shale conductivity path
+in parallel with the sand's, plus the cross term that makes the two
+interfere, so shaly intervals stop reading as water the way they do under
+Archie. If a study in a young clastic basin reports one resistivity
+saturation, it is usually this one.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>Same convention and water pick as the <a href="sw_arch.html">Archie chapter</a>,
-plus the one parameter Indonesia adds, the shale resistivity:</p>
+<pre class="equations">1/RT = ( v/RT_SH + PHIE^M/(A·Rw)
+        + 2·sqrt( v · PHIE^M / (A·Rw·RT_SH) ) ) · SW^N
+v = VSH^(2−VSH)  (FULL)    v = VSH^2  (SIMPLE)    v = VSH^(2−2·VSH)  (TAR_SAND)</pre>
+
+<p>The equation works on effective porosity and takes the shale's own
+resistivity as a parameter, so the shale path is anchored to a measured
+number rather than an assumption. The exponent variant is part of the
+equation's identity: the three published forms weight the shale term
+differently, and the choice is declared, not tuned.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>A 1 · M 2 · N 2</b>: the dossier's reference-case convention, declared.</li>
-  <li><b>RW 0.058 ohm·m</b>: median wet-sand Rwa, as before.</li>
-  <li><b>RT_SH 2.5 ohm·m</b>: the median RES_DEEP over the 55 samples at
-    GR&nbsp;≥&nbsp;112 gAPI, this dataset's own shale resistivity.</li>
-  <li><b>SWE_IRR 0.16</b>: the SSC-derived irreducible floor, as before.</li>
-  <li><b>VSH input</b>: the VSH curve from the gamma-ray run; PHIE pinned to
-    PHIE_DEN so the porosity's provenance is one method, not a mixture.</li>
+  <li><b>a 1, m 2, n 2</b>: the reference-case convention, as the Archie
+    chapter.</li>
+  <li><b>RW 0.058 ohm.m</b>: the median wet-sand Rwa derived through
+    effective porosity. In the Archie chapter that derivation clashed with
+    the total-porosity identity; here it is the right pairing, because
+    this is an effective-porosity equation.</li>
+  <li><b>RT_SH 2.5 ohm.m</b>: the median deep resistivity of the shale
+    population (GR ≥ 112, 55 samples), this dataset's own shale, not a
+    book value.</li>
+  <li><b>SWE_IRR 0.16</b>: the irreducible floor shared across the
+    saturation book.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run VSH and a porosity chapter; both resolve as inputs.</li>
+  <li>Read RT_SH off the shale population with the Inspector and Rw from
+    a water zone.</li>
+  <li>Open the Indonesia pane from <b>Petrophysics ▸ Saturation</b>, keep
+    the FULL form unless the study argues otherwise, and press Run.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-swindo-pane.png"
-       alt="The SW — Indonesia pane with the FULL form and the picks entered" />
-  <figcaption>FULL form; RT_SH is the only new pick over the Archie run.</figcaption>
+       alt="The Indonesia pane with the shale resistivity entered" />
+  <figcaption>One extra measured number, the shale resistivity, is what
+    separates this from Archie.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>0 clean · 3 degraded</b>, and the report is worth reading
-closely. The clamp count drops to ~93 per well (against Archie's 372) because the
-clay term now absorbs the shale conductivity that Archie could only explain as water.
-One sample per well reports <i>"VSH&nbsp;≥&nbsp;1 leaves no effective porosity, so the
-saturation is degenerate rather than measured"</i>, the equation refusing to
-manufacture a number where the rock model says there is no reservoir.</p>
+<p><b>0 clean · 3 degraded</b>: 92 or 93 samples per well computed below
+the 0.16 floor and were clamped-and-counted. Median SWE_INDO
+<b>0.6615</b>. The populations tell the story: gas sand <b>0.0898</b>,
+wet sand <b>0.7635</b>. Against the effective-form Archie's wet-sand
+0.8636 on identical picks, the shale term has moved even the cleanest
+rock by ten saturation units, because VSH is never quite zero there.</p>
 
-<p>The comparison that teaches the method: in the clean gas sand the median
-<code>SWE_INDO</code> is 0.084, identical to Archie's, because at VSH&nbsp;→&nbsp;0
-the Indonesia equation <i>is</i> Archie. The two separate only where VSH grows, which
-is exactly the interval a shaly-sand equation exists for. Put SWE_ARCH and SWE_INDO on
-one track and the divergence maps the shale.</p>
+<pre class="equations">SELECT round(median(c.value), 4) FROM computed_curves c
+JOIN standard_curves sc ON c.well_id = sc.well_id AND c.depth = sc.depth
+WHERE c.curve_name = 'SWE_INDO' AND sc.gr &lt; 60 AND sc.res_deep &lt; 10
+  AND NOT isnan(c.value)</pre>
+
+<p>The exponent variant, measured: SIMPLE on the same picks lifts the
+median to <b>0.6712</b>. One saturation unit here, because v = VSH² feeds
+the shale path less conductivity than the FULL form at this section's
+shale volumes; sections with higher VSH separate further. The form is a
+published identity to declare in the methodology table, not a knob.
+Restored to FULL, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-swindo-result.png"
+       alt="The Indonesia run reporting three degraded wells" />
+  <figcaption>Three degraded wells: the samples below the declared
+    irreducible floor, clamped and counted.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Close the water-zone loop: 0.76 in the wet sand says the shale term
+    and the Rw pick together slightly over-correct the cleanest rock here.
+    Reading that check is how RT_SH and Rw get refined; not reading it is
+    how a wrong pair ships.</li>
+  <li>RT_SH from another field's shale is the classic silent error; the
+    number takes thirty seconds to measure on this dataset's own shale
+    population.</li>
+  <li>The equation was published for fresh waters where the shale path
+    matters most; in very saline brines the shale term loses its leverage
+    and plain Archie with good m and n competes.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>1/RT = (v/RT_SH + PHIE^M/(A*Rw) + 2*sqrt(v*PHIE^M/(A*Rw*RT_SH))) * SW^N, v = VSH^(2-VSH) (FULL), VSH^2 (SIMPLE), VSH^(2-2*VSH) (TAR_SAND). Poupon &amp; Leveaux (1971).</p>
