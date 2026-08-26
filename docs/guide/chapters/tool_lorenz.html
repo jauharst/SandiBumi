@@ -1,0 +1,68 @@
+<!-- Authored walkthrough for the Lorenz Plot tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Lorenz pane walks one well's column top-down, accumulating flow
+capacity &Sigma;(k&middot;h) against storage capacity &Sigma;(&phi;&middot;h),
+and segments the curve into flow units: the stratigraphic modified Lorenz
+plot. Reach for it when the question is where the flow actually lives:
+which interval a completion must not miss, whether a thief zone exists,
+and how heterogeneous the column is in one number.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-lorenz.png"
+       alt="The Lorenz plot with a speed zone above the homogeneous diagonal and the unit table" />
+  <figcaption>SANDI-01 from PHIE and PERM: Lorenz coefficient 0.328, three
+    flow units, and the SMLP curve with the upper sand's speed segment
+    climbing away from the dashed homogeneous diagonal.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Per well, from curves</b>: pick the porosity and permeability
+    curves (core-calibrated PERM here), optionally cap the unit count or
+    restrict the depth window.</li>
+  <li><b>The footer states the reading rules</b>: slope&nbsp;&gt;&nbsp;1
+    segments are speed zones delivering more flow than their share of
+    storage, flat segments are baffles, the dashed 45&deg; diagonal is a
+    perfectly homogeneous column, and the Lorenz coefficient runs 0
+    (homogeneous) to 1 (all flow in thin intervals).</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open the pane (workspace &#65291; menu &#9656; Lorenz Plot), pick
+    the well and the two curves, and press <b>Build Lorenz Plot</b>.</li>
+  <li>Read the header accounting first: 3 flow units from 191 samples with
+    204 skipped here, and skipped means a sample missing either input,
+    counted rather than silently absorbed.</li>
+  <li>Click a table row to highlight its segment on the curve.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The example column tells one clear story: the upper sand
+(1520&ndash;1535&nbsp;m) holds 58.1% of the storage but delivers 88.6% of
+the flow at slope 1.52, while everything below it is baffle (slopes 0.28
+and 0.06). A completion that perforates only the top unit produces almost
+nine-tenths of the well; one that relies on the lower interval waits on
+75&nbsp;mD rock. The Lorenz coefficient of 0.328 places the column in the
+moderately heterogeneous range, and &Sigma;k&middot;h (9,577 mD&middot;m)
+is the kh a test should roughly confirm.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>The plot is only as good as the permeability curve.</b> Built
+    from an uncalibrated transform it restates that transform's
+    assumptions; use the core-tied curve and say which one was used.</li>
+  <li><b>Depth order matters.</b> The SMLP accumulates in stratigraphic
+    order on purpose, so unit boundaries are depths a completion can use;
+    a sorted (classic Lorenz) curve answers heterogeneity only.</li>
+  <li><b>Compare wells at the same cutoffs.</b> Skipped-sample counts
+    differ per well; a coefficient computed over different fractions of
+    two columns is not one comparison.</li>
+</ul>

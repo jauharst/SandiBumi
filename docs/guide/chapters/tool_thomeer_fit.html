@@ -1,0 +1,79 @@
+<!-- Authored walkthrough for the Pc Fit (Thomeer) tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Pc Fit pane fits Thomeer's log-hyperbola to laboratory capillary
+pressure curves, plug by plug: entry pressure Pd, the pore-geometrical
+factor G, and the asymptotic bulk volume Bv&infin;, plus a Swanson
+permeability estimate from the fitted curve. Reach for it when a SCAL
+delivery arrives and the study needs each plug's Pc curve reduced to
+comparable parameters: rock typing on the Pd&ndash;G plane, or a
+capillary-pressure model to stand behind a saturation-height law.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-thomeer.png"
+       alt="The Thomeer fit table, the fitted hyperbola for one plug and the Pd-G plane" />
+  <figcaption>Three plugs from the active SCAL set, fitted in 41 ms: G
+    0.87&ndash;0.97, R&sup2; 0.97&ndash;0.99 on 8 points each, and the
+    entry pressure flagged on every plug.</figcaption>
+</figure>
+
+<ul>
+  <li><b>The data comes from the active SCAL delivery</b> (the same
+    set-resolution rule every reader follows); each plug's points are
+    Bv&nbsp;=&nbsp;&phi;&middot;(1&minus;Sw) against Pc.</li>
+  <li><b>Lab systems are standardized before comparison</b>. The footer
+    states the contract: Pc converts to Hg-air equivalent from the
+    import's recorded fluid system so plugs from different labs share one
+    Pd&ndash;G plane, and "(raw)" rows with no recorded
+    &sigma;cos&theta; fit unconverted rather than silently wrong.</li>
+  <li><b>One pore system per plug</b>, stated up front; a bimodal
+    carbonate curve needs the multi-modal treatment this pane does not yet
+    claim to have.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Import the SCAL delivery (Data &#9656; Import SCAL&hellip;), then
+    open the pane (workspace &#65291; menu &#9656; Pc Fit) and press
+    <b>Fit Thomeer</b>.</li>
+  <li>Click a table row to see that plug's points with the fitted
+    hyperbola; read R&sup2; and n (points per curve) before trusting any
+    parameter.</li>
+  <li>Read the Pd&ndash;G plane last: plugs that group there share pore
+    geometry, which is what a capillary rock type is.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>On the example plugs the hyperbolae fit tightly (R&sup2; &ge; 0.97) and
+G falls 0.87&ndash;0.97, but every Pd carries a warning flag: the fitted
+entry pressure (1.53 psi) sits at the first measured pressure point, so
+the true Pd is only known to be at or below it. A fit parameter pinned at
+the data's edge is reported with the flag rather than quoted as a
+measurement. The Swanson permeabilities (8&ndash;462 mD against measured
+12.5&ndash;325 mD) land within a factor of a few, which is what that
+correlation promises; the footer's caution that the Swanson constants are
+literature values to verify before field release is the provenance rule
+applied to a shipped default.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>A flagged Pd is a bound, not a value.</b> If entry pressure
+    matters (thin transition zones, seal capacity), the lab needs to have
+    measured lower pressures; no fit recovers what was never
+    sampled.</li>
+  <li><b>Eight points fit a three-parameter curve comfortably but not
+    redundantly.</b> R&sup2; on n=8 flatters; look at where the points sit
+    on the hyperbola, especially near the plateau.</li>
+  <li><b>Compare plugs only after conversion.</b> An air-brine and an
+    Hg-air curve on one Pd axis differ by an order of magnitude until the
+    &sigma;cos&theta; standardization is applied; the "(raw)" marker
+    exists so that an unconverted plug can never masquerade as a
+    converted one.</li>
+</ul>
