@@ -1,0 +1,77 @@
+<!-- Authored walkthrough for the Condition Plates tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Condition Plates is the conditioning workspace pointed at thin
+sections. A plate arrives with exactly the problems a core photograph
+does &ndash; lifted out of a workbook at whatever angle it was scanned,
+under whatever lamp the microscope had &ndash; so it gets the same tools:
+straighten, crop, colour, detail, all non-destructive, all baked only on
+Apply. Reach for it to fix framing before measurement; what you apply
+here is literally what Pore Area measures.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-conditionplates.png"
+       alt="The plate conditioning workspace with the green-cast plate selected and its separated colour histograms" />
+  <figcaption>The example delivery's filmstrip with the green-cast plate
+    open: the lamp has pushed every grain toward green, the RGB
+    histograms sit a channel apart, and the recommender stages contrast
+    +0.28 while declining to invent a white balance from rock.</figcaption>
+</figure>
+
+<ul>
+  <li><b>One workspace, two entry points.</b> This is the Core
+    Photos&hellip; workspace opened on a thin-section delivery; the
+    depth-strip and trace tools stay core-only, because a section is cut
+    from one plug and covers no interval.</li>
+  <li><b>The same three-state honesty</b>: as imported / edited-and-not-
+    applied / applied-in-the-project, with Reset returning the import
+    exactly.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; Petrography &#9656; Condition
+    Plates&hellip;</b> and pick the plate from the filmstrip &ndash;
+    plates are chosen as pictures, not filenames.</li>
+  <li>Fix framing where a scan needs it: Straighten for a crooked scan,
+    Crop for a label or holder edge, Square up for a plate photographed
+    at an angle.</li>
+  <li>Apply, and only what is applied reaches the measurements.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The interesting decision on the example is what <i>not</i> to do. Two
+plates of this delivery were photographed under a green-cast lamp, and
+the recommender's advice on them is the same as on the core boxes:
+almost nothing in a thin section is both bright and uncoloured, so it
+proposes contrast and declines the white balance rather than scrubbing
+the rock's own colour out. That is the right refusal here, because lamp
+casts across a plate delivery are Pore Area's job: its reference-plate
+normalization corrects every plate onto one the band was tuned on,
+anchored on the rock's matrix colour, and reports how far each plate had
+to move. Conditioning by hand and the reference correction compose
+&ndash; a white balance done here leaves the correction less to do
+&ndash; but for colour, the measured route is usually the better one, so
+the example plates were left as delivered.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Never straighten a plate by stretching it.</b> The workspace
+    only rotates and crops; a thin section's delivered shape is the
+    truth, and a squashed plate misstates grain shape, which is the one
+    thing the plate is there to show.</li>
+  <li><b>Condition before declaring a scale.</b> A crop changes which
+    part of the picture the field-of-view width describes; measure the
+    scale bar (Plate Details) on the plate as it will be measured.</li>
+  <li><b>Detail sliders change what the measurements see.</b> Denoise
+    removes exactly the speckle the pore rule's pixel floor exists to
+    ignore, and sharpening invents edges; leave them for display
+    copies.</li>
+</ul>

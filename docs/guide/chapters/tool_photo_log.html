@@ -1,0 +1,95 @@
+<!-- Authored walkthrough for the Photo Log tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Photo Log reads curves off conditioned core photographs: darkness,
+redness and texture, sampled every couple of centimetres down the whole
+cored interval. That makes the photograph the densest measurement made on
+the core itself &ndash; a plug table gives a few dozen samples, a
+photograph gives hundreds &ndash; and the traces it writes can anchor a
+depth registration, sit beside GR in a layout, or flag intervals worth a
+closer look. Reach for it after conditioning, never before.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-photolog.png"
+       alt="The Core layout with three depth strips and the CPHOTO_DARK curve beside GR, and the Photo Log pane with its trace previews" />
+  <figcaption>The built-in Core layout: three conditioned boxes stacked as
+    depth strips with their barrel gaps kept, CPHOTO_DARK beside GR, and
+    the Photo Log pane showing the DARK / RED / TEX previews after a
+    read.</figcaption>
+</figure>
+
+<ul>
+  <li><b>The outputs are image measures, not petrophysical
+    properties</b>, and the pane leads with why:</li>
+</ul>
+
+<pre class="equations">Reads darkness, redness and texture down the core. They are IMAGE measures, not
+petrophysical properties: darkness follows shale in most clastic sections without being
+a shale volume, which is why nothing here is called VSH.</pre>
+
+<ul>
+  <li><b>Depth runs across or down</b>, with a "Deepest end first" toggle
+    for a box laid out the other way round; <b>Runs of core</b> splits a
+    multi-row box into equal lanes, and the column table handles a packed
+    core-display plate whose barrels each carry their own depths
+    &ndash; detected from the picture, typed from the caption, never
+    guessed.</li>
+  <li><b>Check against</b> correlates each trace with a real log before
+    anything is written; <b>Light: Ultraviolet</b> switches the read to
+    fluorescence bands for a UV delivery.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; Core Imaging &#9656; Photo
+    Log&hellip;</b>, pick the conditioned delivery, set the lay-out, and
+    choose GR under Check against.</li>
+  <li><b>Read the trace</b> and judge the signed agreement before
+    saving anything.</li>
+  <li><b>Save as curves</b> (a custody dialog records who ran it and from
+    what), then <b>Build depth strips</b> for the log-view track.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The example read 737 samples from 3 photographs over
+1528.0&ndash;1542.9&nbsp;m: against GR, DARK +0.91, RED +0.94, TEX
+&minus;0.08. The sign is the QC: clay is dark and clay is radioactive, so
+darkness and GR should rise together, and a strongly negative agreement
+means the box was read the wrong way up &ndash; which a correlogram
+cannot tell from a genuine depth error, so the pane says it in words
+rather than proposing a shift. TEX staying near zero here is honest too:
+the lower unit's laminations run along the core, and texture measures
+spread <i>across</i> the core within each slab. Saving resampled the
+traces onto the well's own depth frame (395 samples, 99 of them inside
+the cored interval) by box average:</p>
+
+<pre class="equations">Written on the well's own depth frame (395 samples) so modules and plots can read them.
+The photograph was read at about 0.020 - each stored sample is the AVERAGE of the
+photograph samples inside it rather than one of them picked out, which would alias.</pre>
+
+<p>The strips land in their own CORE STRIP dataset, each box on its own
+interval, "so a gap between two runs stays a gap" &ndash; the example's
+10&nbsp;cm barrel gaps survive into the track. Rebuilding replaces the
+strips in place: a lane-count experiment leaves no STRIP_1, STRIP_2 trail
+behind.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Calibrate before you quote.</b> CPHOTO_DARK tracks shale in most
+    clastic sections; turning it into a shale volume is a calibration you
+    make against your own GR, which is why the curve refuses to be born
+    as VSH.</li>
+  <li><b>An interval photograph only.</b> A picture with no base depth is
+    a point sample with no axis to read along; it is refused rather than
+    stretched over a guessed thickness.</li>
+  <li><b>Depths outside the photographs stay empty.</b> The saved curves
+    are NaN off the cored interval &ndash; no picture, no value &ndash;
+    so a module reading them sees exactly where evidence exists.</li>
+</ul>

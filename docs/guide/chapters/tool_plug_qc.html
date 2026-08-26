@@ -1,0 +1,85 @@
+<!-- Authored walkthrough for the Plug QC tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Plug QC plots two measurements made on the same plug against each
+other: a petrography fraction against helium porosity, a classifier
+fraction against XRD, a pore diameter against the pore-throat radius read
+off the plug's own capillary-pressure curve. The petrography numbers are
+the first measurements this application produces that nothing else in it
+can check &ndash; an area fraction estimating a volume fraction is a
+claim &ndash; and this pane is where the claim meets an independent
+instrument. Reach for it after every petrography run, before anything is
+quoted.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-plugqc.png"
+       alt="The Plug QC scatter of thin-section pore area against core porosity on a 1:1 line, with the pairing statistics" />
+  <figcaption>Thin-section pore area against core plug porosity on the
+    example well: 9 pairs inside the 0.15 m tolerance, Pearson 0.998,
+    Spearman 0.946, medians 0.2560 against 0.2616 &ndash; and 6 plugs
+    with no section near them dropped and counted, never snapped.</figcaption>
+</figure>
+
+<ul>
+  <li><b>A pair is two measurements of the same plug.</b> Samples match
+    by depth within the tolerance; a sample with no partner inside it is
+    dropped and counted. Pairing is greedy on the closest pair and each
+    measurement is used once, so two sections cut close together cannot
+    both claim the same plug and tighten the correlation for free.</li>
+  <li><b>The reference line is a statement.</b> "1:1 &ndash; the same
+    quantity measured twice" for porosity against porosity; "None
+    &ndash; two different quantities" for a pore body against a pore
+    throat, where every point below a 1:1 line would read as
+    disagreement when it is the physics.</li>
+  <li><b>Both correlations, on purpose.</b> Pearson asks "is this a
+    straight line"; Spearman asks only "do they move together", survives
+    a log axis unchanged, and is the one to trust across quantities
+    measured in different units.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; Petrography &#9656; Plug QC&hellip;</b>
+    (or from the workspace &#65291; menu), pick the X and Y
+    measurements, and set the tolerance to what the sampling justifies
+    &ndash; 0.15&nbsp;m here, plug spacing being about two metres.</li>
+  <li>Choose the reference line to match the question, then
+    <b>Compare</b>.</li>
+  <li>Read the counts first &ndash; pairs, wells, unpaired &ndash; then
+    the two coefficients, then the medians.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The example closes the loop this book's petrography chapters opened:
+the pore-area fractions measured from the plates agree with the plugs
+they were cut beside at rank 0.946 over 9 pairs, with medians close
+enough (0.2560 against 0.2616) to say no unit slipped anywhere between
+import and measurement. The medians are the unit check by design
+&ndash; nothing here converts anything, so a fraction plotted against a
+delivery stored in percent shows up as a 0.26 beside a 26, visible at a
+glance instead of hidden inside a coefficient that does not care. The
+pane also names what it could not use: 6 plugs had no section within the
+tolerance, and two wells carry only one of the two measurements.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Never widen the tolerance to win more points.</b> A core off by
+    a whole sample interval passes any tolerance check; loosening it
+    quietly pairs each section with its neighbour's plug and returns a
+    confident number about the wrong rock. An empty result points at
+    Register Core Depth, not at a bigger number.</li>
+  <li><b>A curved but monotone relation is rank agreement, not a
+    line.</b> Bodies against throats should show high Spearman and
+    unremarkable Pearson; reading the Pearson as failure there is
+    reading the wrong statistic.</li>
+  <li><b>Blank statistics are explained, not broken.</b> Fewer than four
+    pairs leaves both coefficients empty with the reason stated &ndash;
+    a correlation from three points is a number about nothing.</li>
+</ul>

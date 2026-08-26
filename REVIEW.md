@@ -1,5 +1,63 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 12: the Core & Petrography tool book — Register Core Depth, Condition Core Photos, Photo Log, Condition Plates, Plate Details, Pore Area, Mineral Classifier and Plug QC
+
+- [ ] **Eight Core & Petrography chapters written** (tool_depth_reg, tool_core_photos,
+      tool_photo_log, tool_condition_plates, tool_plate_details, tool_pore_area,
+      tool_mineral_classifier, tool_plug_qc) with eight composed-layout figures. The demo
+      data was generated for this book and imported through the real wizard-backing
+      command: 10 synthetic thin sections at the SANDI-01 plug depths (blue-epoxy fraction
+      built to track each plug's CPOR; two under a green-cast lamp, one never impregnated,
+      two with no stated scale) and 3 core-box photographs whose brightness follows the
+      well's own GR, delivered with bench margins, a grey card and a warm lamp cast so the
+      conditioning has real work to do. Sandbox-only artifacts, deliberate: THIN
+      SECTION/CORE PHOTO/CORE STRIP image sets, CPHOTO_* curves, PETROGRAPHY TS + CLS
+      deliveries, and two core_registrations events on SANDI-01.
+- [ ] **Register Core Depth recovers a known error on camera**: +2.00 m typed into Shift
+      Core, then the CPOR-vs-GR proxy proposal reads −1.90 at r −0.975 (inverse) on 15
+      pairs with "1 other shift(s) score within 5%" quoted beside the correlogram; the
+      editable field applied −2.00 exactly, the stored correlation is the one at the
+      APPLIED shift (−0.96, not the scan peak), plugs land back on 1520.55 to the
+      centimetre, and the event log shows both rows — an undo appends, never erases.
+- [ ] **Conditioning taught with its own refusal**: Recommend proposes exposure −0.50 and
+      contrast +0.29 with the reason for each, and declines the white balance by name
+      because the lamp cast made even the grey card coloured — the hand pick on the card
+      is the demo (gains normalised so the largest is 1, so brightness is re-raised
+      after). Apply-light-to-run carries colour only; each box keeps its own crop; all
+      three boxes bake 2000×420 → 1876×298.
+- [ ] **Photo Log's signed agreement**: 737 samples from 3 photographs, DARK +0.91 /
+      RED +0.94 / TEX −0.08 against GR, the not-VSH line quoted verbatim; saved onto the
+      well's own frame (395 samples, 99 finite) with the box-average anti-aliasing note;
+      strips rebuilt in place after the barrel gaps were corrected through
+      update_well_image — a 10 cm gap between barrels stays a gap in the Core layout.
+- [ ] **Plate Details drives every downstream refusal**: the "Choose one dataset first"
+      refusal on All-datasets quoted; delivery-wide 2.5 mm + blue epoxy applied to 10
+      plates, then per-row corrections (1534.84 → Plain, two plates' scale cleared to
+      none) — which is exactly what Pore Area then honours.
+- [ ] **Pore Area measured, checked and refused on camera**: preview "Red is what would
+      be counted: 27.3%", normalized on TS_1522.80; agreement with CPOR rank 0.95 /
+      straight-line 1.00 / medians 0.262 vs 0.256 (the chapter warns this is what a
+      synthetic single-session delivery can do, not what to expect); cast plates carry
+      the largest Shift entries (61°, 38°), the hue-span note reads 68°, the
+      unimpregnated plate is left out by name, the two unscaled plates get fractions but
+      no µm columns; saved as PETROGRAPHY/TS (VPORE_TS ×9, PORE_D10/50/90 ×7).
+- [ ] **Mineral Classifier with both refusals and its own failure demonstrated**: the
+      one-class and the 2-clicks refusals quoted verbatim; 16 clicks → recalls 1.00/0.99
+      cross-validated by click; the two green-cast plates read ~50% lithic against ~30%
+      true — the "lamp is part of what it learned" caveat proved inside one delivery;
+      saved as CLS delivery, which supersedes TS as the live PETROGRAPHY delivery (the
+      Data Sets switch is the fix and the chapter says so).
+- [ ] **Plug QC closes the loop**: CPOR vs VPORE_TS on the 1:1 line at 0.15 m tolerance —
+      9 pairs / 1 well, Pearson 0.998, Spearman 0.946, medians 0.2560 vs 0.2616 (the
+      unit check by design), 6 unpaired plugs counted, "2 well(s) in scope carry only one
+      of the two measurements".
+- [ ] **A real defect found by the drive, filed as a task chip, not patched here**:
+      image-track boxes whose intervals touch exactly (adjacent core-strip barrels, the
+      normal case) skip every other strip at any zoom — logViewPanel.ts:1070's
+      `box.y < lastBottom + 2` overlap guard treats exact adjacency as overlap,
+      contradicting the record's "a gap between two runs stays a gap / zooming in reveals
+      it". The demo works around it with realistic 10 cm barrel gaps.
+
 ## 2026-08-27 — Second pass, increment 11: the Fits & Analysis tool book — SandiMin, Machine Learning, SHF Fit, Thomeer, HFU, Lorenz, Facies Tie-in and Fluid Contacts
 
 - [ ] **Eight Fits & Analysis chapters written** (tool_sandimin, tool_ml, tool_shf_fit,

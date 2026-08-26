@@ -1,0 +1,98 @@
+<!-- Authored walkthrough for the Condition Core Photos tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Condition Core Photos straightens, crops and colour-corrects core-box
+photographs. A core photograph arrives as somebody's snapshot: the box a
+degree off square, the bench and the tape in frame, and whatever colour
+the core shed's lamps had that afternoon. None of that is the rock, and
+all of it goes into a report and into any trace read off the picture.
+Reach for it once per delivery, before Photo Log reads anything: a
+darkness compared across boxes shot under two lamps is a comparison of
+the lamps.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-corephotos.png"
+       alt="The conditioning workspace with the corrected core box, aligned histograms and the recommendation values staged" />
+  <figcaption>Box 1 of the example delivery after the grey-card pick and
+    the crop: the warm lamp cast is gone, the frame holds only rock, and
+    the three colour histograms sit on top of each other instead of a
+    channel apart.</figcaption>
+</figure>
+
+<ul>
+  <li><b>The controls are the picture.</b> The delivery is a filmstrip of
+    thumbnails; the crop is a drag on the image; the white balance is a
+    click on a grey patch; each slider's track carries the gradient it
+    moves along.</li>
+  <li><b>Nothing is destroyed.</b> The picture as imported is kept, every
+    edit re-renders from it, and Reset puts it back exactly &ndash; the
+    demo used that twice after over-cropping, and the import came back
+    byte for byte.</li>
+  <li><b>Three states, not two</b>: as imported, edited but not yet
+    applied, and applied ("this is what the project holds", in the
+    status line's own words). Only the third reaches the log view, the
+    composite and the PDF.</li>
+  <li><b>Recommend conditioning</b> measures the photograph and proposes
+    values with the reason for each; on the example it staged exposure
+    &minus;0.50 (median brightness 0.64 against the 0.45 a readable slab
+    sits at) and contrast +0.29, and declined to invent a white
+    balance:</li>
+</ul>
+
+<pre class="equations">No neutral surface to balance against: almost nothing in this frame is both bright and
+uncoloured. Photograph the tray, a grey card or a strip of white putty in the frame, or
+pick a patch by hand - a white balance guessed from rock would take the rock's own
+colour out of it.</pre>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; Core Imaging &#9656; Core
+    Photos&hellip;</b>, pick the delivery, and press <b>Recommend
+    conditioning</b> for a measured starting point.</li>
+  <li><b>Pick a grey</b> and click the grey card (the recommender could
+    not, because the lamp cast had made even the card coloured; you know
+    it is grey, which is exactly the knowledge the click states). The
+    pick takes a median of the patch, and the gains are normalised so the
+    largest is 1 &ndash; a white balance can only darken, so re-raise
+    Brightness afterwards.</li>
+  <li><b>Crop</b> to the rock. The trace reads the depth range as
+    spanning the picture end to end, so a bench margin left in frame is
+    read as rock at the core's ends.</li>
+  <li><b>Apply to this photo</b>, then <b>Apply this light to the whole
+    run</b>: the colour half travels to every box (one shed, one lamp,
+    one afternoon), the crop does not (the box sits differently on the
+    bench in every frame). Crop the remaining boxes individually.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>Judge the correction on two things: the histograms, whose three
+channels should collapse onto one another once the cast is gone, and
+<b>Hold to compare</b>, which shows the import while held. On the example
+the three boxes went from 2000&times;420 delivered frames to
+1876&times;298 rock-only crops, each carrying the run's shared colour and
+its own framing. The result is baked into the stored copy, so the log
+view, the composite and the printed PDF all show the same corrected
+picture; a paired ultraviolet delivery stays its own dataset and renders
+with its own recipe, compared through <b>Hold for the pair</b>.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Leave the Detail sliders alone before reading a trace.</b> The
+    pane says it plainly: local contrast roughly halves the darkness
+    contrast between clean sand and mudstone, sharpening inflates the
+    texture measure and denoising suppresses it. They are for the eye;
+    Photo Log names any photograph carrying one.</li>
+  <li><b>White balance before brightness.</b> The gains only darken, so
+    an exposure chosen on the uncorrected picture is wrong after the
+    pick; set the light first, then the level.</li>
+  <li><b>Put something neutral in the frame at the shed.</b> A grey card
+    photographed with the core is a one-click correction forever; without
+    one, the recommender rightly refuses to balance off rock.</li>
+</ul>
