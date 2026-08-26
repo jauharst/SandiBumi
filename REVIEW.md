@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Guidebook: the documentation-tree shell and light screenshots
+
+- [ ] **The book now wears your canvas design** (SandiBumi Guidebook.dc.html, turn 6). Open
+      docs/guide/book/index.html: one header row (SB tile, Contents pill, search box with the
+      `/` shortcut, Skip to contents), a 270px disclosure-tree rail — the twelve module shelves
+      as numbered books 01–12 in workflow order, chapters numbered book.chapter, the open book
+      and current chapter highlighted — and the Contents page as one card table per book
+      (No. / Chapter / Module id). The rail collapses to the 48px numbered strip (the ‹ button
+      or the `[` key, remembered per browser); `/` focuses search, which filters the tree live
+      and opens the books that match. Figtree is bundled beside the images, so the book stays
+      offline-complete.
+- [ ] **Every increment-2/3 screenshot re-taken in the default light theme** — all 41 (20
+      pane+result pairs plus the Normalize refusal). The sandbox had been following Windows
+      into dark mode; the same canonical runs were re-driven in light and the numbers verified
+      unchanged (fill_gaps still fills exactly 21 flagged samples; every normalized well's
+      P3/P97 still lands on 43.18 / 112.37 gapi). Chapters not yet rewritten keep their old
+      dark captures until their own second-pass increment re-shoots them, which the addendum
+      already requires.
+- [ ] **Left out of the canvas on purpose, awaiting your word**: the Glossary and Releases nav
+      pills, the "Open app" button, the dark-theme toggle and the A/A text-size group — a
+      static offline book has no destination or dark token set for them yet. Say the word and
+      they get built for real rather than as dead chrome.
+
 ## 2026-08-26 — Second pass, increment 3: Condition and Frame, ten chapters with the Normalize refusal on camera
 
 - [ ] **The ten chapters** (despike, smooth, clip, fill_gaps, flip, normalize, bed_detect, block,
