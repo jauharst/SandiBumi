@@ -276,6 +276,23 @@ export const CORE_OVERLAY_MAP: Record<string, string> = {
   SWT: "CSW",
 };
 
+/** The core measurement a log curve is calibrated against, or "" for none. Exact map
+ *  entries first (NPHI→CPOR is deliberate and not a family), then the mnemonic FAMILY:
+ *  the exact list froze while modules kept naming their outputs (PHIE_DEN, PHIT_DEN,
+ *  PERM_RT …), so the classic por-perm calibration plot silently lost its plugs on any
+ *  porosity the density module wrote. A family prefix is the calibration statement —
+ *  every PHIE_ or PHIT_ curve is a porosity a plug porosity checks, and every PERM_
+ *  curve a permeability a plug permeability checks. */
+export function coreOverlayItem(mnemonic: string): string {
+  const upper = mnemonic.trim().toUpperCase();
+  const exact = CORE_OVERLAY_MAP[upper];
+  if (exact) return exact;
+  if (/^(PHIE|PHIT|PHID)(_|$)/.test(upper)) return "CPOR";
+  if (/^PERM(_|$)/.test(upper)) return "CPERM";
+  if (/^(SWE|SWT)(_|$)/.test(upper)) return "CSW";
+  return "";
+}
+
 /** Index of the sample whose depth is nearest `depth` (depths ascending); -1 if empty. */
 export function nearestDepthIndex(depths: Float32Array, depth: number): number {
   if (depths.length === 0) return -1;

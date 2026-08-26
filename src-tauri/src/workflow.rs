@@ -524,6 +524,30 @@ fn class_output_names(
         .collect()
 }
 
+/// The units a run's written outputs carry, under the names it actually WROTE them.
+///
+/// Same derivation contract as [`class_output_names`]: the manifest speaks in declared output
+/// keys, the write applies the per-output rename and the universal prefix, so the declaration
+/// must walk the same two transforms from the same two places. `curve_unit` is what the plot
+/// resolvers read (`db::curve_unit_for`), and before this ran a module-written curve had no row
+/// there at all — so any two module outputs refused to crossplot with "no declared source unit".
+fn unit_output_names(
+    module: &str,
+    out_names: &[(String, String)],
+    opts: &HashMap<String, String>,
+) -> Vec<(String, String)> {
+    let prefix = output_prefix(opts);
+    modules::output_units(module)
+        .into_iter()
+        .filter_map(|(key, unit)| {
+            out_names
+                .iter()
+                .find(|(declared, _)| declared == &key)
+                .map(|(_, n)| (format!("{prefix}{n}"), unit))
+        })
+        .collect()
+}
+
 /// The names a run will actually write, one per declared output, in declaration order.
 ///
 /// This is the ONE place a module's output name is decided, and it exists because five modules
@@ -3358,6 +3382,16 @@ pub fn run_workflow_module_into(
             if !class_names.is_empty() {
                 for wr in &writes {
                     let _ = crate::db::declare_class_curves(&conn, &wr.well_id, &class_names, &req.module);
+                }
+            }
+            // Units follow the same after-the-write rule as the class declaration above: metadata
+            // about a curve, so failing to record it costs the metadata, not the run; idempotent,
+            // so a re-run re-declares. Without it a module output has no `curve_unit` row and the
+            // plot resolvers refuse it as a curve of unknown quantity.
+            let unit_names = unit_output_names(&req.module, &out_names, &opts);
+            if !unit_names.is_empty() {
+                for wr in &writes {
+                    let _ = crate::db::declare_curve_units(&conn, &wr.well_id, &unit_names);
                 }
             }
         }
@@ -10727,6 +10761,60 @@ mod tests")
             )
             .unwrap();
         assert_eq!(flag_only_curves, 0, "a finite framework flag must not version an all-MISSING scientific result");
+    }
+
+    /// The write path declares every output's manifest unit under the name it actually WROTE
+    /// (rename + prefix applied), because `curve_unit` is what the plot resolvers read and a
+    /// module output with no row there is refused as a curve of unknown quantity. Pinned from
+    /// both sides so a lazier implementation cannot pass: the RESOLVED name carries the unit,
+    /// and the manifest KEY it was renamed away from carries none.
+    #[test]
+    fn a_module_write_declares_its_outputs_units_under_their_written_names() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depth = vec![1000.0_f32, 1000.5];
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "UNIT-DECLARATION", None, None, Some(0.0)).unwrap();
+        let missing = vec![f32::NAN; depth.len()];
+        db::insert_standard_curves_as_opened_project(
+            &conn,
+            id,
+            depth.clone(),
+            vec![70.0, 70.0],
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing,
+        )
+        .unwrap();
+        let well = id.to_string();
+        let dbm = Mutex::new(conn);
+        let produced = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+                opts: HashMap::from([(format!("{OUT_NAME_PREFIX}VSH"), "RENAMED_SHALE".into())]),
+                output_set: Some("UNIT-DECLARATION".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert_ne!(produced[0].outcome, ModuleRunOutcome::Failed, "fixture run must succeed: {:?}", produced[0].error);
+        let conn = dbm.lock().unwrap();
+        assert_eq!(
+            db::curve_unit_for(&conn, &well, "RENAMED_SHALE").as_deref(),
+            Some("v/v"),
+            "the written name carries the manifest unit"
+        );
+        assert_eq!(
+            db::curve_unit_for(&conn, &well, "VSH"),
+            None,
+            "the manifest key the output was renamed away from was never written, so it must not be declared"
+        );
     }
 
     #[test]

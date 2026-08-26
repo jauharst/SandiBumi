@@ -395,45 +395,121 @@ MORRIS_BIGGS_GAS: C=79 D=3 E=1   TIXIER: C=250 D=3 E=1</pre>
 <li>Balan, Mohaghegh &amp; Ameri (1995), SPE 30978: the lineage review</li></ul>
 <p class="note">Two of the four constant sets carry a name their author never attached to them: TIMUR here is the Schlumberger Chart K-3 curve, not Timur (1968), and TIXIER is a post-1950 Wyllie-Rose simplification, not Tixier (1949). The MORRIS_BIGGS attribution is disputed. The card keeps the trade names because that is what every vendor calls them; the chapter carries the full record.</p>
 <!-- Authored walkthrough for the perm_wyllie_rose guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the refusal, the constant-set factor measured, the plug cross-check. -->
 
-<h2>Step by step: Wyllie-Rose, with its names straightened out</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Permeability from porosity and irreducible water saturation, as four named
-constant sets. Before anything runs, read the pane's own documentation once. It
-carries an attribution record most software never admits to: <b>two of the four
-constant sets wear a name their author never attached to them.</b> TIMUR here is the
-Schlumberger Chart K-3 curve, not Timur's 1968 paper (whose published relation is
-about 14% lower in tight rock, exactly where a cutoff is decided); TIXIER is a
-post-1950 simplification of Wyllie-Rose, not Tixier 1949; the MORRIS_BIGGS numbers
-are disputed between two papers. The card keeps the trade names because that is what
-every vendor calls them, and the honesty note travels with the card.</p>
+<p>Permeability from porosity and irreducible water saturation, through four
+named constant sets. This is the estimate you reach for when there is no
+core: it costs nothing but a porosity curve and one irreducible pick, and it
+has been quoted on well reports since 1950. Its authors said in the same
+paper that the result carries order-of-magnitude significance only, and
+every constant set below inherits that warning.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
+
+<pre class="equations">PERM = (C · PHIE^D / SWE_IRR^E)²   [mD]
+
+TIMUR             C=100  D=2.25  E=1
+MORRIS_BIGGS_OIL  C=250  D=3     E=1
+MORRIS_BIGGS_GAS  C=79   D=3     E=1
+TIXIER            C=250  D=3     E=1</pre>
+
+<p>The generalized form is Wyllie and Rose (1950), who replaced the
+Carman-Kozeny specific-surface term with irreducible water saturation; the
+shape factor 2.25 is their own suggested value. The pane's documentation
+carries an attribution record most software never admits to, and it is worth
+reading once before anything runs: <b>two of the four sets wear a name their
+author never attached to them.</b> TIMUR here is the Schlumberger Chart K-3
+curve, not Timur's 1968 paper, whose published relation works out to C 92.63
+and D 2.2 in this squared form: close in good rock, about 14% low in tight
+rock, which is exactly where a cutoff gets decided. TIXIER is a post-1950
+simplification of Wyllie-Rose rather than Tixier's 1949 resistivity-gradient
+method, which is why TIXIER and MORRIS_BIGGS_OIL are byte-identical here:
+same lineage, same oil constant, arrived at twice. The 250/79 pair is
+attributed to Morris and Biggs (1967) by some vendors and to Wyllie and Rose
+elsewhere; the pane records the attribution as unresolved rather than
+picking a side.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>There is no shipped irreducible saturation, because there is no generic
+one. With the constants chosen and SWE_IRR left empty, the run refuses:</p>
+
+<pre class="equations">precondition 'SWE_IRR' failed before perm_wyllie_rose ran: value NaN v/v
+at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>Method TIMUR</b> (the default): C=100, D=2.25, E=1 (shipped, cited
-    constants); the shape factor 2.25 is Wyllie &amp; Rose's own suggested value.</li>
-  <li><b>SWE_IRR 0.16</b>, the same SSC-derived irreducible pick the saturation
-    shelf used, so the two shelves' numbers can be compared without wondering which
-    Swirr each assumed.</li>
-  <li><b>PHIE</b> pinned to PHIE_DEN, as everywhere in this walkthrough.</li>
+  <li><b>Method TIMUR</b>: the shipped default, entered as the Chart K-3
+    constants the documentation says they are.</li>
+  <li><b>SWE_IRR 0.16</b>: the median irreducible saturation over the gas
+    sand from the SSC run (SWIRR_T), so the permeability shelf and the
+    saturation shelf assume the same Swirr and can be compared without
+    wondering which each used.</li>
+  <li><b>PHIE pinned to PHIE_DEN</b>, as everywhere in this walkthrough.</li>
 </ul>
 
 <figure>
   <img src="../img/guide-permwr-pane.png"
        alt="The Wyllie-Rose pane with TIMUR selected and the irreducible pick entered" />
-  <figcaption>TIMUR constants as shipped; only SWE_IRR is this dataset's own pick.</figcaption>
+  <figcaption>TIMUR constants as shipped; only SWE_IRR is this dataset's own
+    pick, and the custody line says where it came from.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>, median 73 mD in the sands. Now put it beside the
-<a href="perm_transform.html">core-calibrated transform</a>'s 2.8 mD on the same
-samples: a factor of 25. Wyllie &amp; Rose warned in 1950 that the result carries
-order-of-magnitude significance only, and this dataset demonstrates the warning.
-Where core exists, the published-constant families are a cross-check, not an answer.
-And where core does not exist, quote them with their own error bars in mind.</p>
+<ol>
+  <li>Run a porosity module first, and decide the irreducible pick (an SSC
+    run, an NMR bound-fluid estimate, or a capillary-pressure study).</li>
+  <li>Open <b>Petrophysics ▸ Permeability ▸ Wyllie-Rose</b>, choose the
+    constant set, and enter SWE_IRR with its source in the custody line.</li>
+  <li>Press <b>Run Wyllie-Rose</b> on the full scope.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. Run live: median PERM_WR <b>910.68 mD</b> in the gas sand
+and <b>79.83 mD</b> in the wet sand, 110.47 over the whole section.</p>
+
+<pre class="equations">SELECT round(median(c.value) FILTER (WHERE sc.gr &lt; 60 AND sc.res_deep &gt;= 10), 2)
+FROM computed_curves c JOIN standard_curves sc
+  ON c.well_id = sc.well_id AND c.depth = sc.depth
+WHERE c.curve_name = 'PERM_WR' AND NOT isnan(c.value)</pre>
+
+<p>Now the number that makes the chapter: switching the constant set to
+MORRIS_BIGGS_GAS on the same picks drops the gas-sand median to
+<b>75.36 mD</b>, a factor of twelve from TIMUR's 910.68, with nothing else
+changed. Both are published constants, both compute cleanly, and both plot a
+plausible curve. Against the 35 core plugs within 8 cm of a sample, the
+TIMUR run reads a geometric factor of <b>3.99 high</b> (spread 1.69), and
+against the <a href="perm_transform.html">core-calibrated transform</a> it
+is a factor of three high in the same gas sand (910.68 versus 286.25).
+Switching back to TIMUR reproduces 910.68 exactly, so the demonstration
+costs nothing.</p>
+
+<figure>
+  <img src="../img/guide-permwr-result.png"
+       alt="The Wyllie-Rose run reporting three clean wells" />
+  <figcaption>Three clean wells. Clean means the arithmetic ran everywhere,
+    not that the constants fit this rock.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>The constant set is the answer. A factor of twelve separates two
+    published sets on the same data, so the choice must be stated and
+    defended, never inherited from a template.</li>
+  <li>Where plugs exist, compute the geometric ratio against them before
+    quoting anything; where they do not, quote the family with Wyllie and
+    Rose's own order-of-magnitude warning attached.</li>
+  <li>SWE_IRR enters squared (E=1 inside the square), so an irreducible pick
+    that is half right doubles the error twice. Tie it to a measured source
+    and reuse the same value across the permeability shelf.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>PERM = (C * PHIE^D / SWE_IRR^E)^2, mD. Defaults per method: TIMUR C=100 D=2.25 E=1; MORRIS_BIGGS_OIL C=250 D=3 E=1; MORRIS_BIGGS_GAS C=79 D=3 E=1; TIXIER C=250 D=3 E=1. The generalized form is Wyllie &amp; Rose (1950), Trans. AIME 189, 105-118, who replaced Carman-Kozeny's specific-surface term with irreducible water saturation; their own shape factor is 2.0-2.5, suggested as 2.25. They warned the result carries only order-of-magnitude significance, and that warning is inherited by every constant set below. TWO OF THE FOUR CARRY A NAME THEIR AUTHOR NEVER ATTACHED TO THEM. TIMUR here is the Schlumberger Chart K-3 curve, not Timur (1968), whose published relation is k = 0.136*phi^4.4/Swi^2 in PERCENT = 8581*phi^4.4/Swi^2 in fractions, i.e. C=92.63 D=2.2 in this squared form - close in good rock, about 14% low in tight rock, where a cutoff is decided. TIXIER is a post-1950 simplification of Wyllie-Rose, not Tixier (1949), which is a resistivity-gradient method; that is why TIXIER and MORRIS_BIGGS_OIL are byte-identical here - same lineage, same oil constant, arrived at twice. The 250/79 pair is attributed to Morris &amp; Biggs (1967, SPWLA 8th, Paper X) by IP and Techlog and to Wyllie &amp; Rose (1950) elsewhere; both authors were at Schlumberger and the 1967 paper is paywalled, so the attribution is UNRESOLVED. Lineage review: Balan, Mohaghegh &amp; Ameri, SPE 30978 (1995).</p>

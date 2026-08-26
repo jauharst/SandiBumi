@@ -1643,6 +1643,27 @@ pub(crate) fn class_outputs(module: &str) -> &'static [&'static str] {
     }
 }
 
+/// The declared UNIT of every log output of `module`, keyed by the manifest's output key.
+///
+/// The manifest is the only place a module states what its outputs are measured in, and
+/// `curve_unit` is where every plot-side reader looks — so this is the bridge the write path
+/// walks to declare units at write time. Keyed like [`class_outputs`]: by declared output key,
+/// never by written curve name, because the rename + prefix transforms are applied by the caller
+/// that knows them.
+pub(crate) fn output_units(module: &str) -> Vec<(String, String)> {
+    module_catalog()
+        .iter()
+        .find(|m| m.name == module)
+        .map(|m| {
+            m.args
+                .iter()
+                .filter(|a| a.kind == ArgKind::LogOut && !a.unit.trim().is_empty())
+                .map(|a| (a.name.clone(), a.unit.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// SB-CLY-001 (DEC-036): condition ids whose enforcement is TOKENIZED by the module family
 /// instead of the generic refuse/flag machinery. The condition stays DECLARED - the dialog
 /// still shows it before the run (SB-ENV-008) - but a violation is answered PER SAMPLE by

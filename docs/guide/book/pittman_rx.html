@@ -393,40 +393,104 @@ Port classes: nano &lt; 0.1 &lt; micro &lt; 0.5 &lt; meso &lt; 2.5 &lt; macro &l
 <ul><li>Pittman, E.D. (1992), AAPG Bulletin v76 no.2, 191-198; Table 1 in full, verified against the paper</li></ul>
 <p class="note">The paper's own cautions ride along: correlation falls with saturation (0.926 at r20 to 0.820 at r75), and the family is non-monotone below ~11% porosity; that is the published arithmetic, not an implementation artifact.</p>
 <!-- Authored walkthrough for the pittman_rx guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the APEX sensitivity measured, the paper's own cautions kept. -->
 
-<h2>Step by step: Pittman's pore-throat radii</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Pittman regressed pore-throat radius against porosity and permeability at every
-mercury-saturation level from 10 to 75 percent; this module writes the whole family
-(PR10..PR75), plus the radius at your chosen APEX saturation and its
-Hartmann-Beaumont port class. The coefficients are Pittman's Table 1 in full,
-verified against the paper, including the parts of the paper most implementations
-quietly drop.</p>
+<p>Pittman's pore-throat aperture family: nine regressions giving the
+pore-throat radius at mercury saturations from 10 to 75 percent, from
+porosity and permeability alone. It is the standard way to talk about pore
+throats without capillary-pressure data, and the port-class curve it cuts
+is a rock typing in throat-size language. The module ships the paper's
+Table 1 coefficients verbatim, including the two behaviours the paper
+itself warns about.</p>
 
-<h3>The one choice: APEX</h3>
+<h2>The physics</h2>
 
-<p><b>r35</b>, the shipped default, matches the Winland concept and suits coarser
-rock; finer families apex nearer r50–r75. The honest way to choose is the paper's
-own: pick the rX that best correlates with permeability for <i>your</i> rock family.
-Inputs are PHIE_DEN and PERM_XFM by name, as across this shelf.</p>
+<pre class="equations">log10 rX = C0 + C1·log10 k + C2·log10 φ%   [µm; k mD, φ percent]
+RAPEX = rX at the chosen APEX saturation
+RT_PITT: nano &lt; 0.1 · micro 0.1–0.5 · meso 0.5–2.5 · macro 2.5–10 · mega ≥ 10 µm → 1..5</pre>
+
+<p>Each saturation row is an independent regression from Pittman's 1992
+sample set. Two cautions travel with them, both the paper's own arithmetic.
+The correlation coefficient falls with saturation (0.926 at r20 down to
+0.820 at r75), and Pittman states accuracy diminishes above the 55th
+percentile, so PR75 is the weakest row. And because the porosity exponent
+steepens from −0.385 at r10 to −2.626 at r75, in tight rock the
+high-saturation rows overtake the low ones: below about 11 percent porosity
+the family stops falling monotonically. Nothing is clamped, because forcing
+the ordering would report radii the paper never published.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>APEX r35</b>: the shipped default and the Winland-matching choice;
+    pick the rX that best correlates with k for your rock family (coarse
+    rocks apex near r25 to r35, finer near r50 to r75).</li>
+  <li><b>PHI PHIE_DEN, PERM PERM_XFM</b>: the calibrated pair, as
+    everywhere on this shelf. Note the module converts porosity to percent
+    itself; feed it v/v like every other module.</li>
+</ul>
 
 <figure>
   <img src="../img/guide-pittman-pane.png"
-       alt="The Pittman pane with APEX r35 and inputs selected" />
-  <figcaption>APEX r35; the coefficients are the published table and are not
-    editable.</figcaption>
+       alt="The Pittman pane with APEX r35 and the calibrated inputs" />
+  <figcaption>APEX r35 as shipped; the coefficients are Pittman's Table 1
+    and are not editable, which is the point.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>; the sand-interval median RAPEX is 0.79 µm, a
-<i>meso</i> port class. Two cautions ride with every output, and both are the
-paper's own arithmetic rather than this implementation's: the correlation weakens as
-saturation rises (0.926 at r20 down to 0.820 at r75), and the family is non-monotone
-below about 11% porosity. The module does not "correct" either, because a published
-table quietly reshaped stops being citable. The caution belongs in the reading, not
-in the coefficients.</p>
+<ol>
+  <li>Run the por-perm transform first.</li>
+  <li>Open <b>Petrophysics ▸ Rock Typing ▸ Pittman Pore-Throat Radii</b>,
+    choose the APEX, and press <b>Run</b>.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. Run live at r35: RAPEX runs 0.76 / 1.06 / 8.58 µm at
+P10/P50/P90, and the port census reads micro 11, meso 289, macro 272, mega
+1: a meso-to-macro section, consistent with the GHE middle classes the
+<a href="rocktyping.html">rock-typing chapter</a> found on the same
+inputs.</p>
+
+<pre class="equations">SELECT value::INT cls, COUNT(*) FROM computed_curves
+WHERE curve_name = 'RT_PITT' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
+
+<p>The APEX sensitivity: switching to r50 on the same inputs moves the
+census to micro 210, meso 99, macro 264. Nearly two hundred samples cross
+the micro-meso boundary because the apex saturation, not the rock, changed.
+The choice of APEX is a statement about where the pore system's
+controlling throat sits, and it deserves the same citation discipline as
+any parameter. Switching back to r35 reproduces 11/289/272/1 exactly.</p>
+
+<p>The non-monotonicity caution, checked on this data: only 9 samples sit
+below 11 percent porosity, and none of them shows PR50 above PR40, so the
+inversion the paper warns about does not arise here. On a genuinely tight
+section it will, and the answer is a low APEX (r25 to r35, where Pittman's
+own porosity term is statistically insignificant), treating PR50/PR75
+there as extrapolation.</p>
+
+<figure>
+  <img src="../img/guide-pittman-result.png"
+       alt="The Pittman run reporting three clean wells" />
+  <figcaption>Three clean wells at r35; the r50 variant moves 199 samples
+    across one class boundary with no change to the rock.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>k is uncorrected air permeability in the paper's regressions; feeding
+    a Klinkenberg-corrected k gives throats that are too small.</li>
+  <li>Quote RAPEX with its APEX attached; an r35 radius and an r50 radius
+    are different quantities from the same sample.</li>
+  <li>In rock below about 11 percent porosity, distrust the high-saturation
+    rows on the paper's own advice, and check the PR40/PR50 ordering before
+    using either.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Pittman (1992) pore-throat aperture family: writes PR10..PR75 = pore-throat radius (µm) at mercury saturation 10..75 %, each log10 rX = C0 + C1·log10 k + C2·log10 φ% (k mD, φ in PERCENT). RAPEX is the radius at the chosen APEX saturation and RT_PITT its Hartmann-Beaumont port class (nano&lt;0.1, micro 0.1–0.5, meso 0.5–2.5, macro 2.5–10, mega ≥10 µm → 1..5). Pick APEX = the rX that best correlates with k for your rock family (coarse rocks apex near r25–r35, finer near r50–r75); r35 is the common default and matches the Winland concept. Samples with φ∉(0,1) or k≤0 stay MISSING. Coefficients are Pittman (1992, AAPG Bull. v76 no.2 p191–198) Table 1, verified against the paper. Two cautions, both the paper's own arithmetic rather than this implementation's. (1) The correlation coefficient falls with saturation (0.926 at r20 down to 0.820 at r75) and Pittman states the accuracy diminishes above the 55th percentile, so PR75 is the weakest row of the family. (2) The rows are INDEPENDENT regressions whose porosity exponent steepens from -0.385 at r10 to -2.626 at r75, so in TIGHT rock the high-saturation rows overtake the low ones: below about 11 % porosity the family stops falling monotonically and PR50/PR75 turn back upward (at 5 % porosity, 1 mD: PR40 = 0.77 um but PR50 = 0.86 and PR75 = 1.11). Use a LOW APEX in tight rock — r25-r35, where Pittman's own porosity term is statistically insignificant — and treat PR50/PR75 there as extrapolation. Nothing is clamped, because forcing the ordering would report radii the paper never published. k is UNCORRECTED air permeability; feeding a Klinkenberg-corrected k gives throats that are too small.</p>

@@ -237,18 +237,38 @@ export class DepthGridReconciliationError extends RangeError {
   }
 }
 
+/** One unit in the last place of an f32 at this magnitude. A stored depth is the f32
+ *  rounding of the true grid value, so it sits within half an ulp of it — which makes
+ *  the ulp the resolution limit of the stored grid, not a tolerance anyone chose. */
+function f32Ulp(value: number): number {
+  const abs = Math.abs(value);
+  if (abs === 0 || !Number.isFinite(abs)) return 2 ** -149;
+  return 2 ** (Math.floor(Math.log2(abs)) - 23);
+}
+
+/** A regular grid stored as f32 does NOT have bit-identical consecutive differences: no
+ *  metric step (0.1524, 0.1) is a dyadic rational, and above 1024 m the ulp (2^-13) exceeds
+ *  the rounding error of any real step, so the stored differences alternate between two
+ *  adjacent representable values on essentially every real metric well. Each stored depth is
+ *  within half an ulp of the true grid, so any two consecutive differences agree within 2 ulp
+ *  — the guard admits exactly that quantization noise and nothing else. A genuine step change
+ *  is at least a whole sample interval, five orders of magnitude above the guard, so every
+ *  refusal SB-PLT-016 pinned (a 0.5-then-0.75 grid, a 0.5-versus-0.8 pair) still refuses.
+ *  The returned step is the endpoint mean, whose quantization error shrinks with 1/(n-1)
+ *  instead of carrying one sample's full ulp. */
 function exactDepthStep(depth: Float32Array): number {
   if (depth.length < 2) throw new RangeError("at least two depth samples are required to identify a step");
-  const step = depth[1] - depth[0];
-  if (!Number.isFinite(step) || step <= 0) throw new RangeError("depth step must be finite and positive");
+  const first = depth[1] - depth[0];
+  if (!Number.isFinite(first) || first <= 0) throw new RangeError("depth step must be finite and positive");
+  const tolerance = 4 * f32Ulp(Math.max(Math.abs(depth[0]), Math.abs(depth[depth.length - 1])));
   for (let index = 2; index < depth.length; index++) {
-    if (depth[index] - depth[index - 1] !== step) {
+    if (Math.abs(depth[index] - depth[index - 1] - first) > tolerance) {
       throw new DepthGridReconciliationError(
         "depth grid is not exact and regular; use Reframe to create an explicit shared depth frame",
       );
     }
   }
-  return step;
+  return (depth[depth.length - 1] - depth[0]) / (depth.length - 1);
 }
 
 export function reconcileDepthSteps(steps: number[]): { coarsestStep: number; decimationFactors: number[] } {
@@ -258,12 +278,19 @@ export function reconcileDepthSteps(steps: number[]): { coarsestStep: number; de
   const coarsestStep = Math.max(...steps);
   const decimationFactors = steps.map((step) => {
     const ratio = coarsestStep / step;
-    if (!Number.isInteger(ratio) || ratio < 1) {
+    // Steps arrive as f32-quantized estimates (see exactDepthStep), so an integer ratio
+    // computed from them lands NEAR the integer, not on it. Worst case is a two-sample
+    // window, where each step carries a full ulp of error (~8e-4 relative on a metric
+    // grid), so the snap window is 4e-3 relative — while the closest genuinely
+    // non-integer ratio between real step families (0.5 versus 0.8 = 1.6) misses its
+    // nearest integer by 0.4, a hundred times the window. Refusals stay refusals.
+    const rounded = Math.round(ratio);
+    if (rounded < 1 || Math.abs(ratio - rounded) > 4e-3 * rounded) {
       throw new DepthGridReconciliationError(
         `depth steps are not exact integer multiples; use Reframe to create an explicit shared depth frame (${step} versus ${coarsestStep})`,
       );
     }
-    return ratio;
+    return rounded;
   });
   return { coarsestStep, decimationFactors };
 }

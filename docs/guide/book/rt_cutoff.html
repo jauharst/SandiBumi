@@ -391,48 +391,121 @@
 RT_LOG = 2 if Vsh ≤ VSH2 and PHIE ≥ PHI2  (requires VSH1 ≤ VSH2, PHI1 ≥ PHI2)
 else RT_LOG = 3</pre>
 <!-- Authored walkthrough for the rt_cutoff guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the inverted-ladder refusal on camera, the GHE cross-check. -->
 
-<h2>Step by step: a rock-type ladder you can defend</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>The simplest rock typing there is: a declared Vsh + PHIE cutoff ladder, three
-classes, best to non-net. The ladder ships absent because a cutoff is an
-interpretation, not a constant. And the module's whole design assumes you will
-validate the ladder against a core-derived rock type with the confusion-matrix QC
-before attaching per-class laws to it.</p>
+<p>A rock-type class from a declared cutoff ladder on Vsh and PHIE: the
+electrofacies half of the rock-typing tie-in. Where the indicator methods
+(FZI, R35) compute classes from the porosity-permeability cloud, this one
+writes the classes you can defend in a review, because every boundary is a
+number somebody chose and cited.</p>
 
-<h3>Deriving a starting ladder from the data itself</h3>
+<h2>The physics</h2>
 
-<p>Rather than typing folklore numbers, this walkthrough reads the ladder off the
-dataset's own sand population (samples at GR&nbsp;&lt;&nbsp;60):</p>
+<pre class="equations">RT_LOG = 1  (best:     Vsh ≤ VSH1 and PHIE ≥ PHI1)
+         2  (moderate: Vsh ≤ VSH2 and PHIE ≥ PHI2)
+         3  (non-net:  everything else)
+requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2</pre>
+
+<p>There is no arithmetic to get wrong, only ordering: the best class must
+be at least as clean and at least as porous as the moderate class, or the
+ladder stops meaning better and worse. Samples missing either input stay
+MISSING.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>Enter a ladder whose shale cutoffs are inverted (best class allowed
+<i>more</i> shale than moderate) and the run refuses with the full
+argument:</p>
+
+<pre class="equations">precondition 'rt_cutoff.vsh_ladder_order' on 'VSH1' failed before rt_cutoff
+ran: value 0.467 at sample 0 is above 'VSH2' value 0.458. The best class's
+shale cutoff must not exceed the moderate class's — equal is allowed, and
+separates the two on porosity alone.</pre>
+
+<figure>
+  <img src="../img/guide-rtcutoff-refused.png"
+       alt="The cutoff pane refusing an inverted ladder" />
+  <figcaption>An inverted ladder is refused with the rule stated, not
+    silently reordered.</figcaption>
+</figure>
+
+<h2>The picks and why</h2>
+
+<p>A starting ladder derived from the section itself, to be validated
+against core:</p>
 
 <ul>
-  <li><b>VSH1 0.458 / VSH2 0.467</b>, the P90 and P95 of VSH within the sands: the
-    sand population's own upper edge, and a slightly forgiving variant of it.</li>
-  <li><b>PHI1 0.148 / PHI2 0.134</b>, the P50 and P25 of PHIE_DEN within the sands:
-    median sand quality, and the lower quartile.</li>
-  <li>The pane enforces VSH1 ≤ VSH2 and PHI1 ≥ PHI2, so a ladder that ranks
-    backwards is refused before it classifies anything.</li>
+  <li><b>VSH1 0.458, VSH2 0.467</b>: the P90 and P95 of the sand
+    population's VSH (GR &lt; 60).</li>
+  <li><b>PHI1 0.148, PHI2 0.134</b>: the P50 and P25 of the sand
+    population's PHIE_DEN.</li>
 </ul>
 
-<p>A percentile ladder is a <i>starting point with a defence</i> (every number has
-a command behind it), not a validated rock type. The validation is the tie-in.</p>
+<p>Percentiles of the population being classified are a defensible first
+ladder: they make the class boundaries statements about this section's own
+distribution, and the custody line says exactly which percentiles.</p>
 
 <figure>
   <img src="../img/guide-rtcutoff-pane.png"
-       alt="The cutoff ladder pane with the percentile-derived values" />
-  <figcaption>Every ladder value is a stated percentile of this dataset's own sand
-    population.</figcaption>
+       alt="The cutoff pane with the derived starting ladder entered" />
+  <figcaption>Every boundary is a cited percentile of the population it
+    classifies.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>. The class census over the classified samples:
-284 in class 1, 147 in class 2, 733 in class 3. Most of the section is non-net,
-which is what a section that is two-thirds shale should say. Next stop on a real
-study: Rock Typing ▸ Facies Tie-in, where this RT_LOG meets the core-derived rock
-type in a confusion matrix, and the ladder gets adjusted for the misclassifications
-that matter rather than the ones that don't.</p>
+<ol>
+  <li>Read the sand population's Vsh and PHIE percentiles from histograms
+    (or the SQL panel).</li>
+  <li>Open <b>Petrophysics ▸ Rock Typing ▸ Rock Type from Cutoffs</b>,
+    enter the ladder with its derivation cited, and press <b>Run</b>.</li>
+  <li>Validate: the confusion-matrix QC (<b>Rock Typing ▸ Facies
+    Tie-in</b>) scores RT_LOG against a core-described rock-type curve.
+    This dataset carries no core-described RT, so that step waits for a
+    described core; run it whenever one exists.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. Run live: RT_LOG census 1: 489 samples, 2: 70, 3: 14.
+The ladder calls most of the interpreted section best rock, which is what
+P90-of-sand shale cutoffs promise on a sand-dominated interval.</p>
+
+<pre class="equations">SELECT a.value::INT rt_log, round(median(b.value), 0)::INT ghe, COUNT(*)
+FROM computed_curves a JOIN computed_curves b
+  ON a.well_id = b.well_id AND a.depth = b.depth AND b.curve_name = 'RT'
+WHERE a.curve_name = 'RT_LOG' AND NOT isnan(a.value) AND NOT isnan(b.value)
+GROUP BY 1 ORDER BY 1</pre>
+
+<p>The cross-check that stands in while core waits: against the GHE classes
+from the <a href="rocktyping.html">indicator method</a>, RT_LOG 1 samples
+have a median GHE of 6, RT_LOG 2 a median of 5, RT_LOG 3 a median of 4.
+Two classifications built from different inputs (Vsh and porosity here;
+porosity and permeability there) rank the rock the same way, which is what
+a real quality axis looks like from two directions.</p>
+
+<figure>
+  <img src="../img/guide-rtcutoff-result.png"
+       alt="The cutoff run reporting three clean wells" />
+  <figcaption>Three clean wells; the census and the GHE cross-rank are the
+    first validation, the core tie-in the real one.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>A ladder is a hypothesis until the tie-in scores it against described
+    core. Treat the starting percentiles as provisional and revisit them
+    when the confusion matrix disagrees.</li>
+  <li>Equal VSH1 and VSH2 is legal and meaningful: it separates the two
+    classes on porosity alone. Inverted is refused.</li>
+  <li>The classes are only as good as the VSH and PHIE beneath them; a
+    changed endpoint upstream reshuffles the census downstream, so re-run
+    the ladder after any endpoint revision.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Log-domain rock-type class from a Vsh + PHIE cutoff ladder — the electrofacies half of the rock-typing tie-in. RT_LOG = 1 (best: Vsh ≤ VSH1 and PHIE ≥ PHI1), 2 (moderate: Vsh ≤ VSH2 and PHIE ≥ PHI2), else 3 (non-net). Requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2. Feed the result to the confusion-matrix QC (Rock Typing ▸ Facies Tie-in) to validate it against a core-derived RT curve, then attach per-class phi-k / SHF laws. Samples with missing Vsh or PHIE stay MISSING.</p>
