@@ -14913,7 +14913,7 @@
         "unit": "ohm.m",
         "kind": "log_in",
         "flag_kind": null,
-        "default": "RT",
+        "default": "RES_DEEP",
         "default_source": "",
         "choices": [],
         "choice_labels": [],

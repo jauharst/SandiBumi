@@ -10,7 +10,7 @@ Total organic carbon from the Passey (1990) ΔlogR overlay — the separation be
 
 | Role | Description | Resolves to | Required | Notes |
 |---|---|---|---|---|
-| RES | Deep resistivity | `RT` | yes | — |
+| RES | Deep resistivity | `RES_DEEP` | yes | — |
 | DT | Sonic Δt (sonic overlay) | `DT` | no | — |
 | RHOB | Bulk density (density overlay + Schmoker) | `RHOB` | no | — |
 

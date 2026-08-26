@@ -1,34 +1,103 @@
-<!-- Authored walkthrough for the kerogen guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the kerogen-volume guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-27), second pass: the TOC chain, the density variant, and the
+     numeric round-trip against the equations. -->
 
-<h2>Step by step: from TOC weight to kerogen volume</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>TOC is a weight percent; kerogen occupies a volume disproportionate to its
-weight because it is light, and that volume inflates the density log's
-apparent porosity. This module makes both corrections explicit: TOM converts
-TOC to an organic-matter weight fraction (the K_TOC2OM factor covers the
-H/O/N/S the carbon measurement misses), VKER converts that to a volume
-fraction of the bulk rock, and PHIT_OMC removes it from total porosity.</p>
+<p>Converts TOC in weight percent to kerogen <i>volume</i>, and corrects total
+porosity for the organic matter that low-density kerogen inflates on the
+density log. Reach for it immediately after a <a href="toc_passey.html">TOC
+run</a> in any organic-rich section: a density porosity computed through
+kerogen-bearing rock reads the kerogen as pore space, and every saturation and
+volumetric number downstream inherits that inflation until this correction
+removes it.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>TOC from the Passey run; RHO_KERO 1.10&nbsp;g/cc and K_TOC2OM 1.2 as
-shipped.</b> The 1.10 kerogen density is deliberate: it matches the SandiMin
-Kerogen mineral, so VKER is directly comparable to a SandiMin VOL_KEROGEN
-solve. Another vendor tradition seeds 1.25. Override if your workflow follows
-it, but keep one convention per study.</p>
+<pre class="equations">TOM      = K_TOC2OM · TOC / 100        (organic-matter weight fraction)
+VKER     = TOM · RHOB / ρ_kero         (kerogen volume of the bulk rock)
+PHIT_OMC = PHIT − VKER                 (OM-corrected total porosity)</pre>
+
+<p>TOC counts only carbon; the factor K_TOC2OM (about 1.2 immature, up to
+about 1.35 mature) adds back the hydrogen, oxygen, nitrogen and sulfur of the
+organic matter. Dividing by the kerogen grain density converts weight to bulk
+volume, the Passey and Vernik-Nur conversion, and subtracting that volume from
+total porosity removes kerogen's apparent-porosity contribution to first
+order, since kerogen density sits near fluid density on the density log
+(Passey et al. 2010; Vernik &amp; Nur 1992).</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>RHO_KERO 1.10 g/cc</b>: the shipped default, chosen to match the
+    SandiMin Kerogen mineral endpoint so VKER is directly comparable with a
+    mineral-solver VOL_KEROGEN. The other common convention seeds 1.25; the
+    variant below shows what that choice is worth.</li>
+  <li><b>K_TOC2OM 1.2</b>: the immature-end factor, the shipped default.</li>
+  <li><b>TOC from the Passey run; PHIT pinned to PHIT_DEN</b>: the density
+    total porosity is the one carrying the kerogen inflation this module
+    corrects.</li>
+</ul>
 
 <figure>
   <img src="../img/guide-kerogen-pane.png"
-       alt="The Kerogen volume pane" />
-  <figcaption>PHIT from the density-porosity run feeds the OM correction.</figcaption>
+       alt="The kerogen pane with the TOC input and PHIT_DEN named" />
+  <figcaption>Defaults as shipped; the porosity being corrected is named
+    explicitly.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>. VKER's median is 0 (most of this section
-carries no computed TOC, as the Passey chapter explains), with a maximum of
-0.045 v/v where the gas-zone false-positive TOC leaks through. That chain is
-worth noticing: a spurious TOC becomes a spurious kerogen volume becomes a
-porosity correction, which is why the Passey chapter's reservoir-interval
-caution matters two modules downstream.</p>
+<ol>
+  <li>Run TOC first; its output curve is this module's required input.</li>
+  <li>Open <b>Petrophysics ▸ Unconventional ▸ Kerogen volume + OM-corrected
+    porosity</b>, point PHIT at the porosity to correct, and press
+    <b>Run</b>.</li>
+  <li>Overlay PHIT_OMC on PHIT in one track: the gap between them is VKER,
+    and it should live only where TOC does.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. In the hot zone the chain reproduces its own arithmetic
+exactly: TOC 3.66 wt% gives TOM = 1.2 · 0.0366 = 0.044 weight fraction, and at
+bulk density 2.3 g/cc, VKER = 0.044 · 2.3 / 1.10 = <b>0.092</b> of bulk
+volume, the stored maximum to the fourth decimal. The correction is material:
+nine porosity units of what the density log reads as porosity in that interval
+is kerogen, and PHIT_OMC sits below PHIT_DEN by exactly that amount. Over the
+barren rest of the section VKER is zero and the two porosities coincide, which
+is the visual check that the correction touches only organic rock.</p>
+
+<p>The variant prices the density convention: <b>RHO_KERO 1.25</b> on the same
+TOC scales VKER's maximum from 0.0921 to 0.0810, a ratio of 0.879, exactly
+1.10/1.25, since the equation is linear in 1/ρ. A tenth-of-a-unit disagreement
+about kerogen density moves a nine-unit correction by one porosity unit; the
+pick matters, and it must match whatever mineral model the study also runs.
+Restoring 1.10 reproduces 0.0921.</p>
+
+<figure>
+  <img src="../img/guide-kerogen-result.png"
+       alt="The kerogen run with TOC, VKER, and the two porosities overlaid" />
+  <figcaption>Three clean wells; the PHIT / PHIT_OMC gap is the kerogen
+    volume, present only where TOC is.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>This module is only as good as its TOC. Run the TOC chapter's QC first,
+    especially the charged-reservoir false positive: correcting porosity for
+    kerogen that is actually gas pay subtracts real porosity from real
+    reservoir.</li>
+  <li>Keep RHO_KERO consistent with the mineral model. A SandiMin run with
+    Kerogen at 1.10 beside this module at 1.25 produces two kerogen volumes
+    that disagree by exactly the density ratio, and both look right
+    alone.</li>
+  <li>The correction is first order: it assumes kerogen reads like fluid on
+    the density log. In very mature, dense organic matter the residual error
+    grows, and K_TOC2OM should also move toward its mature end.</li>
+  <li>A missing RHOB leaves VKER MISSING at that sample rather than zero, so
+    gaps in the density log propagate as gaps, never as false zero
+    kerogen.</li>
+</ul>
