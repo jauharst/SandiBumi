@@ -147,47 +147,96 @@ GASDEN: real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criti
 <li>Papay (1968): z-factor correlation</li></ul>
 <p class="note">Correlation names as this project's method record holds them; the full primary citations are pending verification. Feed RHOB_GC to density porosity, not to a density-neutron combination, whose gas handling assumes an uncorrected pair.</p>
 <!-- Authored walkthrough for the gascorr guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, per-control sensitivity. -->
 
-<h2>Step by step: taking the gas out of the density log</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Gas makes the density log read light, which makes density porosity read high.
-This module removes the effect by iteration: solve porosity and Archie water
-saturation from the current density, replace the gas volume with liquid
-(RHOB_GC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;PHIT·(1−SWT)·(RHO_FL−GASDEN)), and repeat
-until porosity settles. The gas density itself is a real-gas calculation
-(Standing pseudo-criticals with a Papay z-factor) at the formation pressure and
-temperature the precalc step wrote.</p>
+<p>Gas Correction repairs the bulk density log in gas zones. Gas is far
+lighter than the water the density-porosity equation assumes in the pores, so
+RHOB reads low there and density porosity reads high. This module iterates a
+consistent answer for the corrected density, the porosity and the gas
+saturation together, and writes RHOB_GC plus the converged PHIT_GC, SWT_GC and
+a GASDEN QC curve. Run it after Pre-Calculation (it needs FTEMP and FPRESS)
+and after Data Conditioning Flags (its gate consumes XOVER_FLAG).</p>
 
-<h3>The picks, each with its defence</h3>
+<h2>The physics</h2>
+
+<p>Three relations are solved simultaneously per sample: the density equation
+with a gas-water fluid mixture, Archie for how much of the pore space is gas,
+and a real-gas density for what that gas weighs at reservoir pressure and
+temperature (Standing pseudo-critical properties from the gas gravity, then
+the compressibility factor). The iteration matters because each relation feeds
+the others: lighter fluid means more porosity, more porosity means different
+saturation, different saturation means different fluid density.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>SG_GAS 0.65</b>, the module's own worked-example gas gravity (the
-    value its Standing/Papay check numbers are computed at).</li>
-  <li><b>a=1, m=n=2</b>, the reference-case Archie convention, as the
-    saturation shelf runs.</li>
-  <li><b>RW 0.127&nbsp;ohmm</b>, the RtC fit's water-zone Rw on total
-    porosity, derived in the saturation increment.</li>
-  <li><b>OPT_GATE FLAGGED</b> on condflag's XOVER_FLAG (the default, and the
-    safe one): EVERYWHERE lets high-resistivity low-density beds (coal, resistive
-    washouts) masquerade as gas and collect large spurious corrections.</li>
+  <li><b>SG_GAS 0.65</b>: gas specific gravity (air = 1). This is what the
+    real-gas step turns into a density. Run live on these wells: at 0.65 the
+    median GASDEN is <b>0.102&nbsp;g/cc</b> at reservoir conditions; at 0.8 (a
+    richer gas) it rises to <b>0.136&nbsp;g/cc</b>, and the largest density
+    correction shrinks slightly (+0.1392 to +0.1357&nbsp;g/cc), because denser
+    gas means less mass was missing from the reading in the first place.</li>
+  <li><b>A 1, M 2, N 2, RW 0.127&nbsp;ohmm</b>: the Archie constants the
+    saturation leg uses. Keep them consistent with the saturation chapter's
+    picks for the same rocks; here RW is the water-zone value the RtC
+    calibration fit on these wells.</li>
+  <li><b>OPT_GATE FLAGGED</b> (shipped): correct only where the gas-crossover
+    flag from Data Conditioning Flags is set. The alternative corrects
+    everywhere the arithmetic moves, which invents gas in shales.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run Pre-Calculation and Data Conditioning Flags first if you have not:
+    this pane resolves FTEMP, FPRESS and XOVER_FLAG from computed curves.</li>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Gas Correction</b>.</li>
+  <li>Set the gas gravity and the Archie constants; leave the gate on
+    FLAGGED.</li>
+  <li>Fill the custody line and press <b>Run Gas Correction</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-gascorr-pane.png"
-       alt="The Gas Correction pane with the Archie and gas-gravity entries" />
-  <figcaption>FTEMP, FPRESS and the crossover flag arrive from the precalc and
-    condflag steps.</figcaption>
+       alt="The Gas Correction pane with the gas gravity and Archie constants" />
+  <figcaption>The pane asks for the fluid and the Archie constants; the
+    environment comes from Pre-Calculation's curves.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. Exactly <b>265 samples were corrected, the
-XOVER_FLAG count to the sample</b>, which is the FLAGGED gate doing its job.
-GASDEN converged at ~0.102&nbsp;g/cc, and the largest single restoration put
-<b>+0.139&nbsp;g/cc</b> back onto the bulk density. Feed RHOB_GC to density
-porosity, not to a density-neutron combination, whose own gas handling assumes
-an uncorrected pair.</p>
+<p><b>3 clean</b>. Exactly <b>265 samples</b> were corrected, the same 265 the
+crossover flag marks, which is the gate doing its job. The largest correction
+adds <b>+0.139&nbsp;g/cc</b> to the measured density. Verify the gate
+correspondence in the Database Inspector:</p>
+
+<pre class="equations">SELECT COUNT(*) FROM computed_curves g
+JOIN standard_curves s ON g.well_id = s.well_id AND g.depth = s.depth
+WHERE g.curve_name = 'RHOB_GC' AND g.value - s.rhob > 1e-6</pre>
+
+<figure>
+  <img src="../img/guide-gascorr-result.png"
+       alt="The Gas Correction run reporting three clean wells" />
+  <figcaption>265 corrected samples, matching the crossover flag exactly.
+    Outside the gate RHOB_GC equals the measured RHOB.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>GASDEN is the sanity check: a reservoir gas density outside roughly 0.05
+    to 0.25&nbsp;g/cc means the pressure, temperature or gravity picks are
+    off.</li>
+  <li>The correction direction is one-way: it adds density. If corrected
+    porosity still looks too high in a known gas sand, revisit the crossover
+    threshold upstream rather than the constants here.</li>
+  <li>Downstream porosity modules should read RHOB_GC where you trust the
+    repair; the measured RHOB stays untouched, so both interpretations remain
+    available.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Removes the gas effect from RHOB (iterated density-neutron loop): density porosity and Archie SWT are solved from the current density, then RHOB_GC = RHOB + PHIT*(1-SWT)*(RHO_FL - GASDEN) replaces the gas volume with liquid, iterated until PHIT moves less than 1e-4 (max 20 passes; non-converging samples stay MISSING). GASDEN is the real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criticals + Papay z-factor) — run the precalc module first; samples without P/T, RT or Rw stay MISSING rather than passing through uncorrected. The default OPT_GATE = FLAGGED corrects only where GAS_FLAG &gt; 0.5 (chain condflag's XOVER_FLAG, which already excludes coal and washout) and errors if the flag curve has no data. OPT_GATE = EVERYWHERE corrects every sample — beware: high-resistivity low-density beds (coal, resistive washouts) read as gas to the Archie loop and get large spurious corrections. QC per slides 66-67: the detached high-porosity gas cloud on PHIE vs wet-clay collapses after correction. Feed RHOB_GC to phi_den (or use PHIT_GC directly) — NOT to phi_dn or a SandiMin solve that includes NPHI: their gas handling assumes an uncorrected density-neutron pair, so a corrected RHOB with a still-gas-affected NPHI biases porosity low.</p>

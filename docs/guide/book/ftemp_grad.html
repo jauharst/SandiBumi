@@ -142,37 +142,109 @@
 <pre class="equations">GRADIENT: FTEMP = TSURF + TGRAD·depth
 BHT: FTEMP = TSURF + (BHT − TSURF)·depth/TD_BHT</pre>
 <!-- Authored walkthrough for the ftemp_grad guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, per-control sensitivity. -->
 
-<h2>Step by step: a formation-temperature trend</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>The simplest member of the prep shelf, and the one several others depend on:
-a linear temperature trend with depth. GRADIENT mode takes a surface temperature
-plus a constant gradient; BHT mode interpolates from the surface temperature to a
-measured bottom-hole temperature. Nearly every temperature-sensitive step
-downstream (the neutron environmental correction, gas correction through the
-precalc chain) reads the FTEMP curve this writes.</p>
+<p>Formation Temperature writes FTEMP, the temperature of the rock at every
+sample depth. Run it first, before anything that involves a fluid: resistivity
+of mud filtrate and formation water, gas density, and every saturation model
+downstream depend on temperature, and none of them will invent one. If a later
+pane asks for FTEMP and cannot find it, this module is the answer.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>This run keeps the shipped metric starting values: <b>TSURF 26.7&nbsp;°C</b>
-and <b>TGRAD 0.0474&nbsp;°C/m</b>. They are starting values, not a calibration.
-Refit them from your own BHT or DST data per basin. On a metric well the gradient
-must be per metre; a feet-based gradient entered unconverted runs ~3.3× hot.</p>
+<p>Rock temperature increases with depth at a rate set by the basin's heat flow,
+and over the depth window of a single well that trend is close to linear. The
+module offers the two ways a study usually knows the trend:</p>
+
+<ul>
+  <li><b>GRADIENT</b>: you state a surface temperature TSURF and a gradient
+    TGRAD, and FTEMP = TSURF + TGRAD × depth. Use this when the study has an
+    agreed regional gradient.</li>
+  <li><b>BHT</b>: you state one measured bottom-hole temperature and the depth
+    it was read at, and the module draws the line from the surface temperature
+    through that anchor. Use this when the well delivered a BHT on its log
+    header, which is the more common situation, and remember that a header BHT
+    is usually a few degrees cool because the mud has not re-equilibrated.</li>
+</ul>
+
+<h2>The picks and why</h2>
+
+<p><b>OPT_FT</b> selects the mode. Everything else is a number feeding the line:</p>
+
+<ul>
+  <li><b>TSURF 26.7&nbsp;degC</b> and <b>TGRAD 0.0474&nbsp;degC/m</b> are the
+    shipped starting values, a practitioner starting point (0.026&nbsp;degF/ft
+    restated per metre, DEC-085) that you refit per basin. They are the picks
+    for this walkthrough.</li>
+  <li><b>BHT</b> and <b>TD_BHT</b> are used only in BHT mode: the measured
+    temperature and the depth it belongs to.</li>
+</ul>
+
+<p>What changes when you change them: TSURF shifts the whole curve up or down
+by the same amount at every depth; TGRAD tilts it, so the disagreement grows
+with depth. On these wells (roughly 1495 to 1570&nbsp;m) the arithmetic is easy
+to check by hand: 26.7 + 0.0474 × 1495 = 97.6&nbsp;degC at the top of the logged
+interval and 26.7 + 0.0474 × 1570 = 101.1&nbsp;degC at TD, and the run reproduces
+exactly that.</p>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Formation Temperature</b>. The pane
+    docks beside the log view.</li>
+  <li>Leave OPT_FT on GRADIENT and the shipped TSURF and TGRAD in place, or
+    enter your basin's refit values.</li>
+  <li>Fill the custody line (operator and the source of your picks) and press
+    <b>Run Formation Temperature</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-ftemp-pane.png"
-       alt="The Formation Temperature pane in GRADIENT mode" />
-  <figcaption>GRADIENT mode; BHT and TD_BHT stay empty unless BHT mode is
-    chosen.</figcaption>
+       alt="The Formation Temperature pane in GRADIENT mode with the shipped starting values" />
+  <figcaption>GRADIENT mode: two numbers and a line. The BHT fields stay inert
+    until OPT_FT selects them.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. FTEMP runs 97.6–101.1&nbsp;°C across the
-1495–1570&nbsp;m logged interval, exactly the linear arithmetic, which is the
-point: the module states a trend, and whether that trend is right is a question
-for your own temperature data.</p>
+<p>The run reports <b>3 clean</b> wells. FTEMP spans <b>97.563 to
+101.120&nbsp;degC</b> across the 1185 samples of the three wells, exactly the
+hand arithmetic above. Verify it yourself in the Database Inspector's read-only
+SQL panel:</p>
+
+<pre class="equations">SELECT MIN(value), MAX(value) FROM computed_curves
+WHERE curve_name = 'FTEMP' AND NOT isnan(value)</pre>
+
+<figure>
+  <img src="../img/guide-ftemp-result.png"
+       alt="The Formation Temperature run reporting three clean wells" />
+  <figcaption>Three clean wells. FTEMP now exists for every module downstream
+    that asks for a temperature.</figcaption>
+</figure>
+
+<p>Sensitivity, run live on these wells: switching to <b>BHT mode with
+120&nbsp;degC at 1570&nbsp;m</b> steepens the line from the same surface
+temperature, and FTEMP becomes 115.5 to 120.0&nbsp;degC over the same interval,
+about 19&nbsp;degC hotter at TD than the shipped gradient predicts. That is the
+size of decision the mode carries: a BHT anchor is well-specific evidence and
+beats a regional gradient where you trust the measurement.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>An unstabilized header BHT reads cool. If a Horner-corrected temperature
+    exists, anchor on that.</li>
+  <li>The shipped gradient is a starting value, not a basin fact. A wrong
+    gradient does not fail anything visibly: Rmf, gas density and Sw all shift
+    smoothly with it, which is why the pick deserves a citation in the custody
+    line.</li>
+  <li>Re-running with new picks overwrites FTEMP for the run's wells and the
+    change flows into every later module the next time those are re-run. Runs
+    are re-runnable rather than undoable.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>GRADIENT: FTEMP = TSURF + TGRAD*depth. BHT: linear interpolation from surface temperature to bottom-hole temperature at TD_BHT.</p>

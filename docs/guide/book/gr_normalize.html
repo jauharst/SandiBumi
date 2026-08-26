@@ -140,34 +140,49 @@
 <p class="modmeta">Module id <code>gr_normalize</code> · category <b>Prep</b></p>
 <p>Two-point percentile normalization of the gamma-ray log onto a field reference frame, so wells can be compared and pooled. The well's own percentiles are computed from this run's samples; the reference percentiles are parameters you must supply.</p>
 <pre class="equations">GRN = (GR − Plow,well)·(Phigh,ref − Plow,ref)/(Phigh,well − Plow,well) + Plow,ref</pre>
-<!-- Authored chapter for the superseded gr_normalize module. Short on purpose:
-     the capability lives in Condition - Normalize now, and this page's job is
-     the pointer plus what still resolves. -->
+<!-- Authored walkthrough for the gr_normalize guidebook chapter. This module
+     is superseded in the ribbon by Condition ▸ Normalize; the chapter stays a
+     pointer, per the one-operation-one-picker rule. -->
 
-<h2>This module is superseded: use Condition ▸ Normalize</h2>
+<h2>What this is and where it went</h2>
 
-<p>GR Normalization was the original two-point percentile normalizer, fixed to
-the gamma-ray log. It has been folded into the general
-<a href="normalize.html"><b>Normalize</b></a> module (Petrophysics ▸ Condition),
-which does the same TWO_POINT percentile map on <i>any</i> curve, plus the
-RANGE and MEAN_SD methods and log-space mapping. The arithmetic is identical:
-the well's own P_LOW/P_HIGH percentiles mapped linearly onto a reference pair
-you supply.</p>
+<p>GR Normalization was the original two-point percentile normalizer, fixed
+to the gamma-ray log. It has been folded into the general <b>Normalize</b>
+module (Petrophysics ▸ Condition), which performs the same TWO_POINT
+percentile map on any curve, plus the RANGE and MEAN_SD methods and log-space
+mapping, so the same operation is not offered twice in the pickers.</p>
 
-<h3>What still resolves</h3>
+<h2>The physics, in one paragraph</h2>
 
-<p>gr_normalize stays in the catalog so saved workflow chains that reference it
-keep resolving and running; it delegates to the same code. It is only kept out
-of the pickers, so the same operation is not offered twice.</p>
+<p>Different logging vintages and tools report gamma ray on drifted scales,
+so the same shale reads 90&nbsp;gAPI in one well and 110 in its neighbour.
+Normalization maps each well's own P_LOW/P_HIGH percentiles linearly onto one
+field reference pair, so a cutoff or a shale-volume model picked in one well
+means the same rock in every well. The arithmetic is unchanged from this
+module to Normalize: GRN = (GR − Plow_well) · (Phigh_ref − Plow_ref) /
+(Phigh_well − Plow_well) + Plow_ref.</p>
 
-<h3>The one rule it carried, unchanged</h3>
+<h2>What still resolves</h2>
 
-<p>The reference pair ships absent on purpose, and Normalize enforces the same
-refusal: a pair from one basin is the wrong reference in another, and normalized
-output looks plausible either way. Derive the pair from the field's own
-multi-well GR distribution and use the same pair for every well. The
-<a href="normalize.html">Normalize chapter</a> walks through exactly that,
-including the refusal and the derived pair for these wells.</p>
+<p><code>gr_normalize</code> stays in the catalog so saved workflow chains
+that reference it keep resolving and running; it delegates to the same code.
+It is only kept out of the pickers.</p>
+
+<h2>The one rule it carried, unchanged</h2>
+
+<p>The reference pair ships absent on purpose, and Normalize enforces the
+same refusal: a pair from one basin is the wrong reference in another, and
+normalized output looks plausible either way. Derive the pair from the
+field's own multi-well GR distribution and use the same pair for every well.
+On the SANDI example wells the per-well P3/P97 already sit within
+0.4&nbsp;gAPI of each other (43.07 to 43.33 low, 112.16 to 112.58 high),
+which is what a consistent field looks like; a study that needs this module
+will see spreads of tens of gAPI instead.</p>
+
+<p>The <b>Normalize</b> chapter walks the whole workflow: the refusal when no
+reference pair is entered, deriving the pair from the field distribution with
+the Database Inspector, and verifying that every normalized well's
+percentiles coincide afterwards.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>GRN = (GR − Plow_well)·(Phigh_ref − Plow_ref)/(Phigh_well − Plow_well) + Plow_ref. The well percentiles are computed from this run's GR samples (mask the run to a common reference interval so every well is measured over comparable rock); the reference percentiles are parameters. SET YOUR OWN FIELD REFERENCE PAIR — that is the entire point of the module. The pair ships absent: a reference pair from one basin is the wrong reference in another. Derive yours from the field's own multi-well GR distribution, or from a reference well everyone agrees on, then use the SAME pair for every well in the study. QC across wells with a GRN histogram overlay — the P3/P97 of every normalized well should coincide.</p>

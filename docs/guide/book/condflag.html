@@ -145,41 +145,106 @@ XOVER_FLAG: (RHO_MA − RHOB)/(RHO_MA − RHO_FL) − NPHI &gt; XOVER_MIN
 beds thinner than MIN_THICK are dropped as spikes; SHOULDER_FLAG within SHOULDER of a flagged bed
 COND_FLAG = coal + tight + bad hole + shoulder (+ crossover when OPT_XCOND = YES)</pre>
 <!-- Authored walkthrough for the condflag guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, per-control sensitivity. -->
 
-<h2>Step by step: conditioning flags for porosity work</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Data Conditioning Flags marks the samples whose density-neutron readings
-should not feed porosity or mineral solving: coal, tight rock, gas crossover,
-and (the subtle one) the shoulder samples either side of a flagged bed, where
-the tools still average across the boundary. COND_FLAG combines them into the
-run mask the porosity work consumes.</p>
+<p>Data Conditioning Flags screens the porosity logs for the situations where
+their readings are real but should not be interpreted as ordinary reservoir:
+coal, tight streaks, gas crossover, and the shoulder samples around bed
+boundaries. It writes one exclusion flag, COND_FLAG, plus a diagnostic flag per
+cause, so you can mask on the combined flag while still seeing why each sample
+was set aside. Run it after Bad-Hole QC, before the porosity and saturation
+work begins.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>Shipped starting thresholds throughout. The pane itself marks several
-"not settled", which is the honest label for numbers that want a per-field
-review. MIN_THICK and SHOULDER are metre-scale conventions and these wells are
-metric, so they stand. <b>OPT_XCOND stays NO</b>: the gas zones here will be
-<i>corrected</i> by the gas-correction step, not discarded, so the crossover
-flag must not join the exclusion mask. Run the Bad-Hole QC module first; its
-flag feeds this one.</p>
+<p>Each cause is a recognisable log signature:</p>
+
+<ul>
+  <li><b>Coal</b>: very low density and very high neutron together
+    (RHOB below COAL_RHOB and NPHI above COAL_NPHI, with the sonic criterion
+    where DT exists). Coal computes a spectacular porosity that is not
+    porosity.</li>
+  <li><b>Tight</b>: density porosity below TIGHT_PHI. Not wrong, just not
+    reservoir, and a regression fitted through tight points drags.</li>
+  <li><b>Gas crossover</b>: neutron reading below density porosity by more
+    than XOVER_MIN, the classic gas signature on a compatible-scale overlay.</li>
+  <li><b>Shoulders</b>: within SHOULDER of a detected bed boundary, where both
+    tools average two rocks. MIN_THICK sets the thinnest bed the detector
+    honours.</li>
+</ul>
+
+<h2>The picks and why</h2>
+
+<p>The shipped thresholds are practitioner starting values, marked as such in
+the pane; tune them against your own log views. Two picks deserve special
+attention:</p>
+
+<ul>
+  <li><b>MIN_THICK 0.25 and SHOULDER 0.5</b> are thicknesses in the depth
+    curve's declared unit, metres here. On a feet project the same rock needs
+    feet-scale numbers; a thickness is an amount of rock, not a count of
+    samples.</li>
+  <li><b>OPT_XCOND</b> decides whether gas crossover joins the exclusion
+    flag. The shipped NO keeps gas zones in the conditioned data, which is what
+    you want when the Gas Correction step will repair those samples; XCOND YES
+    is for studies that exclude gas intervals outright instead. Run live on
+    these wells: with NO, COND_FLAG sets <b>648 of 1185 samples</b> and
+    XOVER_FLAG separately marks <b>265</b>; switching to YES merges them and
+    COND_FLAG grows to <b>892</b> (648 + 265 minus a 21-sample overlap where a
+    crossover sample was already excluded for another cause). One option, a
+    fifth of the dataset moving in or out of the interpretation.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Data Conditioning Flags</b>.</li>
+  <li>Review the thresholds against your rocks; leave OPT_XCOND on NO when a
+    gas correction will follow.</li>
+  <li>Fill the custody line and press <b>Run Data Conditioning Flags</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-condflag-pane.png"
-       alt="The Data Conditioning Flags pane at its shipped thresholds" />
-  <figcaption>The "shipped values elsewhere" markers flag the thresholds still
-    awaiting a settled value.</figcaption>
+       alt="The Data Conditioning Flags pane with the shipped thresholds" />
+  <figcaption>Every threshold is a starting value and says so. The pane's
+    source notes name where each came from.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. The census: <b>XOVER_FLAG 265</b> samples of
-gas crossover (the gas sand, as the saturation shelf found it), <b>SHOULDER_FLAG
-36</b>, no coal and no tight rock, a clastic gas-bearing section saying exactly
-what it should. <b>COND_FLAG totals 648</b>, dominated by the bad-hole term.
-One rule to keep: leave the Mask empty on the condflag run itself. Masking this
-run with BADHOLE would blank COND_FLAG exactly where it must read 1.</p>
+<p><b>3 clean</b>, COND_FLAG at <b>648 of 1185</b>, XOVER_FLAG at <b>265</b>.
+Check the split per cause in the Database Inspector:</p>
+
+<pre class="equations">SELECT curve_name, COUNT(*) FILTER (WHERE value = 1) AS set
+FROM computed_curves
+WHERE curve_name IN ('COND_FLAG','COAL_FLAG','TIGHT_FLAG','XOVER_FLAG','SHOULDER_FLAG')
+GROUP BY curve_name</pre>
+
+<figure>
+  <img src="../img/guide-condflag-result.png"
+       alt="The Data Conditioning Flags run reporting three clean wells" />
+  <figcaption>The combined flag plus one diagnostic per cause: mask on the
+    first, read the others.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>XOVER_MIN's shipped 0.04&nbsp;v/v is the same size as the sandstone
+    matrix-scale error. Convert the neutron's matrix convention first (the
+    Neutron Matrix Conversion chapter), or a limestone-units neutron in
+    sandstone will fake or hide crossover.</li>
+  <li>Overlay the flags on a log view before masking anything: coal picked up
+    by the tight criterion, or shoulders swallowing thin pay, are visible in
+    seconds there and invisible in a count.</li>
+  <li>COND_FLAG excludes; XOVER_FLAG (under the shipped OPT_XCOND NO) informs.
+    The Gas Correction chapter consumes XOVER_FLAG as its gate, which is why
+    the flags are separate curves.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Flags samples whose density/neutron readings should not feed porosity or mineral solving. COAL_FLAG: RHOB &lt; COAL_RHOB and NPHI &gt; COAL_NPHI, plus DT &gt; COAL_DT where a sonic exists; a washed-out hole mimics coal, so samples with BADHOLE = 1 are never called coal. TIGHT_FLAG: density porosity (from RHO_MA / RHO_FL — the same parameters, and zone overrides, as the density-porosity modules) and NPHI both below TIGHT_PHI. XOVER_FLAG: gas crossover, density porosity exceeding NPHI by more than XOVER_MIN — coal and bad hole are excluded because they fake the same light-density signature. NPHI must be in matrix units consistent with RHO_MA: limestone-unit neutron against a sandstone RHO_MA reads about 0.04 low in clean water sand, right at the XOVER_MIN threshold — convert the neutron first, then supply a sourced threshold for the declared neutron convention. Flagged beds thinner than MIN_THICK are dropped as spikes (missing samples inside a bed do not split it). SHOULDER_FLAG is the transition adjustment: logs average across bed boundaries, so samples within SHOULDER of a coal / tight bed — or a bad-hole interval at least MIN_THICK thick — still carry mixed readings; masking only the bed itself would leave those shoulder values in the conditioned data. COND_FLAG combines coal, tight, bad hole and shoulder (and crossover when OPT_XCOND = YES — leave NO when gas zones will be corrected rather than discarded); feed it as the Mask on later module runs, but leave the Mask empty on the condflag run itself — masking this run with BADHOLE would blank COND_FLAG exactly where it must read 1. MIN_THICK and SHOULDER are in the depth curve's declared unit; their DEC-077 starting values are metre-scale conventions - rescale for feet wells. Run the badhole module first so its flag is available here.</p>

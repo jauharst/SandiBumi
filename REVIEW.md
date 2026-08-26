@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Second pass, increment 2: the eleven Prep chapters rewritten to the two-reader skeleton
+
+- [ ] **The eleven Prep chapters** (ftemp_grad, precalc, badhole, condflag, nphimat, gascorr,
+      gr_hole_corr, nphi_env_corr, rhob_hole_corr, log_predict, and the gr_normalize pointer)
+      now follow the addendum skeleton: what-and-when → physics → picks-and-why → step by step →
+      reading the result → QC and pitfalls, with the generated enforcement section after. Open
+      docs/guide/book/ftemp_grad.html and read one you know well.
+- [ ] **Every control answers "what changes when I change this", with live numbers.** Each
+      variant was actually run in the sandbox and then restored: DCAL_MAX 1→0.5 in moves the
+      badhole count 612→626; OPT_XCOND YES grows COND_FLAG 648→892; the superseded 0.03 degC/m
+      gradient moves median Rmf 0.0770→0.0988 ohmm; K_GR doubled doubles the mean GR restoration
+      exactly (0.799→1.599 gAPI); SALW 100000 ppm shifts the neutron term −0.002 v/v; HD_REF
+      10→9 in grows the density correction 495→626 samples; SG_GAS 0.65→0.8 lifts GASDEN
+      0.102→0.136 g/cc; K 10→3 roughens the KNN synthetic. Spot-check any one against the pane.
+- [ ] **Clean dedicated screenshots, two per chapter.** Each module pane beside the log view,
+      nothing else docked, plus its run-result capture (20 new images in docs/guide/img). The
+      old stacked-workspace captures for these ten modules are replaced.
+- [ ] **Two refusals and one degraded outcome taught on camera.** nphimat's MATRIX_IN=SS run
+      fails all three wells with the DEC-025 basis message quoted verbatim in the chapter;
+      precalc reports degraded because CXO found no RXO to convert, and the chapter reads that
+      word correctly; log_predict's MAX_RAW split (299 raised in flagged hole, 273 scatter trims
+      in good hole) is stated honestly rather than as "repairs only washouts".
+
 ## 2026-08-26 — The guidebook gains its navigation pane and a ribbon button, and sheds internal provenance
 
 - [ ] **Left navigation pane.** Every book page now carries a sticky left nav listing the whole

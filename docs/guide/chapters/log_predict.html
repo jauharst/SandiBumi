@@ -1,36 +1,105 @@
-<!-- Authored walkthrough for the log_predict guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the log_predict guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-26), second pass: K sensitivity, the MAX_RAW washout rule. -->
 
-<h2>Step by step: a synthetic log by nearest neighbours</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Synthetic Log trains on this run's own samples (wherever the target and
-every predictor are present) and predicts the target everywhere the predictors
-exist, by distance-weighted K-nearest-neighbour regression in z-scored predictor
-space. No model file, no training session: the well is its own training set.</p>
+<p>Synthetic Log predicts one curve from others by K-nearest-neighbour
+regression, per well, and writes the prediction as &lt;TARGET&gt;_SYN. The
+classic use, and this walkthrough's, is a density log ruined in washouts:
+train RHOB against GR, NPHI and DT in good hole, predict it everywhere, and
+combine so that only the damaged intervals take the synthetic value. It also
+covers the plain missing-curve case, filling a log a well never recorded from
+the wells' shared statistics.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
+
+<p>No physics model at all, and that is the point to understand: KNN is a
+statistical lookup. Every training sample is a point in predictor space (the
+predictors are z-scored so a gAPI axis and a us/ft axis weigh equally); to
+predict at a new depth, the K nearest training points vote, weighted by
+distance. The method is honest exactly where the training data covers the
+question, and silently wrong outside it: a rock type that never appears in
+the training set is predicted as whatever it most resembles. It is also fully
+deterministic. There is no seed to set and re-running reproduces the same
+curve to the sample; if you have seen seeds on machine-learning panes, those
+belong to the clustering methods (the Electrofacies chapter), not to KNN.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>Target RHOB from GR / NPHI / DT, K&nbsp;10</b>: the shipped
-    defaults.</li>
-  <li><b>OPT_COMBINE MAX_RAW</b>, the washout rule: bad hole only pushes RHOB
-    <i>down</i>, so taking max(raw, synthetic) repairs washed-out density while
-    leaving every good sample exactly as logged.</li>
-  <li><b>Mask BADHOLE</b>, the rule the pane documentation states: washed-out
-    samples must never <i>train</i> the model, or the synthetic learns the
-    washout it exists to repair.</li>
+  <li><b>K 10</b> (shipped): how many neighbours vote. Small K follows local
+    scatter, large K smooths toward the field average. Run live on these
+    wells: dropping K to 3 changes the combined result at the margins
+    (568 raised samples against 572, maximum raise +0.059 against
+    +0.068&nbsp;g/cc, median RHOB_SYN 2.4443 against 2.4465). The prediction
+    gets rougher, not better; K buys stability against noise at the cost of
+    smearing thin beds.</li>
+  <li><b>OPT_COMBINE MAX_RAW</b>: the washout rule. Bad hole only pushes RHOB
+    down, so taking max(raw, synthetic) repairs washouts while never touching
+    a sample the tool read heavier than the model expects. SYNTHETIC writes
+    the pure prediction; FILL_MISSING keeps every measured value and fills
+    only gaps. Pick by what question the output answers.</li>
+  <li><b>Mask BADHOLE</b>: the flagged samples must not train the model, or
+    the model learns the washouts it is supposed to repair. The mask removes
+    them from training; the prediction still covers them.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run Bad-Hole QC first so the mask exists.</li>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Synthetic Log (KNN Predict)</b>.</li>
+  <li>Keep RHOB as the target with GR, NPHI, DT as predictors, set
+    OPT_COMBINE to MAX_RAW, and select BADHOLE in the Mask field.</li>
+  <li>Fill the custody line and press <b>Run Synthetic Log</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-logpredict-pane.png"
-       alt="The Synthetic Log pane, RHOB from GR/NPHI/DT with MAX_RAW" />
-  <figcaption>Masked on BADHOLE so the training set is good hole only.</figcaption>
+       alt="The Synthetic Log pane with the washout rule and mask selected" />
+  <figcaption>Target, predictors, the combine rule, and the mask that keeps
+    bad hole out of the training set.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, and MAX_RAW raised <b>567 samples</b> above
-the delivered density: the washout intervals, where the logged RHOB is
-mud-biased low and the synthetic (trained on good hole) reads the rock instead.
-RHOB_SYN beside RHOB in a track shows the repair exactly where the caliper
-says it should be, and nowhere else.</p>
+<p><b>3 clean</b>. Under MAX_RAW, <b>572 samples</b> came out above the
+measured density, and splitting them against the BADHOLE flag is the honest
+read: <b>299 sit in flagged hole</b>, where the repairs run up to
+<b>+0.068&nbsp;g/cc</b>, and <b>273 sit in good hole</b>, where the rule is
+trimming model scatter (median +0.005, at most +0.043&nbsp;g/cc). MAX_RAW
+applies everywhere the reading is lighter than the model expects, not only
+where the flag is set; the flag kept those samples out of training, and the
+combine rule then acts on the whole well. Median RHOB_SYN is
+2.447&nbsp;g/cc. Verify the split in the Database Inspector:</p>
+
+<pre class="equations">SELECT b.value AS flagged, COUNT(*), MAX(g.value - s.rhob)
+FROM computed_curves g
+JOIN standard_curves s ON g.well_id = s.well_id AND g.depth = s.depth
+JOIN computed_curves b ON b.well_id = g.well_id AND b.depth = g.depth
+  AND b.curve_name = 'BADHOLE'
+WHERE g.curve_name = 'RHOB_SYN' AND g.value - s.rhob > 1e-6
+GROUP BY b.value</pre>
+
+<figure>
+  <img src="../img/guide-logpredict-result.png"
+       alt="The Synthetic Log run reporting three clean wells" />
+  <figcaption>The large repairs land in the flagged hole; the good-hole
+    touches are millidensity trims of model scatter.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Crossplot RHOB_SYN against RHOB in good hole before trusting it in bad:
+    the good-hole cloud should hug the 1:1 line. Scatter there is the
+    prediction error you are about to inject into the washouts.</li>
+  <li>MAX_RAW is a rule about density in washouts. For a target that bad hole
+    pushes UP (neutron, sonic), the rule is wrong by construction; use
+    SYNTHETIC and mask instead.</li>
+  <li>The model trains per run on this run's wells. Predicting a well whose
+    rocks the training wells never saw is extrapolation wearing a confident
+    face; for a saved, reusable model across a field, use the ML Models
+    suite.</li>
+</ul>

@@ -1,31 +1,88 @@
-<!-- Authored walkthrough for the gr_hole_corr guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the gr_hole_corr guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-26), second pass: the linearity of the correction demonstrated. -->
 
-<h2>Step by step: restoring gamma counts in an oversize hole</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Gamma rays crossing an extra annulus of mud are attenuated, so a washed-out
-hole reads GR low, and a low GR in a washout looks like sand. The correction is
-linear in the enlargement: GR_EC&nbsp;=&nbsp;GR·(1&nbsp;+&nbsp;K_GR·(CALI&nbsp;−&nbsp;BS)).</p>
+<p>GR Hole-Size Correction restores the gamma-ray counts a big hole absorbs.
+The detector sits in mud; the more mud between it and the formation, the more
+gamma rays are attenuated before they arrive, so GR reads low exactly where
+the hole washes out. The module writes GR_EC, the corrected log, with the
+usual extent companions recording where the correction could and could not be
+evaluated. Run it before any shale-volume work if the caliper shows real
+washouts, because a GR biased low in bad hole understates clay there.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>K_GR 0.0075</b> (shipped) and <b>BS_DEF 8.5&nbsp;in</b>: no BS curve in
-this delivery, the same bit-size argument as the bad-hole run. One contract to
-know: the run <b>refuses if CALI is missing at any finite GR sample</b>. It will
-never write an unmarked, uncorrected copy under the corrected name, because a
-GR_EC that is secretly raw GR is unfalsifiable downstream.</p>
+<p>This is the pragmatic linear form of the correction: the added count rate
+is proportional to how much the hole diameter exceeds the bit size,
+GR_EC = GR × (1 + K_GR × (CALI − BS)). The rigorous answer is the tool vendor's
+borehole chart, which depends on tool, mud weight and centering; K_GR is the
+slope of that chart linearised around your hole size. That makes K_GR a
+per-tool, per-mud number to read from the chart, not a constant of nature.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>K_GR 0.0075 per inch</b> (shipped): a practitioner starting slope.
+    The correction is exactly linear in it, and the live run proves that:
+    doubling K_GR to 0.015 doubles the average restoration from
+    <b>+0.799 to +1.599&nbsp;gAPI</b>, ratio 2.0000, and the maximum from
+    +1.796 to +3.592&nbsp;gAPI. The coefficient is not a tuning knob to nudge
+    until the log looks right; it IS the answer, and it comes from the tool
+    chart.</li>
+  <li><b>BS_DEF 8.5&nbsp;in</b>: the bit size used where no BS curve exists,
+    the same declaration the Bad-Hole chapter made for this delivery.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ GR Hole-Size Correction</b>.</li>
+  <li>Enter the chart-derived K_GR for the logging tool, and the bit size if
+    the delivery has no BS curve.</li>
+  <li>Fill the custody line and press <b>Run GR Hole-Size Correction</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-grhole-pane.png"
-       alt="The GR Hole-Size Correction pane" />
-  <figcaption>Correction-extent companion curves record where the correction
-    applied in full, in part, or not at all.</figcaption>
+       alt="The GR Hole-Size Correction pane with the default coefficient" />
+  <figcaption>Two numbers: the chart slope and the bit size. The caliper does
+    the rest.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. <b>615 samples corrected upward</b> (the
-washout intervals) by <b>+1.46&nbsp;gAPI on average, +1.8 at most</b>. Small
-numbers, deliberately: a linear starting coefficient on a two-and-a-half-inch
-washout. The shape is what matters: the sand that a washout was dressing as
-cleaner than it is gets its shale back.</p>
+<p><b>3 clean</b>. <b>1155 of 1185 samples</b> received a positive correction
+(the rest sit at or under gauge), averaging <b>+0.80&nbsp;gAPI</b> with a
+maximum of <b>+1.80&nbsp;gAPI</b> in the deepest washouts. Small numbers, and
+that is worth reading correctly: on an 8.6&nbsp;in hole over an 8.5&nbsp;in
+bit almost nothing changes, and only the 2.5&nbsp;in washouts earn a visible
+shift. A correction that moves quiet hole is a miscalibrated one. Compare
+before and after in the Database Inspector:</p>
+
+<pre class="equations">SELECT AVG(g.value - s.gr), MAX(g.value - s.gr)
+FROM computed_curves g
+JOIN standard_curves s ON g.well_id = s.well_id AND g.depth = s.depth
+WHERE g.curve_name = 'GR_EC' AND g.value - s.gr > 1e-6</pre>
+
+<figure>
+  <img src="../img/guide-grhole-result.png"
+       alt="The GR Hole-Size Correction run reporting three clean wells" />
+  <figcaption>An average restoration under one gAPI: the hole here is mostly
+    in gauge, and the correction says so.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Overlay GR and GR_EC: the two should separate only where the caliper
+    does. Separation in gauge hole means the bit size declaration is
+    wrong.</li>
+  <li>Because the correction is linear in K_GR, any error in the coefficient
+    scales every washout's correction by the same factor. Read it from the
+    chart for the actual tool; do not inherit it from a previous study with a
+    different string.</li>
+  <li>Downstream shale-volume runs should take GR_EC where washouts are real;
+    feed the corrected curve by name rather than re-pointing the GR alias.</li>
+</ul>
