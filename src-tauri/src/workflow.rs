@@ -7030,7 +7030,7 @@ mod tests")
                 },
             )
         };
-        let outputs = ["RQI", "PHIZ", "FZI", "R35", "PGEOM", "PSTRUC", "RT", "PERM_RT"];
+        let outputs = ["RQI", "PHIZ", "FZI", "R35", "PGEOM", "PSTRUC", "RT_CLASS", "PERM_RT"];
         let written = |name: &str| -> i64 {
             let conn = dbm.lock().unwrap();
             conn.query_row(

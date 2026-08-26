@@ -13473,7 +13473,7 @@
     "name": "rocktyping",
     "title": "Rock Typing (FZI / R35 / PGS)",
     "category": "Rock Typing",
-    "doc": "Per-sample rock-typing indicators from porosity and permeability. Writes RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT is the rock-type class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland port classes (nano..mega). PERM_RT is the class-grouped permeability estimate k = 1014.24·FZI_mean(RT)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22).",
+    "doc": "Per-sample rock-typing indicators from porosity and permeability. Writes RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT_CLASS is the rock-type class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland port classes (nano..mega). PERM_RT is the class-grouped permeability estimate k = 1014.24·FZI_mean(RT_CLASS)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22).",
     "args": [
       {
         "name": "METHOD",
@@ -13669,7 +13669,7 @@
         "well_scope": false
       },
       {
-        "name": "RT",
+        "name": "RT_CLASS",
         "desc": "Rock-type class (GHE 1..10 or port 1..5)",
         "unit": "-",
         "kind": "log_out",
@@ -13713,7 +13713,7 @@
         "RQI = 0.0314·√(k/φ),  PHIZ = φ/(1−φ),  FZI = RQI/PHIZ",
         "R35 = 10^(0.732 + 0.588·log₁₀k − 0.864·log₁₀φ%)",
         "PGEOM = √(k/φ),  PSTRUC = k/φ^PS_EXP",
-        "PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²"
+        "PERM_RT = 1014.24·FZI_mean(RT_CLASS)²·φ³/(1−φ)²"
       ],
       "references": [
         "Amaefule et al. (1993): RQI/FZI",

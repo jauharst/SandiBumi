@@ -430,7 +430,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "RQI = 0.0314·√(k/φ),  PHIZ = φ/(1−φ),  FZI = RQI/PHIZ",
                 "R35 = 10^(0.732 + 0.588·log₁₀k − 0.864·log₁₀φ%)",
                 "PGEOM = √(k/φ),  PSTRUC = k/φ^PS_EXP",
-                "PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²",
+                "PERM_RT = 1014.24·FZI_mean(RT_CLASS)²·φ³/(1−φ)²",
             ],
             references: &[
                 "Amaefule et al. (1993): RQI/FZI",

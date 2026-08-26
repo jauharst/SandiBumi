@@ -1343,7 +1343,7 @@ mod tests {
             rho_w: d_rho_w(),
             rho_hc: d_rho_hc(),
             ift_res: d_ift_res(),
-            rt_curve: "RT".into(),
+            rt_curve: "RT_CLASS".into(),
         }
     }
 

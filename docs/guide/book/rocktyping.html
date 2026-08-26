@@ -390,7 +390,7 @@
 <pre class="equations">RQI = 0.0314·√(k/φ),  PHIZ = φ/(1−φ),  FZI = RQI/PHIZ
 R35 = 10^(0.732 + 0.588·log₁₀k − 0.864·log₁₀φ%)
 PGEOM = √(k/φ),  PSTRUC = k/φ^PS_EXP
-PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²</pre>
+PERM_RT = 1014.24·FZI_mean(RT_CLASS)²·φ³/(1−φ)²</pre>
 <h2>References</h2>
 <ul><li>Amaefule et al. (1993): RQI/FZI</li>
 <li>Kolodzie (1980): Winland R35</li>
@@ -404,7 +404,7 @@ PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²</pre>
 
 <p>Per-sample rock-typing indicators from porosity and permeability: the
 hydraulic-unit family (RQI, PHIZ, FZI), the Winland R35 pore-throat radius,
-the Permadi-Susilo PGS pair, and a class curve RT cut from whichever
+the Permadi-Susilo PGS pair, and a class curve RT_CLASS cut from whichever
 indicator the METHOD chooses. Rock typing is where a porosity-permeability
 cloud becomes a small set of classes that carry their own laws, and this
 module writes both the indicators and the classes so the choice of binning
@@ -466,7 +466,7 @@ is where a productive clastic section should sit, and the four-class spread
 is the cloud's real width, not noise.</p>
 
 <pre class="equations">SELECT value::INT rt, COUNT(*) FROM computed_curves
-WHERE curve_name = 'RT' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
+WHERE curve_name = 'RT_CLASS' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
 
 <p>The round-trip check: PERM_RT against the input PERM_XFM over all 573
 samples reads a geometric ratio of <b>1.00</b> with a spread of 1.2. The
@@ -502,7 +502,7 @@ census exactly.</p>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Per-sample rock-typing indicators from porosity and permeability. Writes RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT is the rock-type class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland port classes (nano..mega). PERM_RT is the class-grouped permeability estimate k = 1014.24·FZI_mean(RT)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22).</p>
+<p>Per-sample rock-typing indicators from porosity and permeability. Writes RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT_CLASS is the rock-type class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland port classes (nano..mega). PERM_RT is the class-grouped permeability estimate k = 1014.24·FZI_mean(RT_CLASS)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22).</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHI</td><td>Effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
 <tr><td>PERM</td><td>Permeability</td><td><code>PERM</code></td><td>yes</td><td>—</td></tr></table></div>
@@ -525,7 +525,7 @@ census exactly.</p>
 <tr><td>R35</td><td>Winland R35 pore-throat radius</td></tr>
 <tr><td>PGEOM</td><td>PGS pore geometry √(k/φ)</td></tr>
 <tr><td>PSTRUC</td><td>PGS pore structure k/φ^PS_EXP</td></tr>
-<tr><td>RT</td><td>Rock-type class (GHE 1..10 or port 1..5)</td></tr>
+<tr><td>RT_CLASS</td><td>Rock-type class (GHE 1..10 or port 1..5)</td></tr>
 <tr><td>PERM_RT</td><td>Class-grouped permeability estimate</td></tr></table></div></div>
 </div>
 </main>

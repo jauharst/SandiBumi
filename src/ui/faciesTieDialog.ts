@@ -21,9 +21,11 @@ export async function buildFaciesTieContent(
   content.className = "mc-dialog";
 
   const predSel = preferredCurveSelect(names, ["RT_LOG"]);
-  const refSel = preferredCurveSelect(names, ["RT", "RT_LUCIA", "FACIES", "FACIES_ML"]);
+  // RT_CLASS, never bare "RT" — RT is the deep-resistivity alias, and preferring it here
+  // would preselect a resistivity log as the reference rock type on any well carrying one.
+  const refSel = preferredCurveSelect(names, ["RT_CLASS", "RT_LUCIA", "FACIES", "FACIES_ML"]);
   content.appendChild(formRow("Predicted RT (log)", predSel, "Log-domain rock type, e.g. RT_LOG from the cutoff classifier."));
-  content.appendChild(formRow("Reference RT (core)", refSel, "The 'truth' rock type — a core-derived RT or a rock-typing RT."));
+  content.appendChild(formRow("Reference RT (core)", refSel, "The 'truth' rock type — a core-derived rock type or a rocktyping RT_CLASS."));
   // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
   const setPicker = buildLogSetPicker({ write: false });
   for (const row of setPicker.rows) content.appendChild(row);

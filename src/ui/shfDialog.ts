@@ -129,7 +129,9 @@ export async function buildShfContent(
   // Per-rock-type fitting: any family + an RT/facies curve → one law per RT class.
   const rtCb = document.createElement("input");
   rtCb.type = "checkbox";
-  const rtSel = preferredCurveSelect(names, ["RT", "RT_GHE", "GHE", "FACIES", "RT35"]);
+  // RT_CLASS, never bare "RT" — RT is the deep-resistivity alias, and preferring it here
+  // would preselect a resistivity log as the rock-type classifier on any well carrying one.
+  const rtSel = preferredCurveSelect(names, ["RT_CLASS", "RT_GHE", "GHE", "FACIES", "RT35"]);
   const rtWrap = document.createElement("div");
   rtWrap.className = "mc-settings";
   const rtLabel = document.createElement("label");

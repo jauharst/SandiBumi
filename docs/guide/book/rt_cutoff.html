@@ -476,7 +476,7 @@ P90-of-sand shale cutoffs promise on a sand-dominated interval.</p>
 
 <pre class="equations">SELECT a.value::INT rt_log, round(median(b.value), 0)::INT ghe, COUNT(*)
 FROM computed_curves a JOIN computed_curves b
-  ON a.well_id = b.well_id AND a.depth = b.depth AND b.curve_name = 'RT'
+  ON a.well_id = b.well_id AND a.depth = b.depth AND b.curve_name = 'RT_CLASS'
 WHERE a.curve_name = 'RT_LOG' AND NOT isnan(a.value) AND NOT isnan(b.value)
 GROUP BY 1 ORDER BY 1</pre>
 
