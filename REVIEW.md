@@ -20128,3 +20128,33 @@ during an export. It now prints at the page-bottom limit instead.
 - [ ] **Find two pictures that genuinely overlap** (two thin sections close together, zoomed
       out). The screen must still skip the deeper one with a tick, and the print must still
       slide it clear with its leader — that behaviour is unchanged.
+
+## A saved crossplot that failed to reopen no longer stays dead (2026-08-27)
+
+You saw this one live in the guidebook sandbox: after an app restart, a crossplot pane that the
+workspace brought back could sit there saying *"Failed to open crossplot: required channel 'NPHI'
+is unresolved…"* — permanently — even though NPHI was perfectly fine. Clicking wells did nothing.
+
+What was going on: reopening a saved plot deliberately checks that the curves it finds now are the
+exact same answers it was saved with — that strictness is what stops a session from quietly
+reopening onto different data, and it has not changed. The defect was what happened when that
+first check could not complete (for example the pane's very first data load hiccupped at startup):
+the pane was torn down, the error was painted over it, and nothing ever tried again. The old saved
+expectation also stayed armed, so even switching wells just failed the check a second time for a
+different reason. A dead end, by construction.
+
+Now a refused reopen is refused **once**. The message says what to do — select a well in Wells &
+Tops — and doing that rebuilds the pane fresh, the way a template opens: it looks the curves up
+again and keeps your saved axis and zone picks. This applies to all five plot panes (crossplot,
+histogram, Pickett, correlation, Vega), and the same recovery now also covers a plot pane whose
+build failed for any other reason. Saving and exporting still validate as strictly as before, and
+a genuinely changed binding is still refused on reopen — there is a test that pins both sides so
+neither half can quietly go soft.
+
+- [ ] **Restart the app on a project whose saved workspace has a crossplot.** It should come back
+      showing its plot, same as before this fix.
+- [ ] **If any plot pane ever shows "Failed to open…", click any well in the Wells pane** — the
+      same well is fine. The pane must rebuild with its saved curve choices instead of staying dead.
+- [ ] **Open a named session the normal way.** It must still reopen exactly as saved — and if you
+      re-ran a module since saving it, it must still refuse, now with the recovery instruction in
+      the message.

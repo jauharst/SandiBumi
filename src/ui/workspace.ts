@@ -32,7 +32,7 @@ import { buildPickettContent } from "./pickettPanel";
 import { buildCorrelationContent } from "./correlationPanel";
 import { buildDashboardContent } from "./dashboardPanel";
 import { DbInspectorPanel } from "./dbInspectorPanel";
-import { assertPlotStateRestored, type PlotContent } from "./plotCommon";
+import { createPlotRestoreGate, type PlotContent } from "./plotCommon";
 import { SqlQueryPanel } from "./sqlQueryPanel";
 import { HistoryPanel } from "./historyPanel";
 import { buildStartSheet } from "./startSheet";
@@ -1235,7 +1235,7 @@ export class Workspace {
 
   private createPlot(kind: PlotKind): IContentRenderer {
     return new DomPanel(`dock-plot dock-${kind}`, (host, params) => {
-      let expectedRestore = this.pendingPlotRestore.get(params.api.id);
+      const restore = createPlotRestoreGate(this.pendingPlotRestore.get(params.api.id));
       this.pendingPlotRestore.delete(params.api.id);
       const build: (well: WellSummary, setStatus: (t: string) => void, initial?: Record<string, string>) => Promise<PlotContent> =
         kind === "histogram"
@@ -1260,7 +1260,8 @@ export class Workspace {
 
       const rebuild = (well: WellSummary | null) => {
         const token = beginPlotAsyncGeneration("workspace-plot-build", ++generation);
-        const initial = getState?.() ?? (expectedRestore?.options as Record<string, string> | undefined);
+        restore.beginAttempt();
+        const initial = getState?.() ?? restore.initialOptions;
         disposer?.();
         disposer = undefined;
         getState = undefined;
@@ -1288,7 +1289,7 @@ export class Workspace {
             host.appendChild(content.el);
             disposer = content.dispose;
             getState = content.getState;
-            if (expectedRestore) {
+            if (restore.pending) {
               if (!content.getPersistedState) {
                 content.dispose?.();
                 throw new Error(`saved ${kind} refused: panel has no durable binding state`);
@@ -1299,12 +1300,11 @@ export class Workspace {
                   content.dispose?.();
                   return;
                 }
-                assertPlotStateRestored(expectedRestore, content.getPersistedState());
+                restore.validate(content.getPersistedState);
               } catch (error) {
                 content.dispose?.();
                 throw error;
               }
-              expectedRestore = undefined;
             }
             if (content.getPersistedState) {
               this.plotStateGetters.set(params.api.id, content.getPersistedState);
@@ -1314,20 +1314,27 @@ export class Workspace {
           })
           .catch((err) => {
             if (!isPlotAsyncGenerationCurrent(token, generation, closed)) return;
-            host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(kind)}: ${escapeHtml(String(err))}</div>`;
+            restore.refuse();
+            host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(kind)}: ${escapeHtml(String(err))} Select a well (Wells &amp; Tops) to rebuild this ${escapeHtml(kind)}.</div>`;
           });
       };
 
       const unsubWell = appState.selectedWell.subscribe((well) => {
         if (kind === "correlation") {
-          if (generation === 0) rebuild(null);
+          if (generation === 0 || restore.failed) rebuild(null);
           return;
         }
-        if (generation > 0 && (well?.well_id ?? null) === currentWellId) return;
         // Pin OFF = working-pane mode: an already-built plot only follows the selection
-        // while it is the WORKING pane (fresh panels always build). Not api.isActive —
-        // clicking a well activates the Wells tree, never a plot (see activeViewer.ts).
-        if (generation > 0 && !appState.wellPinned.get() && !isWorkingPane(params.api.id)) return;
+        // while it is the WORKING pane (fresh panels always build, failed panes always
+        // rebuild). Not api.isActive — clicking a well activates the Wells tree, never
+        // a plot (see activeViewer.ts).
+        if (
+          !restore.shouldRebuild({
+            built: generation > 0,
+            sameWell: (well?.well_id ?? null) === currentWellId,
+            follows: appState.wellPinned.get() || isWorkingPane(params.api.id),
+          })
+        ) return;
         rebuild(well);
       });
 
