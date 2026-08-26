@@ -144,47 +144,116 @@ ARPS: RMF@FTEMP = RMF·(T_meas + 6.77)/(FTEMP + 6.77)  [temperatures in °F]
 TREND: RMF@FTEMP = RMF_A + RMF_B·log10(TVDSS)
 CT = 1000/RT;  CXO = 1000/RXO  [mmho/m]</pre>
 <!-- Authored walkthrough for the precalc guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, per-control sensitivity. -->
 
-<h2>Step by step: reservoir-condition inputs in one pass</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Pre-Calculation writes the curves the saturation and SandiMin work will keep
-asking for: formation temperature (always in °C, whatever unit you entered the
-trend in, plus FTEMP_F for SandiMin's fluid-property entry), formation pressure,
-mud-filtrate resistivity Arps-converted to formation temperature, and the QC
-conductivities CT and CXO.</p>
+<p>Pre-Calculation is the environment builder: one run that writes formation
+temperature, formation pressure, mud-filtrate resistivity at formation
+temperature, and the two conductivity conveniences CT and CXO. Run it once per
+study, right after Formation Temperature or instead of it, and everything
+downstream that needs the borehole environment (gas correction, environmental
+corrections, saturation work) reads these curves rather than asking you to
+retype the numbers.</p>
 
-<h3>The picks, each with its defence</h3>
+<h2>The physics</h2>
+
+<p>Four small models in one pass:</p>
 
 <ul>
-  <li><b>OPT_TU degC, 26.7 + 0.0474&nbsp;°C/m</b>, the metric restatement of the
-    shipped feet-based trend (and exactly ftemp_grad's metric starting values).
-    The shipped 77&nbsp;°F / 0.026&nbsp;°F/ft pair is feet-based; entering it
-    unconverted on a metric well is the recorded 66&nbsp;°C mistake.</li>
-  <li><b>PSURF 14.7 + PGRAD 1.42&nbsp;psi/m</b>, atmospheric surface pressure
-    plus the freshwater hydrostatic gradient (0.433&nbsp;psi/ft restated per
-    metre). A physical constant as a starting point, not a field fit; a measured
-    pressure gradient replaces it the moment you have one.</li>
-  <li><b>ARPS, Rmf 0.2&nbsp;ohmm at 25&nbsp;°C</b>: the module's own worked
-    example, standing in for the mud report this synthetic delivery does not
-    have.</li>
+  <li><b>Temperature</b>: the same linear trend as the Formation Temperature
+    chapter, surface temperature plus gradient times depth.</li>
+  <li><b>Pressure</b>: hydrostatic, surface pressure plus a pressure gradient
+    times depth. The default gradient is fresh-water hydrostatic; overpressured
+    intervals need a per-zone override.</li>
+  <li><b>Rmf at temperature</b>: you measure mud-filtrate resistivity in the
+    lab at surface temperature; the formation is hotter, and a hotter
+    electrolyte conducts better. The Arps relation
+    R2 = R1 · (T1 + 21.5) / (T2 + 21.5) (degC form) rescales the measurement
+    to each sample's FTEMP.</li>
+  <li><b>CT and CXO</b>: deep and flushed conductivity, 1000/RT and 1000/RXO,
+    for crossplots and QC that prefer conductivity space.</li>
 </ul>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>OPT_TU</b> declares the unit your temperature entries are in. This
+    walkthrough enters degC; the surface temperature and gradient are then
+    26.7&nbsp;degC and 0.0474&nbsp;degC/m, the metric restatement of the shipped
+    trend, matching the Formation Temperature chapter.</li>
+  <li><b>PSURF 14.7&nbsp;psi</b> and <b>PGRAD 1.42&nbsp;psi/m</b>: atmospheric
+    surface pressure and fresh-water hydrostatic restated per metre. At TD
+    (1570&nbsp;m) that predicts 14.7 + 1.42 × 1570 = 2244&nbsp;psi, and the run
+    reproduces exactly that.</li>
+  <li><b>RMF_MEAS 0.2&nbsp;ohmm at RMF_TEMP 25&nbsp;degC</b>: the header-style
+    measurement this walkthrough converts.</li>
+  <li><b>OPT_RMF</b> selects the conversion (ARPS shipped).</li>
+</ul>
+
+<p>What changes when you change them: the temperature picks act exactly as in
+the Formation Temperature chapter, and they reach further here, because Rmf
+inherits them. Run live on these wells: with the shipped 0.0474&nbsp;degC/m the
+median RMF is <b>0.0770&nbsp;ohmm</b>; with the superseded 0.03&nbsp;degC/m
+gradient it becomes <b>0.0988&nbsp;ohmm</b>, 28&nbsp;percent higher, because a
+cooler formation leaves the filtrate less conductive. A gradient disagreement
+you might shrug at in degC lands directly in every resistivity-based answer.</p>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Pre-Calculation</b>.</li>
+  <li>Set OPT_TU to your entry unit, then the temperature trend, the pressure
+    pair, and the Rmf measurement with the temperature it was read at.</li>
+  <li>Fill the custody line and press <b>Run Pre-Calculation</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-precalc-pane.png"
-       alt="The Pre-Calculation pane with metric entries" />
-  <figcaption>Temperatures entered in the declared OPT_TU unit; FTEMP is written
-    in °C regardless.</figcaption>
+       alt="The Pre-Calculation pane with degC entry and the walkthrough picks" />
+  <figcaption>One pane declares the whole borehole environment: temperature
+    trend, pressure trend, and the Rmf measurement.</figcaption>
 </figure>
 
-<h3>Run and read: degraded is a statement, not a failure</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>0 clean · 3 degraded</b>. And the degradation is the
-module being precise about what it could not do. This delivery carries no RXO
-curve, so CXO has <b>zero finite samples</b> (1185 rows, all missing) while
-FTEMP, FPRESS, RMF_FT and CT are complete. A missing input degrades exactly the
-outputs that need it and says so per well in Processing → details; it never
-fails the run or invents a flushed-zone conductivity.</p>
+<p>The run reports <b>3 degraded</b>, and that word is the lesson. Open the
+per-well report: FTEMP, FPRESS, RMF and CT all answered in full (1185 finite
+samples each), but CXO is empty, because this delivery carries no shallow
+resistivity RXO. Degraded means "part of what this module offers had no
+evidence", not "something went wrong". The honest census, from the Database
+Inspector:</p>
+
+<pre class="equations">SELECT curve_name, COUNT(*) FILTER (WHERE NOT isnan(value)) AS finite
+FROM computed_curves
+WHERE curve_name IN ('FTEMP','FPRESS','RMF','CT','CXO')
+GROUP BY curve_name</pre>
+
+<p>gives FTEMP, FPRESS, RMF, CT at 1185 and CXO at 0. The headline numbers:
+median RMF <b>0.0770&nbsp;ohmm</b> (the 0.2&nbsp;ohmm lab measurement, roughly
+2.6 times more conductive at ~99&nbsp;degC), FPRESS reaching
+<b>2244.2&nbsp;psi</b> at TD, median CT <b>318.9</b> (1000/RT).</p>
+
+<figure>
+  <img src="../img/guide-precalc-result.png"
+       alt="The Pre-Calculation run reporting three degraded wells" />
+  <figcaption>Degraded, and honestly so: CXO found no RXO to convert. Every
+    other output is complete.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Enter temperatures in the unit OPT_TU says. A Fahrenheit surface
+    temperature typed into a degC pane is a 60-degree error that still draws a
+    plausible line.</li>
+  <li>The pressure gradient is deliberately overridable per zone: a pressure
+    step at a top is a real compartment. The temperature trend is well-scoped
+    and a per-zone override of it is refused.</li>
+  <li>If Formation Temperature was also run, the later run's FTEMP stands.
+    Keep one owner for the temperature trend in a study, and cite it once.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Reservoir-condition inputs for saturation and SandiMin work, from trend fits: formation temperature = SURF_TEMP + TEMP_GRAD*TVDSS and FPRESS = PSURF + PGRAD*TVDSS, both linear in true vertical depth. Gradients — and the TREND fit below — are per depth unit of the TVDSS curve: enter per-metre values (and a metric refit) for metric wells. The shipped 77 degF / 0.026 deg/ft starting values are one study's feet-based fits, attributed to the owner by DEC-077 — refit per basin, and convert before a metric well (SB-ENV-045 records the 66 degC cost of skipping that). SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU units, but the FTEMP curve is always written in degC (the unit every downstream module assumes); FTEMP_F is the same trend in degF for SandiMin fluid-property entry. RMF at formation temperature comes either from a surface mud-filtrate measurement Arps-converted per sample (ARPS) or from a field regression RMF = RMF_A + RMF_B*log10(TVDSS) already fit at formation temperature (TREND, for wells with no mud data). CT = 1000/RT and CXO = 1000/RXO are QC/plotting conductivities in mmho/m — SandiMin's CT/CXO tool rows read the RESISTIVITY curves directly and convert internally, so do not feed these curves to them. No TVDSS curve → measured DEPTH is used instead (fine for near-vertical wells).</p>

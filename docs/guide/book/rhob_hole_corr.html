@@ -140,40 +140,95 @@
 <p class="modmeta">Module id <code>rhob_hole_corr</code> · category <b>Prep</b></p>
 <p>Restores the density log in oversize holes, where the pad reads too much mud: a linear correction in the hole enlargement beyond a reference diameter, using supplied tool-specific chart values.</p>
 <pre class="equations">RHOB_EC = RHOB + K_RHO·(CALI − HD_REF)  for CALI &gt; HD_REF; unchanged within gauge</pre>
-<!-- Authored walkthrough for the rhob_hole_corr guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the rhob_hole_corr guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-26), second pass: the reference-diameter threshold demonstrated. -->
 
-<h2>Step by step: density in an oversize hole</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>In a washout the density pad loses contact and reads too much mud, so the log
-reads light, the same direction as gas, which is why an uncorrected washout
-fakes a gas show. The correction restores density upward, linearly in the
-enlargement beyond a reference diameter:
-RHOB_EC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;K_RHO·(CALI&nbsp;−&nbsp;HD_REF) for CALI
-beyond HD_REF; within gauge the log passes through unchanged.</p>
+<p>Density Hole-Size Correction restores the bulk density reading in oversize
+hole, where the pad reads mud it should not, and writes RHOB_EC. Reach for it
+when the caliper shows enlargement beyond the tool's compensated range but
+short of outright washout; beyond a few inches of washout no correction is
+trustworthy and the sample belongs to the BADHOLE mask instead.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>K_RHO 0.004</b> and <b>HD_REF 10&nbsp;in</b>: shipped, tool-generic
-starting values; on a real study both come from the density tool's own
-correction chart. Like the GR correction, the run refuses if CALI is missing at
-any finite RHOB sample. And the standing caveat: <b>beyond a few inches of
-washout no correction is trustworthy</b>. That rock belongs to the BADHOLE
-mask, not to a bigger coefficient.</p>
+<p>The density tool's spine-and-ribs compensation already absorbs modest
+standoff. Past a reference diameter the pad geometry runs out and the reading
+drifts low, roughly linearly with the extra diameter:
+RHOB_EC = RHOB + K_RHO × (CALI − HD_REF), applied only where CALI exceeds
+HD_REF. Both numbers are tool properties from the vendor chart: the reference
+diameter is stated per tool (a slim tool's chart anchors much smaller than a
+standard one's), and K_RHO is the chart slope beyond it.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>HD_REF 10&nbsp;in</b> (shipped starting value): where the correction
+    starts. This threshold decides how much of the well is touched at all. Run
+    live on these wells: at 10&nbsp;in, <b>495 samples</b> receive a
+    correction; pulled in to 9&nbsp;in, <b>626 samples</b> do, and the maximum
+    correction grows from +0.0048 to +0.0088&nbsp;g/cc because every corrected
+    sample now measures its excess from a smaller reference. The 626 is worth
+    noticing: it is the same count the Bad-Hole chapter's tightened caliper
+    variant flagged, because both are counting samples with CALI beyond
+    9&nbsp;in. Different modules, one hole.</li>
+  <li><b>K_RHO 0.004&nbsp;g/cc per inch</b> (shipped starting value): the
+    chart slope. Like the GR correction's coefficient, it scales every
+    correction linearly, and it is read from the tool chart rather than
+    tuned.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Density Hole-Size Correction</b>.</li>
+  <li>Set HD_REF and K_RHO from the density tool's own chart.</li>
+  <li>Fill the custody line and press <b>Run Density Hole-Size
+    Correction</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-rhobhole-pane.png"
-       alt="The Density Hole-Size Correction pane" />
-  <figcaption>The correction only engages beyond the 10-in reference
-    diameter.</figcaption>
+       alt="The Density Hole-Size Correction pane with the chart values" />
+  <figcaption>A threshold and a slope, both properties of the tool, both from
+    its chart.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. The washout intervals here reach ~11&nbsp;in
-plus, so the correction engages exactly there and nowhere else: in-gauge hole
-passes through untouched, and the correction-extent companions record which
-samples got the full correction, a partial one, or none.</p>
+<p><b>3 clean</b>. <b>495 of 1185 samples</b> corrected, maximum
+<b>+0.0048&nbsp;g/cc</b>: at these hole sizes the correction is a trim, under
+0.005&nbsp;g/cc, which is about 0.003&nbsp;v/v of density porosity. Compare in
+the Database Inspector:</p>
+
+<pre class="equations">SELECT COUNT(*), MAX(g.value - s.rhob)
+FROM computed_curves g
+JOIN standard_curves s ON g.well_id = s.well_id AND g.depth = s.depth
+WHERE g.curve_name = 'RHOB_EC' AND g.value - s.rhob > 1e-6</pre>
+
+<figure>
+  <img src="../img/guide-rhobhole-result.png"
+       alt="The Density Hole-Size Correction run reporting three clean wells" />
+  <figcaption>A correction confined to the enlarged intervals, and small even
+    there.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>This correction and the BADHOLE mask divide the same washouts between
+    them: correct the marginal hole, mask the hopeless hole. Setting HD_REF
+    far below the masked threshold makes the module repair samples the mask
+    will discard anyway.</li>
+  <li>If gas correction also runs, order matters conceptually: hole-size
+    restoration is a tool effect, gas is a formation effect, and each should
+    read the curve the other produced only when the study decides that
+    chain explicitly.</li>
+  <li>A correction bigger than a few hundredths of g/cc is the chart saying
+    the hole is out of range; trust the mask, not the extrapolation.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>RHOB_EC = RHOB + K_RHO*(CALI - HD_REF) for CALI beyond HD_REF: in oversize holes the pad reads too much mud, so density is restored upward using supplied, tool-specific chart values. Within gauge RHOB may remain unchanged; the public runner refuses if CALI is missing at any finite RHOB sample. Use with the BADHOLE flag — beyond a few inches of washout no correction is trustworthy.</p>

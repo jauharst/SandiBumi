@@ -140,39 +140,98 @@
 <p class="modmeta">Module id <code>nphi_env_corr</code> · category <b>Prep</b></p>
 <p>Linearized environmental correction for the neutron log: a formation-temperature term about a reference temperature and a formation-salinity term. Requires formation temperature from the Formation Temperature module; without it only the salinity term applies.</p>
 <pre class="equations">NPHI_EC = NPHI + K_TEMP·(FTEMP − T_REF) + K_SAL·(SALW/100000)</pre>
-<!-- Authored walkthrough for the nphi_env_corr guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the nphi_env_corr guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-26), second pass: the inert salinity term demonstrated. -->
 
-<h2>Step by step: neutron environmental terms</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>A linearized environmental correction for the neutron log:
-NPHI_EC&nbsp;=&nbsp;NPHI&nbsp;+&nbsp;K_TEMP·(FTEMP&nbsp;−&nbsp;T_REF)&nbsp;+&nbsp;K_SAL·(SALW/100000).
-Two terms, both about the difference between the chart reference conditions the
-tool was characterized at and the formation the log was actually run in.</p>
+<p>Neutron Environmental Correction moves the neutron log from the chart
+reference conditions it was calibrated at to the actual borehole environment:
+formation temperature and formation-water salinity. It writes NPHI_EC. Reach
+for it in hot wells and saline basins; in a shallow fresh-water section the
+correction is legitimately near zero, and this walkthrough shows exactly
+that behaviour.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>The shipped coefficients are <b>practitioner starting values</b>. Replace
-them with values read from the applicable CNL chart for the tool in hand where
-one is available. <b>SALW stays 0</b>, the chart reference condition itself
-(fresh): until the study declares its formation salinity the salinity term is
-deliberately inert, rather than defaulted to somebody else's brine. Run
-Formation Temperature first: without FTEMP only the salinity term can apply.</p>
+<p>The tool's porosity charts are drawn for fresh water at a reference
+temperature (T_REF, 21.1&nbsp;degC, the vendor chart's 70&nbsp;degF). Hotter
+formation water is less dense, so it carries less hydrogen per volume and the
+tool under-reads porosity; dissolved salt displaces hydrogen and does the
+same. The module applies both as linearised terms:
+NPHI_EC = NPHI + K_TEMP × (FTEMP − T_REF) + K_SAL × (SALW / 100000). The
+coefficients are the local slopes of the vendor's environmental-correction
+chart, which is where you read them for the tool in hand.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>K_TEMP 0.0001&nbsp;v/v per degC</b> (shipped starting value): at this
+    dataset's roughly 99&nbsp;degC formation temperature the term contributes
+    0.0001 × (99 − 21.1) ≈ +0.008&nbsp;v/v, and the live run's median shift is
+    exactly <b>+0.0078&nbsp;v/v</b>. The arithmetic is transparent enough to
+    check on paper, which is a QC habit worth keeping.</li>
+  <li><b>SALW 0&nbsp;ppm</b> (shipped): the chart reference condition itself,
+    so the salinity term ships inert. This is deliberate: the study, not the
+    module, declares a formation salinity. Run live: declaring
+    SALW&nbsp;100000&nbsp;ppm engages the term and the median shift drops to
+    <b>+0.0058&nbsp;v/v</b>, the salt subtracting 0.002&nbsp;v/v of apparent
+    porosity at that concentration.</li>
+  <li><b>T_REF 21.1&nbsp;degC</b>: the chart's reference temperature. Change
+    it only if your tool's chart states a different one.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run Formation Temperature (or Pre-Calculation) first: the temperature
+    term reads FTEMP and without it only the salinity term applies.</li>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Neutron Environmental
+    Correction</b>.</li>
+  <li>Enter the chart coefficients for your tool, and the formation salinity
+    when the study has declared one.</li>
+  <li>Fill the custody line and press <b>Run Neutron Environmental
+    Correction</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-nphienv-pane.png"
-       alt="The Neutron Environmental Correction pane at its starting values" />
-  <figcaption>K_TEMP about T_REF 21.1 °C; the salinity term waits for a declared
-    SALW.</figcaption>
+       alt="The Neutron Environmental Correction pane with the shipped coefficients" />
+  <figcaption>SALW ships at zero on purpose: the salinity term stays inert
+    until the study declares its water.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. With FTEMP running ~98–101&nbsp;°C against
-T_REF 21.1, the temperature term applies a small uniform shift; the salinity
-term contributes nothing at SALW&nbsp;=&nbsp;0, by construction. Order matters
-across this shelf: environmental corrections come <i>before</i> the matrix
-conversion, because the equivalence charts assume corrected logs.</p>
+<p><b>3 clean</b>, with a median shift of <b>+0.0078&nbsp;v/v</b>, entirely
+from the temperature term. Small, and correctly so at these conditions. Check
+the shift distribution in the Database Inspector:</p>
+
+<pre class="equations">SELECT median(g.value - s.nphi)
+FROM computed_curves g
+JOIN standard_curves s ON g.well_id = s.well_id AND g.depth = s.depth
+WHERE g.curve_name = 'NPHI_EC'</pre>
+
+<figure>
+  <img src="../img/guide-nphienv-result.png"
+       alt="The Neutron Environmental Correction run reporting three clean wells" />
+  <figcaption>A +0.008 v/v shift at 99 degC and fresh water: the size the
+    hand arithmetic predicts.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>These are starting coefficients, not the chart. Where the vendor chart
+    for the actual tool is available, read the slopes from it; the pane's
+    source notes say the same.</li>
+  <li>Do not stack this with a chart-based crossplot correction of the same
+    effects: the correction would be applied twice.</li>
+  <li>The whole correction here is under 0.01&nbsp;v/v. If the neutron looks
+    wrong by 0.04, the problem is the matrix convention (the Neutron Matrix
+    Conversion chapter), not the environment.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>NPHI_EC = NPHI + K_TEMP*(FTEMP - T_REF) + K_SAL*(SALW/100000): linearized formation-temperature and formation-salinity terms. The coefficients ship as DEC-077 practitioner starting values - replace them with values read from the applicable CNL chart for the tool in hand where one is available. Requires FTEMP (run Formation Temperature first) for the temperature term; without it only the salinity term applies. SALW defaults to the chart reference condition itself (fresh, zero), so the salinity term is inert until the study declares its formation salinity.</p>

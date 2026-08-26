@@ -142,41 +142,101 @@
 <pre class="equations">BADHOLE = 1 where |DRHO| &gt; DRHO_MAX or |CALI − BS| &gt; DCAL_MAX
 BS from the BS curve where present, else the interpreter's BS_INPUT; no value is substituted when both are absent</pre>
 <!-- Authored walkthrough for the badhole guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, per-control sensitivity. -->
 
-<h2>Step by step: the bad-hole flag</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>BADHOLE is the QC gate the rest of the interpretation masks on: 1 where the
-borehole departs from gauge or the density correction is too large to trust the
-porosity logs, 0 in good hole, MISSING where no criterion could be evaluated at
-all. The companion curves are the part worth learning: the <code>_EVALUATED</code>
-pair records which criteria were even checkable, and the cause flags record which
-one fired.</p>
+<p>Bad-Hole QC writes BADHOLE, the flag the rest of the interpretation masks
+on: 1 where the borehole departs from gauge or the density correction is too
+large to trust the porosity logs, 0 in good hole, MISSING where no criterion
+could be evaluated at all. Run it early, before any module whose inputs suffer
+in washouts, then pass BADHOLE as the Mask on those runs so flagged samples go
+missing instead of polluting results.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>DCAL_MAX 1&nbsp;in</b> (shipped) and <b>BS_INPUT 8.5&nbsp;in</b>. This
-delivery has no BS curve, and its in-gauge caliper reads ~8.6&nbsp;in, the
-standard 8½-in bit. No DRHO was delivered either, which sets up the honest
-half of this chapter.</p>
+<p>Pad tools read the formation through whatever stands between pad and rock.
+Where the hole washes out, the density tool reads mud, the neutron reads
+borehole fluid, and both porosities inflate. Two symptoms are measurable:</p>
+
+<ul>
+  <li><b>Caliper against bit size</b>: |CALI − bit| beyond a tolerance means
+    the pad has lost the wall. Bit size comes from a BS curve where the
+    delivery carries one, or from your BS_INPUT entry when it does not.</li>
+  <li><b>Density correction DRHO</b>: the tool's own confession. A large
+    |DRHO| means the spine-and-ribs correction worked hard, and past a limit
+    the corrected reading is no longer trustworthy.</li>
+</ul>
+
+<p>Each criterion is evaluated only where its inputs exist, and the
+<code>_EVALUATED</code> companion curves record that fact per sample, so a
+reader of the flag always knows which half of the QC actually ran.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>DCAL_MAX 1&nbsp;in</b> (shipped): the caliper tolerance. Tighten it
+    and the flag reaches into the washout shoulders; loosen it and marginal
+    hole passes as good. Run live on these wells: at the shipped
+    1&nbsp;in, <b>612 of 1185 samples</b> flag; tightened to 0.5&nbsp;in the
+    count rises to <b>626</b>, picking up 14 shoulder samples where the caliper
+    is between half an inch and an inch over bit.</li>
+  <li><b>DRHO_MAX 0.05&nbsp;g/cc</b> (shipped): the density-correction limit.
+    Inert on this delivery, which carries no DRHO, and the companions say so
+    rather than leaving you to guess.</li>
+  <li><b>BS_INPUT 8.5&nbsp;in</b>: this delivery has no BS curve, and the
+    in-gauge caliper reads about 8.6&nbsp;in, the standard 8½-in bit.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Bad-Hole QC Flag</b>.</li>
+  <li>Check what the delivery carries. No BS curve: enter the bit size in
+    BS_INPUT. No DRHO: nothing to enter, the criterion will simply not be
+    evaluated.</li>
+  <li>Fill the custody line and press <b>Run Bad-Hole QC Flag</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-badhole-pane.png"
        alt="The Bad-Hole QC pane with the bit size entered" />
   <figcaption>DRHO, CALI and BS are all optional inputs: the flag evaluates
-    whatever the delivery actually carries.</figcaption>
+    whatever the delivery actually carries, and records what it could not.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
 <p>On these wells: <b>3 clean</b>, with <b>612 of 1185 samples flagged</b>, the
-dataset's designed washout intervals, where CALI jumps ~2.5&nbsp;in over bit.
-And the evaluated companions tell the full story:
-<b>BADHOLE_DRHO_EVALUATED&nbsp;=&nbsp;0 everywhere</b> (no DRHO was delivered, so
-the density-correction criterion was never checked) while CALI_EVALUATED&nbsp;=&nbsp;1.
-A reader of the flag alone would not know half the QC never ran; the companions
-exist so that fact is a curve, not a memory. Feed BADHOLE as the Mask on any
-later run.</p>
+dataset's designed washout intervals, where CALI jumps about 2.5&nbsp;in over
+bit. The companions tell the full story:
+<b>BADHOLE_DRHO_EVALUATED&nbsp;=&nbsp;0 everywhere</b> (no DRHO was delivered,
+so the density-correction criterion was never checked) while the caliper
+companion reads 1. A reader of the flag alone would not know half the QC never
+ran; the companions exist so that fact is a curve, not a memory. The cause
+flags (BADHOLE_CALI and the signed DRHO pair) record which criterion fired
+where.</p>
+
+<figure>
+  <img src="../img/guide-badhole-result.png"
+       alt="The Bad-Hole QC run reporting three clean wells" />
+  <figcaption>612 of 1185 samples flagged on the caliper criterion alone.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Overlay CALI and BADHOLE in a log view before trusting the count: the
+    flag should hug the caliper excursions, not scatter.</li>
+  <li>A missing criterion is not a passed criterion. Where neither CALI nor
+    DRHO exists the flag is MISSING, and a masked run treats MISSING flag
+    samples as unmasked; check the evaluated companions when a delivery is
+    thin.</li>
+  <li>Feed BADHOLE as the Mask on later runs (the Synthetic Log chapter does
+    exactly that). The flag does nothing by itself; masking is where it earns
+    its keep.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>BADHOLE = 1 where the borehole departs from gauge or the density correction is large enough to distrust the porosity logs: |DRHO| &gt; DRHO_MAX, or |CALI - bit size| &gt; DCAL_MAX. Bit size comes from the BS curve where present, or the interpreter's optional BS_INPUT; no value is substituted when both are absent, so only DRHO can be evaluated. The flag is 0 in good hole and MISSING where no QC criterion can be evaluated. The two BADHOLE_*_EVALUATED companions record criterion availability with 1 = evaluated and 0 = unavailable; the BADHOLE_CALI / BADHOLE_DRHO_POS / BADHOLE_DRHO_NEG cause flags record which criterion fired, with the DRHO sign carried natively (DEC-060). Feed BADHOLE to any module run as a mask so flagged intervals go missing instead of polluting results.</p>

@@ -146,42 +146,101 @@ where C_SS and C_DOL are the chart's matrix curves; the input convention passes 
 <ul><li>Schlumberger Log Interpretation Charts, Por-5 (CNL thermal neutron) and Por-4 (APS epithermal and SNP), the porosity-equivalence curve families</li></ul>
 <p class="note">Apply environmental corrections first: the charts assume corrected logs. SALINITY = INTERPOLATE evaluates the fresh and 250-kppm charts completely and interpolates the finished answers (TNPH family only).</p>
 <!-- Authored walkthrough for the nphimat guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, the DEC-025 refusal demonstrated live. -->
 
-<h2>Step by step: one neutron log, three matrix conventions</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Neutron Matrix Conversion takes a neutron log recorded in one matrix
-convention and writes all three (NPHI_LS, NPHI_SS, NPHI_DOL) through the
-chartbook porosity-equivalence curves: Por-5 for the CNL thermal family, Por-4
-for the epithermal APS and the sidewall SNP. Limestone units are the chart's
-own apparent-limestone axis, on which calcite is the identity; any other input
-convention is first inverted back onto that axis, then read out along each
-matrix curve.</p>
+<p>Neutron Matrix Conversion restates the neutron porosity log in all three
+matrix conventions at once: NPHI_LS (limestone units), NPHI_SS (quartz
+sandstone) and NPHI_DOL (dolomite). Reach for it whenever the neutron's
+recorded convention does not match the rock you are interpreting, which in
+sandstone basins is most of the time, because service companies traditionally
+record neutron porosity in limestone units.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>TNPH chart family, FRESH salinity, LS input</b>: the dataset's CNL-style
-neutron is recorded in limestone units. Apply environmental corrections before
-converting on a real study: the charts assume corrected logs. SALINITY =
-INTERPOLATE exists for the TNPH family only, evaluating the fresh and 250-kppm
-charts completely and interpolating the finished answers.</p>
+<p>A neutron tool measures hydrogen index, and the service company converts
+that to a porosity by assuming a matrix mineral. Assume limestone in a quartz
+sandstone and the number is biased low by roughly 0.03 to 0.05&nbsp;v/v,
+because quartz and calcite moderate neutrons differently. The conversion
+between conventions is not a constant offset: it follows the tool vendor's
+chart family, curved at low porosity, which is why the module carries digitized
+chart curves (TOOL selects the family, SALINITY the borehole fluid case)
+rather than a single shift.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>TOOL TNPH</b> and <b>SALINITY FRESH</b>: the chart family and fluid
+    case that match how this dataset's CNL-style neutron was recorded.</li>
+  <li><b>MATRIX_IN LS</b>: the convention the input log is already in. This is
+    a declaration about the delivery, not a preference, and the application
+    treats it that way (see below).</li>
+</ul>
+
+<p>What changes when you change MATRIX_IN is the whole meaning of the input,
+which is why the module refuses to let it disagree with what the curve itself
+declares. The size of the stake, measured on these wells: the median
+sandstone-units reading sits <b>+0.046&nbsp;v/v above</b> the limestone-units
+reading (median NPHI_LS 0.335). Converting on the wrong scale would move every
+porosity by about that much, silently.</p>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Neutron Matrix Conversion</b>.</li>
+  <li>Confirm TOOL and SALINITY against the log header, and MATRIX_IN against
+    the delivery's recorded convention.</li>
+  <li>Fill the custody line and press <b>Run Neutron Matrix Conversion</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-nphimat-pane.png"
-       alt="The Neutron Matrix Conversion pane, TNPH / FRESH / LS" />
-  <figcaption>The input convention passes through unchanged; the other two are
-    chart reads.</figcaption>
+       alt="The Neutron Matrix Conversion pane with the TNPH chart family selected" />
+  <figcaption>Three selects, no free numbers: the conversion is the vendor's
+    chart, not a parameter to tune.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, 1164 samples out. The number worth staring
-at: the median <b>NPHI_SS − NPHI_LS offset is +0.0456</b>, four and a half
-porosity units, purely from the matrix convention. That is almost exactly the
-~0.04 offset the conditioning-flags documentation warns about: a limestone-unit
-neutron judged against a sandstone matrix density reads about 4&nbsp;pu low in
-clean water sand, right at the gas-crossover threshold. Convert the neutron
-first; then a crossover means gas, not bookkeeping.</p>
+<p><b>3 clean</b>, three output curves per well. Median NPHI_LS is
+<b>0.335&nbsp;v/v</b> and the median SS-minus-LS difference is
+<b>+0.046&nbsp;v/v</b>, the limestone-assumption bias this module exists to
+remove. Downstream modules that take a neutron input in a specific convention
+now have all three to resolve from.</p>
+
+<figure>
+  <img src="../img/guide-nphimat-result.png"
+       alt="The Neutron Matrix Conversion run reporting three clean wells" />
+  <figcaption>One input convention in, all three conventions out.</figcaption>
+</figure>
+
+<p>And the refusal, demonstrated live rather than described: this dataset's
+neutron curve carries a declared basis of LIMESTONE (set when the data was
+imported). Re-running with MATRIX_IN switched to SS reports <b>0 clean, 3
+failed</b>, each well refusing with:</p>
+
+<pre class="equations">the input neutron curve declares matrix basis 'LIMESTONE' but MATRIX_IN = SS:
+converting on the wrong scale is a silent ~0.04 v/v error, so nphimat refuses -
+align MATRIX_IN with the declaration, or correct the declaration (DEC-025)</pre>
+
+<p>That is the basis-consistency gate. The declaration lives on the curve, the
+option lives on the run, and where they disagree the application stops rather
+than guessing which one you meant.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Check the log header before declaring the input convention. LIME or LS
+    in the neutron mnemonic's remarks is the usual tell; a matrix-units
+    statement on the header beats a guess from the histogram.</li>
+  <li>Run this before Data Conditioning Flags in sandstone: the crossover
+    threshold there is the same size as the matrix bias corrected here.</li>
+  <li>If the run refuses with the message above and the declaration is the
+    wrong one, correct the declaration on the curve rather than fighting the
+    option; the refusal names both routes.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Converts a neutron porosity log recorded in one matrix convention into all three (NPHI_LS / NPHI_SS / NPHI_DOL), using the chartbook porosity-equivalence curves: Por-5 for the CNL thermal tools (NPHI ratio method; TNPH environmentally corrected, with 0 and 250,000 ppm salinity variants) and Por-4 for the epithermal tools — APLC and FPLC (APS) plus the legacy sidewall SNP. Limestone units ARE apparent limestone porosity — the chart's x-axis, on which calcite is the identity — so an SS or DOL input is first inverted back to that axis, then read out along each matrix curve; the input convention passes through unchanged. Feed the output whose matrix matches your RHO_MA into density-neutron work (NPHI_SS with RHO_MA 2.65) — that removes the limestone-vs-sandstone convention offset before a sourced XOVER_MIN is applied. SALINITY picks the TNPH curve pair only; the other tools have a single chart curve. SALINITY = INTERPOLATE (SB-POR-025) evaluates the fresh and the 250-kppm chart COMPLETELY and interpolates the finished answers linearly on the declared RHO_FL, per Geolog's phi_dn two-call structure — TNPH only, since only that family carries both digitized curves. Apply environmental corrections (nphi_env_corr) before converting — the charts assume corrected logs. The limestone axis and dolomite curves are digitized to about -0.02..0.40; the sandstone curves leave the chart top at 40 pu true porosity (~0.32-0.36 apparent limestone), and beyond the data every curve is extended linearly on its end segment. Note NPHI_LS is also a common raw-log mnemonic: after a run, by-name lookups resolve the computed version first (the raw log keeps its provenance in the Curve Catalog).</p>
