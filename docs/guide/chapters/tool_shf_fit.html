@@ -1,0 +1,76 @@
+<!-- Authored walkthrough for the SHF Fit tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The SHF Fit pane fits a saturation-height function to the interpreted
+logs: five families (Cuddy FOIL, Brooks-Corey, Skelt-Harrison, Thomeer's
+log-hyperbola, Leverett-J), fitted on computed porosity, saturation and a
+true-vertical depth curve above a free-water level. Reach for it when the
+study needs saturation as a function of height rather than of resistivity:
+volumetrics away from well control, or a saturation model for a simulator
+that never sees a log.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-shf.png"
+       alt="The SHF Fit pane with a FOIL fit and the FWL scan controls" />
+  <figcaption>A Cuddy FOIL fit over three wells: 149 points above the
+    free-water level, 424 excluded below it, and a log-log BVW versus
+    height cloud that is visibly flat.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Inputs are curves, not core</b>: porosity, water saturation and
+    TVDSS selects, plus permeability for Leverett-J. The fit refuses,
+    naming the reason, when the wells carry no usable TVDSS samples; a
+    project with no deviation surveys has no height axis to fit
+    against.</li>
+  <li><b>The FWL can be scanned, not just typed</b>: "Scan for FWL (Cuddy
+    Eq 19)" tries candidates across a range and picks the best residual;
+    the scan plot below the fit shows the whole residual curve, and the
+    BVW plot's fitted line can be dragged to nudge the FWL by hand.</li>
+  <li><b>Fit per rock type</b> splits the fit by a rock-type curve, one
+    parameter set per class.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open the pane (workspace &#65291; menu &#9656; SHF Fit), point the
+    three selects at the study's PHIE, SWE and TVDSS, and set a porosity
+    cutoff so shale never enters the fit.</li>
+  <li>Enable the FWL scan over a range that brackets the deepest
+    hydrocarbon shows, and press <b>Fit FOIL</b>.</li>
+  <li>Read the scan plot before the coefficients: one sharp minimum is a
+    contact, a flat residual curve means the data does not locate
+    one.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The example is a deliberate negative result, and worth understanding:
+b&nbsp;=&nbsp;&minus;0.005 with R&sup2;&nbsp;=&nbsp;0.006 over 149 points.
+The FOIL model says bulk volume water falls as a power of height; this sand
+sits at irreducible saturation throughout, with no transition zone, so
+height explains nothing and the scan pins the FWL to the edge of its range.
+That is the correct reading of this rock, not a failed fit: a
+saturation-height function earns its coefficients only where a transition
+zone exists, and the flat cloud in the figure is the evidence to quote when
+explaining why the study carries no SHF.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>An FWL pinned to the scan edge is not a pick.</b> It means the
+    minimum lies outside the range or does not exist; widen the range or
+    accept that these wells do not see the contact.</li>
+  <li><b>Fit above the FWL only, and count the exclusions.</b> The pane
+    reports how many samples fell at or below the FWL; a fit dominated by
+    near-contact points measures the transition zone's noise, not its
+    shape.</li>
+  <li><b>One fit per rock type when the Pd differs.</b> A single FOIL
+    through two rock qualities averages two curves into neither; the
+    per-rock-type option exists for exactly that case.</li>
+</ul>

@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 11: the Fits & Analysis tool book — SandiMin, Machine Learning, SHF Fit, Thomeer, HFU, Lorenz, Facies Tie-in and Fluid Contacts
+
+- [ ] **Eight Fits & Analysis chapters written** (tool_sandimin, tool_ml, tool_shf_fit,
+      tool_thomeer_fit, tool_hfu, tool_lorenz, tool_facies_tie, tool_fluid_contacts) with
+      eight composed-layout figures (log view at 1:500 beside every pane). The five panes
+      with no ribbon button are taught from the workspace ＋ menu, which is where they
+      live.
+- [ ] **SandiMin run on camera with the default quartz-illite-water model**: 395 samples
+      per well solved, incoherence 2.45–2.46σ, the DOF note and the core-calibration
+      drying-protocol caption quoted verbatim; the consistent core bias (φ −0.02, ρg
+      +0.04) read as an endpoint question, not noise.
+- [ ] **ML taught blind-first**: RF predicting DT from GR/NPHI/RHOB, whole wells held
+      back (33.3% actual vs 30% asked, seed 42), R² train/CV/blind = 0.9993/0.9947/0.9950,
+      and the pane's two honesty lines quoted (the 65%-vertical-resolution warning and
+      "one blind well is one opinion").
+- [ ] **The SHF chapter is a deliberate negative result**: FOIL on a sand at irreducible
+      gives b −0.005, R² 0.006 over 149 points, FWL scan pinned to the range edge — read
+      as "this rock has no transition zone", the correct petrophysics, with a vertical
+      demo survey (datum 30 m) imported live to give the wells a TVDSS axis at all.
+- [ ] **Thomeer, HFU, Lorenz all fitted from the demo core/SCAL deliveries**: 3 plugs
+      fitted (G 0.87–0.97, R² ≥ 0.97, every Pd flagged as pinned at the first pressure
+      point — a bound, not a value); 5 HFUs from 35 of 45 plugs with the ward:sorted-value
+      rock-type note; Lorenz coefficient 0.328 with the upper sand a 1.52-slope speed zone
+      carrying 88.6% of flow from 58.1% of storage.
+- [ ] **Facies Tie-in and Fluid Contacts taught as refusal-first QC**: purity 93.2% over
+      573 matched samples but "no acceptance threshold was stated, so the mapping is
+      reported and not judged" quoted verbatim (k variance reduction 94.7%, 2 plugs
+      dropped outside the 1 m join tolerance); three GWC picks fit as one surface (mean
+      1520.1 TVDSS) with the caveat written down that a plane through exactly three wells
+      can never flag — the check starts discriminating at well four.
+
 ## 2026-08-27 — Second pass, increment 10: the Batch & Field tool book — Workflow Builder, Monte Carlo, Cutoffs & Pay Summary, Cutoff Sensitivity, Field Dashboard, Field Map and Results QC, one chain driven end to end
 
 - [ ] **Seven Batch & Field chapters written** (tool_workflow_builder, tool_monte_carlo,

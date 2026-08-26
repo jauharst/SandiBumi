@@ -1,0 +1,78 @@
+<!-- Authored walkthrough for the HFU Clustering tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The HFU pane clusters the core porosity-permeability cloud into
+hydraulic flow units by Flow Zone Indicator, so the unit boundaries come
+from the data itself rather than from fixed global bins. Reach for it when
+a cored field needs its own rock types: each unit gets a geometric-mean FZI
+and the Amaefule permeability transform it implies, which is the k(&phi;)
+law to carry to the uncored wells.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-hfu.png"
+       alt="The HFU clustering table, RQI versus normalized porosity plot and FZI histogram" />
+  <figcaption>Five units from 35 plugs by Ward clustering on FZI: the
+    RQI&ndash;&phi;z plot with one unit-slope line per unit, and the
+    log-FZI histogram with the cluster cuts dashed.</figcaption>
+</figure>
+
+<ul>
+  <li><b>It clusters core, not logs</b>, and says so; the fixed GHE bins
+    live in the Rock Typing module for the log-domain job.</li>
+  <li><b>Two methods</b>: Ward minimum-variance on sorted FZI, or
+    histogram antimodes. The result note names which ran and draws the
+    distinction that matters:</li>
+</ul>
+
+<pre class="equations">Note: clustered by ward:sorted-value — the Ward criterion applied to FZI sorted
+by VALUE, so a unit is a rock type. The same criterion over depth order
+(flow-unit segmentation) answers a different question</pre>
+
+<ul>
+  <li><b>Each unit's k(&phi;) R&sup2;</b> reports how tightly one FZI_gm
+    reproduces its members' measured permeability, which is the number
+    that decides whether the unit is usable as a transform.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Import core data, open the pane (workspace &#65291; menu &#9656;
+    HFU Clustering), choose K and the method, and press
+    <b>Cluster HFUs</b>.</li>
+  <li>Read the table with the two plots: units should be parallel bands on
+    the RQI&ndash;&phi;z plot, and the histogram cuts should fall in real
+    antimodes, not in the middle of a mode.</li>
+  <li>Click a row to highlight one unit across both plots.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The example clusters 35 of the 45 plugs (a plug missing either
+measurement cannot carry an FZI and is left out, never imputed) into five
+units spanning FZI 0.95&ndash;3.67&nbsp;&micro;m. The accounting worth
+reading is per unit: unit 3 holds a single plug, so its perfect
+R&sup2; of 1.000 is a tautology, and units 2's 0.207 says four plugs of
+similar FZI still scatter in permeability. K is a choice, not a
+measurement; five units on 35 plugs is already thin, and the per-unit n
+column is the guard against slicing thinner than the data supports.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>A unit needs enough plugs to mean anything.</b> Treat any
+    single-digit n with suspicion, and a single-plug unit as an outlier
+    wearing a label.</li>
+  <li><b>Rock type versus flow segment.</b> Sorted-value clustering groups
+    similar rock wherever it sits in the column; if the question is
+    "which intervals flow together", that is depth-order segmentation,
+    a different computation the note points to.</li>
+  <li><b>Carry the transform, not the cluster.</b> What travels to uncored
+    wells is each unit's FZI_gm and its k(&phi;) law plus a way to assign
+    units from logs; the cluster assignment itself exists only where core
+    exists.</li>
+</ul>

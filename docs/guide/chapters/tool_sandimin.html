@@ -1,0 +1,92 @@
+<!-- Authored walkthrough for the SandiMin Solver tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>SandiMin is the general mineral solver: pick which logs to trust, which
+minerals, clays and fluids the rock may contain, and it inverts the tool
+responses per sample into component volumes plus porosity and saturation.
+Reach for it when the single-mineral porosity models stop being honest about
+the rock (mixed mineralogy, radioactive sands, bad-hole intervals a simpler
+model would average through), or when a study needs one internally
+consistent volume model rather than a stack of separate curves.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-sandimin.png"
+       alt="The SandiMin pane after a run, with the incoherence table and core calibration" />
+  <figcaption>A quartz-illite-water model on five logs, run on all three
+    wells into the SANDIMIN set: 395 samples solved per well, incoherence
+    2.45&ndash;2.46&sigma;, and the core-calibration table with its
+    drying-protocol note.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Log inputs</b> (16 on offer, 5 on by default here: density,
+    neutron, sonic, gamma ray and deep conductivity) decide the equations;
+    the components decide the unknowns. The pane states the degrees of
+    freedom and what they mean:</li>
+</ul>
+
+<pre class="equations">Model DOF 3 (over-determined — RECON/incoherence is a real fit-quality signal).</pre>
+
+<ul>
+  <li><b>Components</b> are grouped Minerals / Clays / Fluids with presets
+    (Clastic, SSC-style, Carbonate, Organic); the endpoints matrix shows
+    exactly which component sees which log, with the U-zone water's
+    conductivity marked "auto".</li>
+  <li><b>Reconstruction QC</b> writes the per-sample incoherence, which is
+    what the Results QC pane's recon check reads.</li>
+  <li>The run goes through run custody like every other write, and outputs
+    land in their own named set.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; SandiMin&hellip;</b>, choose the logs the
+    hole quality supports and the components the geology justifies. More
+    logs than components means over-determined, and the misfit becomes
+    meaningful; equal counts means any answer reconstructs perfectly and
+    the misfit proves nothing.</li>
+  <li>Review the endpoints matrix, press <b>Run</b>, and complete the
+    custody dialog.</li>
+  <li>Read the incoherence per well first, then the core calibration.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>Two verdicts come back. The incoherence (about 2.5&sigma; here) says how
+well the solved volumes reproduce the measured logs; a well that jumps out
+of family has either different rock or a log problem. The core calibration
+compares the model against the plugs, with the RMS and a signed bias per
+well, and its caption makes the interpretation decision explicit:</p>
+
+<pre class="equations">Core calibration — RMS of (model − core) over plugs tied to a solved sample
+within 1 m; bias is the mean signed error, so its sign says which way the
+model reads. Core φ is shown against both porosities because the drying
+protocol decides which one a plug should match (oven-dried drives off
+clay-bound water → PHIT; humidity-dried retains some → nearer PHIE).</pre>
+
+<p>On the example wells the porosity bias is small and negative (about
+&minus;0.02 to &minus;0.03) while grain density reads about +0.04 g/cc
+high, a consistent pair that points at the endpoint values rather than at
+noise: the fix would be an endpoint edit, not a re-run with more
+components.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Add a component only when a log can see it.</b> Two minerals with
+    near-identical endpoints split volume arbitrarily between them, and
+    the incoherence will not warn you because both answers reconstruct the
+    logs equally well.</li>
+  <li><b>The endpoint matrix is the model.</b> A plausible volume track
+    from wrong endpoints is the classic silent failure; check the matrix
+    against a lithology you trust before believing a surprise
+    mineral.</li>
+  <li><b>Bias before scatter.</b> A systematic core offset means an
+    endpoint or a depth-tie issue; chasing it by tuning constraints treats
+    a calibration problem as a solver problem.</li>
+</ul>

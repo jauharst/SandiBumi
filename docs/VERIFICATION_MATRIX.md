@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **186** of 730,
+Review sections counted toward no capability: **186** of 731,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -36,11 +36,11 @@ this table, so every figure above reads low by whatever those sections cover.
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 217 | 2026-08-13 | 52 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 59 | — | 8 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 20 | — | 4 |
-| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 52 | — | 9 |
-| `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
+| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 58 | — | 10 |
+| `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 12 | — | 5 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 18 | — | 11 |
-| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 47 | — | 22 |
-| `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 63 | 2026-07-18 | 12 |
+| `sandimin` | SandiMin mineral solver | Not exercised | 0 / 53 | — | 23 |
+| `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 69 | 2026-07-18 | 13 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 206 | 2026-07-19 | 35 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 23 | 2026-08-13 | 7 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 73 | — | 13 |
@@ -52,7 +52,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `histogram` | Histogram | Partially exercised | 5 / 48 | 2026-07-20 | 11 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 48 | 2026-07-20 | 13 |
 | `pickett` | Pickett plot | Not exercised | 0 / 30 | — | 8 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 64 | — | 17 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 70 | — | 18 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 85 | 2026-07-20 | 22 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 22 | — | 12 |
 | `results-qc` | Results QC | Not exercised | 0 / 18 | — | 8 |

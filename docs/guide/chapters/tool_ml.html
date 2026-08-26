@@ -1,0 +1,86 @@
+<!-- Authored walkthrough for the Machine Learning tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Machine Learning pane fits scikit-learn models to log data: predict a
+missing curve from the ones a well does carry, classify facies from a cored
+well's labels, or cluster and reduce without a target. Reach for it when
+the relationship you need is empirical rather than physical: a synthetic
+sonic for the wells that were never logged with one, a permeability from
+core-trained regression, a facies log extended from the cored well to the
+rest of the field.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-ml.png"
+       alt="The Machine Learning results with blind-test scores and the distribution comparison" />
+  <figcaption>A Random Forest predicting sonic from gamma ray, neutron and
+    density: fitted on two wells (776 samples), one whole well held blind
+    (388), R&sup2; 0.9993 in-sample, 0.9947 in cross-validation, 0.9950 on
+    the blind well.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Input / Data QC / Model / Results / Model Distribution</b>
+    sections walk left to right; algorithms cover regression,
+    classification, clustering and reduction, and <b>Also run</b> fits
+    rival algorithms on the same rows, split and seed so the comparison is
+    fair.</li>
+  <li><b>Blind test</b> holds data back before fitting: random rows, or
+    whole wells, which is the honest option for logs because neighbouring
+    samples are correlated. The pane says what it actually did: "33.3% of
+    the data held back, held back as whole wells (asked for 30%, seed
+    42)".</li>
+  <li><b>Save model as</b> stores the fitted model as a named artifact, so
+    the model trained on cored wells can be applied to next year's wells;
+    the scaler travels inside it, and feature order is part of the
+    contract.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; ML Models&hellip;</b>, pick the input curves
+    and the target, and leave standardization on for distance-based
+    algorithms.</li>
+  <li>Enable the whole-well blind test with a seed, then <b>Run
+    Model</b> through the custody dialog.</li>
+  <li>Read the three R&sup2; values in order, then the distribution
+    comparison, then the settings table that records what the run actually
+    used.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The three scores answer increasingly hard questions: in-sample
+(0.9993, and the pane's own label calls the in-sample score "always the
+flattering one"),
+cross-validation with wells held out one at a time (0.9947), and the blind
+well the model never saw (0.9950). Here they agree to within 0.004, and
+the pane states both the conclusion and its limit:</p>
+
+<pre class="equations">Train and blind agree to within 0.004 — the fit travels to wells it has not seen.
+One blind well is one opinion. It says the model is not broken; it does not say the score is stable.</pre>
+
+<p>The resolution warning above the scores is the other half of honesty: the
+prediction varies only about 65% as much between neighbouring samples as
+the measured sonic, so it is a smoother log than the one it stands in for.
+Nothing invented the missing high-frequency detail, and thin-bed reading
+off a predicted curve must respect that.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Hold back wells, not rows.</b> Random rows leak: each held-back
+    sample has near-identical neighbours in training, and the score
+    flatters. Whole wells are the deployment scenario.</li>
+  <li><b>Check the two sides are alike.</b> The distribution table
+    compares fitted and blind wells feature by feature; a model tested on
+    wells unlike its training set earns a score that means nothing for
+    the next well.</li>
+  <li><b>A saved model is the deliverable.</b> An applied curve records
+    which model produced it; retraining creates a new named model rather
+    than silently replacing the one already cited.</li>
+</ul>
