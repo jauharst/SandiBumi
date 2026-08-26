@@ -390,46 +390,96 @@
 <pre class="equations">PHIE = (RHO_MA − RHOB)/(RHO_MA − RHO_FL) − VSH·(RHO_MA − RHO_SH)/(RHO_MA − RHO_FL)
 PHIT = PHIE + VSH·PHIT_SH
 PHIT_SH = (RHO_DSH − RHO_SH)/(RHO_DSH − RHO_W)</pre>
-<!-- Authored walkthrough for the phi_den guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the phi_den guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the matrix-density sensitivity measured. -->
 
-<h2>Step by step: the first porosity</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Density porosity is where interpretation porosity usually starts: one log, one
-matrix, one fluid. This walkthrough assumes a VSH curve already exists. Porosity
-modules consume VSH, so a VSH chapter's run comes first (see
-<a href="vsh_gr.html">VSH from Gamma Ray</a>).</p>
+<p>Density porosity with shale correction: the workhorse single-log porosity,
+and on most clastic studies the porosity that ships. The density log's
+response is the closest to a linear mixing law of any porosity tool, so when
+the hole is good and the matrix density is right, this is the number the
+others are judged against.</p>
 
-<h3>What you actually have to enter</h3>
+<h2>The physics</h2>
 
-<p>Open <b>Petrophysics → Porosity → Porosity from Density</b>. Most of this pane
-ships filled, each value with its citation printed under the field: matrix 2.65
-(three installed tools agree), fluid 1.0, dry-shale 2.70, water 1.0, the 0.3 PHIE cap
-and the 0.001 floor. The one number the pane refuses to guess is <b>RHO_SH</b>, the
-shale density, a property of <i>your</i> shale. For this run:</p>
+<p>Effective porosity reads the density log between the matrix and fluid
+points, then subtracts the shale term; total porosity adds the shale's own
+porosity back through PHIT_SH (built from the dry-shale and water densities).
+Above the VSH_SHALE threshold (0.95 shipped) a sample is treated as shale
+outright: PHIE 0, PHIT = PHIT_SH. The limited outputs then pass through the
+PHIE limiting method (SHALE_REDUCED shipped, with a hard MAXIMUM and a
+smooth roll-off available), while the unlimited PHIE_DEN/PHIT_DEN companions
+keep the raw arithmetic for QC.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>RHO_SH 2.45</b>, the median RHOB of SANDI-01's samples at GR ≥ 112 gAPI,
-    the same shale population the GR_SH pick defined. Recorded in the run's reference
-    field exactly so.</li>
+  <li><b>RHO_MA 2.65 g/cc</b> (shipped): the quartz-sand matrix density,
+    carried identically by every installed tool's mineral table; the pane's
+    source note lists them. A calcareous or heavy-mineral sand needs its own
+    value, and the variant below shows what that decision is worth.</li>
+  <li><b>RHO_SH 2.45 g/cc</b>: the median density of SANDI-01's shale
+    population (GR ≥ 112), read from this dataset, not a book.</li>
+  <li><b>RHO_FL 1.0 g/cc</b> (shipped): fresh filtrate in the invaded zone
+    the density tool reads.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run VSH first; the shale correction consumes it.</li>
+  <li>Open <b>Petrophysics ▸ Porosity ▸ Porosity from Density</b>. The RHOB
+    input resolves the corrected curve if the Prep corrections ran.</li>
+  <li>Enter the matrix and shale densities with their sources in the custody
+    line, and press <b>Run Porosity from Density</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-phiden-pane.png"
-       alt="The Porosity from Density pane with RHO_SH entered and cited defaults elsewhere" />
-  <figcaption>One entered number, everything else a cited default.</figcaption>
+       alt="The Porosity from Density pane with the matrix density entered" />
+  <figcaption>The matrix density is a lithology statement; the pane's source
+    note lists the shipped agreement behind 2.65.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean · 0 degraded · 0 failed</b>. The run writes PHIE (the
-shale-corrected effective porosity) and PHIT (with the shale's own porosity added
-back), plus the unlimited PHIE_DEN beside the limited curve. The apparent and the
-corrected answer keep different names, the same rule VSH_GR follows. Above 95% VSH the
-sample is treated as shale outright.</p>
+<p><b>3 clean</b>. Run live: median PHIE <b>0.1627</b>, median PHIT
+<b>0.2024</b>. The gap between them is the shale term doing its work in a
+section whose median VSH is 0.54.</p>
 
-<p>PHIE from this run is what the <a href="phimax.html">Porosity Ceiling</a> chapter
-caps, and what the saturation chapters consume.</p>
+<pre class="equations">SELECT round(median(value), 4) FROM computed_curves
+WHERE curve_name = 'PHIE_DEN' AND NOT isnan(value)</pre>
+
+<p>The sensitivity that matters: RHO_MA moved from 2.65 to 2.68 (a slightly
+calcareous sand) lifts the medians to <b>0.1731 / 0.2129</b>: about one
+porosity unit for three hundredths of a gram. Heavier assumed matrix reads
+more porosity, in proportion to the endpoint move over the matrix-fluid
+contrast. On a 20%-porosity sand that is a five-percent relative error from
+a lithology guess, which is why the matrix density is cited, not
+defaulted-and-forgotten.</p>
+
+<figure>
+  <img src="../img/guide-phiden-result.png"
+       alt="The Porosity from Density run reporting three clean wells" />
+  <figcaption>Three clean wells; the medians above are the section's answer
+    under the cited endpoints.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Density porosity is hostage to hole quality. Feed the hole-corrected
+    density (Prep book), and mask on the bad-hole flag: a washout reads as
+    porosity with nothing else to say so.</li>
+  <li>Crossplot PHIE_DEN against a neutron or sonic porosity in clean
+    intervals: a constant offset points at the matrix or fluid endpoint, a
+    VSH-correlated offset points at the shale term.</li>
+  <li>Gas lowers the density log's apparent density and inflates density
+    porosity; run the gas correction (Prep book) or interpret gas zones with
+    the crossover-aware methods.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>PHIE = (RHO_MA - RHOB)/(RHO_MA - RHO_FL) - VSH*(RHO_MA - RHO_SH)/(RHO_MA - RHO_FL). PHIT = PHIE + VSH*PHIT_SH, where PHIT_SH = (RHO_DSH - RHO_SH)/(RHO_DSH - RHO_W). Above 95% VSH the sample is treated as shale.</p>

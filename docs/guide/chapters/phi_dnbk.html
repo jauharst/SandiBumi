@@ -1,43 +1,97 @@
-<!-- Authored walkthrough for the phi_dnbk guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the phi_dnbk guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: RHOMAA as the QC output, shale-point sensitivity measured. -->
 
-<h2>Step by step: the analytic crossplot</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>This is the real neutron-density crossplot porosity: the published Bateman-Konen
-Appendix B system solved in closed form, not a transcribed chart and not the
-<a href="phi_dn.html">quick-look average</a>. On the same shale-reduced pair the two
-routes differ by 1.6–1.8 porosity units, which is why they are separate modules.</p>
+<p>The analytic neutron-density crossplot: the published closed-form solution
+of the two-log system as a two-pseudo-mineral problem, computed sample by
+sample rather than looked up in a transcribed chart. This is the
+reporting-grade crossplot porosity, the deterministic method the quick-look
+chapter defers to, and it returns something the quick-look cannot: the
+apparent matrix density RHOMAA_BK as an output, which makes the method
+self-auditing.</p>
 
-<h3>Limestone units are part of the method</h3>
+<h2>The physics</h2>
 
-<p>The crossplot is entered in limestone units. That is the published convention, and
-it is why this pane has no RHO_MA input: the apparent matrix density
-<code>RHOMAA_BK</code> is an <i>output</i>. The module checks the neutron curve's
-DECLARED basis and refuses anything that is not limestone (converting with Neutron
-Matrix Conversion or re-declaring, whichever states the truth about your delivery).
-The SANDI wells deliver limestone-units NPHI; the basis was declared from the LAS
-header and the run proceeded.</p>
-
-<h3>Enter the shale point</h3>
+<p>The published solution picks a pseudo-mineral pair by which side of the
+density-porosity line the sample falls on, then intersects the point with
+the matrix-fluid line (the equations above carry the published forms). Two
+conventions are load-bearing:</p>
 
 <ul>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units): medians of SANDI-01's
-    samples at GR ≥ 112 gAPI, recorded in the run's reference field. Everything else
-    is a cited default; the nine Appendix B constants are constants of the method and
-    deliberately not parameters at all.</li>
+  <li><b>The crossplot is entered in limestone units.</b> A neutron recorded
+    in sandstone units must be converted first (Neutron Matrix Conversion,
+    Prep book), or every answer inherits the matrix offset.</li>
+  <li><b>Shale reduction clamps the neutron side only</b>, following the
+    method's own source; the density side passes through.</li>
 </ul>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>RHO_SH 2.45, NPHI_SH 0.38</b> (limestone units, the units the
+    crossplot is entered in): medians of SANDI-01's shale population
+    (GR ≥ 112).</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Confirm the neutron's declared matrix convention; convert if it is not
+    limestone.</li>
+  <li>Run VSH, then open <b>Petrophysics ▸ Porosity ▸ Porosity from
+    Bateman-Konen N-D Crossplot</b> and enter the shale point.</li>
+  <li>Fill the custody line and press <b>Run</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-phidnbk-pane.png"
        alt="The Bateman-Konen crossplot pane with the shale point entered" />
-  <figcaption>No matrix density input: RHOMAA_BK is an answer, not an assumption.</figcaption>
+  <figcaption>The analytic crossplot needs only the shale point on top of its
+    published constants.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>1 clean · 2 degraded</b> (single-sample clamps at the
-shale-reduced neutron guard and the PHIE floor: read the per-well report, accept or
-re-pick). Outputs: <code>PHIE_DNBK</code>/<code>PHIT_DNBK</code> unlimited,
-PHIE/PHIT limited, and <code>RHOMAA_BK</code>. Put that last one on a log track: where
-it departs 2.65 the crossplot is telling you the matrix is not clean quartz, which is
-exactly the diagnostic a chart lookup cannot give you.</p>
+<p><b>3 clean</b>. Run live: median PHIE_DNBK <b>0.1762</b>, and median
+RHOMAA_BK <b>2.6892 g/cc</b>: a hair above quartz, which is what a slightly
+shaly quartz sand should return, and the first thing to check on any run.
+Against the quick-look average the analytic answer reads
+<b>+0.0124</b> (median, sample-paired): the two methods genuinely differ,
+about 1.2 porosity units here, and the analytic one is the method with a
+published derivation behind it:</p>
+
+<pre class="equations">SELECT round(median(a.value - b.value), 4)
+FROM computed_curves a JOIN computed_curves b
+  ON a.well_id = b.well_id AND a.depth = b.depth AND b.curve_name = 'PHIE_DN'
+WHERE a.curve_name = 'PHIE_DNBK' AND NOT isnan(a.value) AND NOT isnan(b.value)</pre>
+
+<p>The shale-point dial, measured: NPHI_SH moved to 0.30 lifts the median to
+<b>0.1852</b> and pushes RHOMAA_BK up to <b>2.7132</b>: the hydroxyl the
+shale point no longer accounts for is pushed into apparent matrix, and the
+divergence from the quick-look doubles to +0.023. RHOMAA drifting off the
+field's known lithology is the tell that the shale point is wrong; restored
+to 0.38, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-phidnbk-result.png"
+       alt="The Bateman-Konen run reporting three clean wells" />
+  <figcaption>RHOMAA_BK near quartz is the crossplot vouching for its own
+    endpoints.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Read RHOMAA_BK before the porosity. It should sit on the field's
+    lithology (quartz here); intervals where it drifts heavy or light are
+    intervals where an endpoint, the matrix convention, or gas is
+    lying.</li>
+  <li>Gas moves both logs off the model and the crossplot cannot tell gas
+    from lithology; treat crossover intervals with the gas correction first
+    or interpret them separately.</li>
+  <li>The declared-units rule is absolute: a sandstone-units neutron fed in
+    raw shifts every answer by the matrix offset, and nothing downstream can
+    detect it.</li>
+</ul>

@@ -1,46 +1,106 @@
-<!-- Authored walkthrough for the phi_son guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the phi_son guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the RHG80 refusal and the transform sensitivity both on record. -->
 
-<h2>Step by step: porosity from the sonic</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Three transforms live in this pane, each named for what it actually computes:
-Wyllie time-average, the genuine three-segment Raymer-Hunt-Gardner 1980, and the
-field-observation transform with its cited coefficient. This run uses <b>WYLLIE</b>,
-the default and the one convention every installed tool agrees on exactly.</p>
+<p>Sonic porosity, three transforms each named for what it computes: the
+Wyllie time-average, the genuine three-segment Raymer-Hunt-Gardner 1980
+transform, and the field-observed form with a user-cited coefficient. The
+sonic's virtue is indifference to hole rugosity that wrecks the density:
+reach for it in bad hole, in old wells where sonic is the only porosity log,
+and as the independent check on density porosity.</p>
 
-<h3>Enter the endpoints</h3>
-
-<p>DT_MA and DT_SH ship without defaults. The pane's shipped-values list shows why:
-the installed tools carry four different sandstone matrix slownesses (53.0 to 56.0
-µs/ft), and shipping one would silently pick a vendor for you. Entered here:</p>
+<h2>The physics</h2>
 
 <ul>
-  <li><b>DT_MA 55.5 µs/ft</b>, chosen off the pane's own source list: the Geolog
-    shipped Wyllie default. The choice and its source went into the run's reference
-    field.</li>
-  <li><b>DT_SH 118 µs/ft</b>, the median DT of SANDI-01's samples at GR ≥ 112 gAPI,
-    this dataset's own shale.</li>
-  <li><b>DT_FL 189 µs/ft</b>, the shipped default (water), left alone.</li>
+  <li><b>WYLLIE</b>: PHIT = (DT − DT_MA)/(DT_FL − DT_MA), the linear
+    time-average, with the optional lack-of-compaction divisor
+    (OPT_CP: Cp = DT_SH/100). Shale correction is subtractive, the one
+    convention the installed vendors agree on exactly.</li>
+  <li><b>RHG80</b>: the published three-segment transform: velocity form
+    below 37% porosity, fluid-suspension form above 47%, a linear bridge
+    between. The suspension segment consumes matrix and fluid densities,
+    which is why RHG80 requires RHO_MA (the refusal below).</li>
+  <li><b>FIELD_OBSERVED</b>: PHI = CFO·(DT − DT_MA)/DT with the coefficient
+    you cite.</li>
 </ul>
 
-<p>The pane enforces DT_MA strictly below DT_SH before the run. An inverted pair
-would turn the shale subtraction into an addition, so it is refused, not computed.</p>
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>DT_MA 55.5 µs/ft</b>: the shipped Wyllie sandstone default carried
+    by the pane's source list.</li>
+  <li><b>DT_SH 118 µs/ft</b>: the median DT of SANDI-01's shale population
+    (GR ≥ 112), this dataset's own shale transit time.</li>
+  <li><b>DT_FL 189 µs/ft</b> (shipped): fresh-filtrate transit time.</li>
+  <li><b>WYLLIE</b>, compaction correction OFF, to state the baseline before
+    any divisor is argued.</li>
+</ul>
+
+<h2>The refusal worth knowing about</h2>
+
+<p>Switching to RHG80 without a matrix density is refused, all three wells,
+before anything runs, demonstrated live and quoted from the per-well
+report:</p>
+
+<pre class="equations">RHO_MA is required when OPT_SON = RHG80.</pre>
+
+<p>The suspension segment cannot exist without it, and the module refuses
+rather than assuming quartz on your behalf. Supplying <b>RHO_MA 2.65</b>
+(the same shipped quartz value the density chapter cites) makes the RHG80
+run clean.</p>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run VSH first.</li>
+  <li>Open <b>Petrophysics ▸ Porosity ▸ Porosity from Sonic</b>, enter the
+    three transit times with sources in the custody line.</li>
+  <li>Press <b>Run Porosity from Sonic</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-phison-pane.png"
-       alt="The Porosity from Sonic pane with the transit-time endpoints entered" />
-  <figcaption>WYLLIE with the two endpoints entered; RHG80's density inputs stay
-    inactive until that transform is selected.</figcaption>
+       alt="The Porosity from Sonic pane with the transit times entered" />
+  <figcaption>Three transit times and a transform. RHG80 additionally needs
+    the matrix density its suspension segment consumes.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>0 clean · 3 degraded</b>. The per-well report lists per-sample
-clamps where the limited PHIE was held against its ordering bound (PHIE can never
-exceed what the shale correction leaves of PHIT). A sonic in shaly rock rides its
-bounds more than a density does; the unlimited <code>PHIT_SON</code>/<code>PHIE_SON</code>
-beside the limited curves show exactly what was clipped and where.</p>
+<p><b>3 clean</b>. Run live on WYLLIE: median PHIT_SON <b>0.2849</b>, median
+PHIE_SON <b>0.178</b>. Note sonic PHIT reading well above density PHIT
+(0.2024): an uncompacted young section with no Cp divisor applied does
+exactly this, and the gap is the argument for either the compaction
+correction or the RHG transform, not a reason to distrust the density.</p>
 
-<p>If you switch to <b>RHG80</b>, RHO_MA becomes required (the paper's own density
-pairings) and the compaction option disappears. RHG is self-compacting, and the pane
-refuses the Wyllie Cp correction anywhere it would not mean what the paper meant.</p>
+<pre class="equations">SELECT round(median(value), 4) FROM computed_curves
+WHERE curve_name = 'PHIT_SON' AND NOT isnan(value)</pre>
+
+<p>The transform sensitivity, measured on the same picks with RHO_MA
+supplied: RHG80 reads <b>0.2863 / 0.187</b> against Wyllie's
+0.2849 / 0.178, about one porosity unit on PHIE. The transform choice is a
+real decision, and on this section a smaller one than the compaction
+question it sits beside.</p>
+
+<figure>
+  <img src="../img/guide-phison-result.png"
+       alt="The Porosity from Sonic run reporting three clean wells" />
+  <figcaption>The Wyllie baseline. The RHG80 comparison ran on the same
+    endpoints once its required matrix density was supplied.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Crossplot sonic against density porosity in clean, in-gauge intervals:
+    a uniform sonic excess is compaction; a bad-hole-correlated density
+    deficit is rugosity. The two failure modes separate cleanly on that
+    plot.</li>
+  <li>Cycle skips read as porosity spikes; despike the sonic (Condition
+    book) before interpreting.</li>
+  <li>If OPT_CP goes ON, say so wherever the number is quoted: a Cp near
+    1.18 here scales every Wyllie porosity down by the same factor, and two
+    reports differing only in Cp look like two different rocks.</li>
+</ul>

@@ -391,52 +391,95 @@
 GAS_RMS: PHIX = √((PHID² + PHIN²)/2)
 PHIE = PHIX·(1 − VSH)
 PHIT = PHIE + VSH·PHIT_SH</pre>
-<!-- Authored walkthrough for the phi_dn guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the phi_dn guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the GAS_RMS effect measured where it lives, in the gas zones. -->
 
-<h2>Step by step: the quick-look pair</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>This module is a comparison shortcut, and its own manifest says so: the average and
-the gas-RMS of density and neutron porosity are field quick-looks, not a crossplot
-method. Use it to eyeball agreement between the two logs; for an actual analytic
-crossplot porosity go to <a href="phi_dnbk.html">Porosity from Bateman-Konen</a>.</p>
+<p>The quick-look density-neutron porosity: shale-reduce both logs, convert
+each to porosity, and combine them as a simple average or the gas
+root-mean-square. It is deliberately a comparison shortcut, not a crossplot
+porosity method (no vendor ships either combination as one), and the pane
+says so. Use it for fast screening and for gas zones where the two logs
+diverge; for a reporting-grade crossplot porosity use the analytic
+Bateman-Konen chapter that follows.</p>
 
-<h3>The refusal you will meet first</h3>
+<h2>The physics</h2>
 
-<p>Run it on a freshly imported well and it refuses, by name:</p>
+<p>Both inputs are first shale-reduced (with clamps on the reduced values so
+an extreme shale point cannot launch them off the physical scale), converted
+to porosity, then combined: AVERAGE takes the mean, GAS_RMS takes
+√((PHID² + PHIN²)/2). The RMS weights the larger of the pair, so where gas
+has pushed density porosity up and neutron porosity down, it reads above the
+average, and where the two agree it equals the average exactly. That
+identity is worth internalizing: the combination choice only matters where
+the logs disagree.</p>
 
-<blockquote>neutron curve 'NPHI' has no DECLARED matrix basis. A limestone-unit
-neutron read against a sandstone matrix is ~0.04 v/v low in clean water sand, and an
-undeclared basis cannot be checked - declare it (set_curve_neutron_basis) or convert
-with nphimat first.</blockquote>
-
-<p>That is this run happening on camera: the SANDI deliveries say "limestone" in the
-LAS header, but the application never infers a matrix basis. It must be DECLARED
-(Curve Catalog → the neutron curve's basis, citing the header), or the curve converted
-with <b>Neutron Matrix Conversion</b>. Here the basis was declared LIMESTONE with the
-header as its source, and the run proceeded.</p>
-
-<h3>Enter the shale point</h3>
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units, matching the declared curve):
-    medians of SANDI-01's samples at GR ≥ 112 gAPI. Everything else is a cited
-    default, including the AVERAGE/GAS_RMS choice (AVERAGE).</li>
+  <li><b>RHO_SH 2.45, NPHI_SH 0.38</b> (limestone units): medians of
+    SANDI-01's shale population (GR ≥ 112), this dataset's own shale
+    point.</li>
+  <li><b>AVERAGE</b> (shipped): the honest default outside proven gas.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run VSH, and run Data Conditioning Flags (Prep book) if you want the
+    gas-crossover flag available for reading the result.</li>
+  <li>Open <b>Petrophysics ▸ Porosity ▸ Porosity from Density-Neutron</b>,
+    enter the shale point, keep AVERAGE.</li>
+  <li>Fill the custody line and press <b>Run Porosity from
+    Density-Neutron</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-phidn-pane.png"
-       alt="The Porosity from Density-Neutron pane with the shale point entered" />
-  <figcaption>The quick-look pane; the shale point is the only data-driven entry.</figcaption>
+       alt="The Porosity from Density-Neutron pane" />
+  <figcaption>One shale point and one combination choice; the pane itself
+    calls the method a quick-look comparison.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>1 clean · 2 degraded</b>. The degraded wells report two clamps:
-the shale-reduced neutron held to its [-0.015, 0.4] guard band at one sample, and the
-effective porosity held at the 0.001 floor at another. Single-sample clamps at guard
-rails are the normal texture of real logs; a well that failed outright would say
-<b>failed</b> and write nothing.</p>
+<p><b>3 clean</b>, median PHIE_DN <b>0.1642</b>. The instructive measurement
+is the combination switch, read in the right place. Switching to GAS_RMS
+leaves the whole-section median at exactly <b>0.1642</b>, unchanged,
+because most of the section's density and neutron agree, and there the RMS
+is the average. Restricted to the gas-crossover samples the conditioning
+flags marked (XOVER_FLAG = 1), the median moves from <b>0.2004</b> to
+<b>0.2092</b>:</p>
+
+<pre class="equations">SELECT round(median(c.value), 4) FROM computed_curves c
+JOIN computed_curves f ON c.well_id = f.well_id AND c.depth = f.depth
+ AND f.curve_name = 'XOVER_FLAG' AND f.value = 1
+WHERE c.curve_name = 'PHIE_DN' AND NOT isnan(c.value)</pre>
+
+<p>A whole-well median that never moves can hide a real effect confined to
+the zone that matters: measure a gas option in the gas zones.</p>
+
+<figure>
+  <img src="../img/guide-phidn-result.png"
+       alt="The Porosity from Density-Neutron run reporting three clean wells" />
+  <figcaption>The combination choice is invisible in the section-wide
+    statistics and real in the crossover intervals.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Do not report this as crossplot porosity. The analytic crossplot (next
+    chapter) solves the two-log system properly and returns an apparent
+    matrix density as its own QC; this module averages.</li>
+  <li>GAS_RMS everywhere quietly inflates porosity in every interval where
+    the logs disagree for non-gas reasons (bad hole, clay-type effects).
+    Choose it for identified gas, not as a default.</li>
+  <li>The shale-reduced clamps are a safety net, not a fix: if they engage
+    over long intervals, the shale point is wrong.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Shale-corrects RHOB and NPHI to 'shale reduced' values, then combines density porosity and neutron porosity: AVERAGE = (PHID+PHIN)/2, GAS_RMS = sqrt((PHID²+PHIN²)/2) for gas-bearing zones. QUICK-LOOK COMPARISON ONLY - neither combination is a crossplot porosity method: no vendor ships either as one, and IP says of the field shortcuts that they should not be used for anything other than this. The chart-free analytic neutron-density method is a separate contract (SB-POR-021). PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH.</p>
