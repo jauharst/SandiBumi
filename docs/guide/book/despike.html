@@ -144,49 +144,97 @@ ABS: replace where |x − median| &gt; THRESH
 MEDIAN: every sample → window median (no test)
 RATE: replace where the change from the previous live sample exceeds MAX_RATE per depth unit</pre>
 <!-- Authored walkthrough for the despike guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, K sensitivity. -->
 
-<h2>Step by step: taking the spikes out, and only the spikes</h2>
+<h2>What this is and when to reach for it</h2>
 
 <p>Despike replaces samples that stand off their neighbours with the local
-median, over a window stated as a <i>thickness of rock</i> rather than a sample
-count, so the same window means the same thing at any sampling. Four methods:
-the robust HAMPEL deviation test (the default), a plain ABS threshold, an
-unconditional MEDIAN, and a RATE limit that catches steps a median window
-misses.</p>
+median, writing the conditioned curve as a new curve beside the original,
+plus a flag marking every sample it changed and a copy of the original values
+at those samples. Run it first in any conditioning sequence: a later smoother
+fits whatever is in its window, so an un-removed spike does not disappear
+under smoothing, it gets spread over the window and dressed up as rock.</p>
 
-<h3>First, the refusal</h3>
+<h2>The physics</h2>
 
-<p>Run it with no window and the module refuses, verbatim:</p>
+<p>A spike is a tool artefact: a cycle skip, a momentary pad lift-off, a
+telemetry hiccup. It is one or two samples wide, which is the whole basis for
+telling it from rock, because a real thin bed is also a short excursion. The
+Hampel test asks, for each sample, how far it sits from the median of the
+samples inside WINDOW around it, measured in robust deviations; beyond K
+deviations it is called a spike and replaced by that median. Two consequences
+follow directly:</p>
 
-<blockquote><i>"WINDOW must be set — Filter window (thickness, centred)"</i></blockquote>
+<ul>
+  <li><b>WINDOW is a thickness, not a sample count</b>, so it means the same
+    amount of rock whatever the sampling.</li>
+  <li><b>A bed no thicker than the window is indistinguishable from a
+    spike</b> and will be flattened. Set the window narrower than the thinnest
+    bed you intend to keep.</li>
+</ul>
 
-<p>WINDOW has no default on purpose: what counts as a spike is a property of
-the tool, the sampling and the rock, and no one number is right in two
-basins.</p>
+<h2>The picks and why</h2>
 
-<h3>The picks</h3>
+<ul>
+  <li><b>WINDOW 1&nbsp;m</b>: a demonstration thickness, about 6 samples at
+    this dataset's 0.15&nbsp;m sampling, wider than any one-sample spike and
+    narrower than the beds worth keeping.</li>
+  <li><b>K 3</b> (shipped): the ordinary three-deviation convention. Run live
+    on these wells: at K&nbsp;3, <b>61 samples</b> are replaced (the largest
+    change 6.4&nbsp;gAPI); loosened to K&nbsp;6, only <b>9 samples</b> still
+    read as spikes. K is the tolerance dial, and the count it controls is
+    exactly the population you should eyeball before trusting it.</li>
+</ul>
 
-<p><b>HAMPEL, K&nbsp;3</b> (shipped) and <b>WINDOW 1&nbsp;m</b>, about 6.6
-samples at this dataset's 0.1524&nbsp;m step, above the five-sample floor the
-Hampel test needs, and narrower than the thinnest bed worth keeping. That last
-clause is the whole discipline: a bed no thicker than the window is
-indistinguishable from a spike, and will be flattened as one.</p>
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Condition ▸ Despike</b>.</li>
+  <li>Pick the curve, set WINDOW below your thinnest keepable bed, and leave
+    K at 3 unless the replaced population argues otherwise.</li>
+  <li>Fill the custody line and press <b>Run Despike</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-despike-pane.png"
-       alt="The Despike pane, Hampel with a 1 m window" />
-  <figcaption>The replaced-sample flag and original-values curves ride along, so
-    nothing is lost.</figcaption>
+       alt="The Despike pane with the window and K entered" />
+  <figcaption>A thickness and a tolerance. The method select offers the
+    Hampel test and its alternatives.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, with <b>61 samples replaced</b> out of 1185.
-The flag curve GR_C_SPK says exactly which, and GR_C_ORIG keeps every
-original value. One K reads the same on GR, RHOB, NPHI and RT because the
-deviation is scaled by the Gaussian consistency constant × MAD, a mathematical
-estimator constant, not a calibration.</p>
+<p><b>3 clean</b>, with <b>61 of 1185 samples replaced</b> and every one of
+them flagged. The three companion curves are the audit trail: the flag says
+which samples changed, the original-values curve says what they were, and
+together they make the operation fully reversible by inspection. Check the
+population in the Database Inspector:</p>
+
+<pre class="equations">SELECT COUNT(*) FILTER (WHERE value = 1)
+FROM computed_curves WHERE curve_name = 'GR_C_SPK'</pre>
+
+<figure>
+  <img src="../img/guide-despike-result.png"
+       alt="The Despike run reporting three clean wells" />
+  <figcaption>61 replacements, each flagged and each original value kept.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Overlay the conditioned curve, the original and the flag in one track.
+    Replacements should sit on isolated one-to-two-sample excursions; a run
+    of consecutive flags means the window has started eating a bed.</li>
+  <li>The conditioned output takes the input curve's name with a _C suffix,
+    and the Condition modules share that convention: conditioning the same
+    input twice overwrites the first result. To chain operations (despike
+    then smooth), feed the despiked output into the next module rather than
+    the raw curve.</li>
+  <li>Despiking a curve you will later use for spike-sensitive QC (bad-hole
+    detection reads the caliper's real excursions) removes the very evidence
+    that QC needs. Condition interpretation inputs, not QC inputs.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Replaces samples that stand off their neighbours with the local median. WINDOW is a THICKNESS, not a sample count, so it means the same amount of rock whatever the sampling.

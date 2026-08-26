@@ -143,41 +143,100 @@
 MEDIAN: window median, which keeps a step edge where a mean would ramp across it
 SAVGOL: local quadratic least-squares fit on the real (depth, value) pairs, evaluated at the sample</pre>
 <!-- Authored walkthrough for the smooth guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, window sensitivity. -->
 
-<h2>Step by step: smoothing after despiking, never instead of it</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Smooth averages a curve over a thickness window: MEAN, MEDIAN (which keeps a
-step edge where a mean would ramp across it), or SAVGOL, a local quadratic
-least-squares fit evaluated at each sample, fitted on the real (depth, value)
-pairs rather than the textbook fixed coefficients, which assume even sampling
-and are wrong on an irregular frame.</p>
+<p>Smooth averages a curve over a window stated as a thickness, writing the
+result beside the original with a changed-sample flag. Reach for it when
+sample-to-sample noise obscures the trend a later step needs: a blocky input
+for a crossplot, a sonic destined for a synthetic seismogram, a curve whose
+derivative you are about to take. Despike first; a smoother spreads a spike
+it was never designed to remove.</p>
 
-<h3>The order rule</h3>
+<h2>The physics</h2>
 
-<p><b>Despike first.</b> A least-squares smoother fits whatever is in the
-window, so over an un-despiked curve it fits the spike: the spike is not
-removed, it is spread over the window and made to look like rock. This run
-therefore takes the despiked <b>GR_C</b> as its input, not raw GR.</p>
+<p>Three methods, each with a character:</p>
 
-<h3>The picks</h3>
+<ul>
+  <li><b>MEAN</b>: arithmetic mean of the live samples in the window. The
+    default and the strongest noise reducer, and it ramps across step edges.</li>
+  <li><b>MEDIAN</b>: the window median. Keeps a step edge where a mean would
+    ramp across it, at the cost of less noise reduction in between.</li>
+  <li><b>SAVGOL</b>: a local quadratic least-squares fit evaluated at the
+    sample, fitted on the real depth-value pairs rather than the textbook
+    fixed coefficients, which assume even sampling. Preserves curvature
+    (peaks keep their height better than a mean).</li>
+</ul>
 
-<p><b>SAVGOL over the same 1&nbsp;m window</b> as the despike step, output
-renamed <b>GR_SM</b>. Distinct conditioning steps get distinct names, so the
-provenance chain (GR → GR_C → GR_SM) reads in the Curve Catalog.</p>
+<p>WINDOW is a thickness, so the trade is stated in rock: everything thinner
+than the window is treated as noise and averaged away.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>WINDOW 1&nbsp;m</b>, MEAN: a light demonstration touch. Run live on
+    these wells: the gamma-ray standard deviation moves from <b>29.72 to
+    29.54&nbsp;gAPI</b>, barely anything, because a 1&nbsp;m mean at 0.15&nbsp;m
+    sampling averages about 6 samples of a mostly coherent log. Widened to
+    <b>3&nbsp;m</b> the deviation drops to <b>29.01</b>, and the number to
+    watch is not the deviation but the beds: 3&nbsp;m is wider than several
+    real beds in this section, and they begin averaging into their
+    neighbours.</li>
+  <li>The changed-sample flag reads 1 at every sample here, which is worth
+    understanding rather than worrying about: a mean smoother moves nearly
+    every value at least infinitesimally, and the flag records change, not
+    damage.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Despike the curve first if the delivery is spiky, and feed the despiked
+    output in.</li>
+  <li>Open <b>Petrophysics ▸ Condition ▸ Smooth</b>.</li>
+  <li>Set WINDOW below your thinnest keepable bed and pick the method by the
+    character you need at edges.</li>
+  <li>Fill the custody line and press <b>Run Smooth</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-smooth-pane.png"
-       alt="The Smooth pane, Savitzky-Golay on the despiked curve" />
-  <figcaption>Input GR_C, output GR_SM. The chain stays legible.</figcaption>
+       alt="The Smooth pane with the window entered" />
+  <figcaption>One thickness, one method. The output sits beside the original,
+    never in its place.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, 1185 samples out. One more contract worth
-knowing: a MISSING sample stays MISSING and no window bridges a gap. Smoothing
-never fills, because a filled sample is a claim about rock nobody logged. Fill
-Gaps does that job, and flags what it invents.</p>
+<p><b>3 clean</b>. Compare the deviations in the Database Inspector, and more
+importantly compare the curves in a log view at a bed you know:</p>
+
+<pre class="equations">SELECT round(stddev(value), 3) FROM computed_curves
+WHERE curve_name = 'GR_C' AND NOT isnan(value)</pre>
+
+<figure>
+  <img src="../img/guide-smooth-result.png"
+       alt="The Smooth run reporting three clean wells" />
+  <figcaption>A light touch: the statistics barely move, and that is what a
+    correctly sized window looks like on a clean log.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Judge a smoother at bed boundaries, not in the middle of thick sands.
+    The failure mode is a ramp where the rock has a contact, and a porosity
+    computed from a ramped density invents transition rock.</li>
+  <li>Never feed a smoothed curve to a module that reads amplitudes of thin
+    features (bad-hole detection, thin-bed work, bed detection). Smoothing is
+    for trend consumers.</li>
+  <li>The output name follows the input (_C suffix), shared across the
+    Condition family: run Smooth on the raw curve after Despike wrote its
+    output and the despike result is overwritten. Chain by selecting the
+    previous output as this module's input.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Averages a curve over a WINDOW stated as a THICKNESS.

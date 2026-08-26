@@ -145,42 +145,94 @@ GEOMETRIC: k = (k1·k2·…·kn)^(1/n), the standard permeability estimate in ra
 HARMONIC: k = n / Σ(1/ki), permeability across layers in series
 MODE: the commonest value, and the only upscale for a class curve</pre>
 <!-- Authored walkthrough for the block guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: INTERVAL against CLASS beds, 81 values to 27. -->
 
-<h2>Step by step: one value per bed</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Block replaces a curve with one value per bed, held across the bed, the
-upscale a simulation model or a zone table consumes. The curve stays on the
-well's own depth frame, so nothing downstream has to know it was upscaled. Two
-declarations define the run: what a bed <i>is</i> (INTERVAL slices, CLASS runs
-of a constant value, ZONES marker intervals, or AUTO from the curve's own
-steps), and what statistic a bed's value takes. And the statistic is a
-petrophysical choice, not a formatting one.</p>
+<p>Block replaces a curve with one value per bed, held across the bed, while
+keeping the curve on the well's own depth frame so nothing downstream has to
+know it was upscaled. Reach for it when a consumer needs bed-scale rather
+than sample-scale values: simulation-layer properties, zone-constant inputs,
+a cleaner crossplot. Because the values are constant over intervals, set the
+blocked curve's draw style to Step in the curve editor, or the log view will
+draw a gradient between two block values that the data never measured.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>PHIE_DEN, CLASS beds from RT_LOG, MEAN</b>: the rock-typing shelf's
-cutoff ladder supplies the bed boundaries (boundaries are where the rock
-changes, which is what a model wants), and MEAN because porosity adds.
-GEOMETRIC is the standard permeability estimate in randomly heterogeneous rock,
-HARMONIC the series-flow answer a vertical barrier deserves, and <b>MODE is the
-only upscale for a class curve</b>: a class code is a name written as a number
-(the mean of facies 1 and facies 4 is 2.5, which is not a facies), and the
-module refuses every averaging statistic on a declared class curve for exactly
-that reason.</p>
+<p>The decision is entirely in what counts as a bed (OPT_BEDS):</p>
+
+<ul>
+  <li><b>INTERVAL</b>: equal slices of INTERVAL thickness. Reproducible, and
+    it ignores the rock: a contact falling mid-slice is averaged across.</li>
+  <li><b>CLASS</b>: each run of a constant value in a class curve (FACIES, a
+    rock type, a flag). Boundaries are where the rock changes, which is what
+    a bed means.</li>
+  <li><b>AUTO</b>: segment the curve's own steps, the Bed Detect chapter's
+    machinery; check the beds there first.</li>
+</ul>
+
+<p>OPT_STAT picks what one value per bed means: MEAN for volumetric
+properties, MEDIAN where outliers within a bed should not vote.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li>Canonical demonstration: <b>PHIE blocked over INTERVAL 2&nbsp;m
+    slices, MEAN</b>. Run live: the blocked curve carries <b>81 distinct
+    values</b> across the three wells, one per slice.</li>
+  <li>What changes under <b>CLASS beds on the FACIES curve</b>, run live: the
+    same porosity collapses to <b>27 distinct values</b>, one per facies run,
+    with boundaries where the rock changes instead of every 2&nbsp;m. Fewer,
+    bigger, geologically placed blocks: this is the mode the module's own
+    documentation steers toward once a checked class curve exists.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Frame ▸ Block (Upscale)</b>.</li>
+  <li>Pick the curve, choose what a bed is, and set the statistic.</li>
+  <li>Fill the custody line and press <b>Run Block</b>.</li>
+  <li>Set the output curve's draw style to Step wherever it is displayed.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-block-pane.png"
-       alt="The Block pane, PHIE_DEN over RT_LOG class beds with MEAN" />
-  <figcaption>Bed definition and statistic are both explicit declarations.</figcaption>
+       alt="The Block pane with interval slicing selected" />
+  <figcaption>What a bed is, and what one value per bed means: the two
+    decisions the module asks for.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, producing <b>49–53 blocks per well</b> from
-the RT_LOG class runs. Set the blocked curve's draw style to <b>Step</b> in the
-curve editor. A line style would draw a gradient between two block values that
-the data never measured.</p>
+<p><b>3 clean</b>, two outputs: the blocked curve and the bed index it was
+averaged over. Count the blocks in the Database Inspector:</p>
+
+<pre class="equations">SELECT COUNT(DISTINCT round(value, 6))
+FROM computed_curves WHERE curve_name = 'PHIE_BLK' AND NOT isnan(value)</pre>
+
+<figure>
+  <img src="../img/guide-block-result.png"
+       alt="The Block run reporting three clean wells" />
+  <figcaption>81 interval blocks against 27 facies blocks: same porosity, two
+    different statements about where rock changes.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Overlay the blocked curve on the original with Step drawing. An
+    interval boundary cutting through a thick clean sand, splitting one rock
+    into two half-values, is INTERVAL mode's signature artefact and the
+    argument for CLASS.</li>
+  <li>Blocking changes values, never the frame: the output still has a value
+    at every input depth. Changing the sampling itself (resample, regularize,
+    align) is Reframe's job, deliberately not a module.</li>
+  <li>An average over a bed that includes masked or missing samples is an
+    average of what remains; check coverage per bed before quoting a blocked
+    value as the bed's property.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Replaces a curve with one value per bed, held across the bed. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled — set its draw style to Step in the curve editor, or the log view draws a gradient between two block values that the data never measured.

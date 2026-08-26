@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Second pass, increment 3: Condition and Frame, ten chapters with the Normalize refusal on camera
+
+- [ ] **The ten chapters** (despike, smooth, clip, fill_gaps, flip, normalize, bed_detect, block,
+      depth_shift, splice) follow the addendum skeleton with 21 new clean-workspace screenshots
+      (pane + result each, plus the Normalize refusal capture). Open docs/guide/book/normalize.html.
+- [ ] **The Normalize story is the shelf's centrepiece.** Run with the reference pair absent:
+      0 clean, 3 failed, the refusal quoted verbatim in the chapter. Derive the pair from the
+      pooled field distribution with the Inspector query shown (43.18 / 112.37 gapi on the SANDI
+      wells), run, and every well's P3/P97 lands on exactly that pair; the P5/P95 variant
+      overshoots (42.45–42.73 / 112.87–112.91) and the chapter explains why.
+- [ ] **Every dial measured live and restored**: K 3→6 drops despike replacements 61→9; WINDOW
+      1→3 m moves smoothed sd 29.54→29.01 (raw 29.72); clip MAX inside the data (110 gapi)
+      blanks 184 real samples where the 0–200 validity range blanks none; fill_gaps demonstrated
+      from both sides of the real 1.22 m hole (MAX_GAP 1.5 fills all 21 flagged samples,
+      MAX_GAP 1 honestly fills none — the hole is measured live-to-live, 8 steps not 7); flip's
+      MIDRANGE records three per-well pivots (78.305/78.365/77.335) against one stated VALUE;
+      bed_detect SENS 2→1 explodes 19/20/19 beds to 47/44/45; block INTERVAL 2 m vs CLASS-on-
+      FACIES is 81 vs 27 distinct values; depth_shift ±2 m moves the GR maximum ±1.981 m (grid
+      quantization taught); splice reproduces each side to exactly zero difference.
+- [ ] **The shared _C output-name convention is taught**: conditioning the same input twice
+      overwrites the first result, so chapters say to feed the previous output into the next
+      module. gr_normalize's pointer chapter (increment 2) now has its promised Normalize
+      walkthrough to point at.
+
 ## 2026-08-26 — Second pass, increment 2: the eleven Prep chapters rewritten to the two-reader skeleton
 
 - [ ] **The eleven Prep chapters** (ftemp_grad, precalc, badhole, condflag, nphimat, gascorr,
