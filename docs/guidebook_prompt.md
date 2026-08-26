@@ -118,4 +118,30 @@ non-module panel help review.
 PROTOCOL
 Normal increment protocol: verify (tsc + cargo test + a browser click-through of the
 Help card and the link), REVIEW.md entry at the top, branch, commit, PR, report, stop
+
+ADDENDUM — FIELD REVIEW RULINGS (2026-08-26, Jauhar)
+The 52-chapter first pass shipped; these rulings govern the second pass and every
+chapter written after it.
+
+1. TWO READERS, ONE CHAPTER. Every chapter serves both a newcomer learning
+   petrophysics from this book and a senior interpreter who expects the specific
+   behaviour of every control to be stated. Concretely: the theory is taught, not
+   assumed (what the measurement is, why the method exists), AND each parameter or
+   option answers "what changes when I change this" (e.g. what happens when the KNN
+   seed changes, what a different K does to the facies count) — not just what it is.
+2. STRUCTURED, PROFESSIONAL VOICE. A consistent chapter skeleton in workflow order:
+   what this is and when to reach for it → the physics → the picks and why → step by
+   step → reading the result → QC and pitfalls → what the application enforces. No
+   em-dash rhetoric (ruled 2026-08-26); plain professional prose.
+3. DEDICATED STEP-BY-STEP SCREENSHOTS. One clean capture per step on an uncluttered
+   workspace — the pane being taught beside the log/plot it drives, nothing else
+   docked. Never a whole-workspace capture with unrelated module panes stacked in
+   frame. Multiple screenshots per chapter, each beside the step it illustrates.
+4. THE BOOK SHOWS NO INTERNAL PROVENANCE. Rendered pages carry no generator banner
+   and no default_source strings (internal file paths, decision records) — those
+   stay in the pane tooltips, the dump and docs/guide/reference/. Published
+   references and DEC numbers quoted inside prose are fine.
+5. NAVIGATION. Every page carries the left navigation pane (gen-guidebook.mjs
+   navHtml) listing the whole book in workflow order with the current chapter
+   highlighted, so a reader always sees where the module sits in the whole.
 before merge. The gate is tools\check.ps1 green.

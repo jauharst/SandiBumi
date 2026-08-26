@@ -16,7 +16,23 @@
     margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
   }
-  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .layout { max-width: 1150px; margin: 0 auto; padding: 24px 20px 60px;
+            display: flex; gap: 18px; align-items: flex-start; }
+  .nav { width: 250px; flex: none; position: sticky; top: 16px;
+         max-height: calc(100vh - 32px); overflow-y: auto;
+         background: var(--panel); border: 1px solid var(--border);
+         border-radius: 12px; padding: 12px 14px 16px; font-size: 13px; }
+  .nav .nav-home { display: block; font-weight: 700; color: var(--brand);
+                   text-decoration: none; padding: 4px 6px 8px; }
+  .nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+            color: var(--dim); border: none; margin: 12px 0 3px; padding: 0 6px; }
+  .nav a { display: block; padding: 2px 6px; border-radius: 4px;
+           color: var(--text); text-decoration: none; }
+  .nav a:hover { background: var(--panel-alt); }
+  .nav a.here { background: var(--brand); color: #fff; }
+  .nav .missing { color: var(--dim); font-style: italic; padding: 2px 6px; }
+  .content { flex: 1; min-width: 0; }
+  @media (max-width: 920px) { .nav { display: none; } .layout { display: block; } }
   .card { background: var(--panel); border: 1px solid var(--border);
           border-radius: 12px; padding: 28px 32px; }
   .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
@@ -50,7 +66,75 @@
 </style>
 </head>
 <body>
-<div class="page"><div class="card">
+<div class="layout">
+<nav class="nav">
+<a class="nav-home" href="index.html">SandiBumi Guidebook</a>
+<h2>Prep</h2>
+<a href="ftemp_grad.html">Formation Temperature</a>
+<a href="precalc.html">Pre-Calculation (P / T / Rmf / Ct / Cxo)</a>
+<a href="badhole.html">Bad-Hole QC Flag</a>
+<a href="condflag.html">Data Conditioning Flags</a>
+<a href="nphimat.html">Neutron Matrix Conversion</a>
+<a href="gascorr.html">Gas Correction (density, iterated)</a>
+<a href="gr_hole_corr.html">GR Hole-Size Correction</a>
+<a href="nphi_env_corr.html">Neutron Environmental Correction</a>
+<a href="rhob_hole_corr.html">Density Hole-Size Correction</a>
+<a href="gr_normalize.html">GR Normalization (Two-Point Percentile)</a>
+<a href="log_predict.html">Synthetic Log (KNN Predict)</a>
+<a href="depth_shift.html">Depth Shift</a>
+<a href="splice.html">Splice Curves</a>
+<h2>Condition</h2>
+<a href="despike.html">Despike</a>
+<a href="smooth.html">Smooth</a>
+<a href="clip.html">Clip</a>
+<a href="fill_gaps.html">Fill Gaps</a>
+<a href="flip.html">Flip Polarity</a>
+<a href="normalize.html">Normalize</a>
+<h2>Frame</h2>
+<a href="block.html">Block (Upscale)</a>
+<a href="bed_detect.html">Bed Detect</a>
+<h2>VSH</h2>
+<a href="vsh_gr.html">VSH from Gamma Ray</a>
+<a href="vsh_dn.html">VSH from Density-Neutron</a>
+<h2>Porosity</h2>
+<a href="phi_den.html">Porosity from Density</a>
+<a href="phi_dn.html">Porosity from Density-Neutron</a>
+<a href="phi_dnbk.html">Porosity from Bateman-Konen N-D Crossplot</a>
+<a href="phi_son.html">Porosity from Sonic</a>
+<a href="phimax.html">Porosity Ceiling (φmax)</a>
+<a class="here" href="ssc.html">SSC — Sand-Silt-Clay (Kuttan)</a>
+<a href="sspw.html">SSPW — Sandstone Petrophysical Workflow</a>
+<h2>Lithology</h2>
+<a href="midplot.html">Apparent Matrix (MID plot: UMAA / RHOMAA)</a>
+<h2>Saturation</h2>
+<a href="sw_arch.html">SW — Archie</a>
+<a href="sw_indo.html">SW — Indonesia (Poupon-Leveaux)</a>
+<a href="sw_sim.html">SW — typed Simandoux equations</a>
+<a href="sw_rtc.html">SW — RtC (Clay + Capillary Correction)</a>
+<a href="sw_imts.html">SW — IMTS (Mineral-Textural Scaling)</a>
+<a href="multimin.html">Multimin — Mineral Inversion (retired · use SandiMin)</a>
+<a href="sw_height.html">SW — Saturation-Height</a>
+<h2>Permeability</h2>
+<a href="perm_wyllie_rose.html">Permeability — Wyllie-Rose</a>
+<a href="perm_coates.html">Permeability — Coates</a>
+<a href="perm_transform.html">Permeability — Por-Perm Transform</a>
+<h2>Rock Typing</h2>
+<a href="rocktyping.html">Rock Typing (FZI / R35 / PGS)</a>
+<a href="lucia_rfn.html">Lucia Rock-Fabric Number (carbonate)</a>
+<a href="pittman_rx.html">Pittman Pore-Throat Radii (r10–r75)</a>
+<a href="rt_cutoff.html">Rock Type from Cutoffs (electrofacies)</a>
+<h2>ThinBeds</h2>
+<a href="thin_bed_ts.html">Thin Beds — Thomas-Stieber</a>
+<h2>Facies</h2>
+<a href="electrofacies.html">Electrofacies (K-means)</a>
+<a href="gmm_facies.html">Electrofacies (GMM, soft)</a>
+<h2>Unconventional</h2>
+<a href="toc_passey.html">TOC — Passey ΔlogR + Schmoker</a>
+<a href="kerogen.html">Kerogen volume + OM-corrected porosity</a>
+<a href="gip.html">Gas-in-place (free + Langmuir adsorbed)</a>
+<a href="brittleness.html">Brittleness index (elastic / mineralogical)</a>
+</nav>
+<div class="content"><div class="card">
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
 <h1>SSC — Sand-Silt-Clay (Kuttan)</h1>
 <p class="modmeta">Module id <code>ssc</code> · category <b>Porosity</b></p>
@@ -138,7 +222,7 @@ half of the LRLC workflow.</p>
 <li><b>Accepted range:</b> 0 to 1000 gapi</li></ul>
 <h3>RHOB_MA <span class="src">(g/cc)</span></h3>
 <p>Density matrix</p>
-<ul><li><b>Default:</b> 2.65 <span class="src">— source: IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<ul><li><b>Default:</b> 2.65</li>
 <li><b>Accepted range:</b> 1 to 4 g/cc</li></ul>
 <h3>NPHI_MA <span class="src">(v/v)</span></h3>
 <p>Neutron matrix</p>
@@ -146,11 +230,11 @@ half of the LRLC workflow.</p>
 <li><b>Accepted range:</b> -0.1 to 1.2 v/v</li></ul>
 <h3>RHOB_FL <span class="src">(g/cc)</span></h3>
 <p>Density fluid</p>
-<ul><li><b>Default:</b> 1 <span class="src">— source: IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1</span></li>
+<ul><li><b>Default:</b> 1</li>
 <li><b>Accepted range:</b> 0.5 to 4 g/cc</li></ul>
 <h3>NPHI_FL <span class="src">(v/v)</span></h3>
 <p>Neutron fluid</p>
-<ul><li><b>Default:</b> 1 <span class="src">— source: Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5</span></li>
+<ul><li><b>Default:</b> 1</li>
 <li><b>Accepted range:</b> -0.1 to 1.2 v/v</li></ul>
 <h3>RHOB_WCL <span class="src">(g/cc)</span></h3>
 <p>Bulk density wet clay</p>
@@ -182,11 +266,11 @@ half of the LRLC workflow.</p>
 <li><b>Accepted range:</b> 0 to 1 v/v</li></ul>
 <h3>PHIT_TIGHT <span class="src">(v/v)</span></h3>
 <p>Total porosity below which all non-clay-bound porosity is capillary-held</p>
-<ul><li><b>Default:</b> 0.05 <span class="src">— source: SandiBumi's own SSC conditioning rule, not the Loglan's: added to keep CWSH positive and reliable, since CWSH always exists even where small; KEPT and parameterised under DEC-093 (2026-08-22). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it</span></li>
+<ul><li><b>Default:</b> 0.05</li>
 <li><b>Accepted range:</b> 0 to 0.5 v/v</li></ul>
 <h3>GAS_C</h3>
 <p>Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)</p>
-<ul><li><b>Default:</b> 1.6 <span class="src">— source: sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it, ruling 1.6 here too and extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately</span></li>
+<ul><li><b>Default:</b> 1.6</li>
 <li><b>Accepted range:</b> 0 to 2</li></ul>
 <h2>Options</h2>
 <h3>OPT_VSHGR</h3>
@@ -224,7 +308,7 @@ half of the LRLC workflow.</p>
 <tr><td>PHIFF_GR</td><td>Free fluid, GR-equivalent</td></tr>
 <tr><td>PHIE_GR</td><td>Effective porosity, GR-equivalent</td></tr>
 <tr><td>PHIT_GR</td><td>Total porosity, GR-equivalent</td></tr></table></div>
-<p class="footer">GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/&lt;module&gt;.html).</p>
 </div></div>
+</div>
 </body>
 </html>

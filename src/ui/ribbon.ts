@@ -21,6 +21,7 @@ import {
   listLayouts,
   listModules,
   listWells,
+  openModuleGuide,
   saveDocument,
   saveSessionDocument,
   saveProjectAs,
@@ -250,6 +251,11 @@ export class Ribbon {
     // Contextual Help (?): opens a guide for whichever panel is active — the future hook for
     // the illustrated HTML help library, keyed to the "current active panel".
     q<HTMLButtonElement>("#help-btn")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
+    // The whole book, not one module's chapter: "index" passes guide_chapter_path's
+    // module-id filter and lands on the book's own index page.
+    q<HTMLButtonElement>("#guidebook-btn")?.addEventListener("click", () =>
+      openModuleGuide("index").catch((e) => setStatus(String(e))),
+    );
     q<HTMLButtonElement>("#installation-support-btn")?.addEventListener("click", () =>
       void openInstallationSupportDialog(),
     );
