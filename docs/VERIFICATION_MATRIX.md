@@ -9,13 +9,13 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **186** of 731,
+Review sections counted toward no capability: **186** of 732,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 145 | — | 46 |
+| `las-import` | LAS import | Not exercised | 0 / 154 | — | 47 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 35 | 2026-08-05 | 5 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 71 | — | 13 |
@@ -23,14 +23,14 @@ this table, so every figure above reads low by whatever those sections cover.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 43 | — | 11 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 246 | 2026-08-13 | 77 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 62 | 2026-08-13 | 11 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 114 | 2026-08-13 | 25 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 123 | 2026-08-13 | 26 |
 | `formation-temperature` | Formation-temperature curves | Not exercised | 0 / 5 | — | 2 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
 | `image-data` | Depth-registered image data | Not exercised | 0 / 30 | — | 3 |
-| `core-depth-registration` | Core-depth registration | Not exercised | 0 / 60 | — | 10 |
-| `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 63 | — | 8 |
-| `petrography` | Petrography measurement and QC | Not exercised | 0 / 114 | — | 19 |
+| `core-depth-registration` | Core-depth registration | Not exercised | 0 / 69 | — | 11 |
+| `core-imaging` | Core-photo conditioning and traces | Not exercised | 0 / 72 | — | 9 |
+| `petrography` | Petrography measurement and QC | Not exercised | 0 / 123 | — | 20 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 82 | — | 16 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 123 | — | 30 |
 | `saturation` | Water-saturation interpretation | Partially exercised | 3 / 217 | 2026-08-13 | 52 |

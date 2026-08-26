@@ -1,0 +1,599 @@
+<!doctype html>
+<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Photo Log (core → curves) — SandiBumi Guidebook</title>
+<style>
+  :root {
+    --color-bg: #f5ead8; --color-surface: #ebddc5; --color-text: #201e1d;
+    --color-card: #fffdf8;
+    --color-neutral-100: #f9f4ed; --color-neutral-200: #eee7db;
+    --color-neutral-300: #dcd3c4; --color-neutral-500: #a19786;
+    --color-neutral-700: #645c50; --color-neutral-800: #474238;
+    --color-neutral-900: #2e2b25;
+    --color-accent-100: #fff2eb; --color-accent-200: #ffe1d0;
+    --color-accent-300: #ffc6a5; --color-accent-600: #b2622d;
+    --color-accent-700: #8c491a; --color-accent-800: #643312;
+    --color-accent-900: #402310;
+    --color-accent-2-200: #e1eecc; --color-accent-2-700: #56633f;
+    --color-accent-2-800: #3d472b;
+    --on-accent-700: #fff8ef;
+    --line: rgba(32, 30, 29, .14); --line-strong: rgba(32, 30, 29, .24);
+    --row-line: rgba(32, 30, 29, .09);
+    --font-body: "Figtree", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @font-face {
+    font-family: "Figtree"; font-style: normal; font-weight: 300 900;
+    font-display: swap; src: url("../fonts/figtree-var.woff2") format("woff2");
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--color-bg); color: var(--color-text);
+    font: 400 15px/1.55 var(--font-body);
+  }
+  a { color: var(--color-accent-700); text-underline-offset: 3px; }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--color-accent-600); outline-offset: 2px; }
+
+  /* ── header row ── */
+  .hdr {
+    position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+    gap: 14px; padding: 8px 16px; background: var(--color-card);
+    border-bottom: 1px solid rgba(32, 30, 29, .16);
+  }
+  .hdr-brand { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+  .hdr-mark {
+    width: 24px; height: 24px; border-radius: 7px; background: var(--color-accent-700);
+    display: grid; place-items: center; font: 700 11px/1 var(--font-body);
+    color: var(--on-accent-700);
+  }
+  .hdr-word { font: 700 14px/1 var(--font-body); letter-spacing: -.01em; color: var(--color-text); }
+  .hdr-pill {
+    display: flex; align-items: center; height: 30px; padding: 0 10px;
+    border-radius: 999px; font: 400 12.5px/1 var(--font-body);
+    color: var(--color-neutral-800); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .hdr-pill[aria-current="page"] {
+    background: var(--color-accent-100); color: var(--color-accent-800); font-weight: 600;
+  }
+  .hdr-search {
+    flex: 0 1 288px; display: flex; align-items: center; gap: 7px;
+    background: var(--color-card); border: 1.5px solid var(--line-strong);
+    border-radius: 999px; padding: 0 12px; height: 32px;
+  }
+  .hdr-search input {
+    flex: 1; min-width: 0; border: 0; background: none; font: 400 13px/1 var(--font-body);
+    color: var(--color-text); padding: 0;
+  }
+  .hdr-search input::placeholder { color: var(--color-neutral-800); }
+  .hdr-search input:focus { outline: none; }
+  kbd {
+    font: 600 11px/1 var(--mono); color: var(--color-neutral-800);
+    border: 1px solid rgba(32, 30, 29, .3); border-radius: 4px; padding: 2px 4px;
+  }
+  .hdr-skip {
+    margin-left: auto; display: flex; align-items: center; height: 30px; padding: 0 10px;
+    border-radius: 999px; font: 600 12px/1 var(--font-body);
+    color: var(--color-accent-800); background: var(--color-accent-100);
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+
+  /* ── frame ── */
+  .frame { display: flex; align-items: stretch; min-height: calc(100vh - 49px); }
+
+  /* ── the disclosure-tree rail ── */
+  .rail {
+    width: 270px; flex: none; background: var(--color-surface);
+    border-right: 1px solid var(--line); padding: 12px 0 16px 10px;
+    display: flex; flex-direction: column; gap: 2px;
+    position: sticky; top: 49px; max-height: calc(100vh - 49px); overflow-y: auto;
+  }
+  .rail-head {
+    display: flex; align-items: center; gap: 6px; margin: 0 8px 8px 8px;
+  }
+  .rail-head h2 {
+    flex: 1; font: 600 11.5px/1 var(--font-body); letter-spacing: .05em;
+    text-transform: uppercase; color: var(--color-neutral-800); margin: 0;
+  }
+  .rail-btn {
+    height: 26px; padding: 0 9px; border: 1px solid rgba(32, 30, 29, .24);
+    border-radius: 999px; background: var(--color-card);
+    font: 600 11px/1 var(--font-body); color: var(--color-neutral-800); cursor: pointer;
+  }
+  .rail-btn:hover { background: var(--color-accent-100); }
+  details.book { margin-right: 10px; }
+  details.book > summary {
+    display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 2px 10px;
+    border-radius: 10px; cursor: pointer; list-style: none;
+    border-left: 3px solid transparent;
+  }
+  details.book > summary::-webkit-details-marker { display: none; }
+  details.book > summary:hover { background: var(--color-neutral-200); }
+  .bnum { font: 700 12px/1 var(--font-body); width: 20px; flex: none; }
+  .btitle { flex: 1; font: 600 13px/1.2 var(--font-body); color: var(--color-neutral-900); }
+  .bcount { font: 400 11.5px/1 var(--font-body); color: var(--color-neutral-800); }
+  .bchev { flex: none; transition: transform .12s; color: var(--color-neutral-700); }
+  details.book[open] > .bchev, details.book[open] > summary .bchev { transform: rotate(90deg); }
+  .b-t0 .bnum { color: var(--color-neutral-700); }
+  .b-t1 .bnum { color: var(--color-accent-2-700); }
+  .b-t2 .bnum { color: var(--color-accent-800); }
+  details.book.here > summary {
+    background: var(--color-accent-200); border-left-color: var(--color-accent-700);
+  }
+  details.book.here > summary .btitle { font-weight: 700; color: var(--color-text); }
+  .chapters { display: flex; flex-direction: column; gap: 1px; padding: 3px 0 6px 14px; }
+  .ch {
+    display: flex; align-items: baseline; gap: 8px; padding: 4px 10px;
+    border-radius: 9px; font: 600 12.5px/1.35 var(--font-body);
+    color: var(--color-text); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .ch:hover { background: var(--color-neutral-200); }
+  .chno { font: 600 11px/1.35 var(--mono); color: var(--color-neutral-700); flex: none; min-width: 26px; }
+  .ch.here {
+    background: var(--color-accent-700); color: var(--on-accent-700);
+    text-decoration: none; font-weight: 700;
+  }
+  .ch.here .chno { color: var(--on-accent-700); }
+  .ch.missing {
+    color: var(--color-neutral-700); font-weight: 400; font-style: italic;
+    text-decoration: none;
+  }
+  .rail-hint { margin: 10px 8px 0; font: 400 11.5px/1.4 var(--font-body); color: var(--color-neutral-800); }
+
+  /* ── the collapsed 48px strip ── */
+  .strip {
+    display: none; width: 48px; flex: none; background: var(--color-surface);
+    border-right: 1px solid var(--line); flex-direction: column; align-items: center;
+    gap: 6px; padding: 10px 0; position: sticky; top: 49px;
+    max-height: calc(100vh - 49px); overflow-y: auto;
+  }
+  .strip-btn {
+    width: 28px; height: 28px; padding: 0; border: 1px solid rgba(32, 30, 29, .24);
+    border-radius: 999px; background: var(--color-card); display: grid;
+    place-items: center; cursor: pointer; color: var(--color-neutral-800);
+  }
+  .strip-rule { width: 28px; height: 1px; background: rgba(32, 30, 29, .16); margin: 2px 0; }
+  .strip a {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    font: 700 11.5px/1 var(--font-body); text-decoration: none;
+  }
+  .strip a.b-t0 { background: var(--color-neutral-200); color: var(--color-neutral-800); }
+  .strip a.b-t1 { background: var(--color-accent-2-200); color: var(--color-accent-2-800); }
+  .strip a.b-t2 { background: #f8d9cf; color: var(--color-accent-900); }
+  .strip a.here {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: var(--color-accent-700); color: var(--on-accent-700);
+  }
+  body.rail-collapsed .rail { display: none; }
+  body.rail-collapsed .strip { display: flex; }
+
+  /* ── main column ── */
+  .main { flex: 1; min-width: 0; padding: 16px 20px 40px; }
+  .main-inner { max-width: 900px; }
+  .crumb { font: 400 12px/1.4 var(--font-body); color: var(--color-neutral-800); margin: 0 0 8px; }
+  .crumb a { color: var(--color-accent-800); }
+  .titlerow { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 6px; }
+  h1 {
+    font: 700 22px/1.2 var(--font-body); letter-spacing: -.02em; margin: 0;
+    color: var(--color-text);
+  }
+  .chip {
+    font: 600 11.5px/1 var(--font-body); color: var(--color-accent-800);
+    background: var(--color-accent-100); border: 1px solid var(--color-accent-300);
+    padding: 5px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .lead { font: 400 13.5px/1.6 var(--font-body); color: var(--color-neutral-800); max-width: 680px; }
+
+  /* ── the content card ── */
+  .page {
+    background: var(--color-card); border: 1px solid rgba(32, 30, 29, .16);
+    border-radius: 14px; padding: 22px 28px 26px; margin-top: 12px;
+  }
+  .page h2 {
+    font: 700 17px/1.25 var(--font-body); letter-spacing: -.01em;
+    color: var(--color-accent-800); margin: 30px 0 10px;
+    border-bottom: 1px solid var(--row-line); padding-bottom: 5px;
+  }
+  .page h2:first-child { margin-top: 0; }
+  .page h3 { font: 700 14.5px/1.3 var(--font-body); margin: 22px 0 6px; }
+  code { font-family: var(--mono); font-size: 12.5px; }
+  pre.equations {
+    background: var(--color-neutral-100); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; white-space: pre-wrap;
+    overflow-x: auto; font: 400 12.5px/1.55 var(--mono);
+  }
+  blockquote {
+    border-left: 3px solid var(--color-accent-2-700); margin: 12px 0;
+    padding: 4px 14px; background: var(--color-neutral-100); border-radius: 0 10px 10px 0;
+  }
+  figure { margin: 18px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 10px; display: block; }
+  figcaption { font: 400 12px/1.5 var(--font-body); color: var(--color-neutral-800); margin-top: 5px; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th {
+    text-align: left; font: 600 11.5px/1.3 var(--font-body); letter-spacing: .05em;
+    text-transform: uppercase; color: var(--color-neutral-900);
+    background: var(--color-neutral-300); padding: 7px 8px;
+    border: 1px solid var(--line);
+  }
+  td { border: 1px solid var(--row-line); padding: 6px 8px; vertical-align: top; }
+  ul { padding-left: 22px; }
+  .src { font-size: 12px; color: var(--color-neutral-800); }
+  .note { font-size: 13px; color: var(--color-neutral-800); font-style: italic; }
+  .absent { font-weight: 600; }
+
+  /* ── the Contents page ── */
+  .toc-status { font: 600 12.5px/1.4 var(--font-body); color: var(--color-neutral-900); margin: 0; }
+  .toc-book { margin-top: 22px; }
+  .toc-bhead { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; }
+  .toc-bnum {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    font: 700 12px/1 var(--font-body); flex: none; align-self: center;
+  }
+  .toc-book .b-t0 { background: var(--color-neutral-200); color: var(--color-neutral-800); }
+  .toc-book .b-t1 { background: var(--color-accent-2-200); color: var(--color-accent-2-800); }
+  .toc-book .b-t2 { background: #f8d9cf; color: var(--color-accent-900); }
+  .toc-bhead h2 { font: 700 17px/1.2 var(--font-body); letter-spacing: -.01em; margin: 0; }
+  .toc-bhead .bcount { font: 400 12px/1 var(--font-body); }
+  .toc-card {
+    background: var(--color-card); border: 1px solid rgba(32, 30, 29, .16);
+    border-radius: 14px; overflow: hidden;
+  }
+  .toc-card table { margin: 0; border-collapse: collapse; }
+  .toc-card th { border: none; border-bottom: 1px solid var(--line); }
+  .toc-card td { border: none; border-bottom: 1px solid var(--row-line); padding: 9px 8px; }
+  .toc-card tr:last-child td { border-bottom: none; }
+  .toc-card td:first-child { font: 600 12px/1.2 var(--mono); color: var(--color-neutral-800); padding-left: 14px; width: 44px; }
+  .toc-card td a { font: 600 13.5px/1.3 var(--font-body); color: var(--color-text); }
+  .toc-card td code { color: var(--color-neutral-800); }
+  .toc-card td.missing { color: var(--color-neutral-700); font-style: italic; }
+
+  @media (max-width: 860px) {
+    .rail, .strip { display: none !important; }
+    .hdr-search { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="hdr">
+<a class="hdr-brand" href="index.html"><span class="hdr-mark">SB</span><span class="hdr-word">Guidebook</span></a>
+<nav aria-label="Sections"><a class="hdr-pill" href="index.html">Contents</a></nav>
+<label class="hdr-search" aria-label="Search the guidebook">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8c491a" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+<input id="guide-search" type="search" placeholder="Title, method or mnemonic" />
+<kbd aria-hidden="true">/</kbd>
+</label>
+<a class="hdr-skip" href="#content">Skip to contents</a>
+</header>
+<div class="frame">
+<nav class="rail" id="rail" aria-label="Guidebook contents">
+<div class="rail-head">
+<h2>18 books · 97 chapters</h2>
+<button type="button" class="rail-btn" id="rail-closeall">Collapse all</button>
+<button type="button" class="rail-btn" id="rail-collapse" aria-label="Collapse the contents rail" title="Collapse the rail ([)">‹</button>
+</div>
+<details class="book b-t0"><summary><span class="bnum">01</span><span class="btitle">Prep</span><span class="bcount">13</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="formation temperature ftemp_grad" href="ftemp_grad.html"><span class="chno">1.1</span>Formation Temperature</a>
+<a class="ch" data-k="pre-calculation (p / t / rmf / ct / cxo) precalc" href="precalc.html"><span class="chno">1.2</span>Pre-Calculation (P / T / Rmf / Ct / Cxo)</a>
+<a class="ch" data-k="bad-hole qc flag badhole" href="badhole.html"><span class="chno">1.3</span>Bad-Hole QC Flag</a>
+<a class="ch" data-k="data conditioning flags condflag" href="condflag.html"><span class="chno">1.4</span>Data Conditioning Flags</a>
+<a class="ch" data-k="neutron matrix conversion nphimat" href="nphimat.html"><span class="chno">1.5</span>Neutron Matrix Conversion</a>
+<a class="ch" data-k="gas correction (density, iterated) gascorr" href="gascorr.html"><span class="chno">1.6</span>Gas Correction (density, iterated)</a>
+<a class="ch" data-k="gr hole-size correction gr_hole_corr" href="gr_hole_corr.html"><span class="chno">1.7</span>GR Hole-Size Correction</a>
+<a class="ch" data-k="neutron environmental correction nphi_env_corr" href="nphi_env_corr.html"><span class="chno">1.8</span>Neutron Environmental Correction</a>
+<a class="ch" data-k="density hole-size correction rhob_hole_corr" href="rhob_hole_corr.html"><span class="chno">1.9</span>Density Hole-Size Correction</a>
+<a class="ch" data-k="gr normalization (two-point percentile) gr_normalize" href="gr_normalize.html"><span class="chno">1.10</span>GR Normalization (Two-Point Percentile)</a>
+<a class="ch" data-k="synthetic log (knn predict) log_predict" href="log_predict.html"><span class="chno">1.11</span>Synthetic Log (KNN Predict)</a>
+<a class="ch" data-k="depth shift depth_shift" href="depth_shift.html"><span class="chno">1.12</span>Depth Shift</a>
+<a class="ch" data-k="splice curves splice" href="splice.html"><span class="chno">1.13</span>Splice Curves</a>
+</div></details>
+<details class="book b-t1"><summary><span class="bnum">02</span><span class="btitle">Condition</span><span class="bcount">6</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="despike despike" href="despike.html"><span class="chno">2.1</span>Despike</a>
+<a class="ch" data-k="smooth smooth" href="smooth.html"><span class="chno">2.2</span>Smooth</a>
+<a class="ch" data-k="clip clip" href="clip.html"><span class="chno">2.3</span>Clip</a>
+<a class="ch" data-k="fill gaps fill_gaps" href="fill_gaps.html"><span class="chno">2.4</span>Fill Gaps</a>
+<a class="ch" data-k="flip polarity flip" href="flip.html"><span class="chno">2.5</span>Flip Polarity</a>
+<a class="ch" data-k="normalize normalize" href="normalize.html"><span class="chno">2.6</span>Normalize</a>
+</div></details>
+<details class="book b-t2"><summary><span class="bnum">03</span><span class="btitle">Frame</span><span class="bcount">2</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="block (upscale) block" href="block.html"><span class="chno">3.1</span>Block (Upscale)</a>
+<a class="ch" data-k="bed detect bed_detect" href="bed_detect.html"><span class="chno">3.2</span>Bed Detect</a>
+</div></details>
+<details class="book b-t0"><summary><span class="bnum">04</span><span class="btitle">VSH</span><span class="bcount">2</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="vsh from gamma ray vsh_gr" href="vsh_gr.html"><span class="chno">4.1</span>VSH from Gamma Ray</a>
+<a class="ch" data-k="vsh from density-neutron vsh_dn" href="vsh_dn.html"><span class="chno">4.2</span>VSH from Density-Neutron</a>
+</div></details>
+<details class="book b-t1"><summary><span class="bnum">05</span><span class="btitle">Porosity</span><span class="bcount">7</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="porosity from density phi_den" href="phi_den.html"><span class="chno">5.1</span>Porosity from Density</a>
+<a class="ch" data-k="porosity from density-neutron phi_dn" href="phi_dn.html"><span class="chno">5.2</span>Porosity from Density-Neutron</a>
+<a class="ch" data-k="porosity from bateman-konen n-d crossplot phi_dnbk" href="phi_dnbk.html"><span class="chno">5.3</span>Porosity from Bateman-Konen N-D Crossplot</a>
+<a class="ch" data-k="porosity from sonic phi_son" href="phi_son.html"><span class="chno">5.4</span>Porosity from Sonic</a>
+<a class="ch" data-k="porosity ceiling (φmax) phimax" href="phimax.html"><span class="chno">5.5</span>Porosity Ceiling (φmax)</a>
+<a class="ch" data-k="ssc — sand-silt-clay (kuttan) ssc" href="ssc.html"><span class="chno">5.6</span>SSC — Sand-Silt-Clay (Kuttan)</a>
+<a class="ch" data-k="sspw — sandstone petrophysical workflow sspw" href="sspw.html"><span class="chno">5.7</span>SSPW — Sandstone Petrophysical Workflow</a>
+</div></details>
+<details class="book b-t2"><summary><span class="bnum">06</span><span class="btitle">Lithology</span><span class="bcount">1</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="apparent matrix (mid plot: umaa / rhomaa) midplot" href="midplot.html"><span class="chno">6.1</span>Apparent Matrix (MID plot: UMAA / RHOMAA)</a>
+</div></details>
+<details class="book b-t0"><summary><span class="bnum">07</span><span class="btitle">Saturation</span><span class="bcount">7</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="sw — archie sw_arch" href="sw_arch.html"><span class="chno">7.1</span>SW — Archie</a>
+<a class="ch" data-k="sw — indonesia (poupon-leveaux) sw_indo" href="sw_indo.html"><span class="chno">7.2</span>SW — Indonesia (Poupon-Leveaux)</a>
+<a class="ch" data-k="sw — typed simandoux equations sw_sim" href="sw_sim.html"><span class="chno">7.3</span>SW — typed Simandoux equations</a>
+<a class="ch" data-k="sw — rtc (clay + capillary correction) sw_rtc" href="sw_rtc.html"><span class="chno">7.4</span>SW — RtC (Clay + Capillary Correction)</a>
+<a class="ch" data-k="sw — imts (mineral-textural scaling) sw_imts" href="sw_imts.html"><span class="chno">7.5</span>SW — IMTS (Mineral-Textural Scaling)</a>
+<a class="ch" data-k="multimin — mineral inversion (retired · use sandimin) multimin" href="multimin.html"><span class="chno">7.6</span>Multimin — Mineral Inversion (retired · use SandiMin)</a>
+<a class="ch" data-k="sw — saturation-height sw_height" href="sw_height.html"><span class="chno">7.7</span>SW — Saturation-Height</a>
+</div></details>
+<details class="book b-t1"><summary><span class="bnum">08</span><span class="btitle">Permeability</span><span class="bcount">3</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="permeability — wyllie-rose perm_wyllie_rose" href="perm_wyllie_rose.html"><span class="chno">8.1</span>Permeability — Wyllie-Rose</a>
+<a class="ch" data-k="permeability — coates perm_coates" href="perm_coates.html"><span class="chno">8.2</span>Permeability — Coates</a>
+<a class="ch" data-k="permeability — por-perm transform perm_transform" href="perm_transform.html"><span class="chno">8.3</span>Permeability — Por-Perm Transform</a>
+</div></details>
+<details class="book b-t2"><summary><span class="bnum">09</span><span class="btitle">Rock Typing</span><span class="bcount">4</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="rock typing (fzi / r35 / pgs) rocktyping" href="rocktyping.html"><span class="chno">9.1</span>Rock Typing (FZI / R35 / PGS)</a>
+<a class="ch" data-k="lucia rock-fabric number (carbonate) lucia_rfn" href="lucia_rfn.html"><span class="chno">9.2</span>Lucia Rock-Fabric Number (carbonate)</a>
+<a class="ch" data-k="pittman pore-throat radii (r10–r75) pittman_rx" href="pittman_rx.html"><span class="chno">9.3</span>Pittman Pore-Throat Radii (r10–r75)</a>
+<a class="ch" data-k="rock type from cutoffs (electrofacies) rt_cutoff" href="rt_cutoff.html"><span class="chno">9.4</span>Rock Type from Cutoffs (electrofacies)</a>
+</div></details>
+<details class="book b-t0"><summary><span class="bnum">10</span><span class="btitle">ThinBeds</span><span class="bcount">1</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="thin beds — thomas-stieber thin_bed_ts" href="thin_bed_ts.html"><span class="chno">10.1</span>Thin Beds — Thomas-Stieber</a>
+</div></details>
+<details class="book b-t1"><summary><span class="bnum">11</span><span class="btitle">Facies</span><span class="bcount">2</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="electrofacies (k-means) electrofacies" href="electrofacies.html"><span class="chno">11.1</span>Electrofacies (K-means)</a>
+<a class="ch" data-k="electrofacies (gmm, soft) gmm_facies" href="gmm_facies.html"><span class="chno">11.2</span>Electrofacies (GMM, soft)</a>
+</div></details>
+<details class="book b-t2"><summary><span class="bnum">12</span><span class="btitle">Unconventional</span><span class="bcount">4</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="toc — passey δlogr + schmoker toc_passey" href="toc_passey.html"><span class="chno">12.1</span>TOC — Passey ΔlogR + Schmoker</a>
+<a class="ch" data-k="kerogen volume + om-corrected porosity kerogen" href="kerogen.html"><span class="chno">12.2</span>Kerogen volume + OM-corrected porosity</a>
+<a class="ch" data-k="gas-in-place (free + langmuir adsorbed) gip" href="gip.html"><span class="chno">12.3</span>Gas-in-place (free + Langmuir adsorbed)</a>
+<a class="ch" data-k="brittleness index (elastic / mineralogical) brittleness" href="brittleness.html"><span class="chno">12.4</span>Brittleness index (elastic / mineralogical)</a>
+</div></details>
+<details class="book b-t0"><summary><span class="bnum">13</span><span class="btitle">Plots &amp; Views</span><span class="bcount">6</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="log view tool_log_view" href="tool_log_view.html"><span class="chno">13.1</span>Log View</a>
+<a class="ch" data-k="histogram tool_histogram" href="tool_histogram.html"><span class="chno">13.2</span>Histogram</a>
+<a class="ch" data-k="crossplot tool_crossplot" href="tool_crossplot.html"><span class="chno">13.3</span>Crossplot</a>
+<a class="ch" data-k="pickett tool_pickett" href="tool_pickett.html"><span class="chno">13.4</span>Pickett</a>
+<a class="ch" data-k="correlation tool_correlation" href="tool_correlation.html"><span class="chno">13.5</span>Correlation</a>
+<a class="ch" data-k="vega chart tool_vega" href="tool_vega.html"><span class="chno">13.6</span>Vega Chart</a>
+</div></details>
+<details class="book b-t1"><summary><span class="bnum">14</span><span class="btitle">Data &amp; Sets</span><span class="bcount">8</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="intake (import any table) tool_intake" href="tool_intake.html"><span class="chno">14.1</span>Intake (import any table)</a>
+<a class="ch" data-k="statistics (tables) tool_statistics" href="tool_statistics.html"><span class="chno">14.2</span>Statistics (tables)</a>
+<a class="ch" data-k="reframe (resample a set) tool_reframe" href="tool_reframe.html"><span class="chno">14.3</span>Reframe (resample a set)</a>
+<a class="ch" data-k="data sets (deliveries) tool_data_sets" href="tool_data_sets.html"><span class="chno">14.4</span>Data Sets (deliveries)</a>
+<a class="ch" data-k="versions (labels + purge) tool_versions" href="tool_versions.html"><span class="chno">14.5</span>Versions (labels + purge)</a>
+<a class="ch" data-k="inspector tool_inspector" href="tool_inspector.html"><span class="chno">14.6</span>Inspector</a>
+<a class="ch" data-k="database inspector tool_db_inspector" href="tool_db_inspector.html"><span class="chno">14.7</span>Database Inspector</a>
+<a class="ch" data-k="sql query tool_sql_query" href="tool_sql_query.html"><span class="chno">14.8</span>SQL Query</a>
+</div></details>
+<details class="book b-t2"><summary><span class="bnum">15</span><span class="btitle">Batch &amp; Field</span><span class="bcount">7</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="workflow builder tool_workflow_builder" href="tool_workflow_builder.html"><span class="chno">15.1</span>Workflow Builder</a>
+<a class="ch" data-k="monte carlo tool_monte_carlo" href="tool_monte_carlo.html"><span class="chno">15.2</span>Monte Carlo</a>
+<a class="ch" data-k="cutoffs &amp; pay summary tool_pay_summary" href="tool_pay_summary.html"><span class="chno">15.3</span>Cutoffs &amp; Pay Summary</a>
+<a class="ch" data-k="cutoff sensitivity tool_cutoff_sensitivity" href="tool_cutoff_sensitivity.html"><span class="chno">15.4</span>Cutoff Sensitivity</a>
+<a class="ch" data-k="field dashboard tool_field_dashboard" href="tool_field_dashboard.html"><span class="chno">15.5</span>Field Dashboard</a>
+<a class="ch" data-k="field map tool_field_map" href="tool_field_map.html"><span class="chno">15.6</span>Field Map</a>
+<a class="ch" data-k="results qc (sw spread) tool_results_qc" href="tool_results_qc.html"><span class="chno">15.7</span>Results QC (Sw spread)</a>
+</div></details>
+<details class="book b-t0"><summary><span class="bnum">16</span><span class="btitle">Fits &amp; Analysis</span><span class="bcount">8</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="sandimin solver tool_sandimin" href="tool_sandimin.html"><span class="chno">16.1</span>SandiMin Solver</a>
+<a class="ch" data-k="machine learning tool_ml" href="tool_ml.html"><span class="chno">16.2</span>Machine Learning</a>
+<a class="ch" data-k="shf fit (cuddy / foil) tool_shf_fit" href="tool_shf_fit.html"><span class="chno">16.3</span>SHF Fit (Cuddy / FOIL)</a>
+<a class="ch" data-k="pc fit (thomeer) tool_thomeer_fit" href="tool_thomeer_fit.html"><span class="chno">16.4</span>Pc Fit (Thomeer)</a>
+<a class="ch" data-k="hfu clustering (fzi) tool_hfu" href="tool_hfu.html"><span class="chno">16.5</span>HFU Clustering (FZI)</a>
+<a class="ch" data-k="lorenz plot (flow units) tool_lorenz" href="tool_lorenz.html"><span class="chno">16.6</span>Lorenz Plot (flow units)</a>
+<a class="ch" data-k="facies tie-in tool_facies_tie" href="tool_facies_tie.html"><span class="chno">16.7</span>Facies Tie-in</a>
+<a class="ch" data-k="fluid contacts tool_fluid_contacts" href="tool_fluid_contacts.html"><span class="chno">16.8</span>Fluid Contacts</a>
+</div></details>
+<details class="book b-t1 here" open><summary><span class="bnum">17</span><span class="btitle">Core &amp; Petrography</span><span class="bcount">8</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<a class="ch" data-k="register core depth tool_depth_reg" href="tool_depth_reg.html"><span class="chno">17.1</span>Register Core Depth</a>
+<a class="ch" data-k="condition core photos tool_core_photos" href="tool_core_photos.html"><span class="chno">17.2</span>Condition Core Photos</a>
+<a class="ch here" data-k="photo log (core → curves) tool_photo_log" href="tool_photo_log.html" aria-current="page"><span class="chno">17.3</span>Photo Log (core → curves)</a>
+<a class="ch" data-k="condition plates tool_condition_plates" href="tool_condition_plates.html"><span class="chno">17.4</span>Condition Plates</a>
+<a class="ch" data-k="plate details tool_plate_details" href="tool_plate_details.html"><span class="chno">17.5</span>Plate Details</a>
+<a class="ch" data-k="pore area (thin sections) tool_pore_area" href="tool_pore_area.html"><span class="chno">17.6</span>Pore Area (thin sections)</a>
+<a class="ch" data-k="mineral classifier tool_mineral_classifier" href="tool_mineral_classifier.html"><span class="chno">17.7</span>Mineral Classifier</a>
+<a class="ch" data-k="plug qc tool_plug_qc" href="tool_plug_qc.html"><span class="chno">17.8</span>Plug QC</a>
+</div></details>
+<details class="book b-t2"><summary><span class="bnum">18</span><span class="btitle">Workspace &amp; Project</span><span class="bcount">8</span><svg class="bchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></summary>
+<div class="chapters">
+<span class="ch missing" data-k="zones tool_zones"><span class="chno">18.1</span>Zones</span>
+<span class="ch missing" data-k="tops &amp; autocorrelation tool_tops_editor"><span class="chno">18.2</span>Tops &amp; Autocorrelation</span>
+<span class="ch missing" data-k="equation editor tool_equation_editor"><span class="chno">18.3</span>Equation Editor</span>
+<span class="ch missing" data-k="sessions &amp; layouts tool_sessions_layouts"><span class="chno">18.4</span>Sessions &amp; Layouts</span>
+<span class="ch missing" data-k="processing history tool_processing_history"><span class="chno">18.5</span>Processing History</span>
+<span class="ch missing" data-k="composite log tool_composite"><span class="chno">18.6</span>Composite Log</span>
+<span class="ch missing" data-k="report &amp; deliverables tool_report"><span class="chno">18.7</span>Report &amp; Deliverables</span>
+<span class="ch missing" data-k="diagnostics tool_diagnostics"><span class="chno">18.8</span>Diagnostics</span>
+</div></details>
+<p class="rail-hint"><kbd>[</kbd> hides the rail · <kbd>/</kbd> searches</p>
+</nav>
+<nav class="strip" aria-label="Guidebook contents, collapsed">
+<button type="button" class="strip-btn" id="rail-expand" aria-label="Expand the contents rail" title="Expand the rail ([)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"></path></svg></button>
+<span class="strip-rule"></span>
+<a class="b-t0" href="index.html#b01" aria-label="Book 01, Prep">01</a>
+<a class="b-t1" href="index.html#b02" aria-label="Book 02, Condition">02</a>
+<a class="b-t2" href="index.html#b03" aria-label="Book 03, Frame">03</a>
+<a class="b-t0" href="index.html#b04" aria-label="Book 04, VSH">04</a>
+<a class="b-t1" href="index.html#b05" aria-label="Book 05, Porosity">05</a>
+<a class="b-t2" href="index.html#b06" aria-label="Book 06, Lithology">06</a>
+<a class="b-t0" href="index.html#b07" aria-label="Book 07, Saturation">07</a>
+<a class="b-t1" href="index.html#b08" aria-label="Book 08, Permeability">08</a>
+<a class="b-t2" href="index.html#b09" aria-label="Book 09, Rock Typing">09</a>
+<a class="b-t0" href="index.html#b10" aria-label="Book 10, ThinBeds">10</a>
+<a class="b-t1" href="index.html#b11" aria-label="Book 11, Facies">11</a>
+<a class="b-t2" href="index.html#b12" aria-label="Book 12, Unconventional">12</a>
+<a class="b-t0" href="index.html#b13" aria-label="Book 13, Plots &amp; Views">13</a>
+<a class="b-t1" href="index.html#b14" aria-label="Book 14, Data &amp; Sets">14</a>
+<a class="b-t2" href="index.html#b15" aria-label="Book 15, Batch &amp; Field">15</a>
+<a class="b-t0" href="index.html#b16" aria-label="Book 16, Fits &amp; Analysis">16</a>
+<a class="b-t1 here" href="index.html#b17" aria-current="true" aria-label="Book 17, Core &amp; Petrography">17</a>
+<a class="b-t2" href="index.html#b18" aria-label="Book 18, Workspace &amp; Project">18</a>
+</nav>
+<main class="main" id="content">
+<div class="main-inner">
+<p class="crumb"><a href="index.html">Guidebook</a> · <a href="index.html#b17">17 — Core &amp; Petrography</a></p>
+<div class="titlerow"><h1>Photo Log (core → curves)</h1><span class="chip">17.3 · pane</span></div>
+<div class="page"><!-- Authored walkthrough for the Photo Log tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Photo Log reads curves off conditioned core photographs: darkness,
+redness and texture, sampled every couple of centimetres down the whole
+cored interval. That makes the photograph the densest measurement made on
+the core itself &ndash; a plug table gives a few dozen samples, a
+photograph gives hundreds &ndash; and the traces it writes can anchor a
+depth registration, sit beside GR in a layout, or flag intervals worth a
+closer look. Reach for it after conditioning, never before.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-photolog.png"
+       alt="The Core layout with three depth strips and the CPHOTO_DARK curve beside GR, and the Photo Log pane with its trace previews" />
+  <figcaption>The built-in Core layout: three conditioned boxes stacked as
+    depth strips with their barrel gaps kept, CPHOTO_DARK beside GR, and
+    the Photo Log pane showing the DARK / RED / TEX previews after a
+    read.</figcaption>
+</figure>
+
+<ul>
+  <li><b>The outputs are image measures, not petrophysical
+    properties</b>, and the pane leads with why:</li>
+</ul>
+
+<pre class="equations">Reads darkness, redness and texture down the core. They are IMAGE measures, not
+petrophysical properties: darkness follows shale in most clastic sections without being
+a shale volume, which is why nothing here is called VSH.</pre>
+
+<ul>
+  <li><b>Depth runs across or down</b>, with a "Deepest end first" toggle
+    for a box laid out the other way round; <b>Runs of core</b> splits a
+    multi-row box into equal lanes, and the column table handles a packed
+    core-display plate whose barrels each carry their own depths
+    &ndash; detected from the picture, typed from the caption, never
+    guessed.</li>
+  <li><b>Check against</b> correlates each trace with a real log before
+    anything is written; <b>Light: Ultraviolet</b> switches the read to
+    fluorescence bands for a UV delivery.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; Core Imaging &#9656; Photo
+    Log&hellip;</b>, pick the conditioned delivery, set the lay-out, and
+    choose GR under Check against.</li>
+  <li><b>Read the trace</b> and judge the signed agreement before
+    saving anything.</li>
+  <li><b>Save as curves</b> (a custody dialog records who ran it and from
+    what), then <b>Build depth strips</b> for the log-view track.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The example read 737 samples from 3 photographs over
+1528.0&ndash;1542.9&nbsp;m: against GR, DARK +0.91, RED +0.94, TEX
+&minus;0.08. The sign is the QC: clay is dark and clay is radioactive, so
+darkness and GR should rise together, and a strongly negative agreement
+means the box was read the wrong way up &ndash; which a correlogram
+cannot tell from a genuine depth error, so the pane says it in words
+rather than proposing a shift. TEX staying near zero here is honest too:
+the lower unit's laminations run along the core, and texture measures
+spread <i>across</i> the core within each slab. Saving resampled the
+traces onto the well's own depth frame (395 samples, 99 of them inside
+the cored interval) by box average:</p>
+
+<pre class="equations">Written on the well's own depth frame (395 samples) so modules and plots can read them.
+The photograph was read at about 0.020 - each stored sample is the AVERAGE of the
+photograph samples inside it rather than one of them picked out, which would alias.</pre>
+
+<p>The strips land in their own CORE STRIP dataset, each box on its own
+interval, "so a gap between two runs stays a gap" &ndash; the example's
+10&nbsp;cm barrel gaps survive into the track. Rebuilding replaces the
+strips in place: a lane-count experiment leaves no STRIP_1, STRIP_2 trail
+behind.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Calibrate before you quote.</b> CPHOTO_DARK tracks shale in most
+    clastic sections; turning it into a shale volume is a calibration you
+    make against your own GR, which is why the curve refuses to be born
+    as VSH.</li>
+  <li><b>An interval photograph only.</b> A picture with no base depth is
+    a point sample with no axis to read along; it is refused rather than
+    stretched over a guessed thickness.</li>
+  <li><b>Depths outside the photographs stay empty.</b> The saved curves
+    are NaN off the cored interval &ndash; no picture, no value &ndash;
+    so a module reading them sees exactly where evidence exists.</li>
+</ul></div>
+</div>
+</main>
+</div>
+<script>
+  (function () {
+    var KEY = 'sbguide-rail';
+    function collapsed() { return document.body.classList.contains('rail-collapsed'); }
+    function setRail(c) {
+      document.body.classList.toggle('rail-collapsed', c);
+      try { localStorage.setItem(KEY, c ? '1' : '0'); } catch (e) {}
+    }
+    try { if (localStorage.getItem(KEY) === '1') setRail(true); } catch (e) {}
+    var toRail = document.getElementById('rail-collapse');
+    var toTree = document.getElementById('rail-expand');
+    if (toRail) toRail.addEventListener('click', function () { setRail(true); });
+    if (toTree) toTree.addEventListener('click', function () { setRail(false); });
+    var closeAll = document.getElementById('rail-closeall');
+    if (closeAll) closeAll.addEventListener('click', function () {
+      document.querySelectorAll('details.book').forEach(function (d) { d.open = false; });
+    });
+    document.addEventListener('keydown', function (e) {
+      var t = document.activeElement && document.activeElement.tagName;
+      if (t === 'INPUT' || t === 'TEXTAREA') return;
+      if (e.key === '[') setRail(!collapsed());
+      if (e.key === '/') {
+        var s = document.getElementById('guide-search');
+        if (s) { e.preventDefault(); setRail(false); s.focus(); }
+      }
+    });
+    var search = document.getElementById('guide-search');
+    if (search) search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      document.querySelectorAll('details.book').forEach(function (book) {
+        var any = false;
+        book.querySelectorAll('.ch').forEach(function (row) {
+          var hit = !q || (row.dataset.k || '').indexOf(q) !== -1;
+          row.hidden = !hit;
+          if (hit) any = true;
+        });
+        book.hidden = !!q && !any;
+        if (q && any) book.open = true;
+      });
+    });
+  })();
+</script>
+</body>
+</html>

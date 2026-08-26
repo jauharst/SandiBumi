@@ -1,0 +1,89 @@
+<!-- Authored walkthrough for the Plate Details tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Plate Details is where every picture in the project states what it is:
+its depth, its field-of-view width, whether it was impregnated, and what
+stain it carries. None of those can be read off the pixels &ndash; the
+evidence for "this is blue epoxy" is the blue about to be measured
+&ndash; so they are declared here, and every measurement downstream
+either uses the declaration or refuses without it. Reach for it right
+after importing a petrography delivery, and again whenever a plate turns
+out to have been delivered at the wrong depth.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-platedetails.png"
+       alt="The Plate Details table with the thin-section delivery: per-plate scale, preparation, and the delivery-wide controls" />
+  <figcaption>The example delivery declared: 2.5 mm field of view and
+    blue-dyed epoxy across ten plates, then corrected per plate &ndash;
+    one plate marked Plain (never impregnated), two with their scale
+    cleared because nothing states it.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Scale is a field-of-view width in mm, never &micro;m per
+    pixel.</b> The stored copy is resampled, so a per-pixel scale belongs
+    to whichever copy it was measured on; "this picture is 2.5&nbsp;mm
+    across" is true of every copy. The <b>&#8697;</b> button on each row
+    measures a scale bar burned into the plate: drag along the bar, type
+    its printed length, and the field of view follows as a pure ratio.</li>
+  <li><b>Delivery-wide values fill the blanks; what is stored belongs to
+    the plate.</b> One impregnation run and one staining bath are
+    delivery facts, but magnification genuinely varies, so the per-plate
+    row always wins. Applying to a whole delivery requires choosing one
+    dataset first; with "All datasets" selected the pane refuses:</li>
+</ul>
+
+<pre class="equations">Choose one dataset first — scale and preparation belong to a delivery</pre>
+
+<ul>
+  <li><b>Every value is written as given, including empty.</b> A scale
+    typed by mistake must be clearable; the two lower plates here had
+    their field of view cleared to "none", which is the honest state,
+    and everything dimensional refuses them by name rather than
+    reporting pixels.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Advance &#9656; Petrography &#9656; Plate
+    Details&hellip;</b> and select the delivery's dataset.</li>
+  <li>Enter the delivery-wide field of view and preparation, press
+    <b>Apply to whole delivery</b>, then walk the rows and correct the
+    exceptions &ndash; the unimpregnated plate, the odd
+    magnification, the plate whose caption states no scale.</li>
+  <li>Fix a wrong depth in the row (a base above its top is refused, not
+    swapped), or move a whole delivery with <b>Shift every plate
+    by</b>.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>A blank base means a point sample and it is a petrophysical statement:
+a thin section is cut from one plug and has no thickness, so it is
+anchored at its depth rather than stretched over a guessed interval, and
+a shift moves it without giving it one. On the example delivery the
+declarations drive everything that follows in this book: Pore Area
+refuses the Plain plate by name, measures area fractions on all nine
+others, and writes pore diameters only for the seven that kept a scale.
+A declaration is not a formality &ndash; it is the difference between a
+refusal you can read and a wrong number that plots.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Unknown preparation is refused, not assumed either way.</b> A
+    blue rule over an unimpregnated section does not fail; it returns a
+    porosity assembled from blue-ish minerals and stain bleed that then
+    plots against core helium porosity looking entirely reasonable.</li>
+  <li><b>A magnification is not a field of view.</b> "10x" needs the
+    camera sensor and tube factor to become micrometres, and the
+    delivery states neither; measure the scale bar instead.</li>
+  <li><b>Applying a scale to the delivery never overwrites
+    preparation.</b> Each plate keeps what the section was made of; a
+    scale must never quietly rewrite a stain.</li>
+</ul>
