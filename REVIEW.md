@@ -383,6 +383,32 @@ Every figure was eyeballed against its chapter's text before shipping.
       faithful path is restore_log_set from the archive, which reproduced every census
       exactly. The canonical state was verified restored before any figure was taken.
 
+## 2026-08-26 — The B_QV box now admits what Calibrate RtC fits (the C0 ruling, applied to the second coefficient it hit)
+
+- [ ] **The increment-5 finding is resolved on the widen-the-box side, following your C0
+      precedent from this morning.** Calibrate RtC fitted B_QV = 1.4529 on SANDI-01 (Qv built
+      from the guessed CEC 8, R² 0.936, n = 52); Apply wrote it to zone_params, and the sw_rtc
+      pane then refused the same number against its [−1, 1] box — so the fitted well silently
+      ran a calibration nobody could type in, splitting a field run. The fit is never bounded
+      (a bounded fit is a different fit), so as with C0 = −1.4458 the box is what moved: B_QV
+      now declares [−10, 10], A_CAP's bracket, because the equation only consumes b·Qv and b's
+      magnitude rides whatever Qv scale it was fitted with — the study's 0.0057 is their
+      calibration on their Qv scale, not a bound. The alternative in the task note (fit pane
+      warns/refuses on an out-of-manifest coefficient) was rejected: that gate would have
+      refused your legitimate C0 this morning, and it elevates a typing box into a physics
+      judgement. Pinned by `the_module_admits_the_qv_coefficient_its_own_calibration_fits`,
+      which also asserts the box stays finite. To verify: rerun Calibrate RtC on the sandbox
+      with CEC 8, Apply, then open the sw_rtc pane and type the fitted B_QV — no refusal, and
+      the field run and the fitted well now agree.
+- [ ] **Flagged, not changed (say the word and it becomes its own increment):** when the fit
+      builds Qv from CEC (no QV log), CEC and RHOG are held-fixed constants of the calibration
+      exactly like RSF — but Apply writes only A_CAP/B_QV/C0/RSF, so a later run entering a
+      different CEC pairs the fitted b with a different Qv scale and is quietly for different
+      rock. By the "held-fixed constants travel" rule they should ride the same batch when the
+      fit used them.
+
+## 2026-08-26 — Second pass, increment 5: Lithology and Saturation, ten chapters with the RtC calibration fitted on camera
+
 - [ ] **The ten chapters** (ssc, sspw, midplot, sw_arch, sw_indo, sw_sim, sw_rtc, sw_imts,
       sw_height, and the multimin retired-pointer) follow the addendum skeleton with 22 new
       light-theme screenshots — pane + result each, plus the two Advance-method refusals and
