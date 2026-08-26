@@ -33,17 +33,17 @@ this table, so every figure above reads low by whatever those sections cover.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 114 | — | 19 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 82 | — | 16 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 123 | — | 30 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 224 | 2026-08-13 | 53 |
-| `permeability` | Permeability interpretation | Not exercised | 0 / 45 | — | 7 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 217 | 2026-08-13 | 52 |
+| `permeability` | Permeability interpretation | Not exercised | 0 / 59 | — | 8 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 20 | — | 4 |
-| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 38 | — | 8 |
+| `rock-typing` | Rock typing and flow units | Not exercised | 0 / 52 | — | 9 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 11 | — | 10 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 47 | — | 22 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 56 | 2026-07-18 | 11 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 206 | 2026-07-19 | 35 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 23 | 2026-08-13 | 7 |
-| `workflow` | Multi-well workflow chains | Not exercised | 0 / 53 | — | 11 |
+| `workflow` | Multi-well workflow chains | Not exercised | 0 / 67 | — | 12 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 40 | 2026-07-18 | 12 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 24 | — | 7 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 72 | — | 18 |

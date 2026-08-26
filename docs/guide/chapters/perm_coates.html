@@ -1,36 +1,109 @@
 <!-- Authored walkthrough for the perm_coates guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the refusal, the C-convention factor measured exactly. -->
 
-<h2>Step by step: Coates, and which C you are actually holding</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>The Coates free-fluid form: porosity squared times the free-to-bound water ratio,
-squared again. Two things the pane's documentation pins down before you type
-anything: this is the Coates &amp; Denoo 1981 producibility form, <b>not</b> the
-heavier Coates &amp; Dumanoir 1974 model, and the constant C is scale-dependent, so
-published values are not interchangeable: 100 in this fractional form is the same
-rock as 10 in the percent-porosity NMR form, and Schlumberger's K-4 chart states 70.
-A quoted C without its convention is a trap.</p>
+<p>The Coates free-fluid form: porosity squared times the free-to-bound
+water ratio, squared again. It is the second published-constant estimate on
+the permeability shelf, and the one whose constant is most often quoted
+wrongly, because C is scale-dependent and travels between conventions
+without its units.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
+
+<pre class="equations">PERM = (C · PHIE² · (1 − SWE_IRR) / SWE_IRR)²   [mD]</pre>
+
+<p>The pane's documentation pins down two things before you type anything.
+First, this is the Coates and Denoo 1981 producibility form, <b>not</b> the
+Coates and Dumanoir 1974 model, which replaces both m and n with a common
+exponent driven by porosity, resistivity at irreducible and hydrocarbon
+density: a different and much heavier model this module does not implement.
+Second, <b>C is scale-dependent and published values are not
+interchangeable</b>: 100 in this fractional form is the same rock as 10 in
+the percent-porosity NMR Timur-Coates form, and the Schlumberger K-4 chart
+states 70. Those are unit conventions, not disagreements about rock. A
+quoted C without its convention is a trap, and the variant below prices
+it.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>C has no default for exactly that reason. With porosity and the
+irreducible pick entered and the constant left empty:</p>
+
+<pre class="equations">precondition 'CONST_COATES' failed before perm_coates ran: value NaN
+at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>CONST_COATES 70</b>: the Schlumberger K-4 chart value, exactly as the
-    module's own documentation records it for this fractional form.</li>
-  <li><b>SWE_IRR 0.16</b>: the SSC-derived irreducible pick, consistent across the
-    whole walkthrough.</li>
-  <li><b>PHIE</b> pinned to PHIE_DEN.</li>
+  <li><b>CONST_COATES 70</b>: the Schlumberger K-4 chart value, exactly as
+    the module's documentation records it for this fractional form.</li>
+  <li><b>SWE_IRR 0.16</b>: the same SSC-derived irreducible pick the whole
+    permeability shelf shares.</li>
+  <li><b>PHIE pinned to PHIE_DEN.</b></li>
 </ul>
 
 <figure>
   <img src="../img/guide-permcoates-pane.png"
        alt="The Coates pane with the K-4 constant and the irreducible pick entered" />
-  <figcaption>C 70 with its convention stated in the reference field.</figcaption>
+  <figcaption>C 70 with its convention stated; the custody line records
+    which published form the number belongs to.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>, median 65 mD in the sands: close to Wyllie-Rose's
-73, an order of magnitude above the core-calibrated 2.8. The three-way spread across
-this shelf is the honest summary of log-derived permeability: the model chooses the
-answer, so the model must be named, calibrated where core allows, and cross-checked
-where it does not.</p>
+<ol>
+  <li>Decide which convention your C belongs to before entering it; the
+    pane's documentation lists the three common ones.</li>
+  <li>Open <b>Petrophysics ▸ Permeability ▸ Coates</b>, enter C and
+    SWE_IRR with their sources, and press <b>Run Coates</b>.</li>
+</ol>
+
+<figure>
+  <img src="../img/guide-permcoates-refused.png"
+       alt="The Coates pane refusing to run without a constant" />
+  <figcaption>No constant, no run: a shipped default here would be a silent
+    convention choice.</figcaption>
+</figure>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. Run live: median PERM_COATES <b>617.46 mD</b> in the gas
+sand, <b>70.94 mD</b> in the wet sand, 94.68 over the section, and a
+geometric factor of <b>3.06 high</b> against the 35 depth-matched core
+plugs.</p>
+
+<p>The convention demonstration: entering C 100 on the same picks lifts the
+gas-sand median to <b>1260.13 mD</b>. The ratio is 1260.13 / 617.46 =
+2.0408, which is exactly (100/70)², because C enters inside the square.
+That is what quoting a C from the wrong convention costs: a factor of two
+on every sample, computed cleanly, plotted plausibly, with nothing on the
+surface to say so. Restoring C 70 reproduces 617.46 exactly.</p>
+
+<pre class="equations">SELECT round(median(c.value) FILTER (WHERE sc.gr &lt; 60 AND sc.res_deep &gt;= 10), 2)
+FROM computed_curves c JOIN standard_curves sc
+  ON c.well_id = sc.well_id AND c.depth = sc.depth
+WHERE c.curve_name = 'PERM_COATES' AND NOT isnan(c.value)</pre>
+
+<figure>
+  <img src="../img/guide-permcoates-result.png"
+       alt="The Coates run reporting three clean wells" />
+  <figcaption>Three clean wells at C 70; the same run at C 100 reads exactly
+    (100/70)² higher everywhere.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Never copy a C between studies without checking which form it was
+    fitted in. The factor is exact and silent.</li>
+  <li>Coates and Wyllie-Rose land within a factor of 1.5 of each other here
+    (617 versus 911 in the gas sand) and both sit a factor of three or more
+    above the core-calibrated transform. Agreement between two
+    published-constant models is not calibration; they share their
+    assumptions.</li>
+  <li>The free-fluid term collapses as SWE_IRR approaches 1, so shaly
+    intervals read near-zero permeability by construction; interpret those
+    samples through the transform or a thin-bed treatment instead.</li>
+</ul>

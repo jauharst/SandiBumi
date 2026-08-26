@@ -1,6 +1,47 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
-## 2026-08-26 — Second pass, increment 5: Lithology and Saturation, ten chapters with the RtC calibration fitted on camera
+## 2026-08-27 — Second pass, increment 6: Permeability and Rock Typing, eight chapters — and every figure now composed for its own workflow
+
+- [ ] **The eight chapters** (perm_wyllie_rose, perm_coates, perm_transform, rocktyping,
+      lucia_rfn, pittman_rx, rt_cutoff, thin_bed_ts) follow the addendum skeleton with 20 new
+      light-theme screenshots. Open docs/guide/book/perm_transform.html and read the shelf.
+- [ ] **Your screenshot instruction is now the standing discipline.** Every figure gets a
+      workspace composed for that chapter's workflow: a per-chapter layout (Guide Perm WR,
+      Guide Thin Beds, …) showing the module's input and output curves, scrolled to an
+      expressive window, panes closed down to what the chapter is about. The eight layouts
+      stay saved in the sandbox project so the coming re-shoot of increments 1–5 uses them.
+- [ ] **The permeability shelf prices its own choices**: TIMUR vs MORRIS_BIGGS_GAS is a factor
+      of twelve in the gas sand (910.68 vs 75.36 mD, same picks); Coates C 100 vs 70 is
+      exactly (100/70)² = 2.0408 (1260.13 vs 617.46); both published families sit a geometric
+      3–4× above the 35 depth-matched plugs while the fitted transform explains the sands —
+      and the transform chapter measures why it still reads 0.484 against its own plugs
+      (fitted on CPOR, run on PHIE_DEN, median difference +0.0144 × slope 17.92).
+- [ ] **Two crossplot figures teach with the plot machinery**: the T-S triangle drawn over
+      VSH×PHIT_DEN with its draggable endpoint handles, and the phi-k plot whose exponential
+      fit hands back exactly the transform's own coefficients at R² = 1.000 — the chapter
+      explains why that proves nothing and the off-line core diamonds are the measurement.
+- [ ] **Refusals on camera**: the inverted cutoff ladder (best class allowed more shale than
+      moderate) quoted verbatim with the rule stated; SWE_IRR, CONST_COATES, PT_A and
+      PHI_SD_MAX all refusing to default. Lucia runs 3 clean on a clastic section on purpose —
+      the chapter's lesson is that clean means computed, not applicable.
+- [ ] **Three real defects found by driving the app, each fixed with a both-sides test**:
+      (1) module outputs never declared their units, so any two computed curves refused to
+      crossplot ("no declared source unit") — the write path now declares each output's
+      manifest unit under its written name (workflow.rs; test
+      a_module_write_declares_its_outputs_units_under_their_written_names);
+      (2) the SB-PLT-016 depth-grid gate compared f32 steps bit-exactly, and no metric step
+      is exactly representable above 1024 m, so crossplot/Pickett refused on essentially
+      every real metric well — the gate now admits only f32 quantization noise (a few ulp)
+      and still refuses genuine step changes and the 0.5/0.8 pair (plotTypes.ts; test
+      a_true_metric_grid_stored_as_f32_plots_while_a_genuine_step_change_still_refuses);
+      (3) the core-overlay map knew PHIE but not PHIE_DEN, so the classic por-perm
+      calibration plot silently lost its plugs on the density module's own output — exact
+      entries now fall back to mnemonic families (plotCommon.ts coreOverlayItem; test
+      a_module_named_porosity_still_carries_its_core_plugs_while_an_unrelated_curve_carries_none).
+- [ ] **One lesson banked for the Versions chapter**: re-running an early module's recorded
+      parameters today is not a restore — later chapters had changed its flag inputs, and the
+      faithful path is restore_log_set from the archive, which reproduced every census
+      exactly. The canonical state was verified restored before any figure was taken.
 
 - [ ] **The ten chapters** (ssc, sspw, midplot, sw_arch, sw_indo, sw_sim, sw_rtc, sw_imts,
       sw_height, and the multimin retired-pointer) follow the addendum skeleton with 22 new

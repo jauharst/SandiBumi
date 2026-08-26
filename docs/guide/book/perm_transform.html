@@ -389,48 +389,126 @@
 <div class="page"><p>The core-calibrated por-perm transform: a straight line in log-permeability against porosity, with both coefficients fitted by you against your own core data. The module ships no coefficients: a por-perm law is a property of the rock family it was regressed on.</p>
 <pre class="equations">log10(PERM) = PT_A·PHIE + PT_B</pre>
 <!-- Authored walkthrough for the perm_transform guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the refusal, the porosity-pairing bias measured, the crossplot
+     that recovers the transform's own coefficients. -->
 
-<h2>Step by step: the por-perm law you fit yourself</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>This module is one straight line (log-permeability against porosity), and both
-coefficients are yours: it ships nothing, because a por-perm law is a property of the
-rock family it was regressed on, and someone else's line applied to your rock is a
-number with no owner.</p>
+<p>The por-perm law you fit yourself: a straight line in log10(k) against
+porosity, with both coefficients coming from your own core. Where plugs
+exist this replaces every published-constant family on the shelf, because
+it is calibrated to this rock instead of to a 1950s chart, and the two
+chapters before this one measured what that difference is worth: factors of
+three to four.</p>
 
-<h3>Fit the line on the core</h3>
+<h2>The physics</h2>
 
-<p>The SANDI-01 RCAL delivery carries 15 plugs with core porosity and permeability.
-An ordinary least-squares fit of log₁₀(CPERM) on CPOR (<b>as a fraction</b>, which
-is the unit this module expects) gives:</p>
+<pre class="equations">log10(PERM) = PT_A · PHIE + PT_B   [mD]</pre>
+
+<p>One decade of permeability per 1/PT_A of porosity. The form is the
+classic semilog core regression; the physics is empirical, which is the
+point: the coefficients carry whatever pore-system behaviour the plugs
+actually measured, and nothing else.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>No coefficients ship, because a transform fitted in another field is a
+smooth, plausible, wrong answer here. With porosity picked and the
+coefficients empty:</p>
+
+<pre class="equations">precondition 'PT_A' failed before perm_transform ran: value NaN
+at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>PT_A 17.92 · PT_B −2.203</b>, R² 0.981 over the 15 plugs. The fit quality
-    and the plug count go into the run's reference field with the coefficients,
-    because a line through three plugs and a line through thirty are different
-    statements wearing the same two numbers.</li>
+  <li><b>PT_A 17.92, PT_B −2.203</b>: ordinary least squares of log10(CPERM)
+    on CPOR as a fraction, fitted on the SANDI-01 RCAL delivery, 15 plugs,
+    R² 0.981. The custody line records the fit, its delivery and its
+    n.</li>
+  <li><b>PHIE pinned to PHIE_DEN</b>: and this pick is the chapter's
+    lesson, priced below.</li>
 </ul>
 
 <figure>
-  <img src="../img/guide-permxfm-pane.png"
-       alt="The por-perm transform pane with the core-fitted coefficients" />
-  <figcaption>Two coefficients, both from this field's own core.</figcaption>
+  <img src="../img/guide-permfit-pane.png"
+       alt="The por-perm transform pane with the fitted coefficients entered" />
+  <figcaption>Two coefficients, both from this field's own plugs, with the
+    fit recorded in the custody line.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>, writing <code>PERM_XFM</code> and the generic
-<code>PERM</code>. In the sands the transform reads a median 2.8 mD. Comparing
-that against the published-constant estimates of the
-<a href="perm_wyllie_rose.html">Wyllie-Rose</a> and
-<a href="perm_coates.html">Coates</a> chapters (73 and 65 mD on the same samples) is
-the point of running all three: log permeability is model-dominated, and the
-core-calibrated line is the one whose disagreement you can argue about with data.</p>
+<ol>
+  <li>Fit the line on the core: crossplot the plug porosity against plug
+    permeability with a log Y axis and a regression, or fit it in any
+    external tool, and record n and R².</li>
+  <li>Open <b>Petrophysics ▸ Permeability ▸ Por-Perm Transform</b>, enter
+    PT_A and PT_B with the fit's provenance, and press <b>Run</b>.</li>
+  <li>Cross-check the output against the same plugs it was fitted on: the
+    step that catches the pairing bias below.</li>
+</ol>
 
-<p>One naming habit the rock-typing chapters depend on: every permeability module
-also writes the generic <code>PERM</code>, so the <b>last</b> module run owns that
-name. Downstream consumers should select <code>PERM_XFM</code> (or whichever named
-output they mean) explicitly, never the generic slot.</p>
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. Run live: median PERM_XFM <b>286.25 mD</b> in the gas
+sand, <b>3.24 mD</b> in the wet sand, 5.16 over the section: an order of
+magnitude and more below the published-constant families, and the number
+that carries the core's authority.</p>
+
+<p>Then the cross-check, and the honest surprise. Against the very plugs
+the line was fitted on, the log-side transform reads a geometric factor of
+<b>0.484</b>: half the plug permeability, with a spread of 2.36. The line
+did not move; the porosity did. The fit ran on plug porosity CPOR, but the
+log runs on PHIE_DEN, and at the plug depths the median difference
+CPOR − PHIE_DEN is <b>+0.0144</b>. Multiply by the slope: 17.92 × 0.0144 is
+0.26 decades, a factor of 1.8, and the by-well ratios (0.538, 0.516, 0.398)
+all sit on the same side. <b>A transform is fitted on one porosity and run
+on another at your peril</b>: either fit against the log porosity at plug
+depths, or accept and state the pairing bias.</p>
+
+<pre class="equations">SELECT COUNT(*), round(median(c.cpor - l.value), 4)
+FROM core_data c
+JOIN core_sets cs ON cs.well_id = c.well_id AND cs.set_name = c.set_name AND cs.active
+JOIN computed_curves l ON l.well_id = c.well_id AND abs(l.depth - c.depth) &lt; 0.08
+WHERE l.curve_name = 'PHIE_DEN' AND NOT isnan(l.value)</pre>
+
+<figure>
+  <img src="../img/guide-permfit-result.png"
+       alt="The por-perm transform run reporting three clean wells" />
+  <figcaption>Three clean wells on the fitted coefficients.</figcaption>
+</figure>
+
+<p>The crossplot closes the loop. PHIE_DEN against PERM_XFM with a log Y
+axis, core plugs as diamonds and an exponential regression gives back
+<b>PERM_XFM = 10^(−2.203 + 17.92·PHIE_DEN) with R² = 1.000</b>: the fit
+recovers exactly the coefficients the module was given, because a transform
+output plotted against its own input is not data, it is the equation drawn
+twice. The information in the picture is the diamonds: the real plugs
+scatter off the line, and their offset is the pairing bias just
+measured.</p>
+
+<figure>
+  <img src="../img/guide-permfit-xplot.png"
+       alt="Crossplot of PHIE_DEN against PERM_XFM with core plugs and the recovered regression" />
+  <figcaption>R² = 1.000 against its own input proves nothing; the plugs
+    scattered off the line are the measurement.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>State which porosity the fit used and which the run uses. A porosity
+    system mismatch times the slope is a bias every sample inherits.</li>
+  <li>R² against the transform's own output is always 1. Judge the
+    transform only against measurements it did not produce: plugs, tests,
+    or an independent estimate.</li>
+  <li>Fifteen plugs from one well is a thin basis for a three-well field;
+    the by-well ratios (0.54, 0.52, 0.40) already hint the uncored wells
+    drift. Refit as deliveries arrive, per zone where the geology
+    argues.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>log10(PERM) = PT_A * PHIE + PT_B — the classic core-derived porosity-permeability regression. Calibrate PT_A/PT_B per zone from RCAL data.</p>

@@ -397,40 +397,109 @@ PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²</pre>
 <li>Corbett &amp; Potter (2004): the GHE bin series</li></ul>
 <p class="note">Author-year as this project's records hold them; the constants were re-verified against the records on 2026-07-22.</p>
 <!-- Authored walkthrough for the rocktyping guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the GHE census, the round-trip check, the Winland variant. -->
 
-<h2>Step by step: FZI, R35 and the GHE classes</h2>
+<h2>What this is and when to reach for it</h2>
 
 <p>Per-sample rock-typing indicators from porosity and permeability: the
-Amaefule RQI/FZI family, the Winland R35 pore-throat radius, and the Permadi-Susilo
-geometric/structural pair, with the rock-type class from the chosen method's own
-binning, here <b>GHE</b>, the Corbett-Potter fixed FZI bin series.</p>
+hydraulic-unit family (RQI, PHIZ, FZI), the Winland R35 pore-throat radius,
+the Permadi-Susilo PGS pair, and a class curve RT cut from whichever
+indicator the METHOD chooses. Rock typing is where a porosity-permeability
+cloud becomes a small set of classes that carry their own laws, and this
+module writes both the indicators and the classes so the choice of binning
+stays visible.</p>
 
-<h3>The one decision that matters: which permeability</h3>
+<h2>The physics</h2>
 
-<p>Both inputs resolve by name, and the permeability slot is where a silent mistake
-lives: every permeability module also writes the generic <code>PERM</code>, so that
-name belongs to whichever module ran <i>last</i>. This run selects
-<b>PERM_XFM by name</b> (the core-calibrated transform), and the reference field
-says so. (The first pass of this walkthrough consumed the generic slot, which by
-then held the Coates estimate: the FZI median moved from 3.8 to 0.8 when the input
-was corrected. Same wells, same button, different rock types. That is how much the
-permeability choice owns this module's answer.)</p>
+<pre class="equations">RQI  = 0.0314 · √(k/φ)        [µm]
+PHIZ = φ / (1 − φ)
+FZI  = RQI / PHIZ              (Amaefule 1993)
+R35  = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%)   (Kolodzie 1980)
+PGEOM = √(k/φ)   PSTRUC = k/φ^PS_EXP                 (Permadi-Susilo)</pre>
+
+<p>METHOD ghe bins FZI into the fixed Corbett-Potter 2004 global hydraulic
+elements, a ×2 series, so a GHE class number means the same rock in any
+field; METHOD winland_port bins R35 into the port classes (nano to mega).
+PERM_RT is the class-grouped permeability estimate, rebuilt from each
+class's geometric-mean FZI over the well: the number that shows what the
+classification alone can reproduce. Samples with φ outside (0,1) or k ≤ 0
+stay MISSING.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>METHOD ghe</b>: the fixed global bins, so the class numbers are
+    portable across wells and studies by construction.</li>
+  <li><b>PERM pinned to PERM_XFM by name</b>: the one decision that
+    matters. Rock typing amplifies whatever permeability it is fed, and the
+    <a href="perm_wyllie_rose.html">published-constant families</a> run a
+    factor of three to twelve hot on this data. The core-calibrated
+    transform is the only defensible input, and it is selected by name,
+    never left to a generic PERM.</li>
+  <li><b>PHI pinned to PHIE_DEN; PS_EXP 3</b> (the shipped PGS structural
+    exponent).</li>
+</ul>
 
 <figure>
   <img src="../img/guide-rocktyping-pane.png"
-       alt="The rock typing pane with GHE selected and PERM_XFM chosen by name" />
-  <figcaption>GHE bins as shipped; the permeability input named explicitly.</figcaption>
+       alt="The rock-typing pane with GHE selected and the calibrated permeability named" />
+  <figcaption>GHE bins as shipped; the permeability input is the
+    core-calibrated transform, selected by name.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>. Sand-interval medians: FZI 0.79, R35 0.79 µm.
-The GHE classes land mostly in GHE 4–7 across the section. The class-grouped
-permeability estimate PERM_RT rebuilds k from each class's geometric-mean FZI: a
-useful smoothed law per class, and a useful discrepancy detector where it diverges
-from the input permeability. The PS_EXP exponent stays at its cited default 3
-(verified against the project's constants record).</p>
+<ol>
+  <li>Run the por-perm transform first; its output is this module's
+    input.</li>
+  <li>Open <b>Petrophysics ▸ Rock Typing ▸ Rock Typing (FZI / R35 /
+    PGS)</b>, choose the METHOD, name the inputs, and press <b>Run</b>.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. Run live: the GHE census lands the section in four
+classes: GHE 4 (31 samples), GHE 5 (269), GHE 6 (153), GHE 7 (120), with
+FZI running 0.77 / 0.91 / 3.10 at P10/P50/P90. The middle of the ×2 series
+is where a productive clastic section should sit, and the four-class spread
+is the cloud's real width, not noise.</p>
+
+<pre class="equations">SELECT value::INT rt, COUNT(*) FROM computed_curves
+WHERE curve_name = 'RT' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
+
+<p>The round-trip check: PERM_RT against the input PERM_XFM over all 573
+samples reads a geometric ratio of <b>1.00</b> with a spread of 1.2. The
+class-mean reconstruction is unbiased and tight, which says the GHE binning
+is fine enough to carry this cloud's permeability: the honest test of
+whether a classification is worth attaching laws to.</p>
+
+<p>The variant: METHOD winland_port on the same inputs redistributes the
+section into port classes 2 through 5 (9 / 289 / 247 / 28). Both censuses
+describe the same rock; the classes differ because the indicators encode
+pore geometry differently. Switching back to GHE reproduces the 31/269/153/120
+census exactly.</p>
+
+<figure>
+  <img src="../img/guide-rocktyping-result.png"
+       alt="The rock-typing run reporting three clean wells" />
+  <figcaption>Three clean wells; the census and the round-trip ratio are the
+    two numbers to read before trusting the classes.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Everything here is a transform of (φ, k), so the permeability input
+    decides the classes. Feed a published-constant permeability and the
+    class census shifts wholesale with its bias.</li>
+  <li>Read the PERM_RT round-trip ratio before attaching per-class laws: a
+    biased or wide ratio means the binning is too coarse for the cloud.</li>
+  <li>GHE bins are global on purpose; do not re-cut them per well. If the
+    field needs its own boundaries, that is the cutoff ladder's job
+    (<a href="rt_cutoff.html">Rock Type from Cutoffs</a>), where the
+    boundaries are declared and cited.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Per-sample rock-typing indicators from porosity and permeability. Writes RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT is the rock-type class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland port classes (nano..mega). PERM_RT is the class-grouped permeability estimate k = 1014.24·FZI_mean(RT)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22).</p>

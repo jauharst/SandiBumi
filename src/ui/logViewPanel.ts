@@ -32,7 +32,7 @@ import type { CurveSuggestion } from "./layoutPropsDialog";
 import { trackCurveKey, type TrackCurveRequest } from "../trackCurveRequest";
 import { formRow, openModal } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
-import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
+import { coreOverlayItem, loadCurveUnits } from "./plotCommon";
 import { HighlightsOverlay } from "./highlightsOverlay";
 import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
@@ -873,7 +873,7 @@ export class LogViewPanel {
       if (!track) continue;
       for (const curve of track.curves) {
         if (this.hiddenCurves.has(trackCurveKey(curve))) continue;
-        const coreName = CORE_OVERLAY_MAP[curve.curve_name.toUpperCase()];
+        const coreName = coreOverlayItem(curve.curve_name);
         const series = coreName ? this.coreByName.get(coreName) : undefined;
         if (!series || series.depth.length === 0) continue;
 

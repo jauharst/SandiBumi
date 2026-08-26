@@ -1,39 +1,128 @@
 <!-- Authored walkthrough for the thin_bed_ts guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the refusal, the clamp verdict decoded, the endpoint variant,
+     the crossplot triangle. -->
 
-<h2>Step by step: Thomas-Stieber</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Thomas-Stieber places each measured (VSH, PHIT) point inside the mixing triangle
-between clean sand, pure laminated shale and pure dispersed shale, and reads off how
-much of the bulk shale is laminar (reducing net sand) and how much is dispersed
-(sitting inside the sand's pores). Structural shale is deliberately not modeled.</p>
+<p>Thomas-Stieber: decomposing bulk shale volume into laminar and dispersed
+shale from where each sample's (VSH, PHIT) point falls inside the
+porosity-shale triangle. Laminated sand-shale sequences below log
+resolution read as one averaged rock; this is the standard construction for
+un-averaging them, and the doorway to laminar-corrected porosity and the
+low-resistivity-pay saturation methods.</p>
 
-<h3>The two endpoints are field statements</h3>
+<h2>The physics</h2>
+
+<pre class="equations">laminated line:  PHIT = PHI_SD_MAX·(1 − VSH) + PHI_SH·VSH
+dispersed line:  PHIT = PHI_SD_MAX − VSH·(1 − PHI_SH)
+outputs: VLAM, VDISP, VSAND = 1 − VLAM, PHIE_LAM</pre>
+
+<p>A sample on the laminated line is sand and shale in series; on the
+dispersed line, shale filling the sand's pores. Real samples fall between,
+and the decomposition reads the mixture off the geometry. VLAM reduces net
+sand; VDISP stays within the sand fraction; PHIE_LAM is the porosity of the
+net sand after the laminar shale is removed. Structural shale is
+deliberately not modeled. The whole construction hangs on two endpoints,
+which is why they refuse to default.</p>
+
+<h2>The refusal comes first</h2>
+
+<pre class="equations">precondition 'PHI_SD_MAX' failed before thin_bed_ts ran: value NaN v/v
+at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+
+<p>Both corners of the triangle are field statements: the porosity of the
+cleanest sand this section can deliver, and the porosity of its shale.
+Neither has a generic value.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>PHI_SD_MAX 0.27</b>: the clean-sand maximum porosity, the same P99-of-PHIE
-    pick the porosity-ceiling chapter derived from this dataset.</li>
-  <li><b>PHI_SH 0.147</b>: the shale total porosity, the median PHIT_DEN over the
-    samples at GR&nbsp;≥&nbsp;112 gAPI, this dataset's own shale point.</li>
-  <li><b>Inputs</b>: PHIT_DEN and VSH, so the triangle is built from the same
-    porosity family the endpoints were picked from. Mixing porosity provenances here
-    moves points around the triangle for reasons that have nothing to do with
-    shale.</li>
+  <li><b>PHI_SD_MAX 0.27</b>: the P99 of this dataset's PHIE, the same
+    clean-sand ceiling the phimax chapter derived; the triangle's sand
+    corner.</li>
+  <li><b>PHI_SH 0.147</b>: the median PHIT_DEN of the shale population
+    (GR ≥ 112); the shale corner.</li>
+  <li><b>PHIT PHIT_DEN, VSH VSH</b>: total porosity, not effective; the
+    construction needs the porosity the shale still carries.</li>
 </ul>
 
 <figure>
   <img src="../img/guide-thinbed-pane.png"
-       alt="The Thomas-Stieber pane with the two endpoint picks entered" />
-  <figcaption>Two endpoints, both from this dataset's own statistics.</figcaption>
+       alt="The Thomas-Stieber pane with both endpoints entered and cited" />
+  <figcaption>Two endpoints, both derived from this section's own
+    populations and cited in the custody line.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>0 clean · 3 degraded</b>, about 120 samples per well clamped
-to [0, 1] (a measured point falling outside the mixing triangle cannot yield a
-fraction beyond it, so the decomposition is held at the triangle's edge) and a
-handful held at the PHI_SD_MAX ceiling. In the transitional interval
-(GR 60–100) the median laminar fraction reads 0.635: this synthetic section's
-shale transitions read as predominantly laminated, which fits zone-blended logs.
-On real thin-bedded rock, VLAM against a high-resolution image log is the
-validation this decomposition wants before VSAND = 1−VLAM revises any net.</p>
+<ol>
+  <li>Derive the two endpoints from the section (P99 porosity; shale-median
+    total porosity).</li>
+  <li>Open <b>Advance ▸ Thin Beds</b>, enter them with their derivations,
+    and press <b>Run</b>.</li>
+  <li>Read the triangle: crossplot VSH against PHIT with the T-S triangle
+    overlay on, and see where the cloud sits relative to the laminated and
+    dispersed lines.</li>
+</ol>
+
+<figure>
+  <img src="../img/guide-thinbed-triangle.png"
+       alt="Crossplot of VSH against PHIT_DEN with the Thomas-Stieber triangle overlay" />
+  <figcaption>The construction drawn on the data: the solid laminated line
+    between the two endpoint handles, the dashed dispersed line descending
+    to the pore-filling minimum. The overlay's handles start at display
+    defaults (0.300/0.150 here) and dragging them writes PHI_SD_MAX and
+    PHI_SH to the zone, which is the graphical way to make these
+    picks.</figcaption>
+</figure>
+
+<h2>Reading the result</h2>
+
+<p><b>0 clean · 3 degraded</b>, and decoding that verdict is the chapter's
+most useful lesson: degraded means <i>clamped and counted</i>, not broken.
+Per well, 6, 8 and 2 samples clamped into [0, 0.27] (PHIE_LAM against its
+own ceiling) and 31, 45 and 30 into [0, 1] (the volume fractions): tail
+samples whose geometry lands just outside the triangle, exactly what
+endpoint picks made from percentiles promise. The per-well report counts
+every one.</p>
+
+<p>Run live: median VLAM <b>0.0238</b>, VDISP <b>0.0636</b>, VSAND
+<b>0.9762</b>. The split behaves: in the sand population the median VLAM is
+0.0214, while the 16 mid-range samples (between the sand and shale GR
+gates) read 0.365, an order of magnitude more laminar shale exactly where
+interbedding lives. And PHIE_LAM's sand median of <b>0.2082</b> sits above
+the bulk PHIT's 0.2039: removing the laminae reports the net sand's own,
+better porosity.</p>
+
+<pre class="equations">SELECT round(median(value), 4) FROM computed_curves
+WHERE curve_name = 'VLAM' AND NOT isnan(value)</pre>
+
+<p>The endpoint sensitivity: raising PHI_SD_MAX from 0.27 to 0.30 drops the
+median VLAM to <b>0</b>. A higher sand corner tilts the laminated line
+above the cloud, and half the section stops decomposing into laminae at
+all. Three porosity units on one endpoint is the difference between a
+laminated story and none, which is why the endpoints are cited, not
+adjusted until the answer looks right. Restoring 0.27 reproduces 0.0238
+exactly.</p>
+
+<figure>
+  <img src="../img/guide-thinbed-result.png"
+       alt="The Thomas-Stieber run reporting three degraded wells with counted clamps" />
+  <figcaption>Degraded, decoded: tail samples clamped into range, each one
+    counted per well.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Check the triangle before trusting the split: a cloud sitting mostly
+    outside the triangle means an endpoint is wrong, and the clamp counts
+    will say so first.</li>
+  <li>Feed total porosity. Effective porosity already had the shale term
+    removed, and the construction double-counts it.</li>
+  <li>VLAM is the gate to the laminated saturation methods: a section whose
+    VLAM is near zero everywhere does not need them, and this dataset's
+    0.02 median says most of these sands are blocky, with the interbedded
+    story confined to the transition samples.</li>
+</ul>

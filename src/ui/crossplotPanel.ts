@@ -53,7 +53,7 @@ import {
   buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
-  CORE_OVERLAY_MAP,
+  coreOverlayItem,
   curveSelect,
   depthReframeHandoff,
   contextLegend,
@@ -1925,8 +1925,8 @@ export async function buildCrossplotContent(
     );
     if (!p) return null;
     if (opts.showCore) {
-      const coreX = coreByName.get(CORE_OVERLAY_MAP[xSel.value.toUpperCase()] ?? "");
-      const coreY = coreByName.get(CORE_OVERLAY_MAP[ySel.value.toUpperCase()] ?? "");
+      const coreX = coreByName.get(coreOverlayItem(xSel.value));
+      const coreY = coreByName.get(coreOverlayItem(ySel.value));
       if (coreX && coreY) {
         const { xs: cxs, ys: cys } = alignCoreSeriesByDepth(coreX, coreY);
         p.drawDiamonds(cxs, cys, p.theme.series2);

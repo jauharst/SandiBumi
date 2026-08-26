@@ -889,6 +889,64 @@ test("equal_and_exact_multiple_regular_depth_grids_proceed_with_reported_factors
   );
 });
 
+test("a_module_named_porosity_still_carries_its_core_plugs_while_an_unrelated_curve_carries_none", async () => {
+  // The core-overlay lookup froze as an exact-mnemonic map while modules kept naming
+  // their outputs (PHIE_DEN, PHIT_DEN, PERM_RT), so the classic por-perm calibration
+  // plot silently lost its plugs on any porosity the density module wrote. Family
+  // fallback pinned from both sides: module names resolve, the exact NPHI special case
+  // survives, and a curve outside the calibrated families still resolves to nothing.
+  const { coreOverlayItem } = await load("/src/ui/plotCommon.ts");
+  assert.equal(coreOverlayItem("PHIE_DEN"), "CPOR");
+  assert.equal(coreOverlayItem("PHIT_DEN"), "CPOR");
+  assert.equal(coreOverlayItem("PERM_RT"), "CPERM");
+  assert.equal(coreOverlayItem("NPHI"), "CPOR");
+  assert.equal(coreOverlayItem("SWE_RTC"), "CSW");
+  assert.equal(coreOverlayItem("GR"), "");
+  assert.equal(coreOverlayItem("PERMIT"), "", "a prefix must bind the family boundary, not any spelling that merely starts with it");
+});
+
+test("a_true_metric_grid_stored_as_f32_plots_while_a_genuine_step_change_still_refuses", async () => {
+  // CORRECTNESS — SB-PLT-016 quantization companion. No metric step (0.1524 m, 0.1 m) is a
+  // dyadic rational, and above 1024 m the f32 ulp is 2^-13 ~ 1.22e-4, so a REGULAR metric
+  // grid stored as f32 alternates between two adjacent representable differences on
+  // essentially every real well (SANDI-01: 0.15234375 and 0.15246582). Bit-exact step
+  // comparison therefore refused every crossplot on real metric data — a refusal the PRD
+  // never asked for. Both sides pinned: quantization noise proceeds, and a genuine step
+  // change (the original 0.5-then-0.75 fixture, restated here at real depth magnitude, a
+  // whole sample interval and five orders above the ulp guard) still refuses.
+  const { reconcileDepthChannels } = await load("/src/ui/plotTypes.ts");
+
+  const metric = Float32Array.from({ length: 40 }, (_, i) => 1500 + i * 0.1524);
+  const stepA = metric[1] - metric[0];
+  const stepB = metric[2] - metric[1];
+  assert.notEqual(stepA, stepB, "the fixture must carry the real f32 wobble or it pins nothing");
+  const sameWell = reconcileDepthChannels([
+    { depth: metric, values: Float32Array.from(metric, (_, i) => i) },
+    { depth: metric, values: Float32Array.from(metric, (_, i) => i * 2) },
+  ]);
+  assert.equal(sameWell.mode, "unchanged");
+  assert.deepEqual(sameWell.decimationFactors, [1, 1]);
+  assert.equal(sameWell.depth.length, 40);
+
+  const coarse = Float32Array.from({ length: 20 }, (_, i) => 1500 + i * 0.3048);
+  const mixed = reconcileDepthChannels([
+    { depth: metric, values: Float32Array.from(metric, (_, i) => i) },
+    { depth: coarse, values: Float32Array.from(coarse, (_, i) => i) },
+  ]);
+  assert.deepEqual(mixed.decimationFactors, [2, 1], "an exact 2x metric pair must snap to factor 2 despite f32 step noise");
+  assert.equal(mixed.mode, "decimated_to_coarsest");
+
+  const stepChange = Float32Array.from({ length: 20 }, (_, i) => 1500 + (i < 10 ? i * 0.1524 : 10 * 0.1524 + (i - 10) * 0.2286));
+  assert.throws(
+    () => reconcileDepthChannels([
+      { depth: stepChange, values: Float32Array.from(stepChange, (_, i) => i) },
+      { depth: stepChange, values: Float32Array.from(stepChange, (_, i) => i) },
+    ]),
+    (error) => error.name === "DepthGridReconciliationError",
+    "a genuine mid-well step change must still refuse to Reframe",
+  );
+});
+
 test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons", async () => {
   // CORRECTNESS — SB-PLT-005 / SB-PLT-T05. docs/PRD_v2/23_plotting-interactivity.md
   // §§2.2, 4.1, 6 and 7.1 O-2 cite dossier §3.3a: 1 international foot is 0.3048 m,

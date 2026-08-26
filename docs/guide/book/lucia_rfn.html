@@ -392,41 +392,99 @@ RFN 0.5-1.5 = Class 1 (grainstone), 1.5-2.5 = Class 2, 2.5-4 = Class 3</pre>
 <h2>References</h2>
 <ul><li>Lucia (1995); Jennings &amp; Lucia (2003), SPE 78740</li></ul>
 <!-- Authored walkthrough for the lucia_rfn guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the clastic boundary demonstration measured. -->
 
-<h2>Step by step: the Lucia rock-fabric number</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Carbonate rock typing: the Jennings &amp; Lucia global porosity-permeability
-transform is inverted analytically for the rock-fabric number, which is then binned
-into the three Lucia classes (grainstone to mud-dominated). Two things the pane's
-documentation asks you to respect: the porosity should be <b>interparticle</b>
-porosity (subtract separate-vug porosity where you have it), and on a
-clastic-dominated field this module is for the carbonate stringers, not the
-sands.</p>
+<p>Carbonate rock typing by the Lucia rock-fabric number: the
+petrophysical-class system built on the observation that in nonvuggy
+carbonates, interparticle porosity and permeability tie to a fabric number
+running from grainstone to mud-dominated packstone. Reach for it on
+carbonate sections and carbonate stringers in clastic fields, and read this
+chapter's demonstration before quoting it anywhere else.</p>
 
-<h3>The run</h3>
+<h2>The physics</h2>
 
-<p>No parameters: the global transform's constants ship as transcribed from the
-paper, with the documentation's own instruction to verify first. Inputs are
-PHIE_DEN and <b>PERM_XFM selected by name</b> (see the
-<a href="rocktyping.html">rock-typing chapter</a> for why the generic PERM slot is
-never the right choice).</p>
+<pre class="equations">log10 k = (A − B·log10 RFN) + (C − D·log10 RFN) · log10 φip
+RFN 0.5–1.5 → Class 1 (grainstone)
+RFN 1.5–2.5 → Class 2 (grain-dominated packstone)
+RFN 2.5–4.0 → Class 3 (mud-dominated)</pre>
+
+<p>The module inverts the Jennings and Lucia 2003 global transform
+analytically for RFN, then bins. PHI should be <b>interparticle</b>
+porosity: subtract separate-vug porosity where a vug estimate exists,
+because vuggy pore space contributes porosity without the matrix
+permeability the transform models. RFN outside the 0.5 to 4 band writes
+MISSING for the class rather than clamping into the nearest fabric. The
+constants are transcribed from the paper and the pane says to verify them
+first.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>PHI PHIE_DEN, PERM PERM_XFM</b>: the same calibrated pair the whole
+    rock-typing shelf uses.</li>
+  <li><b>Run on a clastic section, deliberately</b>: this dataset is sand
+    and shale, and the point of the run is to measure what the transform
+    does when its fabric model does not apply.</li>
+</ul>
 
 <figure>
   <img src="../img/guide-lucia-pane.png"
-       alt="The Lucia rock-fabric pane with inputs selected" />
-  <figcaption>No parameters to pick: the decisions here are the inputs.</figcaption>
+       alt="The Lucia rock-fabric pane with the calibrated inputs named" />
+  <figcaption>The global-transform constants as shipped; the custody line
+    records that this run is a boundary demonstration.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Step by step</h2>
 
-<p>On these wells: <b>3 clean</b>, and only <b>49% of samples classified</b>, which
-is the module being honest rather than incomplete: RT_LUCIA is written only where
-the computed RFN lands inside the 0.5–4 band the classes are defined over, and a
-clastic section computed through a carbonate transform spends half its samples
-outside it. On a real carbonate, or a stringer within this section, the
-classified fraction is the first QC number to read: a low fraction means the
-transform and the rock disagree about what family the samples belong to.</p>
+<ol>
+  <li>On a real carbonate: estimate separate-vug porosity first and feed
+    interparticle porosity.</li>
+  <li>Open <b>Petrophysics ▸ Rock Typing ▸ Lucia Rock-Fabric Number</b>,
+    name the inputs, and press <b>Run</b>.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>, and that is the lesson. On 573 samples of sandstone the
+transform computes everywhere: RFN runs 2.04 / 2.43 / 2.60 at P10/P50/P90,
+every sample lands inside the 0.5 to 4 band, and the census reads Class 1: 2
+samples, Class 2: 287, Class 3: 284. The module has confidently classified
+a sand-shale section as grain-dominated to mud-dominated carbonate
+packstone.</p>
+
+<pre class="equations">SELECT value::INT cls, COUNT(*) FROM computed_curves
+WHERE curve_name = 'RT_LUCIA' AND NOT isnan(value) GROUP BY 1 ORDER BY 1</pre>
+
+<p>Nothing failed, because nothing could: the transform is arithmetic on
+(φ, k), and clastic clouds occupy the same numeric space. The fabric
+classes are meaningful only where the fabric model holds, and the only
+guard is the interpreter knowing the lithology. That is why the class curve
+is named RT_LUCIA rather than RT: it can never silently stand in for the
+section's working rock-type curve.</p>
+
+<figure>
+  <img src="../img/guide-lucia-result.png"
+       alt="The Lucia run reporting three clean wells on a clastic section" />
+  <figcaption>Three clean wells of carbonate classes on a sandstone: clean
+    means computed, not applicable.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Gate the run by lithology, not by whether it computes. On mixed
+    sections, run it only over the carbonate stringers (zone the run, or
+    mask on a lithology flag).</li>
+  <li>Feeding total porosity in a vuggy interval reads too much φ for the
+    matrix k and pushes RFN toward mud-dominated; subtract the vug estimate
+    first.</li>
+  <li>The transform is global. Where a field has its own core-calibrated
+    fabric boundaries, those belong in a cutoff ladder, and this module's
+    RFN stays as the indicator.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Carbonate rock typing by Lucia rock-fabric number (Jennings &amp; Lucia 2003). Inverts the global transform log10 k = (A − B·log10 RFN) + (C − D·log10 RFN)·log10 φip analytically for RFN, then bins: RFN 0.5–1.5 = Class 1 (grainstone), 1.5–2.5 = Class 2, 2.5–4 = Class 3 (mud-dominated). PHI should be INTERPARTICLE porosity (subtract vuggy/separate-vug porosity if available); k in mD. Writes RFN and RT_LUCIA (1–3; MISSING outside the 0.5–4 band). Clastic-dominated fields use this only for carbonate stringers. Constants transcribed from the paper — verify first.</p>
