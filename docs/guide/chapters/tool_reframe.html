@@ -1,0 +1,86 @@
+<!-- Authored walkthrough for the Reframe tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Reframe puts curves onto a different depth sampling and writes the result
+as a new set, and it states its own non-destructive contract at the top of
+the pane:</p>
+
+<pre class="equations">Resamples a set onto a different sampling and writes it as a new set. The
+original is left exactly as it is — nothing here overwrites a curve.</pre>
+
+<p>Reach for it to coarsen a high-resolution delivery to a working step, to
+regularize an irregular one, or to put several wells onto one shared frame
+before field work that compares them depth by depth.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-reframe-check.png"
+       alt="The Reframe pane with a checked 0.5 m resample across three wells" />
+  <figcaption>A 0.5 m resample of GR, NPHI and RHOB checked across the three
+    wells: 0.1524 m becomes 0.5 m, 121 rows each, and nothing has been
+    written yet.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Source</b>: a versioned log set, an imported set, or the well's raw
+    standard curves. <b>Onto</b>: a step you give, regularize onto the
+    source's own median spacing, or borrow another well's or set's
+    frame.</li>
+  <li><b>Align</b> puts every well on one top, base and step. The pane
+    states why it matters: "Same top, base and step for every well, so they
+    can be compared depth by depth. Without it each well anchors on its own
+    first reading and no two share a depth."</li>
+  <li><b>Averaging</b> per curve: Auto (average a measurement, carry a class
+    curve by mode), or an explicit Mean / Geometric / Harmonic / Median /
+    Interpolate / Nearest / Mode.</li>
+  <li><b>Curves come from a named saved selection.</b> Running without one
+    refuses: "Pick a named saved curve selection; no all-curves default is
+    applied." A resample of everything is a real decision, so it has to be
+    written down as a selection with a name.</li>
+  <li>A curve the source lacks refuses by name ("that source holds none of
+    the curves asked for"), and the substitution row lets you accept a
+    named substitute deliberately rather than having one guessed.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Data ▸ Reframe…</b>, pick the source, the target sampling and
+    the well scope; save a curve selection under a name and pick it.</li>
+  <li>Press <b>Check sampling</b> first. The verdict is a dry run: per well,
+    the current step, the step after, the row count, and which averaging
+    each curve will get, ending "Nothing has been written. Press Reframe to
+    commit."</li>
+  <li>Press <b>Reframe</b>. The run custody dialog asks who is writing and
+    on what basis ("These details travel with every output curve and into
+    its deliverables"), then the pane reports "3/3 well(s) written to
+    REFRAMED."</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The counts close: 60 m of section at 0.5 m is 121 depths per well, and
+the archive holds exactly 3 wells &times; 3 curves &times; 121 depths =
+1089 rows for the new set (counted in the SQL panel with a
+computed-curves-archive join). The re-framed set carries its own depths;
+point a module's Input log set at it and the whole run happens on that
+sampling. The original set is untouched, which is the point: a re-frame
+through the ordinary write path would delete the readable interpretation,
+so Reframe writes to the archive only.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Coarsening is averaging; say which.</b> Auto is right for most
+    logs, but a permeability being coarsened wants a geometric or harmonic
+    choice made on purpose, and a class curve must travel by mode, never by
+    mean.</li>
+  <li><b>Align across wells or anchor per well is a real choice.</b>
+    Without Align, wells re-framed at the same step still land on depths
+    that never coincide, and every read here is an exact depth match.</li>
+  <li><b>Draw re-framed block curves as steps.</b> A 0.5 m block average
+    shown as a diagonal line draws a gradient the data never measured.</li>
+</ul>

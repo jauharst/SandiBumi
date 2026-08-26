@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 9: the Data & Sets tool book — Intake, Statistics, Reframe, Data Sets, Versions, Curve Catalog, DB Inspector and SQL, every count reconciled live
+
+- [ ] **Eight Data & Sets chapters written** (tool_intake, tool_statistics, tool_reframe,
+      tool_data_sets, tool_versions, tool_inspector, tool_db_inspector, tool_sql_query) with
+      nine figures, every number counted on camera: Intake's pasted 7-row table lands as
+      "7 row(s) into 3 well(s), 20 point-data row(s) carried" (21 candidate cells minus the
+      one blank quartz cell — blank is skipped, never zero); the Statistics table leaves
+      SWE's geometric and harmonic means EMPTY because the curve contains zeros; Reframe's
+      dry-run check (0.1524 m → 0.5 m, 121 rows per well) is verified against the archive
+      after commit — 1089 rows = 3 wells × 3 curves × 121 depths, counted by SQL join; the
+      SQL panel's own query counts 74,260 computed-curve rows across 188 names per well and
+      an UPDATE is refused verbatim ("only SELECT queries are allowed here"); the DB
+      Inspector's integrity sweep reports "PROJECT WIDE — 3 wells examined. Checked 7
+      integrity classes; 0 findings."
+- [ ] **Refusal-first where the tools refuse**: Statistics refuses an empty curve pick
+      ("Pick at least one curve."), Reframe refuses without a NAMED saved curve selection
+      ("no all-curves default is applied") and names a source that lacks the curves asked
+      for; both are taught as contracts, not errors.
+- [ ] **Small defect fixed in passing: mojibake in the DB Inspector.** Two strings in
+      dbInspectorPanel.ts carried "â€""/"â€¦" where an em dash and an ellipsis belong (an
+      old UTF-8-through-cp1252 round-trip, baked into the source); both fixed and the
+      corrected text verified in the retaken figure. The same damage in three chartdig
+      comments is flagged as a separate task chip (comment-only, not shipped UI).
+- [ ] **The demo left deliberate artifacts in the sandbox project** (REFRAMED log set,
+      GUIDE9SEL curve selection, GUIDE9 point-data delivery) — sandbox only, nothing in the
+      repo; the Data Sets figure uses them to show a second delivery arriving without
+      overwriting the first (RCAL_1 ● beside RCAL with Use).
+
 ## 2026-08-27 — Second pass, increment 8: the first tool book (Plots & Views, six chapters) — and every Vega chart was rendering blank
 
 - [ ] **The guidebook now has tool books.** The generator carries a registry of 45 tool

@@ -1,0 +1,66 @@
+<!-- Authored walkthrough for the SQL Query tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The SQL Query panel is direct, read-only access to the project database:
+type a SELECT, press Run, read the table. Reach for it when a question is
+about the data as stored rather than as displayed, "how many rows does each
+well carry", "which depths appear twice", "what distinct units does this
+mnemonic arrive in", and no panel happens to ask it for you.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-sql-select.png"
+       alt="A SELECT with a join counting computed-curve rows per well" />
+  <figcaption>A join over computed curves and wells: each example well
+    carries 74,260 rows across 188 distinct curve names, counted by the
+    query itself.</figcaption>
+</figure>
+
+<p>Queries are ordinary SQL (DuckDB dialect): joins, GROUP BY, CTEs. The
+example that produced the figure:</p>
+
+<pre class="equations">SELECT w.well_name, COUNT(*) AS curves, COUNT(DISTINCT c.curve_name) AS names
+FROM computed_curves c JOIN wells w ON w.well_id = c.well_id
+GROUP BY w.well_name ORDER BY w.well_name</pre>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Data ▸ SQL Query</b>, type the SELECT, press <b>Run</b> (or
+    Ctrl+Enter), and read the row count and table.</li>
+  <li>Use the Database Inspector's table list as the schema map; the tables
+    it browses are the tables you query.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The panel is a window, never a pen. Writes do not go through here at
+all: the frontend has no free-form write path, every write in the
+application is an explicit named command, and this panel enforces its half
+of that contract by refusing anything but a query.</p>
+
+<figure>
+  <img src="../img/guide-sql-refused.png"
+       alt="An UPDATE statement refused by the read-only SQL panel" />
+  <figcaption>An UPDATE is refused: "only SELECT queries are allowed here",
+    in the results area and the status line both.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>The panel reads stored rows, not resolution rules.</b> A query over
+    computed curves sees every set and version's surviving rows as data; it
+    does not apply the RAW-priority resolution or the active-set filters
+    the application's own readers use. For "what would a module see", ask
+    the Curve Catalog; for "what is physically stored", ask here.</li>
+  <li><b>Counted claims beat browsed ones.</b> "Each well has 74,260 rows"
+    is worth stating because a query counted it; the same claim from
+    scrolling a grid is a guess.</li>
+  <li><b>Aggregates over versioned tables need care.</b> Averaging a curve
+    across every stored version double-counts history; filter to the set
+    and version you mean.</li>
+</ul>

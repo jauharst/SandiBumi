@@ -112,7 +112,7 @@ export class DbInspectorPanel {
           </div>
           <button class="lp-btn dbi-check-integrity">Check all classes</button>
         </div>
-        <div class="dbi-integrity-results placeholder-note">Not checked yet â€” no clean claim has been made.</div>
+        <div class="dbi-integrity-results placeholder-note">Not checked yet — no clean claim has been made.</div>
       </section>
       <div class="dbi-grid"></div>
       <p class="modal-hint">Double-click a cell to edit; Enter commits, Esc cancels. Edits are undoable (Ctrl+Z).</p>`;
@@ -171,7 +171,7 @@ export class DbInspectorPanel {
 
   private async runIntegrityCheck(): Promise<void> {
     this.checkIntegrityBtn.disabled = true;
-    this.integrityHost.replaceChildren(messageNode("placeholder-note", "Checking every integrity classâ€¦"));
+    this.integrityHost.replaceChildren(messageNode("placeholder-note", "Checking every integrity class…"));
     try {
       this.renderIntegrity(await checkReferentialIntegrity());
     } catch (err) {

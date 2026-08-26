@@ -1,0 +1,71 @@
+<!-- Authored walkthrough for the Inspector (Curve Catalog) tool chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Inspector pane answers "what curves does this well actually have, and
+where did each one come from". Its Curve Catalog tab is the well's curve
+inventory with provenance: every mnemonic, its unit and family, the set and
+version it lives in, the module or import that wrote it, when, and its
+value statistics. Reach for it before trusting any curve you did not just
+compute, and whenever two similarly named curves need telling apart.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-inspector-catalog.png"
+       alt="The Curve Catalog with per-curve set, version, source and statistics" />
+  <figcaption>The catalog on the example well: computed curves carry the
+    INTERP set with the version that wrote them (v158 badhole, v303 gip),
+    while CALI shows RAW v1 from the LAS import with 395 of 395 samples
+    valid.</figcaption>
+</figure>
+
+<ul>
+  <li>The search box filters by mnemonic, log set, module, unit or date, so
+    "everything the sspw run wrote" or "everything from yesterday" is one
+    query.</li>
+  <li><b>Valid / Total</b> is a finite-value scan, not a row count: a curve
+    that exists at 395 depths but answers at 191 shows both numbers.</li>
+  <li><b>Ancestry</b> on each row opens the curve's custody record: which
+    run wrote it, from which inputs, under whose declared identity.</li>
+  <li>Set actions (<b>Mark Final</b>, <b>Promote</b>, <b>Delete</b>) manage
+    the RAW / EDIT / FINAL life cycle of versioned log sets.</li>
+  <li>The pane's other tab is the Equation Editor, covered by its own
+    chapter; the two share the pane because a computed curve and its
+    formula are usually inspected together.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Data ▸ Curve Catalog</b> with the well selected.</li>
+  <li>Search for the curve in question; read its Set column first (which
+    set, which version), then Module / Source, then Valid / Total.</li>
+  <li>Press <b>Ancestry</b> when the question is "who wrote this and from
+    what"; the record travels with the curve into deliverables.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The version column is the bridge to the Versions pane: BADHOLE showing
+INTERP v158 means the current values of that curve came from run 158, even
+though the history has moved on since. That is normal, a curve keeps its
+last writer, and it is also the fastest way to notice a curve everyone
+assumed was recent is actually months old.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Two curves, one name, different sets.</b> Set RAW has absolute
+    priority in curve resolution, and other sets are consulted only for
+    mnemonics RAW lacks; the catalog's Set column is where you see which
+    copy a module would actually read.</li>
+  <li><b>Valid / Total is the footprint check.</b> A curve with the right
+    name but a suspiciously small valid count may be a different quantity
+    wearing the mnemonic (the RT class-curve shadowing case in the
+    unconventional book was caught exactly this way).</li>
+  <li><b>Delete here is a data operation.</b> It removes a curve or set the
+    project reads; prefer Mark Final / Promote for life-cycle moves and
+    keep deletion for genuine mistakes.</li>
+</ul>
