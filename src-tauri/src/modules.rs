@@ -417,7 +417,7 @@ pub(crate) const METHOD_DERIVATIONS: &[(&str, DerivationClass, &str)] = &[
     ("sw_arch", DerivationClass::Cited, "Archie 1942 Trans. AIME 146:54-62 (SATURATION_METHODS; docs/PRD_v2/12_saturation.md:470)"),
     ("sw_indo", DerivationClass::Cited, "Poupon & Leveaux 1971 SPWLA 12th Paper O (SATURATION_METHODS; 12_saturation.md:472)"),
     ("sw_sim", DerivationClass::Cited, "Simandoux 1963 Revue de l'IFP; Bardon & Pied 1969 SPWLA 10th Paper Z (SATURATION_METHODS); DEC-065 bisection"),
-    ("sw_rtc", DerivationClass::Cited, "SandiBumi RtC excess-conductivity correction for low-resistivity low-contrast pay (clay-chemistry Qv path + capillary-bound-water path); docs/method_lrlc_rtc_imts.md RtC sections; lrlc.rs:1-13"),
+    ("sw_rtc", DerivationClass::InHouse, "SandiBumi RtC excess-conductivity correction for low-resistivity low-contrast pay - the docs/method_lrlc_rtc_imts.md RtC sections ARE the derivation (regressed excess conductivity over the clay-chemistry Qv path + the capillary-bound-water path, then Archie on the corrected term); lrlc.rs:1-13"),
     ("sw_imts", DerivationClass::Cited, "SandiBumi IMTS mineral-textural scaling of the Waxman-Smits family; docs/method_lrlc_rtc_imts.md IMTS; Waxman-Smits 1968, Waxman-Thomas 1974, Juhasz 1979/1981 (12_saturation.md:473)"),
     ("multimin", DerivationClass::Retired, "multimin.rs:1-14 - superseded by SandiMin (sandimin: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); kept so saved chains resolve; blocked at run_module"),
     ("sw_height", DerivationClass::Cited, "docs/PRD_v2/15_sat-height-rocktyping.md S5 Leverett + Skelt-Harrison; satheight.rs"),
