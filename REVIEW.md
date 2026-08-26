@@ -1,5 +1,38 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 8: the first tool book (Plots & Views, six chapters) — and every Vega chart was rendering blank
+
+- [ ] **The guidebook now has tool books.** The generator carries a registry of 45 tool
+      chapters across six books (Plots & Views, Data & Sets, Batch & Field, Fits & Analysis,
+      Core & Petrography, Workspace & Project); the Contents page shows the whole campaign
+      with unwritten chapters marked, the convention the module chapters used. A tool chapter
+      is walkthrough-only — no manifest exists, so nothing pretends to be generated.
+- [ ] **Six Plots & Views chapters written** (tool_log_view, tool_histogram, tool_crossplot,
+      tool_pickett, tool_correlation, tool_vega) with eight composed-layout figures, every
+      number read off the running app: the histogram chips P5 43.51 / P50 80.38 / P95 111.8
+      over n=395; the crossplot's 388-of-395 accounting with the Qtz/Cal/Dol matrix points;
+      the Pickett fit contract quoted verbatim (two clicks fit M and the *product* a·Rw —
+      the plot cannot identify a or Rw separately, and says so); the correlation panel's
+      pooled n=1185 across the three wells; the Vega scatter's audited reversed-NPHI axis.
+      The blocked vendor-chart overlays are taught as a licensing fact with the exact option
+      text ("BLOCKED: source provenance absent"), not as a bug.
+- [ ] **Defect found and fixed: every Vega chart rendered 0×0.** SB-PLT-029's
+      generation-safety pattern embeds into a detached staging div and then moved only its
+      *children* into the pane — but a `width: "container"` vega view keeps measuring the
+      element it was embedded INTO, so every chart was permanently sized against a detached
+      0×0 div (the missing `.vega-embed` class on the pane was the tell). Second layer: the
+      container-size signals re-evaluate only on a `window:resize` event, so `view.resize()`
+      alone — the panel's resize path — could never recover it either. Fix in vegaPanel.ts:
+      the staging host itself enters the pane, and one `fitContainer` helper pushes the
+      measured size into the view's width/height signals at embed and on every dockview
+      resize (a hand-edited spec keeps whatever size it declared). Verified live: a fresh
+      Vega pane now renders at full pane size with no window resize; before the fix the
+      canvas measured 0×0 with the status line happily reporting "scatter, 388 points".
+- [ ] **Composed layouts, not one layout for everything**: the log-view chapter shoots the
+      Standard layout at 1:200 and 1:1000, the crossplot chapter shoots the live pane beside
+      its non-blocking Properties dialog, and each plot chapter's figure carries that pane's
+      own audit and custody lines readable at full size.
+
 ## 2026-08-27 — Second pass, increment 7: Facies and Unconventional, six chapters — and the RT shadowing defect caught live
 
 - [ ] **The six chapters** (electrofacies, gmm_facies, toc_passey, kerogen, gip, brittleness)

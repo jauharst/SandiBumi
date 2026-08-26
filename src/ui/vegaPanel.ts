@@ -1412,6 +1412,22 @@ export async function buildVegaContent(
     current = null;
     chartHost.innerHTML = "";
   };
+  /** vega-lite's `container` size signals re-evaluate only on a `window:resize` event, so a view
+   *  embedded before layout (or resized by a splitter drag, which fires no window event) never
+   *  learns its real size from `view.resize()` alone — the measured size has to be pushed into the
+   *  width/height signals. A hand-edited spec keeps whatever size it declared. */
+  const fitContainer = async (result: VegaResult): Promise<void> => {
+    if (specOverride) {
+      await result.view.resize().runAsync();
+      return;
+    }
+    const el = result.view.container();
+    if (!el) return;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    await result.view.width(w).height(h).resize().runAsync();
+  };
 
   /** Embed `rows` for `type`, wiring the brush emit listener and syncing the current shared brush.
    *  The token guards against a newer render/repaint having superseded this one mid-await. */
@@ -1483,7 +1499,15 @@ export async function buildVegaContent(
       }
       clearCurrent();
       current = result;
-      chartHost.replaceChildren(...Array.from(stagingHost.childNodes));
+      // The view keeps measuring the element it was embedded INTO (`width: "container"` re-reads
+      // it on every resize), so the staging host itself must enter the DOM — moving only its
+      // children re-parents the pixels but leaves the view sized against a detached 0x0 div,
+      // and the chart renders blank forever. Attach it, then push the real size into the view.
+      stagingHost.style.width = "100%";
+      stagingHost.style.height = "100%";
+      chartHost.replaceChildren(stagingHost);
+      await fitContainer(result);
+      if (disposed || current !== result) return false;
       bindVegaAccessibility();
       syncRuntimeAxisRanges();
       if (brushable(type)) {
@@ -1975,7 +1999,7 @@ export async function buildVegaContent(
       if (current) {
         const resized = current;
         const token = beginPlotAsyncGeneration("vega-resize", ++resizeGen);
-        void resized.view.resize().runAsync().then(() => {
+        void fitContainer(resized).then(() => {
           if (
             isPlotAsyncGenerationCurrent(token, resizeGen, disposed) &&
             current === resized

@@ -393,6 +393,75 @@ const CATEGORY_ORDER = [
   'Permeability', 'Rock Typing', 'ThinBeds', 'Facies', 'Unconventional',
 ];
 
+// The tool books: chapters for the working panes and plot panels that are not
+// petrophysics modules and therefore have no manifest to render from. The whole
+// campaign is registered up front so the Contents page shows what is coming
+// ("chapter not yet written", the same convention the module chapters used);
+// an authored file is docs/guide/chapters/<name>.html, names prefixed tool_ to
+// keep them out of the module namespace. A tool chapter is entirely hand-written
+// (there is no dump to gate it against), so unlike a module chapter it carries
+// no generated "What the application enforces" section.
+const TOOL_BOOKS = [
+  { cat: 'Plots & Views', tools: [
+    ['tool_log_view', 'Log View'],
+    ['tool_histogram', 'Histogram'],
+    ['tool_crossplot', 'Crossplot'],
+    ['tool_pickett', 'Pickett'],
+    ['tool_correlation', 'Correlation'],
+    ['tool_vega', 'Vega Chart'],
+  ]},
+  { cat: 'Data & Sets', tools: [
+    ['tool_intake', 'Intake (import any table)'],
+    ['tool_statistics', 'Statistics (tables)'],
+    ['tool_reframe', 'Reframe (resample a set)'],
+    ['tool_data_sets', 'Data Sets (deliveries)'],
+    ['tool_versions', 'Versions (labels + purge)'],
+    ['tool_inspector', 'Inspector'],
+    ['tool_db_inspector', 'Database Inspector'],
+    ['tool_sql_query', 'SQL Query'],
+  ]},
+  { cat: 'Batch & Field', tools: [
+    ['tool_workflow_builder', 'Workflow Builder'],
+    ['tool_monte_carlo', 'Monte Carlo'],
+    ['tool_pay_summary', 'Cutoffs & Pay Summary'],
+    ['tool_cutoff_sensitivity', 'Cutoff Sensitivity'],
+    ['tool_field_dashboard', 'Field Dashboard'],
+    ['tool_field_map', 'Field Map'],
+    ['tool_results_qc', 'Results QC (Sw spread)'],
+  ]},
+  { cat: 'Fits & Analysis', tools: [
+    ['tool_sandimin', 'SandiMin Solver'],
+    ['tool_ml', 'Machine Learning'],
+    ['tool_shf_fit', 'SHF Fit (Cuddy / FOIL)'],
+    ['tool_thomeer_fit', 'Pc Fit (Thomeer)'],
+    ['tool_hfu', 'HFU Clustering (FZI)'],
+    ['tool_lorenz', 'Lorenz Plot (flow units)'],
+    ['tool_facies_tie', 'Facies Tie-in'],
+    ['tool_fluid_contacts', 'Fluid Contacts'],
+  ]},
+  { cat: 'Core & Petrography', tools: [
+    ['tool_depth_reg', 'Register Core Depth'],
+    ['tool_core_photos', 'Condition Core Photos'],
+    ['tool_photo_log', 'Photo Log (core → curves)'],
+    ['tool_condition_plates', 'Condition Plates'],
+    ['tool_plate_details', 'Plate Details'],
+    ['tool_pore_area', 'Pore Area (thin sections)'],
+    ['tool_mineral_classifier', 'Mineral Classifier'],
+    ['tool_plug_qc', 'Plug QC'],
+  ]},
+  { cat: 'Workspace & Project', tools: [
+    ['tool_zones', 'Zones'],
+    ['tool_tops_editor', 'Tops & Autocorrelation'],
+    ['tool_equation_editor', 'Equation Editor'],
+    ['tool_sessions_layouts', 'Sessions & Layouts'],
+    ['tool_processing_history', 'Processing History'],
+    ['tool_composite', 'Composite Log'],
+    ['tool_report', 'Report & Deliverables'],
+    ['tool_diagnostics', 'Diagnostics'],
+  ]},
+];
+const TOOL_NAMES = new Set(TOOL_BOOKS.flatMap((b) => b.tools.map(([name]) => name)));
+
 function orderedCategories(specs) {
   const present = [...new Set(specs.map((m) => m.category))];
   return [
@@ -401,9 +470,11 @@ function orderedCategories(specs) {
   ];
 }
 
-/** Books = categories in reading order; chapters numbered book.chapter. */
+/** Books = categories in reading order, then the tool books; chapters numbered
+ *  book.chapter. A tool chapter's `m` is a synthesized minimal spec (name, title,
+ *  category, isTool) so the nav and index render it exactly like a module row. */
 function bookModel(specs, hasChapter) {
-  return orderedCategories(specs).map((cat, i) => ({
+  const moduleBooks = orderedCategories(specs).map((cat, i) => ({
     num: String(i + 1).padStart(2, '0'),
     tint: `b-t${i % 3}`,
     cat,
@@ -411,6 +482,18 @@ function bookModel(specs, hasChapter) {
       .filter((s) => s.category === cat)
       .map((m, j) => ({ no: `${i + 1}.${j + 1}`, m, written: hasChapter.has(m.name) })),
   }));
+  const base = moduleBooks.length;
+  const toolBooks = TOOL_BOOKS.map((b, i) => ({
+    num: String(base + i + 1).padStart(2, '0'),
+    tint: `b-t${(base + i) % 3}`,
+    cat: b.cat,
+    chapters: b.tools.map(([name, title], j) => ({
+      no: `${base + i + 1}.${j + 1}`,
+      m: { name, title, category: b.cat, isTool: true },
+      written: hasChapter.has(name),
+    })),
+  }));
+  return [...moduleBooks, ...toolBooks];
 }
 
 const CHEV =
@@ -642,6 +725,22 @@ function renderChapter(m, chapterNo, walkthrough, nav) {
   return shell(m.title, nav, parts.join('\n'));
 }
 
+/** A tool chapter is the walkthrough alone: no manifest exists to generate the
+ *  factual sections from, so nothing here pretends to be generated. */
+function renderToolChapter(t, chapterNo, walkthrough, nav) {
+  const bookNum = chapterNo.split('.')[0].padStart(2, '0');
+  const parts = [];
+  parts.push(
+    `<p class="crumb"><a href="index.html">Guidebook</a> · <a href="index.html#b${bookNum}">${bookNum} — ${esc(t.category)}</a></p>`,
+  );
+  parts.push(
+    `<div class="titlerow"><h1>${esc(t.title)}</h1>` +
+      `<span class="chip">${chapterNo} · pane</span></div>`,
+  );
+  parts.push(`<div class="page">${walkthrough.trim()}</div>`);
+  return shell(t.title, nav, parts.join('\n'));
+}
+
 function renderIndex(books, nav) {
   const total = books.reduce((n, b) => n + b.chapters.length, 0);
   const written = books.reduce((n, b) => n + b.chapters.filter((c) => c.written).length, 0);
@@ -654,8 +753,10 @@ function renderIndex(books, nav) {
   parts.push(
     '<p class="lead">One chapter per petrophysics module — the method, its equations and published ' +
       'references, a step-by-step walkthrough with screenshots, and everything the running ' +
-      'application enforces for that module. For the workflow these modules live in, start ' +
-      'with the first-hour guide (<code>docs/guide/first-hour.md</code>).</p>',
+      'application enforces for that module — followed by the tool books: the plot panels, ' +
+      'data tools, batch machinery and working panes the modules are driven from. For the ' +
+      'workflow these all live in, start with the first-hour guide ' +
+      '(<code>docs/guide/first-hour.md</code>).</p>',
   );
   for (const b of books) {
     parts.push(`<section class="toc-book" id="b${b.num}">`);
@@ -687,9 +788,13 @@ const hasChapter = new Set(
     ? fs.readdirSync(chaptersDir).filter((n) => n.endsWith('.html')).map((n) => n.slice(0, -5))
     : [],
 );
-const unknownChapters = [...hasChapter].filter((n) => !specs.some((m) => m.name === n));
+const unknownChapters = [...hasChapter].filter(
+  (n) => !specs.some((m) => m.name === n) && !TOOL_NAMES.has(n),
+);
 if (unknownChapters.length) {
-  console.error(`authored chapters name no known module: ${unknownChapters.join(', ')}`);
+  console.error(
+    `authored chapters name no known module or registered tool: ${unknownChapters.join(', ')}`,
+  );
   process.exit(1);
 }
 
@@ -708,6 +813,18 @@ for (const m of specs) {
     `${m.name}.html`,
     renderChapter(m, chapterNo.get(m.name), walkthrough, navHtml(books, m.name)),
   );
+}
+for (const b of books) {
+  for (const c of b.chapters) {
+    if (!c.m.isTool || !c.written) continue;
+    const walkthrough = fs
+      .readFileSync(path.join(chaptersDir, `${c.m.name}.html`), 'utf8')
+      .replaceAll('\r\n', '\n');
+    pages.set(
+      `${c.m.name}.html`,
+      renderToolChapter(c.m, c.no, walkthrough, navHtml(books, c.m.name)),
+    );
+  }
 }
 
 if (check) {

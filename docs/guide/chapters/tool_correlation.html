@@ -1,0 +1,79 @@
+<!-- Authored walkthrough for the Correlation tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The correlation panel puts wells side by side on one shared depth axis so
+the same bed can be followed across the field: the tool for carrying tops
+between wells, judging whether a sand thins or shales out, and reading
+structural offset directly. On the three example wells the same
+sand&ndash;shale&ndash;sand package steps progressively deeper from SANDI-03
+to SANDI-01, which is visible in one glance here and in no single-well
+view.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-correlation.png"
+       alt="Three wells side by side on measured depth showing the same package at different depths" />
+  <figcaption>GR across SANDI-01/-02/-03 on measured depth. The shale top
+    picks up roughly 1520, 1530 and 1517 m in the three wells; the offset is
+    the structure.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Wells (3/3)…</b> chooses which wells and their order; the active
+    well group filters the list like every other multi-well tool.</li>
+  <li>The curve select, min/max and an optional validity range apply to every
+    column, so the wells are compared on identical display terms.</li>
+  <li>The <b>datum select</b> is the flattening control: measured depth shows
+    the wells as drilled; choosing a top as datum hangs every well from that
+    surface so stratigraphic thickness reads directly.</li>
+  <li><b>Contacts…</b> overlays fluid-contact markers; <b>Fit</b> zooms the
+    shared axis to the covered interval; ＋/&minus; add and remove curve
+    columns per well.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Plot ▸ New Correlation</b>, pick the wells and a curve every
+    well carries (GR is the usual spine).</li>
+  <li>Read the panel on measured depth first: the raw offsets are the
+    structure, and an implausible offset is usually a depth-reference
+    problem, worth catching before any flattening hides it.</li>
+  <li>Switch the datum to a common top to flatten on it, then follow beds
+    between wells and place or adjust tops in the tops editor.</li>
+  <li>Add a second curve column (resistivity, porosity) where lithology alone
+    is ambiguous.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The audit lines pool the population across the included wells and say so
+explicitly, in the panel's own words:</p>
+
+<pre class="equations">VALUE range: audited family display · 0 → 150 · DEPTH range: finite data ·
+1495 → 1570.045654296875 · n=1185 · non-finite excluded=0 · log-domain
+excluded=0 · display hidden=0 · validity excluded=0 · statistics n=1185
+statistics[value:GR]: pooled · interval=all · selection=all eligible in
+included wells (applied=false) · finite pairs=1185 · ...</pre>
+
+<p>The value range comes from the audited family display (0&ndash;150 gAPI
+for GR), so every column is on the same axis by construction; n=1185 is the
+three wells' 395-sample sections pooled.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>One datum at a time.</b> A flattened view answers a stratigraphic
+    question and hides the structural one; check measured depth first, then
+    flatten deliberately.</li>
+  <li><b>Compare like curves.</b> The panel draws whatever curve name each
+    well resolves; a well where GR_N (normalised) exists while its neighbours
+    show raw GR will look different for the wrong reason. Normalise first, or
+    plot the raw curve everywhere.</li>
+  <li><b>Depth references before geology.</b> An offset that disagrees with
+    the structure map by a constant is a datum or depth-unit problem in one
+    well's delivery, not a fault.</li>
+</ul>

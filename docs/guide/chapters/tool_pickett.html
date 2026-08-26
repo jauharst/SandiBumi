@@ -1,0 +1,73 @@
+<!-- Authored walkthrough for the Pickett tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Pickett plot (Pickett, 1966) is log porosity against log resistivity.
+On those axes Archie's equation is a straight line: the water-bearing points
+fall along a trend whose slope is &minus;m and whose position fixes
+a&middot;R<sub>w</sub>, and hydrocarbon points sit off it to higher
+resistivity. Reach for it when the water zone is identifiable and you want m
+and the water term from the well's own data rather than from a table.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-pickett.png"
+       alt="Pickett plot of PHIE against RES_DEEP with the fit instruction and Set rows" />
+  <figcaption>PHIE against RES_DEEP on log axes. The tight water-bearing
+    cluster sits low-left; the gas sand hangs far right at high resistivity.
+    The M and a&middot;Rw rows under the plot write the fitted values to zone
+    parameters.</figcaption>
+</figure>
+
+<p>The panel states its own contract, in its own words:</p>
+
+<pre class="equations">Click TWO points along the water-bearing (lowest-RT) trend to fit M and the
+identifiable product a·Rw — or type those values directly. The fit does not
+identify a or Rw separately. Ctrl+wheel = zoom, drag = pan, double-click =
+reset zoom, right-click = properties. Needs a computed porosity curve (run a
+Porosity module first).</pre>
+
+<p>That second sentence is the physics, not a limitation of the software: one
+straight line has two degrees of freedom, so the slope gives m and the
+intercept gives only the <i>product</i> a&middot;R<sub>w</sub>. Splitting the
+product needs outside information (a measured R<sub>w</sub>, or a declared
+a), which is why the panel refuses to pretend otherwise.</p>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run a porosity module first; the plot needs a computed porosity curve
+    (PHIE here) and takes deep resistivity by default (RES_DEEP).</li>
+  <li>Restrict the zone to the interval you believe is water-bearing, then
+    click two points along the lowest-resistivity edge of the trend. The M
+    and a&middot;Rw fields fill from the fit; typing values directly is
+    equally valid when they come from elsewhere.</li>
+  <li>Press <b>Set</b> on each row to write M and A_RW as zone parameters,
+    where the saturation modules read them.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The audit line keeps the log axes honest. On the example well it reads
+n=191 with non-finite excluded=204 and display hidden=12: the 204 are samples
+where PHIE or RES_DEEP is missing (PHIE exists only where the porosity module
+answered), and the 12 are points outside the current axis window. The
+statistics custody lines state the same basis per axis, so the population the
+fit saw is exactly accounted.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>The fit is only as good as the water call.</b> Two points clicked
+    through a hydrocarbon-bearing cluster produce a confident, wrong m. Pick
+    the lowest-RT edge, and restrict the zone first.</li>
+  <li><b>Do not quote a and R<sub>w</sub> separately from this plot.</b> The
+    product is what was measured; splitting it is a separate, cited
+    decision.</li>
+  <li><b>Watch the exclusions.</b> A fit over 191 pairs from 395 samples is
+    normal when porosity only exists over the interpreted interval, but the
+    same numbers on a fully interpreted well would mean half the data is
+    missing for a reason worth finding.</li>
+</ul>
