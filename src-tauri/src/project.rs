@@ -224,6 +224,9 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
         .map_err(|e| format!("run-degradation vocabulary migration failed: {e}"))?;
     db::migrate_log_set_timestamps_to_utc(&conn)
         .map_err(|e| format!("timestamp migration failed: {e}"))?;
+    // Provenance: scrubs the study-named Phase-0 stub table out of old project files.
+    db::migrate_drop_study_named_stub(&conn)
+        .map_err(|e| format!("stub-table migration failed: {e}"))?;
     crate::diagnostics::boot_step("migrate_array_logs_store", t.elapsed());
 
     // DEC-089's second half. Must run AFTER migrate_standard_curves_to_generic_store, which is

@@ -369,15 +369,6 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, depth)
         );
 
-        CREATE TABLE IF NOT EXISTS lqr_parameters (
-            well_id             UUID NOT NULL,
-            depth               FLOAT NOT NULL,
-            clay_volume         FLOAT,
-            capillary_pressure  FLOAT,
-            microporosity       FLOAT,
-            PRIMARY KEY (well_id, depth)
-        );
-
         -- Array logs: one row per (well, set, curve, depth) holding a WHOLE VECTOR of values
         -- at that depth — Monte Carlo realizations, NMR T2 distributions, sonic waveforms.
         --
@@ -1860,6 +1851,24 @@ pub fn migrate_array_logs_store(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, set_name, curve_name, depth)
          );",
     )?;
+    Ok(())
+}
+
+/// One-time migration dropping the Phase-0 per-depth parameters stub whose table name carried
+/// a client study acronym — the provenance rule (no client identifier in the tree) applied to
+/// the SCHEMA, where the name ships inside every project file that travels between operators.
+///
+/// Like the `array_logs` stub above, **no code path in any build ever read or wrote a single
+/// row of it** (`git log -S` finds only the Phase-0 scaffold, and the SQL panel is read-only,
+/// so no user could have written one either) — the table is empty in every project file in
+/// existence, dropping it loses nothing, and no backup is taken. `IF EXISTS` is the whole
+/// idempotency story: there is no new shape to detect or rebuild.
+///
+/// The table name below is deliberately the LAST occurrence of the acronym in the tree — it
+/// exists only to remove itself from old project files, and stays for as long as pre-2026-08
+/// projects may still be opened.
+pub fn migrate_drop_study_named_stub(conn: &Connection) -> DbResult<()> {
+    conn.execute_batch("DROP TABLE IF EXISTS lqr_parameters;")?;
     Ok(())
 }
 
@@ -8460,6 +8469,44 @@ mod inspector_tests {
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
         migrate_drop_computed_curves_pk(&fresh, None).unwrap();
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
+    }
+
+    /// Provenance rule applied to the schema: the Phase-0 stub table named after a client
+    /// study is dropped from old projects and never created in new ones. Pinned from BOTH
+    /// sides — a migration that drops it while `create_schema` still declares it would pass
+    /// the first half alone, and vice versa. The literal below is confined to the migration
+    /// and this test; it exists to remove itself.
+    #[test]
+    fn a_study_named_stub_table_is_dropped_from_old_projects_and_never_created_in_new_ones() {
+        let has_table = |conn: &Connection| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM duckdb_tables() WHERE table_name = 'lqr_parameters'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+
+        // Side 1: an OLD database carries the stub exactly as Phase 0 declared it.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE lqr_parameters (
+                 well_id UUID NOT NULL, depth FLOAT NOT NULL, clay_volume FLOAT,
+                 capillary_pressure FLOAT, microporosity FLOAT, PRIMARY KEY (well_id, depth)
+             );",
+        )
+        .unwrap();
+        assert_eq!(has_table(&conn), 1, "fixture starts with the stub");
+        migrate_drop_study_named_stub(&conn).unwrap();
+        assert_eq!(has_table(&conn), 0, "stub dropped");
+        migrate_drop_study_named_stub(&conn).unwrap();
+        assert_eq!(has_table(&conn), 0, "idempotent");
+
+        // Side 2: a fresh schema never creates it in the first place.
+        let fresh = mem_db();
+        assert_eq!(has_table(&fresh), 0, "create_schema no longer declares the stub");
+        migrate_drop_study_named_stub(&fresh).unwrap();
+        assert_eq!(has_table(&fresh), 0, "and the migration is a no-op on it");
     }
 
     /// A pre-set-era project (core_data / well_path without the set columns) must come
