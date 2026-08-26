@@ -3,20 +3,20 @@
 
 <h2>Step by step: a synthetic log by nearest neighbours</h2>
 
-<p>Synthetic Log trains on this run's own samples — wherever the target and
-every predictor are present — and predicts the target everywhere the predictors
+<p>Synthetic Log trains on this run's own samples (wherever the target and
+every predictor are present) and predicts the target everywhere the predictors
 exist, by distance-weighted K-nearest-neighbour regression in z-scored predictor
 space. No model file, no training session: the well is its own training set.</p>
 
 <h3>The picks</h3>
 
 <ul>
-  <li><b>Target RHOB from GR / NPHI / DT, K&nbsp;10</b> — the shipped
+  <li><b>Target RHOB from GR / NPHI / DT, K&nbsp;10</b>: the shipped
     defaults.</li>
-  <li><b>OPT_COMBINE MAX_RAW</b> — the washout rule: bad hole only pushes RHOB
+  <li><b>OPT_COMBINE MAX_RAW</b>, the washout rule: bad hole only pushes RHOB
     <i>down</i>, so taking max(raw, synthetic) repairs washed-out density while
     leaving every good sample exactly as logged.</li>
-  <li><b>Mask BADHOLE</b> — the rule the pane documentation states: washed-out
+  <li><b>Mask BADHOLE</b>, the rule the pane documentation states: washed-out
     samples must never <i>train</i> the model, or the synthetic learns the
     washout it exists to repair.</li>
 </ul>
@@ -30,7 +30,7 @@ space. No model file, no training session: the well is its own training set.</p>
 <h3>Run and read</h3>
 
 <p>On these wells: <b>3 clean</b>, and MAX_RAW raised <b>567 samples</b> above
-the delivered density — the washout intervals, where the logged RHOB is
+the delivered density: the washout intervals, where the logged RHOB is
 mud-biased low and the synthetic (trained on good hole) reads the rock instead.
 RHOB_SYN beside RHOB in a track shows the repair exactly where the caliper
 says it should be, and nowhere else.</p>

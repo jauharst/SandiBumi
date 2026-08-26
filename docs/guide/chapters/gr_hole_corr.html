@@ -4,14 +4,14 @@
 <h2>Step by step: restoring gamma counts in an oversize hole</h2>
 
 <p>Gamma rays crossing an extra annulus of mud are attenuated, so a washed-out
-hole reads GR low — and a low GR in a washout looks like sand. The correction is
+hole reads GR low, and a low GR in a washout looks like sand. The correction is
 linear in the enlargement: GR_EC&nbsp;=&nbsp;GR·(1&nbsp;+&nbsp;K_GR·(CALI&nbsp;−&nbsp;BS)).</p>
 
 <h3>The picks</h3>
 
-<p><b>K_GR 0.0075</b> (shipped) and <b>BS_DEF 8.5&nbsp;in</b> — no BS curve in
+<p><b>K_GR 0.0075</b> (shipped) and <b>BS_DEF 8.5&nbsp;in</b>: no BS curve in
 this delivery, the same bit-size argument as the bad-hole run. One contract to
-know: the run <b>refuses if CALI is missing at any finite GR sample</b> — it will
+know: the run <b>refuses if CALI is missing at any finite GR sample</b>. It will
 never write an unmarked, uncorrected copy under the corrected name, because a
 GR_EC that is secretly raw GR is unfalsifiable downstream.</p>
 
@@ -24,8 +24,8 @@ GR_EC that is secretly raw GR is unfalsifiable downstream.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>. <b>615 samples corrected upward</b> — the
-washout intervals — by <b>+1.46&nbsp;gAPI on average, +1.8 at most</b>. Small
+<p>On these wells: <b>3 clean</b>. <b>615 samples corrected upward</b> (the
+washout intervals) by <b>+1.46&nbsp;gAPI on average, +1.8 at most</b>. Small
 numbers, deliberately: a linear starting coefficient on a two-and-a-half-inch
-washout. The shape is what matters — the sand that a washout was dressing as
+washout. The shape is what matters: the sand that a washout was dressing as
 cleaner than it is gets its shale back.</p>

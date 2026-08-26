@@ -3,7 +3,7 @@
 
 <h2>Step by step: the Sand-Silt-Clay split</h2>
 
-<p>SSC is one of this application's flagship methods — the Kuttan Malay Basin model
+<p>SSC is one of this application's flagship methods: the Kuttan Malay Basin model
 with SandiBumi's own modification, splitting the rock into sand,
 silt and clay on the neutron-density crossplot and carrying the split all the way to
 bound water and irreducible saturation. It lives on the <b>Advance</b> tab, not in the
@@ -12,10 +12,10 @@ Petrophysics dropdowns.</p>
 <h3>Prepare the inputs</h3>
 
 <ul>
-  <li><b>NPHI in sandstone units</b> — the six-point framework is written with the
+  <li><b>NPHI in sandstone units</b>: the six-point framework is written with the
     matrix at NPHI 0, so pin the NPHI input to <code>NPHI_SS</code> (from Neutron
     Matrix Conversion).</li>
-  <li><b>GR</b> — the input prefers <code>GRN</code>, the normalized gamma ray,
+  <li><b>GR</b>: the input prefers <code>GRN</code>, the normalized gamma ray,
     because the method was built to run on field-normalized GR. This project carries
     no GRN, so the input is pinned to the raw <code>GR</code> and the endpoints below
     are picks from that raw curve. On a multi-field project, normalize first and let
@@ -24,19 +24,19 @@ Petrophysics dropdowns.</p>
 
 <h3>Enter the framework</h3>
 
-<p>Every framework point ships without a default — the six-point triangle is a basin
+<p>Every framework point ships without a default: the six-point triangle is a basin
 statement, not software's to guess. This run entered the reference Loglan values from
 the method's own note, plus the data picks, all recorded in the reference field:</p>
 
 <ul>
-  <li><b>Wet clay (2.3, 0.6) · dry clay 2.71 · wet silt NPHI 0.3 · DCLF_SI 0.1</b> —
+  <li><b>Wet clay (2.3, 0.6) · dry clay 2.71 · wet silt NPHI 0.3 · DCLF_SI 0.1</b>:
     the reference Loglan's values.</li>
-  <li><b>GR_MA 44 / GR_SH 112</b> — the first-hour picks from this dataset's raw GR.</li>
-  <li><b>NPHI_MA 0</b> — the sandstone matrix point, consistent with NPHI_SS.</li>
-  <li><b>PHIT_CL 0.24</b> — the wet-clay porosity implied by the entered clay points:
+  <li><b>GR_MA 44 / GR_SH 112</b>: the first-hour picks from this dataset's raw GR.</li>
+  <li><b>NPHI_MA 0</b>: the sandstone matrix point, consistent with NPHI_SS.</li>
+  <li><b>PHIT_CL 0.24</b>: the wet-clay porosity implied by the entered clay points:
     (RHOB_DCL − RHOB_WCL)/(RHOB_DCL − RHOB_FL) = (2.71 − 2.3)/(2.71 − 1). Stated as
     arithmetic in the reference field so the number's origin travels with the run.</li>
-  <li><b>SWIRR_MIN 0</b> — the reference value; the SWIRR conditioning rule stays off
+  <li><b>SWIRR_MIN 0</b>: the reference value; the SWIRR conditioning rule stays off
     unless a zone sets it.</li>
 </ul>
 
@@ -52,5 +52,5 @@ the method's own note, plus the data picks, all recorded in the reference field:
 <p>On these wells: <b>3 clean</b>. The outputs are the whole story of the method: the
 sand/silt/clay volumes (and their GR-rescaled twins), PHIT and PHIE, the clay-bound
 and capillary-bound water split (CBW, CWSH), and the irreducible saturations. CWSH is
-what the RtC saturation method consumes as its CAPBW input — this module is the front
+what the RtC saturation method consumes as its CAPBW input. This module is the front
 half of the LRLC workflow.</p>

@@ -471,7 +471,7 @@ pub fn despike_spec() -> ModuleSpec {
                     3.0,
                     0.5,
                     20.0,
-                    "Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
+                    "Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
                 ),
                 param_open_when(
                     "THRESH",
@@ -994,8 +994,8 @@ pub fn fill_gaps_spec() -> ModuleSpec {
         category: "Condition".into(),
         doc: "Fills holes in a curve that are no wider than MAX_GAP, and marks every sample it \
               invented in <OUT>_FILL.\n\n\
-              A filled sample is not a measurement. That is the whole reason for the flag curve \
-              (Jauhar, 2026-08-05): without it a filled value is indistinguishable from a logged \
+              A filled sample is not a measurement. That is the whole reason for the flag curve: \
+              without it a filled value is indistinguishable from a logged \
               one in a crossplot, a histogram, a net count or a report, and the person reading the \
               number is not the person who chose the limit. Mask on <OUT>_FILL to take them back \
               out of any run.\n\n\

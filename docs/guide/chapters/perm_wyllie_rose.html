@@ -4,11 +4,11 @@
 <h2>Step by step: Wyllie-Rose, with its names straightened out</h2>
 
 <p>Permeability from porosity and irreducible water saturation, as four named
-constant sets. Before anything runs, read the pane's own documentation once — it
+constant sets. Before anything runs, read the pane's own documentation once. It
 carries an attribution record most software never admits to: <b>two of the four
 constant sets wear a name their author never attached to them.</b> TIMUR here is the
 Schlumberger Chart K-3 curve, not Timur's 1968 paper (whose published relation is
-about 14% lower in tight rock — exactly where a cutoff is decided); TIXIER is a
+about 14% lower in tight rock, exactly where a cutoff is decided); TIXIER is a
 post-1950 simplification of Wyllie-Rose, not Tixier 1949; the MORRIS_BIGGS numbers
 are disputed between two papers. The card keeps the trade names because that is what
 every vendor calls them, and the honesty note travels with the card.</p>
@@ -16,9 +16,9 @@ every vendor calls them, and the honesty note travels with the card.</p>
 <h3>The picks</h3>
 
 <ul>
-  <li><b>Method TIMUR</b> (the default): C=100, D=2.25, E=1 — shipped, cited
-    constants; the shape factor 2.25 is Wyllie &amp; Rose's own suggested value.</li>
-  <li><b>SWE_IRR 0.16</b> — the same SSC-derived irreducible pick the saturation
+  <li><b>Method TIMUR</b> (the default): C=100, D=2.25, E=1 (shipped, cited
+    constants); the shape factor 2.25 is Wyllie &amp; Rose's own suggested value.</li>
+  <li><b>SWE_IRR 0.16</b>, the same SSC-derived irreducible pick the saturation
     shelf used, so the two shelves' numbers can be compared without wondering which
     Swirr each assumed.</li>
   <li><b>PHIE</b> pinned to PHIE_DEN, as everywhere in this walkthrough.</li>
@@ -36,5 +36,5 @@ every vendor calls them, and the honesty note travels with the card.</p>
 <a href="perm_transform.html">core-calibrated transform</a>'s 2.8 mD on the same
 samples: a factor of 25. Wyllie &amp; Rose warned in 1950 that the result carries
 order-of-magnitude significance only, and this dataset demonstrates the warning.
-Where core exists, the published-constant families are a cross-check, not an answer —
-and where core does not exist, quote them with their own error bars in mind.</p>
+Where core exists, the published-constant families are a cross-check, not an answer.
+And where core does not exist, quote them with their own error bars in mind.</p>

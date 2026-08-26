@@ -54,11 +54,11 @@
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Permeability</div>
 <h1>Permeability — Coates</h1>
 <p class="modmeta">Module id <code>perm_coates</code> · category <b>Permeability</b></p>
-<p>The Coates free-fluid permeability: porosity squared times the free-to-bound water ratio, squared again. This is the Coates &amp; Denoo producibility form - deliberately not Coates &amp; Dumanoir (1974), a different and much heavier model this module does not implement.</p>
+<p>The Coates free-fluid permeability: porosity squared times the free-to-bound water ratio, squared again. This is the Coates &amp; Denoo producibility form, deliberately not Coates &amp; Dumanoir (1974), a different and much heavier model this module does not implement.</p>
 <pre class="equations">PERM = (C · PHIE² · (1 − SWE_IRR)/SWE_IRR)²  (mD)</pre>
 <h2>References</h2>
 <ul><li>Coates, G.R. &amp; Denoo, S.A. (1981), The Producibility Answer Product, Schlumberger Technical Review 29(2)</li></ul>
-<p class="note">The constant C is scale-dependent and published values are not interchangeable between the fractional, percent and NMR forms - check which convention a quoted C belongs to before entering it.</p>
+<p class="note">The constant C is scale-dependent and published values are not interchangeable between the fractional, percent and NMR forms; check which convention a quoted C belongs to before entering it.</p>
 <!-- Authored walkthrough for the perm_coates guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
 
@@ -67,7 +67,7 @@
 <p>The Coates free-fluid form: porosity squared times the free-to-bound water ratio,
 squared again. Two things the pane's documentation pins down before you type
 anything: this is the Coates &amp; Denoo 1981 producibility form, <b>not</b> the
-heavier Coates &amp; Dumanoir 1974 model — and the constant C is scale-dependent, so
+heavier Coates &amp; Dumanoir 1974 model, and the constant C is scale-dependent, so
 published values are not interchangeable: 100 in this fractional form is the same
 rock as 10 in the percent-porosity NMR form, and Schlumberger's K-4 chart states 70.
 A quoted C without its convention is a trap.</p>
@@ -75,9 +75,9 @@ A quoted C without its convention is a trap.</p>
 <h3>The picks</h3>
 
 <ul>
-  <li><b>CONST_COATES 70</b> — the Schlumberger K-4 chart value, exactly as the
+  <li><b>CONST_COATES 70</b>: the Schlumberger K-4 chart value, exactly as the
     module's own documentation records it for this fractional form.</li>
-  <li><b>SWE_IRR 0.16</b> — the SSC-derived irreducible pick, consistent across the
+  <li><b>SWE_IRR 0.16</b>: the SSC-derived irreducible pick, consistent across the
     whole walkthrough.</li>
   <li><b>PHIE</b> pinned to PHIE_DEN.</li>
 </ul>
@@ -90,7 +90,7 @@ A quoted C without its convention is a trap.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>, median 65 mD in the sands — close to Wyllie-Rose's
+<p>On these wells: <b>3 clean</b>, median 65 mD in the sands: close to Wyllie-Rose's
 73, an order of magnitude above the core-calibrated 2.8. The three-way spread across
 this shelf is the honest summary of log-derived permeability: the model chooses the
 answer, so the model must be named, calibrated where core allows, and cross-checked

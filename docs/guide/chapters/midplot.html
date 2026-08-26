@@ -3,8 +3,8 @@
 
 <h2>Step by step: the MID plot's two axes</h2>
 
-<p>The module computes the two coordinates of the Schlumberger MID plot — apparent
-matrix density RHOMAA and apparent matrix volumetric photoelectric factor UMAA — by
+<p>The module computes the two coordinates of the Schlumberger MID plot (apparent
+matrix density RHOMAA and apparent matrix volumetric photoelectric factor UMAA) by
 removing the fluid from the density and from the photoelectric absorption at an
 apparent porosity read the way you would read it by hand off the density-neutron
 chart. Crossplot UMAA (X) against RHOMAA (Y), switch on the Lith-6 chart overlay,
@@ -17,13 +17,13 @@ sandstone/limestone matrix lines. Three values had to be supplied, and two of th
 were demanded by name when the first run refused:</p>
 
 <ul>
-  <li><b>U_FL 0.398 b/cm³</b> — fresh water: Pe 0.358 × ρe 1.111, the arithmetic the
+  <li><b>U_FL 0.398 b/cm³</b>, fresh water: Pe 0.358 × ρe 1.111, the arithmetic the
     module's own source records.</li>
-  <li><b>RHO_MA_DOL 2.85</b> — the refusal <i>"RHO_MA_DOL must be set — Dolomite
+  <li><b>RHO_MA_DOL 2.85</b>. The refusal <i>"RHO_MA_DOL must be set — Dolomite
     matrix line, CHART lookup"</i> names why: the chart interpolation spans all three
     mineral curves even when the rock is expected clastic. The value is the dolomite
     grain density from SandiMin's own endpoint library.</li>
-  <li><b>PHIA_MAX 0.5</b> — the second refusal asked for the rejection ceiling; the
+  <li><b>PHIA_MAX 0.5</b>. The second refusal asked for the rejection ceiling; the
     module's recorded rationale sets it: near φ&nbsp;=&nbsp;1 the (1−φ) denominator
     explodes, and a matrix property read from a &gt;50%-porosity sample is not a rock
     property.</li>
@@ -36,10 +36,10 @@ were demanded by name when the first run refused:</p>
     recorded source.</figcaption>
 </figure>
 
-<h3>Run and read — including a synthetic-data caveat</h3>
+<h3>Run and read, including a synthetic-data caveat</h3>
 
 <p>On these wells: <b>3 clean</b>. One honesty note about what the crossplot then
-shows: in the clean wet sand the pair reads a median RHOMAA 2.79 / UMAA 6.2 — well
+shows: in the clean wet sand the pair reads a median RHOMAA 2.79 / UMAA 6.2, well
 off the quartz point. That is not the module misbehaving: these example wells are
 generated from zone endpoint values, and their (RHOB, NPHI, PEF) triples do not ride
 the vendor chart the way a logged rock does, so the apparent-matrix arithmetic lands

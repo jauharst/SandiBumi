@@ -60,9 +60,9 @@ R35 = 10^(0.732 + 0.588·log₁₀k − 0.864·log₁₀φ%)
 PGEOM = √(k/φ),  PSTRUC = k/φ^PS_EXP
 PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²</pre>
 <h2>References</h2>
-<ul><li>Amaefule et al. (1993) - RQI/FZI</li>
-<li>Kolodzie (1980) - Winland R35</li>
-<li>Corbett &amp; Potter (2004) - the GHE bin series</li></ul>
+<ul><li>Amaefule et al. (1993): RQI/FZI</li>
+<li>Kolodzie (1980): Winland R35</li>
+<li>Corbett &amp; Potter (2004): the GHE bin series</li></ul>
 <p class="note">Author-year as this project's records hold them; the constants were re-verified against the records on 2026-07-22.</p>
 <!-- Authored walkthrough for the rocktyping guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
@@ -72,17 +72,17 @@ PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²</pre>
 <p>Per-sample rock-typing indicators from porosity and permeability: the
 Amaefule RQI/FZI family, the Winland R35 pore-throat radius, and the Permadi-Susilo
 geometric/structural pair, with the rock-type class from the chosen method's own
-binning — here <b>GHE</b>, the Corbett-Potter fixed FZI bin series.</p>
+binning, here <b>GHE</b>, the Corbett-Potter fixed FZI bin series.</p>
 
 <h3>The one decision that matters: which permeability</h3>
 
 <p>Both inputs resolve by name, and the permeability slot is where a silent mistake
 lives: every permeability module also writes the generic <code>PERM</code>, so that
 name belongs to whichever module ran <i>last</i>. This run selects
-<b>PERM_XFM by name</b> — the core-calibrated transform — and the reference field
+<b>PERM_XFM by name</b> (the core-calibrated transform), and the reference field
 says so. (The first pass of this walkthrough consumed the generic slot, which by
 then held the Coates estimate: the FZI median moved from 3.8 to 0.8 when the input
-was corrected. Same wells, same button, different rock types — that is how much the
+was corrected. Same wells, same button, different rock types. That is how much the
 permeability choice owns this module's answer.)</p>
 
 <figure>
@@ -95,7 +95,7 @@ permeability choice owns this module's answer.)</p>
 
 <p>On these wells: <b>3 clean</b>. Sand-interval medians: FZI 0.79, R35 0.79 µm.
 The GHE classes land mostly in GHE 4–7 across the section. The class-grouped
-permeability estimate PERM_RT rebuilds k from each class's geometric-mean FZI — a
+permeability estimate PERM_RT rebuilds k from each class's geometric-mean FZI: a
 useful smoothed law per class, and a useful discrepancy detector where it diverges
 from the input permeability. The PS_EXP exponent stays at its cited default 3
 (verified against the project's constants record).</p>

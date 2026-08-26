@@ -61,34 +61,34 @@ FIELD_OBSERVED: PHI = CFO·(DT − DT_MA)/DT
 Non-Wyllie shale convention: dtsr = (DT − VSH·DT_SH)/(1 − VSH), floored at DT_MA; PHIE = transform(dtsr)·(1 − VSH)</pre>
 <h2>References</h2>
 <ul><li>Raymer, Hunt &amp; Gardner, SPWLA 21st Annual Logging Symposium, 1980, paper P</li>
-<li>Wyllie (1956/1958) - the time-average transform</li></ul>
+<li>Wyllie (1956/1958): the time-average transform</li></ul>
 <p class="note">The Raymer-Hunt-Gardner constants are verified against a copy of the paper held in the project library; the Wyllie citation is the author-year lead as this project's method ledger records it.</p>
 <!-- Authored walkthrough for the phi_son guidebook chapter. Screenshots and numbers
      captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
 
 <h2>Step by step: porosity from the sonic</h2>
 
-<p>Three transforms live in this pane, each named for what it actually computes —
+<p>Three transforms live in this pane, each named for what it actually computes:
 Wyllie time-average, the genuine three-segment Raymer-Hunt-Gardner 1980, and the
 field-observation transform with its cited coefficient. This run uses <b>WYLLIE</b>,
 the default and the one convention every installed tool agrees on exactly.</p>
 
 <h3>Enter the endpoints</h3>
 
-<p>DT_MA and DT_SH ship without defaults — the pane's shipped-values list shows why:
+<p>DT_MA and DT_SH ship without defaults. The pane's shipped-values list shows why:
 the installed tools carry four different sandstone matrix slownesses (53.0 to 56.0
 µs/ft), and shipping one would silently pick a vendor for you. Entered here:</p>
 
 <ul>
-  <li><b>DT_MA 55.5 µs/ft</b> — chosen off the pane's own source list: the Geolog
+  <li><b>DT_MA 55.5 µs/ft</b>, chosen off the pane's own source list: the Geolog
     shipped Wyllie default. The choice and its source went into the run's reference
     field.</li>
-  <li><b>DT_SH 118 µs/ft</b> — the median DT of SANDI-01's samples at GR ≥ 112 gAPI,
+  <li><b>DT_SH 118 µs/ft</b>, the median DT of SANDI-01's samples at GR ≥ 112 gAPI,
     this dataset's own shale.</li>
-  <li><b>DT_FL 189 µs/ft</b> — the shipped default (water), left alone.</li>
+  <li><b>DT_FL 189 µs/ft</b>, the shipped default (water), left alone.</li>
 </ul>
 
-<p>The pane enforces DT_MA strictly below DT_SH before the run — an inverted pair
+<p>The pane enforces DT_MA strictly below DT_SH before the run. An inverted pair
 would turn the shale subtraction into an addition, so it is refused, not computed.</p>
 
 <figure>
@@ -100,18 +100,18 @@ would turn the shale subtraction into an addition, so it is refused, not compute
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>0 clean · 3 degraded</b> — the per-well report lists per-sample
+<p>On these wells: <b>0 clean · 3 degraded</b>. The per-well report lists per-sample
 clamps where the limited PHIE was held against its ordering bound (PHIE can never
 exceed what the shale correction leaves of PHIT). A sonic in shaly rock rides its
 bounds more than a density does; the unlimited <code>PHIT_SON</code>/<code>PHIE_SON</code>
 beside the limited curves show exactly what was clipped and where.</p>
 
 <p>If you switch to <b>RHG80</b>, RHO_MA becomes required (the paper's own density
-pairings) and the compaction option disappears — RHG is self-compacting, and the pane
+pairings) and the compaction option disappears. RHG is self-compacting, and the pane
 refuses the Wyllie Cp correction anywhere it would not mean what the paper meant.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Sonic porosity, three transforms each named for what it computes (SB-POR-014). WYLLIE: PHIT = (DT - DT_MA)/(DT_FL - DT_MA), shale-corrected SUBTRACTIVELY for PHIE - the one convention both vendors agree on exactly (SB-POR-013). RHG80: the genuine three-segment Raymer-Hunt-Gardner 1980 transform (DEC-017; primary source: Raymer, Hunt &amp; Gardner, SPWLA 21st Annual Logging Symposium 1980, paper P, copy in Jauhar's library; constants paper-verified under DEC-079): phi &lt; 37% inverts V = (1-phi)^2*Vma + phi*Vf as the quadratic root, phi &gt; 47% inverts the fluid-suspension form (needs RHO_MA/RHO_FL, the paper's own density pairings), 37-47% is the paper's dt-linear interpolation. FIELD_OBSERVED: PHI = CFO*(DT - DT_MA)/DT with a CITED coefficient (Geolog CFO default 0.67, normal range 0.625-0.70; Techlog ships 0.625) - the transform the pre-DEC-017 build mislabelled RHG; the old option value RHG no longer resolves. Non-Wyllie methods use the NORMALISED shale convention per Geolog's EXECUTED code (SB-POR-013/-015, F4): dtsr = (DT - VSH*DT_SH)/(1 - VSH) floored at DT_MA (the Jul-1997 floor, F5), then PHIE = transform(dtsr)*(1 - VSH). OPT_CP=ON applies the Wyllie lack-of-compaction correction (Cp = DT_SH/100) to WYLLIE only: it requires DT_SH &gt;= 100 us/ft (Cp &gt;= 1) and the run is refused otherwise (DEC-012, SB-POR-017) - below 100 the division would inflate porosity, the opposite of its purpose. RHG80 and FIELD_OBSERVED are self-compacting and never Cp-corrected. DT_MA must be strictly below DT_SH (DEC-063) - an inverted pair turns the shale subtraction into an addition and is refused before the run. PHIT_SON/PHIE_SON are the bare unlimited expressions; PHIT/PHIE carry the unit-interval and ordering clamps.</p>
+<p>Sonic porosity, three transforms each named for what it computes (SB-POR-014). WYLLIE: PHIT = (DT - DT_MA)/(DT_FL - DT_MA), shale-corrected SUBTRACTIVELY for PHIE - the one convention both vendors agree on exactly (SB-POR-013). RHG80: the genuine three-segment Raymer-Hunt-Gardner 1980 transform (DEC-017; primary source: Raymer, Hunt &amp; Gardner, SPWLA 21st Annual Logging Symposium 1980, paper P, copy held in the project library; constants paper-verified under DEC-079): phi &lt; 37% inverts V = (1-phi)^2*Vma + phi*Vf as the quadratic root, phi &gt; 47% inverts the fluid-suspension form (needs RHO_MA/RHO_FL, the paper's own density pairings), 37-47% is the paper's dt-linear interpolation. FIELD_OBSERVED: PHI = CFO*(DT - DT_MA)/DT with a CITED coefficient (Geolog CFO default 0.67, normal range 0.625-0.70; Techlog ships 0.625) - the transform the pre-DEC-017 build mislabelled RHG; the old option value RHG no longer resolves. Non-Wyllie methods use the NORMALISED shale convention per Geolog's EXECUTED code (SB-POR-013/-015, F4): dtsr = (DT - VSH*DT_SH)/(1 - VSH) floored at DT_MA (the Jul-1997 floor, F5), then PHIE = transform(dtsr)*(1 - VSH). OPT_CP=ON applies the Wyllie lack-of-compaction correction (Cp = DT_SH/100) to WYLLIE only: it requires DT_SH &gt;= 100 us/ft (Cp &gt;= 1) and the run is refused otherwise (DEC-012, SB-POR-017) - below 100 the division would inflate porosity, the opposite of its purpose. RHG80 and FIELD_OBSERVED are self-compacting and never Cp-corrected. DT_MA must be strictly below DT_SH (DEC-063) - an inverted pair turns the shale subtraction into an addition and is refused before the run. PHIT_SON/PHIE_SON are the bare unlimited expressions; PHIT/PHIE carry the unit-interval and ordering clamps.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>BADHOLE</td><td>Bad-hole flag (flagged samples excluded, exclusion recorded)</td><td><code>BADHOLE</code></td><td>no</td><td>—</td></tr>
 <tr><td>GAS_FLAG</td><td>Gas-crossover flag from condflag (provenance record only - never a correction)</td><td><code>XOVER_FLAG</code></td><td>no</td><td>—</td></tr>
@@ -128,7 +128,7 @@ refuses the Wyllie Cp correction anywhere it would not mean what the paper meant
 <li><b>Accepted range:</b> 40 to 70 us/ft</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_transit_time</code>); the pane lists them with sources at the point of choice.</li>
 <li><b>Checked before the run:</b> <code>phi_son.endpoint_order</code> — The matrix transit time must be strictly below the shale transit time. Must be strictly below <code>DT_SH</code>.
-    <div class="src">Source: Jauhar ruling DEC-063 (2026-08-18): DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)</div></li></ul>
+    <div class="src">Source: Ruling DEC-063 (2026-08-18): DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)</div></li></ul>
 <h3>DT_FL <span class="src">(us/ft)</span></h3>
 <p>Fluid transit time</p>
 <ul><li><b>Default:</b> 189 <span class="src">— source: IP swparameters.htm Sonic water Default 189; Geolog phi_son.info DT_FL 620 us/m; docs/PRD_v2/11_porosity.md §5.2</span></li>

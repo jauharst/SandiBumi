@@ -10,21 +10,21 @@ effective porosity directly. On shaly rock the two differ materially, which is w
 identity is a named choice and never inferred. This run uses <b>archie_total</b>, the
 default.</p>
 
-<h3>Every parameter ships absent — here is where each pick came from</h3>
+<h3>Every parameter ships absent: here is where each pick came from</h3>
 
 <p>Nothing in this pane carries a default: a, m, n, Rw and the irreducible floor are
 basin statements. The picks, exactly as recorded in the run's reference field:</p>
 
 <ul>
-  <li><b>A 1 · M 2 · N 2</b> — the reference-case convention of this project's
+  <li><b>A 1 · M 2 · N 2</b>: the reference-case convention of this project's
     saturation dossier, entered as a declared convention rather than a measured
     exponent set. With core electrical measurements you would fit m and n instead.</li>
-  <li><b>RW 0.058 ohm·m</b> — the median apparent water resistivity
+  <li><b>RW 0.058 ohm·m</b>: the median apparent water resistivity
     Rwa&nbsp;=&nbsp;RT·PHIE² over 277 wet-sand samples (GR&nbsp;&lt;&nbsp;60,
     RT&nbsp;&lt;&nbsp;10) across all three wells; the per-well medians span
     0.057–0.059, which is the consistency check.</li>
-  <li><b>SWT_IRR 0.16</b> — the median of SSC's own SWIRR_T over 271 gas-sand
-    samples: the irreducible floor read from this dataset's own bound-water
+  <li><b>SWT_IRR 0.16</b>: the median of SSC's own SWIRR_T over 271 gas-sand
+    samples, the irreducible floor read from this dataset's own bound-water
     arithmetic.</li>
 </ul>
 
@@ -37,11 +37,11 @@ basin statements. The picks, exactly as recorded in the run's reference field:</
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>0 clean · 3 degraded</b> — and the degradation report is the
+<p>On these wells: <b>0 clean · 3 degraded</b>. The degradation report is the
 method talking. The dominant clamp, <code>[0.16, 1]</code> at 372 samples per well, is
 Archie computing <i>more than 100% water</i> through the shale and the wet sand (at
 RT&nbsp;2.5 ohm·m and low porosity the arithmetic exceeds 1) and being held at the
-bounds. In the gas sand the unlimited <code>SWT_ARCH</code> reads a median 0.084 —
+bounds. In the gas sand the unlimited <code>SWT_ARCH</code> reads a median 0.084,
 under 10% water at 120 ohm·m. The limited <code>SWT</code>/<code>SWE</code> pair
 carries the floor and ceiling; the unlimited twins show what was clipped.</p>
 

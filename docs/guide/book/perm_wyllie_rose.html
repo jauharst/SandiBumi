@@ -54,13 +54,13 @@
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Permeability</div>
 <h1>Permeability — Wyllie-Rose</h1>
 <p class="modmeta">Module id <code>perm_wyllie_rose</code> · category <b>Permeability</b></p>
-<p>The Wyllie-Rose permeability family: permeability from porosity and irreducible water saturation, offered as four named constant sets. Wyllie &amp; Rose replaced Carman-Kozeny's specific-surface term with irreducible saturation and warned the result carries order-of-magnitude significance only - a warning every constant set below inherits.</p>
+<p>The Wyllie-Rose permeability family: permeability from porosity and irreducible water saturation, offered as four named constant sets. Wyllie &amp; Rose replaced Carman-Kozeny's specific-surface term with irreducible saturation and warned the result carries order-of-magnitude significance only, a warning every constant set below inherits.</p>
 <pre class="equations">PERM = (C · PHIE^D / SWE_IRR^E)²  (mD)
 TIMUR: C=100 D=2.25 E=1   MORRIS_BIGGS_OIL: C=250 D=3 E=1
 MORRIS_BIGGS_GAS: C=79 D=3 E=1   TIXIER: C=250 D=3 E=1</pre>
 <h2>References</h2>
 <ul><li>Wyllie, M.R.J. &amp; Rose, W.D. (1950), Transactions AIME 189, 105-118</li>
-<li>Balan, Mohaghegh &amp; Ameri (1995), SPE 30978 - the lineage review</li></ul>
+<li>Balan, Mohaghegh &amp; Ameri (1995), SPE 30978: the lineage review</li></ul>
 <p class="note">Two of the four constant sets carry a name their author never attached to them: TIMUR here is the Schlumberger Chart K-3 curve, not Timur (1968), and TIXIER is a post-1950 Wyllie-Rose simplification, not Tixier (1949). The MORRIS_BIGGS attribution is disputed. The card keeps the trade names because that is what every vendor calls them; the chapter carries the full record.</p>
 <!-- Authored walkthrough for the perm_wyllie_rose guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
@@ -68,11 +68,11 @@ MORRIS_BIGGS_GAS: C=79 D=3 E=1   TIXIER: C=250 D=3 E=1</pre>
 <h2>Step by step: Wyllie-Rose, with its names straightened out</h2>
 
 <p>Permeability from porosity and irreducible water saturation, as four named
-constant sets. Before anything runs, read the pane's own documentation once — it
+constant sets. Before anything runs, read the pane's own documentation once. It
 carries an attribution record most software never admits to: <b>two of the four
 constant sets wear a name their author never attached to them.</b> TIMUR here is the
 Schlumberger Chart K-3 curve, not Timur's 1968 paper (whose published relation is
-about 14% lower in tight rock — exactly where a cutoff is decided); TIXIER is a
+about 14% lower in tight rock, exactly where a cutoff is decided); TIXIER is a
 post-1950 simplification of Wyllie-Rose, not Tixier 1949; the MORRIS_BIGGS numbers
 are disputed between two papers. The card keeps the trade names because that is what
 every vendor calls them, and the honesty note travels with the card.</p>
@@ -80,9 +80,9 @@ every vendor calls them, and the honesty note travels with the card.</p>
 <h3>The picks</h3>
 
 <ul>
-  <li><b>Method TIMUR</b> (the default): C=100, D=2.25, E=1 — shipped, cited
-    constants; the shape factor 2.25 is Wyllie &amp; Rose's own suggested value.</li>
-  <li><b>SWE_IRR 0.16</b> — the same SSC-derived irreducible pick the saturation
+  <li><b>Method TIMUR</b> (the default): C=100, D=2.25, E=1 (shipped, cited
+    constants); the shape factor 2.25 is Wyllie &amp; Rose's own suggested value.</li>
+  <li><b>SWE_IRR 0.16</b>, the same SSC-derived irreducible pick the saturation
     shelf used, so the two shelves' numbers can be compared without wondering which
     Swirr each assumed.</li>
   <li><b>PHIE</b> pinned to PHIE_DEN, as everywhere in this walkthrough.</li>
@@ -100,8 +100,8 @@ every vendor calls them, and the honesty note travels with the card.</p>
 <a href="perm_transform.html">core-calibrated transform</a>'s 2.8 mD on the same
 samples: a factor of 25. Wyllie &amp; Rose warned in 1950 that the result carries
 order-of-magnitude significance only, and this dataset demonstrates the warning.
-Where core exists, the published-constant families are a cross-check, not an answer —
-and where core does not exist, quote them with their own error bars in mind.</p>
+Where core exists, the published-constant families are a cross-check, not an answer.
+And where core does not exist, quote them with their own error bars in mind.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>PERM = (C * PHIE^D / SWE_IRR^E)^2, mD. Defaults per method: TIMUR C=100 D=2.25 E=1; MORRIS_BIGGS_OIL C=250 D=3 E=1; MORRIS_BIGGS_GAS C=79 D=3 E=1; TIXIER C=250 D=3 E=1. The generalized form is Wyllie &amp; Rose (1950), Trans. AIME 189, 105-118, who replaced Carman-Kozeny's specific-surface term with irreducible water saturation; their own shape factor is 2.0-2.5, suggested as 2.25. They warned the result carries only order-of-magnitude significance, and that warning is inherited by every constant set below. TWO OF THE FOUR CARRY A NAME THEIR AUTHOR NEVER ATTACHED TO THEM. TIMUR here is the Schlumberger Chart K-3 curve, not Timur (1968), whose published relation is k = 0.136*phi^4.4/Swi^2 in PERCENT = 8581*phi^4.4/Swi^2 in fractions, i.e. C=92.63 D=2.2 in this squared form - close in good rock, about 14% low in tight rock, where a cutoff is decided. TIXIER is a post-1950 simplification of Wyllie-Rose, not Tixier (1949), which is a resistivity-gradient method; that is why TIXIER and MORRIS_BIGGS_OIL are byte-identical here - same lineage, same oil constant, arrived at twice. The 250/79 pair is attributed to Morris &amp; Biggs (1967, SPWLA 8th, Paper X) by IP and Techlog and to Wyllie &amp; Rose (1950) elsewhere; both authors were at Schlumberger and the 1967 paper is paywalled, so the attribution is UNRESOLVED. Lineage review: Balan, Mohaghegh &amp; Ameri, SPE 30978 (1995).</p>

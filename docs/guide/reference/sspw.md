@@ -71,7 +71,7 @@ Minimum irreducible water saturation
 
 Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)
 
-- **Default:** 1.6 — source: porosity_sspw.lls (2022) gas branch c = 1.6; RULED by Jauhar DEC-086 on field observation that the even split still reads optimistic
+- **Default:** 1.6 — source: porosity_sspw.lls (2022) gas branch c = 1.6; RULED by DEC-086 on field observation that the even split still reads optimistic
 - **Accepted range:** 0 to 2
 
 ### RHO_W *(g/cc)*

@@ -58,8 +58,8 @@
 <pre class="equations">log₁₀ rX = C0 + C1·log₁₀k + C2·log₁₀φ%  (k mD, φ percent, r µm)
 Port classes: nano &lt; 0.1 &lt; micro &lt; 0.5 &lt; meso &lt; 2.5 &lt; macro &lt; 10 ≤ mega (µm)</pre>
 <h2>References</h2>
-<ul><li>Pittman, E.D. (1992), AAPG Bulletin v76 no.2, 191-198 - Table 1 in full, verified against the paper</li></ul>
-<p class="note">The paper's own cautions ride along: correlation falls with saturation (0.926 at r20 to 0.820 at r75), and the family is non-monotone below ~11% porosity - that is the published arithmetic, not an implementation artifact.</p>
+<ul><li>Pittman, E.D. (1992), AAPG Bulletin v76 no.2, 191-198; Table 1 in full, verified against the paper</li></ul>
+<p class="note">The paper's own cautions ride along: correlation falls with saturation (0.926 at r20 to 0.820 at r75), and the family is non-monotone below ~11% porosity; that is the published arithmetic, not an implementation artifact.</p>
 <!-- Authored walkthrough for the pittman_rx guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
 
@@ -69,7 +69,7 @@ Port classes: nano &lt; 0.1 &lt; micro &lt; 0.5 &lt; meso &lt; 2.5 &lt; macro &l
 mercury-saturation level from 10 to 75 percent; this module writes the whole family
 (PR10..PR75), plus the radius at your chosen APEX saturation and its
 Hartmann-Beaumont port class. The coefficients are Pittman's Table 1 in full,
-verified against the paper — including the parts of the paper most implementations
+verified against the paper, including the parts of the paper most implementations
 quietly drop.</p>
 
 <h3>The one choice: APEX</h3>
@@ -88,12 +88,12 @@ Inputs are PHIE_DEN and PERM_XFM by name, as across this shelf.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>; the sand-interval median RAPEX is 0.79 µm — a
+<p>On these wells: <b>3 clean</b>; the sand-interval median RAPEX is 0.79 µm, a
 <i>meso</i> port class. Two cautions ride with every output, and both are the
 paper's own arithmetic rather than this implementation's: the correlation weakens as
 saturation rises (0.926 at r20 down to 0.820 at r75), and the family is non-monotone
 below about 11% porosity. The module does not "correct" either, because a published
-table quietly reshaped stops being citable — the caution belongs in the reading, not
+table quietly reshaped stops being citable. The caution belongs in the reading, not
 in the coefficients.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>

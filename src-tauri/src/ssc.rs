@@ -136,12 +136,12 @@ pub fn ssc_spec() -> ModuleSpec {
                 "PHIT_TIGHT",
                 "Total porosity below which all non-clay-bound porosity is capillary-held",
                 "v/v", 0.05, 0.0, 0.5,
-                "Jauhar's own SSC conditioning rule, not the Loglan's (2026-08-20: 'i add those 2 rules to avoid minus and non-reliable cwsh value, cwsh will always be exist even so small'; KEPT and parameterised 2026-08-22, DEC-093). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it",
+                "SandiBumi's own SSC conditioning rule, not the Loglan's: added to keep CWSH positive and reliable, since CWSH always exists even where small; KEPT and parameterised under DEC-093 (2026-08-22). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it",
             ),
             param(
                 "GAS_C", "Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)",
                 "", 1.6, 0.0, 2.0,
-                "sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it: Jauhar rules 1.6 here too, extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately",
+                "sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it, ruling 1.6 here too and extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately",
             ),
             log_in("GR", "Gamma ray (normalized)", "gapi", "GRN", true),
             log_in("RHOB", "Bulk density (corrected)", "g/cc", "RHOB", true),
@@ -474,7 +474,7 @@ pub fn sspw_spec() -> ModuleSpec {
             param(
                 "GAS_C", "Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)",
                 "", 1.6, 0.0, 2.0,
-                "porosity_sspw.lls (2022) gas branch c = 1.6; RULED by Jauhar DEC-086 on field observation that the even split still reads optimistic",
+                "porosity_sspw.lls (2022) gas branch c = 1.6; RULED by DEC-086 on field observation that the even split still reads optimistic",
             ),
             // SB-POR-008: the water filling shale porosity is FORMATION water, so PHIT_SH is
             // anchored on RHO_W and not on the invaded-zone RHOB_FL below. Both ship at 1.00, so

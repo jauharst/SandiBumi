@@ -60,12 +60,12 @@
      the capability lives in Condition - Normalize now, and this page's job is
      the pointer plus what still resolves. -->
 
-<h2>This module is superseded — use Condition ▸ Normalize</h2>
+<h2>This module is superseded: use Condition ▸ Normalize</h2>
 
 <p>GR Normalization was the original two-point percentile normalizer, fixed to
 the gamma-ray log. It has been folded into the general
 <a href="normalize.html"><b>Normalize</b></a> module (Petrophysics ▸ Condition),
-which does the same TWO_POINT percentile map on <i>any</i> curve — plus the
+which does the same TWO_POINT percentile map on <i>any</i> curve, plus the
 RANGE and MEAN_SD methods and log-space mapping. The arithmetic is identical:
 the well's own P_LOW/P_HIGH percentiles mapped linearly onto a reference pair
 you supply.</p>
@@ -73,7 +73,7 @@ you supply.</p>
 <h3>What still resolves</h3>
 
 <p>gr_normalize stays in the catalog so saved workflow chains that reference it
-keep resolving and running — it delegates to the same code. It is only kept out
+keep resolving and running; it delegates to the same code. It is only kept out
 of the pickers, so the same operation is not offered twice.</p>
 
 <h3>The one rule it carried, unchanged</h3>
@@ -81,7 +81,7 @@ of the pickers, so the same operation is not offered twice.</p>
 <p>The reference pair ships absent on purpose, and Normalize enforces the same
 refusal: a pair from one basin is the wrong reference in another, and normalized
 output looks plausible either way. Derive the pair from the field's own
-multi-well GR distribution and use the same pair for every well — the
+multi-well GR distribution and use the same pair for every well. The
 <a href="normalize.html">Normalize chapter</a> walks through exactly that,
 including the refusal and the derived pair for these wells.</p>
 <h2>What the application enforces</h2>

@@ -3,14 +3,14 @@
 
 <h2>Step by step: the analytic crossplot</h2>
 
-<p>This is the real neutron-density crossplot porosity — the published Bateman-Konen
+<p>This is the real neutron-density crossplot porosity: the published Bateman-Konen
 Appendix B system solved in closed form, not a transcribed chart and not the
 <a href="phi_dn.html">quick-look average</a>. On the same shale-reduced pair the two
 routes differ by 1.6–1.8 porosity units, which is why they are separate modules.</p>
 
 <h3>Limestone units are part of the method</h3>
 
-<p>The crossplot is entered in limestone units — that is the published convention, and
+<p>The crossplot is entered in limestone units. That is the published convention, and
 it is why this pane has no RHO_MA input: the apparent matrix density
 <code>RHOMAA_BK</code> is an <i>output</i>. The module checks the neutron curve's
 DECLARED basis and refuses anything that is not limestone (converting with Neutron
@@ -21,7 +21,7 @@ header and the run proceeded.</p>
 <h3>Enter the shale point</h3>
 
 <ul>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units) — medians of SANDI-01's
+  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units): medians of SANDI-01's
     samples at GR ≥ 112 gAPI, recorded in the run's reference field. Everything else
     is a cited default; the nine Appendix B constants are constants of the method and
     deliberately not parameters at all.</li>
@@ -30,14 +30,14 @@ header and the run proceeded.</p>
 <figure>
   <img src="../img/guide-phidnbk-pane.png"
        alt="The Bateman-Konen crossplot pane with the shale point entered" />
-  <figcaption>No matrix density input — RHOMAA_BK is an answer, not an assumption.</figcaption>
+  <figcaption>No matrix density input: RHOMAA_BK is an answer, not an assumption.</figcaption>
 </figure>
 
 <h3>Run and read</h3>
 
 <p>On these wells: <b>1 clean · 2 degraded</b> (single-sample clamps at the
-shale-reduced neutron guard and the PHIE floor — read the per-well report, accept or
+shale-reduced neutron guard and the PHIE floor: read the per-well report, accept or
 re-pick). Outputs: <code>PHIE_DNBK</code>/<code>PHIT_DNBK</code> unlimited,
-PHIE/PHIT limited, and <code>RHOMAA_BK</code> — put that last one on a log track: where
+PHIE/PHIT limited, and <code>RHOMAA_BK</code>. Put that last one on a log track: where
 it departs 2.65 the crossplot is telling you the matrix is not clean quartz, which is
 exactly the diagnostic a chart lookup cannot give you.</p>

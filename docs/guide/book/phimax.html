@@ -60,14 +60,14 @@ linear: φmax = PHIMAX0 − PHIMAX_GRAD·(TVDSS − TVDSS_REF)/1000
 athy: φmax = PHIMAX0·exp(−ATHY_K·(TVDSS − TVDSS_REF)/1000)
 &lt;PHI&gt;_CAP = min(PHI, φmax)</pre>
 <h2>References</h2>
-<ul><li>Athy (1930) - the exponential compaction trend</li></ul>
+<ul><li>Athy (1930): the exponential compaction trend</li></ul>
 <p class="note">Author and year as this project's records hold them; the full primary citation is pending verification.</p>
 <!-- Authored walkthrough for the phimax guidebook chapter. Screenshots and numbers
      captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
 
 <h2>Step by step: capping porosity at what the rock allows</h2>
 
-<p>A computed porosity can drift above what compaction allows — bad hole, a light
+<p>A computed porosity can drift above what compaction allows: bad hole, a light
 mineral, an optimistic parameter. This module writes the capped copy and the ceiling
 itself, and never modifies the input curve.</p>
 
@@ -80,7 +80,7 @@ real compaction profile and a deviation survey loaded). Entered here:</p>
 <ul>
   <li><b>MODE constant</b>, <b>PHI input pinned to PHIE</b> (the Porosity from Density
     run's output).</li>
-  <li><b>PHIMAX0 0.27</b> — the P99 of that PHIE on SANDI-01: a ceiling read off this
+  <li><b>PHIMAX0 0.27</b>, the P99 of that PHIE on SANDI-01: a ceiling read off this
     dataset's own distribution, recorded as exactly that in the reference field. It is
     a demonstration pick, not a recommended value; on a real field the ceiling is the
     crossplot "max core porosity" line.</li>
@@ -96,7 +96,7 @@ real compaction profile and a deviation survey loaded). Entered here:</p>
 
 <p>On these wells: <b>3 clean</b>. Two curves come back: <code>PHIE_CAP</code> =
 min(PHIE, φmax) with MISSING preserved, and <code>PHIE_MAX</code>, the ceiling itself,
-which you drop onto the log view as a QC overlay — wherever the porosity curve rides
+which you drop onto the log view as a QC overlay. Wherever the porosity curve rides
 the ceiling, the cap is doing work and you should ask why.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>

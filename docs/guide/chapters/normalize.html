@@ -4,11 +4,11 @@
 <h2>Step by step: normalizing onto a field reference</h2>
 
 <p>Normalize maps any curve onto a common reference frame so wells can be
-compared and pooled: TWO_POINT (the workhorse — this run's P_LOW/P_HIGH
+compared and pooled: TWO_POINT (the workhorse: this run's P_LOW/P_HIGH
 percentiles mapped linearly onto a reference pair), RANGE (the same map from
-min/max — reproducible and spike-sensitive, for curves already despiked), or
+min/max: reproducible and spike-sensitive, for curves already despiked), or
 MEAN_SD (a z-score onto a reference mean and spread, when the distribution's
-shape matters more than its ends). SPACE&nbsp;=&nbsp;LOG works in log10 — the
+shape matters more than its ends). SPACE&nbsp;=&nbsp;LOG works in log10, the
 honest frame for a resistivity or permeability.</p>
 
 <h3>First, the refusal</h3>
@@ -21,12 +21,12 @@ from this field's own multi-well distribution, or from a reference well, and
 use the same pair for every well."</i></blockquote>
 
 <p>That refusal is the module's whole philosophy: normalized output looks
-plausible whatever pair you use, and nothing downstream can catch a wrong one —
-so the pair ships absent and the run stops until you own the choice.</p>
+plausible whatever pair you use, and nothing downstream can catch a wrong one.
+So the pair ships absent and the run stops until you own the choice.</p>
 
 <h3>The picks</h3>
 
-<p><b>TWO_POINT, P3/P97, reference pair 43&nbsp;/&nbsp;112&nbsp;gAPI</b> — the
+<p><b>TWO_POINT, P3/P97, reference pair 43&nbsp;/&nbsp;112&nbsp;gAPI</b>: the
 P3 and P97 of the three wells' pooled GR (43.18 / 112.37, computed from the
 delivery itself), rounded to integers as the field convention. Derived from
 this field's own distribution; the same pair for every well in the study.</p>
@@ -39,7 +39,7 @@ this field's own distribution; the same pair for every well in the study.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b> — and the map closes on itself: the pooled
+<p>On these wells: <b>3 clean</b>, and the map closes on itself: the pooled
 GR_N comes back with <b>P3&nbsp;=&nbsp;43.0 and P97&nbsp;=&nbsp;112.0
 exactly</b>. That coincidence-by-construction is also the QC for a real
 multi-well study: overlay the normalized histograms, and every well's P_LOW and

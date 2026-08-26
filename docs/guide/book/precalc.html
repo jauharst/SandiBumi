@@ -66,22 +66,22 @@ CT = 1000/RT;  CXO = 1000/RXO  [mmho/m]</pre>
 
 <p>Pre-Calculation writes the curves the saturation and SandiMin work will keep
 asking for: formation temperature (always in °C, whatever unit you entered the
-trend in — plus FTEMP_F for SandiMin's fluid-property entry), formation pressure,
+trend in, plus FTEMP_F for SandiMin's fluid-property entry), formation pressure,
 mud-filtrate resistivity Arps-converted to formation temperature, and the QC
 conductivities CT and CXO.</p>
 
 <h3>The picks, each with its defence</h3>
 
 <ul>
-  <li><b>OPT_TU degC, 26.7 + 0.0474&nbsp;°C/m</b> — the metric restatement of the
+  <li><b>OPT_TU degC, 26.7 + 0.0474&nbsp;°C/m</b>, the metric restatement of the
     shipped feet-based trend (and exactly ftemp_grad's metric starting values).
     The shipped 77&nbsp;°F / 0.026&nbsp;°F/ft pair is feet-based; entering it
     unconverted on a metric well is the recorded 66&nbsp;°C mistake.</li>
-  <li><b>PSURF 14.7 + PGRAD 1.42&nbsp;psi/m</b> — atmospheric surface pressure
+  <li><b>PSURF 14.7 + PGRAD 1.42&nbsp;psi/m</b>, atmospheric surface pressure
     plus the freshwater hydrostatic gradient (0.433&nbsp;psi/ft restated per
     metre). A physical constant as a starting point, not a field fit; a measured
     pressure gradient replaces it the moment you have one.</li>
-  <li><b>ARPS, Rmf 0.2&nbsp;ohmm at 25&nbsp;°C</b> — the module's own worked
+  <li><b>ARPS, Rmf 0.2&nbsp;ohmm at 25&nbsp;°C</b>: the module's own worked
     example, standing in for the mud report this synthetic delivery does not
     have.</li>
 </ul>
@@ -95,7 +95,7 @@ conductivities CT and CXO.</p>
 
 <h3>Run and read: degraded is a statement, not a failure</h3>
 
-<p>On these wells: <b>0 clean · 3 degraded</b> — and the degradation is the
+<p>On these wells: <b>0 clean · 3 degraded</b>. And the degradation is the
 module being precise about what it could not do. This delivery carries no RXO
 curve, so CXO has <b>zero finite samples</b> (1185 rows, all missing) while
 FTEMP, FPRESS, RMF_FT and CT are complete. A missing input degrades exactly the
@@ -112,12 +112,12 @@ fails the run or invents a flushed-zone conductivity.</p>
 <p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
 <h3>SURF_TEMP <span class="src">(degF|degC)</span></h3>
 <p>Surface temperature (intercept, whole well)</p>
-<ul><li><b>Default:</b> 77 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 77 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> -50 to 150 degF|degC</li>
 <li><b>One value per well</b> — a named-zone override of this parameter is refused.</li></ul>
 <h3>TEMP_GRAD <span class="src">(deg/ft|m)</span></h3>
 <p>Temperature gradient per TVDSS unit (whole well)</p>
-<ul><li><b>Default:</b> 0.026 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.026 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0.0005 to 0.2 deg/ft|m</li>
 <li><b>One value per well</b> — a named-zone override of this parameter is refused.</li></ul>
 <h3>PSURF <span class="src">(psi)</span></h3>

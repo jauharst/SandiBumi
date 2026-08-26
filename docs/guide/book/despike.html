@@ -62,7 +62,7 @@ RATE: replace where the change from the previous live sample exceeds MAX_RATE pe
 <!-- Authored walkthrough for the despike guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
 
-<h2>Step by step: taking the spikes out — and only the spikes</h2>
+<h2>Step by step: taking the spikes out, and only the spikes</h2>
 
 <p>Despike replaces samples that stand off their neighbours with the local
 median, over a window stated as a <i>thickness of rock</i> rather than a sample
@@ -83,7 +83,7 @@ basins.</p>
 
 <h3>The picks</h3>
 
-<p><b>HAMPEL, K&nbsp;3</b> (shipped) and <b>WINDOW 1&nbsp;m</b> — about 6.6
+<p><b>HAMPEL, K&nbsp;3</b> (shipped) and <b>WINDOW 1&nbsp;m</b>, about 6.6
 samples at this dataset's 0.1524&nbsp;m step, above the five-sample floor the
 Hampel test needs, and narrower than the thinnest bed worth keeping. That last
 clause is the whole discipline: a bed no thicker than the window is
@@ -98,10 +98,10 @@ indistinguishable from a spike, and will be flattened as one.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>, with <b>61 samples replaced</b> out of 1185
-— the flag curve GR_C_SPK says exactly which, and GR_C_ORIG keeps every
+<p>On these wells: <b>3 clean</b>, with <b>61 samples replaced</b> out of 1185.
+The flag curve GR_C_SPK says exactly which, and GR_C_ORIG keeps every
 original value. One K reads the same on GR, RHOB, NPHI and RT because the
-deviation is scaled by the Gaussian consistency constant × MAD — a mathematical
+deviation is scaled by the Gaussian consistency constant × MAD, a mathematical
 estimator constant, not a calibration.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
@@ -127,7 +127,7 @@ WINDOW has no default: what counts as a spike is a property of the tool, the sam
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>conditioning_window</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>K</h3>
 <p>HAMPEL: deviations from the median before a sample is a spike</p>
-<ul><li><b>Default:</b> 3 <span class="src">— source: Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 3 <span class="src">— source: Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0.5 to 20</li></ul>
 <h3>THRESH</h3>
 <p>ABS: distance from the median, in the curve's units</p>

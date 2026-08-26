@@ -4,20 +4,20 @@
 <h2>Step by step: the first porosity</h2>
 
 <p>Density porosity is where interpretation porosity usually starts: one log, one
-matrix, one fluid. This walkthrough assumes a VSH curve already exists — porosity
+matrix, one fluid. This walkthrough assumes a VSH curve already exists. Porosity
 modules consume VSH, so a VSH chapter's run comes first (see
 <a href="vsh_gr.html">VSH from Gamma Ray</a>).</p>
 
 <h3>What you actually have to enter</h3>
 
 <p>Open <b>Petrophysics → Porosity → Porosity from Density</b>. Most of this pane
-ships filled, each value with its citation printed under the field — matrix 2.65
+ships filled, each value with its citation printed under the field: matrix 2.65
 (three installed tools agree), fluid 1.0, dry-shale 2.70, water 1.0, the 0.3 PHIE cap
 and the 0.001 floor. The one number the pane refuses to guess is <b>RHO_SH</b>, the
-shale density — a property of <i>your</i> shale. For this run:</p>
+shale density, a property of <i>your</i> shale. For this run:</p>
 
 <ul>
-  <li><b>RHO_SH 2.45</b> — the median RHOB of SANDI-01's samples at GR ≥ 112 gAPI,
+  <li><b>RHO_SH 2.45</b>, the median RHOB of SANDI-01's samples at GR ≥ 112 gAPI,
     the same shale population the GR_SH pick defined. Recorded in the run's reference
     field exactly so.</li>
 </ul>
@@ -32,7 +32,7 @@ shale density — a property of <i>your</i> shale. For this run:</p>
 
 <p>On these wells: <b>3 clean · 0 degraded · 0 failed</b>. The run writes PHIE (the
 shale-corrected effective porosity) and PHIT (with the shale's own porosity added
-back), plus the unlimited PHIE_DEN beside the limited curve — the apparent and the
+back), plus the unlimited PHIE_DEN beside the limited curve. The apparent and the
 corrected answer keep different names, the same rule VSH_GR follows. Above 95% VSH the
 sample is treated as shale outright.</p>
 

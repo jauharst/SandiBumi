@@ -67,18 +67,18 @@ COND_FLAG = coal + tight + bad hole + shoulder (+ crossover when OPT_XCOND = YES
 
 <p>Data Conditioning Flags marks the samples whose density-neutron readings
 should not feed porosity or mineral solving: coal, tight rock, gas crossover,
-and — the subtle one — the shoulder samples either side of a flagged bed, where
+and (the subtle one) the shoulder samples either side of a flagged bed, where
 the tools still average across the boundary. COND_FLAG combines them into the
 run mask the porosity work consumes.</p>
 
 <h3>The picks</h3>
 
-<p>Shipped starting thresholds throughout — the pane itself marks several
+<p>Shipped starting thresholds throughout. The pane itself marks several
 "not settled", which is the honest label for numbers that want a per-field
 review. MIN_THICK and SHOULDER are metre-scale conventions and these wells are
 metric, so they stand. <b>OPT_XCOND stays NO</b>: the gas zones here will be
 <i>corrected</i> by the gas-correction step, not discarded, so the crossover
-flag must not join the exclusion mask. Run the Bad-Hole QC module first — its
+flag must not join the exclusion mask. Run the Bad-Hole QC module first; its
 flag feeds this one.</p>
 
 <figure>
@@ -92,9 +92,9 @@ flag feeds this one.</p>
 
 <p>On these wells: <b>3 clean</b>. The census: <b>XOVER_FLAG 265</b> samples of
 gas crossover (the gas sand, as the saturation shelf found it), <b>SHOULDER_FLAG
-36</b>, no coal and no tight rock — a clastic gas-bearing section saying exactly
+36</b>, no coal and no tight rock, a clastic gas-bearing section saying exactly
 what it should. <b>COND_FLAG totals 648</b>, dominated by the bad-hole term.
-One rule to keep: leave the Mask empty on the condflag run itself — masking this
+One rule to keep: leave the Mask empty on the condflag run itself. Masking this
 run with BADHOLE would blank COND_FLAG exactly where it must read 1.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
@@ -118,31 +118,31 @@ run with BADHOLE would blank COND_FLAG exactly where it must read 1.</p>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>fluid_density</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>COAL_RHOB <span class="src">(g/cc)</span></h3>
 <p>Coal: density below</p>
-<ul><li><b>Default:</b> 1.9 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 1.9 <span class="src">— source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 1.2 to 2.4 g/cc</li></ul>
 <h3>COAL_NPHI <span class="src">(v/v)</span></h3>
 <p>Coal: neutron above</p>
-<ul><li><b>Default:</b> 0.35 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.35 <span class="src">— source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0.15 to 0.8 v/v</li></ul>
 <h3>COAL_DT <span class="src">(us/ft)</span></h3>
 <p>Coal: sonic above (when DT present)</p>
-<ul><li><b>Default:</b> 100 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 100 <span class="src">— source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 70 to 160 us/ft</li></ul>
 <h3>TIGHT_PHI <span class="src">(v/v)</span></h3>
 <p>Tight: both porosities below</p>
-<ul><li><b>Default:</b> 0.05 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.05 <span class="src">— source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 0.2 v/v</li></ul>
 <h3>XOVER_MIN <span class="src">(v/v)</span></h3>
 <p>Crossover: DPHI - NPHI above (~0.08 for limestone-unit NPHI)</p>
-<ul><li><b>Default:</b> 0.04 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.04 v/v multi-basin starting value per DEC-059, ruled with the chapter's own warning in view that 0.04 equals the matrix-scale error size (SB-ENV-012/029) - convert the neutron convention first; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.04 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 0.04 v/v multi-basin starting value per DEC-059, ruled with the chapter's own warning in view that 0.04 equals the matrix-scale error size (SB-ENV-012/029) - convert the neutron convention first; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 0.3 v/v</li></ul>
 <h3>MIN_THICK <span class="src">(depth)</span></h3>
 <p>Drop flagged beds thinner than</p>
-<ul><li><b>Default:</b> 0.25 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.25 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.25 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 0.25 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 10 depth</li></ul>
 <h3>SHOULDER <span class="src">(depth)</span></h3>
 <p>Shoulder width beyond bed edges</p>
-<ul><li><b>Default:</b> 0.5 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.5 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.5 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 0.5 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 5 depth</li></ul>
 <h2>Options</h2>
 <h3>OPT_XCOND</h3>

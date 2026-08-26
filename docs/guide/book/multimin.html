@@ -57,7 +57,7 @@
 <!-- Authored chapter for the retired multimin module. No walkthrough: the module
      no longer executes, and this page's whole job is the pointer. -->
 
-<h2>This module is retired — use SandiMin</h2>
+<h2>This module is retired: use SandiMin</h2>
 
 <p>Multimin was the original fixed four-component mineral solver (sand, clay, water,
 hydrocarbon from RHOB/NPHI/DT/PEF). It has been superseded by <b>SandiMin</b>
@@ -68,20 +68,20 @@ returns a message directing you to SandiMin instead of executing.</p>
 <h3>Why the entry still exists</h3>
 
 <p>Saved workflow chains reference their steps by module id. Deleting the manifest
-would break every chain saved before the retirement — the step would vanish from the
+would break every chain saved before the retirement: the step would vanish from the
 chain editor along with its stored parameters. So the manifest is kept, the runner
 refuses, and this page exists to say where the capability went.</p>
 
 <h3>If you have an old chain with a multimin step</h3>
 
 <ul>
-  <li>The step still shows its stored parameters in the chain editor — nothing saved
+  <li>The step still shows its stored parameters in the chain editor; nothing saved
     is lost.</li>
   <li>Rebuild the step with SandiMin: pick the equivalent components (a quartz
     mineral, a clay, water and hydrocarbon fluids) and the same input logs. The old
     solver's outputs (VOL_*, PHIT_MM, VSH_MM, SWT_MM, RECON_ERR) map to SandiMin's
     VOL_&lt;component&gt; and SM_-prefixed result curves.</li>
-  <li>Projects that already carry MM_* curves keep them — a re-run writes new
+  <li>Projects that already carry MM_* curves keep them: a re-run writes new
     SM_* curves beside them rather than overwriting history.</li>
 </ul>
 <h2>What the application enforces</h2>
